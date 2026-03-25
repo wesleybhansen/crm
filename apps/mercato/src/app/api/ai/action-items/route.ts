@@ -142,22 +142,44 @@ export async function GET() {
       stats.landingPages = { published: Number(lp?.published || 0), views: Number(lp?.views || 0), submissions: Number(lp?.submissions || 0) }
     } catch { stats.landingPages = { published: 0, views: 0, submissions: 0 } }
 
-    // Recent activity
+    // Recent activity — use contacts and deals (not encrypted activities)
     const recentActivity: Array<{ type: string; text: string; time: string }> = []
     try {
-      const activities = await knex('customer_activities')
-        .where(w)
-        .orderBy('occurred_at', 'desc')
-        .limit(5)
-        .select('activity_type', 'subject', 'occurred_at')
+      // Recent contacts
+      const recentContacts = await knex('customer_entities')
+        .where(w).whereNull('deleted_at')
+        .orderBy('created_at', 'desc')
+        .limit(3)
+        .select('display_name', 'source', 'created_at')
 
-      for (const a of activities) {
+      for (const c of recentContacts) {
+        const source = c.source ? ` from ${c.source}` : ''
         recentActivity.push({
-          type: a.activity_type,
-          text: a.subject,
-          time: a.occurred_at,
+          type: 'contact',
+          text: `New contact: ${c.display_name}${source}`,
+          time: c.created_at,
         })
       }
+
+      // Recent deals
+      const recentDeals = await knex('customer_deals')
+        .where(w).whereNull('deleted_at')
+        .orderBy('updated_at', 'desc')
+        .limit(3)
+        .select('title', 'status', 'value_amount', 'updated_at')
+
+      for (const d of recentDeals) {
+        const value = d.value_amount ? ` — $${Number(d.value_amount).toLocaleString()}` : ''
+        recentActivity.push({
+          type: 'deal',
+          text: `Deal ${d.status === 'win' ? 'won' : d.status}: ${d.title}${value}`,
+          time: d.updated_at,
+        })
+      }
+
+      // Sort by time
+      recentActivity.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      recentActivity.splice(5) // keep top 5
     } catch {}
 
     // Sort action items by priority

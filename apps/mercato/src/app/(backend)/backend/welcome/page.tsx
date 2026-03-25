@@ -129,10 +129,10 @@ export default function WelcomePage() {
                 {businessTypes.map(bt => (
                   <button key={bt.id} type="button" onClick={() => setBusinessType(bt.id)}
                     className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition text-sm ${
-                      businessType === bt.id ? 'border-accent bg-accent/5' : 'hover:bg-muted/50 text-muted-foreground'
+                      businessType === bt.id ? 'border-accent bg-accent/5' : 'hover:bg-muted/50 text-foreground/70 hover:text-foreground'
                     }`}>
                     <bt.icon className={`size-4 shrink-0 ${businessType === bt.id ? 'text-accent' : 'text-muted-foreground/60'}`} />
-                    <span className="text-xs leading-tight">{bt.label}</span>
+                    <span className={`text-xs leading-tight ${businessType === bt.id ? 'text-foreground' : ''}`}>{bt.label}</span>
                   </button>
                 ))}
               </div>
@@ -150,7 +150,7 @@ export default function WelcomePage() {
                 ].map(ts => (
                   <button key={ts.id} type="button" onClick={() => setTeamSize(ts.id)}
                     className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition ${
-                      teamSize === ts.id ? 'border-accent bg-accent/5 text-foreground' : 'text-muted-foreground hover:bg-muted/50'
+                      teamSize === ts.id ? 'border-accent bg-accent/5 text-foreground' : 'text-foreground/60 hover:bg-muted/50 hover:text-foreground'
                     }`}>{ts.label}</button>
                 ))}
               </div>
@@ -177,7 +177,7 @@ export default function WelcomePage() {
                 {clientSources.map(cs => (
                   <button key={cs.id} type="button" onClick={() => toggleSource(cs.id)}
                     className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm text-left transition ${
-                      selectedSources.includes(cs.id) ? 'border-accent bg-accent/5' : 'hover:bg-muted/50 text-muted-foreground'
+                      selectedSources.includes(cs.id) ? 'border-accent bg-accent/5' : 'hover:bg-muted/50 text-foreground/70 hover:text-foreground'
                     }`}>
                     <cs.icon className={`size-4 shrink-0 ${selectedSources.includes(cs.id) ? 'text-accent' : 'text-muted-foreground/60'}`} />
                     <span className="text-xs">{cs.label}</span>
