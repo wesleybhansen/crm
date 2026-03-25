@@ -413,7 +413,7 @@ export default async function BackendLayout({ children, params }: { children: Re
               sidebarCollapsedDefault={initialCollapsed}
               rightHeaderSlot={rightHeaderContent}
               mobileSidebarSlot={mobileSidebarContent}
-              adminNavApi="/api/auth/admin/nav"
+              adminNavApi={interfaceMode === 'simple' ? undefined : "/api/auth/admin/nav"}
               version={APP_VERSION}
               settingsPathPrefixes={settingsPathPrefixes}
               settingsSections={filteredSettingsSections}

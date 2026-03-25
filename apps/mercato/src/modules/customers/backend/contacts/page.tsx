@@ -41,16 +41,20 @@ export default function ContactsPage() {
 
   function loadContacts() {
     setLoading(true)
-    const kind = tab === 'people' ? 'person' : 'company'
-    const params = new URLSearchParams()
+    const endpoint = tab === 'people' ? '/api/customers/people' : '/api/customers/companies'
+    const params = new URLSearchParams({ pageSize: '50' })
     if (search) params.set('search', search)
 
-    fetch(`/api/customers/people?kind=${kind}&${params}`, { credentials: 'include' })
+    fetch(`${endpoint}?${params}`, { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
-        if (d.ok !== false && d.data) {
-          setContacts(Array.isArray(d.data) ? d.data : d.data.items || [])
-        }
+        // CRUD factory returns { data: [...], pagination: {...} } or { items: [...] }
+        let items: Contact[] = []
+        if (Array.isArray(d.data)) items = d.data
+        else if (Array.isArray(d.items)) items = d.items
+        else if (d.data?.items) items = d.data.items
+        else if (Array.isArray(d)) items = d
+        setContacts(items)
         setLoading(false)
       })
       .catch(() => setLoading(false))
