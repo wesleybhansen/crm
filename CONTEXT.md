@@ -479,11 +479,15 @@ Blog-Ops generates email content (subject, body, timing). CRM's email module is 
 **Major Direction Change (2026-03-25):**
 Pivoting from feature-building to UX simplification. See SIMPLIFICATION-PLAN.md for full plan.
 
-Key insight: The app is too complex for solopreneurs. Open Mercato's enterprise UX overwhelms small business users. Solution:
-- Mode system: Simple (default) vs Advanced (enterprise). Same modules, different visibility.
-- AI-first: assistant chatbot, AI dashboard, AI email, AI onboarding
-- Simplified navigation: 5-7 sidebar items instead of 20+
-- ~15 days of focused work to transform the experience
+Key insight: The app is too complex for solopreneurs. Open Mercato's enterprise UX overwhelms small business users.
+
+### Simplification Progress (2026-03-25)
+- [x] Phase 1: Sidebar simplification — simple mode (5 items) vs advanced (20+), cookie-based toggle
+- [x] Phase 2: AI Assistant — floating chat widget on every page, Gemini-powered, CRM feature docs in system prompt
+- [x] Phase 3: Dashboard — AI-generated action items, KPI stats, quick actions, recent activity
+- [x] Phase 4: Contacts — merged People/Companies with tabs, side panel, search, email button
+- [x] Phase 5: AI Email — compose modal with AI draft (6 purpose types), open/click tracking
+- [ ] Phase 6: AI Onboarding — first-login wizard (deferred to next session)
 
 **AI provider:** Configurable via AI_PROVIDER env var. Default: Gemini (cheapest). Options: google, anthropic, openai.
 **Form submissions → auto-create contacts:** Already built (inline in submit endpoint).
