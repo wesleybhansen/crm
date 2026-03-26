@@ -22,6 +22,48 @@ export async function GET() {
 
     const actionItems: Array<{ type: string; title: string; description: string; href: string; priority: number }> = []
 
+    // 0. Overdue tasks
+    try {
+      const overdueTasks = await knex('tasks')
+        .where('organization_id', auth.orgId)
+        .where('is_done', false)
+        .where('due_date', '<', now)
+        .select('id', 'title', 'due_date')
+        .orderBy('due_date', 'asc')
+        .limit(3)
+
+      for (const task of overdueTasks) {
+        actionItems.push({
+          type: 'task',
+          title: task.title,
+          description: `Overdue — was due ${new Date(task.due_date).toLocaleDateString()}`,
+          href: '/backend/contacts',
+          priority: 0,
+        })
+      }
+    } catch {}
+
+    // 0b. Upcoming tasks (due today or tomorrow)
+    try {
+      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+      const upcomingTasks = await knex('tasks')
+        .where('organization_id', auth.orgId)
+        .where('is_done', false)
+        .whereBetween('due_date', [now, tomorrow])
+        .select('id', 'title', 'due_date')
+        .limit(3)
+
+      for (const task of upcomingTasks) {
+        actionItems.push({
+          type: 'task',
+          title: task.title,
+          description: 'Due today',
+          href: '/backend/contacts',
+          priority: 1,
+        })
+      }
+    } catch {}
+
     // 1. Stale deals (not updated in 5+ days)
     try {
       const staleDeals = await knex('customer_deals')

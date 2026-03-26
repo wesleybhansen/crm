@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Plus, Search, X, Mail, DollarSign, Tag, StickyNote, Phone, Building2, ExternalLink } from 'lucide-react'
+import { Plus, Search, X, Mail, DollarSign, Tag, StickyNote, Phone, Building2, ExternalLink, CheckCircle2, Circle, Send, Loader2 } from 'lucide-react'
 import { EmailComposeModal } from '@/components/EmailComposeModal'
 
 type Contact = {
@@ -20,12 +20,8 @@ type Contact = {
   updated_at: string
 }
 
-type Activity = {
-  id: string
-  activity_type: string
-  subject: string
-  occurred_at: string
-}
+type Note = { id: string; content: string; created_at: string }
+type Task = { id: string; title: string; due_date: string | null; is_done: boolean; created_at: string }
 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
@@ -33,9 +29,15 @@ export default function ContactsPage() {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
-  const [activities, setActivities] = useState<Activity[]>([])
+  const [notes, setNotes] = useState<Note[]>([])
+  const [tasks, setTasks] = useState<Task[]>([])
   const [tab, setTab] = useState<'people' | 'companies'>('people')
+  const [panelTab, setPanelTab] = useState<'details' | 'notes' | 'tasks'>('details')
   const [showEmailModal, setShowEmailModal] = useState(false)
+  const [newNote, setNewNote] = useState('')
+  const [newTask, setNewTask] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
+  const [savingTask, setSavingTask] = useState(false)
 
   useEffect(() => {
     loadContacts()
@@ -65,19 +67,63 @@ export default function ContactsPage() {
   function selectContact(contact: Contact) {
     setSelectedId(contact.id)
     setSelectedContact(contact)
-    // Load activities
-    fetch(`/api/customers/activities?entityId=${contact.id}&pageSize=10`, { credentials: 'include' })
+    setPanelTab('details')
+    setNewNote('')
+    setNewTask('')
+    // Load notes and tasks
+    fetch(`/api/notes?contactId=${contact.id}`, { credentials: 'include' })
       .then(r => r.json())
-      .then(d => {
-        if (d.data) setActivities(Array.isArray(d.data) ? d.data : d.data.items || [])
-      })
+      .then(d => { if (d.ok) setNotes(d.data || []) })
+      .catch(() => {})
+    fetch(`/api/tasks?contactId=${contact.id}`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.ok) setTasks(d.data || []) })
       .catch(() => {})
   }
 
   function closePanel() {
     setSelectedId(null)
     setSelectedContact(null)
-    setActivities([])
+    setNotes([])
+    setTasks([])
+  }
+
+  async function addNote() {
+    if (!newNote.trim() || !selectedContact) return
+    setSavingNote(true)
+    try {
+      const res = await fetch('/api/notes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ contactId: selectedContact.id, content: newNote }),
+      })
+      const data = await res.json()
+      if (data.ok) { setNotes(prev => [data.data, ...prev]); setNewNote('') }
+    } catch {}
+    setSavingNote(false)
+  }
+
+  async function addTask() {
+    if (!newTask.trim() || !selectedContact) return
+    setSavingTask(true)
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ title: newTask, contactId: selectedContact.id }),
+      })
+      const data = await res.json()
+      if (data.ok) { setTasks(prev => [data.data, ...prev]); setNewTask('') }
+    } catch {}
+    setSavingTask(false)
+  }
+
+  async function toggleTask(task: Task) {
+    try {
+      await fetch('/api/tasks', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ id: task.id, is_done: !task.is_done }),
+      })
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, is_done: !t.is_done } : t))
+    } catch {}
   }
 
   const stageColors: Record<string, string> = {
@@ -210,44 +256,99 @@ export default function ContactsPage() {
             </Button>
           </div>
 
-          {/* Contact Details */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-            <div className="space-y-3">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Details</h3>
-              <DetailRow icon={Mail} label="Email" value={selectedContact.primary_email} />
-              <DetailRow icon={Phone} label="Phone" value={selectedContact.primary_phone} />
-              <DetailRow icon={Building2} label="Type" value={selectedContact.kind === 'person' ? 'Person' : 'Company'} />
-              <DetailRow icon={Tag} label="Source" value={selectedContact.source} />
-              <DetailRow icon={Tag} label="Stage" value={selectedContact.lifecycle_stage} />
-            </div>
+          {/* Panel Tabs */}
+          <div className="flex border-b px-5">
+            {(['details', 'notes', 'tasks'] as const).map(t => (
+              <button key={t} type="button" onClick={() => setPanelTab(t)}
+                className={`text-xs font-medium px-3 py-2.5 border-b-2 transition capitalize ${
+                  panelTab === t ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}>{t}</button>
+            ))}
+          </div>
 
-            {/* Activity Timeline */}
-            <div className="pt-3 border-t">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Activity</h3>
-              {activities.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No activity yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {activities.map(a => (
-                    <div key={a.id} className="flex gap-3">
-                      <div className="w-1.5 h-1.5 rounded-full bg-accent mt-1.5 shrink-0" />
-                      <div>
-                        <p className="text-sm">{a.subject}</p>
-                        <p className="text-[11px] text-muted-foreground">{formatRelativeTime(a.occurred_at)}</p>
-                      </div>
-                    </div>
-                  ))}
+          {/* Panel Content */}
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            {/* Details Tab */}
+            {panelTab === 'details' && (
+              <div className="space-y-3">
+                <DetailRow icon={Mail} label="Email" value={selectedContact.primary_email} />
+                <DetailRow icon={Phone} label="Phone" value={selectedContact.primary_phone} />
+                <DetailRow icon={Building2} label="Type" value={selectedContact.kind === 'person' ? 'Person' : 'Company'} />
+                <DetailRow icon={Tag} label="Source" value={selectedContact.source} />
+                <DetailRow icon={Tag} label="Stage" value={selectedContact.lifecycle_stage} />
+                <div className="pt-3 border-t">
+                  <a href={`/backend/customers/people/${selectedContact.id}`}
+                    className="text-xs text-accent hover:underline flex items-center gap-1">
+                    View full profile <ExternalLink className="size-3" />
+                  </a>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
-            {/* View Full Profile Link */}
-            <div className="pt-3 border-t">
-              <a href={`/backend/customers/people/${selectedContact.id}`}
-                className="text-xs text-accent hover:underline flex items-center gap-1">
-                View full profile <ExternalLink className="size-3" />
-              </a>
-            </div>
+            {/* Notes Tab */}
+            {panelTab === 'notes' && (
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <textarea value={newNote} onChange={e => setNewNote(e.target.value)}
+                    placeholder="Add a note..."
+                    className="flex-1 rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-16"
+                    onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) addNote() }} />
+                </div>
+                <Button type="button" size="sm" onClick={addNote} disabled={savingNote || !newNote.trim()} className="w-full">
+                  {savingNote ? <Loader2 className="size-3 animate-spin mr-1" /> : <Plus className="size-3 mr-1" />} Add Note
+                </Button>
+                {notes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-4">No notes yet.</p>
+                ) : (
+                  <div className="space-y-2 pt-2">
+                    {notes.map(note => (
+                      <div key={note.id} className="rounded-lg border p-3">
+                        <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+                        <p className="text-[10px] text-muted-foreground mt-2">{formatRelativeTime(note.created_at)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tasks Tab */}
+            {panelTab === 'tasks' && (
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Input value={newTask} onChange={e => setNewTask(e.target.value)}
+                    placeholder="Add a task..."
+                    className="flex-1 h-9 text-sm"
+                    onKeyDown={e => { if (e.key === 'Enter') addTask() }} />
+                  <Button type="button" size="sm" onClick={addTask} disabled={savingTask || !newTask.trim()}>
+                    <Plus className="size-3" />
+                  </Button>
+                </div>
+                {tasks.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-4">No tasks yet.</p>
+                ) : (
+                  <div className="space-y-1 pt-2">
+                    {tasks.map(task => (
+                      <button key={task.id} type="button" onClick={() => toggleTask(task)}
+                        className="w-full flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-muted/50 transition text-left">
+                        {task.is_done
+                          ? <CheckCircle2 className="size-4 text-emerald-500 shrink-0 mt-0.5" />
+                          : <Circle className="size-4 text-muted-foreground/40 shrink-0 mt-0.5" />
+                        }
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm ${task.is_done ? 'line-through text-muted-foreground' : ''}`}>{task.title}</p>
+                          {task.due_date && (
+                            <p className="text-[10px] text-muted-foreground">
+                              Due {new Date(task.due_date).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
