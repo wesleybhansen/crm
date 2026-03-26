@@ -92,6 +92,24 @@ export default function SimpleSettingsPage() {
         </div>
       </section>
 
+      {/* Automations */}
+      <section className="mb-8">
+        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <Settings className="size-4 text-muted-foreground" /> Automations
+        </h2>
+        <div className="rounded-lg border divide-y">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Pipeline Automations</p>
+              <p className="text-xs text-muted-foreground">Trigger actions when deals move between stages</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/backend/automations'}>
+              Manage
+            </Button>
+          </div>
+        </div>
+      </section>
+
       {/* Account */}
       <section className="mb-8">
         <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
