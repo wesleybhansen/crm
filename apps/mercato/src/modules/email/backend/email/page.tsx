@@ -5,6 +5,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Mail, Send, Inbox } from 'lucide-react'
+import { EmailComposeModal } from '@/components/EmailComposeModal'
 
 type EmailMessage = {
   id: string
@@ -25,6 +26,7 @@ export default function EmailPage() {
   const [messages, setMessages] = useState<EmailMessage[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'inbound' | 'outbound'>('all')
+  const [showCompose, setShowCompose] = useState(false)
 
   useEffect(() => {
     const params = filter !== 'all' ? `?direction=${filter}` : ''
@@ -52,7 +54,7 @@ export default function EmailPage() {
           <h1 className="text-xl font-semibold">{translate('email.messages.title', 'Email')}</h1>
           <p className="text-sm text-muted-foreground mt-1">{messages.length} messages</p>
         </div>
-        <Button type="button">
+        <Button type="button" onClick={() => setShowCompose(true)}>
           <Send className="size-4 mr-2" /> {translate('email.messages.compose', 'Compose')}
         </Button>
       </div>
@@ -107,6 +109,23 @@ export default function EmailPage() {
           ))}
         </div>
       )}
+
+      {showCompose && (
+        <EmailComposeModal
+          contactName=""
+          contactEmail=""
+          onClose={() => setShowCompose(false)}
+          onSent={() => { setShowCompose(false); loadMessages() }}
+        />
+      )}
     </div>
   )
+
+  function loadMessages() {
+    const params = filter !== 'all' ? `?direction=${filter}` : ''
+    fetch(`/api/email/messages${params}`, { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => { if (d.ok) setMessages(d.data) })
+      .catch(() => {})
+  }
 }

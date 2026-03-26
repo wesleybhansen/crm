@@ -152,6 +152,13 @@ TODO: Fix that latter to have reference by the package names
   --sidebar-ring: #3E63DD;
 }
 
+/* Dark mode: ensure button hover states are consistent */
+.dark button:hover svg,
+.dark [role="button"]:hover svg,
+.dark a:hover svg {
+  color: inherit;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
