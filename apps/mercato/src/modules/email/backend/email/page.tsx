@@ -54,9 +54,14 @@ export default function EmailPage() {
           <h1 className="text-xl font-semibold">{translate('email.messages.title', 'Email')}</h1>
           <p className="text-sm text-muted-foreground mt-1">{messages.length} messages</p>
         </div>
-        <Button type="button" onClick={() => setShowCompose(true)}>
-          <Send className="size-4 mr-2" /> {translate('email.messages.compose', 'Compose')}
-        </Button>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" onClick={() => window.location.href = '/backend/campaigns'}>
+            <Mail className="size-4 mr-2" /> Campaigns
+          </Button>
+          <Button type="button" onClick={() => setShowCompose(true)}>
+            <Send className="size-4 mr-2" /> {translate('email.messages.compose', 'Compose')}
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-2 mb-4">
