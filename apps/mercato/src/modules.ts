@@ -47,6 +47,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'email', from: '@app' },
   { id: 'payments', from: '@app' },
   { id: 'calendar', from: '@app' },
+  { id: 'courses', from: '@app' },
   { id: 'integrations_api', from: '@app' },
   { id: 'billing', from: '@app' },
 
