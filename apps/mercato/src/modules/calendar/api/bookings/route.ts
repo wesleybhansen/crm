@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     const start = new Date(startTime)
     const end = new Date(start.getTime() + (page.duration_minutes || 30) * 60000)
 
-    // Check for conflicts
+    // Check for CRM booking conflicts
     const conflict = await knex('bookings')
       .where('booking_page_id', bookingPageId)
       .where('status', 'confirmed')
@@ -53,6 +53,22 @@ export async function POST(req: Request) {
 
     if (conflict) {
       return NextResponse.json({ ok: false, error: 'This time slot is no longer available' }, { status: 409 })
+    }
+
+    // Check Google Calendar conflicts if connected
+    if (page.owner_user_id) {
+      try {
+        const { getGoogleBusyTimes } = await import('../../../app/api/google/calendar-service')
+        const busyTimes = await getGoogleBusyTimes(page.owner_user_id, start, end)
+        const googleConflict = busyTimes.some(bt =>
+          new Date(bt.start) < end && new Date(bt.end) > start
+        )
+        if (googleConflict) {
+          return NextResponse.json({ ok: false, error: 'This time slot is not available' }, { status: 409 })
+        }
+      } catch {
+        // Google Calendar check failed — allow booking anyway
+      }
     }
 
     const id = require('crypto').randomUUID()
@@ -78,6 +94,22 @@ export async function POST(req: Request) {
         status: 'active', lifecycle_stage: 'prospect',
         created_at: new Date(), updated_at: new Date(),
       }).catch(() => {})
+    }
+
+    // Create Google Calendar event if connected
+    if (page.owner_user_id) {
+      try {
+        const { createGoogleCalendarEvent } = await import('../../../app/api/google/calendar-service')
+        await createGoogleCalendarEvent(page.owner_user_id, {
+          summary: `${page.title} — ${guestName}`,
+          description: `Booking with ${guestName} (${guestEmail})${notes ? '\n\nNotes: ' + notes : ''}`,
+          startTime: start,
+          endTime: end,
+          attendeeEmail: guestEmail,
+        })
+      } catch {
+        // Google Calendar event creation failed — booking still succeeded
+      }
     }
 
     return NextResponse.json({ ok: true, data: { id, startTime: start, endTime: end } }, { status: 201 })

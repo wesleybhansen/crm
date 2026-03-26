@@ -28,10 +28,19 @@ export async function GET(req: Request, ctx: any) {
       .where('start_time', '<=', twoWeeksOut)
       .select('start_time', 'end_time')
 
-    const bookedSlots = existingBookings.map((b: any) => ({
+    let bookedSlots = existingBookings.map((b: any) => ({
       start: new Date(b.start_time).toISOString(),
       end: new Date(b.end_time).toISOString(),
     }))
+
+    // Also get Google Calendar busy times if owner has connected
+    if (page.owner_user_id) {
+      try {
+        const { getGoogleBusyTimes } = await import('../../../../app/api/google/calendar-service')
+        const googleBusy = await getGoogleBusyTimes(page.owner_user_id, now, twoWeeksOut)
+        bookedSlots = [...bookedSlots, ...googleBusy]
+      } catch {}
+    }
 
     const baseUrl = process.env.APP_URL || 'http://localhost:3000'
     const submitUrl = `${baseUrl}/api/calendar/bookings`

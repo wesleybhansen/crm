@@ -110,6 +110,27 @@ export default function SimpleSettingsPage() {
         </div>
       </section>
 
+      {/* Calendar */}
+      <section className="mb-8">
+        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <Settings className="size-4 text-muted-foreground" /> Calendar
+        </h2>
+        <div className="rounded-lg border divide-y">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Google Calendar</p>
+              <p className="text-xs text-muted-foreground">Sync bookings with your Google Calendar</p>
+              {new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('google_connected') === 'true' && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1"><Check className="size-3" /> Connected!</p>
+              )}
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/google/auth'}>
+              Connect Google Calendar
+            </Button>
+          </div>
+        </div>
+      </section>
+
       {/* API Keys */}
       <section className="mb-8">
         <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
