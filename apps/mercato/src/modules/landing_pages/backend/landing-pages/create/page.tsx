@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { ArrowLeft, ArrowRight, Sparkles, Globe, Loader2, Eye, LayoutTemplate, Plus, Trash2, ChevronDown, ChevronRight, Check } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Sparkles, Globe, Loader2, Eye, LayoutTemplate, Plus, Trash2, ChevronDown, ChevronRight, Check, X } from 'lucide-react'
 
 type TemplateInfo = { id: string; name: string; category: string; style: string; hasForm: boolean }
 type Step = 'template' | 'wizard' | 'preview'
@@ -80,6 +80,7 @@ export default function CreateLandingPage() {
   const [revisionInput, setRevisionInput] = useState('')
   const [revising, setRevising] = useState(false)
   const [lastAiCall, setLastAiCall] = useState(0)
+  const [previewTemplate, setPreviewTemplate] = useState<TemplateInfo | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
 
   const [data, setData] = useState<WizardData>({
@@ -299,10 +300,14 @@ export default function CreateLandingPage() {
                           className="pointer-events-none border-0"
                           style={{ transform: 'scale(0.25)', transformOrigin: 'top left', width: '400%', height: '400%' }}
                           loading="lazy" title={templateNames[tmpl.id] || tmpl.style} />
-                        <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition flex items-end justify-center pb-3">
+                        <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition flex items-end justify-center pb-3 gap-2">
                           <span className="text-xs font-medium bg-foreground text-background px-3 py-1.5 rounded-full flex items-center gap-1.5">
                             <Sparkles className="size-3" /> Use this
                           </span>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setPreviewTemplate(tmpl) }}
+                            className="text-xs font-medium bg-background text-foreground border px-3 py-1.5 rounded-full flex items-center gap-1.5 hover:bg-muted">
+                            <Eye className="size-3" /> Preview
+                          </button>
                         </div>
                       </div>
                       <div className="px-3 py-2.5">
@@ -581,6 +586,30 @@ export default function CreateLandingPage() {
                 {saving ? <><Loader2 className="size-4 animate-spin mr-2" /> Publishing...</> : <><Globe className="size-4 mr-2" /> Publish Page</>}
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template Preview Modal */}
+      {previewTemplate && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex flex-col">
+          <div className="flex items-center justify-between px-6 py-3 bg-background border-b">
+            <div>
+              <p className="text-sm font-semibold">{templateNames[previewTemplate.id] || previewTemplate.style}</p>
+              <p className="text-xs text-muted-foreground">{categoryLabels[previewTemplate.category] || previewTemplate.category}</p>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" onClick={() => { selectTemplate(previewTemplate); setPreviewTemplate(null) }}>
+                <Sparkles className="size-3 mr-1.5" /> Use This Template
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setPreviewTemplate(null)}>
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <iframe src={`/api/landing_pages/templates/preview/${previewTemplate.id}`}
+              className="w-full h-full border-0 bg-white" title="Template Preview" />
           </div>
         </div>
       )}
