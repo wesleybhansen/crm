@@ -487,11 +487,45 @@ Key insight: The app is too complex for solopreneurs. Open Mercato's enterprise 
 - [x] Phase 3: Dashboard — AI-generated action items, KPI stats, quick actions, recent activity
 - [x] Phase 4: Contacts — merged People/Companies with tabs, side panel, search, email button
 - [x] Phase 5: AI Email — compose modal with AI draft (6 purpose types), open/click tracking
-- [x] Phase 6: AI Onboarding — 4-step welcome wizard at /backend/welcome (business info, clients, AI pipeline, next steps)
+- [x] Phase 6: AI Onboarding — 5-step welcome wizard (business, offer, sources, AI pipeline, next steps). Saves to business_profiles table.
 
-**AI provider:** Configurable via AI_PROVIDER env var. Default: Gemini (cheapest). Options: google, anthropic, openai.
-**Form submissions → auto-create contacts:** Already built (inline in submit endpoint).
-**No Puck:** Templates stay as vanilla HTML. Custom section parser + renderer. Much simpler, preserves design fidelity.
+### Additional Features Built (2026-03-25 afternoon)
+- [x] Payments module — products catalog, invoices with line items, auto-numbering (INV-0001)
+- [x] Notes & Tasks — tabbed side panel on contacts (Details/Notes/Tasks), overdue tasks in dashboard
+- [x] Tags — add/remove colored tags on contacts, auto-create
+- [x] Contact Import — paste CSV-like data, auto-parse, duplicate detection
+- [x] Settings page — theme toggle, mode switch (simple/advanced), API keys, BYOK entry
+- [x] AI Usage Cap + BYOK — ai_usage + ai_settings tables, 500 calls/month cap, admin adjustable, user BYOK fallback, usage meter in settings
+- [x] Business profile persistence — onboarding saves to business_profiles table for AI context
+- [x] Template preview — full-screen modal with "Use This Template" button
+- [x] Template cleanup — removed 7 (privacy/terms/thank-you), reclassified 4, 49 remaining
+- [x] Dashboard activity — shows contacts/deals instead of encrypted activity data
+
+### Current Sidebar (Simple Mode)
+```
+Dashboard          — AI action items, KPIs, quick actions, activity feed
+CRM
+  → Contacts       — merged People/Companies, tabs, side panel (Details/Notes/Tasks), tags, import
+  → Pipeline       — Kanban deal board
+  → Payments       — Products & Services, Invoices
+Marketing
+  → Landing Pages  — AI-powered builder, 49 templates, wizard + preview
+  → Email          — send/receive, AI drafts, tracking
+Settings           — theme, mode, integrations, BYOK, AI usage meter
++ AI Assistant     — floating chat on every page
+```
+
+### Remaining Before Users Can Use It
+1. Gemini paid tier (Wesley's action)
+2. Resend API key + domain setup (Wesley's action)
+3. End-to-end testing (create page → publish → form submit → contact created)
+4. Deploy to Hetzner
+5. Stripe Connect for actual payment processing
+
+**AI provider:** Configurable via AI_PROVIDER env var. Default: Gemini. Options: google, anthropic, openai.
+**AI cost model:** System-wide monthly cap (admin adjustable) + BYOK fallback for users who exceed cap.
+**Form submissions → auto-create contacts:** Built (inline in submit endpoint).
+**No Puck:** Templates stay as vanilla HTML. Gemini rewrites body content directly. Much simpler, preserves design fidelity.
 
 ### Remaining Phases
 - Phase 2 (Weeks 4-9): Landing pages, email, integration APIs, credit billing — **MVP**

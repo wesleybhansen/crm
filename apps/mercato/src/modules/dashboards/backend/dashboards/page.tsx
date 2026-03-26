@@ -35,6 +35,13 @@ export default function SimpleDashboard() {
   const [greeting, setGreeting] = useState('')
 
   useEffect(() => {
+    // Check for first-login redirect
+    if (document.cookie.includes('crm_first_login=true')) {
+      document.cookie = 'crm_first_login=; path=/; max-age=0'
+      window.location.href = '/backend/welcome'
+      return
+    }
+
     const hour = new Date().getHours()
     setGreeting(hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening')
 

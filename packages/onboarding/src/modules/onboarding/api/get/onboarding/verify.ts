@@ -204,7 +204,10 @@ export async function GET(req: Request) {
     }
 
     await service.markCompleted(request, { tenantId, organizationId, userId: resolvedUserId })
-    return redirectToLogin(baseUrl, tenantId)
+    const loginResponse = redirectToLogin(baseUrl, tenantId)
+    // Set first-login cookie so dashboard redirects to welcome wizard
+    loginResponse.cookies.set('crm_first_login', 'true', { path: '/', maxAge: 60 * 60 }) // 1 hour
+    return loginResponse
   } catch (error) {
     if (error instanceof Error && error.message === 'USER_EXISTS') {
       await service.resetProcessing(request)
