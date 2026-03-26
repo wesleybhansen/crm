@@ -14,6 +14,7 @@ type Product = {
 type Invoice = {
   id: string; invoice_number: string; contact_id: string | null; status: string
   total: string; currency: string; due_date: string | null; created_at: string; paid_at: string | null
+  stripe_payment_link: string | null
 }
 
 type Tab = 'products' | 'invoices'
@@ -238,10 +239,24 @@ export default function PaymentsPage() {
                   <p className="text-sm font-medium">{p.name}</p>
                   {p.description && <p className="text-xs text-muted-foreground truncate">{p.description}</p>}
                 </div>
-                <div className="text-right shrink-0">
+                <div className="text-right shrink-0 mr-2">
                   <p className="text-sm font-semibold tabular-nums">${Number(p.price).toFixed(2)}</p>
                   <p className="text-[11px] text-muted-foreground">{p.billing_type === 'recurring' ? '/month' : 'one-time'}</p>
                 </div>
+                <Button type="button" variant="outline" size="sm" onClick={async () => {
+                  const res = await fetch('/api/stripe/connect', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                    body: JSON.stringify({ type: 'product', productId: p.id }),
+                  })
+                  const data = await res.json()
+                  if (data.ok && data.url) {
+                    navigator.clipboard.writeText(data.url).then(() => alert('Payment link copied to clipboard!')).catch(() => window.open(data.url, '_blank'))
+                  } else {
+                    alert(data.error || 'Failed to generate link')
+                  }
+                }}>
+                  <Link2 className="size-3 mr-1" /> Payment Link
+                </Button>
               </div>
             ))}
           </div>
@@ -271,7 +286,28 @@ export default function PaymentsPage() {
                     {inv.due_date ? `Due ${new Date(inv.due_date).toLocaleDateString()}` : 'No due date'}
                   </p>
                 </div>
-                <p className="text-sm font-semibold tabular-nums shrink-0">${Number(inv.total).toFixed(2)}</p>
+                <p className="text-sm font-semibold tabular-nums shrink-0 mr-2">${Number(inv.total).toFixed(2)}</p>
+                {inv.status === 'draft' && (
+                  <Button type="button" variant="outline" size="sm" onClick={async () => {
+                    const res = await fetch('/api/stripe/connect', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                      body: JSON.stringify({ type: 'invoice', invoiceId: inv.id }),
+                    })
+                    const data = await res.json()
+                    if (data.ok && data.url) {
+                      navigator.clipboard.writeText(data.url).then(() => { alert('Payment link copied! Invoice marked as sent.'); loadData() })
+                    } else {
+                      alert(data.error || 'Failed to generate link')
+                    }
+                  }}>
+                    <Send className="size-3 mr-1" /> Send
+                  </Button>
+                )}
+                {inv.status === 'sent' && inv.stripe_payment_link && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(inv.stripe_payment_link!)}>
+                    <Link2 className="size-3 mr-1" /> Copy Link
+                  </Button>
+                )}
               </div>
             ))}
           </div>

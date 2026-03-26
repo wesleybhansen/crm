@@ -1,7 +1,7 @@
 import { cookies, headers } from 'next/headers'
 import Script from 'next/script'
 import { createElement, type ReactNode } from 'react'
-import { Users, Kanban, FileText, Mail, LayoutDashboard, CreditCard, Settings } from 'lucide-react'
+import { Users, Kanban, FileText, Mail, LayoutDashboard, CreditCard, Settings, CalendarDays } from 'lucide-react'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -518,6 +518,13 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
         defaultTitle: 'Payments',
         enabled: true,
         icon: createElement(CreditCard, { className: iconClass }),
+      },
+      {
+        href: '/backend/calendar',
+        title: translate('nav.calendar', 'Calendar'),
+        defaultTitle: 'Calendar',
+        enabled: true,
+        icon: createElement(CalendarDays, { className: iconClass }),
       },
     ],
     weight: 10,

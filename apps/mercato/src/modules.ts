@@ -46,6 +46,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'landing_pages', from: '@app' },
   { id: 'email', from: '@app' },
   { id: 'payments', from: '@app' },
+  { id: 'calendar', from: '@app' },
   { id: 'integrations_api', from: '@app' },
   { id: 'billing', from: '@app' },
 
