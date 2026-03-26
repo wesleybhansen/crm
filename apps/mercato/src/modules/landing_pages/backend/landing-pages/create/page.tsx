@@ -27,7 +27,7 @@ const templateNames: Record<string, string> = {
   'systems-brutalist': 'Brutalist', 'systems-cyberpunk': 'Cyberpunk', 'systems-figma': 'Figma-Style', 'systems-linear': 'Linear-Style', 'systems-noir': 'Noir',
   'experiences-airbnb': 'Airbnb-Style', 'experiences-editorial': 'Editorial', 'experiences-organic': 'Organic', 'experiences-pastel': 'Pastel', 'experiences-raycast': 'Raycast-Style',
   'thank-you-bold': 'Bold', 'thank-you-dark': 'Dark', 'thank-you-minimal': 'Minimal', 'thank-you-warm': 'Warm',
-  'page-booking': 'Booking', 'page-lead-magnet': 'Lead Magnet', 'page-privacy': 'Privacy Policy', 'page-terms': 'Terms of Service', 'page-thank-you': 'Thank You', 'page-waitlist': 'Waitlist', 'page-webinar': 'Webinar',
+  'booking-classic': 'Classic', 'lead-magnet-classic': 'Classic', 'lead-magnet-waitlist': 'Waitlist', 'webinar-classic': 'Classic',
 }
 
 const defaultCtas: Record<string, string> = {
