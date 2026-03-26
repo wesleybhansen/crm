@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Plus, Search, X, Mail, DollarSign, Tag, StickyNote, Phone, Building2, ExternalLink, CheckCircle2, Circle, Send, Loader2, Upload } from 'lucide-react'
+import { Plus, Search, X, Mail, DollarSign, Tag, StickyNote, Phone, Building2, ExternalLink, CheckCircle2, Circle, Send, Loader2, Upload, MessageSquare } from 'lucide-react'
 import { EmailComposeModal } from '@/components/EmailComposeModal'
 import { CreateDealModal } from '@/components/CreateDealModal'
+import { SmsComposeModal } from '@/components/SmsComposeModal'
 
 type Contact = {
   id: string
@@ -43,6 +44,7 @@ export default function ContactsPage() {
   const [panelTab, setPanelTab] = useState<'details' | 'notes' | 'tasks'>('details')
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [showDealModal, setShowDealModal] = useState(false)
+  const [showSmsModal, setShowSmsModal] = useState(false)
   const [newNote, setNewNote] = useState('')
   const [newTask, setNewTask] = useState('')
   const [savingNote, setSavingNote] = useState(false)
@@ -320,6 +322,17 @@ export default function ContactsPage() {
         </div>
       )}
 
+      {/* SMS Modal */}
+      {showSmsModal && selectedContact && (
+        <SmsComposeModal
+          contactName={selectedContact.display_name}
+          contactPhone={selectedContact.primary_phone || ''}
+          contactId={selectedContact.id}
+          onClose={() => setShowSmsModal(false)}
+          onSent={() => setShowSmsModal(false)}
+        />
+      )}
+
       {/* Deal Modal */}
       {showDealModal && selectedContact && (
         <CreateDealModal
@@ -366,8 +379,12 @@ export default function ContactsPage() {
             <Button type="button" variant="outline" size="sm" onClick={() => setShowDealModal(true)}>
               <DollarSign className="size-3.5 mr-1.5" /> Deal
             </Button>
-            <Button type="button" variant="outline" size="sm">
+            <Button type="button" variant="outline" size="sm" onClick={() => setPanelTab('notes')}>
               <StickyNote className="size-3.5 mr-1.5" /> Note
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowSmsModal(true)}
+              disabled={!selectedContact?.primary_phone}>
+              <MessageSquare className="size-3.5 mr-1.5" /> Text
             </Button>
           </div>
 
