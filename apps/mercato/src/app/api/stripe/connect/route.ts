@@ -1,9 +1,11 @@
+import { bootstrap } from '@/bootstrap'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 // Generate a Stripe Checkout Session for a product/invoice
+// Uses the org's connected Stripe account via Stripe Connect
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
@@ -17,12 +19,26 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const knex = em.getKnex()
+
+    // Look up the org's connected Stripe account
+    const stripeConnection = await knex('stripe_connections')
+      .where('organization_id', auth.orgId)
+      .where('is_active', true)
+      .first()
+
+    if (!stripeConnection) {
+      return NextResponse.json(
+        { ok: false, error: 'Connect your Stripe account in Settings to accept payments' },
+        { status: 400 },
+      )
+    }
+
     const body = await req.json()
     const { type, productId, invoiceId } = body
     const baseUrl = process.env.APP_URL || 'http://localhost:3000'
 
     let lineItems: Array<{ price_data: any; quantity: number }> = []
-    let metadata: Record<string, string> = { orgId: auth.orgId }
+    let metadata: Record<string, string> = { orgId: auth.orgId, tenantId: auth.tenantId || '' }
     let successUrl = `${baseUrl}/api/stripe/success?session_id={CHECKOUT_SESSION_ID}`
     let cancelUrl = `${baseUrl}/backend/payments`
 
@@ -60,19 +76,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'type (product|invoice) and corresponding ID required' }, { status: 400 })
     }
 
-    // Create Stripe Checkout Session
+    // Create Stripe Checkout Session on behalf of the connected account
     const Stripe = (await import('stripe')).default
     const stripe = new Stripe(stripeKey)
 
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: lineItems,
-      mode: lineItems.some(li => li.price_data.recurring) ? 'subscription' : 'payment',
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      metadata,
-      customer_email: body.customerEmail || undefined,
-    })
+    const session = await stripe.checkout.sessions.create(
+      {
+        payment_method_types: ['card'],
+        line_items: lineItems,
+        mode: lineItems.some(li => li.price_data.recurring) ? 'subscription' : 'payment',
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata,
+        customer_email: body.customerEmail || undefined,
+      },
+      {
+        stripeAccount: stripeConnection.stripe_account_id,
+      },
+    )
 
     // Store the checkout session reference
     if (invoiceId) {

@@ -1,7 +1,11 @@
+import { bootstrap } from '@/bootstrap'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { checkSequenceTriggers } from '@/modules/sequences/services/sequence-triggers'
+import { dispatchWebhook } from '@/app/api/webhooks/dispatch'
+import { executeAutomationRules } from '@/app/api/automation-rules/execute'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -92,6 +96,28 @@ export async function POST(req: Request) {
         created_at: new Date(),
       })
     }
+
+    // Check sequence triggers for tag assignment
+    if (!existing) {
+      checkSequenceTriggers(knex, auth.orgId, auth.tenantId, 'tag_added', {
+        contactId, tagSlug: slug,
+      }).catch(() => {})
+    }
+
+    // Fire automation rules for tag addition
+    if (!existing) {
+      executeAutomationRules(knex, auth.orgId, auth.tenantId, 'tag_added', {
+        contactId, tagSlug: slug, tagName: tag.name,
+      }).catch(() => {})
+    }
+
+    // Dispatch webhook for contact update (tag assigned)
+    dispatchWebhook(knex, auth.orgId, 'contact.updated', {
+      contactId,
+      action: 'tag_assigned',
+      tagName: tag.name,
+      tagSlug: tag.slug,
+    }).catch(() => {})
 
     return NextResponse.json({ ok: true, data: tag })
   } catch (error) {

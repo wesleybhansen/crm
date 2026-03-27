@@ -1,9 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { X, Send, Sparkles, Loader2 } from 'lucide-react'
+import { X, Send, Sparkles, Loader2, FileText, Mail, AlertTriangle } from 'lucide-react'
+
+interface EmailConnection {
+  id: string
+  provider: string
+  email_address: string
+  is_primary: boolean
+}
 
 interface EmailComposeProps {
   contactName: string
@@ -11,6 +18,12 @@ interface EmailComposeProps {
   contactId?: string
   onClose: () => void
   onSent?: () => void
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  gmail: 'Gmail',
+  microsoft: 'Outlook',
+  smtp: 'SMTP',
 }
 
 export function EmailComposeModal({ contactName, contactEmail, contactId, onClose, onSent }: EmailComposeProps) {
@@ -22,6 +35,27 @@ export function EmailComposeModal({ contactName, contactEmail, contactId, onClos
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [purpose, setPurpose] = useState('follow-up')
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string; subject: string; body_text: string }>>([])
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [emailConnection, setEmailConnection] = useState<EmailConnection | null>(null)
+  const [connectionLoaded, setConnectionLoaded] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/response-templates', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.ok) setTemplates(d.data || []) })
+      .catch(() => {})
+
+    fetch('/api/email/connections', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok && d.data?.length > 0) {
+          setEmailConnection(d.data[0])
+        }
+        setConnectionLoaded(true)
+      })
+      .catch(() => { setConnectionLoaded(true) })
+  }, [])
 
   async function draftWithAI() {
     setDrafting(true)
@@ -97,6 +131,25 @@ export function EmailComposeModal({ contactName, contactEmail, contactId, onClos
           </div>
         ) : (
           <>
+            {/* Sending as / connection warning */}
+            {connectionLoaded && (
+              emailConnection ? (
+                <div className="px-5 py-2 border-b bg-emerald-50 dark:bg-emerald-900/10 flex items-center gap-2 text-xs">
+                  <Mail className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="text-muted-foreground">Sending as:</span>
+                  <span className="font-medium text-foreground">{emailConnection.email_address}</span>
+                  <span className="text-muted-foreground">via {PROVIDER_LABELS[emailConnection.provider] || emailConnection.provider}</span>
+                </div>
+              ) : (
+                <div className="px-5 py-2 border-b bg-amber-50 dark:bg-amber-900/10 flex items-center gap-2 text-xs">
+                  <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="text-amber-700 dark:text-amber-400">No email account connected.</span>
+                  <button type="button" onClick={() => { window.location.href = '/backend/settings-simple' }}
+                    className="text-accent hover:underline font-medium">Connect in Settings</button>
+                </div>
+              )
+            )}
+
             {/* AI Draft bar */}
             <div className="px-5 py-3 border-b bg-muted/30 flex items-center gap-2">
               <Sparkles className="size-3.5 text-accent shrink-0" />
@@ -112,6 +165,28 @@ export function EmailComposeModal({ contactName, contactEmail, contactId, onClos
               <Button type="button" size="sm" variant="outline" onClick={draftWithAI} disabled={drafting}>
                 {drafting ? <><Loader2 className="size-3 animate-spin mr-1" /> Drafting...</> : <><Sparkles className="size-3 mr-1" /> AI Draft</>}
               </Button>
+              {templates.length > 0 && (
+                <div className="relative">
+                  <Button type="button" size="sm" variant="outline" onClick={() => setShowTemplates(!showTemplates)}>
+                    <FileText className="size-3 mr-1" /> Templates
+                  </Button>
+                  {showTemplates && (
+                    <div className="absolute right-0 top-full mt-1 w-56 rounded-lg border bg-card shadow-lg z-10 py-1 max-h-48 overflow-y-auto">
+                      {templates.map(t => (
+                        <button key={t.id} type="button" onClick={() => {
+                          if (t.subject) setSubject(t.subject.replace(/\{\{firstName\}\}/g, contactName.split(' ')[0] || '').replace(/\{\{name\}\}/g, contactName))
+                          setBody(t.body_text.replace(/\{\{firstName\}\}/g, contactName.split(' ')[0] || '').replace(/\{\{name\}\}/g, contactName).replace(/\{\{email\}\}/g, contactEmail))
+                          setShowTemplates(false)
+                        }}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-muted/50 transition">
+                          <p className="font-medium">{t.name}</p>
+                          <p className="text-muted-foreground truncate">{t.body_text.substring(0, 60)}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Form */}

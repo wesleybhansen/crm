@@ -1,6 +1,11 @@
+import { bootstrap } from '@/bootstrap'
 import { NextResponse } from 'next/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 
-const SYSTEM_PROMPT = `You are a helpful AI assistant built into a CRM platform designed for solopreneurs and small businesses. Your job is to help users navigate the app, answer questions, and suggest actions.
+const CRM_INSTRUCTIONS = `You are a helpful AI assistant built into a CRM platform designed for solopreneurs and small businesses. Your job is to help users navigate the app, answer questions, and suggest actions.
 
 THE CRM HAS THESE FEATURES:
 
@@ -37,6 +42,26 @@ NAVIGATION:
 - Click your profile icon (top right) for settings, theme toggle, and logout
 - Use Cmd+K (Mac) or Ctrl+K (Windows) to search anything
 
+CRM ACTIONS:
+You can also help the user take actions in their CRM. When the user asks you to do something (create a contact, add a note, create a task, add a tag, create a deal, send an email, move a deal stage), respond with a JSON action block that the frontend will parse and execute.
+
+Format your response normally, but when you want to execute an action, include it in a special block:
+\`\`\`crm-action
+{"type": "create_contact", "data": {"name": "John Smith", "email": "john@acme.com"}}
+\`\`\`
+
+Available action types:
+- create_contact: { name, email, phone?, source? }
+- create_task: { title, contactId?, dueDate? }
+- add_note: { contactId, content }
+- add_tag: { contactId, tagName }
+- create_deal: { title, contactId, value? }
+- send_email: { to, subject, body }
+- move_deal_stage: { dealId, stage }
+
+Always confirm what you'll do before including the action block. For example: "I'll create a contact for John Smith at john@acme.com. Here goes:" followed by the action block.
+Only include ONE action block per response. If the user asks for multiple actions, do them one at a time and ask what's next.
+
 ANSWERING RULES:
 - Be concise and friendly. These are busy entrepreneurs, not technical users.
 - When explaining how to do something, give step-by-step instructions.
@@ -62,6 +87,25 @@ export async function POST(req: Request) {
         message: "I'm the AI assistant, but my API key isn't configured yet. I can still help with basic navigation — what are you looking for?",
       })
     }
+
+    // Load persona from business profile
+    let personaPrompt = ''
+    try {
+      const auth = await getAuthFromCookies()
+      if (auth?.orgId) {
+        const container = await createRequestContainer()
+        const em = container.resolve('em') as EntityManager
+        const knex = em.getKnex()
+        const profile = await getPersonaForOrg(knex, auth.orgId)
+        if (profile) {
+          personaPrompt = buildPersonaPrompt(profile)
+        }
+      }
+    } catch {}
+
+    const systemPrompt = personaPrompt
+      ? `${personaPrompt}\n\n${CRM_INSTRUCTIONS}`
+      : CRM_INSTRUCTIONS
 
     // Add page context to the conversation
     const contextMessage = currentPage
@@ -90,7 +134,7 @@ export async function POST(req: Request) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          system_instruction: { parts: [{ text: systemPrompt }] },
           contents,
           generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
         }),

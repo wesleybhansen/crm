@@ -338,3 +338,27 @@ TODO: Fix that latter to have reference by the package names
 .bg-gradient-conic {
   background: conic-gradient(from 0deg, var(--tw-gradient-stops));
 }
+
+/* Selected card states — defined here so they're always in the CSS bundle */
+.selected-card {
+  border-color: #3B82F6 !important;
+  background-color: #EFF6FF !important;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3) !important;
+}
+.dark .selected-card {
+  background-color: rgba(30, 58, 138, 0.2) !important;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25) !important;
+}
+.selected-card-text {
+  color: #2563EB !important;
+  font-weight: 600 !important;
+}
+.dark .selected-card-text {
+  color: #60A5FA !important;
+}
+.selected-card-icon {
+  color: #2563EB !important;
+}
+.dark .selected-card-icon {
+  color: #60A5FA !important;
+}

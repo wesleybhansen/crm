@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { EmailSenderService } from '../../services/email-sender'
+import { sendEmailForOrg } from '../../../../app/api/email/email-router'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -73,18 +74,38 @@ export async function POST(req: Request, ctx: any) {
     trackedHtml = sender.wrapLinksForTracking(trackedHtml, trackingId, baseUrl)
     if (contactId) trackedHtml = sender.injectUnsubscribeLink(trackedHtml, contactId, baseUrl)
 
-    let status = 'queued'
-    let sentAt = null
+    // Try sending via user's connected email (Gmail, SMTP, etc.)
+    const routerResult = await sendEmailForOrg(knex, scope.orgId, scope.tenantId, scope.userId, {
+      to,
+      subject,
+      htmlBody: trackedHtml,
+      textBody: bodyText,
+      contactId,
+    })
+
+    let status: string
+    let sentAt: Date | null = null
+    let fromAddress: string
     let metadata: Record<string, any> = {}
 
-    try {
-      const result = await sender.send({ to, subject, html: trackedHtml, text: bodyText, replyTo })
+    if (routerResult.ok) {
+      // Sent via connected email provider
       status = 'sent'
       sentAt = new Date()
-      metadata = { providerId: result.id, provider: result.provider }
-    } catch (err) {
-      status = 'failed'
-      metadata = { error: err instanceof Error ? err.message : 'Unknown error' }
+      fromAddress = routerResult.fromAddress || ''
+      metadata = { providerId: routerResult.messageId, provider: routerResult.sentVia }
+    } else {
+      // No connected email — fall back to Resend/system sender
+      fromAddress = process.env.EMAIL_FROM || 'noreply@localhost'
+      try {
+        const result = await sender.send({ to, subject, html: trackedHtml, text: bodyText, replyTo })
+        status = 'sent'
+        sentAt = new Date()
+        metadata = { providerId: result.id, provider: result.provider, fallback: true }
+      } catch (err) {
+        status = 'failed'
+        metadata = { error: err instanceof Error ? err.message : 'Unknown error' }
+      }
     }
 
     await knex('email_messages').insert({
@@ -92,7 +113,7 @@ export async function POST(req: Request, ctx: any) {
       tenant_id: scope.tenantId,
       organization_id: scope.orgId,
       direction: 'outbound',
-      from_address: process.env.EMAIL_FROM || 'noreply@localhost',
+      from_address: fromAddress,
       to_address: to,
       subject,
       body_html: bodyHtml,
@@ -106,7 +127,7 @@ export async function POST(req: Request, ctx: any) {
       sent_at: sentAt,
     })
 
-    return NextResponse.json({ ok: true, data: { id, status } })
+    return NextResponse.json({ ok: true, data: { id, status, sentVia: routerResult.sentVia || metadata.provider } })
   } catch (error) {
     console.error('[email.messages.send]', error)
     return NextResponse.json({ ok: false, error: 'Failed to send email' }, { status: 500 })

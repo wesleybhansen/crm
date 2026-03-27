@@ -422,127 +422,152 @@ Blog-Ops generates email content (subject, body, timing). CRM's email module is 
 - [x] Frontend pages — Landing Pages list + create (template picker + editor), Email inbox, Billing (balance + packages + transactions)
 - [x] Ext API paths — routes at /api/integrations_api/ext/* (contacts, deals, pipeline/summary, dashboard/summary)
 
-### In Progress / Remaining
-- [ ] **AI Landing Page Builder** — major feature, spec below. Conversational AI generates entire pages.
-- [ ] End-to-end browser testing
-- [ ] Login API debug (browser login works, API returns 500)
-- [ ] UI polish (dark mode hovers, icon colors)
-- [ ] Email compose UI
-- [ ] Deploy to Hetzner
+### ALL FEATURES BUILT (2026-03-25) — MVP + 25 GAP FEATURES
 
-### AI Landing Page Builder Spec (REVISED — chat approach abandoned, wizard approach)
-**User flow:** Pick template (visual) → Guided wizard form (AI pre-fills) → Live preview + AI revision → Publish
+Every feature from the original vision PLUS 25 additional gap features are implemented.
 
-**Technical approach:**
-1. Template parser: Extracts section schema from HTML (sections, fields, repeaters). BUILT — works.
-2. Guided wizard form: Structured inputs based on template category. Fields: business name, offer, audience, CTA action, benefits (repeater), social proof (optional). AI "Generate Copy" button fills remaining fields via Gemini.
-3. Content generation: Gemini takes wizard form data + template schema → generates all copy. BUILT — Gemini API works.
-4. Template renderer: Injects content into template HTML. BUILT — works.
-5. Live preview: Iframe showing rendered page. AI revision panel for tweaks. PARTIALLY BUILT — preview works, revision endpoint needs debug.
-6. Publish: One button. BUILT — creates page + publishes.
+**CRM Core:**
+- [x] Contacts — merged People/Companies, side panel with Timeline/Details/Notes/Tasks tabs
+- [x] Contact Activity Timeline — unified view from 11 data sources (emails, forms, notes, tasks, invoices, bookings, SMS, courses, tags, engagement)
+- [x] Contact Engagement Scoring — auto-score (+1 open, +3 click, +5 form, +10 paid, -5 unsub), Hot/Warm/Cold labels, Hottest Leads dashboard widget
+- [x] File Attachments on contacts — upload/download/delete
+- [x] Reminders — "Remind Me" on contacts with date picker, email notification via cron
+- [x] Cross-Entry Duplicate Detection — email-based dedup across all entry points, manual merge API
+- [x] Pipeline — Kanban board, customizable stages per business type
+- [x] Deals — create from contact side panel
+- [x] Tags — colored, add/remove, auto-create
+- [x] Contact import (paste CSV) + export (download CSV)
+- [x] Lead Source Tracking — UTM param capture on landing pages, source breakdown API
 
-**What's built and working:**
-- Template picker with iframe previews (55 templates)
-- Template parser service
-- AI service (Gemini integration, multi-provider support)
-- Content renderer
-- API endpoints: /ai/chat, /ai/generate, /ai/revise, /templates, /templates/preview/[id]
-- Form submission → auto-creates CRM contact + logs activity
+**Automations:**
+- [x] Stage automations — trigger email/task/update when deal moves
+- [x] Simple Automations / Rules Engine — 9 trigger types × 8 action types, execution logging, UI builder
+- [x] Drip/Follow-up Sequences — 6 step types (email, SMS, wait, condition, branch, goal)
+- [x] Automation Branching — if opened/clicked/has tag → path A or B, goal tracking
+- [x] Pre-Built Automation Recipes — 8 one-click templates with pre-written emails
+- [x] Auto-enrollment triggers — wired into form submissions, tag assignments
 
-**What's been rebuilt (2026-03-24 evening):**
-- Step 2 UI: Replaced chat with 3-screen guided wizard (Basics → Offer → Social Proof)
-- Split screen layout: form on left (420px), live preview on right
-- Tone selector, benefits repeater, testimonial/stats optional inputs
-- Smart CTA defaults per template category
-- Publish flow updated: injects form action URLs, ensures form handler script is in HTML
-- Form submissions on published pages → auto-create CRM contacts (verified working)
+**Email Marketing (Mailchimp-level):**
+- [x] Email compose with AI drafts (6 purpose types) + Quick Response Templates
+- [x] Email campaigns with 10 styled HTML templates + AI template generator
+- [x] Template picker with visual grid, AI-generated custom templates
+- [x] Subject Line Optimizer — AI scores 1-10, suggests 3 alternatives
+- [x] Send Test Email — preview in your inbox before sending
+- [x] Email Preference Center — category-based opt-down instead of binary unsubscribe
+- [x] Email Deliverability & Health — bounce/complaint handling, auto-suppression, health metrics
+- [x] Send Time Optimization — track open times, per-contact best hour
+- [x] Unified Inbox — threaded email + SMS conversations, two-panel layout
 
-**Working as of 2026-03-25:**
-- AI page generation works end-to-end (Gemini rewrites template body content)
-- Wizard 3-step flow: pick template → fill form → generate → preview → publish
-- Template path resolution fixed
-- Token optimization: only body content sent to AI (60% reduction)
-- 7 tone options including custom
-- "Anything else?" catch-all input
-- AI revision panel on preview (works but hits rate limits on free Gemini tier)
+**Marketing:**
+- [x] AI Landing Page Builder — 49 templates, wizard, Gemini generates copy
+- [x] Multi-Step Funnels — chain pages (opt-in → upsell → checkout → thank you), conversion analytics
+- [x] SMS — Twilio send/receive from contact detail
+- [x] Courses & memberships — modules, lessons, drip, public enrollment
+- [x] Survey & Form Builder — 12 field types (incl. rating/NPS), public pages, response analytics, embeddable
+- [x] Outbound Webhooks — 9 event types, HMAC signatures, retry logic, delivery logs (Zapier/Make compatible)
 
-**Still needs:**
-- Gemini paid tier for reliable AI usage (free tier rate limits too strict)
-- Logo upload for landing pages
-- End-to-end form submission → CRM contact test
+**Live Chat:**
+- [x] Embeddable chat widget — JS snippet for any website, floating bubble, real-time messaging
+- [x] Chat Inbox — two-panel UI, conversation management, auto-create contacts
 
-**Completed:**
-- Template-aware prompting (7 category-specific AI guides)
-- Rate limit handling (15s cooldown, clear error messages)
-- Sidebar branding (logo → blue C icon, name → CRM)
+**Affiliates:**
+- [x] Affiliate Manager — referral links, 30-day cookie attribution, commission tracking, public dashboard, payouts, leaderboard
 
-**Major Direction Change (2026-03-25):**
-Pivoting from feature-building to UX simplification. See SIMPLIFICATION-PLAN.md for full plan.
+**Payments:**
+- [x] Products/services catalog, Invoices with line items, Stripe checkout, payment links, invoice emails
 
-Key insight: The app is too complex for solopreneurs. Open Mercato's enterprise UX overwhelms small business users.
+**Calendar:**
+- [x] Booking pages, public booking, conflict detection, Google Calendar OAuth, .ics feed
 
-### Simplification Progress (2026-03-25)
-- [x] Phase 1: Sidebar simplification — simple mode (5 items) vs advanced (20+), cookie-based toggle
-- [x] Phase 2: AI Assistant — floating chat widget on every page, Gemini-powered, CRM feature docs in system prompt
-- [x] Phase 3: Dashboard — AI-generated action items, KPI stats, quick actions, recent activity
-- [x] Phase 4: Contacts — merged People/Companies with tabs, side panel, search, email button
-- [x] Phase 5: AI Email — compose modal with AI draft (6 purpose types), open/click tracking
-- [x] Phase 6: AI Onboarding — 5-step welcome wizard (business, offer, sources, AI pipeline, next steps). Saves to business_profiles table.
+**AI:**
+- [x] AI Assistant floating chat, AI dashboard action items + Hottest Leads widget
+- [x] AI email drafts, Subject Line Optimizer, AI email template generator, AI survey generation
+- [x] AI landing page generation, AI onboarding pipeline suggestions
+- [x] AI usage cap (500/month) + BYOK fallback
 
-### Additional Features Built (2026-03-25 afternoon)
-- [x] Payments module — products catalog, invoices with line items, auto-numbering (INV-0001)
-- [x] Notes & Tasks — tabbed side panel on contacts (Details/Notes/Tasks), overdue tasks in dashboard
-- [x] Tags — add/remove colored tags on contacts, auto-create
-- [x] Contact Import — paste CSV-like data, auto-parse, duplicate detection
-- [x] Settings page — theme toggle, mode switch (simple/advanced), API keys, BYOK entry
-- [x] AI Usage Cap + BYOK — ai_usage + ai_settings tables, 500 calls/month cap, admin adjustable, user BYOK fallback, usage meter in settings
-- [x] Business profile persistence — onboarding saves to business_profiles table for AI context
-- [x] Template preview — full-screen modal with "Use This Template" button
-- [x] Template cleanup — removed 7 (privacy/terms/thank-you), reclassified 4, 49 remaining
-- [x] Dashboard activity — shows contacts/deals instead of encrypted activity data
-- [x] Stripe Checkout — sessions, webhooks, payment links on products/invoices, auto-create contacts
-- [x] Calendar & Booking — booking pages, bookings with conflict detection, auto-create contacts
-- [x] Create Deal modal — from contact side panel
-- [x] Email Compose — works from Email page
-- [x] First-login redirect to welcome wizard
-- [x] AI revision quality improved
-- [x] Dark mode hover fixes
+**Infrastructure:**
+- [x] Simple/Advanced mode toggle, Settings page, Business profile persistence
+- [x] Reports page, Dark mode (Twenty palette), First-login redirect
+- [x] ~60+ database tables (30+ custom + Open Mercato core)
 
 ### Current Sidebar (Simple Mode)
 ```
-Dashboard          — AI action items, KPIs, quick actions, activity feed
+Dashboard          — AI action items, KPIs, Hottest Leads, activity feed
 CRM
-  → Contacts       — merged People/Companies, side panel (Details/Notes/Tasks), tags, import
+  → Contacts       — timeline, engagement scores, files, reminders, tags, import/export
   → Pipeline       — Kanban deal board
-  → Payments       — Products & Invoices, Stripe checkout links
-  → Calendar       — Booking pages, upcoming bookings
+  → Payments       — Products & Invoices, Stripe
+  → Calendar       — Booking pages, Google Calendar sync
+  → Automations    — rules engine (when X → do Y)
+  → Chat           — live chat inbox
+  → Affiliates     — referral tracking, commissions
 Marketing
-  → Landing Pages  — AI-powered builder, 49 templates, wizard + preview
-  → Email          — send/receive, AI drafts, tracking
-Settings           — theme, mode, integrations, BYOK, AI usage meter
+  → Landing Pages  — AI builder, 49 templates
+  → Funnels        — multi-step conversion funnels
+  → Inbox          — unified email + SMS conversations
+  → Campaigns      — styled email templates, AI drafts, testing
+  → Courses        — courses, modules, lessons
+  → Sequences      — drip sequences, branching, 8 recipes
+  → Surveys        — form builder, public pages, analytics
+Settings           — theme, mode, calendar, integrations, BYOK, AI usage
 + AI Assistant     — floating chat on every page
 ```
 
-### Remaining Before Users Can Use It
-1. Gemini paid tier (Wesley's action)
-2. Stripe API keys (Wesley's action — test mode keys from stripe.com/dashboard)
-3. Resend API key + domain setup (Wesley's action)
-4. End-to-end testing
-5. Deploy to Hetzner
+### Architecture Decision: User-Connected Integrations (2026-03-26)
 
-### Future: Calendar Integrations
-- Google Calendar OAuth for two-way sync
-- Public booking page UI at /book/:slug
-- Automated booking reminders
+**All external services are user-connected, not platform-level.** Each user connects their own accounts. Platform pays $0 for email, payments, or SMS infrastructure.
 
-**AI provider:** Configurable via AI_PROVIDER env var. Default: Gemini. Options: google, anthropic, openai.
-**AI cost model:** System-wide monthly cap (admin adjustable) + BYOK fallback for users who exceed cap.
-**Form submissions → auto-create contacts:** Built (inline in submit endpoint).
-**No Puck:** Templates stay as vanilla HTML. Gemini rewrites body content directly. Much simpler, preserves design fidelity.
+**Email — hybrid model (same as HubSpot/GHL):**
+- **1:1 emails, sequences, invoices, booking confirmations** → sent through user's connected Gmail or Outlook (appears in their Sent folder, trusted sender reputation, zero deliverability management)
+- **Bulk campaigns** → user brings their own ESP API key (Resend, SendGrid, SES, Mailgun) — only needed for lists exceeding Gmail/Outlook daily limits
+- **Fallback** → generic SMTP connection for users with other providers
 
-### Remaining Phases
-- Phase 2 (Weeks 4-9): Landing pages, email, integration APIs, credit billing — **MVP**
-- Phase 3-5 (Weeks 10-30): SMS, pipeline, invoicing, AI, workflows, calendar, reporting, phone, courses
+**Payments** → Stripe Connect (user connects their own Stripe account via OAuth, money goes directly to them, platform can take optional application fee)
+
+**SMS** → user enters their own Twilio credentials (account SID, auth token, phone number)
+
+**Calendar** → Google OAuth already built, covers both Calendar sync AND Gmail email with one connection
+
+```
+Settings → Integrations
+  ├── Email
+  │   ├── Gmail         [Connect via Google OAuth]
+  │   ├── Outlook       [Connect via Microsoft OAuth]
+  │   └── SMTP          [Enter server details]
+  ├── Bulk Sending (optional)
+  │   └── ESP Provider  [Resend/SendGrid/SES/Mailgun + API key]
+  ├── Payments
+  │   └── Stripe        [Connect via Stripe Connect OAuth]
+  ├── SMS
+  │   └── Twilio        [Enter credentials]
+  └── Calendar
+      └── Google        [Already connected via Gmail OAuth]
+```
+
+### Remaining Before Launch
+1. [x] Gemini — upgraded to paid tier
+2. [ ] Gmail email integration (extend OAuth, send/receive via Gmail API)
+3. [ ] Outlook/Microsoft email integration (Graph API OAuth)
+4. [ ] Generic SMTP connection
+5. [ ] Bulk ESP BYOK (Resend/SendGrid/SES/Mailgun API key storage)
+6. [ ] Stripe Connect integration (user connects own Stripe)
+7. [ ] Twilio per-user integration (user enters own credentials)
+8. [ ] Integration Settings page (unified connection management)
+9. [ ] Google Cloud project for OAuth (Wesley's action — covers Calendar + Gmail)
+10. [ ] Deploy to Hetzner with Docker/Nginx/SSL
+11. [ ] End-to-end testing
+12. [ ] Mobile responsive CSS pass
+13. [ ] LaunchBot skill definition (deferred to last)
+
+**Key documentation files:**
+- `SETUP-CHECKLIST.md` — step-by-step deployment guide
+- `setup-tables.sql` — all custom database tables (~30+ tables)
+- `.env.production.example` — every env var with docs
+- `QUEUE.md` — prioritized task queue (all Priority 3 complete, Priority 2 in progress)
+
+**AI provider:** Configurable via AI_PROVIDER env var. Default: Gemini (google). Options: google, anthropic, openai.
+**AI cost model:** System-wide monthly cap (default 500/month) + BYOK fallback for unlimited.
+**Platform cost model:** $0 for email/SMS/payments — all user-connected. Platform only pays for AI (Gemini) + hosting (Hetzner).
 
 ---
 

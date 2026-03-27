@@ -1,3 +1,4 @@
+import { bootstrap } from '@/bootstrap'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -44,7 +45,19 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const unsubEmails = new Set(unsubscribed.map((u: any) => u.email.toLowerCase()))
 
     const contacts = await query.select('id', 'primary_email', 'display_name')
-    const recipients = contacts.filter((c: any) => !unsubEmails.has(c.primary_email?.toLowerCase()))
+    let recipients = contacts.filter((c: any) => !unsubEmails.has(c.primary_email?.toLowerCase()))
+
+    // Filter by category preferences if campaign has a category
+    const campaignCategory = campaign.category
+    if (campaignCategory) {
+      const optedOutPrefs = await knex('email_preferences')
+        .where('organization_id', auth.orgId)
+        .where('category_slug', campaignCategory)
+        .where('opted_in', false)
+        .select('contact_id')
+      const optedOutIds = new Set(optedOutPrefs.map((p: any) => p.contact_id))
+      recipients = recipients.filter((c: any) => !optedOutIds.has(c.id))
+    }
 
     // Mark campaign as sending
     await knex('email_campaigns').where('id', params.id).update({
@@ -72,6 +85,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       const trackingId = require('crypto').randomUUID()
       const firstName = (contact.display_name || '').split(' ')[0] || 'there'
 
+      // Generate preference center token
+      const prefToken = Buffer.from(`${contact.id}:${auth.orgId}`).toString('base64')
+      const preferenceCenterUrl = `${baseUrl}/api/email/preferences/${prefToken}`
+
       // Personalize email
       let html = campaign.body_html
         .replace(/\{\{firstName\}\}/g, firstName)
@@ -82,9 +99,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       html = html.replace('</body>',
         `<img src="${baseUrl}/api/email/track/open/${trackingId}" width="1" height="1" style="display:none" />\n</body>`)
 
-      // Add unsubscribe link
+      // Add preference center link and unsubscribe fallback
       html = html.replace('</body>',
-        `<div style="text-align:center;padding:20px;font-size:12px;color:#999"><a href="${baseUrl}/api/email/unsubscribe/${contact.id}" style="color:#999">Unsubscribe</a></div>\n</body>`)
+        `<div style="text-align:center;padding:20px;font-size:12px;color:#999">` +
+        `<a href="${preferenceCenterUrl}" style="color:#999">Manage email preferences</a>` +
+        ` &middot; ` +
+        `<a href="${baseUrl}/api/email/unsubscribe/${contact.id}" style="color:#999">Unsubscribe</a>` +
+        `</div>\n</body>`)
 
       // Store message
       await knex('email_messages').insert({

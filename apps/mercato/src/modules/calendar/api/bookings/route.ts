@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findOrMergeContact } from '../../../../app/api/contacts/dedup'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['calendar.view'] },
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
     // Check Google Calendar conflicts if connected
     if (page.owner_user_id) {
       try {
-        const { getGoogleBusyTimes } = await import('../../../app/api/google/calendar-service')
+        const { getGoogleBusyTimes } = await import('@/app/api/google/calendar-service')
         const busyTimes = await getGoogleBusyTimes(page.owner_user_id, start, end)
         const googleConflict = busyTimes.some(bt =>
           new Date(bt.start) < end && new Date(bt.end) > start
@@ -80,12 +81,10 @@ export async function POST(req: Request) {
       status: 'confirmed', notes: notes || null, created_at: new Date(),
     })
 
-    // Auto-create contact
-    const existingContact = await knex('customer_entities')
-      .where('primary_email', guestEmail).where('organization_id', page.organization_id)
-      .whereNull('deleted_at').first()
+    // Auto-create contact (with dedup check)
+    const dedupResult = await findOrMergeContact(knex, page.organization_id, page.tenant_id, guestEmail, guestName, guestPhone)
 
-    if (!existingContact) {
+    if (!dedupResult.existing) {
       await knex('customer_entities').insert({
         id: require('crypto').randomUUID(),
         tenant_id: page.tenant_id, organization_id: page.organization_id,
@@ -99,7 +98,7 @@ export async function POST(req: Request) {
     // Create Google Calendar event if connected
     if (page.owner_user_id) {
       try {
-        const { createGoogleCalendarEvent } = await import('../../../app/api/google/calendar-service')
+        const { createGoogleCalendarEvent } = await import('@/app/api/google/calendar-service')
         await createGoogleCalendarEvent(page.owner_user_id, {
           summary: `${page.title} — ${guestName}`,
           description: `Booking with ${guestName} (${guestEmail})${notes ? '\n\nNotes: ' + notes : ''}`,

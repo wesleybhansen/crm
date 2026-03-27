@@ -23,20 +23,22 @@ async function refreshTokenIfNeeded(connection: CalendarConnection): Promise<str
 
   // Refresh the token
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET
-  if (!clientId || !clientSecret || !connection.refresh_token) {
+  if (!clientId || !connection.refresh_token) {
     throw new Error('Cannot refresh Google token — missing credentials')
   }
+
+  const body: Record<string, string> = {
+    client_id: clientId,
+    refresh_token: connection.refresh_token,
+    grant_type: 'refresh_token',
+  }
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET
+  if (clientSecret) body.client_secret = clientSecret
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: connection.refresh_token,
-      grant_type: 'refresh_token',
-    }),
+    body: new URLSearchParams(body),
   })
   const tokens = await res.json()
 

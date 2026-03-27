@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Users, DollarSign, FileText, Eye, Plus, Send, TrendingUp, AlertCircle, CheckCircle2, ArrowRight, BarChart3 } from 'lucide-react'
+import { Users, DollarSign, FileText, Eye, Plus, Send, TrendingUp, AlertCircle, CheckCircle2, ArrowRight, BarChart3, Flame, AlertTriangle, Mail, HeartCrack, Clock } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 
 interface ActionItem {
@@ -35,12 +35,25 @@ export default function SimpleDashboard() {
   const [greeting, setGreeting] = useState('')
 
   useEffect(() => {
-    // Check for first-login redirect
-    if (document.cookie.includes('crm_first_login=true')) {
-      document.cookie = 'crm_first_login=; path=/; max-age=0'
-      window.location.href = '/backend/welcome'
-      return
-    }
+    // Check onboarding status from database — only redirect if profile exists but onboarding not complete
+    fetch('/api/business-profile', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => {
+        // Only redirect if we got a valid response AND the profile exists AND onboarding is explicitly not complete
+        if (d.ok && d.data === null) {
+          // No business profile at all — first time user, redirect to onboarding
+          window.location.href = '/backend/welcome'
+          return
+        }
+        // If profile exists, check onboarding_complete — but don't redirect on API errors
+        if (d.ok && d.data && d.data.onboarding_complete === false) {
+          window.location.href = '/backend/welcome'
+          return
+        }
+      })
+      .catch(() => {
+        // On error, stay on dashboard — don't redirect
+      })
 
     const hour = new Date().getHours()
     setGreeting(hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening')
@@ -63,6 +76,9 @@ export default function SimpleDashboard() {
         <h1 className="text-xl font-semibold">{greeting}</h1>
         <p className="text-sm text-muted-foreground mt-1">Here's what needs your attention.</p>
       </div>
+
+      {/* Needs Attention (Sentiment Alerts) */}
+      <NeedsAttention />
 
       {/* Action Items */}
       {data?.actionItems && data.actionItems.length > 0 && (
@@ -143,6 +159,12 @@ export default function SimpleDashboard() {
         </div>
       </div>
 
+      {/* Hottest Leads */}
+      <HottestLeads />
+
+      {/* Relationship Decay */}
+      <RelationshipDecay />
+
       {/* Recent Activity */}
       {data?.recentActivity && data.recentActivity.length > 0 && (
         <div>
@@ -185,6 +207,156 @@ function StatCard({ icon: Icon, label, value, change, href }: {
       <p className="text-2xl font-bold tabular-nums">{value}</p>
       {change && <p className="text-xs text-muted-foreground mt-1">{change}</p>}
     </a>
+  )
+}
+
+function NeedsAttention() {
+  const [alerts, setAlerts] = useState<Array<{ id: string; type: string; title: string; description: string; contactId: string; timestamp: string }>>([])
+
+  useEffect(() => {
+    fetch('/api/ai/needs-attention', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.ok && d.data?.length) setAlerts(d.data) })
+      .catch(() => {})
+  }, [])
+
+  if (alerts.length === 0) return null
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <AlertTriangle className="size-3.5 text-amber-500" /> Needs Attention
+      </h2>
+      <div className="space-y-2">
+        {alerts.map(alert => (
+          <div key={alert.id}
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
+              alert.type === 'urgent'
+                ? 'border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-900/10'
+                : 'border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-900/10'
+            }`}>
+            <Mail className={`size-4 shrink-0 ${
+              alert.type === 'urgent' ? 'text-red-500' : 'text-amber-500'
+            }`} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{alert.title}</p>
+              <p className="text-xs text-muted-foreground">{alert.description}</p>
+            </div>
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+              alert.type === 'urgent'
+                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+            }`}>{alert.type}</span>
+            <a href="/backend/inbox" className="text-xs text-accent hover:underline shrink-0">View</a>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HottestLeads() {
+  const [leads, setLeads] = useState<Array<{ id: string; display_name: string; primary_email: string; score: number }>>([])
+
+  useEffect(() => {
+    fetch('/api/engagement?view=hottest', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.ok && d.data?.length) setLeads(d.data.slice(0, 5)) })
+      .catch(() => {})
+  }, [])
+
+  if (leads.length === 0) return null
+
+  return (
+    <div>
+      <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <Flame className="size-3.5" /> Hottest Leads
+      </h2>
+      <div className="rounded-lg border divide-y">
+        {leads.map(lead => (
+          <a key={lead.id} href={`/backend/contacts`}
+            className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/30 transition">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{lead.display_name}</p>
+              <p className="text-xs text-muted-foreground truncate">{lead.primary_email}</p>
+            </div>
+            <span className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{lead.score}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RelationshipDecay() {
+  const [alerts, setAlerts] = useState<Array<{
+    contactId: string; displayName: string; email: string; score: number
+    lastActivity: string; avgFrequencyDays: number; currentGapDays: number; severity: 'yellow' | 'red'
+  }>>([])
+  const [draftingId, setDraftingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/ai/relationship-decay', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.ok && d.data?.length) setAlerts(d.data) })
+      .catch(() => {})
+  }, [])
+
+  if (alerts.length === 0) return null
+
+  function handleDraftFollowUp(alert: typeof alerts[0]) {
+    setDraftingId(alert.contactId)
+    // Open email compose with contact pre-filled
+    const subject = encodeURIComponent(`Checking in`)
+    const to = encodeURIComponent(alert.email)
+    window.location.href = `/backend/email?compose=true&to=${to}&subject=${subject}&contactId=${alert.contactId}`
+  }
+
+  return (
+    <div className="mt-8">
+      <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <HeartCrack className="size-3.5 text-amber-500" /> Fading Relationships
+      </h2>
+      <div className="rounded-lg border divide-y">
+        {alerts.slice(0, 5).map(alert => (
+          <div key={alert.contactId}
+            className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/30 transition">
+            <div className={`w-2 h-2 rounded-full shrink-0 ${
+              alert.severity === 'red' ? 'bg-red-500' : 'bg-amber-400'
+            }`} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{alert.displayName}</p>
+              <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
+                <Clock className="size-3 inline" />
+                {alert.currentGapDays}d since last contact
+                <span className="text-muted-foreground/50">|</span>
+                avg: every {alert.avgFrequencyDays}d
+              </p>
+            </div>
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${
+              alert.severity === 'red'
+                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+            }`}>
+              {alert.severity === 'red' ? 'Fading' : 'Cooling'}
+            </span>
+            <button
+              type="button"
+              onClick={() => handleDraftFollowUp(alert)}
+              disabled={draftingId === alert.contactId}
+              className="text-xs text-accent hover:underline shrink-0 disabled:opacity-50"
+            >
+              {draftingId === alert.contactId ? 'Opening...' : 'Follow up'}
+            </button>
+          </div>
+        ))}
+      </div>
+      {alerts.length > 5 && (
+        <p className="text-xs text-muted-foreground mt-2 text-center">
+          +{alerts.length - 5} more contacts need attention
+        </p>
+      )}
+    </div>
   )
 }
 

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findOrMergeContact } from '../../../../app/api/contacts/dedup'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['courses.view'] },
@@ -62,13 +63,10 @@ export async function POST(req: Request) {
       status: 'active', enrolled_at: new Date(),
     })
 
-    // Auto-create CRM contact
-    const existingContact = await knex('customer_entities')
-      .where('primary_email', studentEmail)
-      .where('organization_id', course.organization_id)
-      .whereNull('deleted_at').first()
+    // Auto-create CRM contact (with dedup check)
+    const dedupResult = await findOrMergeContact(knex, course.organization_id, course.tenant_id, studentEmail, studentName)
 
-    if (!existingContact) {
+    if (!dedupResult.existing) {
       await knex('customer_entities').insert({
         id: require('crypto').randomUUID(),
         tenant_id: course.tenant_id, organization_id: course.organization_id,

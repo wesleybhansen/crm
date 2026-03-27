@@ -1,7 +1,9 @@
+import { bootstrap } from '@/bootstrap'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { getPersonaForOrg } from '../persona'
 
 export async function GET() {
   try {
@@ -14,6 +16,13 @@ export async function GET() {
     const em = container.resolve('em') as EntityManager
     const knex = em.getKnex()
     const w = { tenant_id: auth.tenantId, organization_id: auth.orgId }
+
+    // Load persona name for dashboard greeting
+    let personaName = 'Scout'
+    try {
+      const profile = await getPersonaForOrg(knex, auth.orgId)
+      if (profile?.ai_persona_name) personaName = profile.ai_persona_name
+    } catch {}
 
     const now = new Date()
     const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000)
@@ -233,6 +242,7 @@ export async function GET() {
         actionItems: actionItems.slice(0, 5),
         stats,
         recentActivity,
+        personaName,
       },
     })
   } catch (error) {

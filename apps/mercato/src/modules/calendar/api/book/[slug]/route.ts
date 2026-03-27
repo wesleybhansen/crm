@@ -36,7 +36,7 @@ export async function GET(req: Request, ctx: any) {
     // Also get Google Calendar busy times if owner has connected
     if (page.owner_user_id) {
       try {
-        const { getGoogleBusyTimes } = await import('../../../../app/api/google/calendar-service')
+        const { getGoogleBusyTimes } = await import('@/app/api/google/calendar-service')
         const googleBusy = await getGoogleBusyTimes(page.owner_user_id, now, twoWeeksOut)
         bookedSlots = [...bookedSlots, ...googleBusy]
       } catch {}

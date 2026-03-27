@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Plus, Search, X, Mail, DollarSign, Tag, StickyNote, Phone, Building2, ExternalLink, CheckCircle2, Circle, Send, Loader2, Upload, MessageSquare } from 'lucide-react'
+import { Plus, Search, X, Mail, DollarSign, Tag, StickyNote, Phone, Building2, ExternalLink, CheckCircle2, Circle, Send, Loader2, Upload, MessageSquare, Flame, FileText, Activity, CheckSquare, Calendar, BookOpen, TrendingUp, Clock, Bell, Paperclip, Download, Trash2 } from 'lucide-react'
 import { EmailComposeModal } from '@/components/EmailComposeModal'
 import { CreateDealModal } from '@/components/CreateDealModal'
 import { SmsComposeModal } from '@/components/SmsComposeModal'
@@ -25,6 +25,8 @@ type Contact = {
 type Note = { id: string; content: string; created_at: string }
 type Task = { id: string; title: string; due_date: string | null; is_done: boolean; created_at: string }
 type ContactTag = { id: string; name: string; slug: string; color: string }
+type TimelineEvent = { type: string; title: string; description?: string; icon: string; timestamp: string; metadata?: Record<string, unknown> }
+type Attachment = { id: string; filename: string; file_size: number; mime_type: string | null; file_url: string; created_at: string }
 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
@@ -41,7 +43,7 @@ export default function ContactsPage() {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<any>(null)
   const [tab, setTab] = useState<'people' | 'companies'>('people')
-  const [panelTab, setPanelTab] = useState<'details' | 'notes' | 'tasks'>('details')
+  const [panelTab, setPanelTab] = useState<'timeline' | 'details' | 'notes' | 'tasks'>('timeline')
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [showDealModal, setShowDealModal] = useState(false)
   const [showSmsModal, setShowSmsModal] = useState(false)
@@ -49,6 +51,15 @@ export default function ContactsPage() {
   const [newTask, setNewTask] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [savingTask, setSavingTask] = useState(false)
+  const [engagementScore, setEngagementScore] = useState<number>(0)
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([])
+  const [timelineLoading, setTimelineLoading] = useState(false)
+  const [showRemindForm, setShowRemindForm] = useState(false)
+  const [remindDate, setRemindDate] = useState('')
+  const [remindMessage, setRemindMessage] = useState('')
+  const [savingReminder, setSavingReminder] = useState(false)
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [uploadingFile, setUploadingFile] = useState(false)
 
   useEffect(() => {
     loadContacts()
@@ -78,9 +89,14 @@ export default function ContactsPage() {
   function selectContact(contact: Contact) {
     setSelectedId(contact.id)
     setSelectedContact(contact)
-    setPanelTab('details')
+    setPanelTab('timeline')
     setNewNote('')
     setNewTask('')
+    // Load timeline
+    setTimelineLoading(true)
+    fetch(`/api/contacts/${contact.id}/timeline`, { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.ok) setTimeline(d.data || []) }).catch(() => setTimeline([]))
+      .finally(() => setTimelineLoading(false))
     // Load notes, tasks, and tags
     fetch(`/api/notes?contactId=${contact.id}`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setNotes(d.data || []) }).catch(() => {})
@@ -88,6 +104,10 @@ export default function ContactsPage() {
       .then(r => r.json()).then(d => { if (d.ok) setTasks(d.data || []) }).catch(() => {})
     fetch(`/api/contact-tags?contactId=${contact.id}`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setContactTags(d.data || []) }).catch(() => {})
+    fetch(`/api/engagement?contactId=${contact.id}`, { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.ok) setEngagementScore(d.data?.score || 0) }).catch(() => setEngagementScore(0))
+    fetch(`/api/contacts/${contact.id}/attachments`, { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.ok) setAttachments(d.data || []) }).catch(() => setAttachments([]))
   }
 
   function closePanel() {
@@ -96,6 +116,8 @@ export default function ContactsPage() {
     setNotes([])
     setTasks([])
     setContactTags([])
+    setTimeline([])
+    setAttachments([])
   }
 
   async function addTag() {
@@ -189,6 +211,64 @@ export default function ContactsPage() {
       })
       setTasks(prev => prev.map(t => t.id === task.id ? { ...t, is_done: !t.is_done } : t))
     } catch {}
+  }
+
+  async function addReminder() {
+    if (!remindDate || !remindMessage.trim() || !selectedContact) return
+    setSavingReminder(true)
+    try {
+      const res = await fetch('/api/reminders', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ entityType: 'contact', entityId: selectedContact.id, message: remindMessage, remindAt: new Date(remindDate).toISOString() }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setShowRemindForm(false)
+        setRemindDate('')
+        setRemindMessage('')
+      }
+    } catch {}
+    setSavingReminder(false)
+  }
+
+  async function uploadAttachment(file: File) {
+    if (!selectedContact || !file) return
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File too large. Maximum size is 10MB.')
+      return
+    }
+    setUploadingFile(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch(`/api/contacts/${selectedContact.id}/attachments`, {
+        method: 'POST', credentials: 'include', body: formData,
+      })
+      const data = await res.json()
+      if (data.ok && data.data) {
+        setAttachments(prev => [data.data, ...prev])
+      }
+    } catch {}
+    setUploadingFile(false)
+  }
+
+  async function deleteAttachment(attachmentId: string) {
+    if (!selectedContact) return
+    try {
+      const res = await fetch(`/api/contacts/${selectedContact.id}/attachments?attachmentId=${attachmentId}`, {
+        method: 'DELETE', credentials: 'include',
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setAttachments(prev => prev.filter(a => a.id !== attachmentId))
+      }
+    } catch {}
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
   const stageColors: Record<string, string> = {
@@ -393,7 +473,7 @@ export default function ContactsPage() {
 
           {/* Panel Tabs */}
           <div className="flex border-b px-5">
-            {(['details', 'notes', 'tasks'] as const).map(t => (
+            {(['timeline', 'details', 'notes', 'tasks'] as const).map(t => (
               <button key={t} type="button" onClick={() => setPanelTab(t)}
                 className={`text-xs font-medium px-3 py-2.5 border-b-2 transition capitalize ${
                   panelTab === t ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -403,6 +483,39 @@ export default function ContactsPage() {
 
           {/* Panel Content */}
           <div className="flex-1 overflow-y-auto px-5 py-4">
+            {/* Timeline Tab */}
+            {panelTab === 'timeline' && (
+              <div className="space-y-1">
+                {timelineLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-sm text-muted-foreground">Loading timeline...</span>
+                  </div>
+                ) : timeline.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-8">No activity yet.</p>
+                ) : (
+                  <div className="relative">
+                    {/* Vertical line */}
+                    <div className="absolute left-[15px] top-2 bottom-2 w-px bg-border" />
+                    {timeline.map((event, index) => (
+                      <div key={`${event.type}-${event.timestamp}-${index}`} className="relative flex gap-3 py-2.5 group">
+                        <div className={`relative z-10 w-[31px] h-[31px] rounded-full flex items-center justify-center shrink-0 ${getTimelineEventColor(event.type)}`}>
+                          <TimelineIcon name={event.icon} />
+                        </div>
+                        <div className="flex-1 min-w-0 pt-0.5">
+                          <p className="text-sm font-medium leading-tight">{event.title}</p>
+                          {event.description && (
+                            <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{event.description}</p>
+                          )}
+                          <p className="text-[10px] text-muted-foreground/70 mt-1">{formatRelativeTime(event.timestamp)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Details Tab */}
             {panelTab === 'details' && (
               <div className="space-y-3">
@@ -411,6 +524,58 @@ export default function ContactsPage() {
                 <DetailRow icon={Building2} label="Type" value={selectedContact.kind === 'person' ? 'Person' : 'Company'} />
                 <DetailRow icon={Tag} label="Source" value={selectedContact.source} />
                 <DetailRow icon={Tag} label="Stage" value={selectedContact.lifecycle_stage} />
+                <div className="flex items-center gap-2">
+                  <Flame className="size-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-[11px] text-muted-foreground">Engagement</p>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-semibold tabular-nums ${
+                        engagementScore >= 20 ? 'text-emerald-600 dark:text-emerald-400' :
+                        engagementScore >= 5 ? 'text-amber-600 dark:text-amber-400' :
+                        'text-muted-foreground'
+                      }`}>{engagementScore}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {engagementScore >= 20 ? 'Hot' : engagementScore >= 5 ? 'Warm' : 'Cold'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Remind Me */}
+                <div className="pt-3 border-t">
+                  {!showRemindForm ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => setShowRemindForm(true)} className="w-full">
+                      <Bell className="size-3.5 mr-1.5" /> Remind Me
+                    </Button>
+                  ) : (
+                    <div className="space-y-2 rounded-lg border p-3">
+                      <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">Set Reminder</label>
+                      <input
+                        type="datetime-local"
+                        value={remindDate}
+                        onChange={e => setRemindDate(e.target.value)}
+                        min={new Date().toISOString().slice(0, 16)}
+                        className="w-full rounded-md border bg-card px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <Input
+                        value={remindMessage}
+                        onChange={e => setRemindMessage(e.target.value)}
+                        placeholder="Follow up with this contact..."
+                        className="h-8 text-sm"
+                        onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) addReminder() }}
+                      />
+                      <div className="flex gap-1.5">
+                        <Button type="button" size="sm" onClick={addReminder}
+                          disabled={savingReminder || !remindDate || !remindMessage.trim()} className="flex-1 h-7 text-xs">
+                          {savingReminder ? <Loader2 className="size-3 animate-spin mr-1" /> : <Bell className="size-3 mr-1" />} Save
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => { setShowRemindForm(false); setRemindDate(''); setRemindMessage('') }} className="h-7 text-xs px-2">
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Tags */}
                 <div className="pt-3 border-t">
@@ -435,6 +600,46 @@ export default function ContactsPage() {
                       <Plus className="size-3" />
                     </Button>
                   </div>
+                </div>
+
+                {/* Files */}
+                <div className="pt-3 border-t">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Files</label>
+                    <label className="cursor-pointer">
+                      <input type="file" className="hidden" onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (file) uploadAttachment(file)
+                        e.target.value = ''
+                      }} />
+                      <span className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
+                        {uploadingFile ? <Loader2 className="size-3 animate-spin" /> : <Paperclip className="size-3" />}
+                        {uploadingFile ? 'Uploading...' : 'Attach file'}
+                      </span>
+                    </label>
+                  </div>
+                  {attachments.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No files attached.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {attachments.map(att => (
+                        <div key={att.id} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 group">
+                          <FileText className="size-3.5 text-muted-foreground shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">{att.filename}</p>
+                            <p className="text-[10px] text-muted-foreground">{formatFileSize(att.file_size)}</p>
+                          </div>
+                          <a href={att.file_url} download className="text-muted-foreground hover:text-foreground shrink-0">
+                            <Download className="size-3.5" />
+                          </a>
+                          <button type="button" onClick={() => deleteAttachment(att.id)}
+                            className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-3 border-t">
@@ -515,6 +720,41 @@ export default function ContactsPage() {
       )}
     </div>
   )
+}
+
+function getTimelineEventColor(type: string): string {
+  const colors: Record<string, string> = {
+    email: 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400',
+    form_submission: 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-400',
+    activity: 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400',
+    note: 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/40 dark:text-yellow-400',
+    task: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400',
+    invoice: 'bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400',
+    booking: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400',
+    sms: 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/40 dark:text-cyan-400',
+    course_enrollment: 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-400',
+    tag: 'bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400',
+    engagement: 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400',
+  }
+  return colors[type] || 'bg-muted text-muted-foreground'
+}
+
+function TimelineIcon({ name }: { name: string }) {
+  const iconClass = 'size-3.5'
+  switch (name) {
+    case 'Mail': return <Mail className={iconClass} />
+    case 'FileText': return <FileText className={iconClass} />
+    case 'Activity': return <Activity className={iconClass} />
+    case 'StickyNote': return <StickyNote className={iconClass} />
+    case 'CheckSquare': return <CheckSquare className={iconClass} />
+    case 'DollarSign': return <DollarSign className={iconClass} />
+    case 'Calendar': return <Calendar className={iconClass} />
+    case 'MessageSquare': return <MessageSquare className={iconClass} />
+    case 'BookOpen': return <BookOpen className={iconClass} />
+    case 'Tag': return <Tag className={iconClass} />
+    case 'TrendingUp': return <TrendingUp className={iconClass} />
+    default: return <Clock className={iconClass} />
+  }
 }
 
 function DetailRow({ icon: Icon, label, value }: { icon: any; label: string; value: string | null | undefined }) {

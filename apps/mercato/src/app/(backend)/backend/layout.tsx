@@ -1,7 +1,7 @@
 import { cookies, headers } from 'next/headers'
 import Script from 'next/script'
 import { createElement, type ReactNode } from 'react'
-import { Users, Kanban, FileText, Mail, LayoutDashboard, CreditCard, Settings, CalendarDays, BookOpen } from 'lucide-react'
+import { Users, Kanban, FileText, Mail, Inbox, LayoutDashboard, CreditCard, Settings, CalendarDays, BookOpen, GitBranch, GitMerge, Zap, ClipboardList, MessageCircle, Share2 } from 'lucide-react'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -326,8 +326,18 @@ export default async function BackendLayout({ children, params }: { children: Re
     weight: group.weight,
   }))
 
-  // Interface mode: simple (default) or advanced
-  const interfaceMode = cookieStore.get('crm_interface_mode')?.value || 'simple'
+  // Interface mode and onboarding status: read from database only
+  let interfaceMode = 'simple'
+  let onboardingComplete = false
+  try {
+    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const profile = await knex('business_profiles').where('organization_id', auth.orgId).first()
+    if (profile) {
+      interfaceMode = profile.interface_mode || 'simple'
+      onboardingComplete = !!profile.onboarding_complete
+    }
+  } catch {}
+
 
   const groups: NavGroup[] = interfaceMode === 'simple'
     ? filterForSimpleMode(allGroups, translate)
@@ -465,7 +475,7 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
     '/backend/customers/deals/pipeline',
     '/backend/landing-pages',
     '/backend/landing-pages/create',
-    '/backend/email',
+    '/backend/inbox',
   ])
 
   // Build simplified groups
@@ -526,6 +536,27 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
         enabled: true,
         icon: createElement(CalendarDays, { className: iconClass }),
       },
+      {
+        href: '/backend/automation-rules',
+        title: translate('nav.automations', 'Automations'),
+        defaultTitle: 'Automations',
+        enabled: true,
+        icon: createElement(Zap, { className: iconClass }),
+      },
+      {
+        href: '/backend/chat',
+        title: translate('nav.chat', 'Chat'),
+        defaultTitle: 'Chat',
+        enabled: true,
+        icon: createElement(MessageCircle, { className: iconClass }),
+      },
+      {
+        href: '/backend/affiliates',
+        title: translate('nav.affiliates', 'Affiliates'),
+        defaultTitle: 'Affiliates',
+        enabled: true,
+        icon: createElement(Share2, { className: iconClass }),
+      },
     ],
     weight: 10,
   })
@@ -544,11 +575,18 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
         icon: createElement(FileText, { className: iconClass }),
       },
       {
-        href: '/backend/email',
-        title: translate('nav.email', 'Email'),
-        defaultTitle: 'Email',
+        href: '/backend/funnels',
+        title: translate('nav.funnels', 'Funnels'),
+        defaultTitle: 'Funnels',
         enabled: true,
-        icon: createElement(Mail, { className: iconClass }),
+        icon: createElement(GitMerge, { className: iconClass }),
+      },
+      {
+        href: '/backend/inbox',
+        title: translate('nav.inbox', 'Inbox'),
+        defaultTitle: 'Inbox',
+        enabled: true,
+        icon: createElement(Inbox, { className: iconClass }),
       },
       {
         href: '/backend/courses',
@@ -556,6 +594,20 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
         defaultTitle: 'Courses',
         enabled: true,
         icon: createElement(BookOpen, { className: iconClass }),
+      },
+      {
+        href: '/backend/sequences',
+        title: translate('nav.sequences', 'Sequences'),
+        defaultTitle: 'Sequences',
+        enabled: true,
+        icon: createElement(GitBranch, { className: iconClass }),
+      },
+      {
+        href: '/backend/surveys',
+        title: translate('nav.surveys', 'Surveys'),
+        defaultTitle: 'Surveys',
+        enabled: true,
+        icon: createElement(ClipboardList, { className: iconClass }),
       },
     ],
     weight: 20,

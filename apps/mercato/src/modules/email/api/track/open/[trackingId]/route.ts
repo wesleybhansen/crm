@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { trackEngagement } from '@/app/api/engagement/score'
 
 export const metadata = { GET: { requireAuth: false } }
 
@@ -11,10 +12,24 @@ export async function GET(req: Request, { params }: { params: { trackingId: stri
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const knex = em.getKnex()
-    await knex('email_messages')
+    const msg = await knex('email_messages')
       .where('tracking_id', params.trackingId)
       .whereNull('opened_at')
-      .update({ opened_at: new Date(), status: 'opened' })
+      .first()
+    if (msg) {
+      const now = new Date()
+      await knex('email_messages').where('id', msg.id).update({ opened_at: now, status: 'opened' })
+      if (msg.contact_id) {
+        trackEngagement(knex, msg.organization_id, msg.tenant_id, msg.contact_id, 'email_opened').catch(() => {})
+        knex('contact_open_times').insert({
+          contact_id: msg.contact_id,
+          organization_id: msg.organization_id,
+          hour_of_day: now.getUTCHours(),
+          day_of_week: now.getUTCDay(),
+          opened_at: now,
+        }).catch(() => {})
+      }
+    }
   } catch (error) {
     console.error('[email.track.open] failed', error)
   }

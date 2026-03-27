@@ -1,4 +1,9 @@
+import { bootstrap } from '@/bootstrap'
 import { NextResponse } from 'next/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 
 export async function POST(req: Request) {
   try {
@@ -19,7 +24,28 @@ export async function POST(req: Request) {
       })
     }
 
-    const prompt = `Write a short, professional email for a solopreneur/small business owner.
+    // Load persona for tone matching
+    let toneInstruction = 'Friendly but professional tone'
+    try {
+      const auth = await getAuthFromCookies()
+      if (auth?.orgId) {
+        const container = await createRequestContainer()
+        const em = container.resolve('em') as EntityManager
+        const knex = em.getKnex()
+        const profile = await getPersonaForOrg(knex, auth.orgId)
+        if (profile) {
+          const style = profile.ai_persona_style || 'professional'
+          if (style === 'professional') toneInstruction = 'Professional, direct, and efficient tone'
+          else if (style === 'casual') toneInstruction = 'Warm, friendly, and conversational tone'
+          else if (style === 'minimal') toneInstruction = 'Extremely concise and no-nonsense tone'
+          if (profile.ai_custom_instructions) {
+            toneInstruction += `\nAdditional style rules: ${profile.ai_custom_instructions}`
+          }
+        }
+      }
+    } catch {}
+
+    const prompt = `Write a short email for a solopreneur/small business owner.
 
 TO: ${contactName} (${contactEmail || 'no email'})
 PURPOSE: ${purpose || 'general follow-up'}
@@ -27,7 +53,7 @@ ${context ? `CONTEXT: ${context}` : ''}
 
 RULES:
 - Keep it under 100 words
-- Friendly but professional tone
+- ${toneInstruction}
 - No fluff or filler
 - Include a clear next step or call to action
 - Don't use overly formal language like "I hope this email finds you well"

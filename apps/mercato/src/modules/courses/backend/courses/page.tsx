@@ -89,11 +89,11 @@ export default function CoursesPage() {
             <div className="flex items-center gap-4">
               <div className="flex gap-2">
                 <button type="button" onClick={() => setIsFree(true)}
-                  className={`px-3 py-1.5 rounded-lg border text-xs font-medium ${isFree ? 'border-accent bg-accent/5 text-accent' : 'text-muted-foreground'}`}>
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-medium ${isFree ? 'selected-card text-accent' : 'text-muted-foreground'}`}>
                   Free
                 </button>
                 <button type="button" onClick={() => setIsFree(false)}
-                  className={`px-3 py-1.5 rounded-lg border text-xs font-medium ${!isFree ? 'border-accent bg-accent/5 text-accent' : 'text-muted-foreground'}`}>
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-medium ${!isFree ? 'selected-card text-accent' : 'text-muted-foreground'}`}>
                   Paid
                 </button>
               </div>

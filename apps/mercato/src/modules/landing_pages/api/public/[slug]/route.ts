@@ -25,7 +25,13 @@ export async function GET(req: Request, { params }: { params: { slug: string } }
 
     await knex('landing_pages').where('id', page.id).increment('view_count', 1)
 
-    return new NextResponse(page.published_html, {
+    // Inject UTM capture script before </body> to populate hidden form fields
+    const utmCaptureScript = `<script>(function(){try{var p=new URLSearchParams(window.location.search);var u=['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];var r=document.referrer||'';document.querySelectorAll('form').forEach(function(f){u.forEach(function(k){var v=p.get(k);if(v){var h=document.createElement('input');h.type='hidden';h.name='_'+k;h.value=v;f.appendChild(h)}});if(r){var rh=document.createElement('input');rh.type='hidden';rh.name='_referrer';rh.value=r;f.appendChild(rh)}})}catch(e){}})()</script>`
+    const htmlWithUtm = page.published_html.includes('</body>')
+      ? page.published_html.replace('</body>', utmCaptureScript + '</body>')
+      : page.published_html + utmCaptureScript
+
+    return new NextResponse(htmlWithUtm, {
       status: 200,
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
     })

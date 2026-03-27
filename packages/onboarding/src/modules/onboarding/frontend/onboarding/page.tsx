@@ -128,6 +128,11 @@ export default function OnboardingPage() {
         setState('idle')
         return
       }
+      // Dev mode: auto-verify by redirecting to the verify URL
+      if ((data as any).devVerifyUrl) {
+        window.location.href = (data as any).devVerifyUrl
+        return
+      }
       setEmailSubmitted(data.email ?? parsed.data.email)
       setState('success')
     } catch (err) {

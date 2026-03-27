@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { checkSequenceTriggers } from '@/modules/sequences/services/sequence-triggers'
+import { trackEngagement } from '@/app/api/engagement/score'
+import { dispatchWebhook } from '@/app/api/webhooks/dispatch'
+import { executeAutomationRules } from '@/app/api/automation-rules/execute'
+import { attributeReferral } from '@/app/api/affiliates/attribute'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -12,6 +17,8 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const knex = em.getKnex()
+
+    const url = new URL(req.url)
 
     const page = await knex('landing_pages')
       .where('slug', params.slug)
@@ -34,24 +41,50 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
       }
     }
 
+    // Extract UTM params from form data (injected by client-side script) or query string
+    const utmSource = data._utm_source || url.searchParams.get('utm_source') || null
+    const utmMedium = data._utm_medium || url.searchParams.get('utm_medium') || null
+    const utmCampaign = data._utm_campaign || url.searchParams.get('utm_campaign') || null
+    const utmContent = data._utm_content || url.searchParams.get('utm_content') || null
+    const utmTerm = data._utm_term || url.searchParams.get('utm_term') || null
+    const capturedReferrer = data._referrer || req.headers.get('referer') || null
+
+    const sourceDetails: Record<string, string> = {}
+    if (utmSource) sourceDetails.utm_source = utmSource
+    if (utmMedium) sourceDetails.utm_medium = utmMedium
+    if (utmCampaign) sourceDetails.utm_campaign = utmCampaign
+    if (utmContent) sourceDetails.utm_content = utmContent
+    if (utmTerm) sourceDetails.utm_term = utmTerm
+    if (capturedReferrer) sourceDetails.referrer = capturedReferrer
+    sourceDetails.landing_page = page.title || page.slug
+
+    // Strip internal UTM fields from stored form data
+    const cleanData = { ...data }
+    delete cleanData._utm_source
+    delete cleanData._utm_medium
+    delete cleanData._utm_campaign
+    delete cleanData._utm_content
+    delete cleanData._utm_term
+    delete cleanData._referrer
+
     await knex('form_submissions').insert({
       id: require('crypto').randomUUID(),
       tenant_id: page.tenant_id,
       organization_id: page.organization_id,
       form_id: form.id,
       landing_page_id: page.id,
-      data: JSON.stringify(data),
+      data: JSON.stringify(cleanData),
       source_ip: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || null,
       user_agent: req.headers.get('user-agent') || null,
-      referrer: req.headers.get('referer') || null,
+      referrer: capturedReferrer,
       created_at: new Date(),
     })
 
     await knex('landing_pages').where('id', page.id).increment('submission_count', 1)
 
     // Auto-create contact if email is provided
-    const email = data.email || data.Email
-    const name = data.name || data.Name || data.full_name || data.fullName || email
+    const email = cleanData.email || cleanData.Email
+    const name = cleanData.name || cleanData.Name || cleanData.full_name || cleanData.fullName || email
     let contactId = null
     if (email) {
       try {
@@ -64,6 +97,13 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
 
         if (existing) {
           contactId = existing.id
+          // Update source_details on existing contact if not already set
+          if (!existing.source_details) {
+            await knex('customer_entities').where('id', existing.id).update({
+              source_details: JSON.stringify(sourceDetails),
+              updated_at: new Date(),
+            })
+          }
         } else {
           contactId = require('crypto').randomUUID()
           await knex('customer_entities').insert({
@@ -73,8 +113,9 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
             kind: 'person',
             display_name: name,
             primary_email: email,
-            primary_phone: data.phone || data.Phone || null,
-            source: 'landing_page',
+            primary_phone: cleanData.phone || cleanData.Phone || null,
+            source: utmSource ? `landing_page:${utmSource}` : 'landing_page',
+            source_details: JSON.stringify(sourceDetails),
             status: 'active',
             lifecycle_stage: 'prospect',
             created_at: new Date(),
@@ -83,7 +124,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
 
           // Create person profile if we have name parts
           const nameParts = (name || '').split(' ')
-          if (nameParts.length > 0 && contactId) {
+          if (nameParts.length > 0) {
             await knex('customer_people').insert({
               id: require('crypto').randomUUID(),
               tenant_id: page.tenant_id,
@@ -108,6 +149,49 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
             .update({ contact_id: contactId })
         }
 
+        // Track engagement + check sequence triggers
+        if (contactId) {
+          trackEngagement(knex, page.organization_id, page.tenant_id, contactId, 'form_submitted').catch(() => {})
+          checkSequenceTriggers(knex, page.organization_id, page.tenant_id, 'form_submit', {
+            contactId, formId: form.id,
+          }).catch(() => {})
+        }
+
+        // Dispatch webhooks for contact creation and form submission
+        if (contactId && !existing) {
+          dispatchWebhook(knex, page.organization_id, 'contact.created', {
+            contactId,
+            email,
+            name,
+            source: utmSource ? `landing_page:${utmSource}` : 'landing_page',
+          }).catch(() => {})
+        }
+
+        dispatchWebhook(knex, page.organization_id, 'form.submitted', {
+          contactId,
+          formId: form.id,
+          landingPageId: page.id,
+          landingPageSlug: page.slug,
+          data: cleanData,
+        }).catch(() => {})
+
+        // Fire automation rules for form submission and contact creation
+        if (contactId) {
+          executeAutomationRules(knex, page.organization_id, page.tenant_id, 'form_submitted', {
+            contactId, formId: form.id, landingPageSlug: page.slug,
+          }).catch(() => {})
+        }
+        if (contactId && !existing) {
+          executeAutomationRules(knex, page.organization_id, page.tenant_id, 'contact_created', {
+            contactId, source: utmSource ? `landing_page:${utmSource}` : 'landing_page',
+          }).catch(() => {})
+        }
+
+        // Attribute affiliate referral if cookie present
+        if (email) {
+          attributeReferral(knex, page.organization_id, page.tenant_id, email).catch(() => {})
+        }
+
         // Log activity on the contact
         await knex('customer_activities').insert({
           id: require('crypto').randomUUID(),
@@ -116,7 +200,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           entity_id: contactId,
           activity_type: 'form_submission',
           subject: `Form submitted on "${page.title}"`,
-          body: JSON.stringify(data),
+          body: JSON.stringify(cleanData),
           occurred_at: new Date(),
           created_at: new Date(),
           updated_at: new Date(),

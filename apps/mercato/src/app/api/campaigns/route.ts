@@ -1,3 +1,4 @@
+import { bootstrap } from '@/bootstrap'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
     const body = await req.json()
-    const { name, subject, bodyHtml, segmentFilter } = body
+    const { name, subject, bodyHtml, segmentFilter, templateId } = body
 
     if (!name || !subject || !bodyHtml) {
       return NextResponse.json({ ok: false, error: 'name, subject, and bodyHtml required' }, { status: 400 })
@@ -39,6 +40,7 @@ export async function POST(req: Request) {
     await knex('email_campaigns').insert({
       id, tenant_id: auth.tenantId, organization_id: auth.orgId,
       name, subject, body_html: bodyHtml,
+      template_id: templateId || null,
       status: 'draft',
       segment_filter: segmentFilter ? JSON.stringify(segmentFilter) : null,
       stats: JSON.stringify({ total: 0, sent: 0, delivered: 0, opened: 0, clicked: 0 }),

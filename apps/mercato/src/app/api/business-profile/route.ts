@@ -1,3 +1,4 @@
+import { bootstrap } from '@/bootstrap'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -40,6 +41,17 @@ export async function PUT(req: Request) {
     if (body.teamSize !== undefined) data.team_size = body.teamSize
     if (body.clientSources !== undefined) data.client_sources = JSON.stringify(body.clientSources)
     if (body.pipelineStages !== undefined) data.pipeline_stages = JSON.stringify(body.pipelineStages)
+    if (body.aiPersonaName !== undefined) data.ai_persona_name = body.aiPersonaName
+    if (body.aiPersonaStyle !== undefined) data.ai_persona_style = body.aiPersonaStyle
+    if (body.aiCustomInstructions !== undefined) data.ai_custom_instructions = body.aiCustomInstructions
+    if (body.websiteUrl !== undefined) data.website_url = body.websiteUrl
+    if (body.brandColors !== undefined) data.brand_colors = JSON.stringify(body.brandColors)
+    if (body.socialLinks !== undefined) data.social_links = JSON.stringify(body.socialLinks)
+    if (body.detectedServices !== undefined) data.detected_services = JSON.stringify(body.detectedServices)
+    if (body.pipelineMode !== undefined) data.pipeline_mode = body.pipelineMode
+    if (body.emailIntakeMode !== undefined) data.email_intake_mode = body.emailIntakeMode
+    if (body.interfaceMode !== undefined) data.interface_mode = body.interfaceMode
+    if (body.onboardingComplete !== undefined) data.onboarding_complete = body.onboardingComplete
 
     if (existing) {
       await knex('business_profiles').where('id', existing.id).update(data)

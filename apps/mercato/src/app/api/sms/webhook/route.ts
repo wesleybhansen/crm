@@ -1,8 +1,12 @@
+import { bootstrap } from '@/bootstrap'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
+export const metadata = { POST: { requireAuth: false } }
+
 // Twilio webhook for incoming SMS
+// Routes inbound messages to the correct org by looking up the "To" phone number
 export async function POST(req: Request) {
   try {
     const formData = await req.formData()
@@ -18,17 +22,36 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    // Find the contact by phone number
-    const contact = await knex('customer_entities')
-      .where('primary_phone', from)
-      .whereNull('deleted_at')
+    // Look up which org owns this phone number
+    const twilioConnection = await knex('twilio_connections')
+      .where('phone_number', to)
+      .where('is_active', true)
       .first()
+
+    const orgId = twilioConnection?.organization_id || null
+    const tenantId = twilioConnection?.tenant_id || null
+
+    // Find the contact by phone number within the org
+    let contact = null
+    if (orgId) {
+      contact = await knex('customer_entities')
+        .where('primary_phone', from)
+        .where('organization_id', orgId)
+        .whereNull('deleted_at')
+        .first()
+    } else {
+      // Fallback: search across all orgs (legacy behavior)
+      contact = await knex('customer_entities')
+        .where('primary_phone', from)
+        .whereNull('deleted_at')
+        .first()
+    }
 
     // Store the inbound message
     await knex('sms_messages').insert({
       id: require('crypto').randomUUID(),
-      tenant_id: contact?.tenant_id || null,
-      organization_id: contact?.organization_id || null,
+      tenant_id: tenantId || contact?.tenant_id || null,
+      organization_id: orgId || contact?.organization_id || null,
       contact_id: contact?.id || null,
       direction: 'inbound',
       from_number: from,
@@ -39,9 +62,9 @@ export async function POST(req: Request) {
       created_at: new Date(),
     })
 
-    console.log(`[sms.webhook] Received from ${from}: ${body}`)
+    console.log(`[sms.webhook] Received from ${from} to ${to} (org: ${orgId || 'unknown'}): ${body}`)
 
-    // Return TwiML response (empty — no auto-reply)
+    // Return TwiML response (empty -- no auto-reply)
     return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
   } catch (error) {
     console.error('[sms.webhook]', error)
