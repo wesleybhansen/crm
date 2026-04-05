@@ -139,14 +139,18 @@ Docker compose for CRM + PostgreSQL + Redis. Nginx reverse proxy + SSL. Set APP_
 ### 23. End-to-End Testing
 Full flow: signup → onboarding → connect Gmail → send email → landing page → form → contact → Stripe → payment → sequence → verify.
 
-### 23b. Post-Deploy Verification
+### 23b. Post-Deploy Verification ✅ PARTIALLY DONE
 After Hetzner deploy is live, verify these work in production:
-- **Cron jobs**: Set up crontab for `/api/reminders/process` (every 1 min) and `/api/email-intelligence/cron` (every 30 min) and `/api/sequences/process` (every 5 min) and `/api/automation-rules/run-scheduled` (every 10 min). Verify reminders arrive without browser open.
-- **Gmail OAuth**: Reconnect Gmail with production redirect URI. Verify token refresh works. Move Google Cloud project from Testing → Production so tokens don't expire after 7 days.
-- **Email delivery**: Send test email via Scout. Verify Gmail sends (not just Resend fallback). Verify sender name shows correctly.
-- **Stripe**: Switch to live keys. Test a real payment through a funnel or invoice. Verify success page shows correctly.
-- **Brand Voice Engine**: Run voice analysis from Gmail. Verify profile saves. Send an AI draft and confirm it matches the voice.
-- **Voice Assistant**: Connect via voice. Test create contact, send email, create event, set reminder.
+- ✅ **SSL**: HTTPS live at https://crm.thelaunchpadincubator.com
+- ✅ **Cron jobs**: Crontab set — reminders (1 min), sequences (5 min), email sync (30 min), automations (10 min)
+- ✅ **Stripe webhook**: Endpoint configured (sandbox mode)
+- ⬜ **Stripe live payments**: Switch from sandbox to live keys in Stripe dashboard. Update `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` on server. Create a test invoice/funnel and process a real $1 payment. Verify success page, webhook delivery, and payment record.
+- ⬜ **Gmail OAuth**: Reconnect Gmail with production redirect URI (`https://crm.thelaunchpadincubator.com/api/google/callback`). Move Google Cloud project from Testing → Production so tokens don't expire after 7 days.
+- ⬜ **Email delivery**: Send test email via Scout. Verify Gmail sends (not just Resend fallback). Verify sender name shows correctly.
+- ⬜ **Brand Voice Engine**: Run voice analysis from Gmail. Verify profile saves. Send an AI draft and confirm it matches the voice.
+- ⬜ **Voice Assistant**: Connect via voice. Test create contact, send email, create event, set reminder.
+- ⬜ **Landing pages**: Create and publish a page. Verify public URL works on production domain.
+- ⬜ **Booking pages**: Create a booking page. Verify public booking link works.
 - **Landing pages**: Create and publish a page. Verify public URL works on production domain.
 - **Booking pages**: Create a booking page. Verify public booking link works.
 - **SSL/Domain**: Verify HTTPS works, no mixed content warnings.
