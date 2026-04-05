@@ -15,7 +15,7 @@ services:
       HOSTNAME: 0.0.0.0
       DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
     working_dir: /app/apps/mercato
-    command: ["node", ".mercato/next/standalone/apps/mercato/server.js"]
+    command: ["sh", "-c", "cp .mercato/next/standalone/apps/mercato/server.js .mercato/next/standalone/apps/mercato/server.cjs && node .mercato/next/standalone/apps/mercato/server.cjs"]
     ports:
       - "3000:3000"
     depends_on:
