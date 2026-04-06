@@ -21,7 +21,7 @@ export default function PrivacyPage() {
       <p style={s.updated}>Last updated: April 6, 2026</p>
 
       <div style={s.callout}>
-        <strong>Company-Wide Privacy Policy:</strong> This policy covers the LaunchOS CRM platform specifically. For our company-wide privacy policy covering all Launchpad Incubator services, see <a href="https://thelaunchpadincubator.com/privacy/" style={s.link}>thelaunchpadincubator.com/privacy</a>.
+        <strong>Incorporation of Company-Wide Privacy Policy:</strong> The <a href="https://thelaunchpadincubator.com/privacy/" style={s.link}>Launchpad Incubator Privacy Policy</a> is expressly incorporated into and made a part of this policy by reference. All terms and provisions of the company-wide privacy policy apply to your use of the LaunchOS CRM platform, except where they directly conflict with the terms set forth in this document, in which case the terms of this document shall control with respect to the Platform.
       </div>
 
       <p style={s.p}>The Launch Pad LLC ("Company," "we," "our," "us") operates the LaunchOS CRM platform at crm.thelaunchpadincubator.com (the "Platform"). This Privacy Policy explains how we collect, use, store, share, and protect your information when you use the Platform. By accessing or using LaunchOS, you consent to the practices described in this policy.</p>
@@ -150,7 +150,7 @@ export default function PrivacyPage() {
       <p style={s.p}>We may update this Privacy Policy from time to time. We will notify you of material changes via email or in-app notification at least 14 days before the changes take effect. The "Last updated" date at the top reflects the most recent revision.</p>
 
       <div style={s.footer}>
-        <p>See also: <a href="https://thelaunchpadincubator.com/privacy/" style={s.link}>Company-Wide Privacy Policy</a> · <a href="/terms" style={s.link}>Terms of Service</a></p>
+        <p><a href="https://thelaunchpadincubator.com/privacy/" style={s.link}>Company-Wide Privacy Policy (incorporated by reference)</a> · <a href="/terms" style={s.link}>Terms of Service</a></p>
         <p style={{ marginTop: 8 }}><a href="/login" style={s.link}>← Back to LaunchOS</a></p>
       </div>
     </div>

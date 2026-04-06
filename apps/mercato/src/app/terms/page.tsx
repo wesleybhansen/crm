@@ -21,7 +21,7 @@ export default function TermsPage() {
       <p style={s.updated}>Last updated: April 6, 2026</p>
 
       <div style={s.callout}>
-        <strong>Company-Wide Terms:</strong> This agreement covers the LaunchOS CRM platform specifically. For our company-wide terms covering all Launchpad Incubator services, see <a href="https://thelaunchpadincubator.com/terms/" style={s.link}>thelaunchpadincubator.com/terms</a>.
+        <strong>Incorporation of Company-Wide Terms:</strong> The <a href="https://thelaunchpadincubator.com/terms/" style={s.link}>Launchpad Incubator Terms &amp; Conditions</a> are expressly incorporated into and made a part of these Terms by reference. All terms and provisions of the company-wide terms apply to your use of the LaunchOS CRM platform, except where they directly conflict with the terms set forth in this document, in which case the terms of this document shall control with respect to the Platform.
       </div>
 
       <p style={s.p}>These Terms of Service ("Terms") constitute a legally binding agreement between you ("User," "you," "your") and The Launch Pad LLC ("Company," "we," "our," "us"), governing your access to and use of the LaunchOS CRM platform at crm.thelaunchpadincubator.com (the "Platform"). By creating an account, accessing, or using the Platform, you acknowledge that you have read, understood, and agree to be bound by these Terms and our <a href="/privacy" style={s.link}>Privacy Policy</a>.</p>
@@ -113,7 +113,7 @@ export default function TermsPage() {
       </ul>
 
       <div style={s.footer}>
-        <p>See also: <a href="https://thelaunchpadincubator.com/terms/" style={s.link}>Company-Wide Terms</a> · <a href="/privacy" style={s.link}>Privacy Policy</a></p>
+        <p><a href="https://thelaunchpadincubator.com/terms/" style={s.link}>Company-Wide Terms (incorporated by reference)</a> · <a href="/privacy" style={s.link}>Privacy Policy</a></p>
         <p style={{ marginTop: 8 }}><a href="/login" style={s.link}>← Back to LaunchOS</a></p>
       </div>
     </div>
