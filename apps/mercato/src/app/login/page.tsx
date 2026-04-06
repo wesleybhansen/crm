@@ -276,6 +276,11 @@ export default function LoginPage() {
           </>
         )}
       </div>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 24, fontSize: 12, color: '#999' }}>
+        <a href="/terms" style={{ color: '#999', textDecoration: 'none' }}>Terms of Service</a>
+        <span>·</span>
+        <a href="/privacy" style={{ color: '#999', textDecoration: 'none' }}>Privacy Policy</a>
+      </div>
     </div>
   )
 }

@@ -21,7 +21,7 @@ export function AppProviders({ children, locale, dict, demoModeEnabled }: AppPro
       <ClientBootstrapProvider>
         <ThemeProvider>
           <QueryProvider>
-            <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
+            <FrontendLayout footer={null}>{children}</FrontendLayout>
             <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
           </QueryProvider>
         </ThemeProvider>
