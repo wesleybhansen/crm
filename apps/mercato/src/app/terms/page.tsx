@@ -1,4 +1,4 @@
-export const metadata = { title: 'Terms and Conditions — LaunchOS CRM' }
+export const metadata = { title: 'Terms &amp; Conditions — LaunchOS CRM' }
 
 export default function TermsPage() {
   const s = {
@@ -17,7 +17,7 @@ export default function TermsPage() {
 
   return (
     <div style={s.page}>
-      <h1 style={s.h1}>LaunchOS CRM — Terms and Conditions</h1>
+      <h1 style={s.h1}>LaunchOS CRM — Terms &amp; Conditions</h1>
       <p style={s.updated}>Last updated: April 6, 2026</p>
 
       <div style={s.callout}>

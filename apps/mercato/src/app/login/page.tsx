@@ -280,7 +280,7 @@ export default function LoginPage() {
       </div>
       <div style={{ textAlign: 'center', marginTop: 40, fontSize: 12, color: '#999', lineHeight: 1.8 }}>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginBottom: 8 }}>
-          <a href="/terms" className="footer-link" style={{ color: '#888', textDecoration: 'none', transition: 'color 0.2s' }} onMouseEnter={e => (e.currentTarget.style.color = '#0000CC')} onMouseLeave={e => (e.currentTarget.style.color = '#888')}>Terms and Conditions</a>
+          <a href="/terms" className="footer-link" style={{ color: '#888', textDecoration: 'none', transition: 'color 0.2s' }} onMouseEnter={e => (e.currentTarget.style.color = '#0000CC')} onMouseLeave={e => (e.currentTarget.style.color = '#888')}>Terms &amp; Conditions</a>
           <span style={{ color: '#ccc' }}>·</span>
           <a href="/privacy" className="footer-link" style={{ color: '#888', textDecoration: 'none', transition: 'color 0.2s' }} onMouseEnter={e => (e.currentTarget.style.color = '#0000CC')} onMouseLeave={e => (e.currentTarget.style.color = '#888')}>Privacy Policy</a>
         </div>

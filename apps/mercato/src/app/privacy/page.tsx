@@ -150,7 +150,7 @@ export default function PrivacyPage() {
       <p style={s.p}>We may update this Privacy Policy from time to time. We will notify you of material changes via email or in-app notification at least 14 days before the changes take effect. The "Last updated" date at the top reflects the most recent revision.</p>
 
       <div style={s.footer}>
-        <p><a href="/terms" style={s.link}>Terms and Conditions</a> · <a href="/login" style={s.link}>Back to LaunchOS</a></p>
+        <p><a href="/terms" style={s.link}>Terms &amp; Conditions</a> · <a href="/login" style={s.link}>Back to LaunchOS</a></p>
         <p style={{ marginTop: 8, color: '#bbb' }}>© {new Date().getFullYear()} The Launch Pad LLC. All rights reserved.</p>
       </div>
     </div>
