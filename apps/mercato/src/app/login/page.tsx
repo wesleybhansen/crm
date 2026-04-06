@@ -278,7 +278,7 @@ export default function LoginPage() {
           </>
         )}
       </div>
-      <div style={{ textAlign: 'center', marginTop: 40, fontSize: 12, color: '#999', lineHeight: 1.8 }}>
+      <div style={{ textAlign: 'center', marginTop: 120, fontSize: 12, color: '#999', lineHeight: 1.8 }}>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginBottom: 8 }}>
           <a href="/terms" className="footer-link" style={{ color: '#888', textDecoration: 'none', transition: 'color 0.2s' }} onMouseEnter={e => (e.currentTarget.style.color = '#0000CC')} onMouseLeave={e => (e.currentTarget.style.color = '#888')}>Terms &amp; Conditions</a>
 
