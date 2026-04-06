@@ -6,11 +6,13 @@ const styles = {
   page: {
     minHeight: '100vh',
     display: 'flex',
+    flexDirection: 'column' as const,
     alignItems: 'center',
     justifyContent: 'center',
     background: 'linear-gradient(135deg, #ffffff 0%, #f0f0f5 100%)',
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     padding: '20px',
+    margin: 0,
   } as React.CSSProperties,
   card: {
     width: '100%',
@@ -276,10 +278,13 @@ export default function LoginPage() {
           </>
         )}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 24, fontSize: 12, color: '#999' }}>
-        <a href="/terms" style={{ color: '#999', textDecoration: 'none' }}>Terms of Service</a>
-        <span>·</span>
-        <a href="/privacy" style={{ color: '#999', textDecoration: 'none' }}>Privacy Policy</a>
+      <div style={{ textAlign: 'center', marginTop: 32, fontSize: 12, color: '#999', lineHeight: 1.8 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginBottom: 8 }}>
+          <a href="/terms" style={{ color: '#888', textDecoration: 'none' }}>Terms and Conditions</a>
+          <span style={{ color: '#ccc' }}>·</span>
+          <a href="/privacy" style={{ color: '#888', textDecoration: 'none' }}>Privacy Policy</a>
+        </div>
+        <div style={{ color: '#bbb' }}>© {new Date().getFullYear()} The Launch Pad LLC. All rights reserved.</div>
       </div>
     </div>
   )

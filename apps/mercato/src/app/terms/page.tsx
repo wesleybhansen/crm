@@ -1,4 +1,4 @@
-export const metadata = { title: 'Terms of Service — LaunchOS CRM' }
+export const metadata = { title: 'Terms and Conditions — LaunchOS CRM' }
 
 export default function TermsPage() {
   const s = {
@@ -17,7 +17,7 @@ export default function TermsPage() {
 
   return (
     <div style={s.page}>
-      <h1 style={s.h1}>LaunchOS CRM — Terms of Service</h1>
+      <h1 style={s.h1}>LaunchOS CRM — Terms and Conditions</h1>
       <p style={s.updated}>Last updated: April 6, 2026</p>
 
       <div style={s.callout}>
@@ -113,8 +113,8 @@ export default function TermsPage() {
       </ul>
 
       <div style={s.footer}>
-        <p><a href="https://thelaunchpadincubator.com/terms/" style={s.link}>Company-Wide Terms (incorporated by reference)</a> · <a href="/privacy" style={s.link}>Privacy Policy</a></p>
-        <p style={{ marginTop: 8 }}><a href="/login" style={s.link}>← Back to LaunchOS</a></p>
+        <p><a href="/privacy" style={s.link}>Privacy Policy</a> · <a href="/login" style={s.link}>Back to LaunchOS</a></p>
+        <p style={{ marginTop: 8, color: '#bbb' }}>© {new Date().getFullYear()} The Launch Pad LLC. All rights reserved.</p>
       </div>
     </div>
   )
