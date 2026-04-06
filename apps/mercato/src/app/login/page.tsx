@@ -281,7 +281,7 @@ export default function LoginPage() {
       <div style={{ textAlign: 'center', marginTop: 40, fontSize: 12, color: '#999', lineHeight: 1.8 }}>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginBottom: 8 }}>
           <a href="/terms" className="footer-link" style={{ color: '#888', textDecoration: 'none', transition: 'color 0.2s' }} onMouseEnter={e => (e.currentTarget.style.color = '#0000CC')} onMouseLeave={e => (e.currentTarget.style.color = '#888')}>Terms &amp; Conditions</a>
-          <span style={{ color: '#ccc' }}>·</span>
+
           <a href="/privacy" className="footer-link" style={{ color: '#888', textDecoration: 'none', transition: 'color 0.2s' }} onMouseEnter={e => (e.currentTarget.style.color = '#0000CC')} onMouseLeave={e => (e.currentTarget.style.color = '#888')}>Privacy Policy</a>
         </div>
         <div style={{ color: '#bbb' }}>© {new Date().getFullYear()} The Launch Pad LLC. All rights reserved.</div>
