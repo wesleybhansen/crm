@@ -149,14 +149,6 @@ export default function PrivacyPage() {
       <h2 style={s.h2}>12. Changes to This Policy</h2>
       <p style={s.p}>We may update this Privacy Policy from time to time. We will notify you of material changes via email or in-app notification at least 14 days before the changes take effect. The "Last updated" date at the top reflects the most recent revision.</p>
 
-      <h2 style={s.h2}>13. Contact</h2>
-      <p style={s.p}>For privacy questions, data requests, or concerns:</p>
-      <p style={s.p}>
-        The Launch Pad LLC<br />
-        Email: <a href="mailto:hello@thelaunchpadincubator.com" style={s.link}>hello@thelaunchpadincubator.com</a><br />
-        Platform: LaunchOS CRM — <a href="https://crm.thelaunchpadincubator.com" style={s.link}>crm.thelaunchpadincubator.com</a>
-      </p>
-
       <div style={s.footer}>
         <p>See also: <a href="https://thelaunchpadincubator.com/privacy/" style={s.link}>Company-Wide Privacy Policy</a> · <a href="/terms" style={s.link}>Terms of Service</a></p>
         <p style={{ marginTop: 8 }}><a href="/login" style={s.link}>← Back to LaunchOS</a></p>

@@ -30,7 +30,7 @@ export default function TermsPage() {
       <p style={s.p}>You must be at least 18 years old and have the legal capacity to enter into a binding agreement to use the Platform. If you are using the Platform on behalf of an organization, you represent that you have the authority to bind that organization to these Terms.</p>
 
       <h2 style={s.h2}>2. Account Registration and Security</h2>
-      <p style={s.p}>You must provide accurate, complete, and current information when creating an account. You are solely responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account. You must notify us immediately at <a href="mailto:hello@thelaunchpadincubator.com" style={s.link}>hello@thelaunchpadincubator.com</a> if you suspect unauthorized access to your account. We reserve the right to suspend or terminate accounts that contain false or misleading information.</p>
+      <p style={s.p}>You must provide accurate, complete, and current information when creating an account. You are solely responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account. You must notify us immediately if you suspect unauthorized access to your account. We reserve the right to suspend or terminate accounts that contain false or misleading information.</p>
 
       <h2 style={s.h2}>3. Your Data and Ownership</h2>
       <p style={s.p}>You retain all ownership rights to the data you create, upload, or store in the Platform, including but not limited to contacts, deals, emails, notes, invoices, landing pages, courses, and all other CRM content ("User Data"). We do not claim any ownership interest in your User Data.</p>
@@ -111,14 +111,6 @@ export default function TermsPage() {
         <li style={s.li}><strong>No Third-Party Beneficiaries:</strong> These Terms do not confer any rights on third parties.</li>
         <li style={s.li}><strong>Electronic Communications:</strong> By using the Platform, you consent to receiving electronic communications from us and agree that such communications satisfy any legal requirement for written communication.</li>
       </ul>
-
-      <h2 style={s.h2}>19. Contact</h2>
-      <p style={s.p}>For questions about these Terms:</p>
-      <p style={s.p}>
-        The Launch Pad LLC<br />
-        Email: <a href="mailto:hello@thelaunchpadincubator.com" style={s.link}>hello@thelaunchpadincubator.com</a><br />
-        Platform: LaunchOS CRM — <a href="https://crm.thelaunchpadincubator.com" style={s.link}>crm.thelaunchpadincubator.com</a>
-      </p>
 
       <div style={s.footer}>
         <p>See also: <a href="https://thelaunchpadincubator.com/terms/" style={s.link}>Company-Wide Terms</a> · <a href="/privacy" style={s.link}>Privacy Policy</a></p>
