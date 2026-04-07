@@ -187,6 +187,25 @@
     position: relative;
     overflow: hidden;
   }
+  /* Floor glow — explicit bottom-anchored gradient that bridges the
+     atmospheric radial fade to the section divider so the bottom of the
+     hero never reads as pure black. Sits above .hero-atmosphere but
+     below .hero-content (which has z-index: 3). */
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 340px;
+    background: linear-gradient(to top,
+      rgba(99, 102, 241, 0.22) 0%,
+      rgba(99, 102, 241, 0.16) 25%,
+      rgba(99, 102, 241, 0.08) 60%,
+      transparent 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
   .hero-atmosphere {
     position: absolute;
     inset: 0;
@@ -212,10 +231,14 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 1100px;
-    height: 1100px;
-    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 60%);
-    opacity: 0.55;
+    width: 1400px;
+    height: 1400px;
+    background: radial-gradient(ellipse 60% 70% at 50% 50%,
+      var(--accent-glow) 0%,
+      rgba(99, 102, 241, 0.22) 35%,
+      rgba(99, 102, 241, 0.10) 65%,
+      transparent 100%);
+    opacity: 0.65;
     animation: glow 6s ease-in-out infinite;
   }
   @keyframes spinCenter {
