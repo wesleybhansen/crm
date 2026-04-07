@@ -183,7 +183,7 @@ export default function PrivacyPage() {
         <li style={s.li}><strong>Deletion:</strong> Request deletion of your account and all associated data by contacting us</li>
         <li style={s.li}><strong>Disconnect:</strong> Revoke Gmail, Outlook, or Stripe access at any time in Settings</li>
         <li style={s.li}><strong>Google Revocation:</strong> Revoke Google access at <a href="https://myaccount.google.com/permissions" style={s.link}>Google Account Permissions</a></li>
-        <li style={s.li}><strong>Feature Control:</strong> Enable or disable Inbox Intelligence, Brand Voice Engine, AI features, and email scanning independently in Settings</li>
+        <li style={s.li}><strong>Feature Control:</strong> Enable or disable Brand Voice Engine, AI features, and individual integrations independently in Settings</li>
       </ul>
 
       <h3 style={s.h3}>7.2 EEA/UK Residents (GDPR)</h3>
