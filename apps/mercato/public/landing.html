@@ -186,25 +186,16 @@
     text-align: center;
     position: relative;
     overflow: hidden;
-  }
-  /* Floor glow — explicit bottom-anchored gradient that bridges the
-     atmospheric radial fade to the section divider so the bottom of the
-     hero never reads as pure black. Sits above .hero-atmosphere but
-     below .hero-content (which has z-index: 3). */
-  .hero::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 340px;
-    background: linear-gradient(to top,
-      rgba(99, 102, 241, 0.22) 0%,
-      rgba(99, 102, 241, 0.16) 25%,
-      rgba(99, 102, 241, 0.08) 60%,
-      transparent 100%);
-    pointer-events: none;
-    z-index: 1;
+    /* Background gradient applied DIRECTLY on the hero (not via a
+       pseudo-element) so it definitely fills the entire hero box from
+       top to the section divider. Two layers stacked: a radial accent
+       glow centered on the headline area, and a vertical fade that
+       keeps the whole hero tinted purple (preventing any black band
+       above the divider). The atmospheric conic + radial layers in
+       .hero-atmosphere render on top of this. */
+    background:
+      radial-gradient(ellipse 90% 70% at 50% 45%, rgba(99, 102, 241, 0.32) 0%, rgba(99, 102, 241, 0.18) 35%, rgba(99, 102, 241, 0.08) 65%, transparent 100%),
+      linear-gradient(180deg, var(--bg) 0%, #14142A 100%);
   }
   .hero-atmosphere {
     position: absolute;
@@ -426,15 +417,15 @@
   .float-card.fc-1 {
     --rot: -3deg;
     transform: rotate(-3deg);
-    top: 320px;
-    left: 3%;
+    top: 240px;
+    left: 4%;
     animation-delay: 0s;
   }
   .float-card.fc-2 {
     --rot: 4deg;
     transform: rotate(4deg);
-    top: 320px;
-    right: 3%;
+    top: 300px;
+    right: 4%;
     animation-delay: 2s;
   }
 
@@ -2243,12 +2234,8 @@
   footer .links a:hover { color: var(--ink); }
 
   /* Intermediate width — three-ways and cmd-grid stack earlier */
-  /* Hide hero floating cards before they can overlap the headline.
-     At narrower viewports the headline ("The CRM you don't") gets close
-     to the screen edges and the 220px-wide cards collide with it. The
-     overlap math says collision starts around 1450px viewport, so hide
-     at 1500px for safety. */
-  @media (max-width: 1500px) {
+  /* Hide hero floating cards before they can overlap the headline */
+  @media (max-width: 1280px) {
     .float-card { display: none; }
   }
 
