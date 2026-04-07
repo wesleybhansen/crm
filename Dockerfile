@@ -108,6 +108,16 @@ COPY --from=builder /app/apps/mercato/.mercato ./apps/mercato/.mercato
 COPY --from=builder /app/apps/mercato/src ./apps/mercato/src
 COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
 
+# Next.js standalone server (.mercato/next/standalone/apps/mercato/server.js)
+# expects static files at <standalone>/apps/mercato/.mercato/next/static/ and the
+# public/ dir at <standalone>/apps/mercato/public/. The full .mercato/next dir
+# above includes static/ at the OUTER path, but the standalone server's
+# process.chdir(__dirname) means it looks for these paths relative to its own
+# directory. Without these copies, every /_next/static/* request returns 404
+# and every CSS/JS chunk in any Next.js page fails to load.
+COPY --from=builder /app/apps/mercato/.mercato/next/static ./apps/mercato/.mercato/next/standalone/apps/mercato/.mercato/next/static
+COPY --from=builder /app/apps/mercato/public ./apps/mercato/.mercato/next/standalone/apps/mercato/public
+
 # Copy runtime configuration files
 COPY --from=builder /app/newrelic.js ./
 
