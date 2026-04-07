@@ -426,15 +426,15 @@
   .float-card.fc-1 {
     --rot: -3deg;
     transform: rotate(-3deg);
-    top: 240px;
-    left: 4%;
+    top: 320px;
+    left: 3%;
     animation-delay: 0s;
   }
   .float-card.fc-2 {
     --rot: 4deg;
     transform: rotate(4deg);
-    top: 300px;
-    right: 4%;
+    top: 320px;
+    right: 3%;
     animation-delay: 2s;
   }
 
@@ -2243,8 +2243,12 @@
   footer .links a:hover { color: var(--ink); }
 
   /* Intermediate width — three-ways and cmd-grid stack earlier */
-  /* Hide hero floating cards before they can overlap the headline */
-  @media (max-width: 1280px) {
+  /* Hide hero floating cards before they can overlap the headline.
+     At narrower viewports the headline ("The CRM you don't") gets close
+     to the screen edges and the 220px-wide cards collide with it. The
+     overlap math says collision starts around 1450px viewport, so hide
+     at 1500px for safety. */
+  @media (max-width: 1500px) {
     .float-card { display: none; }
   }
 
