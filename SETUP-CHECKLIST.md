@@ -101,7 +101,7 @@ Everything needed to go from local development to a working production system.
 ### 2.2 Clone & Build
 ```bash
 cd /opt
-git clone https://github.com/wesleybhansen/open-mercato.git crm
+git clone https://github.com/wesleybhansen/crm.git
 cd crm
 cp apps/mercato/.env.production.example apps/mercato/.env
 # Edit .env with all your API keys and secrets

@@ -402,7 +402,7 @@ Blog-Ops generates email content (subject, body, timing). CRM's email module is 
 **Full detailed build plan:** `/Users/wesleyhansen/Desktop/CRM/BUILD-PLAN.md`
 
 ### Completed (2026-03-24)
-- [x] 1.1 Fork & clone — github.com/wesleybhansen/open-mercato, upstream remote set
+- [x] 1.1 Fork & clone — github.com/wesleybhansen/crm (renamed 2026-04-07 from wesleybhansen/open-mercato), upstream remote set
 - [x] 1.2 Strip modules — 43→32 modules (28 core + 4 custom), ~165 API routes
 - [x] 1.5 Theme — Inter font, Twenty-inspired light mode, Twenty exact dark mode palette
 - [x] 1.4 Self-service signup — branding updated, dev email bypass, login link added
