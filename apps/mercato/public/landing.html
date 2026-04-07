@@ -196,27 +196,31 @@
   .hero-atmosphere::before {
     content: '';
     position: absolute;
-    top: -240px;
+    top: 50%;
     left: 50%;
-    transform: translateX(-50%);
-    width: 1200px;
-    height: 1200px;
+    transform: translate(-50%, -50%);
+    width: 1400px;
+    height: 1400px;
     background: conic-gradient(from 220deg at 50% 50%, transparent 0deg, var(--accent-glow) 80deg, var(--accent-3) 160deg, var(--accent-2) 220deg, transparent 360deg);
     opacity: 0.2;
     filter: blur(60px);
-    animation: spin 40s linear infinite;
+    animation: spinCenter 40s linear infinite;
   }
   .hero-atmosphere::after {
     content: '';
     position: absolute;
-    top: -120px;
+    top: 50%;
     left: 50%;
-    transform: translateX(-50%);
-    width: 800px;
-    height: 800px;
+    transform: translate(-50%, -50%);
+    width: 1100px;
+    height: 1100px;
     background: radial-gradient(circle, var(--accent-glow) 0%, transparent 60%);
-    opacity: 0.6;
+    opacity: 0.55;
     animation: glow 6s ease-in-out infinite;
+  }
+  @keyframes spinCenter {
+    from { transform: translate(-50%, -50%) rotate(0deg); }
+    to   { transform: translate(-50%, -50%) rotate(360deg); }
   }
   .hero-grid-fade {
     position: absolute;
@@ -225,8 +229,8 @@
       linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
       linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
     background-size: 64px 64px;
-    mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 30%, transparent 80%);
-    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 30%, transparent 80%);
+    mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 35%, transparent 85%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 35%, transparent 85%);
     pointer-events: none;
   }
   .hero-content {
@@ -399,15 +403,15 @@
   .float-card.fc-1 {
     --rot: -3deg;
     transform: rotate(-3deg);
-    top: 80px;
-    left: 5%;
+    top: 240px;
+    left: 4%;
     animation-delay: 0s;
   }
   .float-card.fc-2 {
     --rot: 4deg;
     transform: rotate(4deg);
-    top: 140px;
-    right: 5%;
+    top: 300px;
+    right: 4%;
     animation-delay: 2s;
   }
 
@@ -2216,6 +2220,11 @@
   footer .links a:hover { color: var(--ink); }
 
   /* Intermediate width — three-ways and cmd-grid stack earlier */
+  /* Hide hero floating cards before they can overlap the headline */
+  @media (max-width: 1280px) {
+    .float-card { display: none; }
+  }
+
   @media (max-width: 1150px) {
     .ways-grid { grid-template-columns: 1fr; gap: 16px; max-width: 720px; margin-left: auto; margin-right: auto; }
     .cmd-grid { grid-template-columns: repeat(2, 1fr); }
@@ -2228,7 +2237,6 @@
     .product-content { grid-template-columns: 220px 1fr; }
     .app-inspector { display: none; }
     .app-main { border-right: none; }
-    .float-card { display: none; }
   }
 
   /* Tablet */
