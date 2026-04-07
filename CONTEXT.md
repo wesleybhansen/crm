@@ -580,3 +580,27 @@ Settings → Integrations
 - Different tech stacks across services are acceptable since they connect via APIs.
 - Wesley is considering making the CRM **free** as a lead magnet for his entrepreneurship program.
 - Users may need to add credits for usage-based costs (email, SMS, AI), but the core CRM would be free or very low cost.
+
+## 15. Session 2026-04-07 — Marketing landing page deployed
+
+The marketing landing page at `https://crm.thelaunchpadincubator.com/` is **live**. Built across a multi-day sprint that started with three competing mockups (editorial / bold / dark-tech) and converged on the dark Orchestra-style direction. The page is served as a static HTML file from `apps/mercato/public/landing.html` via a `proxy.ts` rewrite of `/` → `/landing.html`. URL stays clean.
+
+### What's live
+- **Landing page** at `/` — 14 sections including a hero, video player, pain cards, three-ways escapes, marquee, **CRM product showcase**, **AMS marketing showcase** (added end of session), stats, comparison, command center, manifesto, waitlist, footer
+- **Auth pages** at `/login`, `/signup`, `/forgot-password`, `/reset-password` — restyled with shared `auth-shell.css` to match the dark landing page aesthetic. All existing logic preserved (multi-tenant org picker, RBAC, error handling, etc.)
+- **Repo renamed** from `wesleybhansen/open-mercato` → `wesleybhansen/crm`. Server's `origin` remote updated. Local clones should run `git remote set-url origin https://github.com/wesleybhansen/crm.git` if not already.
+
+### Critical infrastructure fixes shipped this session
+1. **Standalone bundle missing static dir** (commit `c201e1222`) — Dockerfile now copies `.mercato/next/static` and `public` into the standalone bundle path. Without this, every `/_next/static/*` request returned 404 and CSS chunks didn't load.
+2. **`middleware.ts` deprecated → `proxy.ts`** (commit `8c03f3d47`) — Next.js 16.1.5 deprecated middleware.ts. The project's existing `apps/mercato/src/proxy.ts` now also handles the `/` → `/landing.html` rewrite.
+3. **Hero gradient extends to section divider** (commit `6a83cdfb2`) — removed `margin-top: 60px` from `.video-section` that was creating a black gap between the hero and the next section.
+
+### Build queue items added (see `BUILD-QUEUE.md` items 33-35)
+- **33** — Terms page: AI token overage responsibility clause
+- **34** — Notification center in header (auto-notify panel showing AI activity)
+- **35** — Auto contact source tagging on creation + interaction
+
+### Where the full state lives
+- **Landing page details:** Claude memory `project_landing_page.md` — section structure, design system, copy, animations, file locations
+- **Deploy mechanics:** Claude memory `reference_deployment.md` — exact SSH commands, gotchas, do-not-do list
+- **Where we left off / what to do next:** Claude memory `project_session_handoff.md`
