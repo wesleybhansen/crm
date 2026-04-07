@@ -7,9 +7,12 @@ const CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
 ]
 
+// gmail.readonly is a RESTRICTED scope that requires CASA security assessment
+// to verify. Removed pending Tier 1 (sensitive-only) verification. Inbox read
+// will be re-added later via App Password / IMAP path or via restricted-scope
+// verification once we're ready for CASA. See SPEC: OAuth Tier 1 verification.
 const EMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/gmail.readonly',
 ]
 
 const USERINFO_SCOPE = 'https://www.googleapis.com/auth/userinfo.email'

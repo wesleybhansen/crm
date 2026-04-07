@@ -1,4 +1,4 @@
-export const metadata = { title: 'Terms &amp; Conditions — LaunchOS CRM' }
+export const metadata = { title: 'Terms &amp; Conditions — Launch OS CRM' }
 
 export default function TermsPage() {
   const s = {
@@ -17,14 +17,14 @@ export default function TermsPage() {
 
   return (
     <div style={s.page}>
-      <h1 style={s.h1}>LaunchOS CRM — Terms &amp; Conditions</h1>
+      <h1 style={s.h1}>Launch OS CRM — Terms &amp; Conditions</h1>
       <p style={s.updated}>Last updated: April 6, 2026</p>
 
       <div style={s.callout}>
-        <strong>Incorporation of Company-Wide Terms:</strong> <a href="https://thelaunchpadincubator.com/terms/" style={s.link}>The Launch Pad LLC Terms &amp; Conditions</a> are expressly incorporated into and made a part of these Terms by reference. All terms and provisions of the company-wide terms apply to your use of the LaunchOS CRM platform, except where they directly conflict with the terms set forth in this document, in which case the terms of this document shall control with respect to the Platform.
+        <strong>Incorporation of Company-Wide Terms:</strong> <a href="https://thelaunchpadincubator.com/terms/" style={s.link}>The Launch Pad LLC Terms &amp; Conditions</a> are expressly incorporated into and made a part of these Terms by reference. All terms and provisions of the company-wide terms apply to your use of the Launch OS CRM platform, except where they directly conflict with the terms set forth in this document, in which case the terms of this document shall control with respect to the Platform.
       </div>
 
-      <p style={s.p}>These Terms of Service ("Terms") constitute a legally binding agreement between you ("User," "you," "your") and The Launch Pad LLC ("Company," "we," "our," "us"), governing your access to and use of the LaunchOS CRM platform at crm.thelaunchpadincubator.com (the "Platform"). By creating an account, accessing, or using the Platform, you acknowledge that you have read, understood, and agree to be bound by these Terms and our <a href="/privacy" style={s.link}>Privacy Policy</a>.</p>
+      <p style={s.p}>These Terms of Service ("Terms") constitute a legally binding agreement between you ("User," "you," "your") and The Launch Pad LLC ("Company," "we," "our," "us"), governing your access to and use of the Launch OS CRM platform at crm.thelaunchpadincubator.com (the "Platform"). By creating an account, accessing, or using the Platform, you acknowledge that you have read, understood, and agree to be bound by these Terms and our <a href="/privacy" style={s.link}>Privacy Policy</a>.</p>
 
       <h2 style={s.h2}>1. Eligibility</h2>
       <p style={s.p}>You must be at least 18 years old and have the legal capacity to enter into a binding agreement to use the Platform. If you are using the Platform on behalf of an organization, you represent that you have the authority to bind that organization to these Terms.</p>
@@ -191,7 +191,7 @@ export default function TermsPage() {
         <li style={s.li}><strong>You control what data the AI sees.</strong> Before invoking any AI feature or allowing an AI agent to access your data, you must consciously evaluate whether the data is appropriate to share with that AI system. Once data is sent to an AI provider, it may be processed, stored, logged, or used by that provider in ways outside the Company{"'"}s control.</li>
         <li style={s.li}><strong>Sensitive data requires special care.</strong> You must not share with AI features any data that you are not legally permitted to share with third-party AI providers, including: protected health information (PHI), payment card data (PCI), Social Security numbers, government-issued identification numbers, attorney-client privileged information, trade secrets you do not own, biometric data, information about minors, or any data subject to confidentiality agreements that prohibit sharing with third parties.</li>
         <li style={s.li}><strong>Third-party AI provider terms apply.</strong> AI features route data through third-party providers (including but not limited to Google, OpenAI, Anthropic, and others). You are responsible for understanding and complying with each AI provider{"'"}s terms of service, privacy policy, and data handling practices. The Company makes no representations about how third-party AI providers handle your data.</li>
-        <li style={s.li}><strong>External AI agents and MCP connections.</strong> If you connect external AI agents, third-party AI assistants, MCP clients, automation tools, or any non-LaunchOS AI system to the Platform via API or other means, you are solely responsible for: (a) what data those external systems can access; (b) how those external systems process, store, transmit, or share your data; (c) the security practices of those external systems; (d) any data leakage, breach, or unauthorized disclosure resulting from those connections; and (e) the actions those external AI systems take on your behalf within the Platform.</li>
+        <li style={s.li}><strong>External AI agents and MCP connections.</strong> If you connect external AI agents, third-party AI assistants, MCP clients, automation tools, or any non-Launch OS AI system to the Platform via API or other means, you are solely responsible for: (a) what data those external systems can access; (b) how those external systems process, store, transmit, or share your data; (c) the security practices of those external systems; (d) any data leakage, breach, or unauthorized disclosure resulting from those connections; and (e) the actions those external AI systems take on your behalf within the Platform.</li>
         <li style={s.li}><strong>Third-party data and consent.</strong> If you share data about third parties (such as contacts, customers, or employees) with AI features, you represent and warrant that you have all necessary rights, consents, and legal authority to do so. You are solely responsible for any claims arising from sharing third-party data with AI systems.</li>
         <li style={s.li}><strong>You assume the risk.</strong> AI systems can be compromised, exfiltrate data, leak information across sessions, expose data through prompt injection attacks, or behave unexpectedly. You assume all risks associated with sharing your data with any AI system. The Company is not liable for any data exposure, breach, leak, or harm resulting from your decision to share data with AI features or AI agents.</li>
       </ul>
@@ -251,7 +251,7 @@ export default function TermsPage() {
       </ul>
 
       <h3 style={s.h3}>10.4 No Implied License to Trademarks or Branding</h3>
-      <p style={s.p}>Nothing in these Terms grants you any right to use the Company{"'"}s trademarks, logos, branding, or trade names. You may not display, modify, or use the LaunchOS name, Scout name, or any related branding without prior written permission from the Company.</p>
+      <p style={s.p}>Nothing in these Terms grants you any right to use the Company{"'"}s trademarks, logos, branding, or trade names. You may not display, modify, or use the Launch OS name, Scout name, or any related branding without prior written permission from the Company.</p>
 
       <h2 style={s.h2}>11. Service Availability</h2>
       <p style={s.p}>We strive to maintain the Platform{"'"}s availability 24/7, but we do not guarantee uninterrupted, error-free, or secure service. The Platform may be temporarily unavailable due to maintenance, updates, server failures, third-party service outages, or circumstances beyond our control. We will make reasonable efforts to provide advance notice of planned maintenance when possible. The Company offers no service level agreement (SLA) and provides no uptime guarantee unless explicitly stated in a separate written agreement.</p>
@@ -356,7 +356,7 @@ export default function TermsPage() {
       <p style={s.p}>The Services are offered by The Launch Pad LLC. You may contact us by email at: <a href="mailto:hello@thelaunchpadincubator.com" style={s.link}>hello@thelaunchpadincubator.com</a>.</p>
 
       <div style={s.footer}>
-        <p><a href="/privacy" style={s.link}>Privacy Policy</a> · <a href="/login" style={s.link}>Back to LaunchOS</a></p>
+        <p><a href="/privacy" style={s.link}>Privacy Policy</a> · <a href="/login" style={s.link}>Back to Launch OS</a></p>
         <p style={{ marginTop: 8, color: '#bbb' }}>© {new Date().getFullYear()} The Launch Pad LLC. All rights reserved.</p>
       </div>
     </div>

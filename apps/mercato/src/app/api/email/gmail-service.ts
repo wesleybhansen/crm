@@ -88,21 +88,10 @@ export async function sendViaGmail(
 
   const data = await res.json()
 
-  // Remove INBOX label from sent messages so they don't appear in sender's inbox
-  if (data.id && data.labelIds?.includes('INBOX')) {
-    try {
-      await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${data.id}/modify`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ removeLabelIds: ['INBOX', 'UNREAD'] }),
-      })
-    } catch {
-      // Non-critical — email was sent successfully
-    }
-  }
+  // NOTE: We previously called messages/{id}/modify here to remove the INBOX
+  // label from sent messages. That requires gmail.modify (a restricted scope)
+  // which we don't request. The call was likely 403'ing already. Removed
+  // pending Tier 1 OAuth verification with sensitive scopes only.
 
   return {
     messageId: data.id || '',

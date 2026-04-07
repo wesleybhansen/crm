@@ -438,16 +438,25 @@ async function runSync(
   let gmailToken: TokenResult | null = null
   let outlookToken: TokenResult | null = null
 
-  // Fetch Gmail
-  try {
-    gmailToken = await getGmailTokenRaw(orgId, userId)
-    if (gmailToken) {
-      const gmailEmails = await fetchGmailMessages(gmailToken.accessToken, sinceDate)
-      allEmails = allEmails.concat(gmailEmails)
-    }
-  } catch (err: any) {
-    errors.push(`Gmail: ${err.message}`)
-  }
+  // Gmail inbox sync is DISABLED pending Tier 1 OAuth verification.
+  // gmail.readonly is a restricted scope that requires CASA security
+  // assessment to verify. We're shipping with sensitive scopes only
+  // (gmail.send + calendar.*). Inbox read will be re-added later via
+  // the App Password / IMAP path. The Outlook path below remains
+  // active for users connected via Microsoft Graph.
+  //
+  // To re-enable: uncomment the block below AND restore gmail.readonly
+  // in apps/mercato/src/app/api/google/auth/route.ts EMAIL_SCOPES.
+  //
+  // try {
+  //   gmailToken = await getGmailTokenRaw(orgId, userId)
+  //   if (gmailToken) {
+  //     const gmailEmails = await fetchGmailMessages(gmailToken.accessToken, sinceDate)
+  //     allEmails = allEmails.concat(gmailEmails)
+  //   }
+  // } catch (err: any) {
+  //   errors.push(`Gmail: ${err.message}`)
+  // }
 
   // Fetch Outlook
   try {
@@ -460,13 +469,13 @@ async function runSync(
     errors.push(`Outlook: ${err.message}`)
   }
 
-  if (!gmailToken && !outlookToken) {
+  if (!outlookToken) {
     await query(
       `UPDATE email_intelligence_settings SET last_sync_status = 'error', last_sync_error = $1, updated_at = now()
        WHERE organization_id = $2 AND user_id = $3`,
-      ['No email connections found', orgId, userId]
+      ['No active email connection found (Gmail inbox sync temporarily disabled pending OAuth verification)', orgId, userId]
     )
-    return { emailsProcessed: 0, contactsCreated: 0, errors: ['No email connections found'] }
+    return { emailsProcessed: 0, contactsCreated: 0, errors: ['No active email connection found'] }
   }
 
   let emailsProcessed = 0

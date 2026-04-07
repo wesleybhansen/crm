@@ -63,28 +63,14 @@ export async function POST(req: Request) {
     let resolvedSource = source
 
     if (source === 'gmail' || source === 'outlook' || source === 'email') {
-      // "email" = auto-detect which provider is connected
-      let token: { accessToken: string } | null = null
-
-      if (source === 'gmail' || source === 'email') {
-        token = await getGmailTokenRaw(auth.orgId, userId)
-        if (token) resolvedSource = 'gmail'
-      }
-
-      // TODO: Add Outlook sent email fetching when Outlook is integrated
-      // if (!token && (source === 'outlook' || source === 'email')) {
-      //   token = await getOutlookTokenRaw(auth.orgId, userId)
-      //   if (token) resolvedSource = 'outlook'
-      // }
-
-      if (!token) return NextResponse.json({ ok: false, error: 'No email provider connected. Connect Gmail or Outlook in Settings first.' }, { status: 400 })
-
-      const sentEmails = await fetchGmailSentMessages(token.accessToken, 25)
-      if (sentEmails.length < 3) {
-        return NextResponse.json({ ok: false, error: `Only found ${sentEmails.length} sent emails. Need at least 3 for accurate analysis.` }, { status: 400 })
-      }
-
-      writingSamples = sentEmails.map((e, i) => `--- Email ${i + 1} (Subject: ${e.subject}) ---\n${e.bodyText}`).join('\n\n')
+      // Gmail sent-mail learning is disabled pending Tier 1 OAuth verification.
+      // gmail.readonly is a restricted scope requiring CASA. Users should upload
+      // a document with their writing samples instead. Re-enable this path after
+      // verification + App Password fallback ships.
+      return NextResponse.json({
+        ok: false,
+        error: 'Gmail voice learning is temporarily unavailable while Launch OS completes Google verification. Please upload a document with sample writing instead.',
+      }, { status: 503 })
     } else if (source === 'document') {
       if (!documentContent?.trim()) return NextResponse.json({ ok: false, error: 'documentContent required for document source' }, { status: 400 })
       writingSamples = documentContent.slice(0, 12000)
