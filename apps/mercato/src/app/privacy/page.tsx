@@ -115,7 +115,23 @@ export default function PrivacyPage() {
       </ul>
       <p style={s.p}>While we take reasonable measures to protect your data, no method of electronic storage or transmission is 100% secure. We cannot guarantee absolute security.</p>
 
-      <h2 style={s.h2}>7. Your Rights and Choices</h2>
+      <h2 style={s.h2}>7. Your Responsibility for Protecting Your Data</h2>
+      <p style={s.p}>While the Company implements reasonable security measures, you are ultimately responsible for protecting your account, your data, and any information you share with the Platform or with AI features accessed through the Platform.</p>
+      <p style={s.p}>You agree that you are solely responsible for:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Maintaining the confidentiality of your login credentials, API keys, OAuth tokens, and other authentication information</li>
+        <li style={s.li}>All activity that occurs under your account</li>
+        <li style={s.li}>Notifying us promptly of any actual or suspected unauthorized access</li>
+        <li style={s.li}>Ensuring that data you upload or store complies with applicable laws and that you have the legal right to share that data</li>
+        <li style={s.li}>Maintaining your own backups of important data</li>
+        <li style={s.li}>Carefully evaluating what information you share with AI features, AI assistants, AI agents, and any third-party AI tools accessed through the Platform (including via API or MCP integrations)</li>
+        <li style={s.li}>Understanding that data shared with AI providers (Google, OpenAI, Anthropic, etc.) is subject to those providers{"'"} terms and may be processed outside the Company{"'"}s control</li>
+        <li style={s.li}>Obtaining all necessary consents from third parties (your contacts, customers, employees, etc.) before storing their information on the Platform or sharing it with AI features</li>
+        <li style={s.li}>Complying with privacy laws applicable to data you collect, including GDPR, CCPA, CPRA, HIPAA, and other regulations</li>
+      </ul>
+      <p style={s.p}>For additional details on your responsibilities — particularly regarding AI features, AI agents, and third-party integrations — please review the corresponding sections of our <a href="/terms" style={s.link}>Terms &amp; Conditions</a>.</p>
+
+      <h2 style={s.h2}>8. Your Rights and Choices</h2>
 
       <h3 style={s.h3}>7.1 All Users</h3>
       <ul style={s.ul}>
@@ -134,22 +150,22 @@ export default function PrivacyPage() {
       <h3 style={s.h3}>7.3 California Residents (CCPA/CPRA)</h3>
       <p style={s.p}>If you are a California resident, you have the right to know what personal information we collect, request deletion, request correction, and opt out of the sale of personal information (we do not sell personal information). To exercise these rights, contact us at the address below.</p>
 
-      <h2 style={s.h2}>8. Data Retention</h2>
+      <h2 style={s.h2}>9. Data Retention</h2>
       <p style={s.p}>We retain your data for as long as your account is active or as needed to provide services. If you delete your account, we will delete or anonymize your data within 30 days, except where we are legally required to retain it (e.g., financial records, tax documentation). Backup copies may persist for up to 90 days before being fully purged.</p>
 
-      <h2 style={s.h2}>9. Cookies</h2>
+      <h2 style={s.h2}>10. Cookies</h2>
       <p style={s.p}>We use only essential cookies required for authentication and session management. We do not use third-party tracking cookies, analytics cookies, or advertising cookies on the Platform.</p>
 
-      <h2 style={s.h2}>10. Children{"'"}s Privacy</h2>
+      <h2 style={s.h2}>11. Children{"'"}s Privacy</h2>
       <p style={s.p}>LaunchOS is not directed to children under 13 (or under 16 in the EEA). We do not knowingly collect personal information from children. If we become aware that we have collected data from a child, we will delete it promptly.</p>
 
-      <h2 style={s.h2}>11. International Data Transfers</h2>
+      <h2 style={s.h2}>12. International Data Transfers</h2>
       <p style={s.p}>Your data is stored on servers in Germany (EU). If you access the Platform from outside the EU, your data will be transferred to and processed in the EU. We rely on Hetzner{"'"}s GDPR-compliant infrastructure for data hosting.</p>
 
-      <h2 style={s.h2}>12. Changes to This Policy</h2>
+      <h2 style={s.h2}>13. Changes to This Policy</h2>
       <p style={s.p}>We may update this Privacy Policy from time to time. We will notify you of material changes via email or in-app notification at least 14 days before the changes take effect. The "Last updated" date at the top reflects the most recent revision.</p>
 
-      <h2 style={s.h2}>Contact us</h2>
+      <h2 style={s.h2}>14. Contact Us</h2>
       <p style={s.p}>If you have questions about this policy or our practices, contact us at <a href="mailto:privacy@thelaunchpadincubator.com" style={s.link}>privacy@thelaunchpadincubator.com</a>.</p>
 
       <div style={s.footer}>

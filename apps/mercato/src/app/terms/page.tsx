@@ -115,48 +115,100 @@ export default function TermsPage() {
 
       <p style={s.p}><strong>BY USING ANY AI FEATURE OF THE PLATFORM, YOU EXPRESSLY ACKNOWLEDGE THAT YOU HAVE READ, UNDERSTOOD, AND AGREE TO BE BOUND BY THIS SECTION 6 IN ITS ENTIRETY.</strong></p>
 
-      <h2 style={s.h2}>7. Payments and Billing</h2>
+      <h2 style={s.h2}>7. User Responsibility for Data Protection and Information Security</h2>
+      <p style={s.p}>You are solely responsible for protecting and securing your data, your account, and any information you upload, store, transmit, or share through the Platform. This responsibility is non-delegable and applies regardless of which Platform features you use.</p>
+
+      <h3 style={s.h3}>7.1 Account Security</h3>
+      <p style={s.p}>You are solely responsible for:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Maintaining the confidentiality and security of your username, password, API keys, OAuth tokens, session cookies, and any other authentication credentials</li>
+        <li style={s.li}>All activity that occurs under your account, whether or not authorized by you</li>
+        <li style={s.li}>Implementing strong passwords, enabling multi-factor authentication where available, and following security best practices</li>
+        <li style={s.li}>Promptly notifying the Company of any actual or suspected unauthorized access, security breach, or compromise of your account</li>
+        <li style={s.li}>Logging out of shared or public devices and maintaining physical security of devices used to access the Platform</li>
+      </ul>
+      <p style={s.p}>The Company is not liable for any loss, damage, or harm resulting from your failure to protect your credentials or account.</p>
+
+      <h3 style={s.h3}>7.2 Data You Upload, Store, and Share</h3>
+      <p style={s.p}>You are solely responsible for:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Determining what data you upload, store, transmit, or share through the Platform</li>
+        <li style={s.li}>Ensuring you have the legal right and necessary consents to upload, process, and store all User Data, including data about third parties (contacts, customers, prospects, employees, etc.)</li>
+        <li style={s.li}>Complying with all applicable laws regarding data collection, processing, and storage, including but not limited to GDPR, CCPA, CPRA, HIPAA, GLBA, FERPA, COPPA, CAN-SPAM, CASL, and any other privacy or data protection laws</li>
+        <li style={s.li}>Maintaining your own backups of critical data — you should not rely solely on the Platform as your only copy of important information</li>
+        <li style={s.li}>Properly classifying, handling, and protecting any sensitive, confidential, regulated, or proprietary information you store on the Platform</li>
+      </ul>
+
+      <h3 style={s.h3}>7.3 Sharing Data with AI and AI Agents — Critical Responsibility</h3>
+      <p style={s.p}><strong>You are solely responsible for any information you choose to share with AI features, AI assistants, AI agents, or third-party AI tools — whether built into the Platform or accessed through it (including via API, MCP, or other integrations).</strong></p>
+      <p style={s.p}>When you use AI features or allow AI agents to access your data, you acknowledge and agree:</p>
+      <ul style={s.ul}>
+        <li style={s.li}><strong>You control what data the AI sees.</strong> Before invoking any AI feature or allowing an AI agent to access your data, you must consciously evaluate whether the data is appropriate to share with that AI system. Once data is sent to an AI provider, it may be processed, stored, logged, or used by that provider in ways outside the Company{"'"}s control.</li>
+        <li style={s.li}><strong>Sensitive data requires special care.</strong> You must not share with AI features any data that you are not legally permitted to share with third-party AI providers, including: protected health information (PHI), payment card data (PCI), Social Security numbers, government-issued identification numbers, attorney-client privileged information, trade secrets you do not own, biometric data, information about minors, or any data subject to confidentiality agreements that prohibit sharing with third parties.</li>
+        <li style={s.li}><strong>Third-party AI provider terms apply.</strong> AI features route data through third-party providers (including but not limited to Google, OpenAI, Anthropic, and others). You are responsible for understanding and complying with each AI provider{"'"}s terms of service, privacy policy, and data handling practices. The Company makes no representations about how third-party AI providers handle your data.</li>
+        <li style={s.li}><strong>External AI agents and MCP connections.</strong> If you connect external AI agents, third-party AI assistants, MCP clients, automation tools, or any non-LaunchOS AI system to the Platform via API or other means, you are solely responsible for: (a) what data those external systems can access; (b) how those external systems process, store, transmit, or share your data; (c) the security practices of those external systems; (d) any data leakage, breach, or unauthorized disclosure resulting from those connections; and (e) the actions those external AI systems take on your behalf within the Platform.</li>
+        <li style={s.li}><strong>Third-party data and consent.</strong> If you share data about third parties (such as contacts, customers, or employees) with AI features, you represent and warrant that you have all necessary rights, consents, and legal authority to do so. You are solely responsible for any claims arising from sharing third-party data with AI systems.</li>
+        <li style={s.li}><strong>You assume the risk.</strong> AI systems can be compromised, exfiltrate data, leak information across sessions, expose data through prompt injection attacks, or behave unexpectedly. You assume all risks associated with sharing your data with any AI system. The Company is not liable for any data exposure, breach, leak, or harm resulting from your decision to share data with AI features or AI agents.</li>
+      </ul>
+
+      <h3 style={s.h3}>7.4 Data Compliance and Privacy Obligations to Third Parties</h3>
+      <p style={s.p}>If you collect, store, or process information about third parties (your customers, leads, contacts, employees, etc.) through the Platform, you act as a data controller (or data processor, where applicable) under applicable privacy laws. You are solely responsible for:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Providing your own privacy notices to those third parties</li>
+        <li style={s.li}>Obtaining all required consents (including consent to share data with AI systems where applicable)</li>
+        <li style={s.li}>Honoring data subject rights (access, deletion, correction, portability, objection)</li>
+        <li style={s.li}>Maintaining records of processing activities</li>
+        <li style={s.li}>Reporting data breaches to affected individuals and regulators as required by law</li>
+        <li style={s.li}>Executing data processing agreements where required</li>
+        <li style={s.li}>Ensuring lawful basis for all processing</li>
+      </ul>
+      <p style={s.p}>The Company provides the Platform as a tool. You are the controller of the data you put into it.</p>
+
+      <h3 style={s.h3}>7.5 No Data Loss Liability</h3>
+      <p style={s.p}>While the Company implements reasonable security measures, the Company does not guarantee against data loss, corruption, unauthorized access, or breach. You are responsible for maintaining your own backups and acknowledge that the Company shall not be liable for any loss of data, regardless of cause.</p>
+
+      <h2 style={s.h2}>8. Payments and Billing</h2>
       <p style={s.p}>Payments processed through the Platform (invoices, product sales, funnel checkouts) use Stripe as the payment processor. By using payment features, you agree to <a href="https://stripe.com/legal" style={s.link}>Stripe{"'"}s Terms of Service</a>.</p>
       <p style={s.p}>Payment disputes between you and your customers should be resolved through Stripe{"'"}s dispute resolution process. The Company facilitates payment processing but is not a party to transactions between you and your customers.</p>
       <p style={s.p}>The Company reserves the right to introduce subscription fees for Platform access in the future. Any pricing changes will be communicated at least 30 days in advance, and you will have the option to cancel before new charges apply.</p>
 
-      <h2 style={s.h2}>8. Intellectual Property</h2>
+      <h2 style={s.h2}>9. Intellectual Property</h2>
       <p style={s.p}>The Platform, including its design, code, features, documentation, logos, and branding, is the intellectual property of the Company and is protected by copyright, trademark, and other intellectual property laws. You are granted a limited, non-exclusive, non-transferable, revocable license to use the Platform for your business purposes in accordance with these Terms.</p>
       <p style={s.p}>You shall not: copy, modify, distribute, sell, or create derivative works based on the Platform; reverse engineer, decompile, or disassemble any part of the Platform; remove or alter any proprietary notices or labels; or use the Platform{"'"}s proprietary materials to create a competing product or service.</p>
 
-      <h2 style={s.h2}>9. Service Availability</h2>
+      <h2 style={s.h2}>10. Service Availability</h2>
       <p style={s.p}>We strive to maintain the Platform{"'"}s availability 24/7, but we do not guarantee uninterrupted, error-free, or secure service. The Platform may be temporarily unavailable due to maintenance, updates, server failures, or circumstances beyond our control. We will make reasonable efforts to provide advance notice of planned maintenance when possible.</p>
 
-      <h2 style={s.h2}>10. Disclaimer of Warranties</h2>
+      <h2 style={s.h2}>11. Disclaimer of Warranties</h2>
       <p style={s.p}><strong>THE PLATFORM IS PROVIDED ON AN "AS IS" AND "AS AVAILABLE" BASIS WITHOUT WARRANTIES OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY.</strong> To the fullest extent permitted by law, we disclaim all warranties, including but not limited to implied warranties of merchantability, fitness for a particular purpose, non-infringement, and any warranties arising from course of dealing or usage of trade.</p>
       <p style={s.p}>We do not warrant that: the Platform will meet your specific requirements; the Platform will be uninterrupted, timely, secure, or error-free; the results obtained from using the Platform will be accurate or reliable; or any errors will be corrected.</p>
 
-      <h2 style={s.h2}>11. Limitation of Liability</h2>
+      <h2 style={s.h2}>12. Limitation of Liability</h2>
       <p style={s.p}><strong>TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COMPANY, ITS OFFICERS, DIRECTORS, EMPLOYEES, AGENTS, AND AFFILIATES SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES</strong>, including but not limited to loss of profits, data, business opportunities, goodwill, or other intangible losses, arising out of or in connection with your use of or inability to use the Platform, even if we have been advised of the possibility of such damages.</p>
       <p style={s.p}>Our total aggregate liability for any and all claims arising from or related to these Terms or the Platform shall not exceed the greater of: (a) the total fees you have paid to us in the six (6) months preceding the claim; or (b) one hundred dollars ($100.00 USD).</p>
 
-      <h2 style={s.h2}>12. Indemnification</h2>
+      <h2 style={s.h2}>13. Indemnification</h2>
       <p style={s.p}>You agree to indemnify, defend, and hold harmless the Company and its officers, directors, employees, agents, and affiliates from and against any and all claims, damages, losses, liabilities, costs, and expenses (including reasonable attorneys{"'"} fees) arising out of or related to: (a) your use of the Platform; (b) your violation of these Terms; (c) your violation of any applicable law or third-party right; (d) any content you create, upload, or distribute through the Platform; or (e) any dispute between you and your customers or contacts.</p>
 
-      <h2 style={s.h2}>13. Dispute Resolution and Arbitration</h2>
+      <h2 style={s.h2}>14. Dispute Resolution and Arbitration</h2>
       <p style={s.p}><strong>Binding Arbitration:</strong> Any dispute, controversy, or claim arising out of or relating to these Terms or the Platform shall be resolved by binding arbitration administered in accordance with the rules of the American Arbitration Association. The arbitration shall be conducted in the State of Wyoming, and the arbitrator{"'"}s decision shall be final and binding.</p>
       <p style={s.p}><strong>Class Action Waiver:</strong> You agree that any dispute resolution proceedings will be conducted only on an individual basis and not in a class, consolidated, or representative action. You waive any right to participate in a class action lawsuit or class-wide arbitration.</p>
       <p style={s.p}><strong>Jury Trial Waiver:</strong> To the fullest extent permitted by law, you waive any right to a jury trial in any dispute arising from these Terms.</p>
       <p style={s.p}><strong>Exception:</strong> Either party may seek injunctive or other equitable relief in any court of competent jurisdiction to prevent the actual or threatened infringement of intellectual property rights.</p>
 
-      <h2 style={s.h2}>14. Termination</h2>
-      <p style={s.p}>You may terminate your account at any time by contacting us. We may suspend or terminate your account at any time, with or without cause, with or without notice. Upon termination: your right to access the Platform ceases immediately; we will delete your User Data within 30 days (except where legally required to retain); and any provisions that by their nature should survive termination will survive (including Sections 8, 10-13, and 15).</p>
+      <h2 style={s.h2}>15. Termination</h2>
+      <p style={s.p}>You may terminate your account at any time by contacting us. We may suspend or terminate your account at any time, with or without cause, with or without notice. Upon termination: your right to access the Platform ceases immediately; we will delete your User Data within 30 days (except where legally required to retain); and any provisions that by their nature should survive termination will survive (including Sections 6, 7, 9, 11, 12, 13, and 14).</p>
 
-      <h2 style={s.h2}>15. Governing Law</h2>
+      <h2 style={s.h2}>16. Governing Law</h2>
       <p style={s.p}>These Terms shall be governed by and construed in accordance with the laws of the State of Wyoming, United States, without regard to its conflict of law provisions.</p>
 
-      <h2 style={s.h2}>16. Assumption of Risk</h2>
+      <h2 style={s.h2}>17. Assumption of Risk</h2>
       <p style={s.p}>The Platform is a business tool. The Company does not guarantee any specific business outcomes, revenue, leads, conversions, or results from using the Platform. Your business success depends on many factors beyond our control. You assume all risk associated with your business decisions and use of the Platform.</p>
 
-      <h2 style={s.h2}>17. Modifications to Terms</h2>
+      <h2 style={s.h2}>18. Modifications to Terms</h2>
       <p style={s.p}>We reserve the right to modify these Terms at any time. Material changes will be communicated via email or in-app notification at least 14 days before taking effect. Continued use of the Platform after changes take effect constitutes acceptance of the updated Terms. If you disagree with any changes, you must stop using the Platform and delete your account.</p>
 
-      <h2 style={s.h2}>18. Miscellaneous</h2>
+      <h2 style={s.h2}>19. Miscellaneous</h2>
       <ul style={s.ul}>
         <li style={s.li}><strong>Entire Agreement:</strong> These Terms, together with the Privacy Policy, constitute the entire agreement between you and the Company regarding the Platform.</li>
         <li style={s.li}><strong>Severability:</strong> If any provision is found unenforceable, the remaining provisions remain in full force and effect.</li>
@@ -166,7 +218,7 @@ export default function TermsPage() {
         <li style={s.li}><strong>Electronic Communications:</strong> By using the Platform, you consent to receiving electronic communications from us and agree that such communications satisfy any legal requirement for written communication.</li>
       </ul>
 
-      <h2 style={s.h2}>Contact Information</h2>
+      <h2 style={s.h2}>20. Contact Information</h2>
       <p style={s.p}>The Services are offered by The Launch Pad LLC. You may contact us by email at: <a href="mailto:hello@thelaunchpadincubator.com" style={s.link}>hello@thelaunchpadincubator.com</a>.</p>
 
       <div style={s.footer}>
