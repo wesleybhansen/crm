@@ -1,122 +1,9 @@
 'use client'
 
-import { useState, FormEvent, Suspense } from 'react'
+import { Suspense, useState, FormEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
-
-const styles = {
-  page: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'linear-gradient(135deg, #ffffff 0%, #f0f0f5 100%)',
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    padding: '20px',
-  } as React.CSSProperties,
-  card: {
-    width: '100%',
-    maxWidth: '400px',
-    background: '#fff',
-    borderRadius: '12px',
-    boxShadow: '0 4px 24px rgba(0, 0, 0, 0.08)',
-    padding: '40px 36px',
-  } as React.CSSProperties,
-  logoWrap: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    marginBottom: '32px',
-  } as React.CSSProperties,
-  logo: {
-    height: '32px',
-    marginBottom: '10px',
-    display: 'block',
-  } as React.CSSProperties,
-  brand: {
-    fontSize: '22px',
-    fontWeight: 700,
-    color: '#111',
-    margin: 0,
-    letterSpacing: '-0.5px',
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  } as React.CSSProperties,
-  heading: {
-    fontSize: '24px',
-    fontWeight: 700,
-    color: '#111',
-    margin: '0 0 24px',
-    textAlign: 'center' as const,
-  } as React.CSSProperties,
-  label: {
-    display: 'block',
-    fontSize: '14px',
-    fontWeight: 500,
-    color: '#333',
-    marginBottom: '6px',
-  } as React.CSSProperties,
-  input: {
-    width: '100%',
-    padding: '10px 12px',
-    fontSize: '14px',
-    border: '1px solid #d1d5db',
-    borderRadius: '8px',
-    outline: 'none',
-    transition: 'border-color 0.15s, box-shadow 0.15s',
-    boxSizing: 'border-box' as const,
-    marginBottom: '16px',
-  } as React.CSSProperties,
-  inputFocus: {
-    borderColor: '#0000CC',
-    boxShadow: '0 0 0 3px rgba(0, 0, 204, 0.1)',
-  } as React.CSSProperties,
-  button: {
-    width: '100%',
-    padding: '12px',
-    fontSize: '15px',
-    fontWeight: 600,
-    color: '#fff',
-    background: '#0000CC',
-    border: 'none',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    transition: 'background 0.15s',
-  } as React.CSSProperties,
-  buttonDisabled: {
-    opacity: 0.7,
-    cursor: 'not-allowed',
-  } as React.CSSProperties,
-  error: {
-    color: '#dc2626',
-    fontSize: '14px',
-    textAlign: 'center' as const,
-    marginBottom: '16px',
-  } as React.CSSProperties,
-  link: {
-    color: '#0000CC',
-    textDecoration: 'none',
-    fontWeight: 500,
-  } as React.CSSProperties,
-  bottomRow: {
-    textAlign: 'center' as const,
-    marginTop: '24px',
-    fontSize: '14px',
-    color: '#666',
-  } as React.CSSProperties,
-  success: {
-    textAlign: 'center' as const,
-    padding: '20px 0',
-  } as React.CSSProperties,
-  successIcon: {
-    fontSize: '48px',
-    marginBottom: '16px',
-    color: '#16a34a',
-  } as React.CSSProperties,
-  successText: {
-    fontSize: '16px',
-    color: '#333',
-    marginBottom: '8px',
-  } as React.CSSProperties,
-}
+import Link from 'next/link'
+import '../auth-shell.css'
 
 export default function ResetPasswordPage() {
   return (
@@ -135,7 +22,6 @@ function ResetPasswordForm() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
-  const [focusedField, setFocusedField] = useState<string | null>(null)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -177,96 +63,96 @@ function ResetPasswordForm() {
     }
   }
 
-  function inputStyle(field: string) {
-    return focusedField === field
-      ? { ...styles.input, ...styles.inputFocus }
-      : styles.input
-  }
-
-  if (!token) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.card}>
-          <div style={styles.logoWrap}>
-            <img src="/launchos-logo.png" alt="LaunchOS" style={styles.logo} />
-            <p style={styles.brand}>LaunchOS</p>
-          </div>
-          <h1 style={styles.heading}>Invalid reset link</h1>
-          <p style={{ ...styles.error, marginBottom: 0 }}>
-            This password reset link is invalid or has expired.
-          </p>
-          <div style={styles.bottomRow}>
-            <a href="/forgot-password" style={styles.link}>Request a new reset link</a>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <div style={styles.logoWrap}>
-          <img src="/launchos-logo.png" alt="LaunchOS" style={styles.logo} />
-          <p style={styles.brand}>LaunchOS</p>
-        </div>
+    <div className="auth-page">
+      <div className="auth-atmosphere" />
+      <div className="auth-grid-fade" />
 
-        {success ? (
-          <div style={styles.success}>
-            <div style={styles.successIcon}>&#10003;</div>
-            <p style={styles.successText}>Password reset successfully</p>
-            <div style={{ ...styles.bottomRow, marginTop: '24px' }}>
-              <a href="/login" style={styles.link}>Sign in with your new password</a>
-            </div>
-          </div>
-        ) : (
-          <>
-            <h1 style={styles.heading}>Set new password</h1>
-
-            {error && <p style={styles.error}>{error}</p>}
-
-            <form onSubmit={handleSubmit}>
-              <label style={styles.label}>New password</label>
-              <input
-                type="password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onFocus={() => setFocusedField('password')}
-                onBlur={() => setFocusedField(null)}
-                style={inputStyle('password')}
-                placeholder="Min. 8 characters"
-              />
-
-              <label style={styles.label}>Confirm password</label>
-              <input
-                type="password"
-                required
-                minLength={8}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                onFocus={() => setFocusedField('confirm')}
-                onBlur={() => setFocusedField(null)}
-                style={inputStyle('confirm')}
-                placeholder="Re-enter your password"
-              />
-
-              <button
-                type="submit"
-                disabled={loading}
-                style={loading ? { ...styles.button, ...styles.buttonDisabled } : styles.button}
-              >
-                {loading ? 'Resetting...' : 'Reset password'}
-              </button>
-            </form>
-
-            <div style={styles.bottomRow}>
-              <a href="/login" style={styles.link}>Back to sign in</a>
-            </div>
-          </>
-        )}
+      <div className="auth-topbar">
+        <Link href="/" className="auth-logo">
+          <div className="auth-logo-mark" />
+          LaunchOS
+        </Link>
+        <Link href="/login" className="auth-back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <path d="M19 12H5M11 18l-6-6 6-6" />
+          </svg>
+          Back to login
+        </Link>
       </div>
+
+      <main className="auth-main">
+        <div className="auth-card">
+          <div className="auth-card-mark" />
+
+          {success ? (
+            <>
+              <h1>Password updated.</h1>
+              <p className="auth-sub">You can now sign in with your new password.</p>
+              <Link href="/login" className="auth-submit" style={{ textDecoration: 'none' }}>
+                Continue to login
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <path d="M5 12h14M13 6l6 6-6 6" />
+                </svg>
+              </Link>
+            </>
+          ) : (
+            <>
+              <h1>Set a new password.</h1>
+              <p className="auth-sub">Choose something you&apos;ll remember.</p>
+
+              <form className="auth-form" onSubmit={handleSubmit} noValidate>
+                {error && <div className="auth-error" role="alert">{error}</div>}
+
+                <div className="auth-field">
+                  <label htmlFor="password">New password</label>
+                  <input
+                    id="password"
+                    type="password"
+                    required
+                    minLength={8}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    autoComplete="new-password"
+                  />
+                </div>
+
+                <div className="auth-field">
+                  <label htmlFor="confirmPassword">Confirm password</label>
+                  <input
+                    id="confirmPassword"
+                    type="password"
+                    required
+                    minLength={8}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter password"
+                    autoComplete="new-password"
+                  />
+                </div>
+
+                <button type="submit" className="auth-submit" disabled={loading}>
+                  {loading ? 'Updating…' : 'Update password'}
+                  {!loading && (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                      <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
+                  )}
+                </button>
+              </form>
+
+              <div className="auth-footer-line">
+                Remember it now? <Link href="/login">Back to login →</Link>
+              </div>
+            </>
+          )}
+        </div>
+      </main>
+
+      <footer className="auth-bottom">
+        © {new Date().getFullYear()} The Launch Pad LLC
+      </footer>
     </div>
   )
 }
