@@ -1,6 +1,6 @@
 # CRM Build Queue
 
-Comprehensive prioritized queue. Updated 2026-04-02.
+Comprehensive prioritized queue. Updated 2026-04-07.
 
 ---
 
@@ -172,6 +172,99 @@ Extract business data from email signatures (company, title, phone, LinkedIn). L
 
 ### 29. Automatic Pipeline Stage Advancement
 Auto-move contacts through stages based on events: sequence completion → advance, form submission → set stage, engagement threshold → advance, payment → move to Customer.
+
+### 33. Terms — AI Token Overage Responsibility
+**Priority:** quick fix — small text edit, blocks nothing. Should ship before any paid plan launches to protect against runaway AI cost liability.
+
+Update the Terms of Service to make users explicitly responsible for AI token usage that exceeds their plan allotment. Currently the AI cost model is a system-wide cap (default 500 calls/month, admin adjustable) with BYOK (Bring Your Own Key) fallback — but the terms don't say what happens when usage exceeds the cap or who pays for it.
+
+**Add language covering:**
+- Each plan includes a fixed monthly AI token allotment
+- Excess usage is either (a) paused until next billing cycle, (b) billed against the user's own API key if BYOK is enabled, or (c) charged as overage at a posted rate
+- Users acknowledge they are responsible for monitoring their own usage in Settings → AI Usage
+- The Launch Pad LLC reserves the right to throttle, pause, or charge for overage at its discretion to prevent abuse
+- Specific carve-out for users on BYOK: their own API key bills go directly to whichever AI provider they connected; The Launch Pad LLC has no liability for those charges
+
+**Files to update:**
+- `apps/mercato/src/app/terms/page.tsx` (or wherever the terms component lives)
+- Surface a one-line "AI usage policy" link from Settings → AI section so users can find it
+
+### 34. Notification Center in Header
+**Priority:** high — foundational UX. The "set it on autopilot" pitch only works if users can see what the AI is actually doing.
+
+Build a notification center icon in the topbar that shows real-time updates of background activity, AI actions, and system events. This is the "what's the AI up to right now" panel — proof that the autonomous CRM is actually working autonomously.
+
+**Surface notifications for:**
+- **AI background tasks** — Brand Voice Engine analysis running, voice assistant action queued, sequence sending, automation rule triggered, email being drafted, contact enrichment in progress, AI summary generation
+- **AI decisions** — "AI tagged Maria Chen as Hot Lead based on engagement", "AI moved deal to Negotiating stage", "AI drafted reply to John Doe (review before sending)"
+- **System events** — new contact created, deal stage changed, payment received, form submission, booking made, course enrolled, survey response
+- **Async job results** — CSV import complete, export ready, Gmail sync finished, sequence batch sent, automation execution finished
+- **Errors** — Gmail token expired, sequence step failed, payment webhook missed, AI provider rate limited
+
+**UX:**
+- Bell icon in topbar with unread count badge
+- Click to open dropdown panel anchored to the icon (≤480px wide, max 600px tall, scrollable)
+- List of recent notifications grouped by time (Today / Yesterday / Earlier this week)
+- Each notification: icon (per type), title, one-line description, timestamp, "go to" link to the affected entity
+- Mark individually as read or "Mark all as read" button
+- Filter pills at top: All / AI / System / Errors
+- Empty state: "Nothing happening right now. Your business is on autopilot."
+- Settings → Notifications: per-type toggles, browser push opt-in, email digest opt-in (daily/weekly)
+
+**Backend:**
+- New `notifications` table: `id, user_id, organization_id, type, severity, title, description, link, metadata (jsonb), read_at, created_at`
+- API routes: `GET /api/notifications`, `POST /api/notifications/:id/read`, `POST /api/notifications/mark-all-read`, `DELETE /api/notifications/:id`
+- Server-side helper `createNotification(userId, type, payload)` mirroring the existing `logTimelineEvent` pattern — call it from every AI action handler and CRM event hook
+- Real-time push: SSE endpoint `/api/notifications/stream` (or polling every 30s as the simpler v1)
+- Auto-cleanup: drop notifications older than 30 days via a cron job
+
+**Why:** Users need transparency into what the AI is doing on their behalf. "Set it on autopilot" requires trust, and trust requires visibility. The notification center is the proof that the AI is working — without it, users wonder if anything is happening at all and lose confidence in the autopilot pitch.
+
+### 35. Contact Source Tagging (auto-tag on creation AND interaction)
+**Priority:** high — foundational data quality. Without source attribution, the marketing reports lie.
+
+Every contact in the CRM should carry a tag identifying where they came from, and existing contacts should be auto-tagged as they interact with new touchpoints. Attribution is the foundation of marketing analytics — users need to see "where did this lead come from?" without ever having to think about tagging manually.
+
+**On contact CREATION, auto-tag with source:**
+
+| Source | Tag format |
+|---|---|
+| Course enrollment | `Course: <course name>` |
+| Form submission | `Form: <form name>` |
+| Email reply (Inbox Intelligence) | `Source: Inbound Email` |
+| Voice assistant | `Source: Voice Assistant` |
+| Manual creation | `Source: Manual` |
+| CSV import | `Import: <filename>` |
+| API / integration | `API: <api key name>` |
+| Booking page | `Booking: <page name>` |
+| Funnel | `Funnel: <funnel name>` |
+| Landing page | `Page: <page name>` |
+| Survey response | `Survey: <survey name>` |
+| Affiliate referral | `Affiliate: <affiliate name>` |
+| Lead magnet download | `Lead Magnet: <name>` |
+| Open House sign-in (realtor) | `Open House: <event name>` |
+| Photo scan (business card) | `Source: Photo Scan` |
+| Live chat | `Source: Live Chat` |
+
+**On EXISTING contact interaction, add tags as they happen:**
+- Existing contact enrolls in a course → add `Course: <name>`
+- Existing contact submits a form → add `Form: <name>`
+- Existing contact books a meeting → add `Booking: <page name>`
+- Existing contact buys → add `Customer` + `Product: <name>`
+- Existing contact joins a sequence → add `Sequence: <name>`
+- Existing contact attends/registers for an event → add `Event: <name>`
+- Existing contact completes a survey → add `Survey: <name>`
+- Existing contact opens a lead magnet → add `Lead Magnet: <name>`
+
+**Implementation:**
+- Hook into the existing `logTimelineEvent` helper — every timeline event already knows the source entity, so the tagging logic can live alongside it
+- Tags auto-create if they don't exist, with category-based color defaults (Course = purple, Form = blue, Booking = green, etc.)
+- "Source-prefix" tags get a special visual treatment in the contact panel: small icon, slightly different shape, grouped separately from manual tags
+- Tag picker UI groups source tags under a collapsed "Auto" section so they don't crowd the manual tag picker
+- The existing Reports → Sources report should pull from these tags directly (verify after implementation)
+- Migration: backfill source tags for existing contacts based on their `lead_source` column and any existing timeline events that reference a source entity
+
+**Why:** Attribution is the foundation of every marketing decision. "Which campaigns work?" "Which lead magnets convert?" "Where is my best ROI?" None of those questions can be answered without source tags on every contact. Auto-tagging means users get clean attribution data without ever lifting a finger — and the data accumulates from day one instead of being a wishlist item people never get around to enforcing manually.
 
 ---
 
