@@ -2721,6 +2721,10 @@
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
+    display: inline-block;
+    padding: 0.06em 0.22em 0.12em 0.04em;
+    margin: -0.06em -0.18em -0.12em -0.04em;
+    line-height: inherit;
   }
   .manifesto-statements {
     max-width: 720px;
@@ -3083,6 +3087,43 @@
     .stat-cell { padding: 32px 22px; }
     .marquee-item { font-size: 16px; }
   }
+  .waitlist-success {
+    text-align: center;
+    padding: 36px 28px 32px;
+    background: linear-gradient(180deg, rgba(99,102,241,0.10), rgba(99,102,241,0.03));
+    border: 1px solid rgba(99,102,241,0.28);
+    border-radius: 16px;
+    max-width: 480px;
+    margin: 0 auto;
+    animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .waitlist-success .success-icon {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 700;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 0 48px var(--accent-glow);
+  }
+  .waitlist-success h3 {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.018em;
+    margin: 0 0 6px;
+    color: var(--ink);
+  }
+  .waitlist-success p {
+    font-size: 14.5px;
+    color: var(--ink-60);
+    margin: 0;
+  }
+
 </style>
 </head>
 <body>
@@ -3215,7 +3256,7 @@
       <div class="way-card scroll-reveal">
         <div class="way-icon">02</div>
         <h3>Connect any AI agent</h3>
-        <p>Use Claude, ChatGPT, or any AI tool you already love to control your CRM externally through MCP.</p>
+        <p>Use Claude, ChatGPT, OpenCode, or any AI tool you already love to control your CRM externally through MCP.</p>
         <div class="way-mock way-mock-agent">
           <div class="term-bar"><i></i><i></i><i></i></div>
           <div class="agent-line"><span class="arrow">→</span> <span class="fn">launchos.contacts.create</span><span class="arg">("Maria Chen")</span></div>
@@ -3288,7 +3329,7 @@
     <div class="header scroll-reveal">
       <div class="section-label">Inside Launch OS</div>
       <h2>Your whole business. <span class="lede">On one screen.</span></h2>
-      <p>A voice AI that actually does the work. Any AI agent, connected through MCP. Workflows on autopilot. All in the same place.</p>
+      <p>A voice AI that actually does the work. Control your CRM with any AI agent. Workflows on autopilot. Everything you need, already connected, all in the one place.</p>
     </div>
     <div class="browser-frame scroll-reveal">
       <div class="browser-bar">
@@ -3714,11 +3755,16 @@
     <div class="section-label" style="margin-left: auto; margin-right: auto;">Early access</div>
     <h2>Become a founding member.</h2>
     <p>Save your spot in line and get lifetime founder level pricing.</p>
-    <form class="signup-form">
-      <input type="email" placeholder="you@yourbusiness.com" required>
+    <form class="signup-form" id="waitlistForm">
+      <input type="email" name="email" placeholder="you@yourbusiness.com" required>
       <button type="submit">Reserve my spot →</button>
     </form>
-    <div class="perks">
+    <div class="waitlist-success" id="waitlistSuccess" hidden>
+      <div class="success-icon">✓</div>
+      <h3>You're on the list.</h3>
+      <p>We'll be in touch when founding member access opens.</p>
+    </div>
+    <div class="perks" id="waitlistPerks">
       <span>Lifetime pricing</span>
       <span>First access</span>
       <span>Founder feedback channel</span>
@@ -3996,6 +4042,43 @@
     runCycle();
     setInterval(tickTimestamps, 1000);
     setInterval(tickAmsThink, 1000);
+  })();
+
+  // Waitlist form — POSTs to /api/waitlist and shows success state
+  (function () {
+    var form = document.getElementById('waitlistForm');
+    if (!form) return;
+    var success = document.getElementById('waitlistSuccess');
+    var perks = document.getElementById('waitlistPerks');
+    var button = form.querySelector('button[type="submit"]');
+    var input = form.querySelector('input[name="email"]');
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var email = (input.value || '').trim();
+      if (!email) return;
+      button.disabled = true;
+      var originalText = button.textContent;
+      button.textContent = 'Reserving…';
+      fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email })
+      }).then(function (res) {
+        if (res.ok) {
+          form.hidden = true;
+          if (perks) perks.hidden = true;
+          if (success) success.hidden = false;
+        } else {
+          button.disabled = false;
+          button.textContent = originalText;
+          alert('Something went wrong. Please try again.');
+        }
+      }).catch(function () {
+        button.disabled = false;
+        button.textContent = originalText;
+        alert('Something went wrong. Please try again.');
+      });
+    });
   })();
 </script>
 

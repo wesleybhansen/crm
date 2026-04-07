@@ -125,7 +125,7 @@ export default function LoginPage() {
             </>
           ) : (
             <>
-              <h1>Welcome back, operator.</h1>
+              <h1>Welcome back, rockstar.</h1>
               <p className="auth-sub">Sign in to your Launch OS workspace.</p>
 
               <form className="auth-form" onSubmit={handleSubmit} noValidate>
