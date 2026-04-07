@@ -21,7 +21,7 @@ export default function PrivacyPage() {
       <p style={s.updated}>Last updated: April 6, 2026</p>
 
       <div style={s.callout}>
-        <strong>Incorporation of Company-Wide Privacy Policy:</strong> The <a href="https://thelaunchpadincubator.com/privacy/" style={s.link}>Launchpad Incubator Privacy Policy</a> is expressly incorporated into and made a part of this policy by reference. All terms and provisions of the company-wide privacy policy apply to your use of the LaunchOS CRM platform, except where they directly conflict with the terms set forth in this document, in which case the terms of this document shall control with respect to the Platform.
+        <strong>Incorporation of Company-Wide Privacy Policy:</strong> <a href="https://thelaunchpadincubator.com/privacy/" style={s.link}>The Launch Pad LLC Privacy Policy</a> is expressly incorporated into and made a part of this policy by reference. All terms and provisions of the company-wide privacy policy apply to your use of the LaunchOS CRM platform, except where they directly conflict with the terms set forth in this document, in which case the terms of this document shall control with respect to the Platform.
       </div>
 
       <p style={s.p}>The Launch Pad LLC ("Company," "we," "our," "us") operates the LaunchOS CRM platform at crm.thelaunchpadincubator.com (the "Platform"). This Privacy Policy explains how we collect, use, store, share, and protect your information when you use the Platform. By accessing or using LaunchOS, you consent to the practices described in this policy.</p>
@@ -148,6 +148,9 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>12. Changes to This Policy</h2>
       <p style={s.p}>We may update this Privacy Policy from time to time. We will notify you of material changes via email or in-app notification at least 14 days before the changes take effect. The "Last updated" date at the top reflects the most recent revision.</p>
+
+      <h2 style={s.h2}>Contact us</h2>
+      <p style={s.p}>If you have questions about this policy or our practices, contact us at <a href="mailto:privacy@thelaunchpadincubator.com" style={s.link}>privacy@thelaunchpadincubator.com</a>.</p>
 
       <div style={s.footer}>
         <p><a href="/terms" style={s.link}>Terms &amp; Conditions</a> · <a href="/login" style={s.link}>Back to LaunchOS</a></p>
