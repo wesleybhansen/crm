@@ -1617,15 +1617,27 @@
   .skill-row:nth-child(2) .skill-status::before { animation-delay: 0.5s; }
   .skill-row:nth-child(3) .skill-status::before { animation-delay: 1s; }
 
-  /* AMS SHOWCASE — Marketing engine, mirrors product-showcase structure */
-  .ams-showcase {
+  /* AMS → CRM FLOW — automated marketing engine handing leads to CRM */
+  .flow-section {
     padding: 160px 0;
     border-top: 1px solid var(--line);
     background: var(--bg-2);
     position: relative;
     overflow: hidden;
   }
-  .ams-showcase::before {
+  .flow-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 80%);
+    pointer-events: none;
+  }
+  .flow-section::after {
     content: '';
     position: absolute;
     top: 200px;
@@ -1637,310 +1649,547 @@
     opacity: 0.18;
     pointer-events: none;
   }
-  .ams-showcase .header {
+  .flow-section .header {
     text-align: center;
-    margin-bottom: 64px;
+    margin-bottom: 80px;
     max-width: 760px;
     margin-left: auto;
     margin-right: auto;
     position: relative;
     z-index: 2;
   }
-  .ams-showcase .section-label { margin: 0 auto 24px; }
-  .ams-showcase h2 {
+  .flow-section .section-label { margin: 0 auto 24px; }
+  .flow-section h2 {
     font-size: clamp(34px, 4.4vw, 56px);
     font-weight: 600;
     line-height: 1.14;
     letter-spacing: -0.028em;
     color: var(--ink);
-    margin-bottom: 18px;
+    margin: 0 auto 18px;
+    max-width: 880px;
   }
-  .ams-showcase .header p {
+  .flow-section .header p {
     font-size: 17px;
     color: var(--ink-60);
     line-height: 1.55;
-    max-width: 580px;
+    max-width: 620px;
     margin: 0 auto;
   }
-
-  /* AMS app UI inside browser frame — reuses .browser-frame, .product-content,
-     .app-sidebar, .app-search, .voice-bar from the CRM showcase */
-  .ams-content {
-    height: 640px;
-    background: linear-gradient(135deg, #0E0E16 0%, #14142A 100%);
-    display: grid;
-    grid-template-columns: 232px 1fr 280px;
+  .flow-section .flow-stage {
     position: relative;
-  }
-
-  /* Campaign card (replaces .contact-card) */
-  .ams-campaign {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 18px;
-  }
-  .ams-campaign-icon {
-    width: 56px;
-    height: 56px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 12px 32px -8px rgba(99, 102, 241, 0.4);
-  }
-  .ams-campaign-icon svg {
-    width: 22px;
-    height: 22px;
-    stroke: white;
-    fill: none;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .ams-campaign-meta { flex: 1; min-width: 0; }
-  .ams-campaign-meta .name {
-    font-size: 18px;
-    font-weight: 600;
-    letter-spacing: -0.018em;
-    margin-bottom: 4px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .ams-campaign-meta .name .pill {
-    font-size: 10px;
-    padding: 3px 9px;
-    border-radius: 100px;
-    background: rgba(99, 102, 241, 0.14);
-    color: var(--accent);
-    font-weight: 600;
-    border: 1px solid rgba(99, 102, 241, 0.32);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    animation: liveDotBlink 2.4s ease-in-out infinite;
-  }
-  .ams-campaign-meta .sub {
-    font-size: 11.5px;
-    color: var(--ink-40);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .ams-campaign-meta .sub .dot { width: 2px; height: 2px; border-radius: 50%; background: var(--ink-40); }
-  .ams-campaign-meta .sub .val { color: var(--accent); font-weight: 600; }
-
-  /* Asset grid — 2x2 of generated assets */
-  .ams-assets {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    flex: 1;
-    min-height: 0;
+    grid-template-columns: 1fr 220px 1fr;
+    align-items: stretch;
+    gap: 0;
+    max-width: 1240px;
+    margin: 0 auto;
+    z-index: 2;
   }
-  .ams-asset {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 14px 14px 12px;
-    display: flex;
-    flex-direction: column;
+
+  /* App frames */
+  .flow-section .app-frame {
+    background: var(--bg-card);
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
     overflow: hidden;
-    opacity: 0;
-    animation: assetAppear 9s ease-in-out infinite;
+    box-shadow:
+      0 60px 120px -40px rgba(0,0,0,0.7),
+      0 0 0 1px var(--line),
+      0 0 80px -20px var(--accent-glow);
+    position: relative;
+    transform-style: preserve-3d;
+    z-index: 1;
   }
-  .ams-asset:nth-child(1) { animation-delay: 2.4s; }
-  .ams-asset:nth-child(2) { animation-delay: 3s; }
-  .ams-asset:nth-child(3) { animation-delay: 3.6s; }
-  .ams-asset:nth-child(4) { animation-delay: 4.2s; }
-  @keyframes assetAppear {
-    0%, 100% { opacity: 0; transform: translateY(6px); }
-    8%, 92% { opacity: 1; transform: translateY(0); }
-  }
-  .ams-asset .label {
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--accent);
-    font-weight: 700;
-    font-family: 'JetBrains Mono', monospace;
-    margin-bottom: 8px;
+  .flow-section .app-frame.ams { transform: perspective(1800px) rotateY(9deg); }
+  .flow-section .app-frame.crm { transform: perspective(2000px) rotateY(-6deg); }
+  .flow-section .app-bar {
+    height: 38px;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--line);
     display: flex;
     align-items: center;
-    gap: 7px;
+    padding: 0 14px;
+    gap: 8px;
   }
-  .ams-asset .label::before {
-    content: '';
+  .flow-section .app-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+  }
+  .flow-section .app-url {
+    flex: 1;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-60);
+    letter-spacing: 0.02em;
+  }
+  .flow-section .bar-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid;
+    flex-shrink: 0;
+  }
+  .flow-section .bar-badge.autopilot {
+    color: var(--accent);
+    background: rgba(99,102,241,0.10);
+    border-color: rgba(99,102,241,0.35);
+  }
+  .flow-section .bar-badge.receiving {
+    color: var(--green);
+    background: rgba(16,185,129,0.08);
+    border-color: rgba(16,185,129,0.30);
+  }
+  .flow-section .bar-badge .dot {
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 6px var(--accent);
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+    animation: flowLiveBlink 1.6s infinite;
   }
-  .ams-asset .headline {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--ink);
-    line-height: 1.35;
+  @keyframes flowLiveBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  .flow-section .app-body {
+    padding: 20px 22px 22px;
+    height: 460px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .flow-section .app-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    font-weight: 700;
     margin-bottom: 6px;
-    letter-spacing: -0.005em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
-  .ams-asset .body {
-    font-size: 10.5px;
-    color: var(--ink-60);
-    line-height: 1.5;
+  .flow-section .app-eyebrow .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: flowLiveBlink 1.6s infinite;
   }
-  .ams-asset .body .muted { color: var(--ink-40); }
+  .flow-section .app-title {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 4px;
+    color: var(--ink);
+  }
+  .flow-section .app-sub {
+    font-size: 13px;
+    color: var(--ink-40);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .flow-section .app-sub .ts {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-40);
+  }
 
-  /* Ad creative variant — has an image placeholder */
-  .ams-asset-ad .ad-image {
-    height: 56px;
-    border-radius: 6px;
+  /* AMS side */
+  .flow-section .ams-assets {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .flow-section .ams-asset {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  }
+  .flow-section .ams-asset .kind {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-40);
+    margin-bottom: 4px;
+  }
+  .flow-section .ams-asset .name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-80);
+    line-height: 1.35;
+  }
+  .flow-section .ams-asset.ad {
     background:
-      linear-gradient(135deg, rgba(99, 102, 241, 0.4) 0%, rgba(236, 72, 153, 0.35) 100%),
-      repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(255, 255, 255, 0.04) 6px, rgba(255, 255, 255, 0.04) 12px);
-    margin-bottom: 8px;
+      linear-gradient(135deg, rgba(99,102,241,0.18), rgba(236,72,153,0.18)),
+      var(--bg-card);
+    border-color: rgba(99,102,241,0.3);
+  }
+  .flow-section .ams-asset.ad .name { color: var(--ink); font-weight: 600; }
+  .flow-section .ams-asset.published { border-color: rgba(16,185,129,0.3); }
+  .flow-section .ams-asset.published::after {
+    content: '✓';
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    font-size: 10px;
+    color: var(--green);
+    font-weight: 700;
+  }
+  .flow-section .ams-asset.firing {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 1px var(--accent), 0 0 28px var(--accent-glow);
+  }
+  .flow-section .ad-progress {
+    margin-top: 10px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.08);
+    overflow: hidden;
+    position: relative;
+  }
+  .flow-section .ad-progress::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 35%;
+    background: linear-gradient(90deg, transparent, var(--accent), var(--accent-3), transparent);
+    border-radius: 2px;
+    animation: adShimmer 1.8s ease-in-out infinite;
+  }
+  @keyframes adShimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(286%); }
+  }
+  .flow-section .ams-thinking {
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .flow-section .ams-think-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--ink-60);
+    margin-top: 6px;
+  }
+  .flow-section .ams-think-step .check {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: rgba(16,185,129,0.15);
+    color: var(--green);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    color: rgba(255, 255, 255, 0.6);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    position: relative;
-    overflow: hidden;
-  }
-  .ams-asset-ad .ad-image::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
-    animation: imageShimmer 2.4s ease-in-out infinite;
-  }
-  @keyframes imageShimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-  }
-
-  /* Email/social list variant — items appear staggered */
-  .ams-asset-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-  .ams-asset-list li {
-    font-size: 10.5px;
-    color: var(--ink-60);
-    line-height: 1.4;
-    padding: 5px 9px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 5px;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    opacity: 0;
-    animation: listItemAppear 9s ease-in-out infinite;
-  }
-  .ams-asset-list li::before {
-    content: '✓';
-    color: var(--accent);
     font-size: 9px;
     font-weight: 700;
-    flex-shrink: 0;
   }
-  .ams-asset-list li b { color: var(--ink); font-weight: 600; }
-  @keyframes listItemAppear {
-    0%, 100% { opacity: 0; transform: translateX(-4px); }
-    8%, 92% { opacity: 1; transform: translateX(0); }
+  .flow-section .ams-think-step.pending .check {
+    background: rgba(99,102,241,0.15);
+    color: var(--accent);
+    animation: flowPendingPulse 1.4s infinite;
   }
-  /* Email card item delays — start AFTER the asset card itself appears */
-  .ams-asset:nth-child(3) .ams-asset-list li:nth-child(1) { animation-delay: 4.0s; }
-  .ams-asset:nth-child(3) .ams-asset-list li:nth-child(2) { animation-delay: 4.3s; }
-  .ams-asset:nth-child(3) .ams-asset-list li:nth-child(3) { animation-delay: 4.6s; }
-  .ams-asset:nth-child(3) .ams-asset-list li:nth-child(4) { animation-delay: 4.9s; }
-  .ams-asset:nth-child(3) .ams-asset-list li:nth-child(5) { animation-delay: 5.2s; }
-  /* Social card item delays */
-  .ams-asset:nth-child(4) .ams-asset-list li:nth-child(1) { animation-delay: 4.6s; }
-  .ams-asset:nth-child(4) .ams-asset-list li:nth-child(2) { animation-delay: 4.9s; }
-  .ams-asset:nth-child(4) .ams-asset-list li:nth-child(3) { animation-delay: 5.2s; }
+  .flow-section .ams-think-step .ts {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--ink-40);
+  }
+  @keyframes flowPendingPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.5); }
+    50% { box-shadow: 0 0 0 4px rgba(99,102,241,0); }
+  }
+  .flow-section .ams-counter {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .flow-section .ams-counter .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-40);
+  }
+  .flow-section .ams-counter .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+    transition: text-shadow 0.3s ease;
+  }
+  .flow-section .ams-counter .num.bump { text-shadow: 0 0 14px var(--accent-glow); }
+  .flow-section .ams-counter .arrow {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--green);
+    font-family: 'JetBrains Mono', monospace;
+  }
 
-  /* Cross-link callout — "leads sent to CRM" floating notification */
-  .ams-cross-link {
-    position: absolute;
-    bottom: 88px;
-    right: 16px;
-    background: linear-gradient(180deg, rgba(20, 20, 36, 0.92), rgba(14, 14, 26, 0.96));
-    border: 1px solid rgba(99, 102, 241, 0.4);
+  /* CRM side */
+  .flow-section .crm-pipeline {
+    background:
+      linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.06)),
+      rgba(255,255,255,0.02);
+    border: 1px solid var(--line-strong);
     border-radius: 10px;
-    padding: 11px 14px;
-    backdrop-filter: blur(16px);
-    box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.6), 0 0 24px rgba(99, 102, 241, 0.25);
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    transition: box-shadow 0.4s ease, border-color 0.4s ease;
+  }
+  .flow-section .crm-pipeline.flash {
+    box-shadow: 0 0 0 1px rgba(16,185,129,0.5), 0 0 32px rgba(16,185,129,0.3);
+    border-color: rgba(16,185,129,0.4);
+  }
+  .flow-section .crm-pipeline .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-40);
+    margin-bottom: 4px;
+  }
+  .flow-section .crm-pipeline .value {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    background: linear-gradient(120deg, var(--ink) 0%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1.1;
+  }
+  .flow-section .crm-pipeline .meta {
+    font-size: 11px;
+    color: var(--green);
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 4px;
+  }
+  .flow-section .crm-pipeline .meta b { font-weight: 700; }
+  .flow-section .crm-stage { margin-bottom: 14px; }
+  .flow-section .crm-stage .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-40);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .flow-section .crm-stage .label .count { color: var(--accent); }
+  .flow-section .crm-stage-bar {
+    height: 6px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.05);
+    overflow: hidden;
+  }
+  .flow-section .crm-stage-bar .fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    border-radius: 4px;
+    width: 40%;
+    transition: width 0.6s cubic-bezier(0.16,1,0.3,1);
+  }
+  .flow-section .crm-recent {
+    margin-top: auto;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+  .flow-section .crm-recent .heading {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-40);
+    margin-bottom: 10px;
     display: flex;
     align-items: center;
-    gap: 11px;
-    z-index: 5;
-    max-width: 240px;
+    gap: 8px;
+  }
+  .flow-section .crm-recent .heading .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: flowLiveBlink 1.6s infinite;
+  }
+  .flow-section .crm-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-height: 200px;
+    overflow: hidden;
+  }
+  .flow-section .crm-lead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--line);
     opacity: 0;
-    animation: crossLinkAppear 9s ease-in-out infinite;
-    animation-delay: 6s;
+    transform: translateX(-12px);
+    animation: leadIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
-  @keyframes crossLinkAppear {
-    0%, 100% { opacity: 0; transform: translateX(8px) scale(0.96); }
-    10%, 90% { opacity: 1; transform: translateX(0) scale(1); }
-  }
-  .ams-cross-link .arrow {
+  .flow-section .crm-lead:last-child { border-bottom: none; }
+  .flow-section .crm-lead .source {
     width: 22px;
     height: 22px;
     border-radius: 6px;
-    background: var(--accent);
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    box-shadow: 0 0 12px var(--accent-glow);
-  }
-  .ams-cross-link .arrow svg {
-    width: 12px;
-    height: 12px;
-    stroke: white;
-    fill: none;
-    stroke-width: 2.2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .ams-cross-link .text {
-    font-size: 11px;
-    color: var(--ink);
-    line-height: 1.35;
-    font-weight: 500;
-  }
-  .ams-cross-link .text .num {
+    background: rgba(99,102,241,0.12);
+    border: 1px solid rgba(99,102,241,0.3);
     color: var(--accent);
-    font-weight: 700;
   }
-  .ams-cross-link .text small {
-    display: block;
-    font-size: 9.5px;
+  .flow-section .crm-lead .source svg { width: 12px; height: 12px; }
+  .flow-section .crm-lead .info { flex: 1; min-width: 0; }
+  .flow-section .crm-lead .name { font-size: 12px; font-weight: 500; color: var(--ink-80); }
+  .flow-section .crm-lead .meta {
+    font-size: 10px;
     color: var(--ink-40);
     font-family: 'JetBrains Mono', monospace;
-    margin-top: 1px;
+  }
+  .flow-section .crm-lead .ts {
+    font-size: 9px;
+    color: var(--ink-40);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .flow-section .crm-lead .stage {
+    font-size: 9px;
+    font-family: 'JetBrains Mono', monospace;
     text-transform: uppercase;
     letter-spacing: 0.08em;
+    color: var(--accent);
+    background: rgba(99,102,241,0.12);
+    border: 1px solid rgba(99,102,241,0.25);
+    border-radius: 10px;
+    padding: 2px 7px;
+  }
+  .flow-section .crm-lead.fading { animation: leadOut 0.4s ease forwards; }
+  @keyframes leadIn {
+    0% { opacity: 0; transform: translateX(-12px); }
+    100% { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes leadOut {
+    to { opacity: 0; transform: translateX(8px); max-height: 0; padding: 0; margin: 0; border: 0; }
   }
 
-  /* Section closer below the browser frame */
-  .ams-closer {
+  /* Flow pipe (between frames) */
+  .flow-section .flow-pipe {
+    position: relative;
+    height: 380px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .flow-section .flow-pipe svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .flow-section .flow-pipe .path-guide {
+    fill: none;
+    stroke: rgba(255,255,255,0.10);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 5;
+  }
+  .flow-section .lead-chip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 5px 11px 5px 5px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    box-shadow: 0 0 24px var(--accent-glow), 0 0 0 1px rgba(99,102,241,0.4);
+    offset-path: path('M -10 190 Q 110 30, 230 190');
+    offset-rotate: 0deg;
+    animation: chipFlow 3.6s cubic-bezier(0.55, 0, 0.45, 1) forwards;
+    will-change: offset-distance, opacity, transform;
+  }
+  .flow-section .lead-chip .src {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-3));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-shrink: 0;
+  }
+  .flow-section .lead-chip .src svg { width: 10px; height: 10px; }
+  @keyframes chipFlow {
+    0%   { offset-distance: 0%;   opacity: 0; }
+    12%  { opacity: 1; }
+    88%  { opacity: 1; }
+    100% { offset-distance: 100%; opacity: 0; }
+  }
+  .flow-section .flow-label {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--ink-40);
+    text-align: center;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .flow-section .flow-label.top { top: 6px; color: var(--accent); }
+  .flow-section .flow-label.bot { bottom: 6px; }
+  .flow-section .flow-label .num { color: var(--accent); font-weight: 700; }
+
+  /* Closer */
+  .flow-section .flow-closer {
     margin-top: 80px;
     text-align: center;
+    position: relative;
+    z-index: 2;
   }
-  .ams-closer h3 {
+  .flow-section .flow-closer h3 {
     font-size: clamp(28px, 3.4vw, 44px);
     font-weight: 600;
     line-height: 1.3;
@@ -1949,7 +2198,7 @@
     max-width: 820px;
     margin: 0 auto;
   }
-  .ams-closer h3 em {
+  .flow-section .flow-closer h3 em {
     font-style: italic;
     font-weight: 500;
     background: linear-gradient(120deg, var(--accent), var(--accent-3));
@@ -1959,6 +2208,52 @@
     display: inline-block;
     padding: 0.06em 0.18em 0.12em 0.04em;
     margin: -0.06em -0.14em -0.12em -0.04em;
+  }
+
+  /* Flow section responsive */
+  @media (max-width: 1024px) {
+    .flow-section .flow-stage {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+    .flow-section .app-frame.ams,
+    .flow-section .app-frame.crm { transform: none; }
+    .flow-section .flow-pipe {
+      height: 140px;
+      order: 2;
+    }
+    .flow-section .app-frame.crm { order: 3; }
+    .flow-section .flow-pipe svg { display: none; }
+    .flow-section .flow-pipe::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(180deg, transparent, var(--accent), transparent);
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+    .flow-section .flow-label.top { top: 4px; }
+    .flow-section .flow-label.bot { bottom: 4px; }
+    .flow-section .lead-chip {
+      offset-path: none;
+      left: 50%;
+      top: 0;
+      animation: chipFlowVertical 3.6s cubic-bezier(0.55, 0, 0.45, 1) forwards;
+    }
+    @keyframes chipFlowVertical {
+      0%   { top: -10px; opacity: 0; transform: translateX(-50%) scale(0.7); }
+      12%  { opacity: 1;              transform: translateX(-50%) scale(1); }
+      88%  { opacity: 1;              transform: translateX(-50%) scale(1); }
+      100% { top: 150px; opacity: 0;  transform: translateX(-50%) scale(0.7); }
+    }
+  }
+  @media (max-width: 900px) {
+    .flow-section { padding: 100px 0; }
+    .flow-section .header { margin-bottom: 56px; }
+    .flow-section .flow-closer { margin-top: 56px; }
   }
 
   /* STATS — dark, atmospheric */
@@ -2591,11 +2886,9 @@
   /* Large tablet / small desktop */
   @media (max-width: 1100px) {
     .container { padding: 0 28px; }
-    .product-content,
-    .ams-content { grid-template-columns: 220px 1fr; }
+    .product-content { grid-template-columns: 220px 1fr; }
     .app-inspector { display: none; }
     .app-main { border-right: none; }
-    .ams-cross-link { bottom: 96px; right: 12px; max-width: 200px; }
   }
 
   /* Tablet */
@@ -2623,17 +2916,9 @@
 
     .marquee-section { padding: 56px 0; }
 
-    .product-showcase,
-    .ams-showcase { padding: 100px 0; }
-    .product-showcase .header,
-    .ams-showcase .header { margin-bottom: 48px; }
-    .product-content,
-    .ams-content { grid-template-columns: 60px 1fr; height: 700px; }
-    .ams-assets { grid-template-columns: 1fr; gap: 8px; }
-    .ams-asset { padding: 12px 12px 10px; }
-    .ams-cross-link { bottom: 100px; right: 12px; max-width: 180px; padding: 9px 11px; }
-    .ams-cross-link .text { font-size: 10.5px; }
-    .ams-closer { margin-top: 56px; }
+    .product-showcase { padding: 100px 0; }
+    .product-showcase .header { margin-bottom: 48px; }
+    .product-content { grid-template-columns: 60px 1fr; height: 700px; }
     .app-sidebar { padding: 14px 6px; }
     .app-workspace { padding: 6px; gap: 0; border-bottom: none; margin-bottom: 8px; }
     .app-workspace .ws-name, .app-workspace .ws-chev { display: none; }
@@ -3166,161 +3451,108 @@
   </div>
 </section>
 
-<!-- AMS SHOWCASE — Marketing engine, also on autopilot -->
-<section class="ams-showcase">
+<!-- AMS → CRM FLOW — automated marketing engine handing leads to the CRM -->
+<section class="flow-section">
   <div class="container">
     <div class="header scroll-reveal">
-      <div class="section-label">Your marketing engine</div>
-      <h2>Your marketing, also <span class="lede">on autopilot.</span></h2>
-      <p>Topics researched, blog posts written, ads designed, emails sequenced, leads captured — all running together inside the same workspace, all flowing back to your CRM tagged and ready.</p>
+      <div class="section-label">The loop that runs itself</div>
+      <h2>Your marketing. Built in.<br><span class="lede">Already running.</span></h2>
+      <p>The campaigns, already written. The content, already posted. The leads, already in your CRM — tagged, scored, ready to convert. All done automatically.</p>
     </div>
-    <div class="browser-frame scroll-reveal">
-      <div class="browser-bar">
-        <div class="browser-dot"></div>
-        <div class="browser-dot"></div>
-        <div class="browser-dot"></div>
-        <div class="url">ams.thelaunchpadincubator.com</div>
-        <div style="width: 36px"></div>
+
+    <div class="flow-stage scroll-reveal">
+
+      <!-- AMS SIDE -->
+      <div class="app-frame ams">
+        <div class="app-bar">
+          <div class="app-dot"></div>
+          <div class="app-dot"></div>
+          <div class="app-dot"></div>
+          <div class="app-url">ams.thelaunchpadincubator.com</div>
+          <div class="bar-badge autopilot"><span class="dot"></span>Autopilot</div>
+        </div>
+        <div class="app-body">
+          <div class="app-eyebrow"><span class="live-dot"></span>Marketing engine · live</div>
+          <div class="app-title">Spring Launch Campaign</div>
+          <div class="app-sub">5 assets · publishing on schedule <span class="ts" id="flow-amsTs">· started 4m ago</span></div>
+
+          <div class="ams-assets">
+            <div class="ams-asset ad" data-source="ad">
+              <div class="kind">Ad creative · generating</div>
+              <div class="name">Your business, on autopilot.</div>
+              <div class="ad-progress"></div>
+            </div>
+            <div class="ams-asset published" data-source="blog">
+              <div class="kind">Blog post</div>
+              <div class="name">Why solo founders build audience first</div>
+            </div>
+            <div class="ams-asset" data-source="social">
+              <div class="kind">Social · queued</div>
+              <div class="name">6-tweet thread</div>
+            </div>
+            <div class="ams-asset published" data-source="email">
+              <div class="kind">Email · sent</div>
+              <div class="name">Welcome &amp; the playbook</div>
+            </div>
+          </div>
+
+          <div class="ams-thinking">
+            <div class="ams-think-step"><div class="check">✓</div>Researched 12 competitors</div>
+            <div class="ams-think-step"><div class="check">✓</div>Published 4 of 5 assets</div>
+            <div class="ams-think-step pending"><div class="check">·</div>Capturing leads…<span class="ts" id="flow-amsThinkTs">0s ago</span></div>
+          </div>
+
+          <div class="ams-counter">
+            <span class="label">Generated</span>
+            <span class="num" id="flow-amsNum">135</span>
+            <span class="arrow">→ flowing to CRM</span>
+          </div>
+        </div>
       </div>
-      <div class="ams-content">
-        <aside class="app-sidebar">
-          <div class="app-workspace">
-            <div class="ws-mark"></div>
-            <div class="ws-name">Heron Studio</div>
-            <div class="ws-chev">⌄</div>
-          </div>
-          <div class="app-nav-item active">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
-            Campaigns
-          </div>
-          <div class="app-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-            Topics
-          </div>
-          <div class="app-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
-            Drafts<span class="badge-num">12</span>
-          </div>
-          <div class="app-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>
-            Audiences
-          </div>
-          <div class="app-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
-            Calendar
-          </div>
-          <div class="group-label">Distribution</div>
-          <div class="app-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-            Email
-          </div>
-          <div class="app-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
-            Social
-          </div>
-          <div class="app-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>
-            Ads
-          </div>
-        </aside>
-        <main class="app-main">
-          <div class="app-search">
-            <div class="app-search-input">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5"/></svg>
-              Ask the marketing engine anything…
-              <span class="kbd">⌘K</span>
-            </div>
-            <div class="avatar"></div>
-          </div>
-          <div class="app-content">
-            <div class="app-crumb">campaigns <b>/</b> spring-launch</div>
-            <div class="ams-campaign">
-              <div class="ams-campaign-icon">
-                <svg viewBox="0 0 24 24"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
-              </div>
-              <div class="ams-campaign-meta">
-                <div class="name">Spring Launch Campaign <span class="pill">● Generating</span></div>
-                <div class="sub">5 assets · launching <span class="val">Tue 9:00 AM</span><span class="dot"></span>est. 2,400 leads</div>
-              </div>
-            </div>
-            <div class="section-divider"><span>Generating now</span></div>
-            <div class="ams-assets">
-              <div class="ams-asset">
-                <div class="label">Blog post</div>
-                <div class="headline">Why solo founders should build an audience first</div>
-                <div class="body">A 1,400-word explainer with internal links and SEO scoring. <span class="muted">Drafting section 3 of 5…</span></div>
-              </div>
-              <div class="ams-asset ams-asset-ad">
-                <div class="label">Ad creative</div>
-                <div class="ad-image">Generating image…</div>
-                <div class="headline">Stop running 12 tools. Run one.</div>
-                <div class="body"><span class="muted">For Meta + LinkedIn · est. CTR 2.4%</span></div>
-              </div>
-              <div class="ams-asset">
-                <div class="label">Email sequence</div>
-                <ul class="ams-asset-list">
-                  <li><b>1.</b> Welcome &amp; the playbook</li>
-                  <li><b>2.</b> The midnight problem</li>
-                  <li><b>3.</b> What changed for Maria</li>
-                  <li><b>4.</b> A small ask</li>
-                  <li><b>5.</b> Founding pricing closes Friday</li>
-                </ul>
-              </div>
-              <div class="ams-asset">
-                <div class="label">Social posts</div>
-                <ul class="ams-asset-list">
-                  <li><b>𝕏</b> 6-tweet thread queued</li>
-                  <li><b>in</b> LinkedIn long-form post</li>
-                  <li><b>@</b> Threads short-form post</li>
-                </ul>
-              </div>
-            </div>
-            <div class="voice-bar">
-              <div class="voice-mic">
-                <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3zm5 9a5 5 0 01-10 0H5a7 7 0 006 6.92V21h2v-3.08A7 7 0 0019 11z"/></svg>
-              </div>
-              <div class="voice-text">
-                <span class="label">Listening · 0:18</span>
-                <span class="typed ams-typed">"Build a 5-day course launch campaign for solo founders"</span><span class="typing">▍</span>
-              </div>
-              <div class="voice-waves"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-            </div>
-            <div class="ams-cross-link">
-              <div class="arrow">
-                <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-              </div>
-              <div class="text">
-                <span class="num">147 leads</span> sent to your CRM
-                <small>tagged · scored · stage-ready</small>
-              </div>
-            </div>
-          </div>
-        </main>
-        <aside class="app-inspector">
-          <div>
-            <div class="insp-label"><span class="dot"></span>Marketing brain</div>
-            <div class="ai-thinking" style="margin-top:10px">
-              <div class="think-step"><div class="check">✓</div>Researched <b>12 competitors</b></div>
-              <div class="think-step"><div class="check">✓</div>Identified <b>3 audiences</b></div>
-              <div class="think-step"><div class="check">✓</div>Generated <b>brief + outline</b></div>
-              <div class="think-step pending"><div class="check">·</div>Drafting assets…</div>
-            </div>
-          </div>
-          <div class="insp-stat">
-            <div class="stat-label">Pipeline this week</div>
-            <div class="stat-value">$8,247</div>
-            <div class="stat-meta">+147 leads from content</div>
-          </div>
-          <div class="insp-stat">
-            <div class="stat-label">Hours back this week</div>
-            <div class="stat-value">8.4h</div>
-            <div class="stat-meta" style="color: var(--ink-60);">without writing a word</div>
-          </div>
-        </aside>
+
+      <!-- FLOW PIPE -->
+      <div class="flow-pipe" id="flow-flowPipe">
+        <div class="flow-label top">↓ Leads in motion</div>
+        <svg viewBox="0 0 220 380" preserveAspectRatio="none">
+          <path class="path-guide" d="M -10 190 Q 110 30, 230 190"/>
+        </svg>
+        <div class="flow-label bot"><span class="num" id="flow-flowNum">+135</span> this week</div>
       </div>
+
+      <!-- CRM SIDE -->
+      <div class="app-frame crm">
+        <div class="app-bar">
+          <div class="app-dot"></div>
+          <div class="app-dot"></div>
+          <div class="app-dot"></div>
+          <div class="app-url">crm.thelaunchpadincubator.com</div>
+          <div class="bar-badge receiving"><span class="dot"></span>Receiving</div>
+        </div>
+        <div class="app-body">
+          <div class="app-eyebrow"><span class="live-dot"></span>Pipeline · live</div>
+
+          <div class="crm-pipeline" id="flow-crmPipelineCard">
+            <div class="label">Pipeline this week</div>
+            <div class="value" id="flow-crmPipeline">$284,150</div>
+            <div class="meta">+ <b id="flow-crmFromNew">$42,500</b> from new leads</div>
+          </div>
+
+          <div class="crm-stage">
+            <div class="label"><span>New · scored · auto-tagged</span><span class="count" id="flow-crmCount">135</span></div>
+            <div class="crm-stage-bar"><div class="fill" id="flow-crmFill" style="width: 40%"></div></div>
+          </div>
+
+          <div class="crm-recent">
+            <div class="heading"><span class="live-dot"></span>Just landed</div>
+            <div class="crm-list" id="flow-crmList"></div>
+          </div>
+        </div>
+      </div>
+
     </div>
-    <div class="ams-closer scroll-reveal">
-      <h3>The CRM closes them.<br>The marketing engine <em>fills the pipeline.</em></h3>
+
+    <div class="flow-closer scroll-reveal">
+      <h3>You're running your business.<br><em>It's running your marketing.</em></h3>
     </div>
   </div>
 </section>
@@ -3598,73 +3830,172 @@
     }, 9000);
   })();
 
-  // Continuously animate the AMS pipeline value (mirrors CRM showcase)
+  // AMS → CRM Flow section: animated lead chips, counters, asset pulses
   (function () {
-    var amsPipeline = document.querySelector('.ams-showcase .insp-stat:nth-of-type(1) .stat-value');
-    if (!amsPipeline) return;
-    var startVal = 6000;
-    var endVal = 8247;
-    var rampMs = 6500;
-    var holdMs = 2500;
-    var cycleMs = rampMs + holdMs;
-    var startTime = performance.now();
-    function format(n) { return '$' + Math.round(n).toLocaleString(); }
-    function tick(now) {
-      var elapsed = (now - startTime) % cycleMs;
-      var value;
-      if (elapsed < rampMs) {
-        var progress = elapsed / rampMs;
-        var eased = 1 - Math.pow(1 - progress, 3);
-        value = startVal + (endVal - startVal) * eased;
-      } else {
-        value = endVal;
-      }
-      amsPipeline.textContent = format(value);
-      requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  })();
+    var flowPipe = document.getElementById('flow-flowPipe');
+    if (!flowPipe) return;
 
-  // Continuously animate the AMS hours-back counter
-  (function () {
-    var amsHours = document.querySelector('.ams-showcase .insp-stat:nth-of-type(2) .stat-value');
-    if (!amsHours) return;
-    var startVal = 6.0;
-    var endVal = 8.4;
-    var rampMs = 6500;
-    var holdMs = 2500;
-    var cycleMs = rampMs + holdMs;
-    var startTime = performance.now();
-    function tick(now) {
-      var elapsed = (now - startTime) % cycleMs;
-      var value;
-      if (elapsed < rampMs) {
-        var progress = elapsed / rampMs;
-        var eased = 1 - Math.pow(1 - progress, 3);
-        value = startVal + (endVal - startVal) * eased;
-      } else {
-        value = endVal;
-      }
-      amsHours.textContent = value.toFixed(1) + 'h';
-      requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  })();
+    var ICONS = {
+      blog:  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h6l4 4v8H3z"/><path d="M9 2v4h4"/><path d="M5 9h6M5 11h4"/></svg>',
+      ad:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6v4l9 4V2z"/><path d="M3 6H2v4h1"/></svg>',
+      email: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 5l6 4 6-4"/></svg>',
+      social:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-3 5-6 5-1 0-2-.2-3-.6L2 14l1.4-3C2.5 10 2 9 2 8c0-3 3-5 6-5s6 2 6 5z"/></svg>'
+    };
 
-  // Rotate AMS voice command text
-  (function () {
-    var typed = document.querySelector('.ams-showcase .voice-text .typed');
-    if (!typed) return;
-    var commands = [
-      '"Build a 5-day course launch campaign for solo founders"',
-      '"Write a blog series on email marketing for creators"',
-      '"Launch a Meta + LinkedIn ad campaign for the spring promo"'
+    var LEADS = [
+      { name: 'Maria Chen',     co: 'riverbend.co',     score: 92, source: 'blog',   stage: 'Hot'  },
+      { name: 'Jamie Rivera',   co: 'brightwood.io',    score: 81, source: 'ad',     stage: 'Warm' },
+      { name: 'Ana Kowalski',   co: 'tideline.app',     score: 76, source: 'email',  stage: 'Warm' },
+      { name: 'Devon Lee',      co: 'orbital.studio',   score: 88, source: 'social', stage: 'Hot'  },
+      { name: 'Sam Park',       co: 'meridian.dev',     score: 74, source: 'blog',   stage: 'Warm' },
+      { name: 'Priya Shah',     co: 'ridgeline.co',     score: 90, source: 'ad',     stage: 'Hot'  },
+      { name: 'Theo Almeida',   co: 'glasshouse.app',   score: 83, source: 'email',  stage: 'Warm' },
+      { name: 'Kira Novak',     co: 'marigold.io',      score: 79, source: 'social', stage: 'Warm' },
+      { name: 'Owen Brooks',    co: 'fieldnote.studio', score: 86, source: 'blog',   stage: 'Hot'  },
+      { name: 'Lena Hughes',    co: 'cobalt.works',     score: 71, source: 'ad',     stage: 'Warm' },
+      { name: 'Hiro Tanaka',    co: 'dovetail.app',     score: 94, source: 'email',  stage: 'Hot'  },
+      { name: 'Mae Whitfield',  co: 'stonefly.co',      score: 77, source: 'social', stage: 'Warm' }
     ];
-    var idx = 0;
-    setInterval(function () {
-      idx = (idx + 1) % commands.length;
-      typed.textContent = commands[idx];
-    }, 9000);
+
+    var BASE = { count: 135, pipeline: 284150, fromNew: 42500, fillPct: 40 };
+    var state = Object.assign({}, BASE);
+    var leadIdx = 0;
+
+    var amsNum     = document.getElementById('flow-amsNum');
+    var flowNum    = document.getElementById('flow-flowNum');
+    var crmCount   = document.getElementById('flow-crmCount');
+    var crmPipeline= document.getElementById('flow-crmPipeline');
+    var crmFromNew = document.getElementById('flow-crmFromNew');
+    var crmFill    = document.getElementById('flow-crmFill');
+    var crmList    = document.getElementById('flow-crmList');
+    var crmCard    = document.getElementById('flow-crmPipelineCard');
+    var amsThinkTs = document.getElementById('flow-amsThinkTs');
+
+    function formatTs(sec) {
+      if (sec < 1) return 'now';
+      if (sec < 60) return sec + 's ago';
+      var m = Math.floor(sec / 60);
+      return m + 'm ago';
+    }
+
+    function makeLeadRow(lead, secAgo) {
+      var row = document.createElement('div');
+      row.className = 'crm-lead';
+      row.dataset.spawn = String(Date.now() - (secAgo || 0) * 1000);
+      row.innerHTML =
+        '<div class="source">' + ICONS[lead.source] + '</div>' +
+        '<div class="info">' +
+          '<div class="name">' + lead.name + '</div>' +
+          '<div class="meta">' + lead.co + ' · score ' + lead.score + '</div>' +
+        '</div>' +
+        '<div class="ts">' + formatTs(secAgo || 0) + '</div>' +
+        '<div class="stage">' + lead.stage + '</div>';
+      return row;
+    }
+
+    function seedBaseline() {
+      crmList.innerHTML = '';
+      var seeds = [LEADS[0], LEADS[1], LEADS[2]];
+      var ages = [4, 18, 47];
+      seeds.forEach(function (l, i) {
+        var row = makeLeadRow(l, ages[i]);
+        row.style.animationDelay = (i * 0.12) + 's';
+        crmList.appendChild(row);
+      });
+    }
+
+    function spawnChip(lead) {
+      var asset = document.querySelector('.flow-section .ams-asset[data-source="' + lead.source + '"]');
+      if (asset) {
+        asset.classList.add('firing');
+        setTimeout(function () { asset.classList.remove('firing'); }, 650);
+      }
+      var chip = document.createElement('div');
+      chip.className = 'lead-chip';
+      chip.innerHTML = '<div class="src">' + ICONS[lead.source] + '</div>' + lead.name;
+      flowPipe.appendChild(chip);
+      setTimeout(function () { onLeadArrive(lead); }, 3150);
+      chip.addEventListener('animationend', function () { chip.remove(); });
+    }
+
+    function onLeadArrive(lead) {
+      state.count += 1;
+      var delta = 380 + Math.floor(Math.random() * 240);
+      state.pipeline += delta;
+      state.fromNew  += delta;
+      state.fillPct  = Math.min(100, state.fillPct + 1.5);
+
+      amsNum.textContent     = state.count;
+      flowNum.textContent    = '+' + state.count;
+      crmCount.textContent   = state.count;
+      crmPipeline.textContent= '$' + state.pipeline.toLocaleString();
+      crmFromNew.textContent = '$' + state.fromNew.toLocaleString();
+      crmFill.style.width    = state.fillPct + '%';
+
+      amsNum.classList.add('bump');
+      setTimeout(function () { amsNum.classList.remove('bump'); }, 350);
+      crmCard.classList.add('flash');
+      setTimeout(function () { crmCard.classList.remove('flash'); }, 500);
+
+      var row = makeLeadRow(lead, 0);
+      crmList.insertBefore(row, crmList.firstChild);
+      while (crmList.children.length > 5) {
+        var last = crmList.lastElementChild;
+        last.classList.add('fading');
+        setTimeout((function (el) { return function () { el.remove(); }; })(last), 420);
+        break;
+      }
+    }
+
+    var INTERVALS = [2200, 1900, 1600, 1350, 1150, 1000, 880, 780, 700, 640, 600, 560];
+    var cycleTimeout = null;
+
+    function runCycle() {
+      var i = 0;
+      function step() {
+        if (i >= INTERVALS.length) {
+          cycleTimeout = setTimeout(function () {
+            state = Object.assign({}, BASE);
+            amsNum.textContent     = state.count;
+            flowNum.textContent    = '+' + state.count;
+            crmCount.textContent   = state.count;
+            crmPipeline.textContent= '$' + state.pipeline.toLocaleString();
+            crmFromNew.textContent = '$' + state.fromNew.toLocaleString();
+            crmFill.style.width    = state.fillPct + '%';
+            seedBaseline();
+            runCycle();
+          }, 4500);
+          return;
+        }
+        var lead = LEADS[leadIdx % LEADS.length];
+        leadIdx++;
+        spawnChip(lead);
+        cycleTimeout = setTimeout(step, INTERVALS[i]);
+        i++;
+      }
+      step();
+    }
+
+    function tickTimestamps() {
+      var now = Date.now();
+      document.querySelectorAll('.flow-section .crm-lead').forEach(function (row) {
+        var spawn = parseInt(row.dataset.spawn, 10);
+        var sec = Math.floor((now - spawn) / 1000);
+        var ts = row.querySelector('.ts');
+        if (ts) ts.textContent = formatTs(sec);
+      });
+    }
+
+    var amsThinkSec = 0;
+    function tickAmsThink() {
+      amsThinkSec++;
+      if (amsThinkTs) amsThinkTs.textContent = amsThinkSec + 's ago';
+    }
+
+    seedBaseline();
+    runCycle();
+    setInterval(tickTimestamps, 1000);
+    setInterval(tickAmsThink, 1000);
   })();
 </script>
 
