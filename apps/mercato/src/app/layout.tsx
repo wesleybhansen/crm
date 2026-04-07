@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'LaunchOS',
+  title: 'Launch OS',
   description: 'The all-in-one operating system for your business',
   icons: {
     icon: '/launchos-logo.png',

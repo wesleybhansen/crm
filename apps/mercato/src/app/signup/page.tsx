@@ -49,7 +49,7 @@ export default function SignupPage() {
       <div className="auth-topbar">
         <Link href="/" className="auth-logo">
           <div className="auth-logo-mark" />
-          LaunchOS
+          Launch OS
         </Link>
         <Link href="/" className="auth-back">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -62,8 +62,8 @@ export default function SignupPage() {
       <main className="auth-main">
         <div className="auth-card">
           <div className="auth-card-mark" />
-          <h1>Become a founding operator.</h1>
-          <p className="auth-sub">Create your LaunchOS workspace in 30 seconds.</p>
+          <h1>Become a founding member.</h1>
+          <p className="auth-sub">Create your Launch OS workspace in 30 seconds.</p>
 
           <form className="auth-form" onSubmit={handleSubmit} noValidate>
             {error && <div className="auth-error" role="alert">{error}</div>}

@@ -76,7 +76,7 @@ export default function LoginPage() {
       <div className="auth-topbar">
         <Link href="/" className="auth-logo">
           <div className="auth-logo-mark" />
-          LaunchOS
+          Launch OS
         </Link>
         <Link href="/" className="auth-back">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -126,7 +126,7 @@ export default function LoginPage() {
           ) : (
             <>
               <h1>Welcome back, operator.</h1>
-              <p className="auth-sub">Sign in to your LaunchOS workspace.</p>
+              <p className="auth-sub">Sign in to your Launch OS workspace.</p>
 
               <form className="auth-form" onSubmit={handleSubmit} noValidate>
                 {error && <div className="auth-error" role="alert">{error}</div>}
@@ -172,7 +172,7 @@ export default function LoginPage() {
                 </div>
 
                 <button type="submit" className="auth-submit" disabled={loading}>
-                  {loading ? 'Signing in…' : 'Log in to LaunchOS'}
+                  {loading ? 'Signing in…' : 'Log in to Launch OS'}
                   {!loading && (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                       <path d="M5 12h14M13 6l6 6-6 6" />
