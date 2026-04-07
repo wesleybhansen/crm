@@ -37,20 +37,65 @@ export default function TermsPage() {
       <p style={s.p}>You grant us a limited, non-exclusive, worldwide license to store, process, display, and transmit your User Data solely to operate and provide the Platform{"'"}s features. This license terminates when you delete your account or remove the applicable data.</p>
       <p style={s.p}>You may export your data at any time via the Platform{"'"}s CSV export features. Upon account deletion, we will delete your User Data within 30 days, except where retention is required by law.</p>
 
-      <h2 style={s.h2}>4. Acceptable Use</h2>
-      <p style={s.p}>You agree to use the Platform only for lawful business purposes. You shall not:</p>
+      <h2 style={s.h2}>4. Acceptable Use Policy</h2>
+      <p style={s.p}>You agree to use the Platform only for lawful business purposes. The following is a non-exhaustive list of activities that are strictly prohibited. You shall not, and shall not permit any third party to:</p>
+
+      <h3 style={s.h3}>4.1 Communications and Anti-Spam Compliance</h3>
+      <p style={s.p}>You are solely responsible for ensuring that all communications you send through the Platform — including emails, SMS messages, automated sequences, marketing campaigns, and AI-generated communications — comply with applicable laws including but not limited to CAN-SPAM (US), CASL (Canada), GDPR (EU/EEA), PECR (UK), the TCPA (US, for SMS/calls), and any other applicable anti-spam, telemarketing, or electronic communication laws. You shall not:</p>
       <ul style={s.ul}>
-        <li style={s.li}>Send spam, unsolicited bulk emails, or messages in violation of CAN-SPAM, GDPR, CASL, or other applicable anti-spam laws</li>
-        <li style={s.li}>Upload, transmit, or store malicious code, viruses, or any content intended to damage or compromise system security</li>
-        <li style={s.li}>Attempt to gain unauthorized access to other users{"'"} accounts, data, or any part of the Platform{"'"}s infrastructure</li>
-        <li style={s.li}>Use the Platform to harass, threaten, defame, or abuse any person</li>
-        <li style={s.li}>Resell, sublicense, or redistribute access to the Platform without prior written authorization</li>
-        <li style={s.li}>Use the Platform to collect or store personal information about individuals without their consent</li>
-        <li style={s.li}>Use automated bots, scrapers, or other automated means to access the Platform beyond the provided API</li>
-        <li style={s.li}>Interfere with or disrupt the integrity or performance of the Platform</li>
+        <li style={s.li}>Send spam, unsolicited bulk emails, or commercial messages without proper consent or legal basis</li>
+        <li style={s.li}>Send messages with false, misleading, or deceptive headers, subject lines, or sender information</li>
+        <li style={s.li}>Fail to honor unsubscribe requests or opt-outs within legally required timeframes</li>
+        <li style={s.li}>Send commercial messages to recipients who have withdrawn consent</li>
+        <li style={s.li}>Send messages to purchased, scraped, rented, or harvested email lists</li>
+        <li style={s.li}>Conceal or misrepresent your identity as the sender</li>
+      </ul>
+      <p style={s.p}>You are the "sender" of all communications you transmit through the Platform under applicable law. The Company is not the sender, controller, or originator of your communications and bears no responsibility for compliance.</p>
+
+      <h3 style={s.h3}>4.2 Prohibited Content</h3>
+      <p style={s.p}>You shall not upload, store, transmit, generate, or distribute through the Platform any content that:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Is illegal, defamatory, libelous, obscene, pornographic, or exploitative</li>
+        <li style={s.li}>Infringes any patent, trademark, copyright, trade secret, publicity, privacy, or other intellectual property right</li>
+        <li style={s.li}>Constitutes hate speech, incites violence, or promotes discrimination based on race, ethnicity, national origin, religion, gender, sexual orientation, disability, or other protected characteristic</li>
+        <li style={s.li}>Promotes terrorism, violent extremism, or material support for prohibited organizations</li>
+        <li style={s.li}>Promotes illegal goods or services, including illegal drugs, weapons, counterfeit goods, or human trafficking</li>
+        <li style={s.li}>Constitutes child sexual abuse material (CSAM) or content that exploits minors in any way</li>
+        <li style={s.li}>Promotes pyramid schemes, multi-level marketing fraud, get-rich-quick schemes, or other deceptive business practices</li>
+        <li style={s.li}>Promotes gambling in jurisdictions where gambling is illegal</li>
+        <li style={s.li}>Contains medical, legal, financial, or other professional advice unless you are licensed to provide such advice</li>
+        <li style={s.li}>Is intended to deceive, defraud, or manipulate recipients (including phishing, scams, fake reviews, or election interference)</li>
+        <li style={s.li}>Contains malware, viruses, ransomware, spyware, worms, trojans, or any other malicious code</li>
+      </ul>
+
+      <h3 style={s.h3}>4.3 Prohibited Conduct</h3>
+      <p style={s.p}>You shall not:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Attempt to gain unauthorized access to other users{"'"} accounts, data, the Platform{"'"}s infrastructure, source code, databases, or any non-public area of the Platform</li>
+        <li style={s.li}>Probe, scan, or test the vulnerability of the Platform without prior written authorization from the Company</li>
+        <li style={s.li}>Use the Platform to harass, stalk, threaten, dox, defame, abuse, intimidate, or impersonate any person</li>
+        <li style={s.li}>Resell, sublicense, lease, rent, or redistribute access to the Platform without prior written authorization from the Company</li>
+        <li style={s.li}>Use the Platform to collect, store, or process personal information about individuals without their consent and lawful basis</li>
+        <li style={s.li}>Use automated bots, scrapers, crawlers, or other automated means to access the Platform beyond the provided official API and within published rate limits</li>
+        <li style={s.li}>Interfere with, disrupt, overload, flood, or impair the integrity or performance of the Platform or its infrastructure</li>
+        <li style={s.li}>Use the Platform to mine cryptocurrency, run distributed computing tasks unrelated to CRM use, or otherwise consume excessive system resources</li>
+        <li style={s.li}>Circumvent any access controls, rate limits, usage limits, security features, or technical restrictions of the Platform</li>
         <li style={s.li}>Use the Platform in any manner that violates applicable local, state, national, or international law</li>
       </ul>
-      <p style={s.p}>Violation of this section may result in immediate suspension or termination of your account without notice or refund.</p>
+
+      <h3 style={s.h3}>4.4 Anti-Circumvention, Reverse Engineering, and Benchmarking</h3>
+      <p style={s.p}>You shall not, and shall not permit any third party to:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Reverse engineer, decompile, disassemble, or otherwise attempt to derive the source code, algorithms, models, prompts, system architecture, data structures, or trade secrets of the Platform</li>
+        <li style={s.li}>Use the Platform, its data, or its outputs to train, fine-tune, evaluate, or benchmark any artificial intelligence model, machine learning system, or competing product</li>
+        <li style={s.li}>Copy, duplicate, mirror, or replicate any portion of the Platform{"'"}s features, design, prompts, or workflows for the purpose of building or improving a competing product</li>
+        <li style={s.li}>Conduct or publish performance benchmarks, comparison studies, security assessments, or competitive analyses of the Platform without prior written authorization from the Company</li>
+        <li style={s.li}>Remove, alter, obscure, or tamper with any proprietary notices, copyright marks, trademarks, watermarks, or attribution on the Platform</li>
+        <li style={s.li}>Use the Platform to develop a substantially similar product or service that competes with the Platform</li>
+      </ul>
+
+      <h3 style={s.h3}>4.5 Enforcement</h3>
+      <p style={s.p}>The Company reserves the right, in its sole discretion, to investigate, suspend, or terminate any account that violates this Acceptable Use Policy. Violations may result in immediate suspension or termination of your account without prior notice and without refund. The Company may also report violations to law enforcement, regulators, or other appropriate authorities, and may cooperate with investigations or legal proceedings related to such violations. The Company is not obligated to monitor user conduct but reserves the right to do so.</p>
 
       <h2 style={s.h2}>5. Connected Third-Party Services</h2>
       <p style={s.p}>The Platform integrates with third-party services including Google (Gmail, Calendar), Microsoft (Outlook), and Stripe. Your use of these integrations is subject to the respective service{"'"}s terms of service and privacy policies in addition to these Terms. We are not responsible for the availability, accuracy, or performance of third-party services.</p>
@@ -167,48 +212,137 @@ export default function TermsPage() {
       <h3 style={s.h3}>7.5 No Data Loss Liability</h3>
       <p style={s.p}>While the Company implements reasonable security measures, the Company does not guarantee against data loss, corruption, unauthorized access, or breach. You are responsible for maintaining your own backups and acknowledge that the Company shall not be liable for any loss of data, regardless of cause.</p>
 
-      <h2 style={s.h2}>8. Payments and Billing</h2>
+      <h2 style={s.h2}>8. Beta Features and Experimental Functionality</h2>
+      <p style={s.p}>The Platform may include features that are labeled as "beta," "preview," "experimental," "early access," or similar designations, or that are otherwise identified as not yet generally available ("Beta Features"). Beta Features include, without limitation, AI-powered features (Scout voice assistant, Brand Voice Engine, AI email drafting, AI content generation, AI agents, MCP integration), automated workflows, and any new functionality being tested.</p>
+      <p style={s.p}>You acknowledge and agree that:</p>
+      <ul style={s.ul}>
+        <li style={s.li}><strong>Beta Features are provided "AS IS" and "AS AVAILABLE"</strong> with no warranties of any kind, express or implied. Beta Features may contain bugs, errors, defects, security vulnerabilities, or other issues that could cause data loss, incorrect output, or other harm.</li>
+        <li style={s.li}><strong>No SLA applies to Beta Features.</strong> Beta Features may be unstable, unreliable, intermittently unavailable, or perform inconsistently. The Company makes no commitments about uptime, response time, performance, or availability of Beta Features.</li>
+        <li style={s.li}><strong>Beta Features may change or be removed at any time</strong> without notice, including substantial changes to functionality, pricing, terms, or removal entirely. The Company may end any beta program at its sole discretion.</li>
+        <li style={s.li}><strong>You use Beta Features at your own risk.</strong> The Company expressly disclaims all liability for any harm arising from your use of Beta Features, including data loss, incorrect AI output, failed actions, missed communications, business losses, or any other consequences.</li>
+        <li style={s.li}><strong>Feedback and telemetry.</strong> By using Beta Features, you grant the Company permission to collect usage data, error logs, performance metrics, and user feedback to improve the features. You also grant the Company a perpetual, royalty-free license to use any feedback you provide for any purpose.</li>
+        <li style={s.li}><strong>No reliance on Beta Features.</strong> You should not rely on Beta Features for business-critical operations, mission-critical data, or any use where failure could cause significant harm. You are responsible for maintaining backup processes and not depending solely on Beta Features.</li>
+        <li style={s.li}><strong>Confidentiality.</strong> Information about Beta Features, including their existence, functionality, performance, and any feedback you provide, is confidential and may not be disclosed publicly without the Company{"'"}s prior written consent.</li>
+      </ul>
+      <p style={s.p}>The limitations of liability, disclaimers of warranty, and indemnification provisions in these Terms apply with full force to Beta Features. To the maximum extent permitted by law, the Company{"'"}s total liability for any harm arising from Beta Features is zero.</p>
+
+      <h2 style={s.h2}>9. Payments and Billing</h2>
       <p style={s.p}>Payments processed through the Platform (invoices, product sales, funnel checkouts) use Stripe as the payment processor. By using payment features, you agree to <a href="https://stripe.com/legal" style={s.link}>Stripe{"'"}s Terms of Service</a>.</p>
       <p style={s.p}>Payment disputes between you and your customers should be resolved through Stripe{"'"}s dispute resolution process. The Company facilitates payment processing but is not a party to transactions between you and your customers.</p>
       <p style={s.p}>The Company reserves the right to introduce subscription fees for Platform access in the future. Any pricing changes will be communicated at least 30 days in advance, and you will have the option to cancel before new charges apply.</p>
 
-      <h2 style={s.h2}>9. Intellectual Property</h2>
-      <p style={s.p}>The Platform, including its design, code, features, documentation, logos, and branding, is the intellectual property of the Company and is protected by copyright, trademark, and other intellectual property laws. You are granted a limited, non-exclusive, non-transferable, revocable license to use the Platform for your business purposes in accordance with these Terms.</p>
-      <p style={s.p}>You shall not: copy, modify, distribute, sell, or create derivative works based on the Platform; reverse engineer, decompile, or disassemble any part of the Platform; remove or alter any proprietary notices or labels; or use the Platform{"'"}s proprietary materials to create a competing product or service.</p>
+      <h2 style={s.h2}>10. Intellectual Property</h2>
 
-      <h2 style={s.h2}>10. Service Availability</h2>
-      <p style={s.p}>We strive to maintain the Platform{"'"}s availability 24/7, but we do not guarantee uninterrupted, error-free, or secure service. The Platform may be temporarily unavailable due to maintenance, updates, server failures, or circumstances beyond our control. We will make reasonable efforts to provide advance notice of planned maintenance when possible.</p>
+      <h3 style={s.h3}>10.1 Company Intellectual Property</h3>
+      <p style={s.p}>The Platform, including its design, code, features, documentation, logos, branding, system prompts, AI configurations, workflows, templates, and all related materials, is the intellectual property of the Company and is protected by copyright, trademark, trade secret, and other intellectual property laws. You are granted a limited, non-exclusive, non-transferable, revocable license to access and use the Platform for your internal business purposes in accordance with these Terms.</p>
+      <p style={s.p}>You shall not: copy, modify, distribute, sell, or create derivative works based on the Platform; reverse engineer, decompile, or disassemble any part of the Platform; remove or alter any proprietary notices or labels; or use the Platform{"'"}s proprietary materials to create a competing product or service. Any rights not expressly granted to you in these Terms are reserved by the Company.</p>
 
-      <h2 style={s.h2}>11. Disclaimer of Warranties</h2>
+      <h3 style={s.h3}>10.2 Your Content</h3>
+      <p style={s.p}>You retain all ownership rights to the User Data and content you create, upload, or store on the Platform. You grant the Company the limited license described in Section 3 to operate the Platform.</p>
+
+      <h3 style={s.h3}>10.3 AI-Generated Output and Intellectual Property Risk</h3>
+      <p style={s.p}>You acknowledge and agree that AI-generated output (including but not limited to drafted emails, generated copy, suggestions, summaries, images, voice output, and any other content produced by AI features):</p>
+      <ul style={s.ul}>
+        <li style={s.li}><strong>Has uncertain ownership and copyright status.</strong> The legal status of AI-generated content is unsettled and varies by jurisdiction. The Company makes no representation that AI output is copyrightable, ownable, or free from third-party intellectual property claims.</li>
+        <li style={s.li}><strong>May incorporate or resemble third-party copyrighted material.</strong> AI models are trained on large datasets that may include copyrighted works. AI output may inadvertently reproduce, paraphrase, or resemble copyrighted text, code, images, brands, or other protected material without your knowledge.</li>
+        <li style={s.li}><strong>Carries IP infringement risk.</strong> The Company makes no warranty that AI output does not infringe any third party{"'"}s intellectual property rights. You assume all risk that AI-generated content you publish, distribute, or use may infringe third-party rights.</li>
+        <li style={s.li}><strong>Is provided without IP indemnity.</strong> The Company does not provide any indemnification, warranty, or defense against intellectual property claims arising from AI output. If a third party claims your use of AI-generated content infringes their rights, you are solely responsible for defending and resolving such claims.</li>
+        <li style={s.li}><strong>You are responsible for clearance.</strong> Before using any AI-generated content for commercial purposes, you should review it for potential infringement and consult an attorney if you have concerns.</li>
+      </ul>
+
+      <h3 style={s.h3}>10.4 No Implied License to Trademarks or Branding</h3>
+      <p style={s.p}>Nothing in these Terms grants you any right to use the Company{"'"}s trademarks, logos, branding, or trade names. You may not display, modify, or use the LaunchOS name, Scout name, or any related branding without prior written permission from the Company.</p>
+
+      <h2 style={s.h2}>11. Service Availability</h2>
+      <p style={s.p}>We strive to maintain the Platform{"'"}s availability 24/7, but we do not guarantee uninterrupted, error-free, or secure service. The Platform may be temporarily unavailable due to maintenance, updates, server failures, third-party service outages, or circumstances beyond our control. We will make reasonable efforts to provide advance notice of planned maintenance when possible. The Company offers no service level agreement (SLA) and provides no uptime guarantee unless explicitly stated in a separate written agreement.</p>
+
+      <h2 style={s.h2}>12. Force Majeure</h2>
+      <p style={s.p}>The Company shall not be liable for any failure or delay in performance, or for any harm, loss, or damage, arising from circumstances beyond its reasonable control, including but not limited to:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Acts of God, natural disasters, fires, floods, earthquakes, storms, or pandemics</li>
+        <li style={s.li}>War, terrorism, civil unrest, riots, or government actions</li>
+        <li style={s.li}>Strikes, labor disputes, or workforce shortages</li>
+        <li style={s.li}>Failures, outages, degradation, or discontinuation of third-party services, including but not limited to: hosting providers (Hetzner, AWS, etc.), AI providers (OpenAI, Google, Anthropic, etc.), email delivery services (Resend, SendGrid, etc.), payment processors (Stripe, etc.), authentication providers (Google OAuth, Microsoft, etc.), domain registrars, CDNs, or any other service the Platform depends on</li>
+        <li style={s.li}>Internet outages, DNS failures, BGP routing issues, or network attacks (including DDoS attacks)</li>
+        <li style={s.li}>Cybersecurity incidents, data breaches affecting third-party providers, or zero-day vulnerabilities in software or systems the Platform depends on</li>
+        <li style={s.li}>Government actions, regulations, sanctions, or court orders</li>
+        <li style={s.li}>Changes to APIs, terms of service, or policies of third-party services that affect Platform functionality</li>
+        <li style={s.li}>Power outages, hardware failures, or infrastructure damage</li>
+        <li style={s.li}>Any other event beyond the Company{"'"}s reasonable control</li>
+      </ul>
+      <p style={s.p}>If a force majeure event prevents the Company from performing, the Company{"'"}s obligations are suspended for the duration of the event. The Company is not required to provide refunds, credits, or compensation for downtime, lost data, or other harm caused by force majeure events.</p>
+
+      <h2 style={s.h2}>13. Disclaimer of Warranties</h2>
       <p style={s.p}><strong>THE PLATFORM IS PROVIDED ON AN "AS IS" AND "AS AVAILABLE" BASIS WITHOUT WARRANTIES OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY.</strong> To the fullest extent permitted by law, we disclaim all warranties, including but not limited to implied warranties of merchantability, fitness for a particular purpose, non-infringement, and any warranties arising from course of dealing or usage of trade.</p>
       <p style={s.p}>We do not warrant that: the Platform will meet your specific requirements; the Platform will be uninterrupted, timely, secure, or error-free; the results obtained from using the Platform will be accurate or reliable; or any errors will be corrected.</p>
 
-      <h2 style={s.h2}>12. Limitation of Liability</h2>
+      <h2 style={s.h2}>14. Limitation of Liability</h2>
       <p style={s.p}><strong>TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COMPANY, ITS OFFICERS, DIRECTORS, EMPLOYEES, AGENTS, AND AFFILIATES SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES</strong>, including but not limited to loss of profits, data, business opportunities, goodwill, or other intangible losses, arising out of or in connection with your use of or inability to use the Platform, even if we have been advised of the possibility of such damages.</p>
       <p style={s.p}>Our total aggregate liability for any and all claims arising from or related to these Terms or the Platform shall not exceed the greater of: (a) the total fees you have paid to us in the six (6) months preceding the claim; or (b) one hundred dollars ($100.00 USD).</p>
 
-      <h2 style={s.h2}>13. Indemnification</h2>
+      <h2 style={s.h2}>15. Indemnification</h2>
       <p style={s.p}>You agree to indemnify, defend, and hold harmless the Company and its officers, directors, employees, agents, and affiliates from and against any and all claims, damages, losses, liabilities, costs, and expenses (including reasonable attorneys{"'"} fees) arising out of or related to: (a) your use of the Platform; (b) your violation of these Terms; (c) your violation of any applicable law or third-party right; (d) any content you create, upload, or distribute through the Platform; or (e) any dispute between you and your customers or contacts.</p>
 
-      <h2 style={s.h2}>14. Dispute Resolution and Arbitration</h2>
+      <h2 style={s.h2}>16. Dispute Resolution and Arbitration</h2>
       <p style={s.p}><strong>Binding Arbitration:</strong> Any dispute, controversy, or claim arising out of or relating to these Terms or the Platform shall be resolved by binding arbitration administered in accordance with the rules of the American Arbitration Association. The arbitration shall be conducted in the State of Wyoming, and the arbitrator{"'"}s decision shall be final and binding.</p>
       <p style={s.p}><strong>Class Action Waiver:</strong> You agree that any dispute resolution proceedings will be conducted only on an individual basis and not in a class, consolidated, or representative action. You waive any right to participate in a class action lawsuit or class-wide arbitration.</p>
       <p style={s.p}><strong>Jury Trial Waiver:</strong> To the fullest extent permitted by law, you waive any right to a jury trial in any dispute arising from these Terms.</p>
       <p style={s.p}><strong>Exception:</strong> Either party may seek injunctive or other equitable relief in any court of competent jurisdiction to prevent the actual or threatened infringement of intellectual property rights.</p>
 
-      <h2 style={s.h2}>15. Termination</h2>
-      <p style={s.p}>You may terminate your account at any time by contacting us. We may suspend or terminate your account at any time, with or without cause, with or without notice. Upon termination: your right to access the Platform ceases immediately; we will delete your User Data within 30 days (except where legally required to retain); and any provisions that by their nature should survive termination will survive (including Sections 6, 7, 9, 11, 12, 13, and 14).</p>
+      <h2 style={s.h2}>17. Termination, Suspension, and Refusal of Service</h2>
 
-      <h2 style={s.h2}>16. Governing Law</h2>
+      <h3 style={s.h3}>17.1 Termination by You</h3>
+      <p style={s.p}>You may terminate your account at any time by contacting the Company. Termination by you does not entitle you to any refund or credit of any fees previously paid.</p>
+
+      <h3 style={s.h3}>17.2 Termination by the Company</h3>
+      <p style={s.p}>The Company may suspend or terminate your account, restrict your access to all or part of the Platform, or refuse to provide service to you, at any time, with or without cause, with or without notice, in its sole discretion. Reasons for suspension or termination may include but are not limited to:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Violation of these Terms or the Acceptable Use Policy</li>
+        <li style={s.li}>Suspected fraudulent, illegal, or abusive activity</li>
+        <li style={s.li}>Non-payment or chargebacks</li>
+        <li style={s.li}>Risk to other users, the Platform, or the Company</li>
+        <li style={s.li}>Compliance with legal obligations or government requests</li>
+        <li style={s.li}>Discontinuation of the Platform or any feature thereof</li>
+      </ul>
+
+      <h3 style={s.h3}>17.3 No Refund Upon Termination for Cause</h3>
+      <p style={s.p}><strong>If your account is suspended or terminated for violation of these Terms, the Acceptable Use Policy, or for any cause attributable to your conduct, you forfeit all fees previously paid and are not entitled to any refund, credit, pro-rated reimbursement, or compensation of any kind.</strong> The Company is not liable for any loss, damage, or harm resulting from termination for cause.</p>
+
+      <h3 style={s.h3}>17.4 Right to Refuse Service</h3>
+      <p style={s.p}>The Company reserves the right to refuse service to anyone, at any time, for any non-discriminatory reason, with or without explanation. The Company is not obligated to provide a reason for refusing service.</p>
+
+      <h3 style={s.h3}>17.5 Effect of Termination</h3>
+      <p style={s.p}>Upon termination: your right to access the Platform ceases immediately; the Company will delete your User Data within 30 days (except where legally required to retain); pending or scheduled communications, automations, or workflows will cease; any outstanding fees become immediately due; and any provisions of these Terms that by their nature should survive termination will survive (see Section 24, Survival).</p>
+
+      <h3 style={s.h3}>17.6 Data Export Before Termination</h3>
+      <p style={s.p}>You are responsible for exporting any data you wish to retain before terminating your account. The Company is not obligated to provide data export assistance after termination, and may not be able to recover deleted data.</p>
+
+      <h2 style={s.h2}>18. Governing Law</h2>
       <p style={s.p}>These Terms shall be governed by and construed in accordance with the laws of the State of Wyoming, United States, without regard to its conflict of law provisions.</p>
 
-      <h2 style={s.h2}>17. Assumption of Risk</h2>
-      <p style={s.p}>The Platform is a business tool. The Company does not guarantee any specific business outcomes, revenue, leads, conversions, or results from using the Platform. Your business success depends on many factors beyond our control. You assume all risk associated with your business decisions and use of the Platform.</p>
+      <h2 style={s.h2}>19. Export Control and Restricted Persons</h2>
+      <p style={s.p}>The Platform may be subject to United States and other jurisdictions{"'"} export control laws and economic sanctions regulations. You represent, warrant, and agree that:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>You are not located in, under the control of, or a national or resident of any country subject to a comprehensive U.S. embargo, including but not limited to Cuba, Iran, North Korea, Syria, the Crimea region of Ukraine, the so-called Donetsk People{"'"}s Republic, or the so-called Luhansk People{"'"}s Republic</li>
+        <li style={s.li}>You are not listed on any U.S. government list of prohibited or restricted parties, including the Treasury Department{"'"}s list of Specially Designated Nationals (SDN), the Commerce Department{"'"}s Denied Persons List, Entity List, or Unverified List, or any equivalent list maintained by other governments</li>
+        <li style={s.li}>You will not use the Platform for any purpose prohibited by U.S. export control laws, including the development, design, manufacture, or production of nuclear, missile, chemical, or biological weapons</li>
+        <li style={s.li}>You will not export, re-export, transfer, or make available the Platform to any person or country in violation of applicable export control or sanctions laws</li>
+      </ul>
+      <p style={s.p}>The Company may terminate your access immediately if you violate this Section.</p>
 
-      <h2 style={s.h2}>18. Modifications to Terms</h2>
-      <p style={s.p}>We reserve the right to modify these Terms at any time. Material changes will be communicated via email or in-app notification at least 14 days before taking effect. Continued use of the Platform after changes take effect constitutes acceptance of the updated Terms. If you disagree with any changes, you must stop using the Platform and delete your account.</p>
+      <h2 style={s.h2}>20. Assumption of Risk</h2>
+      <p style={s.p}>The Platform is a business tool. The Company does not guarantee any specific business outcomes, revenue, leads, conversions, or results from using the Platform. Your business success depends on many factors beyond our control. You assume all risk associated with your business decisions and use of the Platform, including any decisions made based on AI-generated output, automated workflows, or Platform analytics.</p>
 
-      <h2 style={s.h2}>19. Miscellaneous</h2>
+      <h2 style={s.h2}>21. Modifications to Terms</h2>
+      <p style={s.p}>We reserve the right to modify these Terms at any time. Material changes will be communicated via email or in-app notification at least 14 days before taking effect. Non-material changes (typos, clarifications, formatting) may be made without notice. Continued use of the Platform after changes take effect constitutes acceptance of the updated Terms. If you disagree with any changes, you must stop using the Platform and delete your account before the changes take effect.</p>
+
+      <h2 style={s.h2}>22. Anonymized and Aggregated Data</h2>
+      <p style={s.p}>The Company may collect, use, and share anonymized and aggregated data derived from your use of the Platform for any business purpose, including but not limited to: improving the Platform, analyzing usage patterns, developing new features, marketing, research, benchmarking, and publishing industry insights. Anonymized data is data from which all personally identifiable information has been removed and cannot reasonably be re-associated with any individual. The Company will not include any personal information about you, your contacts, or your customers in anonymized data shared publicly.</p>
+
+      <h2 style={s.h2}>23. Survival</h2>
+      <p style={s.p}>The following sections of these Terms survive any termination or expiration and remain in full force and effect: Section 3 (Your Data and Ownership), Section 6 (AI-Powered Features — User Responsibility), Section 7 (User Responsibility for Data Protection and Information Security), Section 8 (Beta Features), Section 10 (Intellectual Property), Section 13 (Disclaimer of Warranties), Section 14 (Limitation of Liability), Section 15 (Indemnification), Section 16 (Dispute Resolution and Arbitration), Section 17.3 (No Refund Upon Termination for Cause), Section 18 (Governing Law), Section 19 (Export Control), Section 20 (Assumption of Risk), Section 22 (Anonymized and Aggregated Data), this Section 23 (Survival), and any other provision that by its nature is intended to survive termination.</p>
+
+      <h2 style={s.h2}>24. Miscellaneous</h2>
       <ul style={s.ul}>
         <li style={s.li}><strong>Entire Agreement:</strong> These Terms, together with the Privacy Policy, constitute the entire agreement between you and the Company regarding the Platform.</li>
         <li style={s.li}><strong>Severability:</strong> If any provision is found unenforceable, the remaining provisions remain in full force and effect.</li>
@@ -218,7 +352,7 @@ export default function TermsPage() {
         <li style={s.li}><strong>Electronic Communications:</strong> By using the Platform, you consent to receiving electronic communications from us and agree that such communications satisfy any legal requirement for written communication.</li>
       </ul>
 
-      <h2 style={s.h2}>20. Contact Information</h2>
+      <h2 style={s.h2}>25. Contact Information</h2>
       <p style={s.p}>The Services are offered by The Launch Pad LLC. You may contact us by email at: <a href="mailto:hello@thelaunchpadincubator.com" style={s.link}>hello@thelaunchpadincubator.com</a>.</p>
 
       <div style={s.footer}>

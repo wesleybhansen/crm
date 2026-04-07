@@ -94,26 +94,64 @@ export default function PrivacyPage() {
         <li style={s.li}>To comply with legal obligations</li>
       </ul>
 
-      <h2 style={s.h2}>5. Data Sharing</h2>
+      <h2 style={s.h2}>5. Data Sharing and Subprocessors</h2>
       <p style={s.p}>We do not sell, rent, or share your personal information with third parties for marketing or advertising purposes. We share data only in the following circumstances:</p>
       <ul style={s.ul}>
-        <li style={s.li}><strong>Service Providers:</strong> Infrastructure hosting (Hetzner), email delivery (Resend), payment processing (Stripe), and AI services (Google, OpenAI) — each bound by their terms of service and privacy policies.</li>
-        <li style={s.li}><strong>Legal Requirements:</strong> When required by law, subpoena, court order, or government request.</li>
-        <li style={s.li}><strong>Safety:</strong> To protect the rights, safety, or property of the Company, our users, or the public.</li>
-        <li style={s.li}><strong>Business Transfer:</strong> In connection with a merger, acquisition, or sale of assets, with notice to affected users.</li>
+        <li style={s.li}><strong>Subprocessors and Service Providers:</strong> Vendors that process data on our behalf to operate the Platform (see Section 5.1 for the full list)</li>
+        <li style={s.li}><strong>Legal Requirements:</strong> When required by law, subpoena, court order, or government request</li>
+        <li style={s.li}><strong>Safety:</strong> To protect the rights, safety, or property of the Company, our users, or the public</li>
+        <li style={s.li}><strong>Business Transfer:</strong> In connection with a merger, acquisition, sale of assets, financing, or bankruptcy proceeding, with notice to affected users where legally required</li>
+        <li style={s.li}><strong>With Your Consent:</strong> When you explicitly authorize sharing for specific purposes</li>
       </ul>
 
-      <h2 style={s.h2}>6. Data Storage and Security</h2>
-      <p style={s.p}>Your data is stored on servers hosted by Hetzner in Germany (EU). We implement the following security measures:</p>
+      <h3 style={s.h3}>5.1 Subprocessor List</h3>
+      <p style={s.p}>The Company uses the following third-party service providers ("subprocessors") to operate the Platform. Each subprocessor processes user data only as needed to provide its specific service and is bound by its own terms of service and privacy policy:</p>
       <ul style={s.ul}>
-        <li style={s.li}>HTTPS/TLS encryption for all connections</li>
+        <li style={s.li}><strong>Hetzner Online GmbH</strong> (Germany) — Infrastructure hosting, server hosting, database storage. Data is stored in EU data centers.</li>
+        <li style={s.li}><strong>Google LLC</strong> (United States) — Gemini AI API for AI-powered features (email drafting, content generation, brand voice analysis, voice assistant). Google OAuth for Gmail and Google Calendar integration.</li>
+        <li style={s.li}><strong>OpenAI, L.L.C.</strong> (United States) — Realtime API for the Scout voice assistant (speech-to-speech), text-to-speech, and other voice-related features.</li>
+        <li style={s.li}><strong>Anthropic, PBC</strong> (United States) — May be used for certain AI features and Model Context Protocol (MCP) integrations.</li>
+        <li style={s.li}><strong>Resend, Inc.</strong> (United States) — Transactional and notification email delivery (reminders, system notifications, fallback for user emails when Gmail is unavailable).</li>
+        <li style={s.li}><strong>Stripe, Inc.</strong> (United States) — Payment processing for invoices, subscriptions, and funnel checkouts. Stripe processes payment card data directly; the Company does not store credit card information.</li>
+        <li style={s.li}><strong>Microsoft Corporation</strong> (United States) — Outlook OAuth integration (when users connect Microsoft accounts).</li>
+      </ul>
+      <p style={s.p}>The list of subprocessors may change over time. We will update this list when subprocessors are added, removed, or replaced. Material changes to subprocessors will be communicated via in-app notification or email.</p>
+
+      <h3 style={s.h3}>5.2 International Data Transfers to Subprocessors</h3>
+      <p style={s.p}>Some subprocessors are located in the United States. When data is transferred outside the European Economic Area, we rely on appropriate safeguards including Standard Contractual Clauses (SCCs) and the EU-U.S. Data Privacy Framework where applicable. By using the Platform, you consent to international data transfers as necessary to operate the service.</p>
+
+      <h3 style={s.h3}>5.3 Data Processing Agreement (DPA)</h3>
+      <p style={s.p}>If you process personal data of EU/EEA residents through the Platform and require a Data Processing Agreement under GDPR Article 28, contact us at <a href="mailto:privacy@thelaunchpadincubator.com" style={s.link}>privacy@thelaunchpadincubator.com</a> to request our standard DPA. Use of the Platform constitutes acceptance of our standard DPA terms with respect to data you process about EU/EEA residents.</p>
+
+      <h2 style={s.h2}>6. Data Storage, Security, and Breach Notification</h2>
+
+      <h3 style={s.h3}>6.1 Data Storage Location</h3>
+      <p style={s.p}>Your data is stored on servers hosted by Hetzner Online GmbH in Germany (European Union). Some data may be transferred to subprocessors located in the United States as described in Section 5.</p>
+
+      <h3 style={s.h3}>6.2 Security Measures</h3>
+      <p style={s.p}>We implement reasonable technical and organizational security measures to protect your data, including:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>HTTPS/TLS encryption for all connections in transit</li>
         <li style={s.li}>Tenant-level data encryption for sensitive fields (AES-256)</li>
-        <li style={s.li}>Bcrypt password hashing with cost factor 10+</li>
+        <li style={s.li}>Bcrypt password hashing with cost factor 10 or higher</li>
         <li style={s.li}>OAuth tokens stored encrypted, never logged in plain text</li>
         <li style={s.li}>Rate limiting on authentication endpoints</li>
         <li style={s.li}>Role-based access control within organizations</li>
+        <li style={s.li}>Regular security updates to dependencies and infrastructure</li>
+        <li style={s.li}>Restricted access to production systems on a need-to-know basis</li>
       </ul>
-      <p style={s.p}>While we take reasonable measures to protect your data, no method of electronic storage or transmission is 100% secure. We cannot guarantee absolute security.</p>
+      <p style={s.p}>While we take reasonable measures to protect your data, no method of electronic storage or transmission is 100% secure. We cannot guarantee absolute security against all threats, and you acknowledge that you provide your data at your own risk.</p>
+
+      <h3 style={s.h3}>6.3 Data Breach Notification</h3>
+      <p style={s.p}>In the event of a data breach affecting your personal information, the Company will:</p>
+      <ul style={s.ul}>
+        <li style={s.li}>Investigate the incident promptly upon discovery</li>
+        <li style={s.li}>Take reasonable steps to contain and mitigate the breach</li>
+        <li style={s.li}>Notify affected users without undue delay, and where feasible within 72 hours of becoming aware of a breach that is likely to result in a risk to your rights and freedoms (consistent with GDPR Article 33)</li>
+        <li style={s.li}>Notify applicable regulators as required by law</li>
+        <li style={s.li}>Provide information about the nature of the breach, the data affected, the likely consequences, and the measures taken</li>
+      </ul>
+      <p style={s.p}>You are responsible for promptly notifying the Company of any actual or suspected breach of your account or unauthorized access to your data.</p>
 
       <h2 style={s.h2}>7. Your Responsibility for Protecting Your Data</h2>
       <p style={s.p}>While the Company implements reasonable security measures, you are ultimately responsible for protecting your account, your data, and any information you share with the Platform or with AI features accessed through the Platform.</p>
@@ -131,7 +169,12 @@ export default function PrivacyPage() {
       </ul>
       <p style={s.p}>For additional details on your responsibilities — particularly regarding AI features, AI agents, and third-party integrations — please review the corresponding sections of our <a href="/terms" style={s.link}>Terms &amp; Conditions</a>.</p>
 
-      <h2 style={s.h2}>8. Your Rights and Choices</h2>
+      <h2 style={s.h2}>8. Anonymized and Aggregated Data</h2>
+      <p style={s.p}>The Company may collect, use, and share anonymized and aggregated data derived from your use of the Platform for any business purpose, including but not limited to: improving the Platform, analyzing usage patterns, developing new features, training internal models, marketing, research, benchmarking, and publishing industry insights or statistics.</p>
+      <p style={s.p}>Anonymized data is data from which all personally identifiable information has been removed and that cannot reasonably be linked back to any individual or organization. Aggregated data combines information from many users so that no individual user can be identified.</p>
+      <p style={s.p}>The Company will not share, publish, or sell raw personal data, identifiable contact information, or your business{"'"} confidential information without your explicit consent.</p>
+
+      <h2 style={s.h2}>9. Your Rights and Choices</h2>
 
       <h3 style={s.h3}>7.1 All Users</h3>
       <ul style={s.ul}>
@@ -150,22 +193,22 @@ export default function PrivacyPage() {
       <h3 style={s.h3}>7.3 California Residents (CCPA/CPRA)</h3>
       <p style={s.p}>If you are a California resident, you have the right to know what personal information we collect, request deletion, request correction, and opt out of the sale of personal information (we do not sell personal information). To exercise these rights, contact us at the address below.</p>
 
-      <h2 style={s.h2}>9. Data Retention</h2>
+      <h2 style={s.h2}>10. Data Retention</h2>
       <p style={s.p}>We retain your data for as long as your account is active or as needed to provide services. If you delete your account, we will delete or anonymize your data within 30 days, except where we are legally required to retain it (e.g., financial records, tax documentation). Backup copies may persist for up to 90 days before being fully purged.</p>
 
-      <h2 style={s.h2}>10. Cookies</h2>
+      <h2 style={s.h2}>11. Cookies</h2>
       <p style={s.p}>We use only essential cookies required for authentication and session management. We do not use third-party tracking cookies, analytics cookies, or advertising cookies on the Platform.</p>
 
-      <h2 style={s.h2}>11. Children{"'"}s Privacy</h2>
+      <h2 style={s.h2}>12. Children{"'"}s Privacy</h2>
       <p style={s.p}>LaunchOS is not directed to children under 13 (or under 16 in the EEA). We do not knowingly collect personal information from children. If we become aware that we have collected data from a child, we will delete it promptly.</p>
 
-      <h2 style={s.h2}>12. International Data Transfers</h2>
+      <h2 style={s.h2}>13. International Data Transfers</h2>
       <p style={s.p}>Your data is stored on servers in Germany (EU). If you access the Platform from outside the EU, your data will be transferred to and processed in the EU. We rely on Hetzner{"'"}s GDPR-compliant infrastructure for data hosting.</p>
 
-      <h2 style={s.h2}>13. Changes to This Policy</h2>
+      <h2 style={s.h2}>14. Changes to This Policy</h2>
       <p style={s.p}>We may update this Privacy Policy from time to time. We will notify you of material changes via email or in-app notification at least 14 days before the changes take effect. The "Last updated" date at the top reflects the most recent revision.</p>
 
-      <h2 style={s.h2}>14. Contact Us</h2>
+      <h2 style={s.h2}>15. Contact Us</h2>
       <p style={s.p}>If you have questions about this policy or our practices, contact us at <a href="mailto:privacy@thelaunchpadincubator.com" style={s.link}>privacy@thelaunchpadincubator.com</a>.</p>
 
       <div style={s.footer}>
