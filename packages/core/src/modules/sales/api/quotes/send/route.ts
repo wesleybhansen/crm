@@ -196,7 +196,7 @@ export async function POST(req: Request) {
       }),
       validUntil: translate('sales.quotes.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
       cta: translate('sales.quotes.email.cta', 'View quote'),
-      footer: translate('sales.quotes.email.footer', 'LaunchOS'),
+      footer: translate('sales.quotes.email.footer', 'Launch OS'),
     }
 
     await sendEmail({

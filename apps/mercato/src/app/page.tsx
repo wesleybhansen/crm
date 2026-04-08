@@ -56,13 +56,13 @@ export default async function Home() {
       <header className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
         <Image
           src="/launchos-logo.png"
-          alt={t('app.page.logoAlt', 'LaunchOS')}
+          alt={t('app.page.logoAlt', 'Launch OS')}
           width={40}
           height={40}
           priority
         />
         <div className="flex-1">
-          <h1 className="text-3xl font-semibold tracking-tight">{t('app.page.title', 'LaunchOS')}</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{t('app.page.title', 'Launch OS')}</h1>
           <p className="text-sm text-muted-foreground">{t('app.page.subtitle', 'The all-in-one operating system for your business')}</p>
         </div>
       </header>

@@ -54,7 +54,7 @@ export default async function ApiDocsViewerPage() {
   const baseUrl = resolveApiDocsBaseUrl()
   const modules = getModules()
   const doc = buildOpenApiDocument(modules, {
-    title: 'LaunchOS API',
+    title: 'Launch OS API',
     version: APP_VERSION,
     description: 'Auto-generated OpenAPI definition for all enabled modules.',
     servers: [{ url: baseUrl, description: 'Default environment' }],
@@ -67,7 +67,7 @@ export default async function ApiDocsViewerPage() {
 
   return (
     <ApiDocsExplorer
-      title={doc.info?.title ?? 'LaunchOS API'}
+      title={doc.info?.title ?? 'Launch OS API'}
       version={doc.info?.version ?? APP_VERSION}
       description={doc.info?.description}
       operations={operations}

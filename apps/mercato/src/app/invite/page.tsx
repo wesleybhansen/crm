@@ -98,8 +98,8 @@ function InviteAcceptForm() {
       <div style={styles.page}>
         <div style={styles.card}>
           <div style={styles.logoWrap}>
-            <img src="/launchos-logo.png" alt="LaunchOS" style={styles.logo} />
-            <p style={styles.brand}>LaunchOS</p>
+            <img src="/launchos-logo.png" alt="Launch OS" style={styles.logo} />
+            <p style={styles.brand}>Launch OS</p>
           </div>
           <p style={{ ...styles.subtitle, margin: 0 }}>Validating invitation...</p>
         </div>
@@ -112,8 +112,8 @@ function InviteAcceptForm() {
       <div style={styles.page}>
         <div style={styles.card}>
           <div style={styles.logoWrap}>
-            <img src="/launchos-logo.png" alt="LaunchOS" style={styles.logo} />
-            <p style={styles.brand}>LaunchOS</p>
+            <img src="/launchos-logo.png" alt="Launch OS" style={styles.logo} />
+            <p style={styles.brand}>Launch OS</p>
           </div>
           <h1 style={styles.heading}>Invalid Invitation</h1>
           <p style={styles.error}>{invalidMessage}</p>
@@ -129,8 +129,8 @@ function InviteAcceptForm() {
     <div style={styles.page}>
       <div style={styles.card}>
         <div style={styles.logoWrap}>
-          <img src="/launchos-logo.png" alt="LaunchOS" style={styles.logo} />
-          <p style={styles.brand}>LaunchOS</p>
+          <img src="/launchos-logo.png" alt="Launch OS" style={styles.logo} />
+          <p style={styles.brand}>Launch OS</p>
         </div>
         <h1 style={styles.heading}>Join {orgName}</h1>
         <p style={styles.subtitle}>You&apos;ve been invited to join the team</p>
@@ -188,8 +188,8 @@ export default function InviteAcceptPage() {
       <div style={styles.page}>
         <div style={styles.card}>
           <div style={styles.logoWrap}>
-            <img src="/launchos-logo.png" alt="LaunchOS" style={styles.logo} />
-            <p style={styles.brand}>LaunchOS</p>
+            <img src="/launchos-logo.png" alt="Launch OS" style={styles.logo} />
+            <p style={styles.brand}>Launch OS</p>
           </div>
           <p style={{ ...styles.subtitle, margin: 0 }}>Loading...</p>
         </div>

@@ -124,12 +124,12 @@ export async function POST(req: Request) {
 
     const inviteHtml = `
       <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
-        <h2 style="font-size:20px;margin:0 0 12px">You've been invited to join a team on LaunchOS</h2>
+        <h2 style="font-size:20px;margin:0 0 12px">You've been invited to join a team on Launch OS</h2>
         <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">Click the button below to set up your account and join the team.</p>
         <a href="${inviteUrl}" style="display:inline-block;background:#0000CC;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">Accept Invite</a>
         <p style="color:#888;font-size:13px;margin-top:24px">This invite expires in 7 days. If the button doesn't work, copy this link:<br/><a href="${inviteUrl}" style="color:#0000CC">${inviteUrl}</a></p>
       </div>`
-    const inviteSubject = "You've been invited to join a team on LaunchOS"
+    const inviteSubject = "You've been invited to join a team on Launch OS"
 
     try {
       // 1. Try user's connected Gmail
@@ -181,7 +181,7 @@ export async function POST(req: Request) {
         )
         if (espConn?.provider === 'resend' && espConn.api_key) {
           const fromEmail = espConn.default_sender_email || 'noreply@resend.dev'
-          const fromName = espConn.default_sender_name || 'LaunchOS'
+          const fromName = espConn.default_sender_name || 'Launch OS'
           await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: { Authorization: `Bearer ${espConn.api_key}`, 'Content-Type': 'application/json' },

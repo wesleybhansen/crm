@@ -86,7 +86,7 @@ export async function POST(req: Request) {
             orderNumber,
           }),
           cta: translate('sales.quotes.accept.adminEmail.cta', 'View order'),
-          footer: translate('sales.quotes.accept.adminEmail.footer', 'LaunchOS'),
+          footer: translate('sales.quotes.accept.adminEmail.footer', 'Launch OS'),
         }
 
         await sendEmail({

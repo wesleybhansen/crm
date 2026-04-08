@@ -142,7 +142,7 @@
   "example.portal.dashboard.roles": "Role",
   "example.portal.dashboard.title": "Panel",
   "example.portal.dashboard.welcome": "Witaj, {name}",
-  "example.portal.footer.copyright": "© {year} LaunchOS. Wszelkie prawa zastrzeżone.",
+  "example.portal.footer.copyright": "© {year} Launch OS. Wszelkie prawa zastrzeżone.",
   "example.portal.info.instructions": "Aby uzyskać dostęp do portalu organizacji, przejdź do unikalnego adresu URL swojej organizacji. Skontaktuj się z administratorem, jeśli nie znasz linku do portalu.",
   "example.portal.landing.cta.login": "Zaloguj się",
   "example.portal.landing.cta.signup": "Utwórz konto",

@@ -423,7 +423,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   const mobileSidebarContent = <OrganizationSwitcher compact />
 
   const deployEnv = process.env.DEPLOY_ENV
-  const baseProductName = 'LaunchOS'
+  const baseProductName = 'Launch OS'
   const productName = deployEnv && deployEnv !== 'local'
     ? `${baseProductName} (${deployEnv.charAt(0).toUpperCase() + deployEnv.slice(1)})`
     : baseProductName
@@ -456,7 +456,7 @@ export default async function BackendLayout({ children, params }: { children: Re
           >
             <AppShell
               key={path}
-              productName='LaunchOS'
+              productName='Launch OS'
               email={auth?.email}
               groups={groups}
               currentTitle={currentTitle}

@@ -142,7 +142,7 @@
   "example.portal.dashboard.roles": "Roles",
   "example.portal.dashboard.title": "Panel",
   "example.portal.dashboard.welcome": "Bienvenido, {name}",
-  "example.portal.footer.copyright": "© {year} LaunchOS. Todos los derechos reservados.",
+  "example.portal.footer.copyright": "© {year} Launch OS. Todos los derechos reservados.",
   "example.portal.info.instructions": "Para acceder al portal de su organización, navegue a la URL única de su organización. Contacte a su administrador si no conoce el enlace del portal.",
   "example.portal.landing.cta.login": "Iniciar sesión",
   "example.portal.landing.cta.signup": "Crear cuenta",

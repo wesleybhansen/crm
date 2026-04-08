@@ -54,7 +54,7 @@ export async function POST() {
             <h2 style="font-size:18px;margin:0 0 12px">Reminder</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 16px">${reminder.message}</p>
             <p style="color:#888;font-size:13px">Related to: <strong>${entityLabel}</strong></p>
-            <a href="${appUrl}/backend" style="display:inline-block;background:#0000CC;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;margin-top:16px">Open LaunchOS</a>
+            <a href="${appUrl}/backend" style="display:inline-block;background:#0000CC;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;margin-top:16px">Open Launch OS</a>
           </div>`
 
         // Send reminder notification to user

@@ -267,8 +267,8 @@ export default function LoginPage() {
     <div className="min-h-svh flex items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="flex flex-col items-center gap-4 text-center p-10">
-          <Image alt={translate('auth.login.logoAlt', 'LaunchOS logo')} src="/launchos-logo.png" width={150} height={150} priority />
-          <h1 className="text-2xl font-semibold">{translate('auth.login.brandName', 'LaunchOS')}</h1>
+          <Image alt={translate('auth.login.logoAlt', 'Launch OS logo')} src="/launchos-logo.png" width={150} height={150} priority />
+          <h1 className="text-2xl font-semibold">{translate('auth.login.brandName', 'Launch OS')}</h1>
           <CardDescription>{translate('auth.login.subtitle', 'Access your workspace')}</CardDescription>
         </CardHeader>
         <CardContent>

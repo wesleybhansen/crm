@@ -356,7 +356,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
               ☰
             </button>
             <Link href="/" className="flex items-center gap-3">
-              <Image src="/launchos-logo.png" alt="LaunchOS" width={36} height={36} />
+              <Image src="/launchos-logo.png" alt="Launch OS" width={36} height={36} />
               <div>
                 <div className="text-base font-semibold leading-tight">{title}</div>
                 <div className="text-xs text-muted-foreground">Version {version}</div>
@@ -741,7 +741,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
 
       <footer className="border-t bg-card">
         <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-4 px-6 py-6 md:flex-row md:items-center md:justify-between">
-          <div className="text-sm text-muted-foreground">© {new Date().getFullYear()} LaunchOS. All rights reserved.</div>
+          <div className="text-sm text-muted-foreground">© {new Date().getFullYear()} Launch OS. All rights reserved.</div>
           <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             <Link href={docsUrl} target="_blank" rel="noreferrer" className="hover:text-foreground hover:underline">
               Documentation

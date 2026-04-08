@@ -328,12 +328,12 @@ export default function WelcomePage() {
   }
 
   const baseSteps = [
-    { title: 'About Your Business', subtitle: 'Help us set up LaunchOS the right way.' },
+    { title: 'About Your Business', subtitle: 'Help us set up Launch OS the right way.' },
     { title: 'Your AI Assistant', subtitle: 'Give your AI helper a name and personality.' },
     { title: 'Your Offer & Clients', subtitle: 'So we can tailor everything to your business.' },
     { title: 'How You Get Clients', subtitle: 'This helps us suggest the right tools and workflows.' },
     { title: pipelineMode === 'journey' ? 'Customer Journey' : 'Your Sales Pipeline', subtitle: 'AI will suggest stages to track your progress.' },
-    { title: 'LaunchOS is Ready!', subtitle: `${aiPersonaName || 'Scout'} is set up and ready to help you grow.` },
+    { title: 'Launch OS is Ready!', subtitle: `${aiPersonaName || 'Scout'} is set up and ready to help you grow.` },
     { title: 'Connect Your Accounts', subtitle: 'Optional but recommended for the best experience.' },
     { title: 'Invite Your Team', subtitle: 'Add team members to your workspace.' },
     { title: 'Get Started', subtitle: 'Take your first actions.' },
@@ -658,14 +658,14 @@ export default function WelcomePage() {
           </div>
         )}
 
-        {/* Step 5: LaunchOS is Ready */}
+        {/* Step 5: Launch OS is Ready */}
         {step === 5 && (
           <div className="text-center space-y-6">
             <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto">
               <Check className="size-8 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
-              <p className="text-xl font-semibold">LaunchOS is ready{businessName ? `, ${businessName}` : ''}!</p>
+              <p className="text-xl font-semibold">Launch OS is ready{businessName ? `, ${businessName}` : ''}!</p>
               <p className="text-sm text-muted-foreground mt-2">{aiPersonaName || 'Scout'} is configured and ready to help you grow your business.</p>
             </div>
 

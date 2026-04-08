@@ -9,7 +9,7 @@ export default async function ApiDocsPage() {
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold">API resources</h1>
         <p className="text-sm text-muted-foreground max-w-3xl">
-          Use the links below to explore the LaunchOS platform APIs. The OpenAPI exports are generated from the current module registry.
+          Use the links below to explore the Launch OS platform APIs. The OpenAPI exports are generated from the current module registry.
         </p>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
