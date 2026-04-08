@@ -2651,41 +2651,49 @@
     letter-spacing: -0.012em;
     font-family: inherit;
   }
-  .compare-col.next .compare-list {
+  /* Right column — replaced rows with green checkmarks (parallel to left column items) */
+  .compare-row.replaced {
+    color: var(--ink-80);
+  }
+  .compare-row.replaced .name::before {
+    content: '';
+    display: none;
+  }
+  .compare-row.replaced .name > span:first-of-type {
+    text-decoration: none;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .compare-row .check {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-3) 100%);
+    color: white;
+    display: flex;
     align-items: center;
     justify-content: center;
-    padding: 32px 0;
-    text-align: center;
+    flex-shrink: 0;
+    box-shadow: 0 0 14px rgba(99, 102, 241, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.08);
   }
-  .compare-col.next .pitch .big {
-    font-size: 44px;
+  .compare-row .check svg { width: 13px; height: 13px; }
+  .replaced-extras {
+    font-size: 11px;
+    color: var(--accent);
     font-weight: 700;
-    letter-spacing: -0.032em;
-    line-height: 1.08;
-    margin-bottom: 18px;
-    color: var(--ink);
-    padding: 0.05em 0.12em 0.1em 0;
+    text-align: center;
+    padding: 14px 0 18px;
+    border-top: 1px dashed rgba(99, 102, 241, 0.28);
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
   }
-  .compare-col.next .pitch .big em {
-    font-style: italic;
-    font-weight: 500;
+  .compare-col.next .compare-total .amount {
     background: linear-gradient(120deg, var(--accent) 0%, var(--accent-3) 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    display: inline-block;
-    padding: 0.06em 0.18em 0.12em 0.04em;
-    margin: -0.06em -0.14em -0.12em -0.04em;
-  }
-  .compare-col.next .pitch .small {
-    font-size: 13.5px;
-    color: var(--ink-60);
-    line-height: 1.55;
-    max-width: 280px;
-    margin: 0 auto;
-  }
-  .compare-col.next .compare-total .amount {
-    color: var(--accent);
   }
 
   /* MANIFESTO */
@@ -3723,13 +3731,22 @@
       </div>
       <div class="compare-col next scroll-reveal">
         <div class="col-label">— What replaces it all</div>
-        <h3>One workspace.</h3>
+        <h3>One Launch OS.</h3>
         <div class="compare-list">
-          <div class="pitch">
-            <div class="big">All of it.<br><em>But on autopilot.</em></div>
-            <div class="small">Voice, agents, automations, CRM, marketing, billing, projects, courses, pages, calendar — running together as one.</div>
-          </div>
+          <div class="compare-row replaced"><div class="name"><span>HubSpot Sales Starter</span> <span class="cat">CRM</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>ConvertKit Creator Pro</span> <span class="cat">Email marketing</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>Hypefury Premium</span> <span class="cat">Content &amp; social</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>Calendly Teams</span> <span class="cat">Booking</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>Notion Plus</span> <span class="cat">Docs</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>Webflow CMS</span> <span class="cat">Pages</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>Teachable Pro</span> <span class="cat">Courses</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>Loom Business</span> <span class="cat">Video</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>Stripe Billing</span> <span class="cat">Payments</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>Zapier Professional</span> <span class="cat">Automation</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>ClickUp Business</span> <span class="cat">Projects</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
+          <div class="compare-row replaced"><div class="name"><span>Intercom Essential</span> <span class="cat">Chat support</span></div><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div></div>
         </div>
+        <div class="replaced-extras">All working together. No connecting. No syncing. No tabs.</div>
         <div class="compare-total">
           <span>Founding price</span>
           <span class="amount">A fraction</span>

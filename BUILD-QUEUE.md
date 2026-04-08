@@ -266,6 +266,21 @@ Every contact in the CRM should carry a tag identifying where they came from, an
 
 **Why:** Attribution is the foundation of every marketing decision. "Which campaigns work?" "Which lead magnets convert?" "Where is my best ROI?" None of those questions can be answered without source tags on every contact. Auto-tagging means users get clean attribution data without ever lifting a finger — and the data accumulates from day one instead of being a wishlist item people never get around to enforcing manually.
 
+### 36. Meeting Notes Upload to Knowledge Base
+Allow users to upload meeting notes (text, transcripts, recordings, audio files) into the CRM knowledge base where Scout and other AI features can use them as context. Same upload + indexing pipeline as the existing knowledge base, scoped per contact, deal, or organization-wide.
+
+**Capabilities:**
+- Upload meeting notes via file (.txt, .md, .docx, .pdf), paste, or audio (auto-transcribe)
+- Optional auto-transcribe for audio uploads via Whisper or equivalent
+- Attach to a specific contact, deal, or company — surfaces in their timeline
+- AI-extract: action items, decisions, follow-up dates, mentioned people, sentiment
+- Auto-create follow-up tasks from extracted action items
+- Searchable in Scout: "What did Maria say about the proposal in our last meeting?"
+- Show meeting notes in Scout's context when answering questions about the related contact/deal
+- Upload from CRM UI, email forward (`notes@in.thelaunchpadincubator.com`), or via API
+
+**Why:** Meetings are where the actual decisions happen, but the knowledge stays trapped in the user's head or scattered across Notion/Notes/Otter. If the AI can read meeting notes, it can answer "what did we decide" / "what did I commit to" / "what's the next step" without the user having to dig through anything. Same pattern as the knowledge base, just scoped to meetings.
+
 ---
 
 ## Realtor Vertical
