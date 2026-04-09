@@ -129,7 +129,7 @@ export default function ListsTab() {
 
   function loadLists() {
     setLoading(true)
-    fetch('/api/email-lists', { credentials: 'include' })
+    fetch('/api/email/lists', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setLists(d.data || []) })
       .catch(() => {}).finally(() => setLoading(false))
   }

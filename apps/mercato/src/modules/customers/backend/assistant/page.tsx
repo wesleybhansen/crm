@@ -724,7 +724,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return { ok: true, message: `${d.data.length} page(s): ${list}` }
       }
       case 'list_email_lists': {
-        const res = await fetch('/api/email-lists', { credentials: 'include' })
+        const res = await fetch('/api/email/lists', { credentials: 'include' })
         const d = await res.json()
         if (!d.ok || !d.data?.length) return { ok: true, message: 'No email lists found.' }
         const list = d.data.slice(0, 5).map((l: any) => `${l.name} (${l.member_count || 0} members)`).join(', ')

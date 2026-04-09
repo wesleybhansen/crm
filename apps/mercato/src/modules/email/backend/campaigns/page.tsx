@@ -115,7 +115,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
       setSelectedListId(filter.listId)
       if (!listsLoaded) {
         setListsLoaded(true)
-        fetch('/api/email-lists', { credentials: 'include' }).then(r => r.json())
+        fetch('/api/email/lists', { credentials: 'include' }).then(r => r.json())
           .then(d => { if (d.ok) setAvailableLists(d.data || []) }).catch(() => {})
       }
     } else if (filter?.type === 'tag' && filter.tag) {
@@ -403,7 +403,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                       setAudienceType(e.target.value as 'all' | 'list' | 'tag')
                       if (e.target.value === 'list' && !listsLoaded) {
                         setListsLoaded(true)
-                        fetch('/api/email-lists', { credentials: 'include' }).then(r => r.json())
+                        fetch('/api/email/lists', { credentials: 'include' }).then(r => r.json())
                           .then(d => { if (d.ok) setAvailableLists(d.data || []) }).catch(() => {})
                       }
                     }} className="h-9 text-sm rounded-md border bg-background px-2 flex-1">

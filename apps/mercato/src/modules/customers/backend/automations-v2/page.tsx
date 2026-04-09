@@ -912,7 +912,7 @@ function ActionConfigFields({ actionType, config, onChange }: {
 function AddToListConfig({ config, onChange }: { config: Record<string, any>; onChange: (c: Record<string, any>) => void }) {
   const [lists, setLists] = useState<Array<{ id: string; name: string }>>([])
   useEffect(() => {
-    fetch('/api/email-lists', { credentials: 'include' }).then(r => r.json())
+    fetch('/api/email/lists', { credentials: 'include' }).then(r => r.json())
       .then(d => { if (d.ok) setLists((d.data || []).map((l: any) => ({ id: l.id, name: l.name }))) }).catch(() => {})
   }, [])
   return (
