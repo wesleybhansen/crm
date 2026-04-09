@@ -604,3 +604,210 @@ The marketing landing page at `https://crm.thelaunchpadincubator.com/` is **live
 - **Landing page details:** Claude memory `project_landing_page.md` — section structure, design system, copy, animations, file locations
 - **Deploy mechanics:** Claude memory `reference_deployment.md` — exact SSH commands, gotchas, do-not-do list
 - **Where we left off / what to do next:** Claude memory `project_session_handoff.md`
+
+## 16. Session 2026-04-08 — Tier 1 OAuth code complete + comprehensive landing polish
+
+This session was a major sprint focused on (1) preparing the codebase for Google OAuth Tier 1 verification by removing the restricted `gmail.readonly` scope and disabling all Gmail-read code paths, (2) a comprehensive `LaunchOS → Launch OS` rebrand sweep across the entire codebase for verification brand consistency, (3) restyling the compare section in the AMS pattern with capability descriptions instead of brand names (trademark-safe), and (4) a long tail of copy iterations and a favicon addition.
+
+### Why we removed `gmail.readonly`
+
+Wesley's app was using these Google OAuth scopes: `calendar.readonly`, `calendar.events`, `gmail.send` (all sensitive), and `gmail.readonly` (**RESTRICTED**). Restricted scopes require Google's CASA Tier 2 security assessment ($5-15k assessor fees, 2-6 weeks, annual recertification). For a pre-launch waitlist product, that's unjustifiable cost and timeline. Wesley decided to drop `gmail.readonly` and pursue **Tier 1 (sensitive-only) verification** instead, which is ~3-6 weeks with no CASA cost. The inbox-read feature will be re-added later via an App Password / IMAP fallback path post-verification.
+
+### Code changes — gmail.readonly removal
+
+1. `apps/mercato/src/app/api/google/auth/route.ts` — removed `gmail.readonly` from `EMAIL_SCOPES`. Only `gmail.send` remains.
+2. `apps/mercato/src/app/api/email-intelligence/sync/route.ts` — commented out the Gmail branch of the cron. Outlook (Microsoft Graph) branch still active.
+3. `apps/mercato/src/app/api/ai/learn-voice/route.ts` — early returns 503 with friendly message when source is `gmail | email | outlook`.
+4. `apps/mercato/src/app/api/email/gmail-service.ts` — removed `messages/{id}/modify` call (required `gmail.modify`, also restricted).
+5. `apps/mercato/src/app/privacy/page.tsx` — removed all `gmail.readonly` / "Inbox Intelligence" / "inbox scanning" references. Added explicit `We do not read messages in your inbox or sent folder with this scope.` disclosure on the gmail.send description (this exact language is what Google reviewers want to see).
+
+### Comprehensive `LaunchOS → Launch OS` rebrand sweep
+
+Brand consistency required for verification — Google reviewers cross-check the brand name on the OAuth consent screen against text on the linked privacy/terms pages and any publicly accessible URLs. Swept all i18n locale files (`apps/mercato/src/i18n/{en,es,de,pl}.json`, `apps/mercato/src/modules/example/i18n/`, `packages/core/src/modules/{auth,messages,sales,notifications,api_docs,staff}/i18n/`), plus all `.tsx`/`.ts` source files with hardcoded brand strings (welcome page, layout, invite, team route, reminder check, auth login, api_docs explorer/page, etc.). **Verified live:** zero `LaunchOS` (no space) instances on `/`, `/login`, `/signup`, `/forgot-password`, `/privacy`, `/terms`, `/docs/api`. Only `Launch OS` everywhere.
+
+### Compare section restyled (AMS pattern, capability descriptions only)
+
+The compare section right column previously had a single big "All of it. But on autopilot." pitch block. Now it shows a parallel checklist of 12 rows with gradient checkmark icons. **The right column uses capability descriptions instead of brand names** to avoid trademark trouble (Wesley's correct call). Brand names only appear on the LEFT column where it's nominative fair use:
+
+| Right column "name" (capability) | "cat" (matching left column) |
+|---|---|
+| Sales pipeline & contacts | CRM |
+| Email broadcasts & sequences | Email marketing |
+| Social posts & threads | Content & social |
+| Booking pages & calendars | Booking |
+| Notes & knowledge base | Docs |
+| Landing pages & funnels | Pages |
+| Course hosting & delivery | Courses |
+| Async video & screen recording | Video |
+| Recurring billing & invoices | Payments |
+| Workflow automation | Automation |
+| Tasks & project tracking | Projects |
+| Live chat & customer support | Chat support |
+
+Right column also has `<h3>One Launch OS.</h3>`, `.replaced-extras` tagline (`All working together. No connecting. No syncing. No tabs.`), and `.compare-total` showing `Founding price` / `A fraction` (gradient text). New CSS for `.compare-row.replaced` (overrides left column strikethrough), `.compare-row .check` (gradient circle + checkmark SVG), `.replaced-extras`.
+
+### Long-tail copy iterations (all live)
+
+- AMS section completely rewritten as a flow section: `Your marketing. Built in. Already running.` (h2) / `The campaigns, already written. The content, already posted. The leads, already in your CRM — tagged, scored, ready to convert. All done automatically.` (sub) / `You're running your business. It's running your marketing.` (closer)
+- Product showcase h2: `One workspace. Every move.` → `Your entire business. On one screen.`
+- Product showcase sub: rewritten to clarify AI three ways: `A voice AI that actually does the work. Control your CRM with any AI agent. Workflows on autopilot. Everything you need, already connected, all in the one place.`
+- Flow section eyebrow: `The loop that runs itself` → `The system that runs itself`
+- Command center closer: dropped `One bill.` → `One workspace. One login. Running your business. So you don't have to.`
+- Pain section: `The 12-tab tax.` → `The 12-tool tax.`
+- Compare h2: `Your stack costs you $487 a month.` → `Your stack costs you $487+ a month.` (added the `+`)
+- Compare-total: `$487` → `$487+`
+- Compare subhead: `And your weekends. Here's exactly what Launch OS replaces…` → `Not to mention your evenings and weekends. Not only does Launch OS save you time, here's exactly what it replaces…`
+- Manifesto h2: `The operator running everything deserves a tool built for them.` → first iteration `You run everything. You deserve a tool built for you.` → final `You deserve a CRM built for you.`
+- Waitlist h2: `Become a founding operator.` → `Become a founding member.`
+- Waitlist subcopy: → `Save your spot in line and get lifetime founder level pricing.`
+- Login page: `Welcome back, operator.` → `Welcome back, rockstar.`
+- Removed the inner card around the autopilot trigger/action/done tiles
+- Agent section: `Use Claude, ChatGPT, or any AI tool you already love…` → `Use Claude, ChatGPT, OpenClaw, or any AI tool you already love…`
+- Title tag: `Launch OS — The Demonstration` → `Launch OS — The CRM you don't have to use`
+- Added meta description + Open Graph tags
+
+### Favicon
+
+Copied `~/Desktop/blog-ops/apps/dashboard/src/app/favicon.ico` (15086 bytes, multi-resolution Windows icon) → `apps/mercato/public/favicon.ico`. Added `<link rel="icon" type="image/x-icon" href="/favicon.ico">` to `landing.html` head. Updated `apps/mercato/src/app/layout.tsx` `icons.icon` from `/launchos-logo.png` → `/favicon.ico`. **Required container restart** for Next.js to pick up the new public file (worth remembering — `docker cp` of new files into `public/` may need a restart, while updating existing files doesn't).
+
+### Auth pages logo + sizing
+
+Logo on auth pages swapped from `/launchos-mark.png` (white-on-black stamp) → `/launchos-logo-white.png` (transparent white logo). Replaced `box-shadow` rings (which form around the bounding box) with `filter: drop-shadow` glow that respects the logo shape. `.auth-card-mark` shrunk from 64px → 40px (desktop) / 50px → 36px (mobile). `.auth-logo-mark` shrunk from 30px → 22px.
+
+### Waitlist form persistence (temporary)
+
+Wired up the form (was previously jumping to top of page on submit). Created `apps/mercato/src/app/api/waitlist/route.ts` — POST endpoint that validates email and logs structured `WAITLIST_SIGNUP {...JSON...}` to stdout (captured by `docker logs launchos-app | grep WAITLIST_SIGNUP`). Added `.waitlist-success` UI state with animated checkmark. **This is temporary.** Wesley accepted the trade-off: stdout logs for now, upgrade to Postgres-backed persistence later when we build the App Password / IMAP path post-verification.
+
+### Build queue addition
+
+- **#36 — Meeting Notes Upload to Knowledge Base**: lets users upload meeting notes (text, transcripts, audio with auto-transcribe) so Scout can answer questions about past meetings. Added to `BUILD-QUEUE.md` at Wesley's request.
+
+### Two new deployment gotchas (added to `reference_deployment.md`)
+
+1. **`docker cp` writes files as `root:root` with `0600`** but the app runs as `omuser`. Always follow `docker cp` with `chown omuser:omuser` and `chmod 644`. Symptom when missed: HEAD returns 200 but GET returns 500.
+2. **NEW files in `public/` need a container restart** for Next.js to pick them up. Updates to existing files work without restart. Symptom when missed: file exists with correct permissions but `curl /file` returns 404.
+
+### Production state at end of session
+
+- Latest GitHub-pushed commit: `185094793` (last LaunchOS → Launch OS fix)
+- Local commit ahead of GitHub: `d2f233f7d` (AMS-style compare + meeting notes in build queue) — `git push` failed with `pack-objects died of signal 10` (SIGBUS — macOS-side issue)
+- Working tree has uncommitted changes (latest copy tweaks, favicon.ico, layout.tsx favicon path) that were deployed live via the `scp + docker cp + chown + chmod` fast path
+- All site verification: HTTP 200 across all pages, brand consistency clean, favicon serving, all expected new copy strings present
+- **Production is correct.** Git state is messy but the site is fully up to date.
+
+### Pre-existing issue (not caused by this session, deferred)
+
+The container has a pre-existing DB error `relation "email_intelligence_settings" does not exist` that fires on container startup. The migration that creates this table never ran in production. Defer until App Password / IMAP path work post-verification — we'll need this table working anyway.
+
+### What's NEXT after this session
+
+1. **Run Tests A–G** manually in browser — full walkthrough preserved in `project_session_handoff.md`. Validates that the gmail.readonly removal didn't break anything.
+2. **Phase 1 of Google OAuth verification prep**: Search Console domain verification (`thelaunchpadincubator.com` apex via DNS TXT). Has DNS lag, so kick off first.
+3. **Phase 2**: Complete OAuth consent screen fields in Google Cloud Console + remove `gmail.readonly` from declared scopes there (the code no longer requests it but it's still declared).
+4. **Phase 3**: Record 3-5 min demo video for verification (the #1 cause of rejection if done wrong).
+5. **Phase 4**: Submit OAuth verification application. Wait 3-6 weeks for Google review.
+6. **After verification approved**: build App Password / IMAP fallback path for inbox sync. Behind an `EmailSource` interface so it's swappable later. ~1 week of work.
+
+### Critical knowledge to carry forward
+
+- `OpenClaw` not `OpenCode` — Wesley specifically wants `OpenClaw` in the Agent section. Don't second-guess this.
+- Right column of compare section uses **capability descriptions only** — never brand names (trademark risk).
+- App Passwords are NOT a TOS violation — they're an officially supported Google feature. Risks: Workspace admin disabling and possible future deprecation. Wesley accepted these for his small-team target.
+- Gmail.readonly is REMOVED. Don't add it back without explicit Wesley request.
+- macOS file system flakiness during sessions — file reads timing out, git push failing with SIGBUS — is a Mac-side issue, not corruption. Just retry.
+
+## 17. Session 2026-04-09 — Production database bootstrap + mercato rebuild plan
+
+This session uncovered and fixed a major undiagnosed prod issue, then put guardrails + a plan in place to retire the underlying tech debt that caused it.
+
+### What was actually broken
+
+Login on `crm.thelaunchpadincubator.com` had been broken **since deploy day** (2026-04-05). Nobody noticed because the only thing that had been tested on prod was the static landing page + auth pages (which don't touch the DB) and the waitlist form (which writes to stdout, not Postgres). End-to-end testing was unchecked in the launch checklist (CONTEXT.md §13 item 11). When Wesley tried to log in this session, every POST to `/api/auth/login` returned 500 with `relation "users" does not exist`.
+
+**Root cause:** `deploy.sh` only ran `setup-tables.sql` (78 hand-maintained custom CRM tables) and never ran `yarn db:migrate`. The production database had the 78 legacy tables but **none of the open-mercato base schema** — no `users`, `roles`, `tenants`, `organizations`, `customer_*`, `query_index_*`, etc. The pre-existing `email_intelligence_settings does not exist` error noted in CONTEXT.md §16 line 700 was the same root cause: the migration that creates that table never ran.
+
+The 78 legacy tables were all empty (verified via `business_profiles` and `contact_notes` row counts). Wesley's recollection of "extensive test user with lots of data" was from his **local dev environment**, not production. Prod has never had real data.
+
+### What got fixed
+
+1. **`apps/mercato/src/modules/integrations_api/subscribers/deal-stage-webhook.ts:2`** — replaced the `@/app/api/webhooks/dispatch` import alias with a relative path. The CLI (esbuild) does not resolve the `@/` alias the same way Next does, so the alias broke `node packages/cli/dist/bin.js` with `Cannot read file: /app/apps/mercato/app/api/webhooks/dispatch`. **Without this fix the in-container CLI cannot run, and without the CLI we cannot run `db:migrate` or `auth setup` against the running container.**
+
+2. **`apps/mercato/public/landing.html` header logo** — switched from `launchos-mark.png` (dark stamp) to `launchos-logo-white.png` (transparent white) so it matches the auth-card logo. First attempt used `launchos-logo.png` which is the blue-tinted version — wrong, replaced with the transparent-white file.
+
+3. **Bootstrapped the production database:**
+   - `pg_dumpall -U crm | gzip > /root/db-backup-pre-migrate-2026-04-09.sql` — ad-hoc backup before any mutations.
+   - `node packages/cli/dist/bin.js db migrate` inside `launchos-app` — applied 62 migrations across 26 modules. Tables went from 78 to ~196.
+   - `node packages/cli/dist/bin.js auth setup --orgName "The Launch Pad" --email wesley.b.hansen@gmail.com --password test123 --skip-password-policy` — created the first tenant + organization + 3 users (wesley.b.hansen@gmail.com as superadmin, plus the boilerplate `admin@acme.com` and `employee@acme.com`).
+   - `node packages/cli/dist/bin.js auth set-password --email wesley.b.hansen@gmail.com --password '<strong-password>'` — rotated `test123` to a 20-char generated password.
+
+4. **End-to-end login verified.** `POST /api/auth/login` returns 200 with JWT token, role `superadmin`, redirect `/backend`. Backend dashboard renders 924 KB of React. Hit several backend pages and they all responded 200 (`/backend`, `/backend/email`, `/backend/courses`, `/backend/sequences`, `/backend/billing`, `/backend/dashboards`, `/backend/calendar`, `/backend/forms`).
+
+### Pre-existing schema drift bugs found during smoke testing (rolled into module migrations per Wesley's call)
+
+These are NOT regressions from this session — they have been broken since deploy day. They surfaced because the smoke test exercised more endpoints than ever before.
+
+1. **`forms.is_active` column missing** — `/api/forms` returns 500. The API code queries `where is_active = ?` but the column doesn't exist in `setup-tables.sql`. Will be fixed as part of tier 2 (forms+landing+funnels) of the mercato rebuild.
+2. **`courses.status` column missing** — `/api/courses` returns 500. The API code selects `status` but the table only has `is_published` and `generation_status`. Will be fixed as part of tier 6 (courses) of the mercato rebuild.
+3. **`email_intelligence_settings` table missing entirely** — fires every minute when the Outlook cron runs. Same issue Wesley flagged in CONTEXT.md §16 line 700. Will be fixed as part of tier 1 (email) of the mercato rebuild.
+
+### Drift-prevention guardrails (committed `e7cdf730e`)
+
+Added three layers to make the same class of regression structurally impossible going forward:
+
+1. **`AGENTS.md` "Forbidden Patterns" section** — top-level critical rules ban: (a) new tables/columns in `setup-tables.sql`, (b) new raw-knex routes under `apps/mercato/src/app/api/`, (c) multi-tenant queries without explicit `organization_id` + `tenant_id` filtering, (d) standalone backend pages outside the module system, (e) hand-rolling new modules (must use the scaffold generator). Future Claude reads this and refuses to reintroduce the patterns.
+
+2. **`setup-tables.sql` deprecation banner** — big warning at the top of the file pointing at SPEC-061. The 78 hand-maintained CREATE TABLE statements are now frozen.
+
+3. **`scripts/check-forbidden-patterns.mjs` pre-commit hook** — wired via `.husky/pre-commit`. Blocks: net additions to `setup-tables.sql`, new files under `apps/mercato/src/app/api/**` that import `knex` directly, new files under `apps/mercato/src/app/(backend)/backend/<feature>/`. Override is `FORBIDDEN_PATTERNS_OVERRIDE=1` (must be documented in commit message) — never `--no-verify`.
+
+### The plan: SPEC-061 — full mercato rebuild
+
+`.ai/specs/SPEC-061-2026-04-09-mercato-rebuild.md` lays out the full multi-month rebuild plan to retire `setup-tables.sql` and the 52 raw-knex routes by porting every business-domain feature into proper mercato modules. **Wesley greenlit the sprint version** (focused, single-engineer, ~9-14 weeks of work, 3-5 calendar months).
+
+8 tiers in priority order:
+- **Tier 0 — customers cleanup** (4-6 days): tasks, contact_notes, contact_attachments, contact_engagement_scores, contact_open_times, engagement_events, reminders, business_profiles. Pilot tier — proves the 16-step recipe.
+- **Tier 1 — email** (8-12 days): the 15+ email_* and esp_* tables. Highest blast radius if isolation breaks. Includes the `email_intelligence_settings` fix.
+- **Tier 2 — forms + landing pages + funnels** (6-9 days): includes the `forms.is_active` fix.
+- **Tier 3 — sequences + automation rules** (6-9 days): needs event-driven re-architecture, may need to wrap rather than port the cron loop.
+- **Tier 4 — payments + billing** (6-9 days): money. Migrated after high-volume modules to amortize learning.
+- **Tier 5 — bookings + calendar** (3-5 days).
+- **Tier 6 — courses** (5-8 days): includes the `courses.status` fix.
+- **Tier 7 — long tail** (8-15 days, opportunistic): chat, surveys, affiliates, meeting briefs, sms, twilio, ai_settings, etc. Migrated as part of feature work, not a focused sprint.
+
+Each tier follows the 16-step recipe documented in SPEC-061. Each tier ships as a single PR with a cross-tenant isolation integration test. No parallel tier migrations (avoids merge hell). No staging environment — Wesley is the test user, ships go straight to live.
+
+### Backups + checkpoints (committed RESTORE.md)
+
+- **Daily rolling backups:** `/root/backups/db-backup.sh` runs at 03:00 UTC via cron, writes gzipped `pg_dumpall` to `/root/backups/db/crm-YYYY-MM-DD.sql.gz`, 14-day retention, refuses dumps under 10 KB. Logs to `/root/backups/db-backup.log`.
+- **Labeled checkpoint backups:** taken before each tier migration starts. Stored on the server AND copied to `~/Desktop/CRM-backups/` on Wesley's laptop. SHA-256 verified. Tagged in git.
+- **First labeled checkpoint:** `checkpoint-pre-tier0-2026-04-09.sql.gz` — taken 2026-04-09 10:40 UTC, sha256 `397e1cb2b255641e0c55243229ffe91e2b402c56ba5978e1b690258e4d06a5f8`, 11,078 lines uncompressed, 197 tables, git tag `checkpoint-pre-tier0-2026-04-09` pointing at commit `e7cdf730ef8c3f99f52947ab838bc0590b173683`.
+- **Restore procedure:** `RESTORE.md` at the repo root. Three procedures: code-only revert, full DB revert, restore from local laptop (server gone). **The panic button — read it before any tier migration ships.**
+
+### Current production state at end of session
+
+- Latest commit on `main`: `e7cdf730e` (drift-prevention guardrails + SPEC-061 rebuild plan)
+- Login works. Wesley can log in with the strong password generated this session (he should rotate it on first login per session-end note).
+- 196 tables in the prod DB (78 legacy + 118 from open-mercato migrations)
+- 1 admin user (wesley.b.hansen@gmail.com), 2 boilerplate seed users (admin@acme.com, employee@acme.com)
+- Tenant `f5e09094-5598-4f31-b7d1-d7cc029a3190` ("The Launch Pad"), org `267d8837-9433-45cb-9631-d49830bf7c8a`
+- 3 known schema drift bugs deferred to module migrations
+- Daily backups running, first labeled checkpoint on disk + offsite
+
+### Next session opens with
+
+1. Wesley rotates `wesley.b.hansen@gmail.com` password on first login.
+2. Greenlight tier 0 — start with the inventory grep, post the checklist for sign-off, then begin entity work in `packages/core/src/modules/customers/data/entities.ts`.
+3. Work the 16-step recipe end-to-end. ~4-6 working days. Single PR.
+4. Tier 0 retrospective. Update SPEC-061 sizing for tiers 1-7.
+5. Greenlight tier 1 (email).
+
+### Critical knowledge for future sessions
+
+- **`setup-tables.sql` is DEPRECATED.** Do not add tables, do not add columns. The pre-commit hook will reject. The only legitimate edit is **deletion** of a table that has been migrated into a mercato module.
+- **No new raw-knex API routes.** Every new endpoint must be a proper mercato module with `makeCrudRoute`.
+- **Every migration PR must include a cross-tenant isolation integration test.** Non-negotiable.
+- **Take a labeled checkpoint backup before each tier migration starts.** Pattern is in RESTORE.md "Adding new checkpoints".
+- **Production has no staging environment.** Wesley ships to live and tests there. Move carefully.
+- **`deploy.sh` is the historical reason this incident happened.** It only runs `setup-tables.sql` and not `yarn db:migrate`. SPEC-061 Phase A includes a TODO to either patch or delete it. Until then, DO NOT run `./deploy.sh`. Use the docker compose path documented in `reference_deployment.md`.
+- **The CLI in-container builds via esbuild and does NOT resolve the `@/` path alias the same way Next does.** Any new file with `import { foo } from '@/...'` outside Next route handlers will break the CLI. Use relative imports in subscribers, workers, and module code.
+- **Cron tokens are visible in `crontab -l` on the server.** Flagged but not yet rotated. Should be moved to a secrets file as a separate quick task.
