@@ -73,7 +73,7 @@ export default function PipelinePage() {
   async function loadPipelineMode() {
     setLoading(true)
     try {
-      const res = await fetch('/api/business-profile', { credentials: 'include' })
+      const res = await fetch('/api/customers/business-profile', { credentials: 'include' })
       const data = await res.json()
       const pipelineMode = data.data?.pipeline_mode || 'deals'
       setMode(pipelineMode)
@@ -170,7 +170,7 @@ export default function PipelinePage() {
   async function setEngagementTag(contactId: string, score: number) {
     setSavingTag(true)
     try {
-      await fetch('/api/engagement', {
+      await fetch('/api/customers/engagement', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

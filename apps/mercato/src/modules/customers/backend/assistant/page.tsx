@@ -38,7 +38,7 @@ function parseCrmAction(text: string): CrmAction | null {
 let cachedOrgId = ''
 async function getOrgId(): Promise<string> {
   if (cachedOrgId) return cachedOrgId
-  const res = await fetch('/api/business-profile', { credentials: 'include' })
+  const res = await fetch('/api/customers/business-profile', { credentials: 'include' })
   const d = await res.json()
   cachedOrgId = d.data?.organization_id || ''
   return cachedOrgId
@@ -88,7 +88,7 @@ async function resolveEventId(idOrName: string): Promise<{ id: string; name: str
 }
 
 async function resolveTaskId(idOrName: string): Promise<{ id: string; name: string } | null> {
-  return resolveEntityId(idOrName, '/api/crm-tasks', 'title')
+  return resolveEntityId(idOrName, '/api/customers/tasks', 'title')
 }
 
 async function resolveDealId(idOrName: string): Promise<{ id: string; name: string } | null> {
@@ -131,7 +131,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
           const contact = await resolveContactId(action.data.contactId)
           contactId = contact?.id || null
         }
-        const res = await fetch('/api/crm-tasks', {
+        const res = await fetch('/api/customers/tasks', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ title: action.data.title, contactId, dueDate: action.data.dueDate })
         })
@@ -141,7 +141,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       case 'add_note': {
         const contact = await resolveContactId(action.data.contactId)
         if (!contact) return { ok: false, message: `Contact "${action.data.contactId}" not found` }
-        const res = await fetch('/api/notes', {
+        const res = await fetch('/api/customers/notes', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ contactId: contact.id, content: action.data.content })
         })
@@ -282,7 +282,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         if (!remindAt) {
           remindAt = new Date(Date.now() + 60 * 60 * 1000).toISOString() // default 1 hour
         }
-        const res = await fetch('/api/reminders', {
+        const res = await fetch('/api/customers/reminders', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ message: action.data.message, entityType: action.data.entityType || 'task', entityId, remindAt })
         })
@@ -393,7 +393,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       case 'get_engagement_score': {
         const engContact = await resolveContactId(action.data.contactId)
         const engId = engContact?.id || action.data.contactId
-        const res = await fetch(`/api/engagement?contactId=${engId}`, { credentials: 'include' })
+        const res = await fetch(`/api/customers/engagement?contactId=${engId}`, { credentials: 'include' })
         const d = await res.json()
         if (d.ok && d.data) {
           const score = d.data.score || 0
@@ -540,7 +540,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       case 'create_landing_page': {
         try {
           // Load business name for context
-          const bpRes2 = await fetch('/api/business-profile', { credentials: 'include' })
+          const bpRes2 = await fetch('/api/customers/business-profile', { credentials: 'include' })
           const bpData2 = await bpRes2.json()
           const bizName = bpData2.data?.business_name || 'My Business'
 
@@ -683,7 +683,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return { ok: true, message: `${c.display_name || 'Unknown'} (${c.primary_email || 'no email'}). Stage: ${c.lifecycle_stage || 'prospect'}. Source: ${c.source || 'unknown'}.` }
       }
       case 'get_today_tasks': {
-        const res = await fetch('/api/crm-tasks?filter=today', { credentials: 'include' })
+        const res = await fetch('/api/customers/tasks?filter=today', { credentials: 'include' })
         const d = await res.json()
         if (!d.ok || !d.data?.length) return { ok: true, message: 'No tasks due today.' }
         const list = d.data.slice(0, 5).map((t: any) => t.title).join(', ')
@@ -791,17 +791,17 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
           if (!resolved) return { ok: false, message: `Task "${taskId}" not found` }
           taskId = resolved.id
         }
-        if (sub === 'edit') { const body: any = { id: taskId }; if (title) body.title = title; if (dueDate) body.dueDate = dueDate; await fetch('/api/crm-tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) }); return { ok: true, message: 'Task updated' } }
-        if (sub === 'complete') { await fetch('/api/crm-tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: taskId, is_done: true }) }); return { ok: true, message: 'Task completed' } }
-        if (sub === 'delete') { await fetch(`/api/crm-tasks?id=${taskId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Task deleted' } }
-        if (sub === 'list_overdue') { const res = await fetch('/api/crm-tasks', { credentials: 'include' }); const d = await res.json(); const overdue = (d.data || []).filter((t: any) => t.due_date && new Date(t.due_date) < new Date() && !t.is_done); return { ok: true, message: overdue.length ? `${overdue.length} overdue task(s): ${overdue.slice(0, 5).map((t: any) => t.title).join(', ')}` : 'No overdue tasks' } }
+        if (sub === 'edit') { const body: any = { id: taskId }; if (title) body.title = title; if (dueDate) body.dueDate = dueDate; await fetch('/api/customers/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) }); return { ok: true, message: 'Task updated' } }
+        if (sub === 'complete') { await fetch('/api/customers/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: taskId, is_done: true }) }); return { ok: true, message: 'Task completed' } }
+        if (sub === 'delete') { await fetch(`/api/customers/tasks?id=${taskId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Task deleted' } }
+        if (sub === 'list_overdue') { const res = await fetch('/api/customers/tasks', { credentials: 'include' }); const d = await res.json(); const overdue = (d.data || []).filter((t: any) => t.due_date && new Date(t.due_date) < new Date() && !t.is_done); return { ok: true, message: overdue.length ? `${overdue.length} overdue task(s): ${overdue.slice(0, 5).map((t: any) => t.title).join(', ')}` : 'No overdue tasks' } }
         return { ok: false, message: `Unknown task action: ${sub}` }
       }
       case 'manage_pipeline': {
         const { action: sub, stages, mode } = action.data
-        if (sub === 'get_stages') { const res = await fetch('/api/business-profile', { credentials: 'include' }); const d = await res.json(); return { ok: true, message: `Mode: ${d.data?.pipeline_mode || 'deals'}. Stages: ${(d.data?.pipeline_stages || []).map((s: any) => s.name || s).join(', ')}` } }
-        if (sub === 'update_stages') { await fetch('/api/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ pipelineStages: (stages || []).map((s: string) => ({ name: s })) }) }); return { ok: true, message: 'Pipeline stages updated' } }
-        if (sub === 'switch_mode') { await fetch('/api/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ pipelineMode: mode }) }); return { ok: true, message: `Switched to ${mode} mode` } }
+        if (sub === 'get_stages') { const res = await fetch('/api/customers/business-profile', { credentials: 'include' }); const d = await res.json(); return { ok: true, message: `Mode: ${d.data?.pipeline_mode || 'deals'}. Stages: ${(d.data?.pipeline_stages || []).map((s: any) => s.name || s).join(', ')}` } }
+        if (sub === 'update_stages') { await fetch('/api/customers/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ pipelineStages: (stages || []).map((s: string) => ({ name: s })) }) }); return { ok: true, message: 'Pipeline stages updated' } }
+        if (sub === 'switch_mode') { await fetch('/api/customers/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ pipelineMode: mode }) }); return { ok: true, message: `Switched to ${mode} mode` } }
         return { ok: false, message: `Unknown pipeline action: ${sub}` }
       }
       case 'ai_draft_email': {
@@ -1019,9 +1019,9 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       }
       case 'update_settings': {
         const { action: sub } = action.data
-        if (sub === 'update_profile') { await fetch('/api/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ businessName: action.data.businessName, businessType: action.data.businessType }) }); return { ok: true, message: 'Business profile updated' } }
-        if (sub === 'update_pipeline') { await fetch('/api/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ pipelineMode: action.data.pipelineMode, pipelineStages: (action.data.pipelineStages || []).map((s: string) => ({ name: s })) }) }); return { ok: true, message: 'Pipeline settings updated' } }
-        if (sub === 'update_persona') { await fetch('/api/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ aiPersonaName: action.data.personaName, aiPersonaStyle: action.data.personaStyle }) }); return { ok: true, message: 'AI persona updated' } }
+        if (sub === 'update_profile') { await fetch('/api/customers/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ businessName: action.data.businessName, businessType: action.data.businessType }) }); return { ok: true, message: 'Business profile updated' } }
+        if (sub === 'update_pipeline') { await fetch('/api/customers/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ pipelineMode: action.data.pipelineMode, pipelineStages: (action.data.pipelineStages || []).map((s: string) => ({ name: s })) }) }); return { ok: true, message: 'Pipeline settings updated' } }
+        if (sub === 'update_persona') { await fetch('/api/customers/business-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ aiPersonaName: action.data.personaName, aiPersonaStyle: action.data.personaStyle }) }); return { ok: true, message: 'AI persona updated' } }
         if (sub === 'invite_team') { const res = await fetch('/api/team', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ email: action.data.teamEmail, role: action.data.teamRole || 'member' }) }); const d = await res.json(); return d.ok ? { ok: true, message: `Team invite sent to ${action.data.teamEmail}` } : { ok: false, message: d.error || 'Failed' } }
         return { ok: false, message: `Unknown settings action: ${sub}` }
       }
@@ -1117,7 +1117,7 @@ export default function VoiceAssistantPage() {
 
   // Load persona + check speech support
   useEffect(() => {
-    fetch('/api/business-profile', { credentials: 'include' })
+    fetch('/api/customers/business-profile', { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
         const name = d.ok && d.data?.ai_persona_name ? d.data.ai_persona_name : 'Scout'

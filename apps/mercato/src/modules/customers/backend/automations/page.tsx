@@ -55,7 +55,7 @@ export default function AutomationsPage() {
         }
         if (stages.length === 0) {
           // Fallback — check business profile for custom stages
-          fetch('/api/business-profile', { credentials: 'include' })
+          fetch('/api/customers/business-profile', { credentials: 'include' })
             .then(r => r.json())
             .then(bp => {
               if (bp.ok && bp.data?.pipeline_stages) {

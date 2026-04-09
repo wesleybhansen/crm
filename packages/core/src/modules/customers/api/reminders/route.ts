@@ -7,6 +7,7 @@ import { E } from '#generated/entities.ids.generated'
 import { reminderCreateSchema, reminderUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import { wrapCrudListForLegacyShape, withLegacyOk } from '../legacyShape'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -87,7 +88,7 @@ const crud = makeCrudRoute({
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         return reminderCreateSchema.parse(scoped)
       },
-      response: ({ result }) => ({ id: result?.reminderId ?? null }),
+      response: ({ result }) => withLegacyOk({ id: result?.reminderId ?? null }),
       status: 201,
     },
     update: {
@@ -98,7 +99,7 @@ const crud = makeCrudRoute({
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         return reminderUpdateSchema.parse(scoped)
       },
-      response: () => ({ ok: true }),
+      response: () => withLegacyOk({}),
     },
     delete: {
       commandId: 'customers.reminders.delete',
@@ -113,14 +114,14 @@ const crud = makeCrudRoute({
         if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.reminder_id_required', 'Reminder id is required') })
         return { id }
       },
-      response: () => ({ ok: true }),
+      response: () => withLegacyOk({}),
     },
   },
 })
 
 const { POST, PUT, DELETE } = crud
 export { POST, PUT, DELETE }
-export const GET = crud.GET
+export const GET = wrapCrudListForLegacyShape(crud.GET)
 
 const reminderListItemSchema = z.object({
   id: z.string().uuid(),

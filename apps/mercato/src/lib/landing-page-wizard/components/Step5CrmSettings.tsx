@@ -26,7 +26,7 @@ export function Step5CrmSettings({ wizard }: Props) {
 
   // Fetch pipeline stages
   useEffect(() => {
-    fetch('/api/business-profile', { credentials: 'include' })
+    fetch('/api/customers/business-profile', { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
         if (res.ok && res.data?.pipeline_stages) {

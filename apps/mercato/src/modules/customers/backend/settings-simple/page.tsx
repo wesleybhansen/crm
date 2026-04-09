@@ -185,7 +185,7 @@ export default function SimpleSettingsPage() {
         }
       }).catch(() => {})
     // Load AI persona
-    fetch('/api/business-profile', { credentials: 'include' })
+    fetch('/api/customers/business-profile', { credentials: 'include' })
       .then(r => r.json()).then(d => {
         if (d.ok && d.data) {
           if (d.data.ai_persona_name) setAiPersonaName(d.data.ai_persona_name)
@@ -282,7 +282,7 @@ export default function SimpleSettingsPage() {
   async function changeMode(newMode: string) {
     setMode(newMode)
     // Save to database (primary) and cookie (fallback)
-    await fetch('/api/business-profile', {
+    await fetch('/api/customers/business-profile', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ interfaceMode: newMode }),
     })
@@ -448,7 +448,7 @@ export default function SimpleSettingsPage() {
     setSavingPersona(true)
     setPersonaSaved(false)
     try {
-      await fetch('/api/business-profile', {
+      await fetch('/api/customers/business-profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -468,7 +468,7 @@ export default function SimpleSettingsPage() {
     setSavingStages(true)
     setStagesSaved(false)
     try {
-      await fetch('/api/business-profile', {
+      await fetch('/api/customers/business-profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -531,7 +531,7 @@ export default function SimpleSettingsPage() {
     const previousMode = pipelineMode
     setPipelineMode(newMode)
     try {
-      await fetch('/api/business-profile', {
+      await fetch('/api/customers/business-profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1415,7 +1415,7 @@ export default function SimpleSettingsPage() {
                 setSavingTerms(true)
                 setTermsSaved(false)
                 try {
-                  await fetch('/api/business-profile', {
+                  await fetch('/api/customers/business-profile', {
                     method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
                     body: JSON.stringify({ termsUrl: termsUrl.trim() || '' }),
                   })

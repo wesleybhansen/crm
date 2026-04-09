@@ -7,6 +7,7 @@ import { E } from '#generated/entities.ids.generated'
 import { taskCreateSchema, taskUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import { wrapCrudListForLegacyShape, withLegacyOk } from '../legacyShape'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -86,7 +87,7 @@ const crud = makeCrudRoute({
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         return taskCreateSchema.parse(scoped)
       },
-      response: ({ result }) => ({ id: result?.taskId ?? null }),
+      response: ({ result }) => withLegacyOk({ id: result?.taskId ?? null }),
       status: 201,
     },
     update: {
@@ -97,7 +98,7 @@ const crud = makeCrudRoute({
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         return taskUpdateSchema.parse(scoped)
       },
-      response: () => ({ ok: true }),
+      response: () => withLegacyOk({}),
     },
     delete: {
       commandId: 'customers.tasks.delete',
@@ -112,14 +113,14 @@ const crud = makeCrudRoute({
         if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.task_id_required', 'Task id is required') })
         return { id }
       },
-      response: () => ({ ok: true }),
+      response: () => withLegacyOk({}),
     },
   },
 })
 
 const { POST, PUT, DELETE } = crud
 export { POST, PUT, DELETE }
-export const GET = crud.GET
+export const GET = wrapCrudListForLegacyShape(crud.GET)
 
 const taskListItemSchema = z.object({
   id: z.string().uuid(),

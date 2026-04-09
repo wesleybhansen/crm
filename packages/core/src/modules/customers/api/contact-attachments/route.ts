@@ -7,6 +7,7 @@ import { E } from '#generated/entities.ids.generated'
 import { contactAttachmentCreateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import { wrapCrudListForLegacyShape, withLegacyOk } from '../legacyShape'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -77,7 +78,7 @@ const crud = makeCrudRoute({
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         return contactAttachmentCreateSchema.parse(scoped)
       },
-      response: ({ result }) => ({ id: result?.attachmentId ?? null }),
+      response: ({ result }) => withLegacyOk({ id: result?.attachmentId ?? null }),
       status: 201,
     },
     delete: {
@@ -93,14 +94,14 @@ const crud = makeCrudRoute({
         if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.attachment_id_required', 'Attachment id is required') })
         return { id }
       },
-      response: () => ({ ok: true }),
+      response: () => withLegacyOk({}),
     },
   },
 })
 
 const { POST, DELETE } = crud
 export { POST, DELETE }
-export const GET = crud.GET
+export const GET = wrapCrudListForLegacyShape(crud.GET)
 
 const attachmentListItemSchema = z.object({
   id: z.string().uuid(),

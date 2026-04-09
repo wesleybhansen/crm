@@ -780,7 +780,7 @@ function StagePickerActionField({ config, onChange }: { config: Record<string, a
   useEffect(() => {
     if (loaded) return
     setLoaded(true)
-    fetch('/api/business-profile', { credentials: 'include' }).then(r => r.json())
+    fetch('/api/customers/business-profile', { credentials: 'include' }).then(r => r.json())
       .then(d => {
         const ps = d.data?.pipeline_stages
         const parsed = typeof ps === 'string' ? JSON.parse(ps) : (ps || [])

@@ -73,7 +73,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ success: boolean; 
         return { success: false, message: data.error || 'Failed to create contact' }
       }
       case 'create_task': {
-        const res = await fetch('/api/crm-tasks', {
+        const res = await fetch('/api/customers/tasks', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ title: action.data.title, contactId: action.data.contactId || null, dueDate: action.data.dueDate || null }),
         })
@@ -83,7 +83,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ success: boolean; 
       }
       case 'add_note': {
         if (!action.data.contactId) return { success: false, message: 'Contact ID required for adding a note' }
-        const res = await fetch('/api/notes', {
+        const res = await fetch('/api/customers/notes', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ contactId: action.data.contactId, content: action.data.content }),
         })
@@ -241,7 +241,7 @@ export function AiAssistantWidget() {
   useEffect(() => {
     if (personaLoaded.current) return
     personaLoaded.current = true
-    fetch('/api/business-profile', { credentials: 'include' })
+    fetch('/api/customers/business-profile', { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
         const name = d.ok && d.data?.ai_persona_name ? d.data.ai_persona_name : 'Scout'

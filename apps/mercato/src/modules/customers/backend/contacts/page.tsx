@@ -123,7 +123,7 @@ export default function ContactsPage() {
     // Load pipeline stages for the stage dropdown
     if (!stagesLoaded) {
       setStagesLoaded(true)
-      fetch('/api/business-profile', { credentials: 'include' }).then(r => r.json()).then(d => {
+      fetch('/api/customers/business-profile', { credentials: 'include' }).then(r => r.json()).then(d => {
         if (d.ok && d.data?.pipeline_stages) {
           const ps = typeof d.data.pipeline_stages === 'string' ? JSON.parse(d.data.pipeline_stages) : d.data.pipeline_stages
           setPipelineStages(ps.map((s: any) => s.name || s).filter(Boolean))
@@ -171,13 +171,13 @@ export default function ContactsPage() {
       .then(r => r.json()).then(d => { console.log('[timeline-ui] Response:', d.ok, d.data?.length || 0, d.error || ''); if (d.ok) setTimeline(d.data || []) }).catch(err => { console.error('[timeline-ui] Fetch error:', err); setTimeline([]) })
       .finally(() => setTimelineLoading(false))
     // Load notes, tasks, and tags
-    fetch(`/api/notes?contactId=${contact.id}`, { credentials: 'include' })
+    fetch(`/api/customers/notes?contactId=${contact.id}`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setNotes(d.data || []) }).catch(() => {})
-    fetch(`/api/crm-tasks?contactId=${contact.id}`, { credentials: 'include' })
+    fetch(`/api/customers/tasks?contactId=${contact.id}`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setTasks(d.data || []) }).catch(() => {})
     fetch(`/api/crm-contact-tags?contactId=${contact.id}`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setContactTags(d.data || []) }).catch(() => {})
-    fetch(`/api/engagement?contactId=${contact.id}`, { credentials: 'include' })
+    fetch(`/api/customers/engagement?contactId=${contact.id}`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setEngagementScore(d.data?.score || 0) }).catch(() => setEngagementScore(0))
     fetch(`/api/contacts/${contact.id}/attachments`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setAttachments(d.data || []) }).catch(() => setAttachments([]))
@@ -279,7 +279,7 @@ export default function ContactsPage() {
     if (!newNote.trim() || !selectedContact) return
     setSavingNote(true)
     try {
-      const res = await fetch('/api/notes', {
+      const res = await fetch('/api/customers/notes', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ contactId: selectedContact.id, content: newNote }),
       })
@@ -293,7 +293,7 @@ export default function ContactsPage() {
     if (!newTask.trim()) return
     setSavingTask(true)
     try {
-      const res = await fetch('/api/crm-tasks', {
+      const res = await fetch('/api/customers/tasks', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ title: newTask, contactId: selectedContact?.id || null, dueDate: newTaskDue || null }),
       })
@@ -309,7 +309,7 @@ export default function ContactsPage() {
 
   async function toggleTask(task: Task) {
     try {
-      await fetch('/api/crm-tasks', {
+      await fetch('/api/customers/tasks', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ id: task.id, is_done: !task.is_done }),
       })
@@ -330,7 +330,7 @@ export default function ContactsPage() {
   async function saveTaskEdit(taskId: string) {
     if (!editingTaskTitle.trim()) return
     try {
-      await fetch('/api/crm-tasks', {
+      await fetch('/api/customers/tasks', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ id: taskId, title: editingTaskTitle.trim() }),
       })
@@ -342,7 +342,7 @@ export default function ContactsPage() {
   async function deleteTask(taskId: string) {
     if (!confirm('Delete this task?')) return
     try {
-      await fetch(`/api/crm-tasks?id=${taskId}`, { method: 'DELETE', credentials: 'include' })
+      await fetch(`/api/customers/tasks?id=${taskId}`, { method: 'DELETE', credentials: 'include' })
       setTasks(prev => prev.filter(t => t.id !== taskId))
       setAllTasks(prev => prev.filter(t => t.id !== taskId))
     } catch {}
@@ -447,11 +447,11 @@ export default function ContactsPage() {
 
   function loadAllTasks() {
     setAllTasksLoading(true)
-    fetch('/api/crm-tasks', { credentials: 'include' })
+    fetch('/api/customers/tasks', { credentials: 'include' })
       .then(r => r.json())
       .then(d => { if (d.ok) setAllTasks(d.data || []); setAllTasksLoading(false) })
       .catch(() => setAllTasksLoading(false))
-    fetch('/api/crm-tasks?done=true', { credentials: 'include' })
+    fetch('/api/customers/tasks?done=true', { credentials: 'include' })
       .then(r => r.json())
       .then(d => { if (d.ok) setCompletedTasks((d.data || []).filter((t: Task) => t.is_done)) })
       .catch(() => {})
@@ -493,7 +493,7 @@ export default function ContactsPage() {
     if (!remindDate || !remindMessage.trim() || !selectedContact) return
     setSavingReminder(true)
     try {
-      const res = await fetch('/api/reminders', {
+      const res = await fetch('/api/customers/reminders', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ entityType: 'contact', entityId: selectedContact.id, message: remindMessage, remindAt: new Date(remindDate).toISOString() }),
       })
@@ -569,7 +569,7 @@ export default function ContactsPage() {
                 setShowScan(true)
                 if (!stagesLoaded) {
                   setStagesLoaded(true)
-                  fetch('/api/business-profile', { credentials: 'include' }).then(r => r.json()).then(d => {
+                  fetch('/api/customers/business-profile', { credentials: 'include' }).then(r => r.json()).then(d => {
                     if (d.ok && d.data?.pipeline_stages) {
                       const ps = typeof d.data.pipeline_stages === 'string' ? JSON.parse(d.data.pipeline_stages) : d.data.pipeline_stages
                       setPipelineStages(ps.map((s: any) => s.name || s).filter(Boolean))

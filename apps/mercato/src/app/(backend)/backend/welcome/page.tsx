@@ -112,7 +112,7 @@ export default function WelcomePage() {
   // Restore state on mount — from sessionStorage (OAuth return) or from saved business profile (editing)
   useEffect(() => {
     // Load existing business profile from DB (for returning users editing their profile)
-    fetch('/api/business-profile', { credentials: 'include' })
+    fetch('/api/customers/business-profile', { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
         if (d.ok && d.data) {
@@ -273,7 +273,7 @@ export default function WelcomePage() {
 
     // Save business profile including persona
     try {
-      await fetch('/api/business-profile', {
+      await fetch('/api/customers/business-profile', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           businessName, businessType, businessDescription, mainOffer,

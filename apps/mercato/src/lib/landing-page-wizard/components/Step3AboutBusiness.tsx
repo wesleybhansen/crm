@@ -22,7 +22,7 @@ export function Step3AboutBusiness({ wizard }: Props) {
     if (prefilled) return
     setPrefilled(true)
     if (businessContext.businessName) return
-    fetch('/api/business-profile', { credentials: 'include' })
+    fetch('/api/customers/business-profile', { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
         if (res.ok && res.data) {

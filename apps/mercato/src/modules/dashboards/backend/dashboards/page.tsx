@@ -42,7 +42,7 @@ export default function SimpleDashboard() {
   })
 
   useEffect(() => {
-    fetch('/api/business-profile', { credentials: 'include' })
+    fetch('/api/customers/business-profile', { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
         if (d.ok && d.data === null) { window.location.href = '/backend/welcome'; return }
@@ -283,7 +283,7 @@ function HottestLeads() {
   const [leads, setLeads] = useState<Array<{ id: string; display_name: string; primary_email: string; score: number }>>([])
 
   useEffect(() => {
-    fetch('/api/engagement?view=hottest', { credentials: 'include' })
+    fetch('/api/customers/engagement?view=hottest', { credentials: 'include' })
       .then(r => r.json())
       .then(d => { if (d.ok && d.data?.length) setLeads(d.data.slice(0, 5)) })
       .catch(() => {})

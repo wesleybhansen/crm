@@ -159,19 +159,10 @@ CREATE TABLE IF NOT EXISTS payment_records (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS payment_records_org_idx ON payment_records(organization_id, created_at);
 
--- Notes & Tasks
-CREATE TABLE IF NOT EXISTS contact_notes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  contact_id UUID NOT NULL, content TEXT NOT NULL, author_user_id UUID,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS contact_notes_contact_idx ON contact_notes(contact_id, created_at);
-
-CREATE TABLE IF NOT EXISTS tasks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  title TEXT NOT NULL, description TEXT, contact_id UUID, deal_id UUID,
-  due_date TIMESTAMPTZ, is_done BOOLEAN NOT NULL DEFAULT false, completed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS tasks_org_done_idx ON tasks(organization_id, is_done, due_date);
+-- Notes & Tasks: MIGRATED to packages/core/src/modules/customers/data/entities.ts
+-- (CustomerContactNote, CustomerTask) — see SPEC-061 tier 0. Tables managed
+-- by Migration20260409154143.ts. Definitions deleted from this file as part
+-- of the tier 0 cutover (commit history preserves them).
 
 -- AI Usage
 CREATE TABLE IF NOT EXISTS ai_usage (
@@ -185,13 +176,8 @@ CREATE TABLE IF NOT EXISTS ai_settings (
   organization_id UUID, user_id UUID, setting_key TEXT NOT NULL, setting_value TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 
--- Business Profiles
-CREATE TABLE IF NOT EXISTS business_profiles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL,
-  organization_id UUID NOT NULL UNIQUE, business_name TEXT, business_type TEXT,
-  business_description TEXT, main_offer TEXT, ideal_clients TEXT, team_size TEXT,
-  client_sources JSONB DEFAULT '[]', pipeline_stages JSONB DEFAULT '[]',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+-- Business Profiles: MIGRATED to packages/core/src/modules/customers/data/entities.ts
+-- (CustomerBusinessProfile) — see SPEC-061 tier 0.
 
 -- Stage Automations
 CREATE TABLE IF NOT EXISTS stage_automations (
@@ -323,30 +309,13 @@ CREATE TABLE IF NOT EXISTS response_templates (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS response_templates_org_idx ON response_templates(organization_id, category);
 
--- Contact Engagement Scoring
-CREATE TABLE IF NOT EXISTS contact_engagement_scores (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  contact_id UUID NOT NULL, score INTEGER NOT NULL DEFAULT 0, last_activity_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS engagement_scores_contact_idx ON contact_engagement_scores(contact_id);
-CREATE INDEX IF NOT EXISTS engagement_scores_org_score_idx ON contact_engagement_scores(organization_id, score DESC);
-
-CREATE TABLE IF NOT EXISTS engagement_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), contact_id UUID NOT NULL, organization_id UUID NOT NULL,
-  event_type TEXT NOT NULL, points INTEGER NOT NULL, metadata JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS engagement_events_contact_idx ON engagement_events(contact_id, created_at DESC);
+-- Contact Engagement Scoring + Reminders: MIGRATED to packages/core/src/modules/customers/data/entities.ts
+-- (CustomerContactEngagementScore, CustomerEngagementEvent, CustomerReminder)
+-- — see SPEC-061 tier 0. The contact_engagement_scores schema gained a
+-- created_at column, engagement_events gained tenant_id, and reminders
+-- gained updated_at + deleted_at as part of the tier 0 migration.
 
 ALTER TABLE customer_entities ADD COLUMN IF NOT EXISTS source_details JSONB;
-
--- Reminders
-CREATE TABLE IF NOT EXISTS reminders (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  user_id UUID NOT NULL, entity_type TEXT NOT NULL, entity_id UUID NOT NULL,
-  message TEXT NOT NULL, remind_at TIMESTAMPTZ NOT NULL, sent BOOLEAN NOT NULL DEFAULT false,
-  sent_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(remind_at, sent) WHERE sent = false;
-CREATE INDEX IF NOT EXISTS reminders_org_idx ON reminders(organization_id, user_id);
 
 -- Outbound Webhooks
 CREATE TABLE IF NOT EXISTS webhook_subscriptions (
@@ -362,13 +331,12 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS webhook_deliveries_sub_idx ON webhook_deliveries(subscription_id, created_at DESC);
 
--- Contact Attachments
-CREATE TABLE IF NOT EXISTS contact_attachments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  contact_id UUID NOT NULL, filename TEXT NOT NULL, file_url TEXT NOT NULL,
-  file_size INTEGER NOT NULL DEFAULT 0, mime_type TEXT, uploaded_by UUID,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS attachments_contact_idx ON contact_attachments(contact_id, created_at DESC);
+-- Contact Attachments: MIGRATED to packages/core/src/modules/customers/data/entities.ts
+-- (CustomerContactAttachment) — see SPEC-061 tier 0. Schema gained
+-- updated_at + deleted_at columns. The file upload route at
+-- /api/contacts/[id]/attachments STAYS as a holdover because the mercato
+-- CRUD route is metadata-only and doesn't handle multipart file uploads
+-- yet — see SPEC-061 §"Tier 0 cutover" for the deferred work.
 
 -- Automation Rules
 CREATE TABLE IF NOT EXISTS automation_rules (
@@ -398,12 +366,10 @@ CREATE TABLE IF NOT EXISTS email_preferences (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE UNIQUE INDEX IF NOT EXISTS email_pref_contact_cat_idx ON email_preferences(contact_id, organization_id, category_slug);
 
--- Send Time Optimization
-CREATE TABLE IF NOT EXISTS contact_open_times (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), contact_id UUID NOT NULL, organization_id UUID NOT NULL,
-  hour_of_day INTEGER NOT NULL, day_of_week INTEGER NOT NULL, opened_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS open_times_contact_idx ON contact_open_times(contact_id);
+-- Send Time Optimization: MIGRATED to packages/core/src/modules/customers/data/entities.ts
+-- (CustomerContactOpenTime) — see SPEC-061 tier 0. Schema gained tenant_id
+-- column. The /api/email/send-time analytics route is a holdover that still
+-- queries this table via raw knex — see SPEC-061 §"Tier 0 cutover".
 
 -- Email Style Templates
 CREATE TABLE IF NOT EXISTS email_style_templates (
@@ -677,14 +643,10 @@ CREATE TABLE IF NOT EXISTS meeting_prep_briefs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS meeting_prep_idx ON meeting_prep_briefs(organization_id, event_start DESC);
 
--- Task Templates
-CREATE TABLE IF NOT EXISTS task_templates (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, description TEXT, trigger_type TEXT NOT NULL DEFAULT 'manual',
-  trigger_config JSONB DEFAULT '{}',
-  tasks JSONB NOT NULL DEFAULT '[]',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS task_templates_org_idx ON task_templates(organization_id);
+-- Task Templates: MIGRATED to packages/core/src/modules/customers/data/entities.ts
+-- (CustomerTaskTemplate) — see SPEC-061 tier 0. Schema gained deleted_at
+-- column. The /api/task-templates/apply route is a holdover that spawns
+-- tasks from a template and still queries this table via raw knex.
 
 -- Email intake mode
 ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS email_intake_mode TEXT DEFAULT 'suggest';
