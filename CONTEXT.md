@@ -924,3 +924,131 @@ Plus tier 0 cutover follow-up PR: **2-4 hours**.
 - **Never run two `yarn generate` processes concurrently.**
 - **Batch source changes into single rebuild cycles** to amortize the 5-18 minute build cost.
 - **Tier 0 pilot module pattern** is the canonical reference for tiers 1-7 — see `packages/core/src/modules/customers/data/entities.ts` (entities), `commands/tier0.ts` (commands), `api/tasks/route.ts` (CRUD route), `api/business-profile/route.ts` (custom route via commandBus).
+
+## 19. Session 2026-04-09 (continued) — Tier 0 cutover Chunks B + A + C SHIPPED. Tier 0 fully complete.
+
+Same long session as §17 and §18. Wesley said "let's start on the next session" and "go with your recommendation" — recommendation was to do the deferred tier 0 cutover before tier 1. We executed it end-to-end with Playwright smoke testing.
+
+### Decisions made before the cutover started
+
+1. Use Wesley's real password for testing (rather than seed accounts that have no data)
+2. Playwright for automated smoke testing + visual screenshots
+3. Three-chunk plan: Chunk B (search + ai-tools, additive) → Chunks A + C (frontend cutover + cleanup, must ship together)
+
+### Pre-cutover prep
+
+- Labeled checkpoint backup `checkpoint-pre-tier0-cutover-2026-04-09.sql.gz` taken (server + laptop, sha256 `3ef6d25e…`, git tag pushed)
+- Verified prod healthy: login + 4 mercato routes still 200 from Stage A
+
+### Cutover Chunk B — search.ts + ai-tools.ts (committed `f8c01fbc7`)
+
+Purely additive, deployed first because it had zero risk.
+
+What landed:
+- `packages/core/src/modules/customers/search.ts` — added 6 search registrations (tasks, contact_notes, contact_attachments, reminders, task_templates, business_profiles). Each entry has `buildSource`, `formatResult`, `resolveUrl`, `fieldPolicy`. Append-only analytics entities (engagement_events, contact_open_times) and contact_engagement_scores intentionally NOT registered — they're internal data with no meaningful free text.
+- `packages/core/src/modules/customers/ai-tools.ts` — NEW FILE created from scratch following the `inbox_ops/ai-tools.ts` pattern. 10 high-leverage AI tools exposed to Scout via the MCP tool registry: `customers_list_tasks`, `customers_create_task`, `customers_complete_task`, `customers_list_notes`, `customers_create_note`, `customers_list_reminders`, `customers_create_reminder`, `customers_get_business_profile`, `customers_get_contact_engagement`, `customers_list_hottest_contacts`. All mutating tools go through `commandBus.execute(...)`. All read tools use ORM `em.find` with explicit tenant scoping. All require explicit `requiredFeatures` from the tier 0 ACL.
+
+Build + deploy + restart + curl smoke test all passed. Wesley can now ask Scout: "what tasks do I have today", "show me my hottest contacts", "what's our pipeline mode setting".
+
+### Cutover Chunks A + C — frontend cutover + cleanup (committed `80cb85c15`)
+
+The big one. Shipped together because deleting old routes only makes sense after the frontend has moved off them.
+
+**The legacy-shape compat trick.** Initial plan was to update 53 frontend call sites with both URL changes AND data extraction changes (mercato CRUD shape `{items, total, page, ...}` is different from old raw shape `{ok, data: [...]}`). That's high-risk, lots of files, lots of click-testing. Instead, I created `packages/core/src/modules/customers/api/legacyShape.ts` with two helpers:
+- `wrapCrudListForLegacyShape(handler)` wraps a mercato CRUD-factory GET to return the OLD shape
+- `withLegacyOk(payload)` wraps a POST/PUT/DELETE response to add `{ok: true, ...}`
+
+Applied to all 5 mercato CRUD routes (tasks, notes, contact-attachments, reminders, task-templates). The 2 custom routes (business-profile, engagement) already preserved the old shape natively. With this in place, the frontend cutover became **pure URL substitution** — no data extraction changes needed. ~50 lines of total backend change instead of ~50 frontend call site rewrites.
+
+Frontend URL updates (12 files):
+- `apps/mercato/src/app/(backend)/backend/welcome/page.tsx`
+- `apps/mercato/src/components/AiAssistantWidget.tsx`
+- `apps/mercato/src/lib/landing-page-wizard/components/Step3AboutBusiness.tsx`
+- `apps/mercato/src/lib/landing-page-wizard/components/Step5CrmSettings.tsx`
+- `apps/mercato/src/modules/customers/backend/automations/page.tsx`
+- `apps/mercato/src/modules/customers/backend/automations-v2/page.tsx`
+- `apps/mercato/src/modules/customers/backend/customers/deals/pipeline/page.tsx`
+- `apps/mercato/src/modules/customers/backend/settings-simple/page.tsx`
+- `apps/mercato/src/modules/dashboards/backend/dashboards/page.tsx`
+- `apps/mercato/src/modules/customers/backend/contacts/page.tsx` (13 calls)
+- `apps/mercato/src/modules/customers/backend/assistant/page.tsx` (18 calls)
+
+URL substitutions: `/api/{notes,reminders,business-profile,engagement,task-templates}` → `/api/customers/...`. `/api/crm-tasks` → `/api/customers/tasks`.
+
+Cleanup (Chunk C):
+- Deleted 7 old raw route files: `notes/route.ts`, `reminders/route.ts`, `business-profile/route.ts`, `engagement/route.ts`, `task-templates/route.ts`, `crm-tasks/route.ts`, `tasks/route.ts`. 4 directories also removed (the others kept because of holdover sub-routes).
+- Removed 9 tier 0 table definitions from `setup-tables.sql` with deprecation comments left in place pointing at the new entity locations. Pre-commit hook passed cleanly (all added lines were SQL comments which are filtered out).
+
+### One thing I deliberately did NOT migrate
+
+`apps/mercato/src/app/api/contacts/[id]/attachments/route.ts` is a **multipart file upload handler** (saves files to disk + creates metadata records), not just CRUD. My new mercato `contact-attachments` route is metadata-only. Migrating attachments needs a proper mercato file upload pattern that doesn't exist yet — the old route stays as a holdover (like `/api/reminders/process`, `/api/contacts/[id]/attachments/[id]/download`, `/api/contacts/[id]/timeline`, `/api/email/send-time`). Documented in commit message + setup-tables.sql deprecation comment.
+
+### Smoke testing with Playwright
+
+Wesley asked if I could automate the testing with Playwright. Yes — wrote `scripts/tier0-cutover-smoke.spec.ts` (committed) plus `scripts/tier0-cutover-smoke.config.ts` (committed). The script:
+
+1. Logs in via API (not the form — see "False alarm" below)
+2. Visits 7 critical dashboard pages
+3. Captures viewport screenshots to `~/Desktop/CRM-screenshots/tier0-cutover-2026-04-09/`
+4. Asserts no 5xx network errors (with a whitelist of pre-existing schema-drift bugs)
+5. Asserts no JS-level page errors
+6. Asserts the page response status is 200 (not 404)
+7. Verifies all 7 mercato routes return 200 with the legacy `{ok, data, ...}` shape
+8. Verifies all 7 deleted old routes return 404
+
+Final result: **10/10 tests passing.**
+
+### False alarms during smoke testing (lessons learned)
+
+1. **Login form fill failure.** Initial test used `page.fill('#email', ...)` which timed out at "Invalid email or password". Debugging showed the form is a controlled React component that reads values from React state, not from the input DOM. Playwright's `fill()` updates the DOM but doesn't fire React's `onChange`. Switched to `pressSequentially()` (real keystrokes) — that fixed the password but the email field stayed empty. **Real fix: bypass the form entirely and POST directly to `/api/auth/login`, then inject the auth_token cookie into the browser context.** This is the standard pattern for tests that don't specifically need to test the form UI. Documented in the smoke test comments.
+
+2. **False "5 pages 404" alarm.** I assumed `apps/mercato/src/modules/customers/backend/contacts/page.tsx` would map to URL `/backend/customers/contacts`. Wrong. The actual URL is `/backend/contacts` — the customers/ source directory is NOT part of the URL prefix. The pages were never broken; my smoke test was hitting the wrong URLs. Verified in the generated `modules.generated.ts` file which shows the registered patterns as `/backend/contacts`, `/backend/assistant`, etc. **Lesson: ALWAYS verify a route's registered URL via the generated modules file before testing it, don't infer from the source path.**
+
+3. **False "cookies banner floating in middle" alarm.** I configured Playwright with `fullPage: true` which captures the entire scrollable area. A sticky-positioned cookies banner pinned to viewport-bottom appears at viewport-bottom-position in that long image, which lands somewhere in the middle of a tall screenshot. The actual rendered page is fine. **Switched to `fullPage: false` (viewport-only) so screenshots match what the user actually sees.**
+
+4. **Pre-existing 5xx bugs caught by Playwright but unrelated to tier 0.** The smoke test caught 5xx errors on `/api/team`, `/api/forms`, `/api/courses`, `/api/email-intelligence/*`, `/api/ai/conversations` — these are all schema-drift bugs that have existed since deploy day, separate from tier 0 work. Added a `KNOWN_PREEXISTING_500_PATTERNS` whitelist to the smoke test so it focuses on tier 0 correctness without false-failing on unrelated drift. Documented in CONTEXT.md / SPEC-061 as "TODO for the relevant tier".
+
+### Tier 0 final state (production verified)
+
+| Verification | Result |
+|---|---|
+| Login | ✅ HTTP 200 |
+| 7 backend pages return 200 at correct URLs | ✅ |
+| 7 new mercato routes serve legacy shape | ✅ |
+| 7 deleted old raw routes return 404 | ✅ |
+| `customers/search.ts` registers 6 entities | ✅ |
+| `customers/ai-tools.ts` exposes 10 Scout tools | ✅ |
+| Visual spot-check of 7 viewport screenshots | ✅ Wesley confirmed "all looks good" |
+| 5 known pre-existing 5xx bugs unchanged (deferred to their tiers) | ✅ documented |
+
+### Latest commits on main (end of tier 0)
+
+- `9607d3dac` — Stage A: entities + commands + mercato routes (additive)
+- `f8c01fbc7` — Cutover Chunk B: search.ts + ai-tools.ts (additive)
+- `80cb85c15` — Cutover Chunks A + C: frontend URLs + delete old routes + drop tables from setup-tables.sql
+- (next commit) — docs + smoke test script
+
+### Critical knowledge for tier 1 (added this session)
+
+- **Backend page URLs are NOT prefixed with the source module ID.** A page at `apps/mercato/src/modules/<x>/backend/<y>/page.tsx` is served at `/backend/<y>`, not `/backend/<x>/<y>`. The customers/ source directory is the location only. Verify in `apps/mercato/.mercato/generated/modules.generated.ts` to confirm the registered `pattern:` value.
+  - **API routes ARE prefixed by module ID** (`/api/<module-id>/<path>`). This asymmetry between API and backend URL conventions is a footgun.
+- **Playwright `fill()` doesn't trigger React's `onChange` for controlled inputs.** Use API-based login + cookie injection for tests instead of form UI fills. See `scripts/tier0-cutover-smoke.spec.ts` for the pattern.
+- **Playwright `fullPage: true` captures the entire scrollable area.** Use `fullPage: false` (viewport-only) for screenshots that match the user's actual view.
+- **The legacy-shape compat helpers** in `packages/core/src/modules/customers/api/legacyShape.ts` (`wrapCrudListForLegacyShape` + `withLegacyOk`) are the canonical pattern for migrating routes without breaking existing frontend consumers. Tier 1+ should use them.
+- **There's a `KNOWN_PREEXISTING_500_PATTERNS` whitelist in the smoke test** for `/api/team`, `/api/forms`, `/api/courses`, `/api/email-intelligence/*`, `/api/ai/conversations`. These are deferred bugs, not regressions. As each tier ships, the relevant pattern gets removed from the whitelist as the bug is fixed.
+- **The Playwright smoke test pattern** in `scripts/tier0-cutover-smoke.spec.ts` is reusable for tier 1+ cutover validation. Copy it as `scripts/tierN-cutover-smoke.spec.ts`, update the `PAGES` and route lists, run.
+
+### What's NEXT after tier 0
+
+Tier 0 is **fully complete**. The customers module is the canonical mercato pattern. Next: tier 1 (email).
+
+Tier 1 setup checklist:
+1. Take a fresh `checkpoint-pre-tier1-2026-XX-XX.sql.gz` backup
+2. Run the same 16-step recipe — start with the inventory grep
+3. Apply lessons from tier 0 retrospective (URL convention, idempotent migration, Playwright pitfalls)
+4. ~6-10 days of work (per the updated SPEC-061 sizing)
+5. Includes the `email_intelligence_settings` schema-drift fix as part of the migration
+
+Deferred from tier 0 (but not blocking tier 1):
+- Migrate the 4 holdover routes (`/api/reminders/process`, `/api/contacts/[id]/attachments/[id]/download`, `/api/contacts/[id]/timeline`, `/api/email/send-time`) from raw knex to ORM. Can happen as a "tier 0 cleanup follow-up" or as part of the relevant tier (1, 7).
+- Migrate `apps/mercato/src/app/api/contacts/[id]/attachments/route.ts` (file upload) once mercato has a proper file upload pattern.
