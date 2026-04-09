@@ -811,3 +811,116 @@ Each tier follows the 16-step recipe documented in SPEC-061. Each tier ships as 
 - **`deploy.sh` is the historical reason this incident happened.** It only runs `setup-tables.sql` and not `yarn db:migrate`. SPEC-061 Phase A includes a TODO to either patch or delete it. Until then, DO NOT run `./deploy.sh`. Use the docker compose path documented in `reference_deployment.md`.
 - **The CLI in-container builds via esbuild and does NOT resolve the `@/` path alias the same way Next does.** Any new file with `import { foo } from '@/...'` outside Next route handlers will break the CLI. Use relative imports in subscribers, workers, and module code.
 - **Cron tokens are visible in `crontab -l` on the server.** Flagged but not yet rotated. Should be moved to a secrets file as a separate quick task.
+
+## 18. Session 2026-04-09 (continued) — Tier 0 mercato rebuild Stage A shipped + SPEC-061 retrospective
+
+Same long session as §17. After bootstrapping login, putting drift guardrails in place, and writing SPEC-061, Wesley greenlit the sprint version of the mercato rebuild and we executed tier 0 (the customers cleanup pilot tier).
+
+### Decisions made before tier 0 started
+
+1. Sprint mode, single engineer (Claude does the programming)
+2. Direct to main, no branch+PR
+3. Cron token leak fixed before tier 0 (rotated `SEQUENCE_PROCESS_SECRET` and `CRON_SECRET`, moved to `/root/crm-cron/secrets.env` chmod 600 with wrapper scripts; old tokens now 401)
+4. Daily backup cron + labeled checkpoint backups in place before any code changes
+5. Offsite backups deferred (decision postponed)
+6. Schema drift bugs (`forms.is_active`, `courses.status`, `email_intelligence_settings`) rolled into module migrations rather than fixed as side quests
+
+### Pre-tier-0 prep
+
+- Daily cron written at `/root/backups/db-backup.sh`, scheduled `0 3 * * *`, 14-day retention, gzipped, refuses dumps under 10 KB
+- Labeled checkpoints taken at two points:
+  - `checkpoint-pre-tier0-2026-04-09.sql.gz` (sha256 `397e1cb2…`) — before any tier 0 work
+  - `checkpoint-pre-tier0-entities-2026-04-09.sql.gz` (sha256 `2114305a…`) — right before writing the first entity file
+  - Both checkpoints tagged in git, copied to `~/Desktop/CRM-backups/` on Wesley's laptop with sha256 verification, server copies live in `/root/backups/db/`
+- Cron secrets rotated and hidden behind wrapper scripts at `/root/crm-cron/{reminders-process,sequences-process,email-intelligence,automation-rules}.sh`. The `automation-rules` wrapper is annotated as silently 401'ing because the route uses `getAuthFromCookies` and ignores the bearer token — pre-existing bug, deferred to tier 3
+- `RESTORE.md` panic-button procedure committed at the repo root (3 procedures: code-only revert, full DB revert, restore from local laptop)
+
+### Tier 0 — Stage A shipped
+
+Committed as `9607d3dac` and deployed live. **Tier 0 infrastructure is functional in production.**
+
+What landed (the infrastructure):
+- 9 new MikroORM entities under `packages/core/src/modules/customers/data/entities.ts`: `CustomerTask`, `CustomerContactNote`, `CustomerContactAttachment`, `CustomerContactEngagementScore`, `CustomerEngagementEvent`, `CustomerContactOpenTime`, `CustomerReminder`, `CustomerTaskTemplate`, `CustomerBusinessProfile`. All with explicit tenant + organization scoping.
+- 1 hand-written idempotent migration (`Migration20260409154143.ts`) using `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ADD COLUMN IF NOT EXISTS` so it works on both fresh greenfield dev and existing prod. Added 11 columns total to the existing prod tables (deleted_at to 4, updated_at to 2, created_at to 1, tenant_id to 2). Migration applied to prod and verified.
+- 17 zod validators in `data/validators.ts`
+- 14 ACL features in `acl.ts`, auto-granted via existing `customers.*` wildcard
+- 18 typed events in `events.ts`
+- 18 commands in a single consolidated `commands/tier0.ts` (deviation from per-entity-file convention, documented at the file head)
+- 7 new mercato-native API routes under `customers/api/`
+
+All 7 new routes verified live and returning canonical response shapes:
+- `/api/customers/tasks`, `/api/customers/notes`, `/api/customers/contact-attachments`, `/api/customers/reminders`, `/api/customers/task-templates` — return mercato CRUD factory shape `{items, total, page, pageSize, totalPages}`
+- `/api/customers/business-profile`, `/api/customers/engagement` — custom routes returning preserved `{ok, data}` shape
+
+Wall-clock time for Stage A: **~4 hours** focused work (vs 4-6 days estimated in SPEC-061 — came in well under because we deferred the cutover and skipped some buildLog audit-trail strings).
+
+### What did NOT land in tier 0 (deferred to follow-up PR)
+
+- **Frontend URL update.** 30-50 frontend call sites still point at the old URLs (`/api/notes`, `/api/business-profile`, etc.) — they're not yet using the new `/api/customers/*` mercato routes. Old raw routes still serve traffic.
+- **Cleanup phase.** The 14 raw API route files under `apps/mercato/src/app/api/` still exist. The 9 migrated tables are still in `setup-tables.sql`.
+- **Search config.** `customers/search.ts` does not yet register the new entities for fulltext search.
+- **AI tools.** `customers/ai-tools.ts` does not yet expose the new entities to Scout via the MCP tool registry. **This is the highest-leverage deferred item** — Scout can't see tier 0 entities yet.
+- **Cross-tenant isolation Playwright integration test.**
+- **The 4 holdover routes that don't fit `makeCrudRoute`** (cron processor, binary download, federated timeline, send-time analytics) — they still query via raw knex.
+
+All deferred items are documented in detail in SPEC-061 §"Tier 0 cutover" so the next session knows exactly what to do.
+
+### The big surprise: URL convention
+
+Original assumption: `customers/api/notes/route.ts` would map to `/api/notes` per AGENTS.md.
+
+Reality: mercato module routes get prefixed with the module ID. Actual URL is `/api/customers/notes`. Verified by curling `/api/customers/people` (the canonical existing mercato route) which returns the expected shape, while `/api/people` returns 404.
+
+Implications:
+- The new routes don't shadow the old ones (they're at completely different URLs), so old + new coexist without conflict — better than I planned for.
+- BUT every frontend call site needs updating, not just 2 of them. ~30-50 search-and-replace edits across ~10 files.
+- AGENTS.md is misleading on this. Should be updated.
+
+This discovery is what triggered the "Stage A only, defer the cutover" decision at the end of the day.
+
+### Things that worked in tier 0
+
+1. The 16-step recipe from SPEC-061 is sound. Steps 1-8 executed cleanly with no rework beyond the migration idempotency rewrite.
+2. Idempotent migration pattern (CREATE/ALTER IF NOT EXISTS) is the right default for every tier — every tier migrates tables that already exist on prod with slightly different schemas.
+3. Schema-drift canary works. After entity revisions, `yarn db:generate` reported `customers: no changes` — proof the entities matched the migration.
+4. Pre-flight inventory was worth the time. The Explore agent's report caught the duplicate `/api/tasks` vs `/api/crm-tasks` situation, the missing `tenant_id` on engagement_events, and the polymorphic reminders pattern before any code was written.
+5. Backups were used as designed. Took the labeled checkpoint backup before any code changes.
+
+### Things that surprised us (gotchas for tier 1)
+
+1. **URL convention** (above)
+2. **`yarn db:generate` against a local DB without `setup-tables.sql` produces wrong migrations** — generates unconditional `CREATE TABLE` statements because the local schema doesn't have the legacy tables. Always hand-rewrite the auto-generated migration to be idempotent OR seed the local dev DB with `setup-tables.sql` first
+3. **`docker exec launchos-app yarn db:migrate` runs the OLD bundled CLI** until the container is rebuilt. Pulling code on the host doesn't update the container. Always: `git pull → docker compose build app → docker compose up -d --no-deps app → docker exec launchos-app yarn db:migrate`
+4. **Multiple `yarn generate` processes running concurrently break each other.** Always serialize
+5. **Build cycles are the long pole.** Each `yarn build:packages` is ~5 min uncached, container rebuild is ~18 min. Batch all source changes into a single rebuild cycle
+6. **`commandBus` is registered in DI as `'commandBus'`** — resolve via `container.resolve('commandBus') as CommandBus` from custom routes when `makeCrudRoute` doesn't fit
+
+### Updated tier sizing (after tier 0 retrospective)
+
+| Tier | Original | Updated | Notes |
+|---|---|---|---|
+| 1 — email | 8-12d | 6-10d | Scaffolding from tier 0 reusable |
+| 2 — forms+landing+funnels | 6-9d | 5-7d | Simpler than email |
+| 3 — sequences+automations | 6-9d | **8-12d** | Increased — needs event-driven re-architecting that wasn't rehearsed in tier 0 |
+| 4 — payments+billing | 6-9d | 6-9d | Unchanged |
+| 5 — bookings+calendar | 3-5d | 3-4d | Tier 0 patterns directly applicable |
+| 6 — courses | 5-8d | 5-7d | Customer portal RBAC adds complexity |
+| 7 — long tail | 8-15d | 8-15d | Unchanged |
+
+Plus tier 0 cutover follow-up PR: **2-4 hours**.
+
+### Next session opens with
+
+1. Wesley decides on tier 0 cutover timing — recommendation: do the cutover PR (frontend URL updates + delete old routes + setup-tables.sql cleanup + search.ts + ai-tools.ts) BEFORE starting tier 1, so tier 0 is fully complete and Scout can see the migrated entities.
+2. Tier 0 cutover work as scoped in SPEC-061 §"Tier 0 cutover" (~3-5 hours)
+3. Then tier 1 (email) — first action is the inventory grep, same pattern as tier 0
+
+### Critical knowledge for tier 1 (added this session)
+
+- **Mercato module routes live at `/api/<module-id>/<path>`, NOT `/api/<path>`.** Update AGENTS.md if it's still misleading.
+- **Always hand-rewrite the auto-generated mikro-orm migration to be idempotent.** Use `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ADD COLUMN IF NOT EXISTS`.
+- **Deploy sequence is rigid:** `git pull → docker compose build app → docker compose up -d --no-deps app → yarn db:migrate inside the new container`.
+- **Take a labeled checkpoint backup before each tier starts.** Same pattern as `checkpoint-pre-tier0-entities-2026-04-09`.
+- **Never run two `yarn generate` processes concurrently.**
+- **Batch source changes into single rebuild cycles** to amortize the 5-18 minute build cost.
+- **Tier 0 pilot module pattern** is the canonical reference for tiers 1-7 — see `packages/core/src/modules/customers/data/entities.ts` (entities), `commands/tier0.ts` (commands), `api/tasks/route.ts` (CRUD route), `api/business-profile/route.ts` (custom route via commandBus).

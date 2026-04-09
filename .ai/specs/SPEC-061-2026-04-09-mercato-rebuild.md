@@ -206,6 +206,168 @@ The full rebuild is "done" when `setup-tables.sql` is deleted and `apps/mercato/
 4. **Should we set up a staging environment** before any of this? Right now there's no staging — every test is on prod or local. A staging Hetzner box with a copy of the prod DB would let migrations be validated end-to-end before touching prod.
 5. **Backup automation** — should I set up a nightly `pg_dumpall` cron + offsite copy as part of Phase A, or defer? My recommendation is do it now, before the migration starts touching the schema. ~30 min of work, lifelong insurance.
 
+## Tier 0 retrospective (2026-04-09)
+
+Tier 0 (customers cleanup) shipped as **Stage A only** — the new mercato infrastructure is live in production but the cutover (frontend updating to call the new URLs, deletion of old raw routes, dropping migrated tables from `setup-tables.sql`) is deferred to a follow-up PR. Wesley's call after we discovered the URL convention surprise late in the day; documented below.
+
+### What landed (Stage A — committed `9607d3dac`, deployed live)
+
+- **9 new entities** in `packages/core/src/modules/customers/data/entities.ts`: `CustomerTask`, `CustomerContactNote`, `CustomerContactAttachment`, `CustomerContactEngagementScore`, `CustomerEngagementEvent`, `CustomerContactOpenTime`, `CustomerReminder`, `CustomerTaskTemplate`, `CustomerBusinessProfile`. All with explicit tenant + organization scoping, soft-delete where appropriate, and 3 expression-based `@Index` decorators for DESC sort parity with existing prod indexes.
+- **1 idempotent migration** `Migration20260409154143.ts` — every statement uses `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN IF NOT EXISTS` so it works on both fresh greenfield dev DBs and the existing prod DB. Verified live: applied to prod, added 11 new columns total (deleted_at to 4 tables, updated_at to 2 tables, created_at to 1 table, tenant_id to 2 tables).
+- **17 zod validators** in `data/validators.ts` with derived TS types via `z.infer`.
+- **14 ACL features** in `acl.ts`, auto-granted via the existing `customers.*` wildcard in `setup.ts`.
+- **18 typed events** in `events.ts` (`customers.task.created`, `customers.note.created`, `customers.engagement.tracked`, `customers.reminder.fired`, etc.).
+- **18 commands** in a consolidated `commands/tier0.ts` (~1100 lines) covering create/update/delete/upsert/track for all 9 entities, with snapshot-based undo support for the user-facing CRUD entities. Engagement events and contact_open_times are append-only and have no undo.
+- **7 mercato-native API routes** under `customers/api/`:
+  - `/api/customers/tasks` (CRUD via factory)
+  - `/api/customers/notes` (CRUD via factory)
+  - `/api/customers/contact-attachments` (CRUD via factory)
+  - `/api/customers/reminders` (CRUD via factory)
+  - `/api/customers/task-templates` (CRUD via factory)
+  - `/api/customers/business-profile` (custom non-CRUD upsert)
+  - `/api/customers/engagement` (custom — preserves the `?view=hottest|coldest|contact` semantics)
+
+All 7 routes verified live and returning canonical mercato response shapes (5 use the CRUD factory's `{items, total, page, pageSize, totalPages}` paginated shape; 2 custom routes use the preserved `{ok, data}` shape).
+
+### What did NOT land in tier 0 (deferred to follow-up PR — see "Tier 0 cutover" section below)
+
+- Frontend call sites are still pointed at the old URLs (`/api/notes`, `/api/business-profile`, etc.) — they're not yet using the new `/api/customers/*` mercato routes
+- The 14 raw API route files under `apps/mercato/src/app/api/` still exist and still serve traffic
+- The 9 migrated tables are still listed in `setup-tables.sql`
+- `customers/search.ts` does not yet register the new entities
+- `customers/ai-tools.ts` does not yet expose the new entities to Scout
+- Cross-tenant isolation Playwright integration test
+- The 4 routes that won't fit `makeCrudRoute` cleanly (`/api/reminders/process` cron, `/api/contacts/[id]/attachments/[id]/download` binary stream, `/api/contacts/[id]/timeline` federated read, `/api/email/send-time` analytics aggregation) are untouched — they still query via raw knex but will be migrated to use the new ORM entities as part of either tier 0 cutover or their relevant tier (1 = email, 7 = long tail)
+
+### Time taken (single engineer, single day)
+
+| Phase | Wall clock |
+|---|---|
+| Inventory grep + report | ~20 min |
+| 9 entity definitions + index audit | ~30 min |
+| Migration generation + hand-rewrite for idempotency | ~25 min (auto-gen produced wrong CREATE TABLE statements; had to switch to idempotent ALTER pattern after discovering local-vs-prod schema divergence) |
+| Validators (17 schemas) | ~15 min |
+| ACL + events | ~10 min |
+| Commands (18 in consolidated file) | ~50 min |
+| 7 API routes | ~45 min |
+| Build cycles (3 full rebuilds at 5 min each, 1 cached at 4s) | ~15 min |
+| Generate + db:generate verification | ~5 min |
+| Container rebuild on prod (single 18 min Docker build) | ~18 min |
+| Migration apply on prod + schema verification | ~3 min |
+| Smoke testing (login, 8 old routes, 7 new routes) | ~10 min |
+| **Total focused work** | **~4 hours 5 min** |
+
+This compares against the original SPEC-061 estimate of **4-6 days for tier 0**. Wall clock came in dramatically under budget because:
+- Customers module was already partially mercato-native (existing patterns to copy)
+- The 9 entities are simpler than the 17 existing customer entities (no nested addresses, no custom fields, no complex linking)
+- I batched related work into single rebuild cycles instead of one rebuild per file
+- Skipped the buildLog audit-trail string generation (deferred)
+- Skipped the cross-tenant isolation integration test (deferred)
+- **Did NOT run the cutover** (the reason this estimate is half what it'd be otherwise)
+
+If the cutover was included, realistic estimate would be **6-9 hours** (the cutover is ~2-4 hours of frontend search-and-replace + dashboard click-through verification).
+
+### What worked
+
+1. **The 16-step recipe is sound.** Steps 1-8 executed cleanly in order with no rework needed beyond the migration idempotency rewrite. The recipe is the right backbone for tiers 1-7.
+2. **Idempotent migration pattern is the right choice.** `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ADD COLUMN IF NOT EXISTS` made the migration work in both fresh dev and existing prod environments without environment-specific branching. This pattern should be the default for every tier going forward — every tier migrates tables that already exist on prod with slightly different schemas.
+3. **Schema-drift canary works.** After the entity revisions, `yarn db:generate` reported `customers: no changes` — proof the entities matched what I'd already committed in the migration. This is the load-bearing safety check; trust it.
+4. **Pre-flight inventory was worth the time.** The Explore agent's inventory report caught the duplicate `/api/tasks` vs `/api/crm-tasks` situation, the `tenant_id`-missing-from-engagement_events drift, and the polymorphic reminders pattern before any code was written. ~20 min of investigation saved hours of mid-execution rework.
+5. **Pre-commit hook didn't fire any false positives** (it also didn't catch anything because I wasn't trying to add to setup-tables.sql).
+6. **Backups were used as designed.** Took the labeled `checkpoint-pre-tier0-entities-2026-04-09` backup before any code changes; never needed it but the safety net was there.
+
+### What surprised us (gotchas to apply to tier 1)
+
+1. **The biggest miss: URL convention.** I assumed mercato module routes would map `customers/api/notes/route.ts` → `/api/notes`. Wrong — the actual convention is `/api/<module-id>/<path>`, so the route lives at `/api/customers/notes`. The AGENTS.md docs say `api/<path>/route.ts → /api/<path>` which is misleading. **For tier 1 onward, every new route lives at `/api/<module>/<path>`** and the cutover work always involves updating frontend call sites to the new prefixed URL. **Update the recipe in the SPEC-061 master plan to call this out explicitly.**
+
+2. **`yarn db:generate` against a local DB without setup-tables.sql produces wrong migrations.** Mikro-orm generated unconditional `CREATE TABLE` statements because my local dev DB doesn't have the legacy tables. On prod those tables exist, so the auto-generated migration would have failed with "relation already exists". **The fix going forward: always hand-rewrite the auto-generated migration to be idempotent.** OR seed the local dev DB with `setup-tables.sql` before running `db:generate`. Recommend the former because it forces engineers to think about the migration's safety on prod.
+
+3. **`docker exec launchos-app yarn db:migrate` runs the OLD bundled CLI** until the container is rebuilt. Pulling code on the host doesn't update the container filesystem. **The deploy sequence is: git pull → docker compose build app → docker compose up -d --no-deps app → docker exec launchos-app yarn db:migrate.** Don't try to migrate before the rebuild. Add this to the recipe.
+
+4. **CLI builds via esbuild and does NOT resolve the `@/` path alias the same way Next does.** A lingering `import { foo } from '@/...'` in a subscriber/worker outside Next route handlers will break the in-container CLI silently. Use relative imports for subscribers/workers/module code. (Already documented in CONTEXT.md §17 from the deal-stage-webhook fix earlier in the day.)
+
+5. **Multiple `yarn generate` processes running concurrently break each other.** Background-launching `yarn generate` and then forgetting to wait for the prior one creates two competing processes that both hang/fail. Always foreground or carefully serialize.
+
+6. **Build cycles are the long pole.** Each full `yarn build:packages` is ~5 min uncached. Container rebuild is ~18 min. **For future tiers: batch all source changes into a single rebuild cycle**. Don't rebuild after each file edit.
+
+7. **`commandBus` is registered in DI as `'commandBus'`** and you can resolve it directly via `container.resolve('commandBus') as CommandBus` from custom routes — this is the escape hatch when `makeCrudRoute` doesn't fit.
+
+### Sizing updates for tiers 1-7
+
+Based on the tier 0 retrospective, my updated estimates (single engineer, including cutover this time):
+
+| Tier | Original estimate | Updated estimate | Why changed |
+|---|---|---|---|
+| 1 — email | 8-12 days | **6-10 days** | Recipe is proven, scaffolding from tier 0 is reusable, but email has 15 tables vs 9 and the cron + sequences integration needs care |
+| 2 — forms+landing+funnels | 6-9 days | **5-7 days** | Simpler scope than email, tier 0 patterns directly transferable |
+| 3 — sequences+automations | 6-9 days | **8-12 days** | **Increased.** Tier 0 didn't touch event-driven architecture; sequences+automations need real workflow engine integration which wasn't rehearsed in tier 0 |
+| 4 — payments+billing | 6-9 days | **6-9 days** | Unchanged. Money is high-stakes regardless of recipe maturity |
+| 5 — bookings+calendar | 3-5 days | **3-4 days** | Tier 0 patterns directly applicable, small surface |
+| 6 — courses | 5-8 days | **5-7 days** | Largest by table count but customer portal RBAC adds complexity |
+| 7 — long tail | 8-15 days | **8-15 days** | Unchanged — opportunistic by definition |
+| **Total** | 42-67 days | **41-64 days** | Roughly the same. Recipe maturity savings offset by sequences+automations re-architecting being harder than I'd planned. |
+
+Plus tier 0 cutover work: **2-4 hours** (Stage B + Stage C below).
+
+### Tier 0 cutover — the deferred work (separate follow-up PR)
+
+This is what would turn tier 0 from "infrastructure shipped" to "infrastructure in use". Should be its own PR, runnable in a single sitting:
+
+1. **Frontend URL update.** Search-and-replace 30-50 call sites across these files (inventoried during tier 0 but not modified):
+   - `packages/core/src/modules/customers/backend/contacts/page.tsx` — `/api/notes` → `/api/customers/notes`, `/api/crm-tasks` → `/api/customers/tasks`, `/api/engagement` → `/api/customers/engagement`, `/api/reminders` → `/api/customers/reminders`, `/api/contacts/<id>/attachments` → `/api/customers/contact-attachments?contactId=<id>`
+   - `packages/core/src/modules/customers/backend/assistant/page.tsx` — same routes plus `/api/business-profile` → `/api/customers/business-profile`
+   - `packages/core/src/modules/customers/backend/settings-simple/page.tsx` — `/api/business-profile` → `/api/customers/business-profile`
+   - `packages/core/src/modules/customers/backend/customers/deals/pipeline/page.tsx` — `/api/business-profile`, `/api/engagement`
+   - `packages/core/src/modules/customers/backend/automations/page.tsx`, `automations-v2/page.tsx` — `/api/business-profile`
+   - `apps/mercato/src/modules/dashboards/backend/dashboards/page.tsx` — `/api/business-profile`, `/api/reminders/check`, `/api/engagement?view=hottest`
+   - Any other consumers found by grepping for the 7 URL patterns
+
+2. **Verify the dashboard works** by clicking through every page that touches these routes. Wesley is the only test user; this needs his hands.
+
+3. **Delete the 14 old raw route files** under `apps/mercato/src/app/api/`:
+   - `tasks/route.ts`, `crm-tasks/route.ts`
+   - `notes/route.ts`
+   - `contacts/[id]/attachments/route.ts` (keep `contacts/[id]/attachments/[id]/download/route.ts` — that's the binary stream, separate concern)
+   - `reminders/route.ts` (keep `reminders/process/route.ts` — that's the cron, separate concern)
+   - `engagement/route.ts` (keep `engagement/score.ts` — internal helper)
+   - `business-profile/route.ts`
+   - `task-templates/route.ts`
+
+4. **Drop the 9 migrated tables from `setup-tables.sql`** using `FORBIDDEN_PATTERNS_OVERRIDE=1` (the only legitimate use of the override — the pre-commit hook only blocks net additions, not deletions, but documenting the override in the commit message is good hygiene). Tables to drop:
+   `tasks`, `contact_notes`, `contact_attachments`, `contact_engagement_scores`, `contact_open_times`, `engagement_events`, `reminders`, `task_templates`, `business_profiles`.
+
+5. **Final smoke test** of every dashboard page that touches the migrated entities.
+
+6. **Migrate the 4 holdover routes** to use the new ORM entities (still raw route files but querying via `em.find` instead of raw knex):
+   - `/api/reminders/process` — uses `CustomerReminder` for the queue
+   - `/api/contacts/[id]/attachments/[id]/download` — uses `CustomerContactAttachment` for the metadata lookup
+   - `/api/contacts/[id]/timeline` — uses `CustomerTask`, `CustomerContactNote`, etc. for the federated read
+   - `/api/email/send-time` — uses `CustomerContactOpenTime` for the analytics aggregation
+
+This last step is technically scope-creep on the cutover but it's the only way to fully delete the raw-knex queries against the 9 tier 0 tables. Worth bundling.
+
+### Stage D — search + AI tools (also deferred, also a separate follow-up)
+
+The new entities aren't yet:
+- Registered in `customers/search.ts` (so they're not in the fulltext / vector search index)
+- Registered in `customers/ai-tools.ts` (so Scout can't introspect them)
+
+**These are the two highest-leverage things in the entire migration** because Scout visibility was one of the main reasons we're doing the rebuild. They should ship before tier 1 starts so the AI integration story is end-to-end provable.
+
+Estimate: ~2-3 hours total. Should be a small focused PR after the cutover.
+
+## Open questions for Wesley (updated 2026-04-09 EOD)
+
+1. ~~Sprint vs incremental?~~ ✅ **Sprint, single engineer.**
+2. ~~Headcount?~~ ✅ **Single engineer (Claude).**
+3. ~~Schema drift bugs as side quests?~~ ✅ **Roll into module migrations.** (`forms.is_active` → tier 2, `courses.status` → tier 6, `email_intelligence_settings` → tier 1.)
+4. ~~Staging environment?~~ ✅ **No, ship to live, Wesley tests.**
+5. ~~Backup automation?~~ ✅ **Done.** Daily cron at 03:00 UTC + labeled checkpoint backups before each tier.
+6. **NEW: Tier 0 cutover timing?** Should I run the cutover follow-up PR (steps 1-5 above, ~3-5 hours) before tier 1 starts, or push tier 1 first and circle back to the cutover later? My recommendation: **cutover first**, because it lets us delete dead code from `apps/mercato/src/app/api/` and prove the URL pattern works end-to-end before tier 1 starts adding more cutover work on top.
+7. **NEW: Stage D (search + AI tools) timing?** Same question. Recommend doing it as part of the cutover PR — small enough to bundle, biggest user-visible benefit (Scout can finally see tier 0 entities).
+8. **NEW: Offsite backups?** Still deferred from Phase A.5. Wesley to decide on Hetzner Storage Box (~€3.81/mo).
+
 ## Changelog
 
-- **2026-04-09** — Initial draft after the prod database bootstrap incident. Wrote the recipe, prioritized modules, sized the work, and added the guardrails (AGENTS.md forbidden-patterns section, deprecation banner on setup-tables.sql, pre-commit hook).
+- **2026-04-09 (initial)** — Initial draft after the prod database bootstrap incident. Wrote the recipe, prioritized modules, sized the work, and added the guardrails (AGENTS.md forbidden-patterns section, deprecation banner on setup-tables.sql, pre-commit hook).
+- **2026-04-09 (tier 0 retrospective)** — Stage A of tier 0 (entities + commands + routes + migration) shipped to production. 7 new mercato routes verified live at `/api/customers/*` URLs. Updated tiers 1-7 sizing based on retrospective. Documented the URL convention discovery, the idempotent migration requirement, and the multi-step deploy sequence as inputs for tier 1. Cutover (Stage B + C + D) deferred to a separate follow-up PR.
