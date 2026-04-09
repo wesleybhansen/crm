@@ -1081,6 +1081,341 @@ export const searchConfig: SearchModuleConfig = {
         excluded: [],
       },
     },
+
+    // =========================================================================
+    // Tier 0 entities (SPEC-061 mercato rebuild)
+    // =========================================================================
+    // Append-only analytics (engagement_events, contact_open_times) and the
+    // computed-rollup contact_engagement_scores entity have no meaningful free
+    // text — they're internal data, not search targets. Skipped intentionally.
+    // The 6 user-facing entities below are searchable.
+
+    // Tasks
+    {
+      entityId: 'customers:customer_task',
+      enabled: true,
+      priority: 5,
+
+      buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        assertTenantContext(ctx)
+        const lines: string[] = []
+        appendLine(lines, 'Title', ctx.record.title)
+        appendLine(lines, 'Description', ctx.record.description)
+        appendLine(lines, 'Status', ctx.record.is_done ? 'Done' : 'Open')
+        if (!lines.length) return null
+        const parentId = (ctx.record.contact_id ?? ctx.record.contactId) as string | null
+        const parent = parentId ? await getCustomerEntity(ctx, parentId) : null
+        if (parent?.display_name) lines.push(`Customer: ${parent.display_name}`)
+        return {
+          text: lines,
+          presenter: {
+            title: (ctx.record.title as string) ?? 'Task',
+            subtitle: parent?.display_name as string | undefined,
+            icon: 'check-square',
+          },
+          checksumSource: {
+            title: ctx.record.title,
+            description: ctx.record.description,
+            isDone: ctx.record.is_done,
+            contactId: parentId,
+          },
+        }
+      },
+
+      formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        assertTenantContext(ctx)
+        const parentId = (ctx.record.contact_id ?? ctx.record.contactId) as string | null
+        const parent = parentId ? await getCustomerEntity(ctx, parentId) : null
+        return {
+          title: (ctx.record.title as string) ?? 'Task',
+          subtitle: parent?.display_name as string | undefined,
+          icon: 'check-square',
+        }
+      },
+
+      resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
+        assertTenantContext(ctx)
+        const parentId = (ctx.record.contact_id ?? ctx.record.contactId) as string | null
+        const parent = parentId ? await getCustomerEntity(ctx, parentId) : null
+        const base = buildCustomerUrl(parent?.kind as string ?? null, parentId)
+        return base ? `${base}#tasks` : null
+      },
+
+      fieldPolicy: {
+        searchable: ['title', 'description'],
+        hashOnly: [],
+        excluded: [],
+      },
+    },
+
+    // Contact notes
+    {
+      entityId: 'customers:customer_contact_note',
+      enabled: true,
+      priority: 5,
+
+      buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        assertTenantContext(ctx)
+        const lines: string[] = []
+        appendLine(lines, 'Note', ctx.record.content)
+        if (!lines.length) return null
+        const parentId = (ctx.record.contact_id ?? ctx.record.contactId) as string | null
+        const parent = parentId ? await getCustomerEntity(ctx, parentId) : null
+        if (parent?.display_name) lines.push(`Customer: ${parent.display_name}`)
+        return {
+          text: lines,
+          presenter: {
+            title: snippet(ctx.record.content) ?? 'Contact note',
+            subtitle: parent?.display_name as string | undefined,
+            icon: 'file-text',
+          },
+          checksumSource: {
+            content: ctx.record.content,
+            contactId: parentId,
+          },
+        }
+      },
+
+      formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        assertTenantContext(ctx)
+        const parentId = (ctx.record.contact_id ?? ctx.record.contactId) as string | null
+        const parent = parentId ? await getCustomerEntity(ctx, parentId) : null
+        return {
+          title: snippet(ctx.record.content) ?? 'Contact note',
+          subtitle: parent?.display_name as string | undefined,
+          icon: 'file-text',
+        }
+      },
+
+      resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
+        assertTenantContext(ctx)
+        const parentId = (ctx.record.contact_id ?? ctx.record.contactId) as string | null
+        const parent = parentId ? await getCustomerEntity(ctx, parentId) : null
+        const base = buildCustomerUrl(parent?.kind as string ?? null, parentId)
+        return base ? `${base}#notes` : null
+      },
+
+      fieldPolicy: {
+        searchable: ['content'],
+        hashOnly: [],
+        excluded: [],
+      },
+    },
+
+    // Contact attachments
+    {
+      entityId: 'customers:customer_contact_attachment',
+      enabled: true,
+      priority: 3,
+
+      buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        assertTenantContext(ctx)
+        const lines: string[] = []
+        appendLine(lines, 'Filename', ctx.record.filename)
+        appendLine(lines, 'Type', ctx.record.mime_type ?? ctx.record.mimeType)
+        if (!lines.length) return null
+        const parentId = (ctx.record.contact_id ?? ctx.record.contactId) as string | null
+        const parent = parentId ? await getCustomerEntity(ctx, parentId) : null
+        if (parent?.display_name) lines.push(`Customer: ${parent.display_name}`)
+        return {
+          text: lines,
+          presenter: {
+            title: (ctx.record.filename as string) ?? 'Attachment',
+            subtitle: parent?.display_name as string | undefined,
+            icon: 'paperclip',
+          },
+          checksumSource: {
+            filename: ctx.record.filename,
+            mimeType: ctx.record.mime_type ?? ctx.record.mimeType,
+            contactId: parentId,
+          },
+        }
+      },
+
+      formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        assertTenantContext(ctx)
+        const parentId = (ctx.record.contact_id ?? ctx.record.contactId) as string | null
+        const parent = parentId ? await getCustomerEntity(ctx, parentId) : null
+        return {
+          title: (ctx.record.filename as string) ?? 'Attachment',
+          subtitle: parent?.display_name as string | undefined,
+          icon: 'paperclip',
+        }
+      },
+
+      resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
+        assertTenantContext(ctx)
+        const parentId = (ctx.record.contact_id ?? ctx.record.contactId) as string | null
+        const parent = parentId ? await getCustomerEntity(ctx, parentId) : null
+        const base = buildCustomerUrl(parent?.kind as string ?? null, parentId)
+        return base ? `${base}#attachments` : null
+      },
+
+      fieldPolicy: {
+        searchable: ['filename'],
+        hashOnly: [],
+        excluded: [],
+      },
+    },
+
+    // Reminders
+    {
+      entityId: 'customers:customer_reminder',
+      enabled: true,
+      priority: 4,
+
+      buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        assertTenantContext(ctx)
+        const lines: string[] = []
+        appendLine(lines, 'Reminder', ctx.record.message)
+        appendLine(lines, 'Type', ctx.record.entity_type ?? ctx.record.entityType)
+        if (ctx.record.sent !== undefined) appendLine(lines, 'Status', ctx.record.sent ? 'Sent' : 'Pending')
+        if (!lines.length) return null
+        return {
+          text: lines,
+          presenter: {
+            title: snippet(ctx.record.message) ?? 'Reminder',
+            subtitle: (ctx.record.entity_type ?? ctx.record.entityType) as string | undefined,
+            icon: 'bell',
+          },
+          checksumSource: {
+            message: ctx.record.message,
+            entityType: ctx.record.entity_type ?? ctx.record.entityType,
+            entityId: ctx.record.entity_id ?? ctx.record.entityId,
+            sent: ctx.record.sent,
+          },
+        }
+      },
+
+      formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        assertTenantContext(ctx)
+        return {
+          title: snippet(ctx.record.message) ?? 'Reminder',
+          subtitle: (ctx.record.entity_type ?? ctx.record.entityType) as string | undefined,
+          icon: 'bell',
+        }
+      },
+
+      resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
+        assertTenantContext(ctx)
+        const entityType = (ctx.record.entity_type ?? ctx.record.entityType) as string | undefined
+        const entityId = (ctx.record.entity_id ?? ctx.record.entityId) as string | undefined
+        if (entityType === 'contact' && entityId) {
+          const parent = await getCustomerEntity(ctx, entityId)
+          return buildCustomerUrl(parent?.kind as string ?? null, entityId)
+        }
+        if (entityType === 'deal' && entityId) {
+          return `/backend/customers/deals/${encodeURIComponent(entityId)}`
+        }
+        return null
+      },
+
+      fieldPolicy: {
+        searchable: ['message'],
+        hashOnly: [],
+        excluded: [],
+      },
+    },
+
+    // Task templates
+    {
+      entityId: 'customers:customer_task_template',
+      enabled: true,
+      priority: 3,
+
+      buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        assertTenantContext(ctx)
+        const lines: string[] = []
+        appendLine(lines, 'Name', ctx.record.name)
+        appendLine(lines, 'Description', ctx.record.description)
+        appendLine(lines, 'Trigger', ctx.record.trigger_type ?? ctx.record.triggerType)
+        if (!lines.length) return null
+        return {
+          text: lines,
+          presenter: {
+            title: (ctx.record.name as string) ?? 'Task template',
+            subtitle: (ctx.record.trigger_type ?? ctx.record.triggerType) as string | undefined,
+            icon: 'clipboard',
+          },
+          checksumSource: {
+            name: ctx.record.name,
+            description: ctx.record.description,
+            triggerType: ctx.record.trigger_type ?? ctx.record.triggerType,
+          },
+        }
+      },
+
+      formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        assertTenantContext(ctx)
+        return {
+          title: (ctx.record.name as string) ?? 'Task template',
+          subtitle: (ctx.record.trigger_type ?? ctx.record.triggerType) as string | undefined,
+          icon: 'clipboard',
+        }
+      },
+
+      resolveUrl: async (_ctx: SearchBuildContext): Promise<string | null> => {
+        return '/backend/customers/task-templates'
+      },
+
+      fieldPolicy: {
+        searchable: ['name', 'description'],
+        hashOnly: [],
+        excluded: [],
+      },
+    },
+
+    // Business profile (1:1 with org — single document per tenant)
+    {
+      entityId: 'customers:customer_business_profile',
+      enabled: true,
+      priority: 2,
+
+      buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        assertTenantContext(ctx)
+        const lines: string[] = []
+        appendLine(lines, 'Business name', ctx.record.business_name ?? ctx.record.businessName)
+        appendLine(lines, 'Business type', ctx.record.business_type ?? ctx.record.businessType)
+        appendLine(lines, 'Description', ctx.record.business_description ?? ctx.record.businessDescription)
+        appendLine(lines, 'Main offer', ctx.record.main_offer ?? ctx.record.mainOffer)
+        appendLine(lines, 'Ideal clients', ctx.record.ideal_clients ?? ctx.record.idealClients)
+        appendLine(lines, 'Website', ctx.record.website_url ?? ctx.record.websiteUrl)
+        if (!lines.length) return null
+        return {
+          text: lines,
+          presenter: {
+            title: (ctx.record.business_name ?? ctx.record.businessName) as string ?? 'Business profile',
+            subtitle: (ctx.record.business_type ?? ctx.record.businessType) as string | undefined,
+            icon: 'briefcase',
+          },
+          checksumSource: {
+            businessName: ctx.record.business_name ?? ctx.record.businessName,
+            businessType: ctx.record.business_type ?? ctx.record.businessType,
+            description: ctx.record.business_description ?? ctx.record.businessDescription,
+            mainOffer: ctx.record.main_offer ?? ctx.record.mainOffer,
+          },
+        }
+      },
+
+      formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        assertTenantContext(ctx)
+        return {
+          title: (ctx.record.business_name ?? ctx.record.businessName) as string ?? 'Business profile',
+          subtitle: (ctx.record.business_type ?? ctx.record.businessType) as string | undefined,
+          icon: 'briefcase',
+        }
+      },
+
+      resolveUrl: async (_ctx: SearchBuildContext): Promise<string | null> => {
+        return '/backend/customers/settings'
+      },
+
+      fieldPolicy: {
+        searchable: ['business_name', 'business_type', 'business_description', 'main_offer', 'ideal_clients'],
+        hashOnly: [],
+        excluded: [],
+      },
+    },
   ],
 }
 
