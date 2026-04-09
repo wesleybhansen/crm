@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   title: 'Launch OS',
   description: 'The all-in-one operating system for your business',
   icons: {
-    icon: '/launchos-logo.png',
+    icon: '/favicon.ico',
   },
   manifest: '/manifest.webmanifest',
 }
