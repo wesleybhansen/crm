@@ -14,6 +14,21 @@ export const features = [
   { id: 'customers.widgets.next-interactions', title: 'Use customer next interactions widget', module: 'customers' },
   { id: 'customers.widgets.new-customers', title: 'Use customer new customers widget', module: 'customers' },
   { id: 'customers.widgets.new-deals', title: 'Use customer new deals widget', module: 'customers' },
+  // Tier 0 features (SPEC-061 mercato rebuild) — promoted from raw routes
+  { id: 'customers.tasks.view', title: 'View tasks', module: 'customers' },
+  { id: 'customers.tasks.manage', title: 'Manage tasks', module: 'customers' },
+  { id: 'customers.notes.view', title: 'View contact notes', module: 'customers' },
+  { id: 'customers.notes.manage', title: 'Manage contact notes', module: 'customers' },
+  { id: 'customers.attachments.view', title: 'View contact attachments', module: 'customers' },
+  { id: 'customers.attachments.manage', title: 'Manage contact attachments', module: 'customers' },
+  { id: 'customers.engagement.view', title: 'View engagement scores and events', module: 'customers' },
+  { id: 'customers.engagement.manage', title: 'Manage engagement scores', module: 'customers' },
+  { id: 'customers.reminders.view', title: 'View reminders', module: 'customers' },
+  { id: 'customers.reminders.manage', title: 'Manage reminders', module: 'customers' },
+  { id: 'customers.task_templates.view', title: 'View task templates', module: 'customers' },
+  { id: 'customers.task_templates.manage', title: 'Manage task templates', module: 'customers' },
+  { id: 'customers.business_profile.view', title: 'View business profile', module: 'customers' },
+  { id: 'customers.business_profile.manage', title: 'Manage business profile', module: 'customers' },
 ]
 
 export default features

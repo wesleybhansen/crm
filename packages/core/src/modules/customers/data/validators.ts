@@ -370,3 +370,220 @@ export type PipelineStageCreateInput = z.infer<typeof pipelineStageCreateSchema>
 export type PipelineStageUpdateInput = z.infer<typeof pipelineStageUpdateSchema>
 export type PipelineStageDeleteInput = z.infer<typeof pipelineStageDeleteSchema>
 export type PipelineStageReorderInput = z.infer<typeof pipelineStageReorderSchema>
+
+// ---------------------------------------------------------------------------
+// Tier 0 validators (SPEC-061 mercato rebuild). Schemas for the entities
+// promoted from raw setup-tables.sql into mercato modules. Used by:
+//   - api/<resource>/route.ts (via makeCrudRoute)
+//   - commands/<entity>.ts (write paths with undo)
+//   - cross-tenant isolation tests
+// ---------------------------------------------------------------------------
+
+// ----- tasks -----
+export const taskCreateSchema = scopedSchema.extend({
+  title: z.string().trim().min(1).max(500),
+  description: z.string().trim().max(10_000).optional().nullable(),
+  contactId: uuid().optional().nullable(),
+  dealId: uuid().optional().nullable(),
+  dueDate: z.coerce.date().optional().nullable(),
+  isDone: z.boolean().optional(),
+  completedAt: z.coerce.date().optional().nullable(),
+})
+
+export const taskUpdateSchema = z.object({
+  id: uuid(),
+  organizationId: uuid(),
+  tenantId: uuid(),
+  title: z.string().trim().min(1).max(500).optional(),
+  description: z.string().trim().max(10_000).optional().nullable(),
+  contactId: uuid().optional().nullable(),
+  dealId: uuid().optional().nullable(),
+  dueDate: z.coerce.date().optional().nullable(),
+  isDone: z.boolean().optional(),
+  completedAt: z.coerce.date().optional().nullable(),
+})
+
+export const taskDeleteSchema = z.object({
+  id: uuid(),
+  organizationId: uuid(),
+  tenantId: uuid(),
+})
+
+export type TaskCreateInput = z.infer<typeof taskCreateSchema>
+export type TaskUpdateInput = z.infer<typeof taskUpdateSchema>
+export type TaskDeleteInput = z.infer<typeof taskDeleteSchema>
+
+// ----- contact_notes -----
+export const contactNoteCreateSchema = scopedSchema.extend({
+  contactId: uuid(),
+  content: z.string().trim().min(1).max(50_000),
+  authorUserId: uuid().optional().nullable(),
+})
+
+export const contactNoteUpdateSchema = z.object({
+  id: uuid(),
+  organizationId: uuid(),
+  tenantId: uuid(),
+  content: z.string().trim().min(1).max(50_000).optional(),
+})
+
+export const contactNoteDeleteSchema = z.object({
+  id: uuid(),
+  organizationId: uuid(),
+  tenantId: uuid(),
+})
+
+export type ContactNoteCreateInput = z.infer<typeof contactNoteCreateSchema>
+export type ContactNoteUpdateInput = z.infer<typeof contactNoteUpdateSchema>
+export type ContactNoteDeleteInput = z.infer<typeof contactNoteDeleteSchema>
+
+// ----- contact_attachments -----
+export const contactAttachmentCreateSchema = scopedSchema.extend({
+  contactId: uuid(),
+  filename: z.string().trim().min(1).max(500),
+  fileUrl: z.string().trim().min(1).max(2000),
+  fileSize: z.number().int().min(0).optional(),
+  mimeType: z.string().trim().max(200).optional().nullable(),
+  uploadedBy: uuid().optional().nullable(),
+})
+
+export const contactAttachmentDeleteSchema = z.object({
+  id: uuid(),
+  organizationId: uuid(),
+  tenantId: uuid(),
+})
+
+export type ContactAttachmentCreateInput = z.infer<typeof contactAttachmentCreateSchema>
+export type ContactAttachmentDeleteInput = z.infer<typeof contactAttachmentDeleteSchema>
+
+// ----- contact_engagement_scores -----
+// These are managed automatically by the engagement scoring service when
+// engagement_events arrive. The CRUD route is read-only; mutations happen
+// via the trackEngagement command. Schemas here only cover read filters.
+export const engagementScoreReadSchema = scopedSchema.extend({
+  contactId: uuid().optional(),
+  view: z.enum(['hottest', 'coldest', 'contact']).optional(),
+})
+
+export type EngagementScoreReadInput = z.infer<typeof engagementScoreReadSchema>
+
+// ----- engagement_events -----
+// Append-only event log. Created via trackEngagement command, never updated.
+export const engagementEventCreateSchema = scopedSchema.extend({
+  contactId: uuid(),
+  eventType: z.string().trim().min(1).max(100),
+  points: z.number().int(),
+  metadata: z.record(z.unknown()).optional().nullable(),
+})
+
+export type EngagementEventCreateInput = z.infer<typeof engagementEventCreateSchema>
+
+// ----- contact_open_times -----
+// Append-only analytics rollup. Created when an email is opened.
+export const contactOpenTimeCreateSchema = scopedSchema.extend({
+  contactId: uuid(),
+  hourOfDay: z.number().int().min(0).max(23),
+  dayOfWeek: z.number().int().min(0).max(6),
+  openedAt: z.coerce.date(),
+})
+
+export type ContactOpenTimeCreateInput = z.infer<typeof contactOpenTimeCreateSchema>
+
+// ----- reminders -----
+// Polymorphic: entityType ∈ {contact, deal, task}, entityId is the parent ID.
+export const reminderCreateSchema = scopedSchema.extend({
+  userId: uuid(),
+  entityType: z.enum(['contact', 'deal', 'task']),
+  entityId: uuid(),
+  message: z.string().trim().min(1).max(2000),
+  remindAt: z.coerce.date(),
+})
+
+export const reminderUpdateSchema = z.object({
+  id: uuid(),
+  organizationId: uuid(),
+  tenantId: uuid(),
+  message: z.string().trim().min(1).max(2000).optional(),
+  remindAt: z.coerce.date().optional(),
+  sent: z.boolean().optional(),
+  sentAt: z.coerce.date().optional().nullable(),
+})
+
+export const reminderDeleteSchema = z.object({
+  id: uuid(),
+  organizationId: uuid(),
+  tenantId: uuid(),
+})
+
+export type ReminderCreateInput = z.infer<typeof reminderCreateSchema>
+export type ReminderUpdateInput = z.infer<typeof reminderUpdateSchema>
+export type ReminderDeleteInput = z.infer<typeof reminderDeleteSchema>
+
+// ----- task_templates -----
+const taskTemplateTaskSchema = z.object({
+  title: z.string().trim().min(1).max(500),
+  description: z.string().trim().max(10_000).optional().nullable(),
+  offsetDays: z.number().int().optional().nullable(),
+}).passthrough()
+
+export const taskTemplateCreateSchema = scopedSchema.extend({
+  name: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(10_000).optional().nullable(),
+  triggerType: z.string().trim().min(1).max(100).optional(),
+  triggerConfig: z.record(z.unknown()).optional().nullable(),
+  tasks: z.array(taskTemplateTaskSchema).optional(),
+})
+
+export const taskTemplateUpdateSchema = z.object({
+  id: uuid(),
+  organizationId: uuid(),
+  tenantId: uuid(),
+  name: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().max(10_000).optional().nullable(),
+  triggerType: z.string().trim().min(1).max(100).optional(),
+  triggerConfig: z.record(z.unknown()).optional().nullable(),
+  tasks: z.array(taskTemplateTaskSchema).optional(),
+})
+
+export const taskTemplateDeleteSchema = z.object({
+  id: uuid(),
+  organizationId: uuid(),
+  tenantId: uuid(),
+})
+
+export type TaskTemplateCreateInput = z.infer<typeof taskTemplateCreateSchema>
+export type TaskTemplateUpdateInput = z.infer<typeof taskTemplateUpdateSchema>
+export type TaskTemplateDeleteInput = z.infer<typeof taskTemplateDeleteSchema>
+
+// ----- business_profiles -----
+// 1:1 with organization (UNIQUE constraint on organization_id). Conceptually
+// always-present once an org exists; "create" really means upsert. The route
+// only exposes GET + PUT (no DELETE).
+export const businessProfileUpsertSchema = scopedSchema.extend({
+  businessName: z.string().trim().max(500).optional().nullable(),
+  businessType: z.string().trim().max(200).optional().nullable(),
+  businessDescription: z.string().trim().max(10_000).optional().nullable(),
+  mainOffer: z.string().trim().max(10_000).optional().nullable(),
+  idealClients: z.string().trim().max(10_000).optional().nullable(),
+  teamSize: z.string().trim().max(100).optional().nullable(),
+  clientSources: z.array(z.unknown()).optional().nullable(),
+  pipelineStages: z.array(z.unknown()).optional().nullable(),
+  aiPersonaName: z.string().trim().max(200).optional().nullable(),
+  aiPersonaStyle: z.string().trim().max(200).optional().nullable(),
+  aiCustomInstructions: z.string().trim().max(20_000).optional().nullable(),
+  websiteUrl: z.string().trim().max(2000).optional().nullable(),
+  brandColors: z.record(z.unknown()).optional().nullable(),
+  socialLinks: z.record(z.unknown()).optional().nullable(),
+  detectedServices: z.unknown().optional().nullable(),
+  pipelineMode: z.enum(['deals', 'contacts']).optional().nullable(),
+  digestFrequency: z.enum(['daily', 'weekly', 'monthly']).optional().nullable(),
+  digestDay: z.number().int().min(0).max(31).optional().nullable(),
+  emailIntakeMode: z.enum(['suggest', 'auto', 'off']).optional().nullable(),
+  interfaceMode: z.enum(['simple', 'advanced']).optional().nullable(),
+  onboardingComplete: z.boolean().optional().nullable(),
+  brandVoiceProfile: z.record(z.unknown()).optional().nullable(),
+  brandVoiceUpdatedAt: z.coerce.date().optional().nullable(),
+  brandVoiceSource: z.string().trim().max(200).optional().nullable(),
+})
+
+export type BusinessProfileUpsertInput = z.infer<typeof businessProfileUpsertSchema>

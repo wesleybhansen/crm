@@ -48,6 +48,40 @@ const events = [
   { id: 'customers.todo.created', label: 'Todo Created', entity: 'todo', category: 'crud' },
   { id: 'customers.todo.updated', label: 'Todo Updated', entity: 'todo', category: 'crud' },
   { id: 'customers.todo.deleted', label: 'Todo Deleted', entity: 'todo', category: 'crud' },
+
+  // Tier 0 events (SPEC-061 mercato rebuild)
+  // Tasks
+  { id: 'customers.task.created', label: 'Task Created', entity: 'task', category: 'crud' },
+  { id: 'customers.task.updated', label: 'Task Updated', entity: 'task', category: 'crud' },
+  { id: 'customers.task.deleted', label: 'Task Deleted', entity: 'task', category: 'crud' },
+  { id: 'customers.task.completed', label: 'Task Completed', entity: 'task', category: 'lifecycle' },
+
+  // Contact notes
+  { id: 'customers.note.created', label: 'Contact Note Created', entity: 'note', category: 'crud' },
+  { id: 'customers.note.updated', label: 'Contact Note Updated', entity: 'note', category: 'crud' },
+  { id: 'customers.note.deleted', label: 'Contact Note Deleted', entity: 'note', category: 'crud' },
+
+  // Contact attachments
+  { id: 'customers.attachment.created', label: 'Contact Attachment Uploaded', entity: 'attachment', category: 'crud' },
+  { id: 'customers.attachment.deleted', label: 'Contact Attachment Deleted', entity: 'attachment', category: 'crud' },
+
+  // Engagement (scores derived from events; events are append-only)
+  { id: 'customers.engagement.tracked', label: 'Engagement Event Tracked', entity: 'engagement', category: 'crud' },
+  { id: 'customers.engagement.score_updated', label: 'Engagement Score Updated', entity: 'engagement', category: 'lifecycle' },
+
+  // Reminders
+  { id: 'customers.reminder.created', label: 'Reminder Created', entity: 'reminder', category: 'crud' },
+  { id: 'customers.reminder.updated', label: 'Reminder Updated', entity: 'reminder', category: 'crud' },
+  { id: 'customers.reminder.deleted', label: 'Reminder Deleted', entity: 'reminder', category: 'crud' },
+  { id: 'customers.reminder.fired', label: 'Reminder Fired', entity: 'reminder', category: 'lifecycle' },
+
+  // Task templates
+  { id: 'customers.task_template.created', label: 'Task Template Created', entity: 'task_template', category: 'crud' },
+  { id: 'customers.task_template.updated', label: 'Task Template Updated', entity: 'task_template', category: 'crud' },
+  { id: 'customers.task_template.deleted', label: 'Task Template Deleted', entity: 'task_template', category: 'crud' },
+
+  // Business profile (1:1 with org, no create/delete)
+  { id: 'customers.business_profile.updated', label: 'Business Profile Updated', entity: 'business_profile', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

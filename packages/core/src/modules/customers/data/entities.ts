@@ -741,3 +741,445 @@ export class CustomerTodoLink {
   @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
   entity!: CustomerEntity
 }
+
+// ---------------------------------------------------------------------------
+// Tier 0 entities migrated from raw-knex routes (SPEC-061 mercato rebuild).
+// All of these previously lived as hand-maintained tables in setup-tables.sql
+// and were queried via raw `apps/mercato/src/app/api/**` route handlers. They
+// are now ORM-managed under the customers module so they get tenant scoping,
+// audit logs, the query index, AI/Scout visibility, and the rest of the
+// mercato platform contract.
+//
+// Schema notes (where the ORM entity does NOT match setup-tables.sql exactly):
+//   - tasks: + deleted_at (added for soft-delete consistency)
+//   - contact_notes: + deleted_at
+//   - contact_attachments: + updated_at, + deleted_at
+//   - contact_engagement_scores: + created_at (was missing entirely)
+//   - engagement_events: + tenant_id (was missing — multi-tenant safety fix)
+//   - contact_open_times: + tenant_id (was missing — multi-tenant safety fix)
+//   - reminders: + updated_at, + deleted_at
+//   - task_templates: + deleted_at
+//   - business_profiles: kept as-is (~29 columns of mixed concerns; refactor
+//     into focused entities is out of scope for tier 0)
+//
+// Polymorphic note: `reminders` use entity_type/entity_id to link to contact,
+// deal, or task. Modeled as plain @Property columns (not @ManyToOne) because
+// the parent type is not statically known.
+// ---------------------------------------------------------------------------
+
+@Entity({ tableName: 'tasks' })
+@Index({ name: 'tasks_org_done_idx', properties: ['organizationId', 'isDone', 'dueDate'] })
+export class CustomerTask {
+  [OptionalProps]?: 'isDone' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'contact_id', type: 'uuid', nullable: true })
+  contactId?: string | null
+
+  @Property({ name: 'deal_id', type: 'uuid', nullable: true })
+  dealId?: string | null
+
+  @Property({ name: 'due_date', type: Date, nullable: true })
+  dueDate?: Date | null
+
+  @Property({ name: 'is_done', type: 'boolean', default: false })
+  isDone: boolean = false
+
+  @Property({ name: 'completed_at', type: Date, nullable: true })
+  completedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'contact_notes' })
+@Index({ name: 'contact_notes_contact_idx', properties: ['contactId', 'createdAt'] })
+export class CustomerContactNote {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'contact_id', type: 'uuid' })
+  contactId!: string
+
+  @Property({ type: 'text' })
+  content!: string
+
+  @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
+  authorUserId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'contact_attachments' })
+@Index({
+  name: 'attachments_contact_idx',
+  expression:
+    `create index "attachments_contact_idx" on "contact_attachments" ("contact_id", "created_at" desc)`,
+})
+export class CustomerContactAttachment {
+  [OptionalProps]?: 'fileSize' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'contact_id', type: 'uuid' })
+  contactId!: string
+
+  @Property({ type: 'text' })
+  filename!: string
+
+  @Property({ name: 'file_url', type: 'text' })
+  fileUrl!: string
+
+  @Property({ name: 'file_size', type: 'int', default: 0 })
+  fileSize: number = 0
+
+  @Property({ name: 'mime_type', type: 'text', nullable: true })
+  mimeType?: string | null
+
+  @Property({ name: 'uploaded_by', type: 'uuid', nullable: true })
+  uploadedBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'contact_engagement_scores' })
+@Unique({ name: 'engagement_scores_contact_idx', properties: ['contactId'] })
+@Index({
+  name: 'engagement_scores_org_score_idx',
+  expression:
+    `create index "engagement_scores_org_score_idx" on "contact_engagement_scores" ("organization_id", "score" desc)`,
+})
+export class CustomerContactEngagementScore {
+  [OptionalProps]?: 'score' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'contact_id', type: 'uuid' })
+  contactId!: string
+
+  @Property({ type: 'int', default: 0 })
+  score: number = 0
+
+  @Property({ name: 'last_activity_at', type: Date, nullable: true })
+  lastActivityAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'engagement_events' })
+@Index({
+  name: 'engagement_events_contact_idx',
+  expression:
+    `create index "engagement_events_contact_idx" on "engagement_events" ("contact_id", "created_at" desc)`,
+})
+export class CustomerEngagementEvent {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'contact_id', type: 'uuid' })
+  contactId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'event_type', type: 'text' })
+  eventType!: string
+
+  @Property({ type: 'int' })
+  points!: number
+
+  @Property({ type: 'json', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'contact_open_times' })
+@Index({ name: 'open_times_contact_idx', properties: ['contactId'] })
+export class CustomerContactOpenTime {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'contact_id', type: 'uuid' })
+  contactId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'hour_of_day', type: 'int' })
+  hourOfDay!: number
+
+  @Property({ name: 'day_of_week', type: 'int' })
+  dayOfWeek!: number
+
+  @Property({ name: 'opened_at', type: Date })
+  openedAt!: Date
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'reminders' })
+@Index({
+  name: 'reminders_due_idx',
+  expression:
+    `create index "reminders_due_idx" on "reminders" ("remind_at", "sent") where sent = false`,
+})
+@Index({ name: 'reminders_org_idx', properties: ['organizationId', 'userId'] })
+export class CustomerReminder {
+  [OptionalProps]?: 'sent' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  entityType!: string
+
+  @Property({ name: 'entity_id', type: 'uuid' })
+  entityId!: string
+
+  @Property({ type: 'text' })
+  message!: string
+
+  @Property({ name: 'remind_at', type: Date })
+  remindAt!: Date
+
+  @Property({ type: 'boolean', default: false })
+  sent: boolean = false
+
+  @Property({ name: 'sent_at', type: Date, nullable: true })
+  sentAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'task_templates' })
+@Index({ name: 'task_templates_org_idx', properties: ['organizationId'] })
+export class CustomerTaskTemplate {
+  [OptionalProps]?: 'triggerType' | 'tasks' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'trigger_type', type: 'text', default: 'manual' })
+  triggerType: string = 'manual'
+
+  @Property({ name: 'trigger_config', type: 'json', nullable: true })
+  triggerConfig?: Record<string, unknown> | null
+
+  @Property({ type: 'json' })
+  tasks: unknown[] = []
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'business_profiles' })
+@Unique({ name: 'business_profiles_organization_id_key', properties: ['organizationId'] })
+export class CustomerBusinessProfile {
+  [OptionalProps]?:
+    | 'clientSources'
+    | 'pipelineStages'
+    | 'aiPersonaName'
+    | 'aiPersonaStyle'
+    | 'pipelineMode'
+    | 'digestFrequency'
+    | 'digestDay'
+    | 'emailIntakeMode'
+    | 'interfaceMode'
+    | 'onboardingComplete'
+    | 'createdAt'
+    | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'business_name', type: 'text', nullable: true })
+  businessName?: string | null
+
+  @Property({ name: 'business_type', type: 'text', nullable: true })
+  businessType?: string | null
+
+  @Property({ name: 'business_description', type: 'text', nullable: true })
+  businessDescription?: string | null
+
+  @Property({ name: 'main_offer', type: 'text', nullable: true })
+  mainOffer?: string | null
+
+  @Property({ name: 'ideal_clients', type: 'text', nullable: true })
+  idealClients?: string | null
+
+  @Property({ name: 'team_size', type: 'text', nullable: true })
+  teamSize?: string | null
+
+  @Property({ name: 'client_sources', type: 'json', nullable: true })
+  clientSources?: unknown[] | null
+
+  @Property({ name: 'pipeline_stages', type: 'json', nullable: true })
+  pipelineStages?: unknown[] | null
+
+  @Property({ name: 'ai_persona_name', type: 'text', nullable: true, default: 'Scout' })
+  aiPersonaName?: string | null
+
+  @Property({ name: 'ai_persona_style', type: 'text', nullable: true, default: 'professional' })
+  aiPersonaStyle?: string | null
+
+  @Property({ name: 'ai_custom_instructions', type: 'text', nullable: true })
+  aiCustomInstructions?: string | null
+
+  @Property({ name: 'website_url', type: 'text', nullable: true })
+  websiteUrl?: string | null
+
+  @Property({ name: 'brand_colors', type: 'json', nullable: true })
+  brandColors?: Record<string, unknown> | null
+
+  @Property({ name: 'social_links', type: 'json', nullable: true })
+  socialLinks?: Record<string, unknown> | null
+
+  @Property({ name: 'detected_services', type: 'json', nullable: true })
+  detectedServices?: unknown | null
+
+  @Property({ name: 'pipeline_mode', type: 'text', nullable: true, default: 'deals' })
+  pipelineMode?: string | null
+
+  @Property({ name: 'digest_frequency', type: 'text', nullable: true, default: 'weekly' })
+  digestFrequency?: string | null
+
+  @Property({ name: 'digest_day', type: 'int', nullable: true, default: 1 })
+  digestDay?: number | null
+
+  @Property({ name: 'email_intake_mode', type: 'text', nullable: true, default: 'suggest' })
+  emailIntakeMode?: string | null
+
+  @Property({ name: 'interface_mode', type: 'text', nullable: true, default: 'simple' })
+  interfaceMode?: string | null
+
+  @Property({ name: 'onboarding_complete', type: 'boolean', nullable: true, default: false })
+  onboardingComplete?: boolean | null
+
+  @Property({ name: 'brand_voice_profile', type: 'json', nullable: true })
+  brandVoiceProfile?: Record<string, unknown> | null
+
+  @Property({ name: 'brand_voice_updated_at', type: Date, nullable: true })
+  brandVoiceUpdatedAt?: Date | null
+
+  @Property({ name: 'brand_voice_source', type: 'text', nullable: true })
+  brandVoiceSource?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
