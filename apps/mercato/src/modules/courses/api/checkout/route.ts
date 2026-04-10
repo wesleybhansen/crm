@@ -1,4 +1,5 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { OPTIONS: { requireAuth: true }, POST: { requireAuth: true } }
+
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -15,7 +16,6 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: Request) {
-  await bootstrap()
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()

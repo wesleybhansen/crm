@@ -1,10 +1,10 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { POST: { requireAuth: true } }
+
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export async function POST(req: Request) {
-  await bootstrap()
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
@@ -43,9 +43,12 @@ export async function POST(req: Request) {
     // Build course outline for context
     let courseOutline = ''
     for (const mod of modules) {
-      courseOutline += `\nModule: ${mod.title}\n`
+      courseOutline += `
+Module: ${mod.title}
+`
       for (const les of mod.lessons || []) {
-        courseOutline += `  - ${les.title}${les.description ? `: ${les.description}` : ''}\n`
+        courseOutline += `  - ${les.title}${les.description ? `: ${les.description}` : ''}
+`
       }
     }
 
@@ -54,7 +57,11 @@ export async function POST(req: Request) {
     if (lessonId) {
       const lesson = await knex('course_lessons').where('id', lessonId).first()
       if (lesson) {
-        lessonContext = `\n\n--- CURRENT LESSON: ${lesson.title} ---\n${(lesson.content || '').substring(0, 6000)}\n`
+        lessonContext = `
+
+--- CURRENT LESSON: ${lesson.title} ---
+${(lesson.content || '').substring(0, 6000)}
+`
       }
     }
 

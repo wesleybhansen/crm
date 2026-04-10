@@ -1,4 +1,5 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true } }
+
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -14,7 +15,6 @@ async function getStudentSession(knex: any) {
 
 // GET: Get progress for an enrollment
 export async function GET(req: Request) {
-  await bootstrap()
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
@@ -58,7 +58,6 @@ export async function GET(req: Request) {
 
 // POST: Mark a lesson complete
 export async function POST(req: Request) {
-  await bootstrap()
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()

@@ -89,33 +89,6 @@ CREATE TABLE IF NOT EXISTS sms_messages (
 CREATE INDEX IF NOT EXISTS sms_messages_contact_idx ON sms_messages(contact_id, created_at);
 
 -- Courses
-CREATE TABLE IF NOT EXISTS courses (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  title TEXT NOT NULL, description TEXT, slug TEXT NOT NULL,
-  price NUMERIC(10,2), currency TEXT NOT NULL DEFAULT 'USD',
-  is_free BOOLEAN NOT NULL DEFAULT false, is_published BOOLEAN NOT NULL DEFAULT false, image_url TEXT,
-  teaching_style TEXT, target_audience TEXT, generation_status TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ);
-
-CREATE TABLE IF NOT EXISTS course_modules (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), course_id UUID NOT NULL REFERENCES courses(id),
-  title TEXT NOT NULL, description TEXT, sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-
-CREATE TABLE IF NOT EXISTS course_lessons (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), module_id UUID NOT NULL REFERENCES course_modules(id),
-  title TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT 'text', content TEXT, video_url TEXT,
-  duration_minutes INTEGER, sort_order INTEGER NOT NULL DEFAULT 0,
-  is_free_preview BOOLEAN NOT NULL DEFAULT false, drip_days INTEGER,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-
-CREATE TABLE IF NOT EXISTS course_enrollments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  course_id UUID NOT NULL REFERENCES courses(id), contact_id UUID,
-  student_name TEXT NOT NULL, student_email TEXT NOT NULL,
-  enrolled_at TIMESTAMPTZ NOT NULL DEFAULT now(), completed_at TIMESTAMPTZ,
-  payment_id UUID, status TEXT NOT NULL DEFAULT 'active');
-CREATE INDEX IF NOT EXISTS enrollments_course_idx ON course_enrollments(course_id, status);
 
 CREATE TABLE IF NOT EXISTS lesson_progress (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -124,17 +97,7 @@ CREATE TABLE IF NOT EXISTS lesson_progress (
   completed_at TIMESTAMPTZ, UNIQUE(enrollment_id, lesson_id));
 
 -- Student auth for course portal
-CREATE TABLE IF NOT EXISTS course_magic_tokens (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), organization_id UUID NOT NULL,
-  email TEXT NOT NULL, token TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL,
-  used_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS magic_tokens_token_idx ON course_magic_tokens(token);
 
-CREATE TABLE IF NOT EXISTS course_student_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), organization_id UUID NOT NULL,
-  email TEXT NOT NULL, session_token TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS student_sessions_token_idx ON course_student_sessions(session_token);
 
 -- Sequences (Drip / Follow-up)
 
