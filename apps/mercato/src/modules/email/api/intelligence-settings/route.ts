@@ -79,15 +79,23 @@ export async function PUT(req: Request) {
     const commandBus = container.resolve('commandBus') as CommandBus
 
     await commandBus.execute('email.intelligence.upsert', {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      userId: auth.sub,
-      isEnabled: body.is_enabled,
-      autoCreateContacts: body.auto_create_contacts,
-      autoUpdateTimeline: body.auto_update_timeline,
-      autoUpdateEngagement: body.auto_update_engagement,
-      autoAdvanceStage: body.auto_advance_stage,
-    }, { tenantId: auth.tenantId, organizationId: auth.orgId, userId: auth.sub })
+      input: {
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+        userId: auth.sub,
+        isEnabled: body.is_enabled,
+        autoCreateContacts: body.auto_create_contacts,
+        autoUpdateTimeline: body.auto_update_timeline,
+        autoUpdateEngagement: body.auto_update_engagement,
+        autoAdvanceStage: body.auto_advance_stage,
+      },
+      ctx: {
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+        userId: auth.sub,
+        container,
+      },
+    })
 
     // Re-fetch to return updated state
     const em = (container.resolve('em') as EntityManager).fork()

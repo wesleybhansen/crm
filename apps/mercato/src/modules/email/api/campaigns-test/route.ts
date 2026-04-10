@@ -27,19 +27,22 @@ export async function POST(req: Request) {
 
     if (!campaign) return NextResponse.json({ ok: false, error: 'Blast not found' }, { status: 404 })
 
-    // Get the user's email
-    const user = await knex('users').where('id', auth.sub).first()
-    if (!user?.email) {
+    // Get the user's email (decrypt — stored encrypted at rest)
+    const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+    const { User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const em = container.resolve('em') as EntityManager
+    const userEntity = await findOneWithDecryption(
+      em.fork(), User, { id: auth.sub },
+      {},
+      { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+    )
+    const toEmail = (userEntity?.email ?? '').trim()
+    if (!toEmail || !toEmail.includes('@')) {
       return NextResponse.json({ ok: false, error: 'Could not find your email address' }, { status: 400 })
     }
 
-    const toEmail = user.email.trim()
-    if (!toEmail || !toEmail.includes('@')) {
-      return NextResponse.json({ ok: false, error: `Invalid email address on your account: "${toEmail}"` }, { status: 400 })
-    }
-
-    const sampleFirstName = user.name?.split(' ')[0] || 'Test'
-    const sampleName = user.name || 'Test User'
+    const sampleFirstName = (userEntity?.name ?? '').split(' ')[0] || 'Test'
+    const sampleName = userEntity?.name || 'Test User'
     const subjectLine = (campaign.subject || '')
       .replace(/\{\{firstName\}\}/g, sampleFirstName)
       .replace(/\{\{name\}\}/g, sampleName)
