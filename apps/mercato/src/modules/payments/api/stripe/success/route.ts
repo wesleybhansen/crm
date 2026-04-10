@@ -1,3 +1,4 @@
+export const metadata = { GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { queryOne } from '@/app/api/funnels/db'
 

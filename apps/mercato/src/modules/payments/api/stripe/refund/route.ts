@@ -1,11 +1,11 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { POST: { requireAuth: true } }
+
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export async function POST(req: Request) {
-  await bootstrap()
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 

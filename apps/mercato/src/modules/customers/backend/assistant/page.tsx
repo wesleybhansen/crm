@@ -812,7 +812,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       }
       case 'manage_invoice': {
         const { action: sub, invoiceId } = action.data
-        if (sub === 'send') { const res = await fetch(`/api/invoices/${invoiceId}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({}) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Invoice sent' } : { ok: false, message: d.error || 'Failed' } }
+        if (sub === 'send') { const res = await fetch(`/api/payments/invoices/${invoiceId}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({}) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Invoice sent' } : { ok: false, message: d.error || 'Failed' } }
         if (sub === 'mark_paid') { await fetch('/api/payments/invoices', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: invoiceId, status: 'paid' }) }); return { ok: true, message: 'Invoice marked as paid' } }
         if (sub === 'delete') { await fetch('/api/payments/invoices', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: invoiceId }) }); return { ok: true, message: 'Invoice deleted' } }
         return { ok: false, message: `Unknown invoice action: ${sub}` }
@@ -826,8 +826,8 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       }
       case 'process_payment': {
         const { action: sub } = action.data
-        if (sub === 'refund') { const res = await fetch('/api/stripe/refund', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ paymentRecordId: action.data.paymentId, amount: action.data.amount }) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Refund processed' } : { ok: false, message: d.error || 'Failed' } }
-        if (sub === 'cancel_subscription') { const res = await fetch('/api/stripe/cancel-subscription', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ subscriptionId: action.data.subscriptionId }) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Subscription cancelled' } : { ok: false, message: d.error || 'Failed' } }
+        if (sub === 'refund') { const res = await fetch('/api/payments/stripe/refund', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ paymentRecordId: action.data.paymentId, amount: action.data.amount }) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Refund processed' } : { ok: false, message: d.error || 'Failed' } }
+        if (sub === 'cancel_subscription') { const res = await fetch('/api/payments/stripe/cancel-subscription', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ subscriptionId: action.data.subscriptionId }) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Subscription cancelled' } : { ok: false, message: d.error || 'Failed' } }
         return { ok: false, message: `Unknown payment action: ${sub}` }
       }
       case 'manage_campaign': {

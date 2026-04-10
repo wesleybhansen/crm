@@ -1,4 +1,5 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { POST: { requireAuth: true } }
+
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -7,7 +8,6 @@ import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 
 // Send invoice via email to contact — uses connected email provider first, falls back to Resend
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await bootstrap()
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 

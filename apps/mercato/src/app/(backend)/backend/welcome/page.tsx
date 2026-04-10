@@ -357,7 +357,7 @@ export default function WelcomePage() {
   function checkConnections() {
     fetch('/api/email/connections', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok && d.data?.length > 0) setEmailConnected(true) }).catch(() => {})
-    fetch('/api/stripe/connections', { credentials: 'include' })
+    fetch('/api/payments/stripe/connections', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok && d.data?.stripeAccountId) setStripeConnected(true) }).catch(() => {})
     fetch('/api/twilio/connections', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok && d.data?.phoneNumber) setTwilioConnected(true) }).catch(() => {})
@@ -795,7 +795,7 @@ export default function WelcomePage() {
                 ) : (
                   <Button type="button" variant="outline" size="sm" onClick={() => {
                     saveState()
-                    window.location.href = '/api/stripe/connect-oauth'
+                    window.location.href = '/api/payments/stripe/connect-oauth'
                   }}>
                     <Link className="size-3 mr-1.5" /> Connect Stripe
                   </Button>

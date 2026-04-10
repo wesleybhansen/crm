@@ -1,4 +1,4 @@
-import { bootstrap } from '@/bootstrap'
+
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -12,7 +12,6 @@ export async function POST(req: Request) {
   if (!stripeKey) return NextResponse.json({ error: 'Not configured' }, { status: 500 })
 
   try {
-    await bootstrap()
     const Stripe = (await import('stripe')).default
     const stripe = new Stripe(stripeKey)
     const body = await req.text()

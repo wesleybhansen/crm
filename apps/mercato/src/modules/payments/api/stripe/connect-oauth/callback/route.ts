@@ -1,4 +1,4 @@
-import { bootstrap } from '@/bootstrap'
+
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'

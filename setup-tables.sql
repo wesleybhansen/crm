@@ -48,64 +48,12 @@ CREATE INDEX IF NOT EXISTS form_submissions_org_page_idx ON form_submissions(org
 
 
 -- Billing / Credits
-CREATE TABLE IF NOT EXISTS credit_balances (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL,
-  organization_id UUID NOT NULL UNIQUE, balance NUMERIC(10,4) NOT NULL DEFAULT 0,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 
-CREATE TABLE IF NOT EXISTS credit_transactions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  amount NUMERIC(10,4) NOT NULL, type TEXT NOT NULL, description TEXT NOT NULL,
-  service TEXT, reference_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS credit_transactions_org_date_idx ON credit_transactions(organization_id, created_at);
-
-CREATE TABLE IF NOT EXISTS credit_packages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL,
-  credit_amount NUMERIC(10,4) NOT NULL, price NUMERIC(10,2) NOT NULL,
-  stripe_price_id TEXT, is_active BOOLEAN NOT NULL DEFAULT true,
-  sort_order INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 INSERT INTO credit_packages (name, credit_amount, price, sort_order) VALUES
   ('Starter', 10, 10, 1), ('Growth', 25, 25, 2), ('Pro', 50, 50, 3) ON CONFLICT DO NOTHING;
 
 -- Payments
-CREATE TABLE IF NOT EXISTS products (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, description TEXT, price NUMERIC(10,2) NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'USD', billing_type TEXT NOT NULL DEFAULT 'one_time',
-  recurring_interval TEXT, stripe_price_id TEXT, stripe_product_id TEXT,
-  trial_days INTEGER,
-  terms_url TEXT, requires_shipping BOOLEAN NOT NULL DEFAULT false, collect_phone BOOLEAN NOT NULL DEFAULT false,
-  product_type TEXT DEFAULT 'digital', course_ids JSONB DEFAULT '[]',
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ);
 
-CREATE TABLE IF NOT EXISTS invoices (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  invoice_number TEXT NOT NULL, contact_id UUID, deal_id UUID,
-  status TEXT NOT NULL DEFAULT 'draft', line_items JSONB NOT NULL DEFAULT '[]',
-  subtotal NUMERIC(10,2) NOT NULL DEFAULT 0, tax NUMERIC(10,2) NOT NULL DEFAULT 0,
-  total NUMERIC(10,2) NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'USD',
-  due_date TIMESTAMPTZ, notes TEXT, stripe_payment_link TEXT, stripe_invoice_id TEXT,
-  sent_at TIMESTAMPTZ, paid_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ);
-CREATE INDEX IF NOT EXISTS invoices_org_status_idx ON invoices(organization_id, status);
-
-CREATE TABLE IF NOT EXISTS payment_links (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  product_id UUID REFERENCES products(id), name TEXT NOT NULL, url_slug TEXT NOT NULL,
-  stripe_payment_link_id TEXT, stripe_url TEXT, is_active BOOLEAN NOT NULL DEFAULT true,
-  view_count INTEGER NOT NULL DEFAULT 0, payment_count INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-
-CREATE TABLE IF NOT EXISTS payment_records (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  invoice_id UUID, contact_id UUID, amount NUMERIC(10,2) NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'USD', status TEXT NOT NULL DEFAULT 'pending',
-  stripe_payment_intent_id TEXT, stripe_checkout_session_id TEXT,
-  stripe_subscription_id TEXT, refunded_amount NUMERIC(10,2) DEFAULT 0,
-  metadata JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS payment_records_org_idx ON payment_records(organization_id, created_at);
 
 -- Notes & Tasks: MIGRATED to packages/core/src/modules/customers/data/entities.ts
 -- (CustomerContactNote, CustomerTask) — see SPEC-061 tier 0. Tables managed
@@ -401,12 +349,6 @@ CREATE TABLE IF NOT EXISTS inbox_ai_settings (
 -- Email Routing (per-feature provider assignment)
 
 -- Stripe Connect
-CREATE TABLE IF NOT EXISTS stripe_connections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  stripe_account_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT,
-  business_name TEXT, is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS stripe_conn_org_idx ON stripe_connections(organization_id);
 
 -- Twilio Connections
 CREATE TABLE IF NOT EXISTS twilio_connections (

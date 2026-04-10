@@ -177,7 +177,7 @@ export default function PaymentsPage() {
 
   function loadStripeConnection() {
     setStripeLoading(true)
-    fetch('/api/stripe/connections', { credentials: 'include' })
+    fetch('/api/payments/stripe/connections', { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
         if (d.ok) setStripeConnection(d.data || null)
@@ -189,7 +189,7 @@ export default function PaymentsPage() {
   async function disconnectStripe() {
     setDisconnecting(true)
     try {
-      await fetch('/api/stripe/connections', { method: 'DELETE', credentials: 'include' })
+      await fetch('/api/payments/stripe/connections', { method: 'DELETE', credentials: 'include' })
       setStripeConnection(null)
       setStripeMessage({ type: 'success', text: 'Stripe account disconnected.' })
     } catch {
@@ -202,7 +202,7 @@ export default function PaymentsPage() {
     if (!manualAccountId.trim()) return
     setManualConnecting(true)
     try {
-      const res = await fetch('/api/stripe/connect-oauth', {
+      const res = await fetch('/api/payments/stripe/connect-oauth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -260,7 +260,7 @@ export default function PaymentsPage() {
             // Preload email history for sent/paid invoices (for the "Emailed to" badge)
             for (const inv of invs) {
               if ((inv.status === 'sent' || inv.status === 'paid') && !invoiceEmails[inv.id]) {
-                fetch(`/api/invoices/${inv.id}/emails`, { credentials: 'include' })
+                fetch(`/api/payments/invoices/${inv.id}/emails`, { credentials: 'include' })
                   .then(r => r.json())
                   .then(ed => { if (ed.ok) setInvoiceEmails(prev => ({ ...prev, [inv.id]: ed.data || [] })) })
                   .catch(() => {})
@@ -390,7 +390,7 @@ export default function PaymentsPage() {
     setRefunding(true)
     setRefundFeedback(null)
     try {
-      const res = await fetch('/api/stripe/refund', {
+      const res = await fetch('/api/payments/stripe/refund', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           paymentRecordId: recordId,
@@ -418,7 +418,7 @@ export default function PaymentsPage() {
     setCancellingSub(true)
     setCancelSubFeedback(null)
     try {
-      const res = await fetch('/api/stripe/cancel-subscription', {
+      const res = await fetch('/api/payments/stripe/cancel-subscription', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           subscriptionId: cancelSubRecord.stripe_subscription_id,
@@ -442,7 +442,7 @@ export default function PaymentsPage() {
   async function generatePaymentLink(invoiceId: string) {
     setGeneratingLink(invoiceId)
     try {
-      const res = await fetch('/api/stripe/connect', {
+      const res = await fetch('/api/payments/stripe/connect', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ type: 'invoice', invoiceId }),
       })
@@ -487,7 +487,7 @@ export default function PaymentsPage() {
     setSendingEmail(invoiceId)
     setEmailFeedback(null)
     try {
-      const res = await fetch(`/api/invoices/${invoiceId}/send`, {
+      const res = await fetch(`/api/payments/invoices/${invoiceId}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -526,7 +526,7 @@ export default function PaymentsPage() {
     if (!invoiceEmails[invoiceId]) {
       setLoadingEmails(invoiceId)
       try {
-        const res = await fetch(`/api/invoices/${invoiceId}/emails`, { credentials: 'include' })
+        const res = await fetch(`/api/payments/invoices/${invoiceId}/emails`, { credentials: 'include' })
         const data = await res.json()
         if (data.ok) {
           setInvoiceEmails(prev => ({ ...prev, [invoiceId]: data.data || [] }))
@@ -638,7 +638,7 @@ export default function PaymentsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button type="button" size="sm" onClick={() => window.location.href = '/api/stripe/connect-oauth'}>
+                <Button type="button" size="sm" onClick={() => window.location.href = '/api/payments/stripe/connect-oauth'}>
                   <Plug className="size-3.5 mr-1.5" /> Connect Stripe
                 </Button>
               </div>
@@ -1000,7 +1000,7 @@ export default function PaymentsPage() {
                   <Button type="button" variant="outline" size="sm" onClick={async () => {
                     setGeneratingLink(p.id)
                     try {
-                      const res = await fetch('/api/stripe/connect', {
+                      const res = await fetch('/api/payments/stripe/connect', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
                         body: JSON.stringify({ type: 'product', productId: p.id }),
                       })

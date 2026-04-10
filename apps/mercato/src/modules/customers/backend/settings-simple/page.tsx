@@ -165,7 +165,7 @@ export default function SimpleSettingsPage() {
     fetch('/api/email/esp', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok && d.data) setEspConnection(d.data) }).catch(() => {})
     // Load Stripe connection
-    fetch('/api/stripe/connections', { credentials: 'include' })
+    fetch('/api/payments/stripe/connections', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok && d.data) setStripeConnection(d.data) }).catch(() => {})
     // Load Twilio connection
     fetch('/api/twilio/connections', { credentials: 'include' })
@@ -393,7 +393,7 @@ export default function SimpleSettingsPage() {
     if (!confirm('Disconnect Stripe? You will not be able to accept payments until you reconnect.')) return
     setDisconnectingStripe(true)
     try {
-      await fetch('/api/stripe/connections', { method: 'DELETE', credentials: 'include' })
+      await fetch('/api/payments/stripe/connections', { method: 'DELETE', credentials: 'include' })
       setStripeConnection(null)
     } catch {}
     setDisconnectingStripe(false)
@@ -1399,7 +1399,7 @@ export default function SimpleSettingsPage() {
                 </p>
               )}
               <Button type="button" variant="outline" size="sm"
-                onClick={() => window.location.href = '/api/stripe/connect-oauth'}>
+                onClick={() => window.location.href = '/api/payments/stripe/connect-oauth'}>
                 Connect Stripe
               </Button>
             </div>

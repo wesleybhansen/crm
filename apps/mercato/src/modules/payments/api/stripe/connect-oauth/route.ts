@@ -1,4 +1,5 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true } }
+
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
