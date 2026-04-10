@@ -112,7 +112,7 @@ export default function PipelinePage() {
         }
       }
 
-      const res = await fetch('/api/ext/deals?status=open&pageSize=100', { credentials: 'include' })
+      const res = await fetch('/api/integrations_api/ext/deals?status=open&pageSize=100', { credentials: 'include' })
       const data = await res.json()
       const deals: DealCard[] = data.ok ? (data.data || []) : []
 

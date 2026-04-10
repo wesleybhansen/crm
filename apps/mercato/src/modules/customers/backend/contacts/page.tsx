@@ -284,7 +284,12 @@ export default function ContactsPage() {
         body: JSON.stringify({ contactId: selectedContact.id, content: newNote }),
       })
       const data = await res.json()
-      if (data.ok) { setNotes(prev => [data.data, ...prev]); setNewNote('') }
+      if (data.ok) {
+        setNewNote('')
+        const refetch = await fetch(`/api/customers/notes?contactId=${selectedContact.id}`, { credentials: 'include' })
+        const refetched = await refetch.json()
+        if (refetched.ok) setNotes(refetched.data || [])
+      }
     } catch {}
     setSavingNote(false)
   }
@@ -299,9 +304,17 @@ export default function ContactsPage() {
       })
       const data = await res.json()
       if (data.ok) {
-        if (selectedContact) setTasks(prev => [data.data, ...prev])
-        if (tab === 'tasks') setAllTasks(prev => [data.data, ...prev])
         setNewTask(''); setNewTaskDue('')
+        if (selectedContact) {
+          const refetch = await fetch(`/api/customers/tasks?contactId=${selectedContact.id}`, { credentials: 'include' })
+          const refetched = await refetch.json()
+          if (refetched.ok) setTasks(refetched.data || [])
+        }
+        if (tab === 'tasks') {
+          const refetchAll = await fetch('/api/customers/tasks', { credentials: 'include' })
+          const refetchedAll = await refetchAll.json()
+          if (refetchedAll.ok) setAllTasks(refetchedAll.data || [])
+        }
       }
     } catch {}
     setSavingTask(false)
