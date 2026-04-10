@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { EmailSenderService } from '../../services/email-sender'
-import { sendEmailForOrg } from '../../../../app/api/email/email-router'
+import { sendEmailForOrg } from '../../lib/email-router'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
