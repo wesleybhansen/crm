@@ -76,7 +76,7 @@ export default function AutomationsPage() {
   }, [])
 
   function loadAutomations() {
-    fetch('/api/automations', { credentials: 'include' })
+    fetch('/api/sequences/automations', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setAutomations(d.data || []); setLoading(false) }).catch(() => setLoading(false))
   }
 
@@ -92,7 +92,7 @@ export default function AutomationsPage() {
 
     setCreating(true)
     try {
-      const res = await fetch('/api/automations', {
+      const res = await fetch('/api/sequences/automations', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ triggerStage, actionType, actionConfig }),
       })
@@ -103,7 +103,7 @@ export default function AutomationsPage() {
 
   async function deleteAutomation(id: string) {
     if (!confirm('Delete this automation?')) return
-    await fetch(`/api/automations?id=${id}`, { method: 'DELETE', credentials: 'include' })
+    await fetch(`/api/sequences/automations?id=${id}`, { method: 'DELETE', credentials: 'include' })
     loadAutomations()
   }
 

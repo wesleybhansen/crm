@@ -1619,7 +1619,7 @@ async function sendChatMessage(
   history: ChatMessage[],
   context?: ChatContext,
 ): Promise<string> {
-  const response = await fetch('/api/automation-rules/ai-chat', {
+  const response = await fetch('/api/sequences/automation-rules/ai-chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -2015,7 +2015,7 @@ export default function AutomationsV2Page() {
 
   const loadRules = useCallback(() => {
     setLoading(true)
-    fetch('/api/automation-rules', { credentials: 'include' })
+    fetch('/api/sequences/automation-rules', { credentials: 'include' })
       .then(response => response.json())
       .then(data => { if (data.ok) setRules(data.data?.items ?? data.data ?? []) })
       .catch(() => {})
@@ -2024,7 +2024,7 @@ export default function AutomationsV2Page() {
 
   const loadTemplates = useCallback(() => {
     setTemplatesLoading(true)
-    fetch('/api/automation-rules/templates', { credentials: 'include' })
+    fetch('/api/sequences/automation-rules/templates', { credentials: 'include' })
       .then(response => response.json())
       .then(data => {
         if (data.ok && data.data) {
@@ -2046,7 +2046,7 @@ export default function AutomationsV2Page() {
   const loadHistory = useCallback(async (ruleId: string) => {
     setHistoryLoading(ruleId)
     try {
-      const res = await fetch(`/api/automation-rules/${ruleId}/logs?limit=10`, { credentials: 'include' })
+      const res = await fetch(`/api/sequences/automation-rules/${ruleId}/logs?limit=10`, { credentials: 'include' })
       const data = await res.json()
       if (data.ok) {
         setHistoryLogs(prev => ({ ...prev, [ruleId]: data.data || [] }))
@@ -2066,7 +2066,7 @@ export default function AutomationsV2Page() {
 
   // Run scheduled automations in the background on page load
   useEffect(() => {
-    fetch('/api/automation-rules/run-scheduled', {
+    fetch('/api/sequences/automation-rules/run-scheduled', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -2122,7 +2122,7 @@ export default function AutomationsV2Page() {
     setSaving(true)
     try {
       const isEdit = editingRule?.id != null
-      const url = isEdit ? `/api/automation-rules?id=${editingRule!.id}` : '/api/automation-rules'
+      const url = isEdit ? `/api/sequences/automation-rules?id=${editingRule!.id}` : '/api/sequences/automation-rules'
       const method = isEdit ? 'PUT' : 'POST'
 
       // Backward compat: if single action step with no delays, save as legacy format
@@ -2172,7 +2172,7 @@ export default function AutomationsV2Page() {
   async function handleToggle(rule: AutomationRule) {
     const newStatus = rule.status === 'active' ? 'paused' : 'active'
     try {
-      await fetch(`/api/automation-rules?id=${rule.id}`, {
+      await fetch(`/api/sequences/automation-rules?id=${rule.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2189,7 +2189,7 @@ export default function AutomationsV2Page() {
       const ruleSteps = rule.steps
         ? (typeof rule.steps === 'string' ? JSON.parse(rule.steps as unknown as string) : rule.steps)
         : null
-      await fetch('/api/automation-rules', {
+      await fetch('/api/sequences/automation-rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2211,7 +2211,7 @@ export default function AutomationsV2Page() {
 
   async function handleRunNow(ruleId: string) {
     try {
-      const response = await fetch('/api/automation-rules/run-scheduled', {
+      const response = await fetch('/api/sequences/automation-rules/run-scheduled', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2237,7 +2237,7 @@ export default function AutomationsV2Page() {
   async function confirmDelete() {
     if (!deletingId) return
     try {
-      await fetch(`/api/automation-rules?id=${deletingId}`, { method: 'DELETE', credentials: 'include' })
+      await fetch(`/api/sequences/automation-rules?id=${deletingId}`, { method: 'DELETE', credentials: 'include' })
       loadRules()
     } catch {}
     setDeletingId(null)
@@ -2306,7 +2306,7 @@ export default function AutomationsV2Page() {
     setTestRunning(true)
     setTestResults(null)
     try {
-      const response = await fetch('/api/automation-rules/test', {
+      const response = await fetch('/api/sequences/automation-rules/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2423,7 +2423,7 @@ export default function AutomationsV2Page() {
     setAiError(null)
     setAiPreview(null)
     try {
-      const response = await fetch('/api/automation-rules/ai-generate', {
+      const response = await fetch('/api/sequences/automation-rules/ai-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

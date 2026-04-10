@@ -90,7 +90,7 @@ export default function AutomationRulesPage() {
   const [sequences, setSequences] = useState<Array<{ id: string; name: string }>>([])
 
   const loadRules = useCallback(() => {
-    fetch('/api/automation-rules', { credentials: 'include' })
+    fetch('/api/sequences/automation-rules', { credentials: 'include' })
       .then(r => r.json())
       .then(d => { if (d.ok) setRules(d.data || []) })
       .catch(() => {})
@@ -136,7 +136,7 @@ export default function AutomationRulesPage() {
 
     setCreating(true)
     try {
-      const res = await fetch('/api/automation-rules', {
+      const res = await fetch('/api/sequences/automation-rules', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ name, triggerType, triggerConfig, actionType, actionConfig }),
       })
@@ -147,7 +147,7 @@ export default function AutomationRulesPage() {
   }
 
   async function toggleRule(rule: Rule) {
-    await fetch(`/api/automation-rules?id=${rule.id}`, {
+    await fetch(`/api/sequences/automation-rules?id=${rule.id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ isActive: !rule.is_active }),
     })
@@ -156,7 +156,7 @@ export default function AutomationRulesPage() {
 
   async function deleteRule(id: string) {
     if (!confirm('Delete this automation rule and its logs?')) return
-    await fetch(`/api/automation-rules?id=${id}`, { method: 'DELETE', credentials: 'include' })
+    await fetch(`/api/sequences/automation-rules?id=${id}`, { method: 'DELETE', credentials: 'include' })
     loadRules()
   }
 
@@ -166,7 +166,7 @@ export default function AutomationRulesPage() {
     if (logs[ruleId]) return
     setLogsLoading(ruleId)
     try {
-      const res = await fetch(`/api/automation-rules/${ruleId}/logs`, { credentials: 'include' })
+      const res = await fetch(`/api/sequences/automation-rules/${ruleId}/logs`, { credentials: 'include' })
       const d = await res.json()
       if (d.ok) setLogs(prev => ({ ...prev, [ruleId]: (d.data || []).slice(0, 5) }))
     } catch {}

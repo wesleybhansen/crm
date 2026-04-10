@@ -128,11 +128,6 @@ CREATE TABLE IF NOT EXISTS ai_settings (
 -- (CustomerBusinessProfile) — see SPEC-061 tier 0.
 
 -- Stage Automations
-CREATE TABLE IF NOT EXISTS stage_automations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  trigger_stage TEXT NOT NULL, action_type TEXT NOT NULL, action_config JSONB NOT NULL DEFAULT '{}',
-  is_active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-
 -- Calendar & Booking
 CREATE TABLE IF NOT EXISTS booking_pages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
@@ -219,33 +214,9 @@ CREATE TABLE IF NOT EXISTS course_student_sessions (
 CREATE INDEX IF NOT EXISTS student_sessions_token_idx ON course_student_sessions(session_token);
 
 -- Sequences (Drip / Follow-up)
-CREATE TABLE IF NOT EXISTS sequences (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, description TEXT, trigger_type TEXT NOT NULL DEFAULT 'manual',
-  trigger_config JSONB, status TEXT NOT NULL DEFAULT 'draft',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ);
-CREATE INDEX IF NOT EXISTS sequences_org_status_idx ON sequences(organization_id, status);
 
-CREATE TABLE IF NOT EXISTS sequence_steps (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), sequence_id UUID NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
-  step_order INTEGER NOT NULL, step_type TEXT NOT NULL, config JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS sequence_steps_seq_idx ON sequence_steps(sequence_id, step_order);
 
-CREATE TABLE IF NOT EXISTS sequence_enrollments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), sequence_id UUID NOT NULL REFERENCES sequences(id),
-  contact_id UUID NOT NULL, organization_id UUID NOT NULL, tenant_id UUID NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active', current_step_order INTEGER NOT NULL DEFAULT 1,
-  enrolled_at TIMESTAMPTZ NOT NULL DEFAULT now(), completed_at TIMESTAMPTZ, paused_at TIMESTAMPTZ);
-CREATE UNIQUE INDEX IF NOT EXISTS enrollments_seq_contact_idx ON sequence_enrollments(sequence_id, contact_id) WHERE status = 'active';
-CREATE INDEX IF NOT EXISTS enrollments_org_status_idx ON sequence_enrollments(organization_id, status);
 
-CREATE TABLE IF NOT EXISTS sequence_step_executions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), enrollment_id UUID NOT NULL REFERENCES sequence_enrollments(id),
-  step_id UUID NOT NULL REFERENCES sequence_steps(id), status TEXT NOT NULL DEFAULT 'scheduled',
-  scheduled_for TIMESTAMPTZ NOT NULL, executed_at TIMESTAMPTZ, result JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS step_exec_scheduled_idx ON sequence_step_executions(status, scheduled_for) WHERE status = 'scheduled';
 
 -- Email status on contacts (for bounce/complaint tracking)
 ALTER TABLE customer_entities ADD COLUMN IF NOT EXISTS email_status TEXT NOT NULL DEFAULT 'active';
@@ -287,19 +258,7 @@ CREATE INDEX IF NOT EXISTS webhook_deliveries_sub_idx ON webhook_deliveries(subs
 -- yet — see SPEC-061 §"Tier 0 cutover" for the deferred work.
 
 -- Automation Rules
-CREATE TABLE IF NOT EXISTS automation_rules (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, trigger_type TEXT NOT NULL, trigger_config JSONB NOT NULL DEFAULT '{}',
-  action_type TEXT NOT NULL, action_config JSONB NOT NULL DEFAULT '{}',
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS automation_rules_org_idx ON automation_rules(organization_id, trigger_type, is_active);
 
-CREATE TABLE IF NOT EXISTS automation_rule_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), rule_id UUID NOT NULL REFERENCES automation_rules(id),
-  contact_id UUID, trigger_data JSONB, action_result JSONB, status TEXT NOT NULL DEFAULT 'executed',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS automation_logs_rule_idx ON automation_rule_logs(rule_id, created_at DESC);
 
 -- Email Preferences
 
@@ -429,9 +388,6 @@ CREATE TABLE IF NOT EXISTS inbox_ai_settings (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 
 -- Sequence branching support
-ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS branch_config JSONB;
-ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS is_goal BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS goal_config JSONB;
 
 -- Email Connections (Gmail, Outlook, SMTP)
 

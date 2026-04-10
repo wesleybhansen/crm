@@ -316,7 +316,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return d.ok ? { ok: true, message: `Campaign "${action.data.name}" created` } : { ok: false, message: d.error || 'Failed' }
       }
       case 'create_automation_rule': {
-        const res = await fetch('/api/automation-rules', {
+        const res = await fetch('/api/sequences/automation-rules', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ name: action.data.name, triggerType: action.data.triggerType, triggerConfig: action.data.triggerConfig || {}, actionType: action.data.actionType, actionConfig: action.data.actionConfig || {}, status: 'active' })
         })
@@ -1009,12 +1009,12 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       }
       case 'manage_automation_advanced': {
         const { action: sub, ruleId } = action.data
-        if (sub === 'enable') { await fetch('/api/automation-rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId, is_active: true }) }); return { ok: true, message: 'Automation enabled' } }
-        if (sub === 'disable') { await fetch('/api/automation-rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId, is_active: false }) }); return { ok: true, message: 'Automation disabled' } }
-        if (sub === 'delete') { await fetch('/api/automation-rules', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId }) }); return { ok: true, message: 'Automation deleted' } }
-        if (sub === 'test') { const res = await fetch('/api/automation-rules/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ ruleId }) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Automation test executed' } : { ok: false, message: d.error || 'Test failed' } }
-        if (sub === 'get_logs') { const res = await fetch(`/api/automation-rules/${ruleId}/logs`, { credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: `${d.data?.length || 0} execution(s) logged` } : { ok: true, message: 'No logs found' } }
-        if (sub === 'edit') { await fetch('/api/automation-rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId, name: action.data.name }) }); return { ok: true, message: 'Automation updated' } }
+        if (sub === 'enable') { await fetch('/api/sequences/automation-rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId, is_active: true }) }); return { ok: true, message: 'Automation enabled' } }
+        if (sub === 'disable') { await fetch('/api/sequences/automation-rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId, is_active: false }) }); return { ok: true, message: 'Automation disabled' } }
+        if (sub === 'delete') { await fetch('/api/sequences/automation-rules', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId }) }); return { ok: true, message: 'Automation deleted' } }
+        if (sub === 'test') { const res = await fetch('/api/sequences/automation-rules/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ ruleId }) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Automation test executed' } : { ok: false, message: d.error || 'Test failed' } }
+        if (sub === 'get_logs') { const res = await fetch(`/api/sequences/automation-rules/${ruleId}/logs`, { credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: `${d.data?.length || 0} execution(s) logged` } : { ok: true, message: 'No logs found' } }
+        if (sub === 'edit') { await fetch('/api/sequences/automation-rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId, name: action.data.name }) }); return { ok: true, message: 'Automation updated' } }
         return { ok: false, message: `Unknown automation action: ${sub}` }
       }
       case 'update_settings': {
