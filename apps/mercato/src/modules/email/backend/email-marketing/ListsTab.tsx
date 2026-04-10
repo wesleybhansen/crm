@@ -138,7 +138,7 @@ export default function ListsTab() {
     if (contactsLoadedRef.current && allContacts.length > 0) return
     contactsLoadedRef.current = true
     setContactsLoading(true)
-    fetch('/api/email-lists/contacts', { credentials: 'include' })
+    fetch('/api/email/contacts', { credentials: 'include' })
       .then(r => r.json()).then(d => {
         if (d.ok && Array.isArray(d.data)) {
           setAllContacts(d.data.map((c: any) => ({
@@ -194,9 +194,9 @@ export default function ListsTab() {
       const data = await res.json()
       if (data.ok && data.data) {
         if (createSelected.size > 0) {
-          await fetch(`/api/email-lists/${data.data.id}/members`, {
+          await fetch('/api/email/list-members', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ contactIds: [...createSelected] }),
+            body: JSON.stringify({ listId: data.data.id, contactIds: [...createSelected] }),
           }).catch(() => {})
         }
         setShowCreate(false)
@@ -210,7 +210,7 @@ export default function ListsTab() {
   // --- Detail ---
   function openList(list: EmailList) {
     setSelectedList(list); setMembersLoading(true)
-    fetch(`/api/email-lists/${list.id}/members?limit=200`, { credentials: 'include' })
+    fetch(`/api/email/list-members?listId=${list.id}&limit=200`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setMembers(d.data || []) })
       .catch(() => {}).finally(() => setMembersLoading(false))
   }
@@ -226,9 +226,9 @@ export default function ListsTab() {
 
   async function removeMember(contactId: string) {
     if (!selectedList) return
-    await fetch(`/api/email-lists/${selectedList.id}/members`, {
+    await fetch('/api/email/list-members', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ contactIds: [contactId] }),
+      body: JSON.stringify({ listId: selectedList.id, contactIds: [contactId] }),
     }).catch(() => {})
     setMembers(prev => prev.filter(m => m.contact_id !== contactId))
     loadLists()
@@ -286,9 +286,9 @@ export default function ListsTab() {
   async function bulkAdd() {
     if (!selectedList || addSelected.size === 0) return
     setAdding(true)
-    await fetch(`/api/email-lists/${selectedList.id}/members`, {
+    await fetch('/api/email/list-members', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ contactIds: [...addSelected] }),
+      body: JSON.stringify({ listId: selectedList.id, contactIds: [...addSelected] }),
     }).catch(() => {})
     setShowAddModal(false); openList(selectedList); loadLists()
     setAdding(false)
@@ -317,9 +317,9 @@ export default function ListsTab() {
         if (c) contactIds.push(c.id)
       }
       if (contactIds.length > 0) {
-        await fetch(`/api/email-lists/${selectedList.id}/members`, {
+        await fetch('/api/email/list-members', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({ contactIds }),
+          body: JSON.stringify({ listId: selectedList.id, contactIds }),
         })
       }
       setImportResult(`Imported ${contactIds.length} of ${lines.length}`); setImportCsv(''); openList(selectedList); loadLists()

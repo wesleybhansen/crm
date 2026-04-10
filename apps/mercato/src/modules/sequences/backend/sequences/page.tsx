@@ -861,7 +861,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                   if (!enrollContactListLoaded) {
                     setEnrollContactListLoaded(true)
                     setEnrollContactListLoading(true)
-                    fetch('/api/email-lists/contacts?limit=200', { credentials: 'include' })
+                    fetch('/api/email/contacts?limit=200', { credentials: 'include' })
                       .then(r => r.json())
                       .then(d => { if (d.ok) setEnrollContactList(d.data || []) })
                       .catch(() => {})

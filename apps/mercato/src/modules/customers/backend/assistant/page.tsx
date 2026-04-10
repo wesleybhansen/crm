@@ -383,9 +383,9 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       case 'add_to_email_list': {
         const listContact = await resolveContactId(action.data.contactId)
         if (!listContact) return { ok: false, message: `Contact "${action.data.contactId}" not found` }
-        const res = await fetch(`/api/email-lists/${action.data.listId}/members`, {
+        const res = await fetch('/api/email/list-members', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({ contactIds: [listContact.id] })
+          body: JSON.stringify({ listId: action.data.listId, contactIds: [listContact.id] })
         })
         const d = await res.json()
         return d.ok ? { ok: true, message: 'Contact added to email list' } : { ok: false, message: d.error || 'Failed' }
@@ -851,8 +851,8 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         const { action: sub, listId } = action.data
         if (sub === 'edit') { await fetch('/api/email/lists', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: listId, name: action.data.name }) }); return { ok: true, message: 'List updated' } }
         if (sub === 'delete') { await fetch(`/api/email/lists?id=${listId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'List deleted' } }
-        if (sub === 'add_bulk' && action.data.contactIds) { await fetch(`/api/email-lists/${listId}/members`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ contactIds: action.data.contactIds }) }); return { ok: true, message: `Added ${action.data.contactIds.length} contact(s) to list` } }
-        if (sub === 'remove_member') { await fetch(`/api/email-lists/${listId}/members`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ contactId: action.data.contactId }) }); return { ok: true, message: 'Member removed from list' } }
+        if (sub === 'add_bulk' && action.data.contactIds) { await fetch('/api/email/list-members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ listId, contactIds: action.data.contactIds }) }); return { ok: true, message: `Added ${action.data.contactIds.length} contact(s) to list` } }
+        if (sub === 'remove_member') { await fetch('/api/email/list-members', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ listId, contactIds: [action.data.contactId] }) }); return { ok: true, message: 'Member removed from list' } }
         return { ok: false, message: `Unknown list action: ${sub}` }
       }
       case 'manage_landing_page': {
