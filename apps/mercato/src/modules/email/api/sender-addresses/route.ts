@@ -1,4 +1,6 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true }, DELETE: { requireAuth: true } }
+export const openApi = { summary: "ESP sender addresses", methods: { GET: { summary: "List", tags: ["Email"] }, POST: { summary: "Add", tags: ["Email"] }, DELETE: { summary: "Remove", tags: ["Email"] } } }
+
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -6,7 +8,6 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 
 export async function GET() {
   try {
-    await bootstrap()
     const auth = await getAuthFromCookies()
     if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
@@ -27,7 +28,6 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    await bootstrap()
     const auth = await getAuthFromCookies()
     if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
@@ -92,7 +92,6 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await bootstrap()
     const auth = await getAuthFromCookies()
     if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 

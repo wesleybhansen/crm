@@ -1,11 +1,10 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true }, DELETE: { requireAuth: true } }
+
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-
-bootstrap()
 
 const VALID_PROVIDERS = ['resend', 'sendgrid', 'ses', 'mailgun'] as const
 

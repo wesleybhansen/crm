@@ -1,15 +1,16 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true }, DELETE: { requireAuth: true } }
+export const openApi = { summary: "Email routing config", methods: { GET: { summary: "Get routing", tags: ["Email"] }, POST: { summary: "Set routing", tags: ["Email"] }, DELETE: { summary: "Reset", tags: ["Email"] } } }
+
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { getEmailAddresses } from '../routing-service'
+import { getEmailAddresses } from '@/app/api/email/routing-service'
 
 const EMAIL_PURPOSES = ['inbox', 'invoices', 'marketing', 'automations', 'transactional'] as const
 
 export async function GET() {
   try {
-    await bootstrap()
     const auth = await getAuthFromCookies()
     if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
@@ -27,7 +28,6 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  await bootstrap()
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
@@ -97,7 +97,6 @@ export async function POST(req: Request) {
 
 // DELETE: Remove routing for a specific purpose (revert to defaults)
 export async function DELETE(req: Request) {
-  await bootstrap()
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 

@@ -1,4 +1,6 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { GET: { requireAuth: true }, DELETE: { requireAuth: true } }
+export const openApi = { summary: "Email connections", methods: { GET: { summary: "List connections", tags: ["Email"] }, DELETE: { summary: "Disconnect", tags: ["Email"] } } }
+
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
