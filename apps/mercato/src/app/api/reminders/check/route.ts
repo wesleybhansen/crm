@@ -96,7 +96,7 @@ export async function POST() {
           // Fallback to Gmail if ESP not available
           if (!sent) {
             try {
-              const { sendViaGmail, refreshGmailToken } = await import('@/app/api/email/gmail-service')
+              const { sendViaGmail, refreshGmailToken } = await import('@/modules/email/lib/gmail-service')
               const conn = await queryOne(
                 `SELECT id, access_token, refresh_token, token_expiry, email_address FROM email_connections
                  WHERE organization_id = $1 AND user_id = $2 AND provider = 'gmail' AND is_active = true LIMIT 1`,

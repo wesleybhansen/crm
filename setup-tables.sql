@@ -58,46 +58,8 @@ CREATE TABLE IF NOT EXISTS form_submissions (
 CREATE INDEX IF NOT EXISTS form_submissions_org_page_idx ON form_submissions(organization_id, landing_page_id);
 
 -- Email
-CREATE TABLE IF NOT EXISTS email_accounts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  email_address TEXT NOT NULL, display_name TEXT, provider TEXT NOT NULL DEFAULT 'resend',
-  config JSONB, is_default BOOLEAN NOT NULL DEFAULT true, sending_domain TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 
-CREATE TABLE IF NOT EXISTS email_messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  account_id UUID, direction TEXT NOT NULL, from_address TEXT NOT NULL, to_address TEXT NOT NULL,
-  cc TEXT, bcc TEXT, subject TEXT NOT NULL, body_html TEXT NOT NULL, body_text TEXT,
-  thread_id TEXT, contact_id UUID, deal_id UUID, campaign_id UUID,
-  status TEXT NOT NULL DEFAULT 'draft', tracking_id UUID NOT NULL DEFAULT gen_random_uuid(),
-  opened_at TIMESTAMPTZ, clicked_at TIMESTAMPTZ, bounced_at TIMESTAMPTZ, metadata JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ);
-CREATE INDEX IF NOT EXISTS email_messages_org_contact_idx ON email_messages(organization_id, contact_id);
-CREATE INDEX IF NOT EXISTS email_messages_tracking_idx ON email_messages(tracking_id);
 
-CREATE TABLE IF NOT EXISTS email_templates (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, subject TEXT NOT NULL, body_html TEXT NOT NULL,
-  category TEXT NOT NULL DEFAULT 'transactional',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ);
-
-CREATE TABLE IF NOT EXISTS email_campaigns (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, template_id UUID, subject TEXT, body_html TEXT,
-  status TEXT NOT NULL DEFAULT 'draft', segment_filter JSONB, category TEXT, scheduled_at TIMESTAMPTZ,
-  stats JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ, sent_at TIMESTAMPTZ, deleted_at TIMESTAMPTZ);
-
-CREATE TABLE IF NOT EXISTS email_campaign_recipients (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), campaign_id UUID NOT NULL, contact_id UUID NOT NULL,
-  email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
-  sent_at TIMESTAMPTZ, opened_at TIMESTAMPTZ, clicked_at TIMESTAMPTZ);
-CREATE INDEX IF NOT EXISTS email_campaign_recipients_idx ON email_campaign_recipients(campaign_id, contact_id);
-
-CREATE TABLE IF NOT EXISTS email_unsubscribes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  email TEXT NOT NULL, contact_id UUID, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS email_unsubscribes_org_email_idx ON email_unsubscribes(organization_id, email);
 
 -- Billing / Credits
 CREATE TABLE IF NOT EXISTS credit_balances (
@@ -354,17 +316,7 @@ CREATE TABLE IF NOT EXISTS automation_rule_logs (
 CREATE INDEX IF NOT EXISTS automation_logs_rule_idx ON automation_rule_logs(rule_id, created_at DESC);
 
 -- Email Preferences
-CREATE TABLE IF NOT EXISTS email_preference_categories (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, slug TEXT NOT NULL, description TEXT, is_default BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS pref_cat_org_slug_idx ON email_preference_categories(organization_id, slug);
 
-CREATE TABLE IF NOT EXISTS email_preferences (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), contact_id UUID NOT NULL, organization_id UUID NOT NULL,
-  category_slug TEXT NOT NULL, opted_in BOOLEAN NOT NULL DEFAULT true,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS email_pref_contact_cat_idx ON email_preferences(contact_id, organization_id, category_slug);
 
 -- Send Time Optimization: MIGRATED to packages/core/src/modules/customers/data/entities.ts
 -- (CustomerContactOpenTime) — see SPEC-061 tier 0. Schema gained tenant_id
@@ -372,14 +324,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS email_pref_contact_cat_idx ON email_preference
 -- queries this table via raw knex — see SPEC-061 §"Tier 0 cutover".
 
 -- Email Style Templates
-CREATE TABLE IF NOT EXISTS email_style_templates (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'general', html_template TEXT NOT NULL,
-  thumbnail_url TEXT, is_default BOOLEAN NOT NULL DEFAULT false, created_by UUID,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS email_templates_org_idx ON email_style_templates(organization_id, category);
 
-ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ;
 
 -- Surveys & Forms
 CREATE TABLE IF NOT EXISTS surveys (
@@ -548,55 +493,15 @@ ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS is_goal BOOLEAN NOT NULL DEF
 ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS goal_config JSONB;
 
 -- Email Connections (Gmail, Outlook, SMTP)
-CREATE TABLE IF NOT EXISTS email_connections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  user_id UUID NOT NULL, provider TEXT NOT NULL, email_address TEXT NOT NULL,
-  access_token TEXT, refresh_token TEXT, token_expiry TIMESTAMPTZ,
-  smtp_host TEXT, smtp_port INTEGER, smtp_user TEXT, smtp_pass TEXT,
-  is_primary BOOLEAN NOT NULL DEFAULT false, is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS email_conn_org_user_provider_idx ON email_connections(organization_id, user_id, provider);
 
 -- ESP Connections (Resend, SendGrid, SES, Mailgun) for bulk campaigns
-CREATE TABLE IF NOT EXISTS esp_connections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  provider TEXT NOT NULL, api_key TEXT NOT NULL, sending_domain TEXT,
-  default_sender_email TEXT, default_sender_name TEXT,
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS esp_conn_org_provider_idx ON esp_connections(organization_id, provider);
 
 -- ESP Sender Addresses (multiple from addresses per ESP connection)
-CREATE TABLE IF NOT EXISTS esp_sender_addresses (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  esp_connection_id UUID NOT NULL, sender_name TEXT, sender_email TEXT NOT NULL,
-  is_default BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS esp_sender_addr_org_email_idx ON esp_sender_addresses(organization_id, sender_email);
 
 -- Email Lists (mailing lists / contact groups)
-CREATE TABLE IF NOT EXISTS email_lists (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, description TEXT,
-  source_type TEXT NOT NULL DEFAULT 'manual', source_id UUID,
-  member_count INT NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ);
-CREATE INDEX IF NOT EXISTS email_lists_org_idx ON email_lists(organization_id);
 
-CREATE TABLE IF NOT EXISTS email_list_members (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  list_id UUID NOT NULL REFERENCES email_lists(id) ON DELETE CASCADE,
-  contact_id UUID NOT NULL, added_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(list_id, contact_id));
-CREATE INDEX IF NOT EXISTS email_list_members_list_idx ON email_list_members(list_id);
 
 -- Email Routing (per-feature provider assignment)
-CREATE TABLE IF NOT EXISTS email_routing (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  purpose TEXT NOT NULL, provider_type TEXT NOT NULL, provider_id UUID NOT NULL,
-  from_name TEXT, from_address TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS email_routing_org_purpose_idx ON email_routing(organization_id, purpose);
 
 -- Stripe Connect
 CREATE TABLE IF NOT EXISTS stripe_connections (
@@ -629,7 +534,6 @@ ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS detected_services JSONB;
 ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS pipeline_mode TEXT DEFAULT 'deals';
 
 -- Email sentiment tracking
-ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS sentiment TEXT;
 
 -- AI Digest settings
 ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS digest_frequency TEXT DEFAULT 'weekly';

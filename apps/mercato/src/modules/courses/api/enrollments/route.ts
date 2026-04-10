@@ -164,7 +164,7 @@ export async function POST(req: Request) {
         <p style="color:#94a3b8;font-size:12px;margin-top:24px">This link expires in 24 hours. You can request a new one anytime.</p>
       </div>`
 
-      const { sendEmailByPurpose } = await import('@/app/api/email/email-router')
+      const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')
       await sendEmailByPurpose(knex, course.organization_id, course.tenant_id, 'transactional', {
         to: studentEmail,
         subject: `Welcome to ${course.title}! Access your course`,

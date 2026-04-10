@@ -8,7 +8,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/app/api/funnels/db'
 // Gmail-based voice learning is disabled pending Tier 1 OAuth verification.
 // Re-add these imports when restoring the Gmail source path:
-// import { getGmailTokenRaw, fetchGmailSentMessages } from '@/app/api/email/gmail-helpers'
+// import { getGmailTokenRaw, fetchGmailSentMessages } from '@/modules/email/lib/gmail-helpers'
 
 const ANALYSIS_PROMPT = `Analyze the following writing samples and extract a detailed writing style profile. These are emails written by a real person — capture their unique voice.
 

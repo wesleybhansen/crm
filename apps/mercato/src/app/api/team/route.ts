@@ -139,7 +139,7 @@ export async function POST(req: Request) {
         [auth.orgId, auth.userId]
       )
       if (gmailConn?.access_token) {
-        const { sendViaGmail, refreshGmailToken } = await import('@/app/api/email/gmail-service')
+        const { sendViaGmail, refreshGmailToken } = await import('@/modules/email/lib/gmail-service')
         let accessToken = gmailConn.access_token
         // Refresh if expired
         if (gmailConn.token_expiry && new Date(gmailConn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && gmailConn.refresh_token) {
@@ -160,7 +160,7 @@ export async function POST(req: Request) {
           [auth.orgId, auth.userId]
         )
         if (outlookConn?.access_token) {
-          const { sendViaOutlook, refreshOutlookToken } = await import('@/app/api/email/outlook-service')
+          const { sendViaOutlook, refreshOutlookToken } = await import('@/modules/email/lib/outlook-service')
           let accessToken = outlookConn.access_token
           if (outlookConn.token_expiry && new Date(outlookConn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && outlookConn.refresh_token) {
             const refreshed = await refreshOutlookToken(outlookConn.refresh_token)

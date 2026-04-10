@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { sendEmailByPurpose } from '@/app/api/email/email-router'
+import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 
 export async function POST(req: Request) {
   const url = new URL(req.url)

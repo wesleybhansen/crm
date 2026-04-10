@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { getEmailAddresses } from '@/app/api/email/routing-service'
+import { getEmailAddresses } from '@/modules/email/lib/routing-service'
 
 const EMAIL_PURPOSES = ['inbox', 'invoices', 'marketing', 'automations', 'transactional'] as const
 

@@ -161,7 +161,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
     // Send confirmation email
     try {
-      const { sendEmailByPurpose } = await import('@/app/api/email/email-router')
+      const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')
       await sendEmailByPurpose(knex, event.organization_id, event.tenant_id, 'transactional', {
         to: email.trim(), subject: emailSubject, htmlBody: emailHtml,
       })

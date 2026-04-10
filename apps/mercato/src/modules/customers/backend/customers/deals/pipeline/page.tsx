@@ -123,7 +123,7 @@ export default function PipelinePage() {
         return {
           name,
           count: stageDeals.length,
-          totalValue: stageDeals.reduce((sum: number, d: DealCard) => sum + (d.value_amount || 0), 0),
+          totalValue: stageDeals.reduce((sum: number, d: DealCard) => sum + (Number(d.value_amount) || 0), 0),
           deals: stageDeals,
         }
       })
@@ -407,7 +407,7 @@ export default function PipelinePage() {
                           {deal.value_amount ? (
                             <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
                               <DollarSign className="size-3" />
-                              <span>{deal.value_amount.toLocaleString()}</span>
+                              <span>{Number(deal.value_amount).toLocaleString()}</span>
                             </div>
                           ) : (
                             <span />

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { sendEmailByPurpose } from '@/app/api/email/email-router'
+import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 
 // Send invoice via email to contact — uses connected email provider first, falls back to Resend
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {

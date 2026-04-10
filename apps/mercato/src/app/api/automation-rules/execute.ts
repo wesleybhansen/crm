@@ -1,5 +1,5 @@
 import { applyTaskTemplate } from '../task-templates/apply/route'
-import { sendEmailByPurpose } from '@/app/api/email/email-router'
+import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 
 /**
  * Automation Rules Executor

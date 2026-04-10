@@ -231,7 +231,7 @@ export async function POST(req: Request) {
           </div>
         </div>`
 
-      const { sendEmailByPurpose } = await import('@/app/api/email/email-router')
+      const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')
       await sendEmailByPurpose(knex, auth.orgId, auth.tenantId, 'transactional', {
         to: email.trim(),
         subject: `Welcome to the affiliate program! Here's your link and code`,
@@ -343,7 +343,7 @@ export async function PUT(req: Request) {
             <p style="color:#94a3b8;font-size:12px;text-align:center">Track your referrals, conversions, and commissions anytime from your dashboard.</p>
           </div>`
 
-        const { sendEmailByPurpose } = await import('@/app/api/email/email-router')
+        const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')
         await sendEmailByPurpose(knex, auth.orgId, auth.tenantId || '', 'transactional', {
           to: updated.email,
           subject: `You're approved! Here's your affiliate link and code`,

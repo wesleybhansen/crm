@@ -329,7 +329,7 @@ export async function POST(req: Request) {
             <div style="text-align:center"><a href="${dashLinkUrl}" style="display:inline-block;background:#6366f1;color:white;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px">View Your Dashboard</a></div>
           </div>`
 
-        const { sendEmailByPurpose } = await import('@/app/api/email/email-router')
+        const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')
         await sendEmailByPurpose(knex, organizationId, tenantId, 'transactional', {
           to: email.trim(),
           subject: `You're approved! Here's your affiliate link and code`,

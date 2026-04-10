@@ -276,7 +276,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
             <p style="color:#94a3b8;font-size:12px;margin-top:16px">This notification was sent because you have email notifications enabled for this form.</p>
           </div>`
 
-        const { sendEmailByPurpose } = await import('@/app/api/email/email-router')
+        const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')
         await sendEmailByPurpose(knex, form.organization_id, form.tenant_id, 'transactional', {
           to: notifyEmail,
           subject: `New submission: ${form.name}`,
@@ -313,7 +313,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
             </p>
           </div>`
 
-        const { sendEmailByPurpose } = await import('@/app/api/email/email-router')
+        const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')
         await sendEmailByPurpose(knex, form.organization_id, form.tenant_id, 'transactional', {
           to: email,
           subject: lmSubject,

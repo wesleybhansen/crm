@@ -8,8 +8,8 @@ export const openApi = { summary: 'Email intelligence sync', methods: {} }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/app/api/funnels/db'
-import { refreshGmailToken } from '@/app/api/email/gmail-service'
-import { refreshOutlookToken } from '@/app/api/email/outlook-service'
+import { refreshGmailToken } from '@/modules/email/lib/gmail-service'
+import { refreshOutlookToken } from '@/modules/email/lib/outlook-service'
 import crypto from 'crypto'
 
 const MAX_EMAILS_PER_SYNC = 100
