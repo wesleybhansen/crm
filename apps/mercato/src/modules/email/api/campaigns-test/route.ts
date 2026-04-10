@@ -1,13 +1,16 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { POST: { requireAuth: true, requireFeatures: ['email.campaigns.manage'] } }
+export const openApi = { summary: 'Send test email', methods: {} }
+
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/app/api/email/email-router'
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await bootstrap()
-  const { id } = await params
+export async function POST(req: Request) {
+  const url = new URL(req.url)
+  const id = url.searchParams.get('id')
+  if (!id) return NextResponse.json({ ok: false, error: 'id query param required' }, { status: 400 })
   const auth = await getAuthFromCookies()
   if (!auth?.tenantId || !auth?.orgId || !auth?.sub) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })

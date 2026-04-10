@@ -832,8 +832,8 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       }
       case 'manage_campaign': {
         const { action: sub, campaignId } = action.data
-        if (sub === 'send') { const res = await fetch(`/api/campaigns/${campaignId}/send`, { method: 'POST', credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: 'Campaign sent!' } : { ok: false, message: d.error || 'Failed' } }
-        if (sub === 'test') { const res = await fetch(`/api/campaigns/${campaignId}/test`, { method: 'POST', credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: 'Test email sent to your address' } : { ok: false, message: d.error || 'Failed' } }
+        if (sub === 'send') { const res = await fetch(`/api/email/campaigns-send?id=${campaignId}`, { method: 'POST', credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: 'Campaign sent!' } : { ok: false, message: d.error || 'Failed' } }
+        if (sub === 'test') { const res = await fetch(`/api/email/campaigns-test?id=${campaignId}`, { method: 'POST', credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: 'Test email sent to your address' } : { ok: false, message: d.error || 'Failed' } }
         if (sub === 'delete') { await fetch(`/api/email/campaigns?id=${campaignId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Campaign deleted' } }
         if (sub === 'edit') { await fetch('/api/email/campaigns', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: campaignId, subject: action.data.subject, bodyHtml: action.data.body ? `<p>${action.data.body}</p>` : undefined }) }); return { ok: true, message: 'Campaign updated' } }
         return { ok: false, message: `Unknown campaign action: ${sub}` }

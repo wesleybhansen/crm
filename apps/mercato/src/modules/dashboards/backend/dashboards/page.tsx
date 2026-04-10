@@ -67,7 +67,7 @@ export default function SimpleDashboard() {
         const lastSync = d.data.last_sync_at ? new Date(d.data.last_sync_at).getTime() : 0
         const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000
         if (lastSync < twelveHoursAgo) {
-          fetch('/api/email-intelligence/sync', { method: 'POST', credentials: 'include' }).catch(() => {})
+          fetch('/api/email/intelligence-sync', { method: 'POST', credentials: 'include' }).catch(() => {})
         }
       })
       .catch(() => {})

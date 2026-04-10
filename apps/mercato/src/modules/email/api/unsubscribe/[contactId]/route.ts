@@ -1,4 +1,6 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { GET: { requireAuth: false } }
+export const openApi = { summary: 'Email unsubscribe redirect', methods: { GET: { summary: 'Redirect to preference center', tags: ['Email'] } } }
+
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'

@@ -1,3 +1,5 @@
+export const metadata = { POST: { requireAuth: false } }
+export const openApi = { summary: 'Email intelligence cron trigger', methods: {} }
 /**
  * Inbox Intelligence Cron Trigger
  * POST: Called by external cron (1-2x daily). Syncs all enabled orgs/users.
@@ -5,7 +7,7 @@
  */
 import { NextResponse } from 'next/server'
 import { query } from '@/app/api/funnels/db'
-import { runSync } from '@/app/api/email-intelligence/sync/route'
+import { runSync } from '../intelligence-sync/route'
 
 export async function POST(req: Request) {
   const cronSecret = process.env.CRON_SECRET

@@ -25,7 +25,7 @@ export function BackgroundJobs() {
           if (!d.ok || !d.data?.is_enabled) return
           const lastSync = d.data.last_sync_at ? new Date(d.data.last_sync_at).getTime() : 0
           if (lastSync < Date.now() - 6 * 60 * 60 * 1000) {
-            fetch('/api/email-intelligence/sync', { method: 'POST', credentials: 'include' }).catch(() => {})
+            fetch('/api/email/intelligence-sync', { method: 'POST', credentials: 'include' }).catch(() => {})
           }
         })
         .catch(() => {})

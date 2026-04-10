@@ -572,7 +572,7 @@ export default function SimpleSettingsPage() {
     setEiSyncing(true)
     setEiSyncResult(null)
     try {
-      const res = await fetch('/api/email-intelligence/sync', {
+      const res = await fetch('/api/email/intelligence-sync', {
         method: 'POST',
         credentials: 'include',
       })

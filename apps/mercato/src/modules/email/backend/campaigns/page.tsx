@@ -200,7 +200,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
     if (!confirm('Send this blast to all matching contacts?')) return
     setSending(id)
     try {
-      const res = await fetch(`/api/campaigns/${id}/send`, {
+      const res = await fetch(`/api/email/campaigns-send?id=${id}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       })
       const data = await res.json()
@@ -588,7 +588,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                       <Button type="button" variant="outline" size="sm" onClick={async () => {
                         setTesting(c.id)
                         try {
-                          const res = await fetch(`/api/campaigns/${c.id}/test`, { method: 'POST', credentials: 'include' })
+                          const res = await fetch(`/api/email/campaigns-test?id=${c.id}`, { method: 'POST', credentials: 'include' })
                           const data = await res.json()
                           if (data.ok) alert(`Test email sent to ${data.sentTo}`)
                           else alert(data.error || 'Failed to send test')

@@ -1,4 +1,6 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { POST: { requireAuth: true, requireFeatures: ['email.campaigns.manage'] } }
+export const openApi = { summary: 'Send email campaign', methods: {} }
+
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -6,9 +8,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/app/api/email/email-router'
 
 // Send a blast to all matching contacts
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await bootstrap()
-  const { id: blastId } = await params
+export async function POST(req: Request) {
+  const url = new URL(req.url)
+  const blastId = url.searchParams.get('id')
+  if (!blastId) return NextResponse.json({ ok: false, error: 'id query param required' }, { status: 400 })
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
@@ -120,7 +123,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       // Add tracking pixel
       html = html.replace('</body>',
-        `<img src="${baseUrl}/api/email/track/open/${trackingId}" width="1" height="1" style="display:none" />\n</body>`)
+        `<img src="${baseUrl}/api/email/track/open/${trackingId}" width="1" height="1" style="display:none" />
+</body>`)
 
       // Add preference center link and unsubscribe fallback
       html = html.replace('</body>',
@@ -128,7 +132,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         `<a href="${preferenceCenterUrl}" style="color:#999">Manage email preferences</a>` +
         ` &middot; ` +
         `<a href="${baseUrl}/api/email/unsubscribe/${contact.id}" style="color:#999">Unsubscribe</a>` +
-        `</div>\n</body>`)
+        `</div>
+</body>`)
 
       // Store message
       await knex('email_messages').insert({
