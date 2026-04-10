@@ -392,7 +392,7 @@ export default function ListsTab() {
               URL.revokeObjectURL(url)
             }}><Download className="size-3.5 mr-1.5" /> Export</Button>
             <Button type="button" variant="outline" size="sm" onClick={() => setShowImport(!showImport)}><Upload className="size-3.5 mr-1.5" /> Import</Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => setShowEdit(!showEdit)}>
+            <Button type="button" variant="outline" size="sm" onClick={() => { if (!showEdit) startEditList(); else setShowEdit(false) }}>
               <Pencil className="size-3.5 mr-1.5" /> Edit
             </Button>
             <Button type="button" variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/30"

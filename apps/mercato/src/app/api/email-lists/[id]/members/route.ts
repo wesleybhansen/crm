@@ -75,6 +75,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       list_id: listId,
       contact_id: contactId,
       added_at: now,
+      tenant_id: list.tenant_id,
+      organization_id: list.organization_id,
+      created_at: now,
+      updated_at: now,
     }))
 
     await knex('email_list_members')
