@@ -714,7 +714,7 @@ export default function WelcomePage() {
                 ) : (
                   <Button type="button" variant="outline" size="sm" onClick={() => {
                     saveState()
-                    window.location.href = '/api/google/auth?type=both&from=onboarding'
+                    window.location.href = '/api/calendar/google/auth?type=both&from=onboarding'
                   }}>
                     <Link className="size-3 mr-1.5" /> Connect Gmail
                   </Button>

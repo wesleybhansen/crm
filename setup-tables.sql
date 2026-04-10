@@ -77,33 +77,8 @@ CREATE TABLE IF NOT EXISTS ai_settings (
 
 -- Stage Automations
 -- Calendar & Booking
-CREATE TABLE IF NOT EXISTS booking_pages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  title TEXT NOT NULL, slug TEXT NOT NULL, description TEXT,
-  duration_minutes INTEGER NOT NULL DEFAULT 30,
-  availability JSONB NOT NULL DEFAULT '{"monday":{"start":"09:00","end":"17:00"},"tuesday":{"start":"09:00","end":"17:00"},"wednesday":{"start":"09:00","end":"17:00"},"thursday":{"start":"09:00","end":"17:00"},"friday":{"start":"09:00","end":"17:00"}}',
-  buffer_minutes INTEGER NOT NULL DEFAULT 15, is_active BOOLEAN NOT NULL DEFAULT true,
-  owner_user_id UUID, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-
-CREATE TABLE IF NOT EXISTS bookings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  booking_page_id UUID REFERENCES booking_pages(id), contact_id UUID,
-  guest_name TEXT NOT NULL, guest_email TEXT NOT NULL, guest_phone TEXT,
-  start_time TIMESTAMPTZ NOT NULL, end_time TIMESTAMPTZ NOT NULL,
-  status TEXT NOT NULL DEFAULT 'confirmed', notes TEXT,
-  recurrence_rule JSONB, recurrence_parent_id UUID REFERENCES bookings(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS bookings_org_time_idx ON bookings(organization_id, start_time);
-CREATE INDEX IF NOT EXISTS bookings_recurrence_parent_idx ON bookings(recurrence_parent_id);
 
 -- Google Calendar
-CREATE TABLE IF NOT EXISTS google_calendar_connections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  user_id UUID NOT NULL, google_email TEXT NOT NULL,
-  access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry TIMESTAMPTZ NOT NULL,
-  calendar_id TEXT NOT NULL DEFAULT 'primary', is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS google_cal_user_idx ON google_calendar_connections(user_id);
 
 -- SMS
 CREATE TABLE IF NOT EXISTS sms_messages (

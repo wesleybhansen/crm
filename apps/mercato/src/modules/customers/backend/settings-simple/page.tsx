@@ -928,7 +928,7 @@ export default function SimpleSettingsPage() {
               )}
             </div>
             {!emailConnections.some(c => c.provider === 'gmail') && (
-              <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/google/auth?type=both'}>
+              <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/calendar/google/auth?type=both'}>
                 Connect
               </Button>
             )}
@@ -1040,7 +1040,7 @@ export default function SimpleSettingsPage() {
               <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> Connected!</p>
             )}
             <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/google/auth?type=email'}>
+              <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/calendar/google/auth?type=email'}>
                 Connect Gmail
               </Button>
               <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/microsoft/auth'}>

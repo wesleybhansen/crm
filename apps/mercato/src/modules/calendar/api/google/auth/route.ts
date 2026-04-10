@@ -1,3 +1,4 @@
+export const metadata = { GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import crypto from 'crypto'

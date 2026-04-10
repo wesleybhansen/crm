@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     // Check Google Calendar conflicts if connected
     if (page.owner_user_id) {
       try {
-        const { getGoogleBusyTimes } = await import('@/app/api/google/calendar-service')
+        const { getGoogleBusyTimes } = await import('@/modules/calendar/lib/google-calendar-service')
         const busyTimes = await getGoogleBusyTimes(page.owner_user_id, start, end)
         const googleConflict = busyTimes.some(bt =>
           new Date(bt.start) < end && new Date(bt.end) > start
@@ -165,7 +165,7 @@ export async function POST(req: Request) {
     let googleEventId: string | null = null
     if (page.owner_user_id) {
       try {
-        const { createGoogleCalendarEvent } = await import('@/app/api/google/calendar-service')
+        const { createGoogleCalendarEvent } = await import('@/modules/calendar/lib/google-calendar-service')
         const meetingType = page.meeting_type || 'google_meet'
         const result = await createGoogleCalendarEvent(page.owner_user_id, {
           summary: `${page.title} — ${guestName}`,

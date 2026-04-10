@@ -177,7 +177,7 @@ export async function POST(req: Request, ctx: any) {
 
       // Create Google Calendar events for each occurrence if connected
       try {
-        const { createGoogleCalendarEvent } = await import('@/app/api/google/calendar-service')
+        const { createGoogleCalendarEvent } = await import('@/modules/calendar/lib/google-calendar-service')
         for (const occ of occurrences) {
           try {
             await createGoogleCalendarEvent(auth.sub, {
@@ -225,7 +225,7 @@ export async function POST(req: Request, ctx: any) {
 
     // Create Google Calendar event if connected
     try {
-      const { createGoogleCalendarEvent } = await import('@/app/api/google/calendar-service')
+      const { createGoogleCalendarEvent } = await import('@/modules/calendar/lib/google-calendar-service')
       await createGoogleCalendarEvent(auth.sub, {
         summary: title || 'Blocked',
         description: 'Blocked time',

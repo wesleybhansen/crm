@@ -1,4 +1,5 @@
-import { bootstrap } from '@/bootstrap'
+export const metadata = { GET: { requireAuth: true } }
+
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -36,7 +37,7 @@ export async function GET(req: Request, { params }: { params: { userId: string }
         `DTEND:${end}`,
         `CREATED:${created}`,
         `SUMMARY:${escapeICS(b.guest_name || 'Booking')}`,
-        `DESCRIPTION:${escapeICS(`${b.guest_email || ''}${b.notes ? '\\n' + b.notes : ''}`)}`,
+        `DESCRIPTION:${escapeICS(`${b.guest_email || ''}${b.notes ? '\n' + b.notes : ''}`)}`,
         `STATUS:CONFIRMED`,
         'END:VEVENT',
       ].join('\r\n')

@@ -1,4 +1,4 @@
-import { bootstrap } from '@/bootstrap'
+
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'

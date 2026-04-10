@@ -108,7 +108,7 @@ export async function GET(req: Request, ctx: any) {
 
     // Fetch Google Calendar events
     try {
-      const { listGoogleCalendarEvents } = await import('@/app/api/google/calendar-service')
+      const { listGoogleCalendarEvents } = await import('@/modules/calendar/lib/google-calendar-service')
       const googleEvents = await listGoogleCalendarEvents(auth.sub, start, end)
 
       for (const gEvent of googleEvents) {

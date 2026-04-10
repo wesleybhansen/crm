@@ -120,7 +120,7 @@ export async function POST(req: Request) {
 
         // Sync to Google Calendar if connected
         try {
-          const { createGoogleCalendarEvent } = await import('@/app/api/google/calendar-service')
+          const { createGoogleCalendarEvent } = await import('@/modules/calendar/lib/google-calendar-service')
           const result = await createGoogleCalendarEvent(auth.sub, {
             summary: title.trim(),
             description: description?.trim() || undefined,
