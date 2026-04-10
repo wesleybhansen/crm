@@ -23,25 +23,9 @@
 -- ==============================================================================
 
 -- Form Builder (standalone forms)
-CREATE TABLE IF NOT EXISTS forms (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, slug TEXT NOT NULL, description TEXT, template_id TEXT,
-  fields JSONB NOT NULL DEFAULT '[]', theme JSONB NOT NULL DEFAULT '{}', settings JSONB NOT NULL DEFAULT '{}',
-  status TEXT NOT NULL DEFAULT 'draft', owner_user_id UUID,
-  view_count INTEGER NOT NULL DEFAULT 0, submission_count INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  published_at TIMESTAMPTZ, deleted_at TIMESTAMPTZ);
-CREATE INDEX IF NOT EXISTS forms_org_slug_idx ON forms(organization_id, slug);
-CREATE INDEX IF NOT EXISTS forms_org_status_idx ON forms(organization_id, status);
 
 -- Landing Pages
 
-CREATE TABLE IF NOT EXISTS form_submissions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  form_id UUID NOT NULL, landing_page_id UUID, data JSONB NOT NULL,
-  contact_id UUID, source_ip TEXT, user_agent TEXT, referrer TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS form_submissions_org_page_idx ON form_submissions(organization_id, landing_page_id);
 
 -- Email
 
@@ -61,16 +45,6 @@ INSERT INTO credit_packages (name, credit_amount, price, sort_order) VALUES
 -- of the tier 0 cutover (commit history preserves them).
 
 -- AI Usage
-CREATE TABLE IF NOT EXISTS ai_usage (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  month TEXT NOT NULL, call_count INTEGER NOT NULL DEFAULT 0, token_count INTEGER NOT NULL DEFAULT 0,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS ai_usage_org_month_idx ON ai_usage(organization_id, month);
-
-CREATE TABLE IF NOT EXISTS ai_settings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL,
-  organization_id UUID, user_id UUID, setting_key TEXT NOT NULL, setting_value TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 
 -- Business Profiles: MIGRATED to packages/core/src/modules/customers/data/entities.ts
 -- (CustomerBusinessProfile) — see SPEC-061 tier 0.
@@ -81,20 +55,8 @@ CREATE TABLE IF NOT EXISTS ai_settings (
 -- Google Calendar
 
 -- SMS
-CREATE TABLE IF NOT EXISTS sms_messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  contact_id UUID, direction TEXT NOT NULL, from_number TEXT NOT NULL, to_number TEXT NOT NULL,
-  body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', twilio_sid TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS sms_messages_contact_idx ON sms_messages(contact_id, created_at);
 
 -- Courses
-
-CREATE TABLE IF NOT EXISTS lesson_progress (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  enrollment_id UUID NOT NULL REFERENCES course_enrollments(id),
-  lesson_id UUID NOT NULL REFERENCES course_lessons(id),
-  completed_at TIMESTAMPTZ, UNIQUE(enrollment_id, lesson_id));
 
 -- Student auth for course portal
 
@@ -105,14 +67,8 @@ CREATE TABLE IF NOT EXISTS lesson_progress (
 
 
 -- Email status on contacts (for bounce/complaint tracking)
-ALTER TABLE customer_entities ADD COLUMN IF NOT EXISTS email_status TEXT NOT NULL DEFAULT 'active';
 
 -- Response Templates
-CREATE TABLE IF NOT EXISTS response_templates (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, subject TEXT, body_text TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'general',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS response_templates_org_idx ON response_templates(organization_id, category);
 
 -- Contact Engagement Scoring + Reminders: MIGRATED to packages/core/src/modules/customers/data/entities.ts
 -- (CustomerContactEngagementScore, CustomerEngagementEvent, CustomerReminder)
@@ -120,21 +76,9 @@ CREATE INDEX IF NOT EXISTS response_templates_org_idx ON response_templates(orga
 -- created_at column, engagement_events gained tenant_id, and reminders
 -- gained updated_at + deleted_at as part of the tier 0 migration.
 
-ALTER TABLE customer_entities ADD COLUMN IF NOT EXISTS source_details JSONB;
 
 -- Outbound Webhooks
-CREATE TABLE IF NOT EXISTS webhook_subscriptions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  event TEXT NOT NULL, target_url TEXT NOT NULL, secret TEXT, is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS webhook_subs_org_idx ON webhook_subscriptions(organization_id, event);
 
-CREATE TABLE IF NOT EXISTS webhook_deliveries (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), subscription_id UUID NOT NULL REFERENCES webhook_subscriptions(id),
-  event TEXT NOT NULL, payload JSONB NOT NULL, status_code INTEGER, response_body TEXT,
-  attempt INTEGER NOT NULL DEFAULT 1, delivered_at TIMESTAMPTZ, failed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS webhook_deliveries_sub_idx ON webhook_deliveries(subscription_id, created_at DESC);
 
 -- Contact Attachments: MIGRATED to packages/core/src/modules/customers/data/entities.ts
 -- (CustomerContactAttachment) — see SPEC-061 tier 0. Schema gained
@@ -158,20 +102,7 @@ CREATE INDEX IF NOT EXISTS webhook_deliveries_sub_idx ON webhook_deliveries(subs
 
 
 -- Surveys & Forms
-CREATE TABLE IF NOT EXISTS surveys (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  title TEXT NOT NULL, description TEXT, slug TEXT NOT NULL, fields JSONB NOT NULL DEFAULT '[]',
-  thank_you_message TEXT DEFAULT 'Thank you for your response!', is_active BOOLEAN NOT NULL DEFAULT true,
-  response_count INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS surveys_org_slug_idx ON surveys(organization_id, slug);
 
-CREATE TABLE IF NOT EXISTS survey_responses (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), organization_id UUID NOT NULL,
-  survey_id UUID NOT NULL REFERENCES surveys(id), contact_id UUID,
-  respondent_email TEXT, respondent_name TEXT, responses JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS survey_responses_survey_idx ON survey_responses(survey_id, created_at DESC);
 
 -- Funnels
 
@@ -182,97 +113,19 @@ CREATE INDEX IF NOT EXISTS survey_responses_survey_idx ON survey_responses(surve
 
 
 -- Live Chat
-CREATE TABLE IF NOT EXISTS chat_widgets (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, greeting_message TEXT DEFAULT 'Hi there! How can we help you today?',
-  config JSONB NOT NULL DEFAULT '{"position":"bottom-right","primaryColor":"#3B82F6","autoReply":false}',
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 
-CREATE TABLE IF NOT EXISTS chat_conversations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  widget_id UUID NOT NULL REFERENCES chat_widgets(id), contact_id UUID,
-  visitor_name TEXT, visitor_email TEXT, status TEXT NOT NULL DEFAULT 'open',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS chat_conv_org_idx ON chat_conversations(organization_id, status, updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS chat_messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), conversation_id UUID NOT NULL REFERENCES chat_conversations(id),
-  sender_type TEXT NOT NULL DEFAULT 'visitor', message TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS chat_msg_conv_idx ON chat_messages(conversation_id, created_at);
 
 -- Affiliate Campaigns
-CREATE TABLE IF NOT EXISTS affiliate_campaigns (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, description TEXT, product_ids JSONB NOT NULL DEFAULT '[]',
-  commission_rate NUMERIC(10,2) NOT NULL DEFAULT 10.00, commission_type TEXT NOT NULL DEFAULT 'percentage',
-  customer_discount NUMERIC(10,2) DEFAULT 0, customer_discount_type TEXT DEFAULT 'percentage',
-  cookie_duration_days INTEGER NOT NULL DEFAULT 30, auto_approve BOOLEAN NOT NULL DEFAULT false,
-  stripe_coupon_id TEXT, signup_page_enabled BOOLEAN NOT NULL DEFAULT true,
-  status TEXT NOT NULL DEFAULT 'active',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS affiliate_campaigns_org_idx ON affiliate_campaigns(organization_id, status);
 
 -- Affiliates
-CREATE TABLE IF NOT EXISTS affiliates (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  contact_id UUID, name TEXT NOT NULL, email TEXT NOT NULL, affiliate_code TEXT NOT NULL,
-  commission_rate NUMERIC(10,2) NOT NULL DEFAULT 10.00, commission_type TEXT NOT NULL DEFAULT 'percentage',
-  campaign_id UUID REFERENCES affiliate_campaigns(id),
-  stripe_promo_code_id TEXT, stripe_promo_code TEXT,
-  website TEXT, promotion_method TEXT,
-  status TEXT NOT NULL DEFAULT 'active', approved_at TIMESTAMPTZ,
-  total_referrals INTEGER NOT NULL DEFAULT 0,
-  total_conversions INTEGER NOT NULL DEFAULT 0, total_earned NUMERIC(10,2) NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS affiliates_org_code_idx ON affiliates(organization_id, affiliate_code);
-CREATE INDEX IF NOT EXISTS affiliates_org_idx ON affiliates(organization_id, status);
 
-CREATE TABLE IF NOT EXISTS affiliate_referrals (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), affiliate_id UUID NOT NULL REFERENCES affiliates(id),
-  referred_contact_id UUID, referred_email TEXT, referral_source TEXT,
-  converted BOOLEAN NOT NULL DEFAULT false, conversion_value NUMERIC(10,2),
-  commission_amount NUMERIC(10,2), campaign_id UUID,
-  stripe_session_id TEXT, stripe_payment_intent_id TEXT,
-  referred_at TIMESTAMPTZ NOT NULL DEFAULT now(), converted_at TIMESTAMPTZ);
-CREATE INDEX IF NOT EXISTS referrals_affiliate_idx ON affiliate_referrals(affiliate_id, referred_at DESC);
 
-CREATE TABLE IF NOT EXISTS affiliate_payouts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), affiliate_id UUID NOT NULL REFERENCES affiliates(id),
-  amount NUMERIC(10,2) NOT NULL, period_start TIMESTAMPTZ NOT NULL, period_end TIMESTAMPTZ NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending', paid_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS payouts_affiliate_idx ON affiliate_payouts(affiliate_id, created_at DESC);
 
 -- Unified Inbox
-CREATE TABLE IF NOT EXISTS inbox_conversations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  contact_id UUID, chat_conversation_id UUID,
-  status TEXT NOT NULL DEFAULT 'open', unread_count INTEGER NOT NULL DEFAULT 0,
-  last_message_at TIMESTAMPTZ, last_message_channel TEXT, last_message_preview TEXT, last_message_direction TEXT,
-  display_name TEXT, avatar_email TEXT, avatar_phone TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS inbox_conv_org_status_idx ON inbox_conversations(organization_id, status, last_message_at DESC);
-CREATE INDEX IF NOT EXISTS inbox_conv_contact_idx ON inbox_conversations(contact_id) WHERE contact_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS inbox_conv_chat_idx ON inbox_conversations(chat_conversation_id) WHERE chat_conversation_id IS NOT NULL;
 
 -- Inbox internal notes
-CREATE TABLE IF NOT EXISTS inbox_notes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  inbox_conversation_id UUID NOT NULL REFERENCES inbox_conversations(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL, user_name TEXT, content TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS inbox_notes_conv_idx ON inbox_notes(inbox_conversation_id, created_at);
 
 -- Inbox AI draft settings
-CREATE TABLE IF NOT EXISTS inbox_ai_settings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID NOT NULL, organization_id UUID NOT NULL UNIQUE,
-  enabled BOOLEAN NOT NULL DEFAULT false, knowledge_base TEXT, tone TEXT DEFAULT 'professional',
-  instructions TEXT, business_name TEXT, business_description TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-
 -- Sequence branching support
 
 -- Email Connections (Gmail, Outlook, SMTP)
@@ -289,40 +142,18 @@ CREATE TABLE IF NOT EXISTS inbox_ai_settings (
 -- Stripe Connect
 
 -- Twilio Connections
-CREATE TABLE IF NOT EXISTS twilio_connections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  account_sid TEXT NOT NULL, auth_token TEXT NOT NULL, phone_number TEXT NOT NULL,
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS twilio_conn_org_idx ON twilio_connections(organization_id);
 
 -- AI Persona columns on business_profiles
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS ai_persona_name TEXT DEFAULT 'Scout';
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS ai_persona_style TEXT DEFAULT 'professional';
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS ai_custom_instructions TEXT;
 
 -- Website scan fields
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS website_url TEXT;
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS brand_colors JSONB;
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS social_links JSONB;
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS detected_services JSONB;
 
 -- Pipeline mode (deals vs journey)
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS pipeline_mode TEXT DEFAULT 'deals';
 
 -- Email sentiment tracking
 
 -- AI Digest settings
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS digest_frequency TEXT DEFAULT 'weekly';
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS digest_day INTEGER DEFAULT 1;
 
 -- Meeting Prep Briefs
-CREATE TABLE IF NOT EXISTS meeting_prep_briefs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  user_id UUID NOT NULL, contact_id UUID NOT NULL, event_summary TEXT,
-  event_start TIMESTAMPTZ NOT NULL, brief_html TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS meeting_prep_idx ON meeting_prep_briefs(organization_id, event_start DESC);
 
 -- Task Templates: MIGRATED to packages/core/src/modules/customers/data/entities.ts
 -- (CustomerTaskTemplate) — see SPEC-061 tier 0. Schema gained deleted_at
@@ -330,32 +161,12 @@ CREATE INDEX IF NOT EXISTS meeting_prep_idx ON meeting_prep_briefs(organization_
 -- tasks from a template and still queries this table via raw knex.
 
 -- Email intake mode
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS email_intake_mode TEXT DEFAULT 'suggest';
 
 -- Interface mode (simple vs advanced) and onboarding status
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS interface_mode TEXT DEFAULT 'simple';
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS onboarding_complete BOOLEAN DEFAULT false;
 
 -- Brand Voice Engine
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS brand_voice_profile JSONB;
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS brand_voice_updated_at TIMESTAMPTZ;
-ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS brand_voice_source TEXT;
 
 -- Chat widget enhancements (slug, branding, public page)
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS slug TEXT;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS brand_color TEXT DEFAULT '#3B82F6';
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS welcome_message TEXT;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS business_name TEXT;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS public_page_enabled BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS bot_enabled BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS bot_knowledge_base TEXT;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS bot_personality TEXT;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS bot_instructions TEXT;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS bot_guardrails TEXT;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS bot_handoff_message TEXT;
-ALTER TABLE chat_widgets ADD COLUMN IF NOT EXISTS bot_max_responses INTEGER DEFAULT 5;
-CREATE UNIQUE INDEX IF NOT EXISTS chat_widgets_org_slug_idx ON chat_widgets(organization_id, slug);
 
 -- Done
 SELECT 'All custom tables created successfully' AS status;
