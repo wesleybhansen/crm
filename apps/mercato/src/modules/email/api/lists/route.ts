@@ -91,7 +91,7 @@ const crud = makeCrudRoute({
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         return emailListCreateSchema.parse(scoped)
       },
-      response: ({ result }) => withLegacyOk({ id: result?.listId ?? null }),
+      response: ({ result }) => ({ ok: true as const, data: result?.row ?? { id: result?.listId ?? null } }),
       status: 201,
     },
     update: {

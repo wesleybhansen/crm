@@ -182,7 +182,7 @@ export default function ListsTab() {
     if (!newName.trim()) return
     setCreating(true)
     try {
-      const res = await fetch('/api/email-lists', {
+      const res = await fetch('/api/email/lists', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           name: newName.trim(),
@@ -218,7 +218,7 @@ export default function ListsTab() {
   async function deleteList(listId: string, name: string) {
     if (!confirm(`Delete "${name}"?`)) return
     try {
-      await fetch(`/api/email-lists/${listId}`, { method: 'DELETE', credentials: 'include' })
+      await fetch(`/api/email/lists?id=${listId}`, { method: 'DELETE', credentials: 'include' })
       if (selectedList?.id === listId) setSelectedList(null)
       loadLists()
     } catch {}
@@ -266,9 +266,9 @@ export default function ListsTab() {
       }
       const newSourceType = autoTrigger || 'manual'
 
-      await fetch(`/api/email-lists/${selectedList.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ name: editingName.trim(), description: desc || null, sourceType: newSourceType }),
+      await fetch('/api/email/lists', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ id: selectedList.id, name: editingName.trim(), description: desc || null, sourceType: newSourceType }),
       })
       setSelectedList({ ...selectedList, name: editingName.trim(), description: desc || null, source_type: newSourceType })
       setShowEdit(false)

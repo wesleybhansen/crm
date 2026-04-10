@@ -866,7 +866,7 @@ const deleteEspSenderAddressCommand: CommandHandler<{ body?: Record<string, unkn
 // EmailList — compact create/update/delete
 // ---------------------------------------------------------------------------
 
-const createEmailListCommand: CommandHandler<EmailListCreateInput, { listId: string }> = {
+const createEmailListCommand: CommandHandler<EmailListCreateInput, { listId: string; row: Record<string, unknown> }> = {
   id: 'email.lists.create',
   async execute(rawInput, ctx) {
     const parsed = emailListCreateSchema.parse(rawInput)
@@ -889,7 +889,21 @@ const createEmailListCommand: CommandHandler<EmailListCreateInput, { listId: str
       identifiers: { id: l.id, organizationId: l.organizationId, tenantId: l.tenantId },
       indexer: listIndexer, events: listEvents,
     })
-    return { listId: l.id }
+    return {
+      listId: l.id,
+      row: {
+        id: l.id,
+        tenant_id: l.tenantId,
+        organization_id: l.organizationId,
+        name: l.name,
+        description: l.description,
+        source_type: l.sourceType,
+        source_id: l.sourceId,
+        member_count: l.memberCount ?? 0,
+        created_at: l.createdAt,
+        updated_at: l.updatedAt,
+      },
+    }
   },
 }
 

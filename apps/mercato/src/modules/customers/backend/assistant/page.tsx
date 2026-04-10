@@ -373,7 +373,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return d.ok ? { ok: true, message: `Form "${action.data.title}" created` } : { ok: false, message: d.error || 'Failed' }
       }
       case 'create_email_list': {
-        const res = await fetch('/api/email-lists', {
+        const res = await fetch('/api/email/lists', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ name: action.data.name, description: action.data.description })
         })
@@ -849,8 +849,8 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       }
       case 'manage_email_list_advanced': {
         const { action: sub, listId } = action.data
-        if (sub === 'edit') { await fetch(`/api/email-lists/${listId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name: action.data.name }) }); return { ok: true, message: 'List updated' } }
-        if (sub === 'delete') { await fetch(`/api/email-lists/${listId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'List deleted' } }
+        if (sub === 'edit') { await fetch('/api/email/lists', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: listId, name: action.data.name }) }); return { ok: true, message: 'List updated' } }
+        if (sub === 'delete') { await fetch(`/api/email/lists?id=${listId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'List deleted' } }
         if (sub === 'add_bulk' && action.data.contactIds) { await fetch(`/api/email-lists/${listId}/members`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ contactIds: action.data.contactIds }) }); return { ok: true, message: `Added ${action.data.contactIds.length} contact(s) to list` } }
         if (sub === 'remove_member') { await fetch(`/api/email-lists/${listId}/members`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ contactId: action.data.contactId }) }); return { ok: true, message: 'Member removed from list' } }
         return { ok: false, message: `Unknown list action: ${sub}` }
