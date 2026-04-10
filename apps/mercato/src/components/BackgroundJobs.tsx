@@ -19,7 +19,7 @@ export function BackgroundJobs() {
 
     // Email intelligence sync — check every 6 hours
     const syncInterval = setInterval(() => {
-      fetch('/api/email-intelligence/settings', { credentials: 'include' })
+      fetch('/api/email/intelligence-settings', { credentials: 'include' })
         .then(r => r.json())
         .then(d => {
           if (!d.ok || !d.data?.is_enabled) return

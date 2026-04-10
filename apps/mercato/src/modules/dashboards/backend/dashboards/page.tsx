@@ -60,7 +60,7 @@ export default function SimpleDashboard() {
       .catch(() => setLoading(false))
 
     // Background: trigger email intelligence sync if overdue (>12 hours)
-    fetch('/api/email-intelligence/settings', { credentials: 'include' })
+    fetch('/api/email/intelligence-settings', { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
         if (!d.ok || !d.data?.is_enabled) return

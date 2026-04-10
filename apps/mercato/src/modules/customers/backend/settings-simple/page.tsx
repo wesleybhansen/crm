@@ -205,7 +205,7 @@ export default function SimpleSettingsPage() {
     fetch('/api/auth/me', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d?.id) setCalendarFeedId(d.id) }).catch(() => {})
     // Load Inbox Intelligence settings
-    fetch('/api/email-intelligence/settings', { credentials: 'include' })
+    fetch('/api/email/intelligence-settings', { credentials: 'include' })
       .then(r => r.json()).then(d => {
         if (d.ok && d.data) {
           setEiEnabled(d.data.is_enabled || false)
@@ -550,7 +550,7 @@ export default function SimpleSettingsPage() {
   async function saveEiSettings(updates: Record<string, any>) {
     setEiSaving(true)
     try {
-      const res = await fetch('/api/email-intelligence/settings', {
+      const res = await fetch('/api/email/intelligence-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
