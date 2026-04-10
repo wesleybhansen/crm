@@ -1,4 +1,4 @@
-import { applyTaskTemplate } from '../task-templates/apply/route'
+import { applyTaskTemplate } from '@/modules/customers/api/task-templates/apply/route'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 
 /**
