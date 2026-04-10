@@ -308,7 +308,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return d.ok ? { ok: true, message: `SMS sent to ${action.data.to}` } : { ok: false, message: d.error || 'Failed' }
       }
       case 'create_email_campaign': {
-        const res = await fetch('/api/campaigns', {
+        const res = await fetch('/api/email/campaigns', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ name: action.data.name, subject: action.data.subject, bodyHtml: (action.data.body || '').split('\n').map((l: string) => `<p>${l}</p>`).join(''), listId: action.data.listId })
         })
@@ -834,8 +834,8 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         const { action: sub, campaignId } = action.data
         if (sub === 'send') { const res = await fetch(`/api/campaigns/${campaignId}/send`, { method: 'POST', credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: 'Campaign sent!' } : { ok: false, message: d.error || 'Failed' } }
         if (sub === 'test') { const res = await fetch(`/api/campaigns/${campaignId}/test`, { method: 'POST', credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: 'Test email sent to your address' } : { ok: false, message: d.error || 'Failed' } }
-        if (sub === 'delete') { await fetch(`/api/campaigns/${campaignId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Campaign deleted' } }
-        if (sub === 'edit') { await fetch(`/api/campaigns/${campaignId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ subject: action.data.subject, bodyHtml: action.data.body ? `<p>${action.data.body}</p>` : undefined }) }); return { ok: true, message: 'Campaign updated' } }
+        if (sub === 'delete') { await fetch(`/api/email/campaigns?id=${campaignId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Campaign deleted' } }
+        if (sub === 'edit') { await fetch('/api/email/campaigns', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: campaignId, subject: action.data.subject, bodyHtml: action.data.body ? `<p>${action.data.body}</p>` : undefined }) }); return { ok: true, message: 'Campaign updated' } }
         return { ok: false, message: `Unknown campaign action: ${sub}` }
       }
       case 'manage_sequence_advanced': {

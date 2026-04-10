@@ -67,7 +67,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
     fetch('/api/email/templates', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setTemplates(d.data || []) }).catch(() => {})
 
-    fetch('/api/campaigns', { credentials: 'include' })
+    fetch('/api/email/campaigns', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setCampaigns(d.data || []); setLoading(false) }).catch(() => setLoading(false))
   }
 
@@ -132,7 +132,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
   async function deleteCampaign(id: string) {
     if (!confirm('Delete this blast?')) return
     try {
-      const res = await fetch(`/api/campaigns/${id}`, { method: 'DELETE', credentials: 'include' })
+      const res = await fetch(`/api/email/campaigns?id=${id}`, { method: 'DELETE', credentials: 'include' })
       const data = await res.json()
       if (data.ok) loadCampaigns()
       else alert(data.error || 'Failed to delete')
@@ -182,11 +182,11 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
     }
     try {
       const res = editingId
-        ? await fetch(`/api/campaigns/${editingId}`, {
-            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify(payload),
+        ? await fetch('/api/email/campaigns', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ id: editingId, ...payload }),
           })
-        : await fetch('/api/campaigns', {
+        : await fetch('/api/email/campaigns', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify(payload),
           })
