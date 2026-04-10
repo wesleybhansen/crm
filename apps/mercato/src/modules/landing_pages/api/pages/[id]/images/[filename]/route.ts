@@ -1,3 +1,5 @@
+export const metadata = { GET: { requireAuth: true } }
+export const openApi = { summary: '[filename]', methods: {} }
 import * as fs from 'fs'
 import * as path from 'path'
 

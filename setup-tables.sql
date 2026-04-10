@@ -35,20 +35,6 @@ CREATE INDEX IF NOT EXISTS forms_org_slug_idx ON forms(organization_id, slug);
 CREATE INDEX IF NOT EXISTS forms_org_status_idx ON forms(organization_id, status);
 
 -- Landing Pages
-CREATE TABLE IF NOT EXISTS landing_pages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  title TEXT NOT NULL, slug TEXT NOT NULL, template_id TEXT, template_category TEXT,
-  status TEXT NOT NULL DEFAULT 'draft', config JSONB, custom_domain TEXT, published_html TEXT,
-  owner_user_id UUID, view_count INTEGER NOT NULL DEFAULT 0, submission_count INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  published_at TIMESTAMPTZ, deleted_at TIMESTAMPTZ);
-CREATE INDEX IF NOT EXISTS landing_pages_org_slug_idx ON landing_pages(organization_id, slug);
-
-CREATE TABLE IF NOT EXISTS landing_page_forms (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  landing_page_id UUID NOT NULL REFERENCES landing_pages(id), name TEXT NOT NULL DEFAULT 'default',
-  fields JSONB NOT NULL DEFAULT '[]', redirect_url TEXT, notification_email TEXT, success_message TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 
 CREATE TABLE IF NOT EXISTS form_submissions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
@@ -343,57 +329,12 @@ CREATE TABLE IF NOT EXISTS survey_responses (
 CREATE INDEX IF NOT EXISTS survey_responses_survey_idx ON survey_responses(survey_id, created_at DESC);
 
 -- Funnels
-CREATE TABLE IF NOT EXISTS funnels (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, organization_id UUID NOT NULL,
-  name TEXT NOT NULL, slug TEXT NOT NULL, is_published BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX IF NOT EXISTS funnels_org_slug_idx ON funnels(organization_id, slug);
 
-CREATE TABLE IF NOT EXISTS funnel_steps (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), funnel_id UUID NOT NULL REFERENCES funnels(id) ON DELETE CASCADE,
-  step_order INTEGER NOT NULL, step_type TEXT NOT NULL DEFAULT 'page',
-  page_id UUID, config JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS funnel_steps_funnel_idx ON funnel_steps(funnel_id, step_order);
 
-CREATE TABLE IF NOT EXISTS funnel_visits (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), funnel_id UUID NOT NULL, step_id UUID NOT NULL,
-  contact_id UUID, visitor_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS funnel_visits_funnel_idx ON funnel_visits(funnel_id, created_at DESC);
 
 -- Funnel extensions (upsell/downsell support)
-ALTER TABLE funnel_steps ADD COLUMN IF NOT EXISTS name TEXT;
-ALTER TABLE funnel_steps ADD COLUMN IF NOT EXISTS product_id UUID;
-ALTER TABLE funnel_steps ADD COLUMN IF NOT EXISTS on_accept_step_id UUID;
-ALTER TABLE funnel_steps ADD COLUMN IF NOT EXISTS on_decline_step_id UUID;
-ALTER TABLE funnel_visits ADD COLUMN IF NOT EXISTS session_id TEXT;
-ALTER TABLE funnel_visits ADD COLUMN IF NOT EXISTS action TEXT;
-CREATE INDEX IF NOT EXISTS funnel_visits_session_idx ON funnel_visits(session_id);
 
-CREATE TABLE IF NOT EXISTS funnel_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  funnel_id UUID NOT NULL REFERENCES funnels(id) ON DELETE CASCADE,
-  organization_id UUID NOT NULL,
-  visitor_id TEXT NOT NULL,
-  contact_id UUID, email TEXT,
-  stripe_customer_id TEXT, stripe_payment_method_id TEXT,
-  current_step_id UUID, status TEXT NOT NULL DEFAULT 'active',
-  total_revenue NUMERIC(10,2) DEFAULT 0,
-  started_at TIMESTAMPTZ NOT NULL DEFAULT now(), completed_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS funnel_sessions_funnel_idx ON funnel_sessions(funnel_id, started_at DESC);
-CREATE INDEX IF NOT EXISTS funnel_sessions_visitor_idx ON funnel_sessions(visitor_id);
 
-CREATE TABLE IF NOT EXISTS funnel_orders (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID NOT NULL REFERENCES funnel_sessions(id),
-  funnel_id UUID NOT NULL, step_id UUID NOT NULL, product_id UUID,
-  amount NUMERIC(10,2) NOT NULL, currency TEXT NOT NULL DEFAULT 'USD',
-  order_type TEXT NOT NULL DEFAULT 'checkout',
-  stripe_payment_intent_id TEXT, stripe_checkout_session_id TEXT,
-  status TEXT NOT NULL DEFAULT 'pending',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE INDEX IF NOT EXISTS funnel_orders_session_idx ON funnel_orders(session_id);
 
 -- Live Chat
 CREATE TABLE IF NOT EXISTS chat_widgets (

@@ -89,7 +89,7 @@ export default function FunnelsPage() {
 
   const loadFunnels = useCallback(() => {
     setLoading(true)
-    fetch('/api/funnels')
+    fetch('/api/landing_pages/funnels')
       .then((r) => r.json())
       .then((d) => { if (d.ok) setFunnels(d.data); setLoading(false) })
       .catch(() => setLoading(false))
@@ -111,7 +111,7 @@ export default function FunnelsPage() {
 
   useEffect(() => {
     loadFunnels(); loadLandingPages(); loadProducts()
-    fetch('/api/funnels/templates', { credentials: 'include' }).then(r => r.json())
+    fetch('/api/landing_pages/funnels/templates', { credentials: 'include' }).then(r => r.json())
       .then(d => { if (d.ok) setFunnelTemplates(d.data || []) }).catch(() => {})
   }, [loadFunnels, loadLandingPages, loadProducts])
 
@@ -132,7 +132,7 @@ export default function FunnelsPage() {
 
     // Fetch the funnel's steps via a no-change PUT that returns full state
     try {
-      const res = await fetch(`/api/funnels?id=${funnel.id}`, {
+      const res = await fetch(`/api/landing_pages/funnels?id=${funnel.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -159,7 +159,7 @@ export default function FunnelsPage() {
     }
 
     try {
-      const analyticsRes = await fetch(`/api/funnels/${funnel.id}/analytics`)
+      const analyticsRes = await fetch(`/api/landing_pages/funnels/${funnel.id}/analytics`)
       const analyticsData = await analyticsRes.json()
       if (analyticsData.ok) setAnalytics(analyticsData.data)
     } catch {}
@@ -254,7 +254,7 @@ export default function FunnelsPage() {
         })),
       }
 
-      const url = editId ? `/api/funnels?id=${editId}` : '/api/funnels'
+      const url = editId ? `/api/landing_pages/funnels?id=${editId}` : '/api/landing_pages/funnels'
       const method = editId ? 'PUT' : 'POST'
 
       const res = await fetch(url, {
@@ -282,7 +282,7 @@ export default function FunnelsPage() {
     // Pre-publish validation: check if funnel has steps with missing config
     if (!funnel.is_published) {
       try {
-        const stepsRes = await fetch(`/api/funnels/${funnel.id}/analytics`, { credentials: 'include' })
+        const stepsRes = await fetch(`/api/landing_pages/funnels/${funnel.id}/analytics`, { credentials: 'include' })
         const stepsData = await stepsRes.json()
         if (!stepsData.ok) {
           // Can't validate — proceed anyway
@@ -291,7 +291,7 @@ export default function FunnelsPage() {
     }
 
     try {
-      const res = await fetch(`/api/funnels?id=${funnel.id}`, {
+      const res = await fetch(`/api/landing_pages/funnels?id=${funnel.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isPublished: !funnel.is_published }),
@@ -305,7 +305,7 @@ export default function FunnelsPage() {
   async function duplicateFunnel(funnel: Funnel, e: React.MouseEvent) {
     e.stopPropagation()
     try {
-      const res = await fetch(`/api/funnels?action=duplicate&id=${funnel.id}`, { method: 'PATCH', credentials: 'include' })
+      const res = await fetch(`/api/landing_pages/funnels?action=duplicate&id=${funnel.id}`, { method: 'PATCH', credentials: 'include' })
       const data = await res.json()
       if (data.ok) loadFunnels()
       else alert(data.error || 'Failed to duplicate')
@@ -322,7 +322,7 @@ export default function FunnelsPage() {
     const msg = `Delete "${funnel.name}"?${impact ? `\n\nThis funnel has: ${impact}` : ''}\n\nThis cannot be undone.`
     if (!confirm(msg)) return
     try {
-      await fetch(`/api/funnels?id=${funnel.id}`, { method: 'DELETE' })
+      await fetch(`/api/landing_pages/funnels?id=${funnel.id}`, { method: 'DELETE' })
       loadFunnels()
     } catch { alert('Failed to delete') }
   }
@@ -456,7 +456,7 @@ export default function FunnelsPage() {
                         <IconButton
                           variant="ghost" size="sm" type="button"
                           aria-label={funnel.is_published ? 'View live' : 'Preview'}
-                          onClick={(e) => { e.stopPropagation(); window.open(`/api/funnels/public/${funnel.slug}${funnel.is_published ? '' : '?preview=1'}`, '_blank') }}
+                          onClick={(e) => { e.stopPropagation(); window.open(`/api/landing_pages/funnels/public/${funnel.slug}${funnel.is_published ? '' : '?preview=1'}`, '_blank') }}
                         >
                           <ExternalLink className="size-4" />
                         </IconButton>
@@ -528,7 +528,7 @@ export default function FunnelsPage() {
                 onClick={async () => {
                   setInstallingTemplate(tmpl.id)
                   try {
-                    const res = await fetch('/api/funnels/templates', {
+                    const res = await fetch('/api/landing_pages/funnels/templates', {
                       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
                       body: JSON.stringify({ templateId: tmpl.id }),
                     })

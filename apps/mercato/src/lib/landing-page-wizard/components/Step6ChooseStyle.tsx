@@ -32,7 +32,7 @@ export function Step6ChooseStyle({ wizard }: Props) {
 
   const loadPreview = async (styleId: string) => {
     try {
-      const res = await fetch('/api/landing-page-ai/preview-style', {
+      const res = await fetch('/api/landing_pages/ai/preview-style', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

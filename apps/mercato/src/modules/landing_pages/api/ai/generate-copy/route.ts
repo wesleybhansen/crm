@@ -1,3 +1,4 @@
+export const metadata = { POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { callAI, parseAIJsonResponse } from '@/lib/landing-page-wizard/ai-client'
@@ -152,7 +153,8 @@ function buildDefaultSectionSchema(sectionType: SectionType): string {
     }
   }
 
-  return `Section "${sectionType}" (${def.label}):\n  { ${fieldDescriptions.join(', ')} }`
+  return `Section "${sectionType}" (${def.label}):
+  { ${fieldDescriptions.join(', ')} }`
 }
 
 function buildSectionSchemas(sections: SectionType[], isSellPage: boolean): string[] {
@@ -166,7 +168,8 @@ function buildSectionSchemas(sections: SectionType[], isSellPage: boolean): stri
 }
 
 function buildSellPageRules(price: string | undefined): string {
-  const priceContext = price ? `\nThe user's price is ${price}. Match the copy tone to this price point: $47 = casual/accessible, $497 = confident/thorough, $5000+ = authoritative/exclusive.` : ''
+  const priceContext = price ? `
+The user's price is ${price}. Match the copy tone to this price point: $47 = casual/accessible, $497 = confident/thorough, $5000+ = authoritative/exclusive.` : ''
 
   return `
 ## Sell Page Copywriting Rules
@@ -215,7 +218,8 @@ export async function POST(req: Request) {
       .filter(([, value]) => value && value.trim())
       .map(([key, value]) => {
         const question = offerQuestions.find(q => q.key === key)
-        return `Q: ${question?.label || key}\nA: ${value}`
+        return `Q: ${question?.label || key}
+A: ${value}`
       })
       .join('\n\n')
 
@@ -224,7 +228,10 @@ export async function POST(req: Request) {
 
     // Layer 4: Price context for sell pages
     const priceContext = isSellPage && userPrice
-      ? `\n\nPrice point: ${userPrice}\nUse this as the actual price in the value-stack section. Calculate a believable total value (5-10x this price). Generate an appropriate payment plan if the price is $200+.`
+      ? `
+
+Price point: ${userPrice}
+Use this as the actual price in the value-stack section. Calculate a believable total value (5-10x this price). Generate an appropriate payment plan if the price is $200+.`
       : ''
 
     // Layer 5 + 6: Rules and output format combined into user prompt

@@ -1,3 +1,5 @@
+export const metadata = { POST: { requireAuth: true }, GET: { requireAuth: true } }
+export const openApi = { summary: 'images', methods: {} }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { queryOne } from '@/app/api/funnels/db'

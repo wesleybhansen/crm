@@ -28,7 +28,7 @@ export default function LandingPagesListPage() {
   const [loading, setLoading] = useState(true)
 
   const loadPages = useCallback(() => {
-    fetch('/api/pages')
+    fetch('/api/landing_pages/pages')
       .then((r) => r.json())
       .then((d) => { if (d.ok) setPages(d.data); setLoading(false) })
       .catch(() => setLoading(false))
@@ -40,7 +40,7 @@ export default function LandingPagesListPage() {
     e.stopPropagation()
     const newStatus = page.status === 'published' ? 'draft' : 'published'
     try {
-      const res = await fetch(`/api/pages/${page.id}`, {
+      const res = await fetch(`/api/landing_pages/pages/${page.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -55,7 +55,7 @@ export default function LandingPagesListPage() {
     e.stopPropagation()
     if (!confirm(`Delete "${page.title}"?`)) return
     try {
-      await fetch(`/api/pages/${page.id}`, { method: 'DELETE' })
+      await fetch(`/api/landing_pages/pages/${page.id}`, { method: 'DELETE' })
       loadPages()
     } catch { alert('Failed to delete') }
   }
@@ -142,7 +142,7 @@ export default function LandingPagesListPage() {
                             size="sm"
                             type="button"
                             aria-label="View live page"
-                            onClick={(e) => { e.stopPropagation(); window.open(`/api/landing-pages/public/${page.slug}`, '_blank') }}
+                            onClick={(e) => { e.stopPropagation(); window.open(`/api/landing_pages/public/${page.slug}`, '_blank') }}
                           >
                             <ExternalLink className="size-4" />
                           </IconButton>
@@ -156,7 +156,7 @@ export default function LandingPagesListPage() {
                             onClick={async (e) => {
                               e.stopPropagation()
                               try {
-                                const res = await fetch(`/api/landing-pages/public/${page.slug}`)
+                                const res = await fetch(`/api/landing_pages/public/${page.slug}`)
                                 if (!res.ok) { alert('Page not available for download'); return }
                                 const html = await res.text()
                                 const blob = new Blob([html], { type: 'text/html' })

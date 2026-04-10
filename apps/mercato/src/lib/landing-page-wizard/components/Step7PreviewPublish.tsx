@@ -52,7 +52,7 @@ export function Step7PreviewPublish({ wizard }: Props) {
 
   const loadPreview = async () => {
     try {
-      const res = await fetch('/api/landing-page-ai/preview-style', {
+      const res = await fetch('/api/landing_pages/ai/preview-style', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -84,7 +84,7 @@ export function Step7PreviewPublish({ wizard }: Props) {
     if (!refineInput.trim()) return
     setRefining(true)
     try {
-      const res = await fetch('/api/landing-page-ai/revise', {
+      const res = await fetch('/api/landing_pages/ai/revise', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -113,7 +113,7 @@ export function Step7PreviewPublish({ wizard }: Props) {
     setError(null)
 
     try {
-      const createRes = await fetch('/api/pages', {
+      const createRes = await fetch('/api/landing_pages/pages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -157,7 +157,7 @@ export function Step7PreviewPublish({ wizard }: Props) {
         return
       }
 
-      const publishRes = await fetch(`/api/pages/${pageId}/publish`, {
+      const publishRes = await fetch(`/api/landing_pages/pages/${pageId}/publish`, {
         method: 'POST',
         credentials: 'include',
       })
@@ -169,7 +169,7 @@ export function Step7PreviewPublish({ wizard }: Props) {
       }
 
       setPublished(true)
-      setPublishedUrl(`/api/landing-pages/public/${state.slug}`)
+      setPublishedUrl(`/api/landing_pages/public/${state.slug}`)
       sessionStorage.removeItem('lp-wizard-state')
     } catch {
       setError('Network error — please try again')

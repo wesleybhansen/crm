@@ -105,7 +105,7 @@ async function resolveDealId(idOrName: string): Promise<{ id: string; name: stri
 }
 
 async function resolvePageId(idOrName: string): Promise<{ id: string; name: string } | null> {
-  return resolveEntityId(idOrName, '/api/pages', 'title')
+  return resolveEntityId(idOrName, '/api/landing_pages/pages', 'title')
 }
 
 async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; message: string }> {
@@ -545,7 +545,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
           const bizName = bpData2.data?.business_name || 'My Business'
 
           // Step 1: Generate copy via AI
-          const genRes = await fetch('/api/landing-page-ai/generate-copy', {
+          const genRes = await fetch('/api/landing_pages/ai/generate-copy', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify({
               pageType: action.data.pageType || 'capture-leads',
@@ -567,7 +567,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
           const pageType = action.data.pageType || 'capture-leads'
           const formFields = pageType === 'capture-leads' ? [{ label: 'Name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }] : []
 
-          const createRes = await fetch('/api/pages', {
+          const createRes = await fetch('/api/landing_pages/pages', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify({
               title: action.data.title || metaTitle,
@@ -592,7 +592,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
           // Step 3: Publish the page (renders HTML from sections)
           const pageId = createData.data?.id
           if (pageId) {
-            await fetch(`/api/pages/${pageId}/publish`, {
+            await fetch(`/api/landing_pages/pages/${pageId}/publish`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
               body: JSON.stringify({ style: 'warm' })
             })
@@ -602,7 +602,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         } catch { return { ok: false, message: 'Failed to create landing page' } }
       }
       case 'create_funnel': {
-        const res = await fetch('/api/funnels/templates', {
+        const res = await fetch('/api/landing_pages/funnels/templates', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ templateId: action.data.templateId || 'lead-magnet' })
         })
@@ -717,7 +717,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return { ok: true, message: `${d.data.length} sequence(s): ${list}` }
       }
       case 'list_landing_pages': {
-        const res = await fetch('/api/pages', { credentials: 'include' })
+        const res = await fetch('/api/landing_pages/pages', { credentials: 'include' })
         const d = await res.json()
         if (!d.ok || !d.data?.length) return { ok: true, message: 'No landing pages found.' }
         const list = d.data.slice(0, 5).map((p: any) => `${p.title} (${p.view_count || 0} views, ${p.submission_count || 0} leads)`).join(', ')
@@ -863,12 +863,12 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
           if (!resolved) return { ok: false, message: `Landing page "${pageId}" not found` }
           pageId = resolved.id
         }
-        if (sub === 'publish') { await fetch(`/api/pages/${pageId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status: 'published' }) }); return { ok: true, message: 'Page published' } }
-        if (sub === 'unpublish') { await fetch(`/api/pages/${pageId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status: 'draft' }) }); return { ok: true, message: 'Page unpublished' } }
-        if (sub === 'delete') { await fetch(`/api/pages/${pageId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Page deleted' } }
+        if (sub === 'publish') { await fetch(`/api/landing_pages/pages/${pageId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status: 'published' }) }); return { ok: true, message: 'Page published' } }
+        if (sub === 'unpublish') { await fetch(`/api/landing_pages/pages/${pageId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status: 'draft' }) }); return { ok: true, message: 'Page unpublished' } }
+        if (sub === 'delete') { await fetch(`/api/landing_pages/pages/${pageId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Page deleted' } }
         if (sub === 'edit') {
           if (action.data.title) {
-            await fetch(`/api/pages/${pageId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ title: action.data.title }) })
+            await fetch(`/api/landing_pages/pages/${pageId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ title: action.data.title }) })
             return { ok: true, message: `Page title updated to "${action.data.title}"` }
           }
           return { ok: true, message: 'To edit page content (text, images, layout), open the page in the Landing Pages section and use the visual editor. I can change the page title, publish/unpublish, or delete it.' }
@@ -878,10 +878,10 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
       }
       case 'manage_funnel': {
         const { action: sub, funnelId } = action.data
-        if (sub === 'publish') { await fetch(`/api/funnels?id=${funnelId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ isPublished: true }) }); return { ok: true, message: 'Funnel published' } }
-        if (sub === 'unpublish') { await fetch(`/api/funnels?id=${funnelId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ isPublished: false }) }); return { ok: true, message: 'Funnel unpublished' } }
-        if (sub === 'delete') { await fetch(`/api/funnels?id=${funnelId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Funnel deleted' } }
-        if (sub === 'get_analytics') { const res = await fetch(`/api/funnels/${funnelId}/analytics`, { credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: `Funnel: ${d.data?.total_visits || 0} visits, ${d.data?.completed_sessions || 0} completions` } : { ok: true, message: 'Analytics available in the Funnels page.' } }
+        if (sub === 'publish') { await fetch(`/api/landing_pages/funnels?id=${funnelId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ isPublished: true }) }); return { ok: true, message: 'Funnel published' } }
+        if (sub === 'unpublish') { await fetch(`/api/landing_pages/funnels?id=${funnelId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ isPublished: false }) }); return { ok: true, message: 'Funnel unpublished' } }
+        if (sub === 'delete') { await fetch(`/api/landing_pages/funnels?id=${funnelId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Funnel deleted' } }
+        if (sub === 'get_analytics') { const res = await fetch(`/api/landing_pages/funnels/${funnelId}/analytics`, { credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: `Funnel: ${d.data?.total_visits || 0} visits, ${d.data?.completed_sessions || 0} completions` } : { ok: true, message: 'Analytics available in the Funnels page.' } }
         return { ok: false, message: `Unknown funnel action: ${sub}` }
       }
       case 'manage_event_advanced': {

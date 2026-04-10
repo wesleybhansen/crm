@@ -39,7 +39,7 @@ export function Step5CopyReview({ wizard }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/landing-page-ai/generate-copy', {
+      const res = await fetch('/api/landing_pages/ai/generate-copy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -69,7 +69,7 @@ export function Step5CopyReview({ wizard }: Props) {
     if (!instruction?.trim()) return
     setRefiningIndex(index)
     try {
-      const res = await fetch('/api/landing-page-ai/refine-section', {
+      const res = await fetch('/api/landing_pages/ai/refine-section', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

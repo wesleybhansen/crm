@@ -1,3 +1,4 @@
+export const metadata = { POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { callAI, parseAIJsonResponse } from '@/lib/landing-page-wizard/ai-client'

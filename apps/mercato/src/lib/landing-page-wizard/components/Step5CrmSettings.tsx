@@ -64,7 +64,7 @@ export function Step5CrmSettings({ wizard }: Props) {
   const handleGenerateEmailBody = async () => {
     setGeneratingEmail(true)
     try {
-      const res = await fetch('/api/landing-page-ai/refine-section', {
+      const res = await fetch('/api/landing_pages/ai/refine-section', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
