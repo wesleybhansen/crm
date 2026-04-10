@@ -537,7 +537,7 @@ async function runSync(
       const accountId = gmailToken?.connectionId || outlookToken?.connectionId || null
 
       // Store email message — sanitize strings to remove null bytes that break PostgreSQL
-      const sanitize = (s: string | null) => s ? s.replace(/ /g, '') : null
+      const sanitize = (s: string | null) => s ? s.replace(//g, '') : null
       const msgId = crypto.randomUUID()
       const safeContactId = contactId && contactId.length > 0 ? contactId : null
       const safeAccountId = accountId && accountId.length > 0 ? accountId : null

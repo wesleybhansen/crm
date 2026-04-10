@@ -1,5 +1,4 @@
 export const metadata = { GET: { requireAuth: true } }
-export const openApi = { summary: 'Email health analytics', methods: { GET: { summary: 'Email health analytics', tags: ['Email'] } } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
