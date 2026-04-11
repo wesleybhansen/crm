@@ -1,4 +1,3 @@
-// ORM-SKIP: needs entity definition — Phase 2 conversion
 export const metadata = { path: '/surveys', GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
@@ -7,26 +6,32 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import crypto from 'crypto'
+import { Survey, SurveyResponse } from '../../data/schema'
 
 function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 80)
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 80)
+}
+
+function serialize(s: Survey) {
+  return {
+    id: s.id, tenant_id: s.tenantId, organization_id: s.organizationId,
+    title: s.title, description: s.description, slug: s.slug,
+    fields: s.fields, thank_you_message: s.thankYouMessage,
+    is_active: s.isActive, response_count: s.responseCount,
+    created_at: s.createdAt, updated_at: s.updatedAt,
+  }
 }
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
-    const surveys = await knex('surveys')
-      .where('organization_id', auth.orgId)
-      .orderBy('created_at', 'desc')
-      .limit(100)
-    return NextResponse.json({ ok: true, data: surveys })
+    const em = (container.resolve('em') as EntityManager).fork()
+    const surveys = await em.find(Survey, {
+      organizationId: auth.orgId, tenantId: auth.tenantId,
+    }, { orderBy: { createdAt: 'desc' }, limit: 100 })
+    return NextResponse.json({ ok: true, data: surveys.map(serialize) })
   } catch {
     return NextResponse.json({ ok: false, error: 'Failed to load surveys' }, { status: 500 })
   }
@@ -37,7 +42,7 @@ export async function POST(req: Request) {
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = (container.resolve('em') as EntityManager).fork()
     const body = await req.json()
     const { title, description, fields, thankYouMessage } = body
 
@@ -56,27 +61,20 @@ export async function POST(req: Request) {
 
     const baseSlug = slugify(title)
     const suffix = crypto.randomUUID().substring(0, 8)
-    const slug = `${baseSlug}-${suffix}`
-    const id = crypto.randomUUID()
-    const now = new Date()
 
-    await knex('surveys').insert({
-      id,
-      tenant_id: auth.tenantId,
-      organization_id: auth.orgId,
+    const survey = em.create(Survey, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
       title: title.trim(),
       description: description?.trim() || null,
-      slug,
-      fields: JSON.stringify(fields),
-      thank_you_message: thankYouMessage?.trim() || 'Thank you for your response!',
-      is_active: true,
-      response_count: 0,
-      created_at: now,
-      updated_at: now,
+      slug: `${baseSlug}-${suffix}`,
+      fields,
+      thankYouMessage: thankYouMessage?.trim() || 'Thank you for your response!',
     })
+    em.persist(survey)
+    await em.flush()
 
-    const survey = await knex('surveys').where('id', id).first()
-    return NextResponse.json({ ok: true, data: survey }, { status: 201 })
+    return NextResponse.json({ ok: true, data: serialize(survey) }, { status: 201 })
   } catch {
     return NextResponse.json({ ok: false, error: 'Failed to create survey' }, { status: 500 })
   }
@@ -87,27 +85,23 @@ export async function PUT(req: Request) {
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = (container.resolve('em') as EntityManager).fork()
     const url = new URL(req.url)
     const id = url.searchParams.get('id')
     if (!id) return NextResponse.json({ ok: false, error: 'id query param required' }, { status: 400 })
 
-    const existing = await knex('surveys').where('id', id).where('organization_id', auth.orgId).first()
-    if (!existing) return NextResponse.json({ ok: false, error: 'Survey not found' }, { status: 404 })
+    const survey = await em.findOne(Survey, { id, organizationId: auth.orgId, tenantId: auth.tenantId })
+    if (!survey) return NextResponse.json({ ok: false, error: 'Survey not found' }, { status: 404 })
 
     const body = await req.json()
-    const updates: Record<string, unknown> = { updated_at: new Date() }
-    if (body.title !== undefined) updates.title = body.title.trim()
-    if (body.description !== undefined) updates.description = body.description?.trim() || null
-    if (body.fields !== undefined) updates.fields = JSON.stringify(body.fields)
-    if (body.thankYouMessage !== undefined) updates.thank_you_message = body.thankYouMessage?.trim() || 'Thank you for your response!'
-    if (body.isActive !== undefined) updates.is_active = body.isActive
-    if (body.archived === true) updates.archived_at = new Date()
-    if (body.archived === false) updates.archived_at = null
+    if (body.title !== undefined) survey.title = body.title.trim()
+    if (body.description !== undefined) survey.description = body.description?.trim() || null
+    if (body.fields !== undefined) survey.fields = body.fields
+    if (body.thankYouMessage !== undefined) survey.thankYouMessage = body.thankYouMessage?.trim() || 'Thank you for your response!'
+    if (body.isActive !== undefined) survey.isActive = body.isActive
 
-    await knex('surveys').where('id', id).where('organization_id', auth.orgId).update(updates)
-    const survey = await knex('surveys').where('id', id).first()
-    return NextResponse.json({ ok: true, data: survey })
+    await em.flush()
+    return NextResponse.json({ ok: true, data: serialize(survey) })
   } catch {
     return NextResponse.json({ ok: false, error: 'Failed to update survey' }, { status: 500 })
   }
@@ -118,14 +112,14 @@ export async function DELETE(req: Request) {
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = (container.resolve('em') as EntityManager).fork()
     const url = new URL(req.url)
     const id = url.searchParams.get('id')
     if (!id) return NextResponse.json({ ok: false, error: 'id query param required' }, { status: 400 })
 
-    // Delete responses first, then the survey
-    await knex('survey_responses').where('survey_id', id).delete()
-    await knex('surveys').where('id', id).where('organization_id', auth.orgId).delete()
+    // Delete responses first (cascade), then survey
+    await em.nativeDelete(SurveyResponse, { surveyId: id })
+    await em.nativeDelete(Survey, { id, organizationId: auth.orgId, tenantId: auth.tenantId })
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ ok: false, error: 'Failed to delete survey' }, { status: 500 })
@@ -138,6 +132,6 @@ export const openApi: OpenApiRouteDoc = {
     GET: { summary: 'List all surveys', tags: ['Surveys'] },
     POST: { summary: 'Create a survey', tags: ['Surveys'] },
     PUT: { summary: 'Update a survey', tags: ['Surveys'] },
-    DELETE: { summary: 'Soft-delete a survey', tags: ['Surveys'] },
+    DELETE: { summary: 'Delete a survey and responses', tags: ['Surveys'] },
   },
 }
