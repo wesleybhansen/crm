@@ -519,3 +519,107 @@ export class ChatMessage {
   @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
   createdAt: Date = new Date()
 }
+
+// ===========================================================================
+// Response Templates
+// ===========================================================================
+
+@Entity({ tableName: 'response_templates' })
+@Index({ name: 'response_templates_org_idx', properties: ['organizationId', 'category'] })
+export class ResponseTemplate {
+  @PrimaryKey({ type: 'uuid' })
+  id: string = uuid()
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  subject?: string | null
+
+  @Property({ name: 'body_text', type: 'text' })
+  bodyText!: string
+
+  @Property({ type: 'text', default: 'general' })
+  category: string = 'general'
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+// ===========================================================================
+// Webhooks
+// ===========================================================================
+
+@Entity({ tableName: 'webhook_subscriptions' })
+@Index({ name: 'webhook_subs_org_idx', properties: ['organizationId', 'event'] })
+export class WebhookSubscription {
+  @PrimaryKey({ type: 'uuid' })
+  id: string = uuid()
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  event!: string
+
+  @Property({ name: 'target_url', type: 'text' })
+  targetUrl!: string
+
+  @Property({ type: 'text', nullable: true })
+  secret?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'webhook_deliveries' })
+@Index({ name: 'webhook_deliveries_sub_idx', properties: ['subscriptionId', 'createdAt'] })
+export class WebhookDelivery {
+  @PrimaryKey({ type: 'uuid' })
+  id: string = uuid()
+
+  @Property({ name: 'subscription_id', type: 'uuid' })
+  subscriptionId!: string
+
+  @Property({ type: 'text' })
+  event!: string
+
+  @Property({ type: 'jsonb' })
+  payload!: Record<string, unknown>
+
+  @Property({ name: 'status_code', type: 'integer', nullable: true })
+  statusCode?: number | null
+
+  @Property({ name: 'response_body', type: 'text', nullable: true })
+  responseBody?: string | null
+
+  @Property({ type: 'integer', default: 1 })
+  attempt: number = 1
+
+  @Property({ name: 'delivered_at', type: 'timestamptz', nullable: true })
+  deliveredAt?: Date | null
+
+  @Property({ name: 'failed_at', type: 'timestamptz', nullable: true })
+  failedAt?: Date | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+}
