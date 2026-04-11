@@ -1,3 +1,4 @@
+// ORM-SKIP: uses raw pg query() — conversion requires SQL rewrite
 export const metadata = { path: '/ai/conversations', GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } }
 /**
  * AI Assistant conversation history — list, create, update, archive, delete.

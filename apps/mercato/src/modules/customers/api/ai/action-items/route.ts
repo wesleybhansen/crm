@@ -1,3 +1,4 @@
+// ORM-SKIP: AI generation/analysis — complex prompt construction, not CRUD
 export const metadata = { path: '/ai/action-items', GET: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'

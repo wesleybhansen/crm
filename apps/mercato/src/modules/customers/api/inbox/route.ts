@@ -1,3 +1,4 @@
+// ORM-SKIP: needs entity definition — Phase 2 conversion
 export const metadata = { path: '/inbox', GET: { requireAuth: true }, PUT: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'

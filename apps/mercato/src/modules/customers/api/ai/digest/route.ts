@@ -1,3 +1,4 @@
+// ORM-SKIP: AI generation/analysis — complex prompt construction, not CRUD
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'

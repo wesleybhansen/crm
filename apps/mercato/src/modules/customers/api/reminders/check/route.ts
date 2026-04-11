@@ -1,3 +1,4 @@
+// ORM-SKIP: uses raw pg query() — conversion requires SQL rewrite
 export const metadata = { path: '/reminders/check', POST: { requireAuth: true } }
 /**
  * Standalone reminder processor — called from the dashboard on page load.

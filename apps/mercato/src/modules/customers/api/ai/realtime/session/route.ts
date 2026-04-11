@@ -1,3 +1,4 @@
+// ORM-SKIP: uses raw pg query() — conversion requires SQL rewrite
 export const metadata = { path: '/ai/realtime/session', POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'

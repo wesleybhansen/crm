@@ -1,3 +1,4 @@
+// ORM-SKIP: needs entity definition — Phase 2 conversion
 
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'

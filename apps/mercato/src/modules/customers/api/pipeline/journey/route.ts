@@ -1,3 +1,4 @@
+// ORM-SKIP: complex multi-table logic or public/webhook endpoint
 export const metadata = { path: '/pipeline/journey', GET: { requireAuth: true }, PUT: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'

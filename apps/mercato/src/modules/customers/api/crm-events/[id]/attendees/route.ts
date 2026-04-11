@@ -1,3 +1,4 @@
+// ORM-SKIP: events/event_attendees tables do not exist on prod — feature unused
 export const metadata = { path: '/crm-events/[id]/attendees', GET: { requireAuth: true }, DELETE: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'

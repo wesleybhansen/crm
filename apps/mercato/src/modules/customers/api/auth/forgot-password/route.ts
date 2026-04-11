@@ -1,3 +1,4 @@
+// ORM-SKIP: security-critical auth flow — raw SQL conversion deferred for safety
 export const metadata = { path: '/auth/forgot-password', POST: { requireAuth: true } }
 import { NextRequest, NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'

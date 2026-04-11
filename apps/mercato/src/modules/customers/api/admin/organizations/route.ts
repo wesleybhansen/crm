@@ -1,3 +1,4 @@
+// ORM-SKIP: complex multi-table JOINs — raw SQL more maintainable
 export const metadata = { path: '/admin/organizations', GET: { requireAuth: true }, PUT: { requireAuth: true } }
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db'

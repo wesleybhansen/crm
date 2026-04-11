@@ -1,3 +1,4 @@
+// ORM-SKIP: complex multi-table logic or public/webhook endpoint
 export const metadata = { path: '/affiliates/signup', GET: { requireAuth: true }, POST: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'

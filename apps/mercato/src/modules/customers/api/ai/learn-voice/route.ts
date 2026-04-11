@@ -1,3 +1,4 @@
+// ORM-SKIP: uses raw pg query() — conversion requires SQL rewrite
 export const metadata = { path: '/ai/learn-voice', GET: { requireAuth: true }, POST: { requireAuth: true } }
 /**
  * Brand Voice Engine — Learn Voice

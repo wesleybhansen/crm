@@ -1,3 +1,4 @@
+// ORM-SKIP: security-critical auth flow — raw SQL conversion deferred for safety
 export const metadata = { path: '/invite/accept', GET: { requireAuth: true }, POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'

@@ -1,3 +1,4 @@
+// ORM-SKIP: uses raw pg query() — conversion requires SQL rewrite
 export const metadata = { path: '/admin', GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'

@@ -1,3 +1,4 @@
+// ORM-SKIP: events/event_attendees tables do not exist on prod — feature unused
 
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'

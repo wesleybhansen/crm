@@ -1,3 +1,4 @@
+// ORM-SKIP: complex multi-table logic or public/webhook endpoint
 export const metadata = { path: '/pipeline/contact-detail', GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'

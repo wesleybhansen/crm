@@ -1,3 +1,4 @@
+// ORM-SKIP: complex multi-table logic or public/webhook endpoint
 
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
