@@ -392,3 +392,130 @@ export class InboxAiSettings {
   @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
+
+// ===========================================================================
+// Chat
+// ===========================================================================
+
+@Entity({ tableName: 'chat_widgets' })
+@Unique({ name: 'chat_widgets_org_slug_idx', properties: ['organizationId', 'slug'] })
+export class ChatWidget {
+  @PrimaryKey({ type: 'uuid' })
+  id: string = uuid()
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'greeting_message', type: 'text', nullable: true })
+  greetingMessage?: string | null
+
+  @Property({ type: 'jsonb', default: '{}' })
+  config: Record<string, unknown> = {}
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ type: 'text', nullable: true })
+  slug?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'brand_color', type: 'text', nullable: true })
+  brandColor?: string | null
+
+  @Property({ name: 'welcome_message', type: 'text', nullable: true })
+  welcomeMessage?: string | null
+
+  @Property({ name: 'business_name', type: 'text', nullable: true })
+  businessName?: string | null
+
+  @Property({ name: 'public_page_enabled', type: 'boolean', default: true })
+  publicPageEnabled: boolean = true
+
+  @Property({ name: 'bot_enabled', type: 'boolean', default: false })
+  botEnabled: boolean = false
+
+  @Property({ name: 'bot_knowledge_base', type: 'text', nullable: true })
+  botKnowledgeBase?: string | null
+
+  @Property({ name: 'bot_personality', type: 'text', nullable: true })
+  botPersonality?: string | null
+
+  @Property({ name: 'bot_instructions', type: 'text', nullable: true })
+  botInstructions?: string | null
+
+  @Property({ name: 'bot_guardrails', type: 'text', nullable: true })
+  botGuardrails?: string | null
+
+  @Property({ name: 'bot_handoff_message', type: 'text', nullable: true })
+  botHandoffMessage?: string | null
+
+  @Property({ name: 'bot_max_responses', type: 'integer', nullable: true })
+  botMaxResponses?: number | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'chat_conversations' })
+@Index({ name: 'chat_conv_org_idx', properties: ['organizationId', 'status', 'updatedAt'] })
+export class ChatConversation {
+  @PrimaryKey({ type: 'uuid' })
+  id: string = uuid()
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'widget_id', type: 'uuid' })
+  widgetId!: string
+
+  @Property({ name: 'contact_id', type: 'uuid', nullable: true })
+  contactId?: string | null
+
+  @Property({ name: 'visitor_name', type: 'text', nullable: true })
+  visitorName?: string | null
+
+  @Property({ name: 'visitor_email', type: 'text', nullable: true })
+  visitorEmail?: string | null
+
+  @Property({ type: 'text', default: 'open' })
+  status: string = 'open'
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'chat_messages' })
+@Index({ name: 'chat_msg_conv_idx', properties: ['conversationId', 'createdAt'] })
+export class ChatMessage {
+  @PrimaryKey({ type: 'uuid' })
+  id: string = uuid()
+
+  @Property({ name: 'conversation_id', type: 'uuid' })
+  conversationId!: string
+
+  @Property({ name: 'sender_type', type: 'text', default: 'visitor' })
+  senderType: string = 'visitor'
+
+  @Property({ type: 'text' })
+  message!: string
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+}
