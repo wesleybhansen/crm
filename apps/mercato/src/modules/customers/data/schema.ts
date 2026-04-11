@@ -277,3 +277,118 @@ export class AffiliatePayout {
   @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
   createdAt: Date = new Date()
 }
+
+// ===========================================================================
+// Inbox
+// ===========================================================================
+
+@Entity({ tableName: 'inbox_conversations' })
+@Index({ name: 'inbox_conv_org_status_idx', properties: ['organizationId', 'status', 'lastMessageAt'] })
+export class InboxConversation {
+  @PrimaryKey({ type: 'uuid' })
+  id: string = uuid()
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'contact_id', type: 'uuid', nullable: true })
+  contactId?: string | null
+
+  @Property({ name: 'chat_conversation_id', type: 'uuid', nullable: true })
+  chatConversationId?: string | null
+
+  @Property({ type: 'text', default: 'open' })
+  status: string = 'open'
+
+  @Property({ name: 'unread_count', type: 'integer', default: 0 })
+  unreadCount: number = 0
+
+  @Property({ name: 'last_message_at', type: 'timestamptz', nullable: true })
+  lastMessageAt?: Date | null
+
+  @Property({ name: 'last_message_channel', type: 'text', nullable: true })
+  lastMessageChannel?: string | null
+
+  @Property({ name: 'last_message_preview', type: 'text', nullable: true })
+  lastMessagePreview?: string | null
+
+  @Property({ name: 'last_message_direction', type: 'text', nullable: true })
+  lastMessageDirection?: string | null
+
+  @Property({ name: 'display_name', type: 'text', nullable: true })
+  displayName?: string | null
+
+  @Property({ name: 'avatar_email', type: 'text', nullable: true })
+  avatarEmail?: string | null
+
+  @Property({ name: 'avatar_phone', type: 'text', nullable: true })
+  avatarPhone?: string | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'inbox_notes' })
+@Index({ name: 'inbox_notes_conv_idx', properties: ['inboxConversationId', 'createdAt'] })
+export class InboxNote {
+  @PrimaryKey({ type: 'uuid' })
+  id: string = uuid()
+
+  @Property({ name: 'inbox_conversation_id', type: 'uuid' })
+  inboxConversationId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'user_name', type: 'text', nullable: true })
+  userName?: string | null
+
+  @Property({ type: 'text' })
+  content!: string
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'inbox_ai_settings' })
+@Unique({ name: 'inbox_ai_settings_organization_id_key', properties: ['organizationId'] })
+export class InboxAiSettings {
+  @PrimaryKey({ type: 'uuid' })
+  id: string = uuid()
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'boolean', default: false })
+  enabled: boolean = false
+
+  @Property({ name: 'knowledge_base', type: 'text', nullable: true })
+  knowledgeBase?: string | null
+
+  @Property({ type: 'text', nullable: true, default: 'professional' })
+  tone?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  instructions?: string | null
+
+  @Property({ name: 'business_name', type: 'text', nullable: true })
+  businessName?: string | null
+
+  @Property({ name: 'business_description', type: 'text', nullable: true })
+  businessDescription?: string | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
