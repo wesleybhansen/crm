@@ -1,4 +1,4 @@
-// ORM-SKIP: needs entity definition — Phase 2 conversion
+// ORM-SKIP: complex multi-table logic or writes to non-existent columns
 export const metadata = { path: '/inbox', GET: { requireAuth: true }, PUT: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'

@@ -1,4 +1,4 @@
-// ORM-SKIP: needs entity definition — Phase 2 conversion
+// ORM-SKIP: complex multi-table logic or writes to non-existent columns
 
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'

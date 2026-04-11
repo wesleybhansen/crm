@@ -1,4 +1,4 @@
-// ORM-SKIP: needs entity definition — Phase 2 conversion
+// ORM-SKIP: complex business logic beyond simple CRUD — convert when touched
 export const metadata = { path: '/twilio/connections', GET: { requireAuth: true }, POST: { requireAuth: true }, DELETE: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
