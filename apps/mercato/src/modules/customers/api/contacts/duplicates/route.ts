@@ -1,3 +1,4 @@
+// ORM-SKIP: analytics/aggregation — complex GROUP BY/JSONB/multi-table joins better served by raw SQL
 export const metadata = { path: '/contacts/duplicates', GET: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'

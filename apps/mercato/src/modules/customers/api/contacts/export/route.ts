@@ -4,24 +4,29 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 
 export async function GET() {
   const auth = await getAuthFromCookies()
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = (container.resolve('em') as EntityManager).fork()
 
-    const contacts = await knex('customer_entities')
-      .where('organization_id', auth.orgId).whereNull('deleted_at')
-      .orderBy('display_name')
+    const contacts = await findWithDecryption(
+      em, CustomerEntity,
+      { organizationId: auth.orgId, tenantId: auth.tenantId, deletedAt: null },
+      { orderBy: { displayName: 'asc' } },
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
 
     // Build CSV
     const headers = ['Name', 'Email', 'Phone', 'Type', 'Source', 'Stage', 'Status', 'Created']
-    const rows = contacts.map((c: any) => [
-      c.display_name || '', c.primary_email || '', c.primary_phone || '',
-      c.kind || '', c.source || '', c.lifecycle_stage || '', c.status || '',
-      c.created_at ? new Date(c.created_at).toISOString().split('T')[0] : '',
+    const rows = contacts.map((c) => [
+      c.displayName || '', c.primaryEmail || '', c.primaryPhone || '',
+      c.kind || '', c.source || '', c.lifecycleStage || '', c.status || '',
+      c.createdAt ? new Date(c.createdAt).toISOString().split('T')[0] : '',
     ])
 
     const csv = [headers.join(','), ...rows.map((r: string[]) =>
