@@ -1,3 +1,4 @@
+// ORM-SKIP: AI/multimodal — Gemini business card scanning with complex insert logic
 export const metadata = { path: '/contacts/scan', POST: { requireAuth: true }, PUT: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
