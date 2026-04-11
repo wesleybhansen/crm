@@ -71,7 +71,7 @@ export async function POST(req: Request) {
 
         // Fire automation triggers
         try {
-          const { executeAutomationRules } = await import('@/app/api/automation-rules/execute')
+          const { executeAutomationRules } = await import('@/modules/sequences/lib/automation-execute')
           executeAutomationRules(knex, auth.orgId, auth.tenantId, 'contact_created', {
             contactId: id, contactEmail: email, contactName: name,
           }).catch(() => {})

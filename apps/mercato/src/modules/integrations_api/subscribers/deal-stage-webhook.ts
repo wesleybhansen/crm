@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { dispatchWebhook } from '../../../app/api/webhooks/dispatch'
+import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
 
 /**
  * Listens for deal stage changes and dispatches outbound webhooks.

@@ -1,7 +1,7 @@
 export const metadata = { OPTIONS: { requireAuth: true }, POST: { requireAuth: true } }
 export const openApi = { summary: 'checkout', methods: {} }
 import { NextResponse } from 'next/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',

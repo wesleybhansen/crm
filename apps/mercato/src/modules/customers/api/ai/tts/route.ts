@@ -1,7 +1,7 @@
 export const metadata = { path: '/ai/tts', POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { queryOne } from '@/app/api/funnels/db'
+import { queryOne } from '@/lib/db'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()

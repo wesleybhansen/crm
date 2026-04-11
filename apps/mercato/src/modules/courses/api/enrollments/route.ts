@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findOrMergeContact } from '../../../../app/api/contacts/dedup'
+import { findOrMergeContact } from '@/modules/customers/lib/dedup'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['courses.view'] },

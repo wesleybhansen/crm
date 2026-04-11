@@ -6,7 +6,7 @@ export const metadata = { path: '/ai/learn-voice', GET: { requireAuth: true }, P
  */
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 // Gmail-based voice learning is disabled pending Tier 1 OAuth verification.
 // Re-add these imports when restoring the Gmail source path:
 // import { getGmailTokenRaw, fetchGmailSentMessages } from '@/modules/email/lib/gmail-helpers'

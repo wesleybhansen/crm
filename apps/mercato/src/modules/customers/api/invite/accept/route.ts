@@ -1,6 +1,6 @@
 export const metadata = { path: '/invite/accept', GET: { requireAuth: true }, POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import crypto from 'node:crypto'
 import bcrypt from 'bcryptjs'

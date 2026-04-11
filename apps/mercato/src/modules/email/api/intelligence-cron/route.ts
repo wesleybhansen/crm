@@ -6,7 +6,7 @@ export const openApi = { summary: 'Email intelligence cron trigger', methods: {}
  * Secured by CRON_SECRET env var.
  */
 import { NextResponse } from 'next/server'
-import { query } from '@/app/api/funnels/db'
+import { query } from '@/lib/db'
 import { runSync } from '../intelligence-sync/route'
 
 export async function POST(req: Request) {

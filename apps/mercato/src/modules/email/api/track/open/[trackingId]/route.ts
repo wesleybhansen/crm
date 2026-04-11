@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { trackEngagement } from '@/app/api/engagement/score'
-import { dispatchWebhook } from '@/app/api/webhooks/dispatch'
+import { trackEngagement } from '@/modules/customers/lib/engagement-score'
+import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
 
 export const metadata = { GET: { requireAuth: false } }
 

@@ -3,10 +3,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { checkSequenceTriggers } from '@/modules/sequences/services/sequence-triggers'
-import { trackEngagement } from '@/app/api/engagement/score'
-import { dispatchWebhook } from '@/app/api/webhooks/dispatch'
-import { executeAutomationRules } from '@/app/api/automation-rules/execute'
-import { attributeReferral } from '@/app/api/affiliates/attribute'
+import { trackEngagement } from '@/modules/customers/lib/engagement-score'
+import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
+import { executeAutomationRules } from '@/modules/sequences/lib/automation-execute'
+import { attributeReferral } from '@/modules/customers/api/affiliates/attribute'
 
 export const metadata = {
   POST: { requireAuth: false },

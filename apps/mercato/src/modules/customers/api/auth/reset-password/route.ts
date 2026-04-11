@@ -1,6 +1,6 @@
 export const metadata = { path: '/auth/reset-password', POST: { requireAuth: true } }
 import { NextRequest, NextResponse } from 'next/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 
 export async function POST(req: NextRequest) {
   try {

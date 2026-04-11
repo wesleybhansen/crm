@@ -4,8 +4,8 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { checkSequenceTriggers } from '@/modules/sequences/services/sequence-triggers'
-import { dispatchWebhook } from '@/app/api/webhooks/dispatch'
-import { executeAutomationRules } from '@/app/api/automation-rules/execute'
+import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
+import { executeAutomationRules } from '@/modules/sequences/lib/automation-execute'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()

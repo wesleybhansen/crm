@@ -2,7 +2,7 @@ export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true 
 export const openApi = { summary: 'templates', methods: {} }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 import crypto from 'crypto'
 
 type FunnelTemplate = {

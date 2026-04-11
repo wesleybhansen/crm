@@ -1,7 +1,7 @@
 export const metadata = { path: '/reports', GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()

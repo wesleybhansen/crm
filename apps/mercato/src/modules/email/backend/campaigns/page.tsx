@@ -566,11 +566,11 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
             const audience = segFilter?.type === 'list' ? 'Mailing list' : segFilter?.type === 'tag' ? `Tag: ${segFilter.tag}` : 'All contacts'
             return (
               <div key={c.id}>
-                <div className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-muted/30 transition" onClick={() => setExpandedId(isExpanded ? null : c.id)}>
+                <div className="flex items-center gap-3 px-5 py-4 cursor-pointer hover:bg-muted/30 transition" onClick={() => setExpandedId(isExpanded ? null : c.id)}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium">{c.name}</p>
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusColors[c.status] || ''}`}>{c.status}</span>
+                      <p className="text-sm font-medium truncate">{c.name}</p>
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${statusColors[c.status] || ''}`}>{c.status}</span>
                     </div>
                   </div>
                   {c.status === 'sent' && stats && (

@@ -1,6 +1,6 @@
 export const metadata = { GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
-import { queryOne } from '@/app/api/funnels/db'
+import { queryOne } from '@/lib/db'
 
 export async function GET(req: Request) {
   const url = new URL(req.url)

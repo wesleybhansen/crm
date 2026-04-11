@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 
     let voiceSection = `Tone: ${tone}`
     if (voiceProfile?.style_summary) {
-      const { buildVoicePromptSection } = await import('@/app/api/ai/persona')
+      const { buildVoicePromptSection } = await import('@/modules/customers/api/ai/persona')
       voiceSection = buildVoicePromptSection(voiceProfile)
     }
 

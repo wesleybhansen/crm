@@ -1,7 +1,7 @@
 export const metadata = { path: '/ai/conversations/[id]', GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { queryOne } from '@/app/api/funnels/db'
+import { queryOne } from '@/lib/db'
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await getAuthFromCookies()

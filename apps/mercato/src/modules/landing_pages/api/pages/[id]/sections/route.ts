@@ -2,7 +2,7 @@ export const metadata = { GET: { requireAuth: true }, PUT: { requireAuth: true }
 export const openApi = { summary: 'sections', methods: {} }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 
 // Robust HTML section parser — splits the page body into top-level blocks
 function parseSections(html: string): Array<{ id: string; type: string; fields: Record<string, any>; html: string }> {

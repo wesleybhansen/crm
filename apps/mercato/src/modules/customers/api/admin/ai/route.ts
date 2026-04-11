@@ -1,6 +1,6 @@
 export const metadata = { path: '/admin/ai', GET: { requireAuth: true }, PUT: { requireAuth: true } }
 import { NextRequest, NextResponse } from 'next/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 import { getAdminAuth } from '../auth'
 
 export async function GET() {

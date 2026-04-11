@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { trackEngagement } from '@/app/api/engagement/score'
+import { trackEngagement } from '@/modules/customers/lib/engagement-score'
 
 export const metadata = { GET: { requireAuth: false } }
 

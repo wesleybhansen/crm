@@ -7,7 +7,7 @@ export const openApi = { summary: 'Email intelligence sync', methods: {} }
  */
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 import { refreshGmailToken } from '@/modules/email/lib/gmail-service'
 import { refreshOutlookToken } from '@/modules/email/lib/outlook-service'
 import crypto from 'crypto'

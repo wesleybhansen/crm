@@ -552,7 +552,7 @@ export async function POST(req: Request) {
             // Fire automation rules
             if (contactId) {
               try {
-                const { executeAutomationRules } = await import('@/app/api/automation-rules/execute')
+                const { executeAutomationRules } = await import('@/modules/sequences/lib/automation-execute')
                 await executeAutomationRules(knex, meta.orgId || orgId!, meta.tenantId || tenantId!, 'funnel_purchase_completed', {
                   contactId,
                   funnelId: meta.funnelId,

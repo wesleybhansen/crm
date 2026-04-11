@@ -1,6 +1,6 @@
 export const metadata = { path: '/team/role', PUT: { requireAuth: true } }
 import { NextResponse } from 'next/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 import { getTeamAuth, isTeamManager } from '../auth'
 import crypto from 'node:crypto'
 

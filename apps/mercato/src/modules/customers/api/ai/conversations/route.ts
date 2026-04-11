@@ -4,7 +4,7 @@ export const metadata = { path: '/ai/conversations', GET: { requireAuth: true },
  */
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 import crypto from 'node:crypto'
 
 export async function GET() {

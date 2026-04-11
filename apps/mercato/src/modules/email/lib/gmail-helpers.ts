@@ -3,7 +3,7 @@
  * Used by email-intelligence/sync and ai/learn-voice
  */
 
-import { query, queryOne } from '@/app/api/funnels/db'
+import { query, queryOne } from '@/lib/db'
 import { refreshGmailToken } from './gmail-service'
 
 export interface GmailTokenResult {
