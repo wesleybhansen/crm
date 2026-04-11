@@ -1,4 +1,4 @@
-export const metadata = { POST: { requireAuth: true } }
+export const metadata = { path: '/crm-events/ai', POST: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'

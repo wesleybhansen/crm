@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, DELETE: { requireAuth: true } }
+export const metadata = { path: '/crm-events/[id]/attendees', GET: { requireAuth: true }, DELETE: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'

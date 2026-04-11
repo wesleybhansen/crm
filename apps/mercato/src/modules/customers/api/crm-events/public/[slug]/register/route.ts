@@ -5,7 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 
 
-export const metadata = { POST: { requireAuth: false } }
+export const metadata = { path: '/crm-events/public/[slug]/register', POST: { requireAuth: false } }
 
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   try {

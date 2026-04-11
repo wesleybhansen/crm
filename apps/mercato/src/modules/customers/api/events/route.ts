@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true } }
+export const metadata = { path: '/events', GET: { requireAuth: true } }
 /**
  * Events API - Returns declared events from module events.ts files
  *

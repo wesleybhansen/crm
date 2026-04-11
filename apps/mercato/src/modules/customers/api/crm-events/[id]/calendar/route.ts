@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-export const metadata = { GET: { requireAuth: false } }
+export const metadata = { path: '/crm-events/[id]/calendar', GET: { requireAuth: false } }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {

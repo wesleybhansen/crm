@@ -1,4 +1,4 @@
-export const metadata = { POST: { requireAuth: true }, DELETE: { requireAuth: true } }
+export const metadata = { path: '/team/invite', POST: { requireAuth: true }, DELETE: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/app/api/funnels/db'
 import { getTeamAuth, isTeamManager } from '../auth'

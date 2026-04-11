@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, PUT: { requireAuth: true } }
+export const metadata = { path: '/crm-company-links', GET: { requireAuth: true }, PUT: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'

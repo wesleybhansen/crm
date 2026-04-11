@@ -1,4 +1,4 @@
-export const metadata = { POST: { requireAuth: true } }
+export const metadata = { path: '/reminders/check', POST: { requireAuth: true } }
 /**
  * Standalone reminder processor — called from the dashboard on page load.
  * Processes due reminders and sends notifications via connected email or ESP.

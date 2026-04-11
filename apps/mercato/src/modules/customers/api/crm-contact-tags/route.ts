@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true } }
+export const metadata = { path: '/crm-contact-tags', GET: { requireAuth: true }, POST: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies, getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'

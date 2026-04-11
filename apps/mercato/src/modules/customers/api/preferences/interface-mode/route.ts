@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, PUT: { requireAuth: true } }
+export const metadata = { path: '/preferences/interface-mode', GET: { requireAuth: true }, PUT: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 

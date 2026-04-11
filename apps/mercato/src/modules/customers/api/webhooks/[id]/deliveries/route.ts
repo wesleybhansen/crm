@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true } }
+export const metadata = { path: '/webhooks/[id]/deliveries', GET: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'

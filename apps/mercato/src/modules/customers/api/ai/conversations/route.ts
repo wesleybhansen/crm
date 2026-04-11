@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } }
+export const metadata = { path: '/ai/conversations', GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } }
 /**
  * AI Assistant conversation history — list, create, update, archive, delete.
  */

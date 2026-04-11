@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-export const metadata = { POST: { requireAuth: false } }
+export const metadata = { path: '/sms/webhook', POST: { requireAuth: false } }
 
 // Twilio webhook for incoming SMS
 // Routes inbound messages to the correct org by looking up the "To" phone number

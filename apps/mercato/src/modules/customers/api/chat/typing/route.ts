@@ -9,7 +9,7 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
-export const metadata = { POST: { requireAuth: false }, OPTIONS: { requireAuth: false } }
+export const metadata = { path: '/chat/typing', POST: { requireAuth: false }, OPTIONS: { requireAuth: false } }
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS })

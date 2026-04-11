@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true } }
+export const metadata = { path: '/affiliates/signup', GET: { requireAuth: true }, POST: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'

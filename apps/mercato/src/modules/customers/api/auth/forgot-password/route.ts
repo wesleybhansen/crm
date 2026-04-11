@@ -1,4 +1,4 @@
-export const metadata = { POST: { requireAuth: true } }
+export const metadata = { path: '/auth/forgot-password', POST: { requireAuth: true } }
 import { NextRequest, NextResponse } from 'next/server'
 import { query, queryOne } from '@/app/api/funnels/db'
 import crypto from 'node:crypto'

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-export const metadata = { GET: { requireAuth: false } }
+export const metadata = { path: '/surveys/public/[slug]', GET: { requireAuth: false } }
 
 function renderField(field: { id: string; type: string; label: string; required?: boolean; options?: string[] }): string {
   const req = field.required ? 'required' : ''

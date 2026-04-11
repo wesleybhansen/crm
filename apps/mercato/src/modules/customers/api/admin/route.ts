@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true } }
+export const metadata = { path: '/admin', GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/app/api/funnels/db'
 import { getAdminAuth } from './auth'

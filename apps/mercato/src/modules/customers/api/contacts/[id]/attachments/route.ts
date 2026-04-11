@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true }, DELETE: { requireAuth: true } }
+export const metadata = { path: '/contacts/[id]/attachments', GET: { requireAuth: true }, POST: { requireAuth: true }, DELETE: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-export const metadata = { POST: { requireAuth: false } }
+export const metadata = { path: '/waitlist', POST: { requireAuth: false } }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 

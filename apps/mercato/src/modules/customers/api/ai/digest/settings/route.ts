@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, PUT: { requireAuth: true } }
+export const metadata = { path: '/ai/digest/settings', GET: { requireAuth: true }, PUT: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'

@@ -1,4 +1,4 @@
-export const metadata = { POST: { requireAuth: true } }
+export const metadata = { path: '/inbox/ai-draft', POST: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'

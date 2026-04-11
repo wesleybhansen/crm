@@ -11,7 +11,7 @@ export const openApi: OpenApiRouteDoc = {
   POST: { summary: 'Cron: detect decaying relationships and draft follow-ups', tags: ['AI', 'Relationship Decay'] },
 }
 
-export const metadata = {
+export const metadata = { path: '/ai/relationship-decay',
   POST: { requireAuth: false },
 }
 

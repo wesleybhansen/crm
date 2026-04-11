@@ -6,7 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 
-export const metadata = {
+export const metadata = { path: '/ai/meeting-prep',
   POST: { requireAuth: false },
 }
 

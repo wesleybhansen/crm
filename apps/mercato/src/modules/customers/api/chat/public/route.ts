@@ -6,7 +6,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import crypto from 'crypto'
 import type { Knex } from 'knex'
 
-export const metadata = {
+export const metadata = { path: '/chat/public',
   GET: { requireAuth: false },
   POST: { requireAuth: false },
   OPTIONS: { requireAuth: false },

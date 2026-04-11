@@ -7,7 +7,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 
-export const metadata = {
+export const metadata = { path: '/ai/digest',
   POST: { requireAuth: false },
 }
 

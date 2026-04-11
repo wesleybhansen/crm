@@ -1,4 +1,4 @@
-export const metadata = { POST: { requireAuth: true } }
+export const metadata = { path: '/ai/realtime/session', POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/app/api/funnels/db'

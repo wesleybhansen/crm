@@ -1,4 +1,4 @@
-export const metadata = { DELETE: { requireAuth: true } }
+export const metadata = { path: '/team/member', DELETE: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/app/api/funnels/db'
 import { getTeamAuth, isTeamManager } from '../auth'

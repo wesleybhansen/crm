@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true } }
+export const metadata = { path: '/ai/learn-voice', GET: { requireAuth: true }, POST: { requireAuth: true } }
 /**
  * Brand Voice Engine — Learn Voice
  * POST: Analyze writing samples (Gmail sent emails or uploaded document) and generate voice profile

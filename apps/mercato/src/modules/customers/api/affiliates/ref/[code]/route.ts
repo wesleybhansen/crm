@@ -3,7 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
-export const metadata = {
+export const metadata = { path: '/affiliates/ref/[code]',
   GET: { requireAuth: false },
 }
 

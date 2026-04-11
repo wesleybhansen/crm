@@ -4,7 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
-export const metadata = { POST: { requireAuth: false } }
+export const metadata = { path: '/ai/classify-sentiment', POST: { requireAuth: false } }
 
 /**
  * Classify email sentiment. Called internally when emails are received.

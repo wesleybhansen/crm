@@ -7,7 +7,7 @@ import { TEMPLATE_CSS_MINIMAL } from '@/modules/courses/api/public/template-css-
 import { TEMPLATE_CSS_DARK } from '@/modules/courses/api/public/template-css-dark'
 
 
-export const metadata = { GET: { requireAuth: false } }
+export const metadata = { path: '/crm-events/public/[slug]', GET: { requireAuth: false } }
 
 function e(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')

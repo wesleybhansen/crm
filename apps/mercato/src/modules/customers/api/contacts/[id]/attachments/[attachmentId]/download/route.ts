@@ -7,7 +7,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
-export const metadata = {
+export const metadata = { path: '/contacts/[id]/attachments/[attachmentId]/download',
   GET: { requireAuth: true },
 }
 
