@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
   try {
     const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const knex = (container.resolve('em') as EntityManager).getKnex()
     const body = await req.json()
     const { primaryId, secondaryId } = body
 
@@ -27,24 +27,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'primaryId and secondaryId must be different' }, { status: 400 })
     }
 
-    // Validate both contacts exist and belong to the org (ORM with tenant scoping)
-    const { CustomerEntity } = await import('@open-mercato/core/modules/customers/data/entities')
-    const primary = await em.findOne(CustomerEntity, {
-      id: primaryId, organizationId: auth.orgId, tenantId: auth.tenantId!, deletedAt: null,
-    })
+    // Validate both contacts exist and belong to the org
+    const primary = await knex('customer_entities')
+      .where('id', primaryId)
+      .where('organization_id', auth.orgId)
+      .whereNull('deleted_at')
+      .first()
+
     if (!primary) {
       return NextResponse.json({ ok: false, error: 'Primary contact not found' }, { status: 404 })
     }
 
-    const secondary = await em.findOne(CustomerEntity, {
-      id: secondaryId, organizationId: auth.orgId, tenantId: auth.tenantId!, deletedAt: null,
-    })
+    const secondary = await knex('customer_entities')
+      .where('id', secondaryId)
+      .where('organization_id', auth.orgId)
+      .whereNull('deleted_at')
+      .first()
+
     if (!secondary) {
       return NextResponse.json({ ok: false, error: 'Secondary contact not found' }, { status: 404 })
     }
 
-    // Merge uses knex for cross-table operations (complex helper)
-    const knex = em.getKnex()
     const result = await mergeContacts(knex, auth.orgId, primaryId, secondaryId)
 
     return NextResponse.json({ ok: true, data: result })

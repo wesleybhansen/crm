@@ -4,14 +4,14 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
     const body = await req.json()
     const { contacts } = body
 
@@ -27,50 +27,53 @@ export async function POST(req: Request) {
       const { name, email, phone, company, source, tags } = contact
       if (!name && !email) { skipped++; continue }
 
-      // Check for duplicate by email (ORM)
+      // Check for duplicate by email
       if (email) {
-        const existing = await em.findOne(CustomerEntity, {
-          primaryEmail: email, organizationId: auth.orgId, tenantId: auth.tenantId, deletedAt: null,
-        })
+        const existing = await knex('customer_entities')
+          .where('primary_email', email)
+          .where('organization_id', auth.orgId)
+          .whereNull('deleted_at')
+          .first()
         if (existing) { skipped++; continue }
       }
 
       try {
-        // Create entity via ORM
-        const entity = em.create(CustomerEntity, {
-          tenantId: auth.tenantId,
-          organizationId: auth.orgId,
-          kind: 'person' as const,
-          displayName: name || email,
-          primaryEmail: email || null,
-          primaryPhone: phone || null,
+        const id = require('crypto').randomUUID()
+        await knex('customer_entities').insert({
+          id,
+          tenant_id: auth.tenantId,
+          organization_id: auth.orgId,
+          kind: 'person',
+          display_name: name || email,
+          primary_email: email || null,
+          primary_phone: phone || null,
           source: source || 'import',
           status: 'active',
-          lifecycleStage: 'prospect',
+          lifecycle_stage: 'prospect',
+          created_at: new Date(),
+          updated_at: new Date(),
         })
-        em.persist(entity)
-        await em.flush()
 
-        // Create person profile via ORM
+        // Create person profile
         if (name) {
           const parts = name.split(' ')
-          const person = em.create(CustomerPersonProfile, {
-            tenantId: auth.tenantId,
-            organizationId: auth.orgId,
-            entity: entity.id,
-            firstName: parts[0] || '',
-            lastName: parts.slice(1).join(' ') || '',
-          })
-          em.persist(person)
-          await em.flush()
+          await knex('customer_people').insert({
+            id: require('crypto').randomUUID(),
+            tenant_id: auth.tenantId,
+            organization_id: auth.orgId,
+            entity_id: id,
+            first_name: parts[0] || '',
+            last_name: parts.slice(1).join(' ') || '',
+            created_at: new Date(),
+            updated_at: new Date(),
+          }).catch(() => {})
         }
 
-        // Fire automation triggers (stays on knex — cross-module orchestration)
+        // Fire automation triggers
         try {
           const { executeAutomationRules } = await import('@/modules/sequences/lib/automation-execute')
-          const knex = em.getKnex()
           executeAutomationRules(knex, auth.orgId, auth.tenantId, 'contact_created', {
-            contactId: entity.id, contactEmail: email, contactName: name,
+            contactId: id, contactEmail: email, contactName: name,
           }).catch(() => {})
         } catch {}
 

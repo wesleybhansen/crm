@@ -22,12 +22,13 @@ export async function GET(
 
   try {
     const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
-    const { CustomerContactAttachment } = await import('@open-mercato/core/modules/customers/data/entities')
+    const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    const attachment = await em.findOne(CustomerContactAttachment, {
-      id: attachmentId, contactId, organizationId: auth.orgId,
-    })
+    const attachment = await knex('contact_attachments')
+      .where('id', attachmentId)
+      .where('contact_id', contactId)
+      .where('organization_id', auth.orgId)
+      .first()
 
     if (!attachment) {
       return NextResponse.json({ ok: false, error: 'Attachment not found' }, { status: 404 })
@@ -43,7 +44,7 @@ export async function GET(
       return NextResponse.json({ ok: false, error: 'File not found on disk' }, { status: 404 })
     }
 
-    const contentType = attachment.mimeType || 'application/octet-stream'
+    const contentType = attachment.mime_type || 'application/octet-stream'
 
     return new NextResponse(fileBuffer, {
       status: 200,

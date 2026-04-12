@@ -1,4 +1,3 @@
-// ORM-SKIP: complex JOINs with encryption handling — convert when touched
 export const metadata = { path: '/crm-company-links', GET: { requireAuth: true }, PUT: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'

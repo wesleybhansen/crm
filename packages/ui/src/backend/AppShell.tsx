@@ -1260,22 +1260,25 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                       // Groups with no name render as standalone items (no collapsible header)
                       if (!g.name) {
                         return (
-                          <div key={groupId} className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''} mb-1`}>
-                            {visibleItems.map((i) => {
-                              const isActive = pathname === i.href || (i.href !== '/backend' && !!pathname?.startsWith(i.href + '/'))
-                              return (
-                                <Link
-                                  key={i.href}
-                                  href={i.href}
-                                  data-menu-item-id={i.href}
-                                  className={`flex items-center gap-2 rounded-md ${compact ? 'px-2 justify-center' : 'px-3'} py-2 text-sm transition ${isActive ? 'bg-background border shadow-sm font-medium' : 'hover:bg-accent hover:text-accent-foreground'}`}
-                                >
-                                  {i.icon}
-                                  {!compact && <span>{i.title}</span>}
-                                </Link>
-                              )
-                            })}
-                          </div>
+                          <React.Fragment key={groupId}>
+                            <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''} mb-1`}>
+                              {visibleItems.map((i) => {
+                                const isActive = pathname === i.href || (i.href !== '/backend' && !!pathname?.startsWith(i.href + '/'))
+                                return (
+                                  <Link
+                                    key={i.href}
+                                    href={i.href}
+                                    data-menu-item-id={i.href}
+                                    className={`flex items-center gap-2 rounded-md ${compact ? 'px-2 justify-center' : 'px-3'} py-2 text-sm transition ${isActive ? 'bg-background border shadow-sm font-medium' : 'hover:bg-accent hover:text-accent-foreground'}`}
+                                  >
+                                    {i.icon}
+                                    {!compact && <span>{i.title}</span>}
+                                  </Link>
+                                )
+                              })}
+                            </div>
+                            {gi !== mainLastVisibleGroupIndex && <div className="my-2 border-t border-dotted" />}
+                          </React.Fragment>
                         )
                       }
 
@@ -1284,7 +1287,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                           <Button
                             variant="muted"
                             onClick={() => toggleGroup(groupId)}
-                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-2`}
+                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-1.5`}
                             aria-expanded={open}
                           >
                             {!compact && <span>{g.name}</span>}
