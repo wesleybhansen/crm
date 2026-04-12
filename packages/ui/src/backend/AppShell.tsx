@@ -1357,7 +1357,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                       )
                     })}
                   </nav>
-                  <div className="mt-4 pt-4 border-t">
+                  <div className="pt-2 border-t">
                     {shouldRenderSidebarInjectionSpots ? (
                       <InjectionSpot
                         spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}

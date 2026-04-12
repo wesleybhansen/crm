@@ -16,6 +16,8 @@ services:
     command: ["sh", "-c", "cp .mercato/next/standalone/apps/mercato/server.js .mercato/next/standalone/apps/mercato/server.cjs && node .mercato/next/standalone/apps/mercato/server.cjs"]
     ports:
       - "3000:3000"
+    volumes:
+      - uploads_data:/app/apps/mercato/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +70,8 @@ services:
 volumes:
   postgres_data:
     name: launchos-postgres-data
+  uploads_data:
+    name: launchos-uploads-data
 
 networks:
   launchos-network:
