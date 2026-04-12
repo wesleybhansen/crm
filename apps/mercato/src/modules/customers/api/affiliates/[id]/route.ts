@@ -5,21 +5,21 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { Affiliate, AffiliateReferral, AffiliatePayout } from '../../../data/schema'
+import crypto from 'crypto'
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await getAuthFromCookies()
-  if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const { id } = await params
     const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    const affiliate = await em.findOne(Affiliate, { id, organizationId: auth.orgId, tenantId: auth.tenantId })
+    const affiliate = await knex('affiliates').where('id', id).where('organization_id', auth.orgId).first()
     if (!affiliate) return NextResponse.json({ ok: false, error: 'Affiliate not found' }, { status: 404 })
 
-    const referrals = await em.find(AffiliateReferral, { affiliateId: id }, { orderBy: { referredAt: 'desc' }, limit: 200 })
-    const payouts = await em.find(AffiliatePayout, { affiliateId: id }, { orderBy: { createdAt: 'desc' }, limit: 100 })
+    const referrals = await knex('affiliate_referrals').where('affiliate_id', id).orderBy('referred_at', 'desc').limit(200)
+    const payouts = await knex('affiliate_payouts').where('affiliate_id', id).orderBy('created_at', 'desc').limit(100)
 
     return NextResponse.json({ ok: true, data: { affiliate, referrals, payouts } })
   } catch (error) {
@@ -34,26 +34,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const { id } = await params
     const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const knex = (container.resolve('em') as EntityManager).getKnex()
     const body = await req.json()
     const { amount, periodStart, periodEnd } = body
 
     if (!amount || amount <= 0) return NextResponse.json({ ok: false, error: 'A positive payout amount is required' }, { status: 400 })
 
-    const affiliate = await em.findOne(Affiliate, { id, organizationId: auth.orgId, tenantId: auth.tenantId })
+    const affiliate = await knex('affiliates').where('id', id).where('organization_id', auth.orgId).first()
     if (!affiliate) return NextResponse.json({ ok: false, error: 'Affiliate not found' }, { status: 404 })
 
+    const payoutId = crypto.randomUUID()
     const now = new Date()
-    const payout = em.create(AffiliatePayout, {
-      affiliateId: id,
-      amount: String(Number(amount)),
-      periodStart: periodStart ? new Date(periodStart) : now,
-      periodEnd: periodEnd ? new Date(periodEnd) : now,
+    await knex('affiliate_payouts').insert({
+      id: payoutId, affiliate_id: id, amount: Number(amount),
+      period_start: periodStart ? new Date(periodStart) : now,
+      period_end: periodEnd ? new Date(periodEnd) : now,
+      status: 'pending', created_at: now,
     })
-    em.persist(payout)
-    await em.flush()
 
-    return NextResponse.json({ ok: true, data: { id: payout.id } }, { status: 201 })
+    return NextResponse.json({ ok: true, data: { id: payoutId } }, { status: 201 })
   } catch (error) {
     console.error('[affiliates.detail.POST] failed', error)
     return NextResponse.json({ ok: false, error: 'Failed to create payout' }, { status: 500 })
@@ -62,36 +61,39 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await getAuthFromCookies()
-  if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const { id } = await params
     const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const knex = (container.resolve('em') as EntityManager).getKnex()
     const body = await req.json()
 
     if (body.payoutId && body.action === 'mark_paid') {
-      const payout = await em.findOne(AffiliatePayout, { id: body.payoutId })
+      // Verify the payout belongs to an affiliate in this org
+      const payout = await knex('affiliate_payouts as ap')
+        .join('affiliates as a', 'ap.affiliate_id', 'a.id')
+        .where('ap.id', body.payoutId)
+        .where('a.organization_id', auth.orgId)
+        .select('ap.id')
+        .first()
       if (!payout) return NextResponse.json({ ok: false, error: 'Payout not found' }, { status: 404 })
-      // Verify affiliate belongs to org
-      const aff = await em.findOne(Affiliate, { id: payout.affiliateId, organizationId: auth.orgId })
-      if (!aff) return NextResponse.json({ ok: false, error: 'Payout not found' }, { status: 404 })
-      payout.status = 'paid'
-      payout.paidAt = new Date()
-      await em.flush()
+      await knex('affiliate_payouts').where('id', body.payoutId).update({ status: 'paid', paid_at: new Date() })
       return NextResponse.json({ ok: true })
     }
 
-    const affiliate = await em.findOne(Affiliate, { id, organizationId: auth.orgId, tenantId: auth.tenantId })
+    const affiliate = await knex('affiliates').where('id', id).where('organization_id', auth.orgId).first()
     if (!affiliate) return NextResponse.json({ ok: false, error: 'Affiliate not found' }, { status: 404 })
 
-    if (body.name !== undefined) affiliate.name = body.name
-    if (body.email !== undefined) affiliate.email = body.email
-    if (body.commissionRate !== undefined) affiliate.commissionRate = String(body.commissionRate)
-    if (body.commissionType !== undefined) affiliate.commissionType = body.commissionType
-    if (body.status !== undefined) affiliate.status = body.status
+    const updates: Record<string, unknown> = { updated_at: new Date() }
+    if (body.name !== undefined) updates.name = body.name
+    if (body.email !== undefined) updates.email = body.email
+    if (body.commissionRate !== undefined) updates.commission_rate = body.commissionRate
+    if (body.commissionType !== undefined) updates.commission_type = body.commissionType
+    if (body.status !== undefined) updates.status = body.status
 
-    await em.flush()
-    return NextResponse.json({ ok: true, data: affiliate })
+    await knex('affiliates').where('id', id).update(updates)
+    const updated = await knex('affiliates').where('id', id).first()
+    return NextResponse.json({ ok: true, data: updated })
   } catch (error) {
     console.error('[affiliates.detail.PUT] failed', error)
     return NextResponse.json({ ok: false, error: 'Failed to update' }, { status: 500 })
