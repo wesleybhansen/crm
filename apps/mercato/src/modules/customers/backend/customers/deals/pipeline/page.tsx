@@ -102,7 +102,7 @@ export default function PipelinePage() {
 
   async function loadDealsPipeline(profile: any) {
     try {
-      let stageNames: string[] = ['Lead', 'Qualified', 'Proposal', 'Negotiation', 'Closed Won']
+      let stageNames: string[] = ['New Lead', 'Contacted', 'Qualified', 'Proposal', 'Negotiation', 'Won', 'Lost']
       if (profile?.pipeline_stages) {
         const parsed = typeof profile.pipeline_stages === 'string'
           ? JSON.parse(profile.pipeline_stages)
