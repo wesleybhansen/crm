@@ -5,6 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['integrations_api.access'] },
+  PUT: { requireAuth: true, requireFeatures: ['integrations_api.access'] },
 }
 
 export async function GET(req: Request, ctx: any) {
@@ -36,6 +37,37 @@ export async function GET(req: Request, ctx: any) {
   } catch (error) {
     console.error('[ext.deals.list]', error)
     return NextResponse.json({ ok: false, error: 'Failed to list deals' }, { status: 500 })
+  }
+}
+
+export async function PUT(req: Request, ctx: any) {
+  const auth = ctx?.auth
+  if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  try {
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
+    const body = await req.json()
+    const { id, pipeline_stage, status } = body
+
+    if (!id) return NextResponse.json({ ok: false, error: 'id required' }, { status: 400 })
+
+    const deal = await knex('customer_deals')
+      .where('id', id)
+      .where('tenant_id', auth.tenantId)
+      .where('organization_id', auth.orgId)
+      .first()
+    if (!deal) return NextResponse.json({ ok: false, error: 'Deal not found' }, { status: 404 })
+
+    const updates: Record<string, unknown> = { updated_at: new Date() }
+    if (pipeline_stage !== undefined) updates.pipeline_stage = pipeline_stage
+    if (status !== undefined) updates.status = status
+
+    await knex('customer_deals').where('id', id).update(updates)
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    console.error('[ext.deals.update]', error)
+    return NextResponse.json({ ok: false, error: 'Failed to update deal' }, { status: 500 })
   }
 }
 

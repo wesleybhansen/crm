@@ -208,6 +208,30 @@ export default function PipelinePage() {
     setMovingId(null)
   }
 
+  async function moveDeal(dealId: string, newStage: string) {
+    setMovingId(dealId)
+    try {
+      await fetch('/api/integrations_api/ext/deals', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: dealId, pipeline_stage: newStage }),
+      })
+      // Optimistic update
+      setDealStages(prev => prev.map(stage => ({
+        ...stage,
+        deals: stage.name === newStage
+          ? [...stage.deals, ...prev.flatMap(s => s.deals.filter(d => d.id === dealId)).map(d => ({ ...d, pipeline_stage: newStage }))]
+          : stage.deals.filter(d => d.id !== dealId),
+        count: stage.name === newStage ? stage.count + 1 : stage.deals.filter(d => d.id !== dealId).length,
+        totalValue: stage.name === newStage
+          ? stage.totalValue + (prev.flatMap(s => s.deals).find(d => d.id === dealId)?.value_amount || 0)
+          : stage.deals.filter(d => d.id !== dealId).reduce((sum, d) => sum + (Number(d.value_amount) || 0), 0),
+      })))
+    } catch {}
+    setMovingId(null)
+  }
+
   function handleDragStart(id: string, stage: string) {
     setDragging({ id, stage })
   }
@@ -231,6 +255,8 @@ export default function PipelinePage() {
 
     if (mode === 'journey') {
       await moveJourneyContact(dragging.id, targetStage)
+    } else {
+      await moveDeal(dragging.id, targetStage)
     }
     setDragging(null)
   }
@@ -379,7 +405,11 @@ export default function PipelinePage() {
               ))
             ) : (
               dealStages.map(stage => (
-                <div key={stage.name} className="flex flex-col w-72 shrink-0 rounded-lg border bg-card">
+                <div key={stage.name} className={`flex flex-col w-72 shrink-0 rounded-lg border bg-card transition ${dragOverStage === stage.name ? 'ring-2 ring-accent border-accent' : ''}`}
+                  onDragOver={(e) => handleDragOver(e, stage.name)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, stage.name)}
+                >
                   <div className="flex items-center justify-between px-3 py-2.5 border-b">
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-semibold">{stage.name}</h3>
@@ -396,7 +426,10 @@ export default function PipelinePage() {
 
                   <div className="flex-1 overflow-y-auto p-2 space-y-2">
                     {stage.deals.map(deal => (
-                      <div key={deal.id} className="rounded-lg border bg-background p-3 hover:border-accent/40 transition cursor-pointer"
+                      <div key={deal.id}
+                        className={`rounded-lg border bg-background p-3 hover:border-accent/40 transition cursor-grab active:cursor-grabbing ${movingId === deal.id ? 'opacity-50' : ''} ${dragging?.id === deal.id ? 'opacity-30' : ''}`}
+                        draggable
+                        onDragStart={() => handleDragStart(deal.id, stage.name)}
                         onClick={() => window.location.href = `/backend/customers/deals/${deal.id}`}
                       >
                         <p className="text-sm font-medium truncate">{deal.title}</p>
