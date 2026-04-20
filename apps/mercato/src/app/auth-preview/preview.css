@@ -1,0 +1,350 @@
+/* Preview-only styles — stacks on top of auth-shell.css to show proposed polish.
+   Nothing here is imported into the real /login /signup pages yet. */
+
+/* ─────────────────────────────────────────
+   Demo toolbar (top of page, preview only)
+   ───────────────────────────────────────── */
+.preview-toolbar {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(20, 20, 32, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  font-family: 'Satoshi', sans-serif;
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.5);
+}
+.preview-toolbar button {
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.preview-toolbar button:hover { color: #fff; }
+.preview-toolbar button.active {
+  background: rgba(99, 102, 241, 0.2);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.5);
+}
+
+/* ─────────────────────────────────────────
+   1. Drifting particles — subtle ambient
+   ───────────────────────────────────────── */
+.preview-particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+.preview-particles span {
+  position: absolute;
+  bottom: -40px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(139, 92, 246, 0.6);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.8);
+  animation: particle-rise linear infinite;
+  opacity: 0;
+}
+@keyframes particle-rise {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  10%  { opacity: 0.7; }
+  90%  { opacity: 0.4; }
+  100% { transform: translateY(-110vh) translateX(var(--drift, 20px)); opacity: 0; }
+}
+
+/* ─────────────────────────────────────────
+   2. Float-label inputs
+   ───────────────────────────────────────── */
+.preview-auth .preview-field {
+  position: relative;
+  margin-top: 2px;
+}
+.preview-auth .preview-field input {
+  width: 100%;
+  padding: 22px 18px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.preview-auth .preview-field input:focus {
+  outline: none;
+  border-color: #6366F1;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+}
+.preview-auth .preview-field label {
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  pointer-events: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: 'Satoshi', sans-serif;
+  transform-origin: left top;
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.22s ease;
+}
+.preview-auth .preview-field.is-focused label,
+.preview-auth .preview-field.has-value label {
+  transform: translateY(-9px) scale(0.72);
+  color: rgba(255, 255, 255, 0.5);
+}
+.preview-auth .preview-field.is-focused label {
+  color: #8B5CF6;
+}
+.preview-auth .preview-field input:-webkit-autofill {
+  -webkit-text-fill-color: #fff;
+  -webkit-box-shadow: 0 0 0px 1000px rgba(18, 18, 30, 1) inset;
+}
+
+/* ─────────────────────────────────────────
+   3. Submit button — traced gradient border + animated arrow
+   ───────────────────────────────────────── */
+.preview-submit {
+  position: relative;
+  width: 100%;
+  padding: 16px 24px;
+  background: #fff;
+  color: #08080D;
+  border: none;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 12px;
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform 0.2s ease, box-shadow 0.3s ease;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 32px rgba(0, 0, 0, 0.4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.preview-submit::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  background: conic-gradient(from var(--angle, 0deg),
+    transparent 0%, transparent 60%,
+    #6366F1 75%, #EC4899 85%, transparent 100%);
+  border-radius: 13px;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  animation: border-spin 2.5s linear infinite;
+}
+.preview-submit:hover:not(:disabled)::before { opacity: 1; }
+.preview-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2), 0 16px 40px rgba(99, 102, 241, 0.3);
+}
+.preview-submit:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+.preview-submit svg {
+  width: 14px; height: 14px;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.preview-submit:hover:not(:disabled) svg { transform: translateX(4px); }
+.preview-submit:disabled { opacity: 0.7; cursor: not-allowed; }
+
+@property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+@keyframes border-spin { to { --angle: 360deg; } }
+
+/* Loading spinner inside button */
+.preview-submit.is-loading { cursor: wait; }
+.preview-submit.is-loading .preview-submit-label { opacity: 0; }
+.preview-submit .preview-spinner {
+  position: absolute;
+  width: 16px; height: 16px;
+  border: 2px solid rgba(8, 8, 13, 0.2);
+  border-top-color: #08080D;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  animation: preview-spin 0.8s linear infinite;
+}
+.preview-submit.is-loading .preview-spinner { opacity: 1; }
+@keyframes preview-spin { to { transform: rotate(360deg); } }
+
+/* ─────────────────────────────────────────
+   4. Page transition on state swap
+   ───────────────────────────────────────── */
+.preview-swap > * {
+  animation: preview-swap-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes preview-swap-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─────────────────────────────────────────
+   5. Staggered org picker entrance
+   ───────────────────────────────────────── */
+.preview-org-pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.25s ease, background 0.25s ease, transform 0.25s ease;
+  text-align: left;
+  opacity: 0;
+  animation: preview-stagger-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.preview-org-pick:nth-child(1) { animation-delay: 0.05s; }
+.preview-org-pick:nth-child(2) { animation-delay: 0.13s; }
+.preview-org-pick:nth-child(3) { animation-delay: 0.21s; }
+.preview-org-pick:hover {
+  border-color: #8B5CF6;
+  background: rgba(139, 92, 246, 0.08);
+  transform: translateY(-1px);
+}
+.preview-org-pick svg {
+  width: 16px; height: 16px;
+  color: rgba(255, 255, 255, 0.4);
+  transition: transform 0.25s ease, color 0.25s ease;
+}
+.preview-org-pick:hover svg { color: #8B5CF6; transform: translateX(4px); }
+
+@keyframes preview-stagger-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─────────────────────────────────────────
+   6. Error + success slide-in
+   ───────────────────────────────────────── */
+.preview-error {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #FCA5A5;
+  font-size: 13px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  text-align: center;
+  animation: preview-shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97),
+             preview-swap-in 0.3s ease-out;
+}
+@keyframes preview-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
+}
+
+.preview-success {
+  text-align: center;
+  animation: preview-swap-in 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.preview-success .preview-check {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366F1, #8B5CF6);
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: preview-check-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 0 40px rgba(99, 102, 241, 0.5);
+}
+.preview-success .preview-check svg {
+  width: 28px; height: 28px; color: #fff;
+  stroke-dasharray: 28;
+  stroke-dashoffset: 28;
+  animation: preview-check-draw 0.4s 0.3s ease-out forwards;
+}
+@keyframes preview-check-pop {
+  0%   { transform: scale(0); }
+  60%  { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+@keyframes preview-check-draw { to { stroke-dashoffset: 0; } }
+
+/* ─────────────────────────────────────────
+   7. Google button (Google's official branding)
+   ───────────────────────────────────────── */
+.preview-google {
+  width: 100%;
+  padding: 13px 20px;
+  background: #fff;
+  color: #1F1F1F;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  font-family: 'Roboto', 'Satoshi', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.preview-google:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.preview-google svg { width: 18px; height: 18px; }
+
+.preview-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 22px 0 18px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-family: 'JetBrains Mono', monospace;
+}
+.preview-divider::before,
+.preview-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* subtle pulse on the card edge while idle */
+.preview-card-idle {
+  animation: preview-card-breath 5s ease-in-out infinite;
+}
+@keyframes preview-card-breath {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 60px 120px -32px rgba(0, 0, 0, 0.7), 0 0 80px rgba(99, 102, 241, 0.15); }
+  50%      { box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.2), 0 60px 120px -32px rgba(0, 0, 0, 0.7), 0 0 100px rgba(139, 92, 246, 0.3); }
+}
