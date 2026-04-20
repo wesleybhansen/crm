@@ -17,19 +17,21 @@ export function BackgroundJobs() {
       fetch('/api/reminders/check', { method: 'POST', credentials: 'include' }).catch(() => {})
     }, 60_000)
 
-    // Email intelligence sync — check every 6 hours
-    const syncInterval = setInterval(() => {
+    // Email intelligence sync — run immediately, then every 15 minutes
+    const triggerEmailSync = () => {
       fetch('/api/email/intelligence-settings', { credentials: 'include' })
         .then(r => r.json())
         .then(d => {
           if (!d.ok || !d.data?.is_enabled) return
           const lastSync = d.data.last_sync_at ? new Date(d.data.last_sync_at).getTime() : 0
-          if (lastSync < Date.now() - 6 * 60 * 60 * 1000) {
+          if (lastSync < Date.now() - 15 * 60 * 1000) {
             fetch('/api/email/intelligence-sync', { method: 'POST', credentials: 'include' }).catch(() => {})
           }
         })
         .catch(() => {})
-    }, 6 * 60 * 60 * 1000) // 6 hours
+    }
+    triggerEmailSync()
+    const syncInterval = setInterval(triggerEmailSync, 15 * 60 * 1000) // 15 minutes
 
     return () => {
       clearInterval(reminderInterval)

@@ -169,6 +169,12 @@ export default function UnifiedInboxPage() {
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
   }, [loadConversations])
 
+  // Auto-refresh inbox list every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(loadConversations, 60_000)
+    return () => clearInterval(interval)
+  }, [loadConversations])
+
   // Load AI settings on mount and when window regains focus
   const loadAiSettings = useCallback(() => {
     fetch('/api/inbox/ai-settings', { credentials: 'include' })
