@@ -439,6 +439,8 @@ async function runSync(
   let allEmails: ProcessedEmail[] = []
   const errors: string[] = []
   let hasConnection = false
+  let imapConnId: string | null = null
+  let outlookConnId: string | null = null
 
   // Fetch via IMAP (smtp provider connections — Gmail, Outlook, Yahoo, any provider)
   try {
@@ -450,6 +452,7 @@ async function runSync(
     )
     if (imapConn) {
       hasConnection = true
+      imapConnId = imapConn.id
       const imapConfig = {
         host: imapConn.imap_host,
         port: imapConn.imap_port || 993,
@@ -488,6 +491,7 @@ async function runSync(
     const outlookToken = await getOutlookTokenRaw(orgId, userId)
     if (outlookToken) {
       hasConnection = true
+      outlookConnId = outlookToken.connectionId
       const outlookEmails = await fetchOutlookMessages(outlookToken.accessToken, sinceDate)
       allEmails = allEmails.concat(outlookEmails)
     }
@@ -558,7 +562,7 @@ async function runSync(
       if (!contactId) continue // auto_create_contacts is off and contact not found
 
       // Determine the account_id (email connection used)
-      const accountId = gmailToken?.connectionId || outlookToken?.connectionId || null
+      const accountId = imapConnId || outlookConnId || null
 
       // Store email message — sanitize strings to remove null bytes that break PostgreSQL
       const sanitize = (s: string | null) => s ? s.replace(/\0/g, '') : null
