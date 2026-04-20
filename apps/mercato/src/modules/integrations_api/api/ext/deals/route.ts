@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
+  path: '/ext/deals',
   GET: { requireAuth: true, requireFeatures: ['integrations_api.access'] },
   PUT: { requireAuth: true, requireFeatures: ['integrations_api.access'] },
 }
