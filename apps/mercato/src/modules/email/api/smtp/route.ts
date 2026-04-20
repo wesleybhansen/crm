@@ -5,8 +5,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { testImapConnection, getProviderPreset } from '../../lib/imap-service'
 
-// POST: Save SMTP configuration
+// POST: Save IMAP + SMTP configuration (unified email connection)
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.sub || !auth?.orgId) {
@@ -15,30 +16,61 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json()
-    const { host, port, username, password, fromAddress } = body
+    const { emailAddress, password, imapHost, imapPort, imapSecure, smtpHost, smtpPort } = body
 
-    if (!host || !port || !username || !password || !fromAddress) {
+    if (!emailAddress || !password) {
       return NextResponse.json(
-        { ok: false, error: 'All fields are required: host, port, username, password, fromAddress' },
+        { ok: false, error: 'emailAddress and password are required' },
         { status: 400 },
       )
     }
 
-    // Test the connection using nodemailer verify
+    // Auto-fill server settings from known provider presets if not supplied
+    const preset = getProviderPreset(emailAddress)
+    const resolvedImapHost = imapHost || preset?.imap.host
+    const resolvedImapPort = imapPort || preset?.imap.port || 993
+    const resolvedImapSecure = imapSecure !== undefined ? imapSecure : (preset?.imap.secure ?? true)
+    const resolvedSmtpHost = smtpHost || preset?.smtp.host
+    const resolvedSmtpPort = smtpPort || preset?.smtp.port || 587
+
+    if (!resolvedImapHost || !resolvedSmtpHost) {
+      return NextResponse.json(
+        { ok: false, error: 'Could not detect server settings for this email provider. Please enter IMAP and SMTP server details manually.' },
+        { status: 400 },
+      )
+    }
+
+    // Test IMAP connection before saving
+    const imapTest = await testImapConnection({
+      host: resolvedImapHost,
+      port: resolvedImapPort,
+      secure: resolvedImapSecure,
+      user: emailAddress,
+      pass: password,
+    })
+
+    if (!imapTest.ok) {
+      return NextResponse.json(
+        { ok: false, error: `IMAP connection failed: ${imapTest.error}. Check your email address and App Password.` },
+        { status: 400 },
+      )
+    }
+
+    // Test SMTP connection
     try {
       const nodemailer = await import('nodemailer')
       const transporter = nodemailer.createTransport({
-        host,
-        port: Number(port),
-        secure: Number(port) === 465,
-        auth: { user: username, pass: password },
+        host: resolvedSmtpHost,
+        port: resolvedSmtpPort,
+        secure: resolvedSmtpPort === 465,
+        auth: { user: emailAddress, pass: password },
         connectionTimeout: 10000,
       })
       await transporter.verify()
-    } catch (verifyErr) {
-      const message = verifyErr instanceof Error ? verifyErr.message : 'Connection test failed'
+    } catch (smtpErr) {
+      const message = smtpErr instanceof Error ? smtpErr.message : 'SMTP test failed'
       return NextResponse.json(
-        { ok: false, error: `SMTP connection test failed: ${message}` },
+        { ok: false, error: `SMTP connection failed: ${message}` },
         { status: 400 },
       )
     }
@@ -46,7 +78,6 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    // Check if SMTP connection already exists for this user
     const existing = await knex('email_connections')
       .where('organization_id', auth.orgId)
       .where('user_id', auth.sub)
@@ -59,16 +90,21 @@ export async function POST(req: Request) {
       .where('is_active', true)
       .first()
 
+    const record = {
+      email_address: emailAddress,
+      smtp_host: resolvedSmtpHost,
+      smtp_port: resolvedSmtpPort,
+      smtp_user: emailAddress,
+      smtp_pass: password,
+      imap_host: resolvedImapHost,
+      imap_port: resolvedImapPort,
+      imap_secure: resolvedImapSecure,
+      is_active: true,
+      updated_at: new Date(),
+    }
+
     if (existing) {
-      await knex('email_connections').where('id', existing.id).update({
-        email_address: fromAddress,
-        smtp_host: host,
-        smtp_port: Number(port),
-        smtp_user: username,
-        smtp_pass: password,
-        is_active: true,
-        updated_at: new Date(),
-      })
+      await knex('email_connections').where('id', existing.id).update(record)
     } else {
       await knex('email_connections').insert({
         id: require('crypto').randomUUID(),
@@ -76,26 +112,20 @@ export async function POST(req: Request) {
         organization_id: auth.orgId,
         user_id: auth.sub,
         provider: 'smtp',
-        email_address: fromAddress,
-        smtp_host: host,
-        smtp_port: Number(port),
-        smtp_user: username,
-        smtp_pass: password,
         is_primary: !anyExisting,
-        is_active: true,
         created_at: new Date(),
-        updated_at: new Date(),
+        ...record,
       })
     }
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, data: { emailAddress, imapHost: resolvedImapHost, smtpHost: resolvedSmtpHost } })
   } catch (error) {
     console.error('[email.smtp.save]', error)
-    return NextResponse.json({ ok: false, error: 'Failed to save SMTP configuration' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: 'Failed to save email configuration' }, { status: 500 })
   }
 }
 
-// DELETE: Remove SMTP connection by ?id=
+// DELETE: Remove connection by ?id=
 export async function DELETE(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.sub || !auth?.orgId) {
@@ -126,14 +156,14 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('[email.smtp.delete]', error)
-    return NextResponse.json({ ok: false, error: 'Failed to disconnect SMTP' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: 'Failed to disconnect email' }, { status: 500 })
   }
 }
 
 export const openApi: OpenApiRouteDoc = {
-  tag: 'Email', summary: 'SMTP email connection',
+  tag: 'Email', summary: 'IMAP/SMTP email connection',
   methods: {
-    POST: { summary: 'Save SMTP configuration', tags: ['Email'] },
-    DELETE: { summary: 'Remove SMTP connection', tags: ['Email'] },
+    POST: { summary: 'Save IMAP + SMTP configuration', tags: ['Email'] },
+    DELETE: { summary: 'Remove email connection', tags: ['Email'] },
   },
 }

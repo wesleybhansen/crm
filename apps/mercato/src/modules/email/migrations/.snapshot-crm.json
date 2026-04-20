@@ -591,6 +591,33 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "imap_host": {
+          "name": "imap_host",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "imap_port": {
+          "name": "imap_port",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "imap_secure": {
+          "name": "imap_secure",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "boolean"
+        },
         "is_primary": {
           "name": "is_primary",
           "type": "boolean",

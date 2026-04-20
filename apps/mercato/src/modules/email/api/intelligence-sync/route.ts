@@ -10,6 +10,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/lib/db'
 import { refreshGmailToken } from '@/modules/email/lib/gmail-service'
 import { refreshOutlookToken } from '@/modules/email/lib/outlook-service'
+import { fetchImapInbox, fetchImapSent } from '@/modules/email/lib/imap-service'
 import crypto from 'crypto'
 
 const MAX_EMAILS_PER_SYNC = 100
@@ -437,33 +438,56 @@ async function runSync(
 
   let allEmails: ProcessedEmail[] = []
   const errors: string[] = []
-  let gmailToken: TokenResult | null = null
-  let outlookToken: TokenResult | null = null
+  let hasConnection = false
 
-  // Gmail inbox sync is DISABLED pending Tier 1 OAuth verification.
-  // gmail.readonly is a restricted scope that requires CASA security
-  // assessment to verify. We're shipping with sensitive scopes only
-  // (gmail.send + calendar.*). Inbox read will be re-added later via
-  // the App Password / IMAP path. The Outlook path below remains
-  // active for users connected via Microsoft Graph.
-  //
-  // To re-enable: uncomment the block below AND restore gmail.readonly
-  // in apps/mercato/src/app/api/google/auth/route.ts EMAIL_SCOPES.
-  //
-  // try {
-  //   gmailToken = await getGmailTokenRaw(orgId, userId)
-  //   if (gmailToken) {
-  //     const gmailEmails = await fetchGmailMessages(gmailToken.accessToken, sinceDate)
-  //     allEmails = allEmails.concat(gmailEmails)
-  //   }
-  // } catch (err: any) {
-  //   errors.push(`Gmail: ${err.message}`)
-  // }
-
-  // Fetch Outlook
+  // Fetch via IMAP (smtp provider connections — Gmail, Outlook, Yahoo, any provider)
   try {
-    outlookToken = await getOutlookTokenRaw(orgId, userId)
+    const imapConn = await queryOne(
+      `SELECT * FROM email_connections
+       WHERE organization_id = $1 AND user_id = $2 AND provider = 'smtp' AND is_active = true
+       AND imap_host IS NOT NULL LIMIT 1`,
+      [orgId, userId]
+    )
+    if (imapConn) {
+      hasConnection = true
+      const imapConfig = {
+        host: imapConn.imap_host,
+        port: imapConn.imap_port || 993,
+        secure: imapConn.imap_secure ?? true,
+        user: imapConn.smtp_user || imapConn.email_address,
+        pass: imapConn.smtp_pass,
+      }
+      const sinceAsDate = new Date(sinceDate)
+      const toProcessed = (m: import('@/modules/email/lib/imap-service').FetchedEmail): ProcessedEmail => ({
+        messageId: m.messageId,
+        threadId: m.threadRef,
+        fromEmail: m.fromEmail,
+        fromName: m.fromName,
+        toAddress: m.toAddress,
+        ccAddress: m.ccAddress,
+        subject: m.subject,
+        bodyHtml: m.bodyHtml,
+        bodyText: m.bodyText,
+        receivedAt: m.receivedAt,
+        isReply: m.isReply,
+      })
+
+      const inboxEmails = await fetchImapInbox(imapConfig, sinceAsDate, MAX_EMAILS_PER_SYNC)
+      allEmails = allEmails.concat(inboxEmails.map(toProcessed))
+
+      // Also sync Sent folder so threads include our own sent messages
+      const sentEmails = await fetchImapSent(imapConfig, sinceAsDate, 50)
+      allEmails = allEmails.concat(sentEmails.map(toProcessed))
+    }
+  } catch (err: any) {
+    errors.push(`IMAP: ${err.message}`)
+  }
+
+  // Fetch via Outlook Microsoft Graph (legacy OAuth connections)
+  try {
+    const outlookToken = await getOutlookTokenRaw(orgId, userId)
     if (outlookToken) {
+      hasConnection = true
       const outlookEmails = await fetchOutlookMessages(outlookToken.accessToken, sinceDate)
       allEmails = allEmails.concat(outlookEmails)
     }
@@ -471,11 +495,11 @@ async function runSync(
     errors.push(`Outlook: ${err.message}`)
   }
 
-  if (!outlookToken) {
+  if (!hasConnection) {
     await query(
       `UPDATE email_intelligence_settings SET last_sync_status = 'error', last_sync_error = $1, updated_at = now()
        WHERE organization_id = $2 AND user_id = $3`,
-      ['No active email connection found (Gmail inbox sync temporarily disabled pending OAuth verification)', orgId, userId]
+      ['No active email connection found. Connect an email account in Settings → Integrations.', orgId, userId]
     )
     return { emailsProcessed: 0, contactsCreated: 0, errors: ['No active email connection found'] }
   }

@@ -15,12 +15,14 @@ export default function SimpleSettingsPage() {
   const [emailConnections, setEmailConnections] = useState<Array<{ id: string; provider: string; email_address: string; is_primary: boolean }>>([])
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
 
-  // SMTP state
+  // Email connection state (IMAP/SMTP)
+  const [emailAddr, setEmailAddr] = useState('')
+  const [emailPassword, setEmailPassword] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [smtpHost, setSmtpHost] = useState('')
   const [smtpPort, setSmtpPort] = useState('587')
-  const [smtpUsername, setSmtpUsername] = useState('')
-  const [smtpPassword, setSmtpPassword] = useState('')
-  const [smtpFrom, setSmtpFrom] = useState('')
+  const [imapHost, setImapHost] = useState('')
+  const [imapPort, setImapPort] = useState('993')
   const [savingSmtp, setSavingSmtp] = useState(false)
   const [smtpError, setSmtpError] = useState('')
   const [smtpSuccess, setSmtpSuccess] = useState(false)
@@ -308,26 +310,27 @@ export default function SimpleSettingsPage() {
     setSmtpError('')
     setSmtpSuccess(false)
     try {
+      const body: Record<string, any> = { emailAddress: emailAddr, password: emailPassword }
+      if (showAdvanced) {
+        if (smtpHost) { body.smtpHost = smtpHost; body.smtpPort = Number(smtpPort) }
+        if (imapHost) { body.imapHost = imapHost; body.imapPort = Number(imapPort) }
+      }
       const res = await fetch('/api/email/smtp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          host: smtpHost,
-          port: Number(smtpPort),
-          username: smtpUsername,
-          password: smtpPassword,
-          fromAddress: smtpFrom,
-        }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (data.ok) {
         setSmtpSuccess(true)
+        setEmailAddr('')
+        setEmailPassword('')
         setSmtpHost('')
         setSmtpPort('587')
-        setSmtpUsername('')
-        setSmtpPassword('')
-        setSmtpFrom('')
+        setImapHost('')
+        setImapPort('993')
+        setShowAdvanced(false)
         // Reload connections
         const connRes = await fetch('/api/email/connections', { credentials: 'include' })
         const connData = await connRes.json()
@@ -1014,7 +1017,7 @@ export default function SimpleSettingsPage() {
                     {conn.is_primary && <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded font-medium">Primary</span>}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Connected via {conn.provider === 'gmail' ? 'Gmail' : conn.provider === 'microsoft' ? 'Outlook' : conn.provider === 'smtp' ? 'SMTP' : conn.provider}
+                    Connected via {conn.provider === 'gmail' ? 'Gmail (OAuth)' : conn.provider === 'microsoft' ? 'Outlook (OAuth)' : conn.provider === 'smtp' ? 'Email (IMAP/SMTP)' : conn.provider}
                   </p>
                 </div>
                 <Button type="button" variant="outline" size="sm"
@@ -1032,59 +1035,63 @@ export default function SimpleSettingsPage() {
             ))
           )}
 
-          {/* Connect buttons */}
-          <div className="px-4 py-3">
-            <p className="text-sm font-medium mb-1">Connect Email Account</p>
-            <p className="text-xs text-muted-foreground mb-3">Send emails from your own email account</p>
-            {new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('email_connected') === 'true' && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> Connected!</p>
-            )}
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/calendar/google/auth?type=email'}>
-                Connect Gmail
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/microsoft/auth'}>
-                Connect Outlook
-              </Button>
-            </div>
-          </div>
-
-          {/* SMTP Configuration */}
+          {/* Connect Email Account (IMAP/SMTP) */}
           {!hasSmtpConnection && (
             <div className="px-4 py-3">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-1">
                 <Server className="size-3.5 text-muted-foreground" />
-                <p className="text-sm font-medium">SMTP Connection</p>
+                <p className="text-sm font-medium">Connect Email Account</p>
               </div>
-              <p className="text-xs text-muted-foreground mb-3">Connect any email server via SMTP</p>
+              <p className="text-xs text-muted-foreground mb-3">
+                Works with Gmail, Outlook, Yahoo, iCloud, or any email provider. Enables sending <em>and</em> inbox sync so replies appear in your CRM.
+              </p>
 
               {smtpError && (
                 <p className="text-xs text-red-600 dark:text-red-400 mb-2">{smtpError}</p>
               )}
               {smtpSuccess && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> SMTP connected!</p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> Email connected!</p>
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-                <Input value={smtpHost} onChange={e => setSmtpHost(e.target.value)}
-                  placeholder="SMTP Host (e.g. smtp.example.com)" className="h-8 text-xs" />
-                <Input value={smtpPort} onChange={e => setSmtpPort(e.target.value)}
-                  placeholder="Port (587)" className="h-8 text-xs" />
+                <Input value={emailAddr} onChange={e => setEmailAddr(e.target.value)}
+                  placeholder="your@email.com" className="h-8 text-xs" type="email" />
+                <Input value={emailPassword} onChange={e => setEmailPassword(e.target.value)}
+                  type="password" placeholder="App Password" className="h-8 text-xs" />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-                <Input value={smtpUsername} onChange={e => setSmtpUsername(e.target.value)}
-                  placeholder="Username" className="h-8 text-xs" />
-                <Input value={smtpPassword} onChange={e => setSmtpPassword(e.target.value)}
-                  type="password" placeholder="Password" className="h-8 text-xs" />
+
+              <div className="mb-3 text-xs text-muted-foreground space-y-0.5">
+                <p className="font-medium text-foreground">How to get an App Password:</p>
+                <p>• <strong>Gmail:</strong> Google Account → Security → 2-Step Verification → App Passwords → select "Mail" → Generate</p>
+                <p>• <strong>Outlook:</strong> Microsoft Account → Security → Advanced security → App passwords → Create</p>
+                <p>• <strong>Other providers:</strong> Use your regular email password (if IMAP is enabled)</p>
               </div>
-              <div className="flex gap-2">
-                <Input value={smtpFrom} onChange={e => setSmtpFrom(e.target.value)}
-                  placeholder="From address (you@example.com)" className="h-8 text-xs flex-1" />
-                <Button type="button" variant="outline" size="sm" onClick={saveSmtp}
-                  disabled={savingSmtp || !smtpHost || !smtpUsername || !smtpPassword || !smtpFrom}>
-                  {savingSmtp ? 'Testing...' : 'Connect SMTP'}
-                </Button>
-              </div>
+
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline mb-2 block"
+                onClick={() => setShowAdvanced(v => !v)}
+              >
+                {showAdvanced ? '▲ Hide advanced settings' : '▼ Advanced: custom server settings'}
+              </button>
+
+              {showAdvanced && (
+                <div className="grid grid-cols-2 gap-2 mb-2 p-3 rounded-md bg-muted/40 border">
+                  <Input value={imapHost} onChange={e => setImapHost(e.target.value)}
+                    placeholder="IMAP host (auto-detected)" className="h-8 text-xs" />
+                  <Input value={imapPort} onChange={e => setImapPort(e.target.value)}
+                    placeholder="IMAP port (993)" className="h-8 text-xs" />
+                  <Input value={smtpHost} onChange={e => setSmtpHost(e.target.value)}
+                    placeholder="SMTP host (auto-detected)" className="h-8 text-xs" />
+                  <Input value={smtpPort} onChange={e => setSmtpPort(e.target.value)}
+                    placeholder="SMTP port (587)" className="h-8 text-xs" />
+                </div>
+              )}
+
+              <Button type="button" variant="outline" size="sm" onClick={saveSmtp}
+                disabled={savingSmtp || !emailAddr || !emailPassword}>
+                {savingSmtp ? 'Testing connection...' : 'Connect Email'}
+              </Button>
             </div>
           )}
         </div>

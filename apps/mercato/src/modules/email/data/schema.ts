@@ -465,6 +465,16 @@ export class EmailConnection {
   @Property({ name: 'smtp_pass', type: 'text', nullable: true })
   smtpPass?: string | null
 
+  // IMAP credentials (inbox reading — same App Password as SMTP)
+  @Property({ name: 'imap_host', type: 'text', nullable: true })
+  imapHost?: string | null
+
+  @Property({ name: 'imap_port', type: 'int', nullable: true })
+  imapPort?: number | null
+
+  @Property({ name: 'imap_secure', type: 'boolean', nullable: true })
+  imapSecure?: boolean | null
+
   @Property({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean = false
 
