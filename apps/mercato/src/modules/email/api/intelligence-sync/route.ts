@@ -183,8 +183,8 @@ async function findOrCreateContact(
   const displayName = senderName.trim() || email.split('@')[0]
 
   await query(
-    `INSERT INTO customer_entities (id, tenant_id, organization_id, kind, display_name, primary_email, source, source_details, status, lifecycle_stage, is_active, created_at, updated_at)
-     VALUES ($1, $2, $3, 'person', $4, $5, 'email_inbox', '{"note":"Inbox Intelligence auto-created"}'::jsonb, 'active', 'prospect', true, now(), now())`,
+    `INSERT INTO customer_entities (id, tenant_id, organization_id, kind, display_name, primary_email, source, status, lifecycle_stage, is_active, created_at, updated_at)
+     VALUES ($1, $2, $3, 'person', $4, $5, 'email_inbox', 'active', 'prospect', true, now(), now())`,
     [entityId, tenantId, orgId, displayName, email.toLowerCase()]
   )
 
