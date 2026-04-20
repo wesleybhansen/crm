@@ -11,6 +11,9 @@ import { query, queryOne } from '@/lib/db'
 import { refreshGmailToken } from '@/modules/email/lib/gmail-service'
 import { refreshOutlookToken } from '@/modules/email/lib/outlook-service'
 import { fetchImapInbox, fetchImapSent } from '@/modules/email/lib/imap-service'
+import { upsertInboxConversation } from '@/lib/inbox-conversation'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 
 const MAX_EMAILS_PER_SYNC = 100
@@ -416,6 +419,9 @@ async function isReplyToOurOutbound(orgId: string, threadId: string, fromEmail: 
 async function runSync(
   tenantId: string, orgId: string, userId: string
 ): Promise<{ emailsProcessed: number; contactsCreated: number; errors: string[] }> {
+  const container = await createRequestContainer()
+  const knex = (container.resolve('em') as EntityManager).getKnex()
+
   const settings = await queryOne(
     `SELECT * FROM email_intelligence_settings WHERE organization_id = $1 AND user_id = $2`,
     [orgId, userId]
@@ -583,6 +589,16 @@ async function runSync(
          ON CONFLICT DO NOTHING`,
         [msgId, tenantId, orgId, safeAccountId, safeFrom, safeTo, safeCc, safeSub, safeHtml, safeText, email.threadId || null, safeContactId, String(email.messageId || ''), sentAt]
       )
+
+      // Surface in unified inbox
+      await upsertInboxConversation(knex, orgId, tenantId, {
+        contactId: safeContactId,
+        channel: 'email',
+        preview: safeSub,
+        direction: 'inbound',
+        displayName: email.fromName || email.fromEmail,
+        avatarEmail: safeFrom,
+      })
 
       // Log timeline event
       if (settings.auto_update_timeline) {
