@@ -98,7 +98,7 @@ export async function GET(req: Request) {
   }
 }
 
-// Bulk actions: close, reopen, archive multiple conversations
+// Bulk actions: close, reopen, markRead, delete multiple conversations
 export async function PUT(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
@@ -110,16 +110,27 @@ export async function PUT(req: Request) {
     const { ids, action } = body
 
     if (!Array.isArray(ids) || ids.length === 0) return NextResponse.json({ ok: false, error: 'ids array required' }, { status: 400 })
-    if (!['close', 'reopen'].includes(action)) return NextResponse.json({ ok: false, error: 'action must be close or reopen' }, { status: 400 })
+    if (!['close', 'reopen', 'markRead', 'delete'].includes(action)) {
+      return NextResponse.json({ ok: false, error: 'action must be close, reopen, markRead, or delete' }, { status: 400 })
+    }
 
-    const newStatus = action === 'close' ? 'closed' : 'open'
-    await knex('inbox_conversations')
+    const scopedQuery = () => knex('inbox_conversations')
       .whereIn('id', ids)
       .where('organization_id', auth.orgId)
       .where('tenant_id', auth.tenantId)
-      .update({ status: newStatus, updated_at: new Date() })
 
-    return NextResponse.json({ ok: true, updated: ids.length })
+    if (action === 'delete') {
+      const deleted = await scopedQuery().del()
+      return NextResponse.json({ ok: true, deleted })
+    }
+
+    const updates: Record<string, unknown> = { updated_at: new Date() }
+    if (action === 'close') updates.status = 'closed'
+    else if (action === 'reopen') updates.status = 'open'
+    else if (action === 'markRead') updates.unread_count = 0
+
+    const updated = await scopedQuery().update(updates)
+    return NextResponse.json({ ok: true, updated })
   } catch (error) {
     console.error('[inbox.bulk]', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })

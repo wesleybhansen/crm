@@ -14,7 +14,7 @@ import {
   Eye, Loader2, Inbox, Archive, Bot, ExternalLink,
   StickyNote, Sparkles, Settings, Plus, SquareCheck,
   Square, CheckCircle, RotateCcw, Pencil, Tag, Save,
-  Zap, BookOpen, MessageSquare, ChevronRight,
+  Zap, BookOpen, MessageSquare, ChevronRight, Trash2,
 } from 'lucide-react'
 
 // ── Types ──
@@ -292,12 +292,25 @@ export default function UnifiedInboxPage() {
     setAiDrafting(false)
   }
 
-  const handleBulkAction = async (action: 'close' | 'reopen') => {
+  const handleBulkAction = async (action: 'close' | 'reopen' | 'markRead' | 'delete') => {
     if (selectedIds.size === 0) return
+    if (action === 'delete') {
+      const n = selectedIds.size
+      const ok = window.confirm(`Delete ${n} conversation${n > 1 ? 's' : ''}? This removes them from your inbox. Underlying messages are kept.`)
+      if (!ok) return
+    }
+    const count = selectedIds.size
     try {
       await fetch('/api/inbox', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: Array.from(selectedIds), action }) })
-      showToast(`${selectedIds.size} conversation${selectedIds.size > 1 ? 's' : ''} ${action === 'close' ? 'closed' : 'reopened'}`)
+      const verb = action === 'close' ? 'closed'
+        : action === 'reopen' ? 'reopened'
+        : action === 'markRead' ? 'marked as read'
+        : 'deleted'
+      showToast(`${count} conversation${count > 1 ? 's' : ''} ${verb}`)
     } catch { showToast('Failed to update conversations', 'error') }
+    if (action === 'delete' && selectedId && selectedIds.has(selectedId)) {
+      setSelectedId(null); setDetail(null)
+    }
     setSelectedIds(new Set()); setSelectMode(false); loadConversations()
   }
 
@@ -440,11 +453,17 @@ export default function UnifiedInboxPage() {
             <span className="text-[10px] font-medium text-muted-foreground">{selectedIds.size} selected</span>
             {selectedIds.size > 0 && (
               <>
+                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={() => handleBulkAction('markRead')}>
+                  <CheckCheck className="size-2.5 mr-1" /> Mark read
+                </Button>
                 <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={() => handleBulkAction('close')}>
                   <Archive className="size-2.5 mr-1" /> Close
                 </Button>
                 <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={() => handleBulkAction('reopen')}>
                   <RotateCcw className="size-2.5 mr-1" /> Reopen
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20" onClick={() => handleBulkAction('delete')}>
+                  <Trash2 className="size-2.5 mr-1" /> Delete
                 </Button>
               </>
             )}
