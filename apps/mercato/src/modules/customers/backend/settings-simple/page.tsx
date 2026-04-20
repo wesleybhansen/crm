@@ -70,6 +70,13 @@ export default function SimpleSettingsPage() {
   const [pkbDocCount, setPkbDocCount] = useState(0)
   const [pkbMessage, setPkbMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
+  // AMS API key state
+  const [amsKeyExists, setAmsKeyExists] = useState(false)
+  const [amsKeySecret, setAmsKeySecret] = useState<string | null>(null)
+  const [amsKeyGenerating, setAmsKeyGenerating] = useState(false)
+  const [amsKeyCopied, setAmsKeyCopied] = useState(false)
+  const [amsUrlCopied, setAmsUrlCopied] = useState(false)
+
 
   // Sender addresses state
   const [senderAddresses, setSenderAddresses] = useState<Array<{ id: string; sender_email: string; sender_name: string | null; is_default: boolean }>>([])
@@ -177,6 +184,9 @@ export default function SimpleSettingsPage() {
     // Load PKB config
     fetch('/api/courses/pkb/config', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok && d.data?.configured) setPkbConnected(true) }).catch(() => {})
+    // Check if AMS API key already exists
+    fetch('/api/api_keys/keys?search=AMS+Integration', { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.items?.length) setAmsKeyExists(true) }).catch(() => {})
     // Load sender addresses
     fetch('/api/email/sender-addresses', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setSenderAddresses(d.data || []) }).catch(() => {})
@@ -1805,6 +1815,94 @@ export default function SimpleSettingsPage() {
         </div>
       </section>
 
+      {/* AMS Integration */}
+      <section className="mb-8">
+        <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
+          <Key className="size-4 text-muted-foreground" /> AMS Integration
+          {amsKeyExists && !amsKeySecret && <span className="text-[10px] font-medium text-emerald-600 ml-2">Key Generated</span>}
+        </h2>
+        <div className="bg-card rounded-lg border p-5 space-y-4">
+          <p className="text-xs text-muted-foreground">Generate an API key that allows the Automatic Marketing System (AMS) to connect to your CRM and sync contacts, send emails, and publish landing pages.</p>
+
+          {/* Generated key display */}
+          {amsKeySecret && (
+            <div className="rounded-md border bg-muted/40 p-4 space-y-3">
+              <p className="text-xs font-medium text-foreground">Your AMS API Key — copy this now</p>
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">This key will only be shown once. Copy it before leaving this page.</p>
+              <div className="flex items-center gap-2">
+                <code className="text-xs font-mono break-all flex-1 bg-background border rounded px-2 py-1.5">{amsKeySecret}</code>
+                <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => {
+                  navigator.clipboard.writeText(amsKeySecret)
+                  setAmsKeyCopied(true)
+                  setTimeout(() => setAmsKeyCopied(false), 2000)
+                }}>
+                  {amsKeyCopied ? <><Check className="size-3 mr-1" />Copied</> : 'Copy'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* CRM URL (always useful to show) */}
+          {(amsKeySecret || amsKeyExists) && (
+            <div className="rounded-md border bg-muted/40 p-4 space-y-2">
+              <p className="text-xs font-medium text-foreground">Your CRM URL</p>
+              <div className="flex items-center gap-2">
+                <code className="text-xs font-mono flex-1 bg-background border rounded px-2 py-1.5">https://crm.thelaunchpadincubator.com</code>
+                <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => {
+                  navigator.clipboard.writeText('https://crm.thelaunchpadincubator.com')
+                  setAmsUrlCopied(true)
+                  setTimeout(() => setAmsUrlCopied(false), 2000)
+                }}>
+                  {amsUrlCopied ? <><Check className="size-3 mr-1" />Copied</> : 'Copy'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Generate button */}
+          <Button type="button" variant="outline" size="sm" disabled={amsKeyGenerating} onClick={async () => {
+            setAmsKeyGenerating(true)
+            try {
+              const res = await fetch('/api/api_keys/keys', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'AMS Integration', roles: ['admin'] }),
+              })
+              const d = await res.json()
+              if (d.secret) {
+                setAmsKeySecret(d.secret)
+                setAmsKeyExists(true)
+              }
+            } finally {
+              setAmsKeyGenerating(false)
+            }
+          }}>
+            {amsKeyGenerating ? 'Generating...' : amsKeyExists ? 'Regenerate Key' : 'Generate API Key'}
+          </Button>
+          {amsKeyExists && !amsKeySecret && (
+            <p className="text-[11px] text-muted-foreground">A key has already been generated. Regenerating will invalidate the previous key — you will need to update it in AMS.</p>
+          )}
+
+          {/* Step-by-step instructions */}
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer font-medium text-foreground hover:opacity-80 transition-opacity">What to do with this API key</summary>
+            <div className="mt-3 space-y-2 ml-1 border-l-2 border-border pl-3">
+              <p className="font-medium text-foreground">After generating your key, follow these steps in AMS:</p>
+              <ol className="list-decimal list-inside space-y-2">
+                <li>Log in to your AMS dashboard at <strong>marketing.thelaunchpadincubator.com</strong></li>
+                <li>Go to <strong>Settings</strong> (gear icon in the sidebar)</li>
+                <li>Click <strong>API Keys</strong></li>
+                <li>Scroll to the <strong>Launch OS (CRM)</strong> section</li>
+                <li>Paste your <strong>API Key</strong> into the API Key field</li>
+                <li>Paste your <strong>CRM URL</strong> (<code className="bg-muted px-1 rounded">https://crm.thelaunchpadincubator.com</code>) into the CRM URL field</li>
+                <li>Click <strong>Connect</strong></li>
+              </ol>
+              <p className="mt-2">Once connected, AMS will be able to sync contacts, send emails through your CRM, and publish landing pages directly to your CRM.</p>
+            </div>
+          </details>
+        </div>
+      </section>
 
       {/* Sidebar Menu */}
       <section className="mb-8">
