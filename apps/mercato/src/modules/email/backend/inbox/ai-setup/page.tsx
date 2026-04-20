@@ -48,6 +48,14 @@ export default function AiSetupPage() {
   const [voiceProfile, setVoiceProfile] = useState<any>(null)
   const [voiceUpdatedAt, setVoiceUpdatedAt] = useState<string | null>(null)
   const [voiceSource, setVoiceSource] = useState<string | null>(null)
+
+  // Email Intelligence state (step 4)
+  const [eiEnabled, setEiEnabled] = useState(false)
+  const [eiAutoCreate, setEiAutoCreate] = useState(true)
+  const [eiAutoTimeline, setEiAutoTimeline] = useState(true)
+  const [eiAutoEngagement, setEiAutoEngagement] = useState(true)
+  const [eiAutoStage, setEiAutoStage] = useState(false)
+  const [eiSaving, setEiSaving] = useState(false)
   const [voiceAnalyzing, setVoiceAnalyzing] = useState(false)
   const [voiceError, setVoiceError] = useState('')
 
@@ -56,7 +64,15 @@ export default function AiSetupPage() {
     Promise.all([
       fetch('/api/inbox/ai-settings', { credentials: 'include' }).then(r => r.json()),
       fetch('/api/ai/learn-voice', { credentials: 'include' }).then(r => r.json()),
-    ]).then(([settings, voice]) => {
+      fetch('/api/email/intelligence-settings', { credentials: 'include' }).then(r => r.json()),
+    ]).then(([settings, voice, ei]) => {
+      if (ei.ok && ei.data) {
+        setEiEnabled(ei.data.is_enabled ?? false)
+        setEiAutoCreate(ei.data.auto_create_contacts ?? true)
+        setEiAutoTimeline(ei.data.auto_update_timeline ?? true)
+        setEiAutoEngagement(ei.data.auto_update_engagement ?? true)
+        setEiAutoStage(ei.data.auto_advance_stage ?? false)
+      }
       if (settings.ok && settings.data) {
         setEnabled(settings.data.enabled ?? true)
         setBusinessName(settings.data.business_name || '')
@@ -178,6 +194,18 @@ export default function AiSetupPage() {
     e.target.value = ''
   }
 
+  const saveEiSettings = async (patch: Record<string, unknown>) => {
+    setEiSaving(true)
+    try {
+      await fetch('/api/email/intelligence-settings', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+    } catch {}
+    setEiSaving(false)
+  }
+
   // Save
   const handleSave = async () => {
     setSaving(true)
@@ -204,7 +232,7 @@ export default function AiSetupPage() {
     return <div className="flex items-center justify-center py-24"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
   }
 
-  const steps = ['Business Context', 'Knowledge Base', 'Tone & Rules']
+  const steps = ['Business Context', 'Knowledge Base', 'Tone & Rules', 'Email Intelligence']
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
@@ -470,9 +498,65 @@ export default function AiSetupPage() {
 
           <div className="flex justify-between">
             <Button type="button" variant="outline" onClick={() => setStep(1)}>Back</Button>
+            <Button type="button" onClick={() => setStep(3)}>Next: Email Intelligence <ChevronRight className="size-4 ml-1" /></Button>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Step 4: Email Intelligence ═══ */}
+      {step === 3 && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-sm font-semibold mb-1">Email Intelligence</h2>
+            <p className="text-xs text-muted-foreground mb-4">Automatically scan your connected inbox to create contacts, log emails, and track engagement.</p>
+          </div>
+
+          <div className="rounded-lg border divide-y">
+            <div className="flex items-center justify-between px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Enable Inbox Scanning</p>
+                <p className="text-xs text-muted-foreground">Scan your inbox every 15 minutes to keep your CRM up to date</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { const next = !eiEnabled; setEiEnabled(next); saveEiSettings({ is_enabled: next }) }}
+                disabled={eiSaving}
+                className={`relative w-10 h-5 rounded-full transition-colors ${eiEnabled ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${eiEnabled ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+
+            {eiEnabled && [
+              { label: 'Auto-create contacts', desc: 'Create new contacts from unknown senders', value: eiAutoCreate, key: 'auto_create_contacts', set: setEiAutoCreate },
+              { label: 'Update timeline', desc: 'Log inbound emails to contact timeline', value: eiAutoTimeline, key: 'auto_update_timeline', set: setEiAutoTimeline },
+              { label: 'Update engagement', desc: 'Track email engagement scores', value: eiAutoEngagement, key: 'auto_update_engagement', set: setEiAutoEngagement },
+              { label: 'Auto-advance stage', desc: 'Move prospects to leads when engagement is high', value: eiAutoStage, key: 'auto_advance_stage', set: setEiAutoStage },
+            ].map(item => (
+              <div key={item.key} className="flex items-center justify-between px-4 py-2.5">
+                <div>
+                  <p className="text-sm">{item.label}</p>
+                  <p className="text-xs text-muted-foreground">{item.desc}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { const next = !item.value; item.set(next); saveEiSettings({ [item.key]: next }) }}
+                  disabled={eiSaving}
+                  className={`relative w-9 h-[18px] rounded-full transition-colors ${item.value ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}
+                >
+                  <span className={`absolute top-[1px] left-[1px] w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${item.value ? 'translate-x-[18px]' : ''}`} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-xs text-muted-foreground">You can connect or change your email account any time in Settings → Email.</p>
+
+          <div className="flex justify-between">
+            <Button type="button" variant="outline" onClick={() => setStep(2)}>Back</Button>
             <Button type="button" onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="size-4 mr-2 animate-spin" /> : saved ? <Check className="size-4 mr-2 text-emerald-500" /> : <Save className="size-4 mr-2" />}
-              {saving ? 'Saving...' : saved ? 'Saved!' : 'Save Settings'}
+              {saving ? 'Saving...' : saved ? 'Saved!' : 'Finish Setup'}
             </Button>
           </div>
         </div>

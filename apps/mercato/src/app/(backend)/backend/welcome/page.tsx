@@ -87,6 +87,13 @@ export default function WelcomePage() {
   const [voiceAnalyzing, setVoiceAnalyzing] = useState(false)
   const [voiceDone, setVoiceDone] = useState(false)
 
+  // IMAP/SMTP email connect state
+  const [emailAddr, setEmailAddr] = useState('')
+  const [emailPassword, setEmailPassword] = useState('')
+  const [emailConnecting, setEmailConnecting] = useState(false)
+  const [emailConnectError, setEmailConnectError] = useState('')
+  const [openEmailGuide, setOpenEmailGuide] = useState<'gmail' | 'outlook' | 'other' | null>(null)
+
   const [showIcsGuide, setShowIcsGuide] = useState<'apple' | 'other' | null>(null)
   const [calendarFeedId, setCalendarFeedId] = useState('')
 
@@ -697,83 +704,69 @@ export default function WelcomePage() {
         {/* Step 6: Connect Accounts */}
         {step === 6 && (
           <div className="space-y-3">
-            {/* Gmail */}
-            <div className="rounded-lg border p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${emailConnected ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-muted'}`}>
-                    <Mail className={`size-4 ${emailConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Email (Gmail)</p>
-                    <p className="text-xs text-muted-foreground">Send and receive emails through your Gmail account</p>
-                  </div>
+            {/* Email (IMAP/SMTP) */}
+            <div className="rounded-lg border p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${emailConnected ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-muted'}`}>
+                  <Mail className={`size-4 ${emailConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
                 </div>
-                {emailConnected ? (
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><CheckCircle2 className="size-3" /> Connected</span>
-                ) : (
-                  <Button type="button" variant="outline" size="sm" onClick={() => {
-                    saveState()
-                    window.location.href = '/api/calendar/google/auth?type=both&from=onboarding'
-                  }}>
-                    <Link className="size-3 mr-1.5" /> Connect Gmail
-                  </Button>
-                )}
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Connect Email</p>
+                  <p className="text-xs text-muted-foreground">Works with Gmail, Outlook, Yahoo, iCloud, and any email provider</p>
+                </div>
+                {emailConnected && <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0"><CheckCircle2 className="size-3" /> Connected</span>}
               </div>
-              {emailConnected && (
-                <div className="mt-3 pt-3 border-t space-y-3">
-                  <div>
-                    <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-2">AI Email Intake</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { id: 'auto' as const, label: 'Auto-import', desc: 'Add contacts automatically' },
-                        { id: 'suggest' as const, label: 'Suggest only', desc: 'Review before adding' },
-                        { id: 'off' as const, label: 'Off', desc: 'No inbox scanning' },
-                      ].map(opt => (
-                        <button key={opt.id} type="button" onClick={() => setEmailIntakeMode(opt.id)}
-                          className={`px-3 py-2.5 rounded-lg border text-center transition ${
-                            emailIntakeMode === opt.id ? '' : 'hover:bg-muted/50 text-foreground/70'
-                          }`}
-                          style={emailIntakeMode === opt.id ? SEL.card : undefined}>
-                          <p className="text-xs font-medium" style={emailIntakeMode === opt.id ? SEL.text : undefined}>{opt.label}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{opt.desc}</p>
+
+              {!emailConnected && (
+                <div className="space-y-2">
+                  <Input value={emailAddr} onChange={e => setEmailAddr(e.target.value)} type="email" placeholder="your@email.com" className="h-8 text-xs" />
+                  <Input value={emailPassword} onChange={e => setEmailPassword(e.target.value)} type="password" placeholder="App Password" className="h-8 text-xs" />
+                  {emailConnectError && <p className="text-xs text-red-500">{emailConnectError}</p>}
+
+                  {/* Provider guides */}
+                  <div className="space-y-1 pt-1">
+                    <p className="text-[11px] text-muted-foreground font-medium">How to get an App Password:</p>
+                    {[
+                      { id: 'gmail' as const, label: '📧 Gmail', steps: ['Go to myaccount.google.com → Security', 'Confirm 2-Step Verification is On', 'Search "App Passwords" in the search bar', 'Type "LaunchOS CRM" → click Create', 'Copy the 16-character password and paste above'] },
+                      { id: 'outlook' as const, label: '📨 Outlook / Hotmail / M365', steps: ['Go to account.microsoft.com → Security', 'Click Advanced security options', 'Under Two-step verification, make sure it\'s on', 'Scroll to App passwords → Create a new app password', 'Copy the generated password and paste above'] },
+                      { id: 'other' as const, label: '📬 Yahoo, iCloud, or other', steps: ['Yahoo: account.yahoo.com → Security → Generate app password', 'iCloud: appleid.apple.com → Sign-In & Security → App-Specific Passwords', 'Other: use your regular password if IMAP is enabled for your account'] },
+                    ].map(guide => (
+                      <div key={guide.id} className="rounded border overflow-hidden text-xs">
+                        <button type="button" className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-muted/50 transition-colors"
+                          onClick={() => setOpenEmailGuide(g => g === guide.id ? null : guide.id)}>
+                          <span>{guide.label}</span>
+                          <span className="text-muted-foreground">{openEmailGuide === guide.id ? '▲' : '▼'}</span>
                         </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="pt-2 border-t">
-                    <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-2">Brand Voice</label>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Mic className="size-4 text-amber-600" />
-                        <div>
-                          <p className="text-xs font-medium">Learn your writing style</p>
-                          <p className="text-[10px] text-muted-foreground">AI analyzes your sent emails so drafts sound like you</p>
-                        </div>
+                        {openEmailGuide === guide.id && (
+                          <div className="px-3 pb-2 pt-1 bg-muted/20 border-t space-y-1 text-muted-foreground">
+                            {guide.steps.map((s, i) => <p key={i}><span className="font-medium text-foreground">{i + 1}.</span> {s}</p>)}
+                          </div>
+                        )}
                       </div>
-                      {voiceDone ? (
-                        <span className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle2 className="size-3" /> Learned</span>
-                      ) : (
-                        <Button type="button" variant="outline" size="sm" disabled={voiceAnalyzing}
-                          onClick={async () => {
-                            setVoiceAnalyzing(true)
-                            try {
-                              const res = await fetch('/api/ai/learn-voice', {
-                                method: 'POST', credentials: 'include',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ source: 'email' }),
-                              })
-                              const d = await res.json()
-                              if (d.ok) setVoiceDone(true)
-                            } catch {}
-                            setVoiceAnalyzing(false)
-                          }}>
-                          {voiceAnalyzing ? <Loader2 className="size-3 mr-1.5 animate-spin" /> : <Sparkles className="size-3 mr-1.5" />}
-                          {voiceAnalyzing ? 'Analyzing...' : 'Analyze'}
-                        </Button>
-                      )}
-                    </div>
+                    ))}
                   </div>
+
+                  <Button type="button" size="sm" className="w-full" disabled={emailConnecting || !emailAddr || !emailPassword}
+                    onClick={async () => {
+                      setEmailConnecting(true)
+                      setEmailConnectError('')
+                      try {
+                        const res = await fetch('/api/email/smtp', {
+                          method: 'POST', credentials: 'include',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ emailAddress: emailAddr, password: emailPassword }),
+                        })
+                        const d = await res.json()
+                        if (d.ok) {
+                          setEmailConnected(true)
+                        } else {
+                          setEmailConnectError(d.error || 'Connection failed. Check your email and App Password.')
+                        }
+                      } catch { setEmailConnectError('Connection failed. Please try again.') }
+                      setEmailConnecting(false)
+                    }}>
+                    {emailConnecting ? <><Loader2 className="size-3 mr-1.5 animate-spin" /> Connecting...</> : 'Connect Email'}
+                  </Button>
                 </div>
               )}
             </div>

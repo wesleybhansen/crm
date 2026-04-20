@@ -1382,6 +1382,97 @@ export default function SimpleSettingsPage() {
         </div>
       </section>
 
+      {/* Inbox Intelligence */}
+      <section className="mb-8">
+        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <Mail className="size-4 text-muted-foreground" /> Inbox Intelligence
+        </h2>
+        <div className="rounded-lg border divide-y">
+          {/* Main toggle */}
+          <div className="flex items-center justify-between px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Inbox Scanning</p>
+              <p className="text-xs text-muted-foreground">Automatically scan connected inboxes 1-2x daily to create contacts, log emails, and update engagement</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { const next = !eiEnabled; setEiEnabled(next); saveEiSettings({ is_enabled: next }) }}
+              disabled={eiSaving}
+              className={`relative w-10 h-5 rounded-full transition-colors ${eiEnabled ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${eiEnabled ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+
+          {eiEnabled && (
+            <>
+              {/* Sub-toggles */}
+              {[
+                { label: 'Auto-create contacts', desc: 'Create new contacts from unknown senders', value: eiAutoCreate, key: 'auto_create_contacts', set: setEiAutoCreate },
+                { label: 'Update timeline', desc: 'Log inbound emails to contact timeline', value: eiAutoTimeline, key: 'auto_update_timeline', set: setEiAutoTimeline },
+                { label: 'Update engagement', desc: 'Track email engagement scores (+2 received, +4 replied)', value: eiAutoEngagement, key: 'auto_update_engagement', set: setEiAutoEngagement },
+                { label: 'Auto-advance stage', desc: 'Move prospects to leads when engagement is high', value: eiAutoStage, key: 'auto_advance_stage', set: setEiAutoStage },
+              ].map(item => (
+                <div key={item.key} className="flex items-center justify-between px-4 py-2.5">
+                  <div>
+                    <p className="text-sm">{item.label}</p>
+                    <p className="text-xs text-muted-foreground">{item.desc}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { const next = !item.value; item.set(next); saveEiSettings({ [item.key]: next }) }}
+                    disabled={eiSaving}
+                    className={`relative w-9 h-[18px] rounded-full transition-colors ${item.value ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}
+                  >
+                    <span className={`absolute top-[1px] left-[1px] w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${item.value ? 'translate-x-[18px]' : ''}`} />
+                  </button>
+                </div>
+              ))}
+
+              {/* Stats and sync */}
+              <div className="px-4 py-3">
+                <div className="flex items-center gap-4 mb-3">
+                  <div className="text-center">
+                    <p className="text-lg font-semibold">{eiEmailsProcessed}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Emails Processed</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg font-semibold">{eiContactsCreated}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Contacts Created</p>
+                  </div>
+                  <div className="flex-1" />
+                  <Button type="button" variant="outline" size="sm" onClick={triggerEiSync} disabled={eiSyncing}>
+                    {eiSyncing ? 'Scanning...' : 'Sync Now'}
+                  </Button>
+                </div>
+                {eiLastSync && (
+                  <p className="text-xs text-muted-foreground">
+                    Last sync: {new Date(eiLastSync).toLocaleString()}
+                    {eiSyncStatus === 'success' && <span className="text-emerald-600 ml-1.5"><Check className="size-3 inline" /> Success</span>}
+                    {eiSyncStatus === 'error' && <span className="text-red-500 ml-1.5">Failed</span>}
+                    {eiSyncStatus === 'running' && <span className="text-blue-500 ml-1.5">Running...</span>}
+                  </p>
+                )}
+                {eiSyncResult && (
+                  <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                    <Check className="size-3" />
+                    Processed {eiSyncResult.emailsProcessed} emails, created {eiSyncResult.contactsCreated} contacts
+                  </p>
+                )}
+                {eiSyncError && eiSyncStatus === 'error' && (
+                  <p className="text-xs text-red-500 mt-1">{eiSyncError}</p>
+                )}
+                {!emailConnections.some(c => c.is_active) && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                    Connect an email account above to use Inbox Intelligence
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
       {/* Email Routing — only show when multiple email addresses are available */}
       {routingAddresses.length > 1 && (
         <section className="mb-8">
@@ -1709,110 +1800,6 @@ export default function SimpleSettingsPage() {
               {pkbMessage.type === 'success' && <Check className="size-3 inline mr-1" />}
               {pkbMessage.text}
             </p>
-          )}
-        </div>
-      </section>
-
-      {/* Inbox Intelligence */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <Mail className="size-4 text-muted-foreground" /> Inbox Intelligence
-        </h2>
-        <div className="rounded-lg border divide-y">
-          {/* Main toggle */}
-          <div className="flex items-center justify-between px-4 py-3">
-            <div>
-              <p className="text-sm font-medium">Inbox Scanning</p>
-              <p className="text-xs text-muted-foreground">Automatically scan connected inboxes 1-2x daily to create contacts, log emails, and update engagement</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => { const next = !eiEnabled; setEiEnabled(next); saveEiSettings({ is_enabled: next }) }}
-              disabled={eiSaving}
-              className={`relative w-10 h-5 rounded-full transition-colors ${eiEnabled ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${eiEnabled ? 'translate-x-5' : ''}`} />
-            </button>
-          </div>
-
-          {eiEnabled && (
-            <>
-              {/* Sub-toggles */}
-              {[
-                { label: 'Auto-create contacts', desc: 'Create new contacts from unknown senders', value: eiAutoCreate, key: 'auto_create_contacts', set: setEiAutoCreate },
-                { label: 'Update timeline', desc: 'Log inbound emails to contact timeline', value: eiAutoTimeline, key: 'auto_update_timeline', set: setEiAutoTimeline },
-                { label: 'Update engagement', desc: 'Track email engagement scores (+2 received, +4 replied)', value: eiAutoEngagement, key: 'auto_update_engagement', set: setEiAutoEngagement },
-                { label: 'Auto-advance stage', desc: 'Move prospects to leads when engagement is high', value: eiAutoStage, key: 'auto_advance_stage', set: setEiAutoStage },
-              ].map(item => (
-                <div key={item.key} className="flex items-center justify-between px-4 py-2.5">
-                  <div>
-                    <p className="text-sm">{item.label}</p>
-                    <p className="text-xs text-muted-foreground">{item.desc}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { const next = !item.value; item.set(next); saveEiSettings({ [item.key]: next }) }}
-                    disabled={eiSaving}
-                    className={`relative w-9 h-[18px] rounded-full transition-colors ${item.value ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}
-                  >
-                    <span className={`absolute top-[1px] left-[1px] w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${item.value ? 'translate-x-[18px]' : ''}`} />
-                  </button>
-                </div>
-              ))}
-
-              {/* Stats and sync */}
-              <div className="px-4 py-3">
-                <div className="flex items-center gap-4 mb-3">
-                  <div className="text-center">
-                    <p className="text-lg font-semibold">{eiEmailsProcessed}</p>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Emails Processed</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-lg font-semibold">{eiContactsCreated}</p>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Contacts Created</p>
-                  </div>
-                  <div className="flex-1" />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={triggerEiSync}
-                    disabled={eiSyncing}
-                  >
-                    {eiSyncing ? 'Scanning...' : 'Sync Now'}
-                  </Button>
-                </div>
-
-                {/* Last sync status */}
-                {eiLastSync && (
-                  <p className="text-xs text-muted-foreground">
-                    Last sync: {new Date(eiLastSync).toLocaleString()}
-                    {eiSyncStatus === 'success' && <span className="text-emerald-600 ml-1.5"><Check className="size-3 inline" /> Success</span>}
-                    {eiSyncStatus === 'error' && <span className="text-red-500 ml-1.5">Failed</span>}
-                    {eiSyncStatus === 'running' && <span className="text-blue-500 ml-1.5">Running...</span>}
-                  </p>
-                )}
-
-                {/* Sync result feedback */}
-                {eiSyncResult && (
-                  <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
-                    <Check className="size-3" />
-                    Processed {eiSyncResult.emailsProcessed} emails, created {eiSyncResult.contactsCreated} contacts
-                  </p>
-                )}
-
-                {/* Error display */}
-                {eiSyncError && eiSyncStatus === 'error' && (
-                  <p className="text-xs text-red-500 mt-1">{eiSyncError}</p>
-                )}
-
-                {!emailConnections.some(c => c.provider === 'gmail' || c.provider === 'microsoft') && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-                    Connect Gmail, Outlook, or Twilio above to use Inbox Intelligence
-                  </p>
-                )}
-              </div>
-            </>
           )}
         </div>
       </section>
