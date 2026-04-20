@@ -1177,6 +1177,12 @@ export class CustomerBusinessProfile {
   @Property({ name: 'brand_voice_source', type: 'text', nullable: true })
   brandVoiceSource?: string | null
 
+  @Property({ name: 'ams_url', type: 'text', nullable: true })
+  amsUrl?: string | null
+
+  @Property({ name: 'ams_webhook_secret', type: 'text', nullable: true })
+  amsWebhookSecret?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
