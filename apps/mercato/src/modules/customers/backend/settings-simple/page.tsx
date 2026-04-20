@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Settings, Monitor, Key, User, Moon, Sun, Check, Mail, X as XIcon, Server, Send, CreditCard, Phone, Sparkles, Briefcase, Smile, Minus, Kanban, Users as UsersIcon, GripVertical, Pencil, Trash2, Plus, ChevronUp, ChevronDown, BookOpen, LayoutDashboard, EyeOff, Eye, Zap } from 'lucide-react'
+import { Settings, Monitor, Key, User, Moon, Sun, Check, Mail, X as XIcon, Server, Send, CreditCard, Phone, Sparkles, Briefcase, Smile, Minus, Kanban, Users as UsersIcon, GripVertical, Pencil, Trash2, Plus, ChevronUp, ChevronDown, BookOpen, LayoutDashboard, EyeOff, Eye } from 'lucide-react'
 
 export default function SimpleSettingsPage() {
   const [mode, setMode] = useState('simple')
@@ -70,14 +70,6 @@ export default function SimpleSettingsPage() {
   const [pkbDocCount, setPkbDocCount] = useState(0)
   const [pkbMessage, setPkbMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  // AMS state
-  const [amsUrl, setAmsUrl] = useState('')
-  const [amsConnected, setAmsConnected] = useState(false)
-  const [amsSaving, setAmsSaving] = useState(false)
-  const [amsTesting, setAmsTesting] = useState(false)
-  const [amsMessage, setAmsMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [amsWebhookSecret, setAmsWebhookSecret] = useState<string | null>(null)
-  const [amsSecretCopied, setAmsSecretCopied] = useState(false)
 
   // Sender addresses state
   const [senderAddresses, setSenderAddresses] = useState<Array<{ id: string; sender_email: string; sender_name: string | null; is_default: boolean }>>([])
@@ -185,14 +177,6 @@ export default function SimpleSettingsPage() {
     // Load PKB config
     fetch('/api/courses/pkb/config', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok && d.data?.configured) setPkbConnected(true) }).catch(() => {})
-    // Load AMS config
-    fetch('/api/ext/ams/config', { credentials: 'include' })
-      .then(r => r.json()).then(d => {
-        if (d.ok && d.data) {
-          setAmsConnected(d.data.connected)
-          if (d.data.amsUrl) setAmsUrl(d.data.amsUrl)
-        }
-      }).catch(() => {})
     // Load sender addresses
     fetch('/api/email/sender-addresses', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setSenderAddresses(d.data || []) }).catch(() => {})
@@ -1821,134 +1805,6 @@ export default function SimpleSettingsPage() {
         </div>
       </section>
 
-      {/* AMS Integration */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
-          <Zap className="size-4 text-muted-foreground" /> AMS Integration
-          {amsConnected && <span className="text-[10px] font-medium text-emerald-600 ml-2">Connected</span>}
-        </h2>
-        <div className="bg-card rounded-lg border p-5 space-y-4">
-          <p className="text-xs text-muted-foreground">Connect the Automatic Marketing System (Blog-Ops) to sync contacts, send emails, and receive CRM event webhooks in real time.</p>
-
-          {/* Step 1: AMS URL */}
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">AMS URL</label>
-            <Input
-              value={amsUrl}
-              onChange={(ev: any) => setAmsUrl(ev.target.value)}
-              placeholder="https://marketing.thelaunchpadincubator.com"
-              type="url"
-              className="text-sm max-w-md"
-            />
-            <p className="text-[10px] text-muted-foreground mt-1">The base URL of your Blog-Ops AMS instance.</p>
-          </div>
-
-          {/* Connect / Disconnect */}
-          <div className="flex gap-2 flex-wrap">
-            <Button type="button" variant="outline" size="sm" disabled={amsSaving || !amsUrl.trim()} onClick={async () => {
-              setAmsSaving(true)
-              setAmsMessage(null)
-              try {
-                const res = await fetch('/api/ext/ams/config', {
-                  method: 'PUT',
-                  credentials: 'include',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ amsUrl }),
-                })
-                const d = await res.json()
-                if (d.ok) {
-                  setAmsConnected(true)
-                  setAmsWebhookSecret(d.data.webhookSecret)
-                  setAmsMessage({ type: 'success', text: 'Connected! Copy the webhook secret below into your AMS settings.' })
-                } else {
-                  setAmsMessage({ type: 'error', text: d.error || 'Failed to connect' })
-                }
-              } finally {
-                setAmsSaving(false)
-              }
-            }}>
-              {amsSaving ? 'Connecting...' : amsConnected ? 'Reconnect' : 'Connect'}
-            </Button>
-
-            {amsConnected && (
-              <Button type="button" variant="outline" size="sm" disabled={amsTesting} onClick={async () => {
-                setAmsTesting(true)
-                setAmsMessage(null)
-                const res = await fetch('/api/ext/ams/config', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-                const d = await res.json()
-                if (d.ok) setAmsMessage({ type: 'success', text: 'AMS is reachable.' })
-                else setAmsMessage({ type: 'error', text: d.error || 'Could not reach AMS' })
-                setAmsTesting(false)
-              }}>
-                {amsTesting ? 'Testing...' : 'Test Connection'}
-              </Button>
-            )}
-
-            {amsConnected && (
-              <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={async () => {
-                await fetch('/api/ext/ams/config', { method: 'DELETE', credentials: 'include' })
-                setAmsConnected(false)
-                setAmsWebhookSecret(null)
-                setAmsUrl('')
-                setAmsMessage({ type: 'success', text: 'Disconnected.' })
-              }}>
-                Disconnect
-              </Button>
-            )}
-          </div>
-
-          {/* Webhook secret reveal after connect */}
-          {amsWebhookSecret && (
-            <div className="rounded-md border bg-muted/40 p-3 space-y-2">
-              <p className="text-xs font-medium">Webhook Secret — copy this into your AMS settings</p>
-              <div className="flex items-center gap-2">
-                <code className="text-xs font-mono break-all flex-1">{amsWebhookSecret}</code>
-                <Button type="button" variant="outline" size="sm" onClick={() => {
-                  navigator.clipboard.writeText(amsWebhookSecret)
-                  setAmsSecretCopied(true)
-                  setTimeout(() => setAmsSecretCopied(false), 2000)
-                }}>
-                  {amsSecretCopied ? <Check className="size-3" /> : 'Copy'}
-                </Button>
-              </div>
-              <p className="text-[10px] text-muted-foreground">In AMS → Settings → API Keys → Launch OS (CRM), enter the CRM base URL and your CRM API key. Then set this secret as the webhook secret.</p>
-            </div>
-          )}
-
-          {/* Instructions */}
-          <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer font-medium hover:text-foreground transition-colors">How to set up the full integration</summary>
-            <div className="mt-3 space-y-3 ml-1">
-              <div>
-                <p className="font-medium text-foreground mb-1">Step 1: Connect AMS → CRM (API key)</p>
-                <ol className="list-decimal list-inside space-y-1">
-                  <li>Go to <strong>Settings → API Keys</strong> in the CRM sidebar</li>
-                  <li>Click <strong>Create API Key</strong>, name it <em>"AMS Integration"</em>, and assign the <strong>admin</strong> role</li>
-                  <li>Copy the secret key — it is only shown once</li>
-                  <li>In AMS, go to <strong>Settings → API Keys → Launch OS (CRM)</strong></li>
-                  <li>Enter this CRM&apos;s URL and paste the key, then click <strong>Connect</strong></li>
-                </ol>
-              </div>
-              <div>
-                <p className="font-medium text-foreground mb-1">Step 2: Connect CRM → AMS (webhooks)</p>
-                <ol className="list-decimal list-inside space-y-1">
-                  <li>Enter the AMS URL above and click <strong>Connect</strong></li>
-                  <li>Copy the generated webhook secret shown after connecting</li>
-                  <li>In AMS → Settings → API Keys → Launch OS (CRM), set the <strong>Webhook Secret</strong> field to this value</li>
-                  <li>CRM will now push contact, deal, and email events to AMS in real time</li>
-                </ol>
-              </div>
-            </div>
-          </details>
-
-          {amsMessage && (
-            <p className={`text-xs px-1 ${amsMessage.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
-              {amsMessage.type === 'success' && <Check className="size-3 inline mr-1" />}
-              {amsMessage.text}
-            </p>
-          )}
-        </div>
-      </section>
 
       {/* Sidebar Menu */}
       <section className="mb-8">
