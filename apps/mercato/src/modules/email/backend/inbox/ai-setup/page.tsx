@@ -223,7 +223,7 @@ export default function AiSetupPage() {
         }),
       })
       setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
+      setTimeout(() => { window.location.href = '/backend/inbox' }, 1200)
     } catch { alert('Failed to save') }
     setSaving(false)
   }
