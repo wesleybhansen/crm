@@ -104,16 +104,32 @@ function getActionLabel(action: CrmAction): string {
   }
 }
 
-async function executeCrmAction(action: CrmAction): Promise<{ success: boolean; message: string }> {
+type ActionResult = { success: boolean; message: string; contactId?: string; contactName?: string }
+
+async function executeCrmAction(action: CrmAction): Promise<ActionResult> {
   try {
     switch (action.type) {
       case 'create_contact': {
-        const res = await fetch('/api/contacts/import', {
+        const fullName = String(action.data.name || 'New Contact').trim()
+        const parts = fullName.split(/\s+/)
+        const firstName = parts[0] || ''
+        const lastName = parts.length > 1 ? parts.slice(1).join(' ') : ''
+        const res = await fetch('/api/customers/people', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({ contacts: [{ display_name: action.data.name, primary_email: action.data.email, primary_phone: action.data.phone || null, source: action.data.source || 'ai_assistant' }] }),
+          body: JSON.stringify({
+            displayName: fullName,
+            firstName,
+            lastName,
+            primaryEmail: action.data.email || '',
+            primaryPhone: action.data.phone || '',
+            source: action.data.source || 'ai_assistant',
+          }),
         })
-        const data = await res.json()
-        if (data.ok) return { success: true, message: `Contact "${action.data.name}" created!` }
+        const data = await res.json().catch(() => ({}))
+        if (data.id) {
+          // Return the created id so downstream multi-step actions can use it
+          return { success: true, message: `Contact "${fullName}" created!`, contactId: data.id, contactName: fullName }
+        }
         return { success: false, message: data.error || 'Failed to create contact' }
       }
       case 'create_task': {
@@ -220,6 +236,41 @@ async function executeCrmAction(action: CrmAction): Promise<{ success: boolean; 
         const data = await res.json()
         if (data.ok) return { success: true, message: `Product "${action.data.name}" created!` }
         return { success: false, message: data.error || 'Failed to create product' }
+      }
+      case 'delete_contact': {
+        if (!action.data.contactId) return { success: false, message: 'Contact ID required' }
+        const res = await fetch(`/api/customers/people?id=${encodeURIComponent(action.data.contactId)}`, { method: 'DELETE', credentials: 'include' })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok) return { success: true, message: 'Contact deleted.' }
+        return { success: false, message: data.error || 'Failed to delete contact' }
+      }
+      case 'delete_company': {
+        if (!action.data.companyId) return { success: false, message: 'Company ID required' }
+        const res = await fetch(`/api/customers/companies?id=${encodeURIComponent(action.data.companyId)}`, { method: 'DELETE', credentials: 'include' })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok) return { success: true, message: 'Company deleted.' }
+        return { success: false, message: data.error || 'Failed to delete company' }
+      }
+      case 'delete_deal': {
+        if (!action.data.dealId) return { success: false, message: 'Deal ID required' }
+        const res = await fetch(`/api/customers/deals?id=${encodeURIComponent(action.data.dealId)}`, { method: 'DELETE', credentials: 'include' })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok) return { success: true, message: 'Deal deleted.' }
+        return { success: false, message: data.error || 'Failed to delete deal' }
+      }
+      case 'delete_task': {
+        if (!action.data.taskId) return { success: false, message: 'Task ID required' }
+        const res = await fetch(`/api/customers/tasks?id=${encodeURIComponent(action.data.taskId)}`, { method: 'DELETE', credentials: 'include' })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok) return { success: true, message: 'Task deleted.' }
+        return { success: false, message: data.error || 'Failed to delete task' }
+      }
+      case 'delete_product': {
+        if (!action.data.productId) return { success: false, message: 'Product ID required' }
+        const res = await fetch(`/api/payments/products?id=${encodeURIComponent(action.data.productId)}`, { method: 'DELETE', credentials: 'include' })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok) return { success: true, message: 'Product deleted.' }
+        return { success: false, message: data.error || 'Failed to delete product' }
       }
       default:
         return { success: false, message: `Unknown action type: ${action.type}` }
@@ -353,6 +404,31 @@ export function AiAssistantWidget() {
     setMessages(prev => {
       const updated = [...prev]
       if (updated[messageIndex]) updated[messageIndex] = { ...updated[messageIndex], actionStatus: result.success ? 'success' : 'error', actionResult: result.message }
+
+      // If we just created a contact, patch any later pending actions that
+      // reference this contact by name — otherwise the second step's
+      // search-by-name often fails because the new record isn't indexed
+      // yet, or Gemini emitted a slightly different name in the second
+      // block ("Brian Johnson" → "Brian Howard").
+      if (result.success && msg.action?.type === 'create_contact' && result.contactId) {
+        const createdFirstName = String(result.contactName || '').split(/\s+/)[0]?.toLowerCase() || ''
+        for (let i = messageIndex + 1; i < updated.length; i++) {
+          const m = updated[i]
+          if (m.actionStatus !== 'pending' || !m.action) continue
+          const { type, data } = m.action
+          if (type === 'move_contact_stage' || type === 'add_note' || type === 'add_tag' || type === 'remove_tag' || type === 'create_task' || type === 'create_deal' || type === 'delete_contact' || type === 'update_contact') {
+            const hasId = !!(data?.contactId)
+            if (hasId) continue
+            const targetName = String(data?.contactName || data?.name || '').trim()
+            const targetFirst = targetName.split(/\s+/)[0]?.toLowerCase() || ''
+            // Patch if no contactId is set AND either the target name matches
+            // or has no name at all (relying on chain context).
+            if (!targetName || !createdFirstName || targetFirst === createdFirstName) {
+              updated[i] = { ...m, action: { ...m.action, data: { ...m.action.data, contactId: result.contactId, contactName: result.contactName } } }
+            }
+          }
+        }
+      }
       return updated
     })
   }, [messages])

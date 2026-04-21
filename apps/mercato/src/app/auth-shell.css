@@ -321,7 +321,9 @@
   transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), color 0.22s ease;
 }
 .auth-field.is-focused label,
-.auth-field.has-value label {
+.auth-field.has-value label,
+.auth-field input:not(:placeholder-shown) + label,
+.auth-field input:-webkit-autofill + label {
   transform: translateY(-9px) scale(0.72);
   color: var(--ink-60);
 }

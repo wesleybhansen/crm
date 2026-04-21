@@ -113,6 +113,7 @@ export function AuthField({
         onFocus={handleFocus}
         onBlur={handleBlur}
         autoComplete={autoComplete}
+        placeholder=" "
       />
       <label htmlFor={id}>{label}</label>
     </div>
