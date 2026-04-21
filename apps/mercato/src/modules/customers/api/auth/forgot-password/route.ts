@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     const resReq = await auth.requestPasswordReset(email)
     if (!resReq) return NextResponse.json({ ok: true })
 
-    const { user, token } = resReq
+    const { token } = resReq
     const url = new URL(req.url)
     const base = process.env.APP_URL || `${url.protocol}//${url.host}`
     const resetUrl = `${base}/reset-password?token=${token}`
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      await sendEmail({ to: user.email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
+      await sendEmail({ to: email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
     } catch (mailErr) {
       console.error('[auth/forgot-password] Failed to send reset email:', mailErr)
     }
