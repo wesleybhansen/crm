@@ -2011,11 +2011,6 @@ export default function VoiceAssistantPage() {
                   : 'bg-muted rounded-bl-md'
               }`}>
                 <MarkdownText text={msg.content} />
-                {msg.role === 'assistant' && msg.provider === 'openai' && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-800/60">
-                    <Sparkles className="size-2.5" /> via OpenAI fallback
-                  </div>
-                )}
 
                 {msg.action && msg.actionStatus === 'pending' && (
                   <div className="mt-3 p-3 rounded-lg bg-accent/10 border border-accent/20">

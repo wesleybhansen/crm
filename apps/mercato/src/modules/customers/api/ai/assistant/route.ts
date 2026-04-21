@@ -465,9 +465,10 @@ export async function POST(req: Request) {
     // Load persona + data context
     let personaPrompt = ''
     let dataContext = ''
+    let userInfoBlock = ''
     try {
       const auth = await getAuthFromCookies()
-      if (auth?.orgId) {
+      if (auth?.orgId && auth?.sub) {
         const container = await createRequestContainer()
         const em = container.resolve('em') as EntityManager
         const knex = em.getKnex()
@@ -486,10 +487,21 @@ export async function POST(req: Request) {
             dataContext = searchResults + '\n\n' + dataContext
           }
         }
+
+        // Fetch the current user's name + email so email drafts sign with real
+        // name. Without this Scout falls back to "[Your Name]" placeholder.
+        try {
+          const appUser = await knex('users').where('id', auth.sub).first()
+          const userName = (appUser?.name || '').toString().trim()
+          const userEmail = auth?.email || ''
+          if (userName || userEmail) {
+            userInfoBlock = `USER INFO:\nName: ${userName || '(unknown)'}\nEmail: ${userEmail || '(unknown)'}\n\nWhen signing emails on the user's behalf, use their real name. NEVER use placeholders like "[Your Name]", "[Your Email]", or "Best regards, [Name]". If unsure, use just their first name.`
+          }
+        } catch {}
       }
     } catch {}
 
-    const systemParts = [personaPrompt, CRM_INSTRUCTIONS, dataContext].filter(Boolean)
+    const systemParts = [personaPrompt, CRM_INSTRUCTIONS, userInfoBlock, dataContext].filter(Boolean)
     const systemPrompt = systemParts.join('\n\n')
 
     // Add page context to the conversation
