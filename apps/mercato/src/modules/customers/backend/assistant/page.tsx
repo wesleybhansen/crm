@@ -11,6 +11,32 @@ interface Message {
   action?: CrmAction | null
   actionStatus?: 'pending' | 'executing' | 'success' | 'error' | 'cancelled'
   actionResult?: string
+  /**
+   * Set on a transcript message when the model claimed more state-changing
+   * actions in natural language than it actually invoked via tool calls. The
+   * user sees a banner with a "retry missed steps" button — see the
+   * reconcileTurn() helper for how the heuristic works.
+   */
+  reconciliationWarning?: { verbsClaimed: string[]; toolsCalled: number } | null
+}
+
+// Verbs that suggest a state-changing action happened. If the model's audio
+// transcript mentions any of these in past tense but no corresponding tool
+// was actually called in the same turn, we surface a warning. Kept narrow on
+// purpose — false positives are annoying.
+const STATE_CHANGE_VERB_REGEX = /\b(added|created|sent|updated|deleted|scheduled|booked|drafted|moved|assigned|enrolled|published|cancelled|refunded)\b/gi
+
+// Pull a user-readable label from a tool's arguments so the "Executing: ..."
+// bubble shows the entity rather than just the tool name. Kept generic — any
+// of these keys can appear depending on the tool.
+function pickActionLabel(args: Record<string, any>): string | null {
+  if (!args || typeof args !== 'object') return null
+  const keys = ['displayName', 'name', 'title', 'contactName', 'productName', 'subject', 'message', 'query']
+  for (const k of keys) {
+    const v = (args as any)[k]
+    if (typeof v === 'string' && v.trim()) return v.trim().slice(0, 60)
+  }
+  return null
 }
 
 interface CrmAction {
@@ -1114,6 +1140,8 @@ export default function VoiceAssistantPage() {
   const playbackContextRef = useRef<AudioContext | null>(null)
   const playbackBufferRef = useRef<Float32Array[]>([])
   const isPlayingRef = useRef(false)
+  // Reconciliation bookkeeping — reset on response.created, read on response.done.
+  const turnToolCallsRef = useRef<number>(0)
 
   // Load persona + check speech support
   useEffect(() => {
@@ -1420,8 +1448,17 @@ export default function VoiceAssistantPage() {
         setSpeaking(false)
         break
 
+      case 'response.created':
+        turnToolCallsRef.current = 0
+        break
+
       case 'response.function_call_arguments.done':
+        turnToolCallsRef.current += 1
         handleRealtimeToolCall(msg.call_id, msg.name, msg.arguments)
+        break
+
+      case 'response.done':
+        reconcileTurn()
         break
 
       case 'error': {
@@ -1456,14 +1493,57 @@ export default function VoiceAssistantPage() {
     source.start()
   }
 
+  function reconcileTurn() {
+    // Compare the assistant's final transcript for the just-completed turn
+    // against the number of tool calls actually emitted. If the transcript
+    // claims more state-changing actions than were called, surface a warning.
+    const toolCalls = turnToolCallsRef.current
+    setMessages(prev => {
+      // Find the most recent assistant transcript message (not a tool-status bubble)
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const m = prev[i]
+        if (m.role !== 'assistant') continue
+        if (m.action || m.actionStatus) continue
+        const transcript = m.content || ''
+        const matches = transcript.toLowerCase().match(STATE_CHANGE_VERB_REGEX) || []
+        const verbsClaimed = Array.from(new Set(matches))
+        if (verbsClaimed.length > toolCalls) {
+          const updated = [...prev]
+          updated[i] = { ...m, reconciliationWarning: { verbsClaimed, toolsCalled: toolCalls } }
+          return updated
+        }
+        break
+      }
+      return prev
+    })
+  }
+
+  function retryMissedSteps(message: Message) {
+    const verbs = message.reconciliationWarning?.verbsClaimed || []
+    if (!verbs.length || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+    // Nudge the model to actually execute what it described. The prompt is
+    // explicit so there's no ambiguity.
+    const nudge = `You just said you did "${verbs.join(', ')}" but didn't emit the matching tool calls. Execute them now — one function_call per action — without repeating what you already said.`
+    wsRef.current.send(JSON.stringify({
+      type: 'conversation.item.create',
+      item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: nudge }] },
+    }))
+    wsRef.current.send(JSON.stringify({ type: 'response.create' }))
+    setMessages(prev => prev.map(m => m === message ? { ...m, reconciliationWarning: null } : m))
+  }
+
   async function handleRealtimeToolCall(callId: string, name: string, argsStr: string | object) {
     try {
       const data = typeof argsStr === 'string' ? JSON.parse(argsStr) : argsStr
       const action = { type: name, data }
 
+      // Extract a short human label from the args for the executing bubble,
+      // e.g. "create_contact(Maria Chen)" instead of just "create contact".
+      const label = pickActionLabel(data) || name.replace(/_/g, ' ')
+
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `Executing: ${name.replace(/_/g, ' ')}`,
+        content: `Executing: ${label}`,
         action,
         actionStatus: 'executing',
       }])
@@ -1746,6 +1826,29 @@ export default function VoiceAssistantPage() {
                 {msg.actionStatus === 'cancelled' && (
                   <div className="mt-3 p-2 rounded-lg bg-muted/30">
                     <span className="text-xs text-muted-foreground">Action cancelled</span>
+                  </div>
+                )}
+                {msg.reconciliationWarning && (
+                  <div className="mt-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-300/60 dark:border-amber-800/60">
+                    <div className="flex items-start gap-2 text-xs">
+                      <AlertCircle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <div className="font-medium text-amber-900 dark:text-amber-200">
+                          Scout described actions it didn&apos;t actually run.
+                        </div>
+                        <div className="text-amber-700 dark:text-amber-300/80 mt-0.5">
+                          Mentioned: {msg.reconciliationWarning.verbsClaimed.join(', ')} · Tool calls emitted: {msg.reconciliationWarning.toolsCalled}
+                        </div>
+                        <div className="flex gap-2 mt-2">
+                          <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => retryMissedSteps(msg)}>
+                            Retry missed steps
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setMessages(prev => prev.map(mm => mm === msg ? { ...mm, reconciliationWarning: null } : mm))}>
+                            Dismiss
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

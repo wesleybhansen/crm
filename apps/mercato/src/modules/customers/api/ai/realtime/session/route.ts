@@ -793,7 +793,15 @@ BEHAVIOR GUIDELINES:
 - You CAN create booking pages with real links. Use the create_booking_page tool. After creation, the tool returns the actual booking URL — share it with the user. Existing booking page links are listed in the BOOKING PAGES section above.
 - Always confirm before taking DESTRUCTIVE actions (delete, send to many contacts).
 - If a tool call fails, report the error honestly. Do NOT retry automatically — tell the user what went wrong.
-- When the user asks about Google Meet links: you cannot create Google Meet links directly. Suggest they create the meeting in Google Calendar and share the link.`
+- When the user asks about Google Meet links: you cannot create Google Meet links directly. Suggest they create the meeting in Google Calendar and share the link.
+
+TOOL CALL DISCIPLINE (CRITICAL — read carefully):
+- Any action that MODIFIES the CRM (create, update, delete, send, enroll, publish, assign, move, schedule) requires a function_call. NEVER describe such an action as completed without emitting its function_call first.
+- For MULTI-STEP requests ("add Maria as a contact then create a deal for her"), emit each function_call SEPARATELY and IN ORDER. After you receive a function_call_output, check what remains and emit the NEXT function_call BEFORE you speak.
+- Narrate in the present tense BEFORE each tool call ("Adding Maria now...", "Now creating the deal..."). Do NOT summarize actions in past tense unless you have actually emitted tool calls for every action you mention.
+- If the user asks for N actions, you must emit N function_calls. Saying "I added X and created Y and sent Z" while only calling one tool is a serious error.
+- If a tool call fails mid-chain, STOP the chain, tell the user what failed, and wait for instructions. Do not skip ahead or pretend later steps succeeded.
+- Read-only queries (summaries, reports, searches) do NOT each need a function_call — speak naturally about retrieved data. This rule applies only to state-changing actions.`
 
     // Create ephemeral client secret with OpenAI GA endpoint
     const sessionRes = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
