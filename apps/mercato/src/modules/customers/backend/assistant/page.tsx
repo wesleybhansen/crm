@@ -18,6 +18,12 @@ interface Message {
    * reconcileTurn() helper for how the heuristic works.
    */
   reconciliationWarning?: { verbsClaimed: string[]; toolsCalled: number } | null
+  /**
+   * Which AI provider answered this message. Only shown on the assistant
+   * side when it's the OpenAI fallback path so the user can tell when
+   * Gemini is unavailable.
+   */
+  provider?: 'gemini' | 'openai' | null
 }
 
 // Verbs that suggest a state-changing action happened. If the model's audio
@@ -1400,17 +1406,16 @@ export default function VoiceAssistantPage() {
     }
   }
 
-  // Auto-scroll — only after user has sent a message (not on initial greeting)
-  // Auto-scroll messages area only (not the page) when new messages arrive
-  const hasUserMessage = messages.some(m => m.role === 'user')
+  // Auto-scroll the messages area to the bottom when content changes.
+  // Uses scrollIntoView so it finds the nearest scrollable ancestor — the
+  // sentinel sits inside a space-y-4 wrapper, so setting scrollTop on
+  // parentElement (previous impl) silently did nothing because that wrapper
+  // itself isn't scrollable. Also fires on assistantTranscript so voice
+  // streaming tracks the latest word in view.
   useEffect(() => {
-    if (hasUserMessage && messagesEndRef.current) {
-      const container = messagesEndRef.current.parentElement
-      if (container) {
-        container.scrollTop = container.scrollHeight
-      }
-    }
-  }, [messages, hasUserMessage])
+    if (!messagesEndRef.current) return
+    messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages, assistantTranscript, userTranscript])
 
   // ---- Realtime Voice Connection ----
   async function connectVoice() {
@@ -1810,6 +1815,7 @@ export default function VoiceAssistantPage() {
         content: reply,
         action,
         actionStatus: action ? 'pending' : undefined,
+        provider: data.provider ?? null,
       }
 
       setMessages(p => {
@@ -2005,6 +2011,11 @@ export default function VoiceAssistantPage() {
                   : 'bg-muted rounded-bl-md'
               }`}>
                 <MarkdownText text={msg.content} />
+                {msg.role === 'assistant' && msg.provider === 'openai' && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-800/60">
+                    <Sparkles className="size-2.5" /> via OpenAI fallback
+                  </div>
+                )}
 
                 {msg.action && msg.actionStatus === 'pending' && (
                   <div className="mt-3 p-3 rounded-lg bg-accent/10 border border-accent/20">

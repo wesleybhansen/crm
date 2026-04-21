@@ -505,11 +505,13 @@ export async function POST(req: Request) {
     // rate-limited, keyless, or otherwise unreachable. Either provider returns
     // plain text or throws a classified error for the caller to handle.
     let text: string | null = null
+    let provider: 'gemini' | 'openai' | null = null
     let lastError: { provider: string; message: string } | null = null
 
     if (geminiKey) {
       try {
         text = await callGemini(geminiKey, systemPrompt, contextPrefixed)
+        provider = 'gemini'
       } catch (err: any) {
         lastError = { provider: 'gemini', message: err?.message || String(err) }
         const retriable = err?.retriable !== false
@@ -524,6 +526,8 @@ export async function POST(req: Request) {
     if (text === null && openaiKey) {
       try {
         text = await callOpenAI(openaiKey, systemPrompt, contextPrefixed)
+        provider = 'openai'
+        console.log('[ai.assistant] Served via OpenAI fallback')
       } catch (err: any) {
         lastError = { provider: 'openai', message: err?.message || String(err) }
         console.error('[ai.assistant] OpenAI fallback failed', lastError.message)
@@ -531,7 +535,7 @@ export async function POST(req: Request) {
     }
 
     if (text !== null) {
-      return NextResponse.json({ ok: true, message: text })
+      return NextResponse.json({ ok: true, message: text, provider })
     }
 
     // Both providers exhausted or unavailable
