@@ -9,6 +9,29 @@ type CrmAction = {
   data: Record<string, any>
 }
 
+// Parse window.location.pathname for known entity detail URLs so the
+// assistant can default to the entity the user is currently looking at.
+function derivePageContextFromCurrent(): { entityType?: string; entityId?: string; pathname?: string } | null {
+  if (typeof window === 'undefined') return null
+  const path = window.location.pathname
+  const patterns: Array<[RegExp, string]> = [
+    [/^\/backend\/customers\/people\/([0-9a-f-]{36})/, 'contact'],
+    [/^\/backend\/customers\/contacts\/([0-9a-f-]{36})/, 'contact'],
+    [/^\/backend\/customers\/deals\/([0-9a-f-]{36})/, 'deal'],
+    [/^\/backend\/customers\/companies\/([0-9a-f-]{36})/, 'company'],
+    [/^\/backend\/crm-events\/([0-9a-f-]{36})/, 'event'],
+    [/^\/backend\/events\/([0-9a-f-]{36})/, 'event'],
+    [/^\/backend\/tasks\/([0-9a-f-]{36})/, 'task'],
+    [/^\/backend\/landing-pages\/([0-9a-f-]{36})/, 'landing_page'],
+    [/^\/backend\/sequences\/([0-9a-f-]{36})/, 'sequence'],
+  ]
+  for (const [re, entityType] of patterns) {
+    const m = path.match(re)
+    if (m) return { entityType, entityId: m[1], pathname: path }
+  }
+  return { pathname: path }
+}
+
 type Message = {
   role: 'user' | 'assistant'
   content: string
@@ -17,22 +40,30 @@ type Message = {
   actionResult?: string
 }
 
+// Extract ALL crm-action code blocks from the assistant's response so a
+// multi-step request ("add Maria then create a deal") can render each step
+// as its own pending confirmation instead of losing steps after the first.
+function parseCrmActions(text: string): { cleanText: string; actions: CrmAction[] } {
+  const actionRegex = /```crm-action\s*\n?([\s\S]*?)\n?```/g
+  const actions: CrmAction[] = []
+  let cleanText = text
+  const matches = text.matchAll(actionRegex)
+  for (const match of matches) {
+    try {
+      const parsed = JSON.parse(match[1].trim())
+      if (parsed?.type && parsed?.data) actions.push(parsed)
+    } catch {}
+  }
+  if (actions.length > 0) {
+    cleanText = text.replace(actionRegex, '').trim()
+  }
+  return { cleanText, actions }
+}
+
+// Back-compat wrapper — some callers only need the first action
 function parseCrmAction(text: string): { cleanText: string; action: CrmAction | null } {
-  const actionRegex = /```crm-action\s*\n?([\s\S]*?)\n?```/
-  const match = text.match(actionRegex)
-
-  if (!match) return { cleanText: text, action: null }
-
-  const cleanText = text.replace(actionRegex, '').trim()
-
-  try {
-    const action = JSON.parse(match[1].trim())
-    if (action.type && action.data) {
-      return { cleanText, action }
-    }
-  } catch {}
-
-  return { cleanText: text, action: null }
+  const { cleanText, actions } = parseCrmActions(text)
+  return { cleanText, action: actions[0] || null }
 }
 
 function getActionLabel(action: CrmAction): string {
@@ -303,14 +334,32 @@ export function AiAssistantWidget() {
     setLoading(true)
 
     try {
+      // Derive context from the current URL so Scout knows which entity the
+      // user is looking at — "add a note" with no name attached defaults to
+      // the contact/deal on screen instead of asking "which one?".
+      const pageContext = derivePageContextFromCurrent()
       const res = await fetch('/api/ai/assistant', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ messages: newMessages.slice(-12).map(m => ({ role: m.role, content: m.content })), currentPage: document.title }),
+        body: JSON.stringify({
+          messages: newMessages.slice(-12).map(m => ({ role: m.role, content: m.content })),
+          currentPage: document.title,
+          pageContext,
+        }),
       })
       const data = await res.json()
       const rawMessage = data.message || data.error || 'Something went wrong.'
-      const { cleanText, action } = parseCrmAction(rawMessage)
-      setMessages([...newMessages, { role: 'assistant', content: cleanText, action: action || undefined, actionStatus: action ? 'pending' : undefined }])
+      const { cleanText, actions } = parseCrmActions(rawMessage)
+      const next: Message[] = [...newMessages]
+      if (actions.length === 0) {
+        next.push({ role: 'assistant', content: cleanText })
+      } else {
+        // Narrative first (if any), then one pending-confirmation message per action
+        if (cleanText) next.push({ role: 'assistant', content: cleanText })
+        for (const action of actions) {
+          next.push({ role: 'assistant', content: '', action, actionStatus: 'pending' })
+        }
+      }
+      setMessages(next)
     } catch {
       setMessages([...newMessages, { role: 'assistant', content: 'Connection error. Please try again.' }])
     } finally {

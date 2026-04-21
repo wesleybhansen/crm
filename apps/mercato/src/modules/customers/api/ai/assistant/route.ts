@@ -173,7 +173,10 @@ Available action types:
 - edit_task: { taskId, title?, dueDate?, markComplete? }
 - complete_task: { taskId }
 
-Always confirm what you'll do before including the action block. Only include ONE action per response.
+Always confirm what you'll do before including the action block(s).
+
+MULTI-STEP REQUESTS:
+When the user asks for multiple things in one message ("add Maria then create a deal for her", "create a contact and send them a welcome email"), include a SEPARATE crm-action block for EACH step, in order. The UI will render each as its own Confirm/Cancel prompt. Do NOT combine steps into a single action, and do NOT drop steps — if the user asked for N actions, emit N blocks. Narrate what each block will do before its fence.
 
 NAVIGATION LINKS:
 When directing the user to a page, include a markdown link so they can click directly to it. Use these exact paths:
@@ -208,6 +211,31 @@ ANSWERING RULES:
 // Query CRM data to give Scout context about the user's actual data
 async function buildDataContext(knex: any, orgId: string, tenantId: string, em: EntityManager): Promise<string> {
   const sections: string[] = []
+
+  try {
+    // Pipeline mode + stages — so Scout uses the right vocabulary when the
+    // user asks to move a contact/deal "to the next stage" etc.
+    const profile = await knex('business_profiles').where('organization_id', orgId).first()
+    const pipelineMode: string = profile?.pipeline_mode || 'deals'
+    let stageNames: string[] = []
+    if (profile?.pipeline_stages) {
+      try {
+        const parsed = typeof profile.pipeline_stages === 'string'
+          ? JSON.parse(profile.pipeline_stages)
+          : profile.pipeline_stages
+        if (Array.isArray(parsed)) {
+          stageNames = parsed.map((s: any) => typeof s === 'string' ? s : s?.name).filter(Boolean)
+        }
+      } catch {}
+    }
+    if (stageNames.length === 0) {
+      stageNames = pipelineMode === 'journey'
+        ? ['Prospect', 'First Contact', 'Customer', 'Repeat', 'VIP']
+        : ['Lead', 'Contacted', 'Qualified', 'Proposal', 'Won', 'Lost']
+    }
+    const modeLabel = pipelineMode === 'journey' ? 'Customer Journey (lifecycle stages on contacts)' : 'Sales Pipeline (stages on deals)'
+    sections.push(`PIPELINE MODE: ${modeLabel}\nSTAGES (in order): ${stageNames.join(' → ')}\nWhen the user says "move up/forward/to next stage" use the next stage from this list. For journey mode, update the contact's lifecycle_stage via update_contact. For deals mode, use move_deal_stage.`)
+  } catch {}
 
   try {
     // Contact stats
