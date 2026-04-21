@@ -132,9 +132,12 @@ export async function PUT(req: Request) {
     const body = await req.json()
 
     const { contactId, stage } = body
-    if (!contactId || !stage) {
-      return NextResponse.json({ ok: false, error: 'contactId and stage are required' }, { status: 400 })
+    if (!contactId) {
+      return NextResponse.json({ ok: false, error: 'contactId is required' }, { status: 400 })
     }
+    // stage may be null/empty to remove the contact from the pipeline view
+    // (clears lifecycle_stage) without deleting the contact itself.
+    const normalizedStage: string | null = (stage === null || stage === '' || stage === undefined) ? null : String(stage)
 
     // Verify contact belongs to this org
     const contact = await knex('customer_entities')
@@ -149,10 +152,10 @@ export async function PUT(req: Request) {
 
     const previousStage = contact.lifecycle_stage
 
-    // Update lifecycle stage
+    // Update lifecycle stage (null clears it — removes from pipeline view)
     await knex('customer_entities')
       .where('id', contactId)
-      .update({ lifecycle_stage: stage, updated_at: new Date() })
+      .update({ lifecycle_stage: normalizedStage, updated_at: new Date() })
 
     // Track engagement event for stage change
     await knex('engagement_events').insert({
@@ -160,9 +163,9 @@ export async function PUT(req: Request) {
       contact_id: contactId,
       organization_id: auth.orgId,
       tenant_id: auth.tenantId,
-      event_type: 'stage_change',
-      points: 5,
-      metadata: JSON.stringify({ from: previousStage, to: stage }),
+      event_type: normalizedStage === null ? 'pipeline_remove' : 'stage_change',
+      points: normalizedStage === null ? 0 : 5,
+      metadata: JSON.stringify({ from: previousStage, to: normalizedStage }),
       created_at: new Date(),
     })
 
@@ -196,13 +199,13 @@ export async function PUT(req: Request) {
 
       for (const rule of rules) {
         const triggerConfig = typeof rule.trigger_config === 'string' ? JSON.parse(rule.trigger_config) : rule.trigger_config
-        if (triggerConfig.stage === stage || !triggerConfig.stage) {
+        if (triggerConfig.stage === normalizedStage || !triggerConfig.stage) {
           // Log automation execution
           await knex('automation_rule_logs').insert({
             id: require('crypto').randomUUID(),
             rule_id: rule.id,
             contact_id: contactId,
-            trigger_data: JSON.stringify({ previousStage, newStage: stage }),
+            trigger_data: JSON.stringify({ previousStage, newStage: normalizedStage }),
             action_result: JSON.stringify({ triggered: true }),
             status: 'executed',
             created_at: new Date(),
@@ -213,7 +216,7 @@ export async function PUT(req: Request) {
       // Non-blocking: automation execution failures should not break the stage move
     }
 
-    return NextResponse.json({ ok: true, data: { previousStage, newStage: stage } })
+    return NextResponse.json({ ok: true, data: { previousStage, newStage: normalizedStage } })
   } catch (error) {
     console.error('[pipeline.journey.PUT]', error)
     return NextResponse.json({ ok: false, error: 'Failed to update contact stage' }, { status: 500 })

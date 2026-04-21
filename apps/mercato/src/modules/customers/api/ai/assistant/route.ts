@@ -30,6 +30,24 @@ async function decryptContactRows(em: EntityManager, rows: any[], tenantId: stri
   }
 }
 
+// Deal titles are also encrypted (customers:customer_deal → title, description).
+async function decryptDealRows(em: EntityManager, rows: any[], tenantId: string, orgId: string): Promise<any[]> {
+  if (!rows.length || !isTenantDataEncryptionEnabled()) return rows
+  try {
+    const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+    return await Promise.all(rows.map(async (r) => {
+      try {
+        const dec = await svc.decryptEntityPayload('customers:customer_deal', { title: r.title, description: r.description }, tenantId, orgId)
+        return { ...r, title: dec.title ?? r.title, description: dec.description ?? r.description }
+      } catch {
+        return r
+      }
+    }))
+  } catch {
+    return rows
+  }
+}
+
 
 const CRM_INSTRUCTIONS = `You are Scout, an AI assistant built into a CRM platform designed for solopreneurs and small businesses. You help users navigate the app, answer questions about their data, and take actions on their behalf.
 
@@ -159,6 +177,7 @@ Available action types:
 - send_email: { to, subject, body }
 - move_deal_stage: { dealId, stage } — ONLY for deals (pipeline mode "deals"). DO NOT use for contacts.
 - move_contact_stage: { contactId, stage } — Journey mode ONLY. Moves a CONTACT to a new lifecycle stage. Use this when the user says "move Sarah to Prospect", "move him up one level", etc. The stage name MUST be one of the STAGES listed in the PIPELINE MODE block above.
+- remove_contact_from_pipeline: { contactName or contactId } — Journey mode ONLY. Clears a contact's lifecycle stage so they no longer appear on the pipeline board, WITHOUT deleting the contact itself. Use this when the user says "remove X from my pipeline", "take X off the pipeline", or "hide X from the pipeline view". This is NOT the same as delete_contact (which removes them entirely) and NOT the same as move_contact_stage (which just changes stage). If the request is ambiguous ("remove X"), ask the user whether they want to remove from pipeline only or delete entirely.
 - create_invoice: { contactName?, items: [{name, price, quantity}], dueDate?, notes? }
 - create_product: { name, description?, price, billingType?, trialDays? }
 - set_reminder: { message, remindAt?, delayMinutes? } — Use for "remind me", "set a reminder", "follow up in X"
@@ -281,17 +300,18 @@ async function buildDataContext(knex: any, orgId: string, tenantId: string, em: 
   } catch {}
 
   try {
-    // Pipeline/deals
-    const deals = await knex('customer_deals')
+    // Pipeline/deals — titles are encrypted, decrypt before exposing to Scout
+    const rawDeals = await knex('customer_deals')
       .where('organization_id', orgId).whereNull('deleted_at')
-      .select('title', 'status', 'value_amount', 'pipeline_stage', 'created_at')
+      .select('id', 'title', 'description', 'status', 'value_amount', 'pipeline_stage', 'created_at')
       .orderBy('created_at', 'desc').limit(10)
+    const deals = await decryptDealRows(em, rawDeals, tenantId, orgId)
     if (deals.length > 0) {
       const totalValue = deals.reduce((sum: number, d: any) => sum + (Number(d.value_amount) || 0), 0)
       const openDeals = deals.filter((d: any) => d.status === 'open' || !d.status)
       sections.push(`PIPELINE: ${deals.length} deals (${openDeals.length} open), total value $${totalValue.toFixed(0)}`)
       sections.push('Deals: ' + deals.slice(0, 5).map((d: any) =>
-        `"${d.title}" — ${d.pipeline_stage || d.status || 'open'}${d.value_amount ? ` ($${Number(d.value_amount).toFixed(0)})` : ''}`
+        `"${d.title}" — ${d.pipeline_stage || d.status || 'open'}${d.value_amount ? ` ($${Number(d.value_amount).toFixed(0)})` : ''} id=${d.id}`
       ).join('; '))
     } else {
       sections.push('PIPELINE: No deals yet')
@@ -487,12 +507,14 @@ async function searchCrmData(knex: any, orgId: string, tenantId: string, em: Ent
   } catch {}
 
   try {
-    // Also search deals by title (deal title is NOT encrypted — safe to ILIKE)
-    const deals = await knex('customer_deals')
+    // Search deals by title — titles ARE encrypted, so fetch recent + filter
+    // in-memory (same pattern as contact search above).
+    const rawDealPool = await knex('customer_deals')
       .where('organization_id', orgId).whereNull('deleted_at')
-      .whereILike('title', `%${query}%`)
-      .select('title', 'status', 'value_amount', 'pipeline_stage', 'created_at')
-      .orderBy('created_at', 'desc').limit(5)
+      .select('id', 'title', 'description', 'status', 'value_amount', 'pipeline_stage', 'created_at')
+      .orderBy('created_at', 'desc').limit(200)
+    const dealPool = await decryptDealRows(em, rawDealPool, tenantId, orgId)
+    const deals = dealPool.filter((d: any) => (d.title || '').toLowerCase().includes(needle)).slice(0, 5)
     if (deals.length > 0 && !sections.some(s => s.includes('SEARCH RESULTS'))) {
       sections.push(`SEARCH RESULTS for "${query}":`)
     }

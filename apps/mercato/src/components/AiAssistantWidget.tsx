@@ -95,6 +95,8 @@ function getActionLabel(action: CrmAction): string {
       return `Move deal to stage: ${action.data.stage || 'Unknown'}`
     case 'move_contact_stage':
       return `Move ${action.data.contactName || 'contact'} to "${action.data.stage || 'Unknown'}" stage`
+    case 'remove_contact_from_pipeline':
+      return `Remove ${action.data.contactName || 'contact'} from pipeline (keeps contact)`
     case 'create_invoice':
       return `Create invoice${action.data.contactName ? ` for ${action.data.contactName}` : ''}: ${action.data.items?.length || 0} item(s)`
     case 'create_product':
@@ -114,20 +116,24 @@ async function executeCrmAction(action: CrmAction): Promise<ActionResult> {
         const parts = fullName.split(/\s+/)
         const firstName = parts[0] || ''
         const lastName = parts.length > 1 ? parts.slice(1).join(' ') : ''
+        const email = String(action.data.email || '').trim()
+        const phone = String(action.data.phone || '').trim()
+        // primaryEmail is validated as .email() — only send if non-empty.
+        // Same for phone to avoid triggering overly-strict validators.
+        const payload: Record<string, unknown> = {
+          displayName: fullName,
+          firstName,
+          lastName,
+          source: action.data.source || 'ai_assistant',
+        }
+        if (email) payload.primaryEmail = email
+        if (phone) payload.primaryPhone = phone
         const res = await fetch('/api/customers/people', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({
-            displayName: fullName,
-            firstName,
-            lastName,
-            primaryEmail: action.data.email || '',
-            primaryPhone: action.data.phone || '',
-            source: action.data.source || 'ai_assistant',
-          }),
+          body: JSON.stringify(payload),
         })
         const data = await res.json().catch(() => ({}))
         if (data.id) {
-          // Return the created id so downstream multi-step actions can use it
           return { success: true, message: `Contact "${fullName}" created!`, contactId: data.id, contactName: fullName }
         }
         return { success: false, message: data.error || 'Failed to create contact' }
@@ -236,6 +242,32 @@ async function executeCrmAction(action: CrmAction): Promise<ActionResult> {
         const data = await res.json()
         if (data.ok) return { success: true, message: `Product "${action.data.name}" created!` }
         return { success: false, message: data.error || 'Failed to create product' }
+      }
+      case 'remove_contact_from_pipeline': {
+        // Journey-mode "remove X from pipeline" — clears lifecycle_stage so
+        // the contact disappears from the pipeline board but stays in
+        // Contacts. NOT the same as delete_contact.
+        let contactId: string | null = action.data.contactId || null
+        if (!contactId && action.data.contactName) {
+          try {
+            const resp = await fetch(`/api/customers/people?search=${encodeURIComponent(action.data.contactName)}&pageSize=5`, { credentials: 'include' })
+            const d = await resp.json()
+            const items: any[] = d.items || []
+            if (items.length === 1) contactId = items[0].id
+            else if (items.length > 1) {
+              const exact = items.find((c: any) => (c.display_name || '').toLowerCase() === action.data.contactName.toLowerCase())
+              contactId = exact?.id || items[0].id
+            }
+          } catch {}
+        }
+        if (!contactId) return { success: false, message: `Contact "${action.data.contactName || 'unknown'}" not found.` }
+        const res = await fetch('/api/pipeline/journey', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ contactId, stage: null }),
+        })
+        const data = await res.json()
+        if (data.ok) return { success: true, message: `Removed from pipeline. Contact is still in your Contacts list.` }
+        return { success: false, message: data.error || 'Failed to remove from pipeline' }
       }
       case 'delete_contact': {
         if (!action.data.contactId) return { success: false, message: 'Contact ID required' }
