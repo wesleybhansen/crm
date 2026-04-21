@@ -453,11 +453,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'messages required' }, { status: 400 })
     }
 
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-    if (!apiKey) {
+    const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+    const openaiKey = process.env.OPENAI_API_KEY
+    if (!geminiKey && !openaiKey) {
       return NextResponse.json({
         ok: true,
-        message: "I'm Scout, your CRM assistant, but my API key isn't configured yet. I can still help with basic navigation — what are you looking for?",
+        message: "I'm Scout, your CRM assistant, but no AI API keys are configured. I can still help with basic navigation — what are you looking for?",
       })
     }
 
@@ -496,22 +497,71 @@ export async function POST(req: Request) {
       ? `[The user is currently on the ${currentPage} page]`
       : ''
 
-    const model = process.env.AI_MODEL || 'gemini-2.0-flash'
-    const contents = messages.map((m: any) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }))
+    const contextPrefixed = contextMessage && messages.length > 0
+      ? [{ ...messages[0], content: `${contextMessage}\n\n${messages[0].content}` }, ...messages.slice(1)]
+      : messages
 
-    if (contextMessage) {
-      if (contents.length > 0 && contents[0].role === 'user') {
-        contents[0].parts[0].text = contextMessage + '\n\n' + contents[0].parts[0].text
+    // Gemini first (preferred for cost), then OpenAI fallback if Gemini is
+    // rate-limited, keyless, or otherwise unreachable. Either provider returns
+    // plain text or throws a classified error for the caller to handle.
+    let text: string | null = null
+    let lastError: { provider: string; message: string } | null = null
+
+    if (geminiKey) {
+      try {
+        text = await callGemini(geminiKey, systemPrompt, contextPrefixed)
+      } catch (err: any) {
+        lastError = { provider: 'gemini', message: err?.message || String(err) }
+        const retriable = err?.retriable !== false
+        console.warn('[ai.assistant] Gemini failed', lastError.message, 'retriable:', retriable)
+        if (!retriable) {
+          // Non-retriable Gemini error (e.g. validation) — don't fall back, return it.
+          return NextResponse.json({ ok: false, error: lastError.message }, { status: 500 })
+        }
       }
     }
 
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 30000)
+    if (text === null && openaiKey) {
+      try {
+        text = await callOpenAI(openaiKey, systemPrompt, contextPrefixed)
+      } catch (err: any) {
+        lastError = { provider: 'openai', message: err?.message || String(err) }
+        console.error('[ai.assistant] OpenAI fallback failed', lastError.message)
+      }
+    }
 
-    const response = await fetch(
+    if (text !== null) {
+      return NextResponse.json({ ok: true, message: text })
+    }
+
+    // Both providers exhausted or unavailable
+    if (lastError?.message?.toLowerCase().includes('resource exhausted') || lastError?.message?.toLowerCase().includes('rate limit') || lastError?.message?.toLowerCase().includes('quota')) {
+      return NextResponse.json({
+        ok: true,
+        message: "Both AI providers are rate-limited right now. Try again in a minute, or use voice mode (mic button) which uses a separate OpenAI Realtime quota.",
+      })
+    }
+    return NextResponse.json({ ok: false, error: lastError?.message || 'Assistant error' }, { status: 500 })
+  } catch (error) {
+    console.error('[ai.assistant]', error)
+    return NextResponse.json({ ok: false, error: 'Assistant error' }, { status: 500 })
+  }
+}
+
+type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
+
+async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<string> {
+  const model = process.env.AI_MODEL || 'gemini-2.0-flash'
+  const contents = msgs.map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }))
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30000)
+  let res: Response
+  try {
+    res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
@@ -524,24 +574,60 @@ export async function POST(req: Request) {
         signal: controller.signal,
       }
     )
+  } finally {
     clearTimeout(timeout)
-
-    const data = await response.json()
-    if (data.error) {
-      if (data.error.message?.includes('Resource exhausted')) {
-        return NextResponse.json({
-          ok: true,
-          message: "I'm a bit busy right now. Try again in 30 seconds!",
-        })
-      }
-      return NextResponse.json({ ok: false, error: data.error.message }, { status: 500 })
-    }
-
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't process that. Try rephrasing your question."
-
-    return NextResponse.json({ ok: true, message: text })
-  } catch (error) {
-    console.error('[ai.assistant]', error)
-    return NextResponse.json({ ok: false, error: 'Assistant error' }, { status: 500 })
   }
+
+  const data = await res.json().catch(() => null) as any
+  if (!res.ok || data?.error) {
+    const msg: string = data?.error?.message || `HTTP ${res.status}`
+    const err: any = new Error(msg)
+    // Retriable: 429/5xx/timeout/resource-exhausted — worth trying another provider.
+    err.retriable = res.status === 429 || res.status >= 500 || /resource exhausted|rate limit|quota/i.test(msg)
+    throw err
+  }
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) {
+    const err: any = new Error('Empty Gemini response')
+    err.retriable = true
+    throw err
+  }
+  return text
+}
+
+async function callOpenAI(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<string> {
+  const model = process.env.OPENAI_FALLBACK_MODEL || 'gpt-4o-mini'
+  const openaiMessages = [
+    { role: 'system', content: systemPrompt },
+    ...msgs.map((m) => ({ role: m.role, content: m.content })),
+  ]
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30000)
+  let res: Response
+  try {
+    res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: openaiMessages,
+        temperature: 0.7,
+        max_tokens: 1500,
+      }),
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  const data = await res.json().catch(() => null) as any
+  if (!res.ok || data?.error) {
+    throw new Error(data?.error?.message || `OpenAI HTTP ${res.status}`)
+  }
+  const text = data?.choices?.[0]?.message?.content
+  if (!text) throw new Error('Empty OpenAI response')
+  return text
 }
