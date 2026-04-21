@@ -575,7 +575,7 @@ export const businessProfileUpsertSchema = scopedSchema.extend({
   brandColors: z.record(z.unknown()).optional().nullable(),
   socialLinks: z.record(z.unknown()).optional().nullable(),
   detectedServices: z.unknown().optional().nullable(),
-  pipelineMode: z.enum(['deals', 'contacts']).optional().nullable(),
+  pipelineMode: z.enum(['deals', 'contacts', 'journey']).optional().nullable(),
   digestFrequency: z.enum(['daily', 'weekly', 'monthly']).optional().nullable(),
   digestDay: z.number().int().min(0).max(31).optional().nullable(),
   emailIntakeMode: z.enum(['suggest', 'auto', 'off']).optional().nullable(),

@@ -280,7 +280,7 @@ export default function WelcomePage() {
 
     // Save business profile including persona
     try {
-      await fetch('/api/customers/business-profile', {
+      const res = await fetch('/api/customers/business-profile', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           businessName, businessType, businessDescription, mainOffer,
@@ -295,7 +295,19 @@ export default function WelcomePage() {
           onboardingComplete: true,
         }),
       })
-    } catch {}
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        console.error('[onboarding] business-profile PUT failed', res.status, body)
+        window.alert(`We couldn't save your setup (${res.status}). ${body?.error ?? ''}\n\nPlease try again or contact support.`)
+        setFinishing(false)
+        return
+      }
+    } catch (err) {
+      console.error('[onboarding] business-profile PUT threw', err)
+      window.alert("We couldn't save your setup. Please check your connection and try again.")
+      setFinishing(false)
+      return
+    }
 
     // Create actual pipeline stages in the CRM
     // First try to update existing default pipeline, then create stages
