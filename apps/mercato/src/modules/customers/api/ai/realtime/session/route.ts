@@ -3,6 +3,30 @@ export const metadata = { path: '/ai/realtime/session', POST: { requireAuth: tru
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/lib/db'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+
+async function decryptContactRows(rows: any[], tenantId: string, orgId: string): Promise<any[]> {
+  if (!rows.length || !isTenantDataEncryptionEnabled()) return rows
+  try {
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+    return await Promise.all(rows.map(async (r) => {
+      try {
+        const dec = await svc.decryptEntityPayload('customers:customer_entity', { display_name: r.display_name, primary_email: r.primary_email }, tenantId, orgId)
+        return { ...r, display_name: dec.display_name ?? r.display_name, primary_email: dec.primary_email ?? r.primary_email }
+      } catch {
+        return r
+      }
+    }))
+  } catch {
+    return rows
+  }
+}
 
 // CRM tool definitions for function calling
 const CRM_TOOLS = [
@@ -675,10 +699,11 @@ When editing/deleting, use the id= values from the CRM DATA section below. You c
       query('SELECT id, title, slug FROM booking_pages WHERE organization_id = $1 LIMIT 10', [orgId]).catch(() => []),
     ])
 
-    const recentContacts = await query(
+    const recentContactsRaw = await query(
       'SELECT id, display_name, primary_email, lifecycle_stage FROM customer_entities WHERE organization_id = $1 AND deleted_at IS NULL AND kind = $2 ORDER BY created_at DESC LIMIT 10',
       [orgId, 'person']
     )
+    const recentContacts = await decryptContactRows(recentContactsRaw as any[], auth.tenantId, auth.orgId)
 
     const recentDeals = await query(
       'SELECT id, title, pipeline_stage, value_amount, status FROM customer_deals WHERE organization_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 10',

@@ -5,6 +5,9 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 
 const DEFAULT_JOURNEY_STAGES = ['Prospect', 'First Contact', 'Customer', 'Repeat', 'VIP']
 
@@ -30,10 +33,30 @@ export async function GET() {
     }
 
     // Get all non-deleted contacts for this org
-    const contacts = await knex('customer_entities')
+    const rawContacts = await knex('customer_entities')
       .where('organization_id', auth.orgId)
       .whereNull('deleted_at')
       .select('id', 'display_name', 'primary_email', 'lifecycle_stage', 'created_at')
+
+    // Decrypt display_name / primary_email when tenant encryption is on.
+    // Raw knex selects return ciphertext; the ORM decrypts via subscriber.
+    const encryptionService = isTenantDataEncryptionEnabled()
+      ? new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+      : null
+    const contacts = encryptionService
+      ? await Promise.all(rawContacts.map(async (c: any) => {
+          try {
+            const decrypted = await encryptionService.decryptEntityPayload(
+              'customers:customer_entity',
+              { display_name: c.display_name, primary_email: c.primary_email },
+              auth.tenantId, auth.orgId,
+            )
+            return { ...c, display_name: decrypted.display_name ?? c.display_name, primary_email: decrypted.primary_email ?? c.primary_email }
+          } catch {
+            return c
+          }
+        }))
+      : rawContacts
 
     // Get engagement scores for these contacts
     const contactIds = contacts.map((c: any) => c.id)
