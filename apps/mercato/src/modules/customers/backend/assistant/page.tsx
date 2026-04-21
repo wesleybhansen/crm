@@ -369,6 +369,23 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         const d = await res.json()
         return d.id ? { ok: true, message: `Deal "${deal.name}" moved to "${action.data.stage}"` } : { ok: false, message: d.error || 'Failed' }
       }
+      case 'move_contact_stage': {
+        // Journey mode — update a contact's lifecycle_stage via the journey
+        // pipeline endpoint. Accepts contactId or contactName; resolves the
+        // latter via the people search.
+        const stage = action.data.stage
+        if (!stage) return { ok: false, message: 'Stage is required' }
+        const ref = action.data.contactId || action.data.contactName
+        if (!ref) return { ok: false, message: 'Contact is required' }
+        const contact = await resolveContactId(ref)
+        if (!contact) return { ok: false, message: `Contact "${ref}" not found` }
+        const res = await fetch('/api/pipeline/journey', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ contactId: contact.id, stage })
+        })
+        const d = await res.json()
+        return d.ok ? { ok: true, message: `${contact.name} moved to "${stage}".` } : { ok: false, message: d.error || 'Failed to move contact' }
+      }
       case 'create_invoice': {
         const lineItems = (action.data.items || []).map((item: any) => ({
           name: item.name || item.description || 'Item',

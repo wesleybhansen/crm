@@ -43,6 +43,9 @@ type Message = {
 // Extract ALL crm-action code blocks from the assistant's response so a
 // multi-step request ("add Maria then create a deal") can render each step
 // as its own pending confirmation instead of losing steps after the first.
+// Accepts both the canonical {"type":"X","data":{...}} shape and the flat
+// form Gemini sometimes emits ({"type":"X","contactId":"...","content":"..."})
+// because a strict check drops valid actions silently.
 function parseCrmActions(text: string): { cleanText: string; actions: CrmAction[] } {
   const actionRegex = /```crm-action\s*\n?([\s\S]*?)\n?```/g
   const actions: CrmAction[] = []
@@ -51,7 +54,15 @@ function parseCrmActions(text: string): { cleanText: string; actions: CrmAction[
   for (const match of matches) {
     try {
       const parsed = JSON.parse(match[1].trim())
-      if (parsed?.type && parsed?.data) actions.push(parsed)
+      if (!parsed?.type) continue
+      if (parsed.data && typeof parsed.data === 'object') {
+        actions.push({ type: parsed.type, data: parsed.data })
+      } else {
+        // Flatten the non-type fields into data — Gemini occasionally drops
+        // the nesting even though the prompt specifies it.
+        const { type, ...rest } = parsed
+        actions.push({ type, data: rest })
+      }
     } catch {}
   }
   if (actions.length > 0) {
@@ -542,7 +553,7 @@ export function AiAssistantWidget() {
                   <button key={qa.label} type="button"
                     onClick={() => sendMessage(qa.label)}
                     className="w-full text-left px-3 py-2 rounded-lg border text-xs hover:bg-muted transition flex items-center gap-2">
-                    <qa.Icon className="size-3.5 text-muted-foreground shrink-0" /> {qa.label}
+                    <qa.Icon className="size-3.5 text-accent shrink-0" /> {qa.label}
                   </button>
                 ))}
               </div>
