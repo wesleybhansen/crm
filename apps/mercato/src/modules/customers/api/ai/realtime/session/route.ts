@@ -8,6 +8,12 @@ import { query, queryOne } from '@/lib/db'
 const CRM_TOOLS = [
   {
     type: 'function' as const,
+    name: 'find_entity',
+    description: 'Resolve an item by its name to an ID. Use BEFORE editing, deleting, or managing any item the user references by name ("delete the Acme deal", "update Maria\'s phone number"). Returns candidate matches with their IDs. If exactly one match: use its id in your next tool call. If zero: tell the user. If multiple: ask the user which one. Do NOT guess IDs from context — always verify via this tool before a destructive or edit action.',
+    parameters: { type: 'object', properties: { entityType: { type: 'string', enum: ['contact', 'deal', 'task', 'event', 'product', 'landing_page', 'booking_page', 'sequence', 'form', 'survey', 'course', 'invoice'], description: 'Kind of item to look up' }, query: { type: 'string', description: 'Name, title, or email to search for' } }, required: ['entityType', 'query'] },
+  },
+  {
+    type: 'function' as const,
     name: 'create_contact',
     description: 'Create a new contact in the CRM. Use when the user asks to add a new person.',
     parameters: { type: 'object', properties: { name: { type: 'string', description: 'Full name' }, email: { type: 'string', description: 'Email address' }, phone: { type: 'string', description: 'Phone number (optional)' } }, required: ['name', 'email'] },
@@ -573,6 +579,15 @@ export async function POST(req: Request) {
     const validVoices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse']
     const voice = validVoices.includes(body.voice) ? body.voice : 'alloy'
 
+    // Optional page context — the client figures out what entity the user is
+    // currently viewing (from URL or referrer) and passes it in so Scout can
+    // default to it when the user says "add a note" without naming anyone.
+    const pageContext = body.pageContext && typeof body.pageContext === 'object' ? body.pageContext : null
+    const ctxEntityType = typeof pageContext?.entityType === 'string' ? pageContext.entityType : null
+    const ctxEntityId = typeof pageContext?.entityId === 'string' ? pageContext.entityId : null
+    const ctxEntityName = typeof pageContext?.entityName === 'string' ? pageContext.entityName : null
+    const ctxPathname = typeof pageContext?.pathname === 'string' ? pageContext.pathname : null
+
     // Load persona
     const profile = await queryOne(
       'SELECT ai_persona_name, ai_persona_style, ai_custom_instructions, business_name, business_type, business_description FROM business_profiles WHERE organization_id = $1',
@@ -794,6 +809,17 @@ BEHAVIOR GUIDELINES:
 - Always confirm before taking DESTRUCTIVE actions (delete, send to many contacts).
 - If a tool call fails, report the error honestly. Do NOT retry automatically — tell the user what went wrong.
 - When the user asks about Google Meet links: you cannot create Google Meet links directly. Suggest they create the meeting in Google Calendar and share the link.
+
+${ctxEntityType && ctxEntityId ? `CURRENT CONTEXT:
+The user is viewing a ${ctxEntityType}${ctxEntityName ? ` named "${ctxEntityName}"` : ''} (id: ${ctxEntityId}). When they make ambiguous references like "add a note", "create a task", "send them an email", or "update their info" without naming a target, default to THIS entity. Do NOT ask them to clarify who they mean if it's obvious from context. Only find_entity or re-prompt if they clearly reference a different item.
+` : ''}${ctxPathname && !ctxEntityId ? `CURRENT CONTEXT:
+The user is on page "${ctxPathname}". Use this as a hint for which area they're working in.
+` : ''}
+NAME RESOLUTION (CRITICAL):
+- Before editing, deleting, or managing any item the user references by name ("delete the Acme deal", "edit Maria's phone number", "unpublish the pricing page"), call find_entity FIRST to resolve the ID.
+- find_entity returns zero, one, or multiple candidates. If zero — tell the user you couldn't find it. If one — use its id in the next tool call. If multiple — briefly list them and ask which one.
+- Do NOT guess an ID from the CRM data block above unless you are 100% sure the item is listed there and the user named it unambiguously. When in doubt, find_entity first.
+- find_entity is NOT needed for create actions or read-only queries.
 
 TOOL CALL DISCIPLINE (CRITICAL — read carefully):
 - Any action that MODIFIES the CRM (create, update, delete, send, enroll, publish, assign, move, schedule) requires a function_call. NEVER describe such an action as completed without emitting its function_call first.

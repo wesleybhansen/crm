@@ -26,6 +26,37 @@ interface Message {
 // purpose — false positives are annoying.
 const STATE_CHANGE_VERB_REGEX = /\b(added|created|sent|updated|deleted|scheduled|booked|drafted|moved|assigned|enrolled|published|cancelled|refunded)\b/gi
 
+type PageContext = { entityType?: string; entityId?: string; entityName?: string; pathname?: string }
+
+// Pull out what the user was just looking at so Scout can default to that
+// entity when the user makes ambiguous references. Read from document.referrer
+// (the URL before they navigated to /backend/assistant).
+function derivePageContext(): PageContext | null {
+  if (typeof document === 'undefined') return null
+  const ref = document.referrer || ''
+  if (!ref) return null
+  let url: URL
+  try { url = new URL(ref) } catch { return null }
+  if (typeof window !== 'undefined' && url.origin !== window.location.origin) return null
+  const path = url.pathname
+  const patterns: Array<[RegExp, string]> = [
+    [/^\/backend\/customers\/people\/([0-9a-f-]{36})/, 'contact'],
+    [/^\/backend\/customers\/contacts\/([0-9a-f-]{36})/, 'contact'],
+    [/^\/backend\/customers\/deals\/([0-9a-f-]{36})/, 'deal'],
+    [/^\/backend\/customers\/companies\/([0-9a-f-]{36})/, 'company'],
+    [/^\/backend\/crm-events\/([0-9a-f-]{36})/, 'event'],
+    [/^\/backend\/events\/([0-9a-f-]{36})/, 'event'],
+    [/^\/backend\/tasks\/([0-9a-f-]{36})/, 'task'],
+    [/^\/backend\/landing-pages\/([0-9a-f-]{36})/, 'landing_page'],
+    [/^\/backend\/sequences\/([0-9a-f-]{36})/, 'sequence'],
+  ]
+  for (const [re, entityType] of patterns) {
+    const m = path.match(re)
+    if (m) return { entityType, entityId: m[1], pathname: path }
+  }
+  return { pathname: path }
+}
+
 // Pull a user-readable label from a tool's arguments so the "Executing: ..."
 // bubble shows the entity rather than just the tool name. Kept generic — any
 // of these keys can appear depending on the tool.
@@ -37,6 +68,63 @@ function pickActionLabel(args: Record<string, any>): string | null {
     if (typeof v === 'string' && v.trim()) return v.trim().slice(0, 60)
   }
   return null
+}
+
+// Return a short human-readable summary of what a destructive action would
+// do, shown in the confirmation prompt.
+function describeDestructive(action: CrmAction): string {
+  const { type, data } = action
+  const label = pickActionLabel(data || {}) || ''
+  const sub = (data?.action || '').toString()
+  if (type === 'delete_contact')                                     return `Delete contact${label ? ` "${label}"` : ''}`
+  if (type === 'manage_deal' && sub === 'delete')                    return `Delete deal${label ? ` "${label}"` : ''}`
+  if (type === 'manage_deal' && sub === 'close_lost')                return `Close deal${label ? ` "${label}"` : ''} as lost`
+  if (type === 'manage_task_advanced' && sub === 'delete')           return `Delete task${label ? ` "${label}"` : ''}`
+  if (type === 'manage_event_advanced' && sub === 'delete')          return `Delete event${label ? ` "${label}"` : ''}`
+  if (type === 'manage_event_advanced' && sub === 'cancel')          return `Cancel event${label ? ` "${label}"` : ''}`
+  if (type === 'manage_invoice' && sub === 'delete')                 return `Delete invoice${label ? ` "${label}"` : ''}`
+  if (type === 'manage_landing_page' && sub === 'delete')            return `Delete landing page${label ? ` "${label}"` : ''}`
+  if (type === 'manage_funnel' && sub === 'delete')                  return `Delete funnel${label ? ` "${label}"` : ''}`
+  if (type === 'manage_booking' && (sub === 'delete' || sub === 'cancel' || sub === 'delete_page'))
+                                                                     return `Cancel/delete booking${label ? ` "${label}"` : ''}`
+  if (type === 'manage_survey_advanced' && sub === 'delete')         return `Delete survey${label ? ` "${label}"` : ''}`
+  if (type === 'manage_form_advanced' && sub === 'delete')           return `Delete form${label ? ` "${label}"` : ''}`
+  if (type === 'manage_course_advanced' && sub === 'delete')         return `Delete course${label ? ` "${label}"` : ''}`
+  if (type === 'manage_sequence_advanced' && sub === 'delete')       return `Delete sequence${label ? ` "${label}"` : ''}`
+  if (type === 'manage_product_advanced' && sub === 'delete')        return `Delete product${label ? ` "${label}"` : ''}`
+  if (type === 'manage_chat_widget' && sub === 'delete')             return `Delete chat widget${label ? ` "${label}"` : ''}`
+  if (type === 'manage_email_list_advanced' && (sub === 'delete' || sub === 'remove_member'))
+                                                                     return `Remove from email list`
+  if (type === 'manage_campaign' && (sub === 'delete' || sub === 'send'))
+                                                                     return sub === 'send' ? `Send email campaign${label ? ` "${label}"` : ''}` : `Delete campaign${label ? ` "${label}"` : ''}`
+  if (type === 'manage_automation_advanced' && sub === 'delete')     return `Delete automation${label ? ` "${label}"` : ''}`
+  if (type === 'process_payment' && sub === 'refund')                return `Refund payment${label ? ` "${label}"` : ''}`
+  if (type === 'process_payment' && sub === 'cancel_subscription')   return `Cancel subscription${label ? ` "${label}"` : ''}`
+  return `${type.replace(/_/g, ' ')}${sub ? ` (${sub})` : ''}`
+}
+
+function isDestructiveAction(action: CrmAction): boolean {
+  const { type, data } = action
+  const sub = (data?.action || '').toString()
+  if (type === 'delete_contact') return true
+  if (type === 'manage_deal' && (sub === 'delete' || sub === 'close_lost')) return true
+  if (type === 'manage_task_advanced' && sub === 'delete') return true
+  if (type === 'manage_event_advanced' && (sub === 'delete' || sub === 'cancel')) return true
+  if (type === 'manage_invoice' && sub === 'delete') return true
+  if (type === 'manage_landing_page' && sub === 'delete') return true
+  if (type === 'manage_funnel' && sub === 'delete') return true
+  if (type === 'manage_booking' && (sub === 'delete' || sub === 'cancel' || sub === 'delete_page')) return true
+  if (type === 'manage_survey_advanced' && sub === 'delete') return true
+  if (type === 'manage_form_advanced' && sub === 'delete') return true
+  if (type === 'manage_course_advanced' && sub === 'delete') return true
+  if (type === 'manage_sequence_advanced' && sub === 'delete') return true
+  if (type === 'manage_product_advanced' && sub === 'delete') return true
+  if (type === 'manage_chat_widget' && sub === 'delete') return true
+  if (type === 'manage_email_list_advanced' && (sub === 'delete' || sub === 'remove_member')) return true
+  if (type === 'manage_campaign' && (sub === 'delete' || sub === 'send')) return true
+  if (type === 'manage_automation_advanced' && sub === 'delete') return true
+  if (type === 'process_payment' && (sub === 'refund' || sub === 'cancel_subscription')) return true
+  return false
 }
 
 interface CrmAction {
@@ -134,10 +222,53 @@ async function resolvePageId(idOrName: string): Promise<{ id: string; name: stri
   return resolveEntityId(idOrName, '/api/landing_pages/pages', 'title')
 }
 
+// Map of entityType → search endpoint + display field names.
+// Used by find_entity to dispatch a name-to-ID lookup against the right API.
+const FIND_ENTITY_MAP: Record<string, { endpoint: string; displayField: string; subtitleField?: string }> = {
+  contact:       { endpoint: '/api/customers/people?search=',    displayField: 'display_name', subtitleField: 'primary_email' },
+  deal:          { endpoint: '/api/customers/deals?search=',     displayField: 'title',        subtitleField: 'pipeline_stage' },
+  task:          { endpoint: '/api/customers/tasks?search=',     displayField: 'title',        subtitleField: 'due_date' },
+  event:         { endpoint: '/api/crm-events?search=',          displayField: 'title',        subtitleField: 'start_time' },
+  product:       { endpoint: '/api/payments/products?search=',   displayField: 'name',         subtitleField: 'price' },
+  landing_page:  { endpoint: '/api/landing_pages/pages?search=', displayField: 'title',        subtitleField: 'slug' },
+  booking_page:  { endpoint: '/api/booking-pages?search=',       displayField: 'title',        subtitleField: 'slug' },
+  sequence:      { endpoint: '/api/sequences?search=',           displayField: 'name',         subtitleField: 'status' },
+  form:          { endpoint: '/api/forms?search=',               displayField: 'name' },
+  survey:        { endpoint: '/api/surveys?search=',             displayField: 'title' },
+  course:        { endpoint: '/api/courses?search=',             displayField: 'title',        subtitleField: 'slug' },
+  invoice:       { endpoint: '/api/payments/invoices?search=',   displayField: 'number',       subtitleField: 'status' },
+}
+
 async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; message: string }> {
   if (!action.data) action.data = {}
   try {
     switch (action.type) {
+      case 'find_entity': {
+        const entityType = String(action.data.entityType || '').toLowerCase()
+        const q = String(action.data.query || '').trim()
+        const spec = FIND_ENTITY_MAP[entityType]
+        if (!spec) return { ok: false, message: `Unknown entity type: ${entityType}` }
+        if (!q) return { ok: false, message: 'Query is required.' }
+        try {
+          const res = await fetch(`${spec.endpoint}${encodeURIComponent(q)}&pageSize=5`, { credentials: 'include' })
+          const d = await res.json()
+          const items: any[] = Array.isArray(d?.items) ? d.items : Array.isArray(d?.data) ? d.data : []
+          if (items.length === 0) {
+            return { ok: true, message: JSON.stringify({ candidates: [], instruction: `No ${entityType} found matching "${q}". Tell the user.` }) }
+          }
+          const candidates = items.slice(0, 5).map((it) => ({
+            id: it.id,
+            label: it[spec.displayField] ?? it.name ?? it.title ?? it.id,
+            subtitle: spec.subtitleField ? it[spec.subtitleField] : undefined,
+          }))
+          const instruction = candidates.length === 1
+            ? 'Exactly one match. Use this id in your next tool call.'
+            : `Multiple matches — briefly list them by label and ask the user which one to use. Do NOT pick automatically.`
+          return { ok: true, message: JSON.stringify({ candidates, instruction }) }
+        } catch (err) {
+          return { ok: false, message: `Failed to search ${entityType}: ${err instanceof Error ? err.message : 'unknown error'}` }
+        }
+      }
       case 'create_contact': {
         const fullName = action.data.name || 'New Contact'
         const parts = fullName.trim().split(/\s+/)
@@ -1142,22 +1273,38 @@ export default function VoiceAssistantPage() {
   const isPlayingRef = useRef(false)
   // Reconciliation bookkeeping — reset on response.created, read on response.done.
   const turnToolCallsRef = useRef<number>(0)
+  // Map of messageIndex → resolver function for pending confirmation prompts.
+  // When the user clicks Confirm/Cancel the resolver fires and the Promise in
+  // handleRealtimeToolCall continues.
+  const pendingConfirmsRef = useRef<Map<number, (confirmed: boolean) => void>>(new Map())
 
-  // Load persona + check speech support
+  // Load persona + action items for a proactive greeting
   useEffect(() => {
-    fetch('/api/customers/business-profile', { credentials: 'include' })
-      .then(r => r.json())
-      .then(d => {
-        const name = d.ok && d.data?.ai_persona_name ? d.data.ai_persona_name : 'Scout'
-        setPersonaName(name)
-        setMessages([{
-          role: 'assistant',
-          content: `Hey! I'm ${name}. You can talk to me or type \u2014 I can help you manage your CRM, check your pipeline, create contacts, send emails, and more. What can I help with?`
-        }])
-      })
-      .catch(() => {
-        setMessages([{ role: 'assistant', content: "Hey! I'm your AI assistant. What can I help with?" }])
-      })
+    Promise.all([
+      fetch('/api/customers/business-profile', { credentials: 'include' }).then(r => r.json()).catch(() => null),
+      fetch('/api/ai/action-items', { credentials: 'include' }).then(r => r.json()).catch(() => null),
+    ]).then(([profileRes, actionRes]) => {
+      const name = profileRes?.ok && profileRes?.data?.ai_persona_name ? profileRes.data.ai_persona_name : 'Scout'
+      setPersonaName(name)
+
+      const items: Array<{ title: string; description?: string }> = actionRes?.ok && Array.isArray(actionRes?.data?.actionItems)
+        ? actionRes.data.actionItems
+        : []
+
+      let greeting: string
+      if (items.length === 0) {
+        greeting = `Hey! I'm ${name}. Your inbox is clear — ask me to do anything, from pulling a pipeline summary to drafting an email.`
+      } else if (items.length === 1) {
+        greeting = `Hey! I'm ${name}. One thing on your plate: **${items[0].title}**. Want me to take it from here, or is there something else?`
+      } else {
+        const top = items.slice(0, 3).map(it => `- **${it.title}**`).join('\n')
+        greeting = `Hey! I'm ${name}. You have ${items.length} things to look at — here are the top ${Math.min(3, items.length)}:\n\n${top}\n\nWant me to handle any of these?`
+      }
+
+      setMessages([{ role: 'assistant', content: greeting }])
+    }).catch(() => {
+      setMessages([{ role: 'assistant', content: "Hey! I'm your AI assistant. What can I help with?" }])
+    })
   }, [])
 
   // Load conversations on mount
@@ -1281,10 +1428,11 @@ export default function VoiceAssistantPage() {
         return
       }
 
+      const pageContext = derivePageContext()
       const res = await fetch('/api/ai/realtime/session', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice: ttsVoice }),
+        body: JSON.stringify({ voice: ttsVoice, pageContext }),
       })
       const data = await res.json()
       if (!data.ok || !data.data?.clientSecret) {
@@ -1537,6 +1685,54 @@ export default function VoiceAssistantPage() {
       const data = typeof argsStr === 'string' ? JSON.parse(argsStr) : argsStr
       const action = { type: name, data }
 
+      // Destructive actions require explicit user confirmation before we run
+      // them. Block here, render a Confirm/Cancel prompt, and wait.
+      if (isDestructiveAction(action)) {
+        const confirmLabel = describeDestructive(action)
+        let promptIndex = -1
+        setMessages(prev => {
+          promptIndex = prev.length
+          return [...prev, {
+            role: 'assistant',
+            content: `Confirm: ${confirmLabel}?`,
+            action,
+            actionStatus: 'pending',
+          }]
+        })
+
+        const confirmed = await new Promise<boolean>(resolve => {
+          pendingConfirmsRef.current.set(promptIndex, resolve)
+        })
+
+        setMessages(prev => prev.map((m, i) => i === promptIndex
+          ? { ...m, actionStatus: confirmed ? 'executing' : 'cancelled' }
+          : m))
+
+        if (!confirmed) {
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+              type: 'conversation.item.create',
+              item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: false, message: 'User cancelled the action. Tell them briefly.', instruction: 'Do NOT retry unless the user explicitly asks again.' }) },
+            }))
+            wsRef.current.send(JSON.stringify({ type: 'response.create' }))
+          }
+          return
+        }
+
+        const result = await executeCrmAction(action)
+        setMessages(prev => prev.map((m, i) => i === promptIndex
+          ? { ...m, actionStatus: result.ok ? 'success' : 'error', actionResult: result.message }
+          : m))
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          const output = result.ok
+            ? JSON.stringify(result)
+            : JSON.stringify({ ...result, instruction: 'The action failed. Tell the user what went wrong. Do NOT retry the action.' })
+          wsRef.current.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: callId, output } }))
+          wsRef.current.send(JSON.stringify({ type: 'response.create' }))
+        }
+        return
+      }
+
       // Extract a short human label from the args for the executing bubble,
       // e.g. "create_contact(Maria Chen)" instead of just "create contact".
       const label = pickActionLabel(data) || name.replace(/_/g, ' ')
@@ -1602,6 +1798,7 @@ export default function VoiceAssistantPage() {
         body: JSON.stringify({
           messages: allMessages.slice(-12).map(m => ({ role: m.role, content: m.content })),
           currentPage: 'Voice Assistant',
+          pageContext: derivePageContext(),
         }),
       })
       const data = await res.json()
@@ -1637,6 +1834,15 @@ export default function VoiceAssistantPage() {
     const msg = messages[msgIndex]
     if (!msg?.action) return
 
+    // If this prompt came from a destructive-action gate, resolve the promise
+    // so handleRealtimeToolCall can continue with execution + function_call_output.
+    const realtimeResolver = pendingConfirmsRef.current.get(msgIndex)
+    if (realtimeResolver) {
+      pendingConfirmsRef.current.delete(msgIndex)
+      realtimeResolver(true)
+      return
+    }
+
     setMessages(prev => prev.map((m, i) => i === msgIndex ? { ...m, actionStatus: 'executing' as const } : m))
 
     const result = await executeCrmAction(msg.action)
@@ -1650,6 +1856,12 @@ export default function VoiceAssistantPage() {
   }, [messages])
 
   const cancelAction = useCallback((msgIndex: number) => {
+    const realtimeResolver = pendingConfirmsRef.current.get(msgIndex)
+    if (realtimeResolver) {
+      pendingConfirmsRef.current.delete(msgIndex)
+      realtimeResolver(false)
+      return
+    }
     setMessages(prev => prev.map((m, i) => i === msgIndex ? { ...m, actionStatus: 'cancelled' as const } : m))
   }, [])
 
