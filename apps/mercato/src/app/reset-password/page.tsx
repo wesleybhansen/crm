@@ -4,6 +4,7 @@ import { Suspense, useState, FormEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import '../auth-shell.css'
+import { AuthField, AuthParticles, ArrowLeftIcon, ArrowRightIcon } from '../auth-shared'
 
 export default function ResetPasswordPage() {
   return (
@@ -31,12 +32,10 @@ function ResetPasswordForm() {
       setError('Invalid or missing reset token')
       return
     }
-
     if (password.length < 8) {
       setError('Password must be at least 8 characters')
       return
     }
-
     if (password !== confirmPassword) {
       setError('Passwords do not match')
       return
@@ -67,6 +66,7 @@ function ResetPasswordForm() {
     <div className="auth-page">
       <div className="auth-atmosphere" />
       <div className="auth-grid-fade" />
+      <AuthParticles />
 
       <div className="auth-topbar">
         <Link href="/" className="auth-logo">
@@ -74,9 +74,7 @@ function ResetPasswordForm() {
           Launch OS
         </Link>
         <Link href="/login" className="auth-back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-            <path d="M19 12H5M11 18l-6-6 6-6" />
-          </svg>
+          <ArrowLeftIcon />
           Back to login
         </Link>
       </div>
@@ -86,66 +84,41 @@ function ResetPasswordForm() {
           <div className="auth-card-mark" />
 
           {success ? (
-            <>
+            <div className="auth-swap" key="done">
+              <div className="auth-success-check">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
               <h1>Password updated.</h1>
               <p className="auth-sub">You can now sign in with your new password.</p>
               <Link href="/login" className="auth-submit" style={{ textDecoration: 'none' }}>
-                Continue to login
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                  <path d="M5 12h14M13 6l6 6-6 6" />
-                </svg>
+                <span className="auth-submit-label">Continue to login</span>
+                <ArrowRightIcon />
               </Link>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="auth-swap" key="form">
               <h1>Set a new password.</h1>
               <p className="auth-sub">Choose something you&apos;ll remember.</p>
 
               <form className="auth-form" onSubmit={handleSubmit} noValidate>
                 {error && <div className="auth-error" role="alert">{error}</div>}
 
-                <div className="auth-field">
-                  <label htmlFor="password">New password</label>
-                  <input
-                    id="password"
-                    type="password"
-                    required
-                    minLength={8}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
-                    autoComplete="new-password"
-                  />
-                </div>
+                <AuthField id="password" label="New password (8+ characters)" type="password" value={password} onChange={setPassword} required minLength={8} autoComplete="new-password" />
+                <AuthField id="confirmPassword" label="Confirm password" type="password" value={confirmPassword} onChange={setConfirmPassword} required minLength={8} autoComplete="new-password" />
 
-                <div className="auth-field">
-                  <label htmlFor="confirmPassword">Confirm password</label>
-                  <input
-                    id="confirmPassword"
-                    type="password"
-                    required
-                    minLength={8}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Re-enter password"
-                    autoComplete="new-password"
-                  />
-                </div>
-
-                <button type="submit" className="auth-submit" disabled={loading}>
-                  {loading ? 'Updating…' : 'Update password'}
-                  {!loading && (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                      <path d="M5 12h14M13 6l6 6-6 6" />
-                    </svg>
-                  )}
+                <button type="submit" className={`auth-submit ${loading ? 'is-loading' : ''}`} disabled={loading}>
+                  <span className="auth-spinner" />
+                  <span className="auth-submit-label">Update password</span>
+                  <ArrowRightIcon />
                 </button>
               </form>
 
               <div className="auth-footer-line">
                 Remember it now? <Link href="/login">Back to login →</Link>
               </div>
-            </>
+            </div>
           )}
         </div>
       </main>

@@ -18,6 +18,9 @@ export class User {
   @Index({ name: 'users_email_hash_idx' })
   emailHash?: string | null
 
+  @Property({ name: 'google_sub', type: 'text', nullable: true })
+  googleSub?: string | null
+
   @Property({ type: 'text', nullable: true })
   name?: string
 

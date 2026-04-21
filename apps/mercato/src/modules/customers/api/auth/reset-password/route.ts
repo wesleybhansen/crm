@@ -1,70 +1,31 @@
-// ORM-SKIP: security-critical auth flow — raw SQL conversion deferred for safety
-export const metadata = { path: '/auth/reset-password', POST: { requireAuth: true } }
+export const metadata = { path: '/auth/reset-password', POST: {} }
+
 import { NextRequest, NextResponse } from 'next/server'
-import { query, queryOne } from '@/lib/db'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { token, password } = body as { token?: string; password?: string }
+    const body = await req.json().catch(() => ({}))
+    const token = String((body as any)?.token || '').trim()
+    const password = String((body as any)?.password || '')
 
     if (!token || !password) {
       return NextResponse.json({ ok: false, error: 'Token and password are required' }, { status: 400 })
     }
-
     if (password.length < 8) {
       return NextResponse.json({ ok: false, error: 'Password must be at least 8 characters' }, { status: 400 })
     }
 
-    // Try password_resets table first
-    let userId: string | null = null
-
-    const resetRow = await queryOne(
-      `SELECT pr.id as reset_id, pr.user_id
-       FROM password_resets pr
-       WHERE pr.token = $1 AND pr.expires_at > now() AND pr.used_at IS NULL`,
-      [token]
-    )
-
-    if (resetRow) {
-      userId = resetRow.user_id
-      // Mark token as used
-      await query('UPDATE password_resets SET used_at = now() WHERE id = $1', [resetRow.reset_id])
-    } else {
-      // Fall back to user columns
-      const userRow = await queryOne(
-        'SELECT id FROM users WHERE reset_token = $1 AND reset_token_expires > now()',
-        [token]
-      )
-      if (userRow) {
-        userId = userRow.id
-      }
-    }
-
-    if (!userId) {
+    const container = await createRequestContainer()
+    const auth = container.resolve('authService') as AuthService
+    const user = await auth.confirmPasswordReset(token, password)
+    if (!user) {
       return NextResponse.json({ ok: false, error: 'Invalid or expired reset link' }, { status: 400 })
     }
 
-    const bcrypt = require('bcryptjs')
-    const passwordHash = await bcrypt.hash(password, 10)
-
-    await query(
-      'UPDATE users SET password_hash = $1 WHERE id = $2',
-      [passwordHash, userId]
-    )
-
-    // Clear user-column tokens if they exist
-    try {
-      await query(
-        'UPDATE users SET reset_token = NULL, reset_token_expires = NULL WHERE id = $1',
-        [userId]
-      )
-    } catch {
-      // Columns may not exist — that's fine
-    }
-
     return NextResponse.json({ ok: true })
-  } catch (err: unknown) {
+  } catch (err) {
     console.error('[auth/reset-password] Error:', err)
     return NextResponse.json({ ok: false, error: 'Internal server error' }, { status: 500 })
   }

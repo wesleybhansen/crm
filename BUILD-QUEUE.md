@@ -1,6 +1,6 @@
 # CRM Build Queue
 
-Comprehensive prioritized queue. Updated 2026-04-07.
+Comprehensive prioritized queue. Updated 2026-04-20.
 
 ---
 
@@ -37,18 +37,7 @@ Build a comprehensive REST API and MCP (Model Context Protocol) server so the CR
 - Connectable from any MCP-compatible AI agent
 - Authentication via API key or session token
 
-### D. Blog-Ops Integration
-Connect the CRM to the Automated Marketing System at `~/Desktop/blog-ops`. Blog-Ops handles content generation, email sequence creation, competitive intelligence, and paid ads. The CRM handles contacts, pipeline, and delivery.
-
-**Integration points:**
-- Contact sync (bidirectional) — new CRM contacts pushed to Blog-Ops, Blog-Ops lead data pulled into CRM
-- Email sequence content import — Blog-Ops generates sequence copy, CRM imports and sends via connected email
-- Content pipeline — Blog-Ops generates content, CRM surfaces it for review/approval
-- Lead magnet delivery — Blog-Ops creates lead magnets (PDFs, etc.), CRM handles the funnel + form + delivery
-- Campaign orchestration — Blog-Ops plans campaigns, CRM executes (emails, landing pages, funnels)
-- Shared API key auth between systems
-
-### E. Smarter Landing Pages
+### D. Smarter Landing Pages
 Upgrade the landing page system to be more intelligent and produce higher-converting pages:
 - AI analyzes the user's business, audience, and offer to generate truly custom copy (not template-fill)
 - Competitor analysis — AI researches competitor landing pages and incorporates winning patterns
@@ -346,6 +335,8 @@ The AI voice assistant can create things reliably but struggles to edit/delete e
 
 ## Recently Completed (Reference)
 
+- Blog-Ops / AMS integration ✅ — API-key auth, ext endpoints (`/api/ext/contacts|deals|dashboard/summary|pipeline/summary`), landing page signups create CRM contacts end-to-end, dedicated "AMS Integration" settings card that generates the CRM API key + step-by-step connection instructions (2026-04-20)
+- Unified inbox bulk actions — Mark read, Close, Reopen, Delete with confirmation; backend PUT /api/inbox supports all four (2026-04-20)
 - Funnel system overhaul — all 4 patterns tested, 23/23 passing (2026-04-02)
 - Inbox Intelligence — auto-scan inboxes, create contacts, update timeline/engagement (2026-04-02)
 - Reports page fixed, dashboard quick actions, sidebar reorganized (2026-04-02)
