@@ -4,6 +4,9 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -25,6 +28,23 @@ export async function GET(req: Request) {
       .first()
 
     if (!entity) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+
+    // Decrypt display_name / primary_email / primary_phone when tenant
+    // encryption is on — raw knex skips the subscriber path.
+    if (isTenantDataEncryptionEnabled() && auth.tenantId) {
+      try {
+        const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+        const dec = await svc.decryptEntityPayload(
+          'customers:customer_entity',
+          { display_name: entity.display_name, primary_email: entity.primary_email, primary_phone: entity.primary_phone },
+          auth.tenantId,
+          auth.orgId,
+        )
+        entity.display_name = dec.display_name ?? entity.display_name
+        entity.primary_email = dec.primary_email ?? entity.primary_email
+        entity.primary_phone = dec.primary_phone ?? entity.primary_phone
+      } catch {}
+    }
 
     // Get person details (job title, etc.)
     const person = await knex('customer_people')

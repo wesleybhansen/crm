@@ -157,7 +157,8 @@ Available action types:
 - remove_tag: { contactId, tagName }
 - create_deal: { title, contactId?, value? }
 - send_email: { to, subject, body }
-- move_deal_stage: { dealId, stage }
+- move_deal_stage: { dealId, stage } — ONLY for deals (pipeline mode "deals"). DO NOT use for contacts.
+- move_contact_stage: { contactId, stage } — Journey mode ONLY. Moves a CONTACT to a new lifecycle stage. Use this when the user says "move Sarah to Prospect", "move him up one level", etc. The stage name MUST be one of the STAGES listed in the PIPELINE MODE block above.
 - create_invoice: { contactName?, items: [{name, price, quantity}], dueDate?, notes? }
 - create_product: { name, description?, price, billingType?, trialDays? }
 - set_reminder: { message, remindAt?, delayMinutes? } — Use for "remind me", "set a reminder", "follow up in X"
@@ -505,7 +506,7 @@ function extractSearchQuery(messages: Array<{ role: string; content: string }>):
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { messages, currentPage } = body
+    const { messages, currentPage, pageContext } = body
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ ok: false, error: 'messages required' }, { status: 400 })
@@ -559,7 +560,17 @@ export async function POST(req: Request) {
       }
     } catch {}
 
-    const systemParts = [personaPrompt, CRM_INSTRUCTIONS, userInfoBlock, dataContext].filter(Boolean)
+    let contextBlock = ''
+    if (pageContext && typeof pageContext === 'object') {
+      const { entityType, entityId, pathname } = pageContext as { entityType?: string; entityId?: string; pathname?: string }
+      if (entityType && entityId) {
+        contextBlock = `CURRENT CONTEXT:\nThe user is viewing a ${entityType} (id: ${entityId}). When they make ambiguous references like "add a note", "create a task", "send them an email", or "update their info" without naming a target, default to THIS entity — use this id in the crm-action block. Do NOT ask who they mean if the target is obvious from context.`
+      } else if (pathname) {
+        contextBlock = `CURRENT CONTEXT:\nThe user is on page "${pathname}". Use this as a hint for which area they're working in.`
+      }
+    }
+
+    const systemParts = [personaPrompt, CRM_INSTRUCTIONS, userInfoBlock, contextBlock, dataContext].filter(Boolean)
     const systemPrompt = systemParts.join('\n\n')
 
     // Add page context to the conversation

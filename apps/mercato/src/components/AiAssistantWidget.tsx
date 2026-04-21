@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { X, Send, Loader2, Sparkles, Check, XCircle, Trash2, Maximize2, Minimize2 } from 'lucide-react'
+import { X, Send, Loader2, Sparkles, Check, XCircle, Trash2, Maximize2, Minimize2, BarChart3, Calendar, CheckSquare, Zap } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 type CrmAction = {
@@ -82,6 +82,8 @@ function getActionLabel(action: CrmAction): string {
       return `Send email to ${action.data.to || 'Unknown'}: ${action.data.subject || 'No subject'}`
     case 'move_deal_stage':
       return `Move deal to stage: ${action.data.stage || 'Unknown'}`
+    case 'move_contact_stage':
+      return `Move ${action.data.contactName || 'contact'} to "${action.data.stage || 'Unknown'}" stage`
     case 'create_invoice':
       return `Create invoice${action.data.contactName ? ` for ${action.data.contactName}` : ''}: ${action.data.items?.length || 0} item(s)`
     case 'create_product':
@@ -152,13 +154,40 @@ async function executeCrmAction(action: CrmAction): Promise<{ success: boolean; 
       }
       case 'move_deal_stage': {
         if (!action.data.dealId) return { success: false, message: 'Deal ID required' }
-        const res = await fetch('/api/pipeline/journey', {
+        const res = await fetch('/api/customers/deals', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({ contactId: action.data.dealId, stage: action.data.stage }),
+          body: JSON.stringify({ id: action.data.dealId, pipelineStage: action.data.stage }),
         })
         const data = await res.json()
-        if (data.ok) return { success: true, message: `Deal moved to "${action.data.stage}"!` }
+        if (data.id || data.ok) return { success: true, message: `Deal moved to "${action.data.stage}"!` }
         return { success: false, message: data.error || 'Failed to move deal' }
+      }
+      case 'move_contact_stage': {
+        // Journey mode — update a CONTACT's lifecycle_stage. Accepts a
+        // contactId or a contactName we resolve via the people search.
+        let contactId: string | null = action.data.contactId || null
+        const stage = action.data.stage
+        if (!stage) return { success: false, message: 'Stage is required' }
+        if (!contactId && action.data.contactName) {
+          try {
+            const resp = await fetch(`/api/customers/people?search=${encodeURIComponent(action.data.contactName)}&pageSize=5`, { credentials: 'include' })
+            const d = await resp.json()
+            const items: any[] = d.items || []
+            if (items.length === 1) contactId = items[0].id
+            else if (items.length > 1) {
+              const exact = items.find((c: any) => (c.display_name || '').toLowerCase() === action.data.contactName.toLowerCase())
+              contactId = exact?.id || items[0].id
+            }
+          } catch {}
+        }
+        if (!contactId) return { success: false, message: `Contact "${action.data.contactName || action.data.contactId || 'unknown'}" not found.` }
+        const res = await fetch('/api/pipeline/journey', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ contactId, stage }),
+        })
+        const data = await res.json()
+        if (data.ok) return { success: true, message: `Moved to "${stage}".` }
+        return { success: false, message: data.error || 'Failed to move contact' }
       }
       case 'create_invoice': {
         const items = action.data.items || []
@@ -375,10 +404,10 @@ export function AiAssistantWidget() {
   }
 
   const quickActions = [
-    { label: 'Give me an overview of my CRM', icon: '📊' },
-    { label: 'How do I create an event?', icon: '📅' },
-    { label: 'Create a task to follow up this week', icon: '✅' },
-    { label: 'What features does this CRM have?', icon: '✨' },
+    { label: 'Give me an overview of my CRM', Icon: BarChart3 },
+    { label: 'How do I create an event?', Icon: Calendar },
+    { label: 'Create a task to follow up this week', Icon: CheckSquare },
+    { label: 'What features does this CRM have?', Icon: Zap },
   ]
 
   const panelSize = expanded
@@ -513,7 +542,7 @@ export function AiAssistantWidget() {
                   <button key={qa.label} type="button"
                     onClick={() => sendMessage(qa.label)}
                     className="w-full text-left px-3 py-2 rounded-lg border text-xs hover:bg-muted transition flex items-center gap-2">
-                    <span>{qa.icon}</span> {qa.label}
+                    <qa.Icon className="size-3.5 text-muted-foreground shrink-0" /> {qa.label}
                   </button>
                 ))}
               </div>
