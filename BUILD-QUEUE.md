@@ -1,15 +1,12 @@
 # CRM Build Queue
 
-Comprehensive prioritized queue. Updated 2026-04-20.
+Comprehensive prioritized queue. Updated 2026-04-21.
 
 ---
 
 ## TOP PRIORITY
 
-### A. Login / Signup Flow Redesign
-Redesign login, signup, and password reset screens with branding. Remove tenant URL requirement (auto-detect from email or show picker). Add forgot password flow with email reset link. "Sign in" link on signup, "Create account" on login. Mobile-friendly. Dev mode: auto-verify email on signup. This is the first impression — it needs to look professional, not like boilerplate.
-
-### B. AI Voice Assistant (Scout V2)
+### A. AI Voice Assistant (Scout V2)
 Expand the Scout AI assistant into a full voice-to-voice CRM control system. Users can manage their entire CRM through voice or text chat — add contacts, send messages, check reports, create deals, manage pipeline, send emails, create landing pages, check analytics, etc. The AI assistant does real work, not just answers questions.
 
 **Key capabilities:**
@@ -21,7 +18,7 @@ Expand the Scout AI assistant into a full voice-to-voice CRM control system. Use
 - Confirmation step before executing destructive/important actions
 - Context-aware: knows what page the user is on, who they're looking at
 
-### C. Full CRM API + MCP Server
+### B. Full CRM API + MCP Server
 Build a comprehensive REST API and MCP (Model Context Protocol) server so the CRM can be controlled by external AI agents (LaunchBot, custom agents, etc.).
 
 **REST API:**
@@ -37,7 +34,7 @@ Build a comprehensive REST API and MCP (Model Context Protocol) server so the CR
 - Connectable from any MCP-compatible AI agent
 - Authentication via API key or session token
 
-### D. Smarter Landing Pages
+### C. Smarter Landing Pages
 Upgrade the landing page system to be more intelligent and produce higher-converting pages:
 - AI analyzes the user's business, audience, and offer to generate truly custom copy (not template-fill)
 - Competitor analysis — AI researches competitor landing pages and incorporates winning patterns
@@ -335,6 +332,7 @@ The AI voice assistant can create things reliably but struggles to edit/delete e
 
 ## Recently Completed (Reference)
 
+- **Login / Signup flow — full overhaul (6 phases)** ✅ — (1) audited the custom signup/forgot/reset routes and found they were all broken against the encrypted-email production schema (raw SQL plaintext lookups, missing `email_hash`, bypassed `setupInitialTenant`, plus `requireAuth: true` blocking every POST); (2) rewrote all three to use `AuthService` + `setupInitialTenant` so encryption maps, role ACLs, and module `onTenantCreated` hooks fire properly; (3) confirmed signup already routes to `/backend/welcome` onboarding wizard; (4) ported auth polish to real pages — float-label inputs, traced-gradient submit button with spring hover, shake-on-error, scale-check-on-success, staggered org picker, 13 drifting particles, 6s card breathing glow, iOS no-zoom fix; (5) built Google OAuth — `users.google_sub` column + unique index, `/api/auth/google/start` with PKCE + state cookies, `/api/auth/google/callback` that finds/links/creates users via existing `GOOGLE_OAUTH_CLIENT_ID` creds, non-sensitive scopes (`openid email profile`) so no verification review needed; forgot-password silently skips Google-only accounts; (6) E2E tested all paths. Bonus: fixed onboarding `pipelineMode: 'journey'` validation bug that was silently failing + surfaced save errors via alert instead of swallowing; fixed reset-email sending to encrypted ciphertext instead of plaintext; ported the darker auth-page hero gradient + drifting particles to the landing page (2026-04-21)
 - Blog-Ops / AMS integration ✅ — API-key auth, ext endpoints (`/api/ext/contacts|deals|dashboard/summary|pipeline/summary`), landing page signups create CRM contacts end-to-end, dedicated "AMS Integration" settings card that generates the CRM API key + step-by-step connection instructions (2026-04-20)
 - Unified inbox bulk actions — Mark read, Close, Reopen, Delete with confirmation; backend PUT /api/inbox supports all four (2026-04-20)
 - Funnel system overhaul — all 4 patterns tested, 23/23 passing (2026-04-02)
