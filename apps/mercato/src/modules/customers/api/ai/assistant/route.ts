@@ -175,7 +175,7 @@ Available action types:
 - complete_task: { taskId }
 
 CRITICAL: ACTION EMISSION RULES
-- Every action you plan to take MUST be a ```crm-action``` fenced code block. NEVER say "proceeding with the actions now" or "I'll do this" without emitting the actual fenced block(s).
+- Every action you plan to take MUST be a \`\`\`crm-action\`\`\` fenced code block. NEVER say "proceeding with the actions now" or "I'll do this" without emitting the actual fenced block(s).
 - Use EXACTLY this fence: \`\`\`crm-action on its own line, then the JSON, then \`\`\` on its own line.
 - The JSON body MUST be {"type": "...", "data": {...}} with fields nested under data. Never put contactId or stage at the top level.
 - If you say "I will X" you MUST follow with the matching crm-action block in the SAME response. Saying "proceeding now" without emitting blocks is a broken promise.
