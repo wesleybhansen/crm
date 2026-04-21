@@ -6,6 +6,29 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+
+// Decrypt display_name + primary_email on a list of customer_entities rows.
+// Raw knex reads ciphertext when tenant encryption is on; without this the
+// prompt/search results would contain strings like "/ZM4KCJlABv/1CX2:XT1...".
+async function decryptContactRows(em: EntityManager, rows: any[], tenantId: string, orgId: string): Promise<any[]> {
+  if (!rows.length || !isTenantDataEncryptionEnabled()) return rows
+  try {
+    const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+    return await Promise.all(rows.map(async (r) => {
+      try {
+        const dec = await svc.decryptEntityPayload('customers:customer_entity', { display_name: r.display_name, primary_email: r.primary_email }, tenantId, orgId)
+        return { ...r, display_name: dec.display_name ?? r.display_name, primary_email: dec.primary_email ?? r.primary_email }
+      } catch {
+        return r
+      }
+    }))
+  } catch {
+    return rows
+  }
+}
 
 
 const CRM_INSTRUCTIONS = `You are Scout, an AI assistant built into a CRM platform designed for solopreneurs and small businesses. You help users navigate the app, answer questions about their data, and take actions on their behalf.
@@ -183,7 +206,7 @@ ANSWERING RULES:
 - Use markdown: **bold**, *italic*, bullet lists with -, and [links](/path).`
 
 // Query CRM data to give Scout context about the user's actual data
-async function buildDataContext(knex: any, orgId: string): Promise<string> {
+async function buildDataContext(knex: any, orgId: string, tenantId: string, em: EntityManager): Promise<string> {
   const sections: string[] = []
 
   try {
@@ -192,14 +215,15 @@ async function buildDataContext(knex: any, orgId: string): Promise<string> {
       .where('organization_id', orgId).where('kind', 'person').whereNull('deleted_at').count()
     const [{ count: companyCount }] = await knex('customer_entities')
       .where('organization_id', orgId).where('kind', 'company').whereNull('deleted_at').count()
-    const recentContacts = await knex('customer_entities')
+    const rawRecent = await knex('customer_entities')
       .where('organization_id', orgId).where('kind', 'person').whereNull('deleted_at')
       .orderBy('created_at', 'desc').limit(5)
-      .select('display_name', 'primary_email', 'lifecycle_stage', 'source', 'created_at')
+      .select('id', 'display_name', 'primary_email', 'lifecycle_stage', 'source', 'created_at')
+    const recentContacts = await decryptContactRows(em, rawRecent, tenantId, orgId)
     sections.push(`CONTACTS: ${contactCount} people, ${companyCount} companies`)
     if (recentContacts.length > 0) {
       sections.push('Recent contacts: ' + recentContacts.map((c: any) =>
-        `${c.display_name}${c.primary_email ? ` (${c.primary_email})` : ''}${c.lifecycle_stage ? ` [${c.lifecycle_stage}]` : ''}`
+        `${c.display_name}${c.primary_email ? ` (${c.primary_email})` : ''}${c.lifecycle_stage ? ` [${c.lifecycle_stage}]` : ''} id=${c.id}`
       ).join('; '))
     }
   } catch {}
@@ -342,20 +366,26 @@ async function buildDataContext(knex: any, orgId: string): Promise<string> {
   return 'DATA SNAPSHOT:\n' + sections.join('\n')
 }
 
-// Search for specific contacts/deals when the user asks about someone by name
-async function searchCrmData(knex: any, orgId: string, query: string): Promise<string> {
+// Search for specific contacts/deals when the user asks about someone by name.
+// With tenant encryption on, display_name/primary_email are stored as ciphertext,
+// so SQL ILIKE can't match plaintext queries. Pull the most recent 200 rows,
+// decrypt in memory, then filter.
+async function searchCrmData(knex: any, orgId: string, tenantId: string, em: EntityManager, query: string): Promise<string> {
   if (!query || query.length < 2) return ''
   const sections: string[] = []
-  const q = `%${query}%`
+  const needle = query.toLowerCase()
 
   try {
-    const contacts = await knex('customer_entities')
+    const rawPool = await knex('customer_entities')
       .where('organization_id', orgId).whereNull('deleted_at')
-      .where(function(this: any) {
-        this.whereILike('display_name', q).orWhereILike('primary_email', q)
-      })
       .select('id', 'display_name', 'primary_email', 'primary_phone', 'kind', 'lifecycle_stage', 'source', 'created_at')
-      .orderBy('created_at', 'desc').limit(10)
+      .orderBy('created_at', 'desc').limit(200)
+    const pool = await decryptContactRows(em, rawPool, tenantId, orgId)
+    const contacts = pool.filter((c: any) => {
+      const dn = (c.display_name || '').toLowerCase()
+      const pe = (c.primary_email || '').toLowerCase()
+      return dn.includes(needle) || pe.includes(needle)
+    }).slice(0, 10)
 
     if (contacts.length > 0) {
       sections.push(`SEARCH RESULTS for "${query}" — ${contacts.length} contact(s) found:`)
@@ -405,10 +435,10 @@ async function searchCrmData(knex: any, orgId: string, query: string): Promise<s
   } catch {}
 
   try {
-    // Also search deals by title
+    // Also search deals by title (deal title is NOT encrypted — safe to ILIKE)
     const deals = await knex('customer_deals')
       .where('organization_id', orgId).whereNull('deleted_at')
-      .whereILike('title', q)
+      .whereILike('title', `%${query}%`)
       .select('title', 'status', 'value_amount', 'pipeline_stage', 'created_at')
       .orderBy('created_at', 'desc').limit(5)
     if (deals.length > 0 && !sections.some(s => s.includes('SEARCH RESULTS'))) {
@@ -477,12 +507,12 @@ export async function POST(req: Request) {
           personaPrompt = buildPersonaPrompt(profile)
         }
         // Build data context for every request so Scout can answer data questions
-        dataContext = await buildDataContext(knex, auth.orgId)
+        dataContext = await buildDataContext(knex, auth.orgId, auth.tenantId!, em)
 
         // If the user is searching for a specific person/deal, add targeted search results
         const searchQuery = extractSearchQuery(messages)
         if (searchQuery) {
-          const searchResults = await searchCrmData(knex, auth.orgId, searchQuery)
+          const searchResults = await searchCrmData(knex, auth.orgId, auth.tenantId!, em, searchQuery)
           if (searchResults) {
             dataContext = searchResults + '\n\n' + dataContext
           }
