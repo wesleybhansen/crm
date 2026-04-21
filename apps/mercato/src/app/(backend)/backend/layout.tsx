@@ -436,7 +436,6 @@ export default async function BackendLayout({ children, params }: { children: Re
 
   return (
     <div className={interfaceMode === 'simple' ? 'simple-mode' : 'advanced-mode'}>
-      <Script async src="https://w.appzi.io/w.js?token=TtIV6" strategy="afterInteractive" />
       {interfaceMode === 'simple' && (
         <Script id="hide-customize-sidebar" strategy="afterInteractive">{`
           (function hide(){

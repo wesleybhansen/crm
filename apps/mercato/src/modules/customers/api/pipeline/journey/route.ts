@@ -159,6 +159,7 @@ export async function PUT(req: Request) {
       id: require('crypto').randomUUID(),
       contact_id: contactId,
       organization_id: auth.orgId,
+      tenant_id: auth.tenantId,
       event_type: 'stage_change',
       points: 5,
       metadata: JSON.stringify({ from: previousStage, to: stage }),

@@ -363,11 +363,6 @@ TODO: Fix that latter to have reference by the package names
   color: #60A5FA !important;
 }
 
-/* Hide the Appzi feedback widget in simple mode */
-.simple-mode #appzi-widget-container {
-  display: none !important;
-}
-
 /* Hide the "Customize sidebar" button in simple mode — targets the text content */
 .simple-mode aside button[aria-label*="ustomize"],
 .simple-mode aside button[aria-label*="sidebar"],
