@@ -548,7 +548,7 @@ function extractSearchQuery(messages: Array<{ role: string; content: string }>):
   return null
 }
 
-export async function POST(req: Request) {
+export async function POST(req: Request, ctx?: any) {
   try {
     const body = await req.json()
     const { messages, currentPage, pageContext } = body
@@ -571,7 +571,10 @@ export async function POST(req: Request) {
     let dataContext = ''
     let userInfoBlock = ''
     try {
-      const auth = await getAuthFromCookies()
+      // Prefer the auth resolved by the catch-all router (supports both
+      // cookie sessions and x-api-key) — fall back to cookie-only if
+      // running in a context that didn't pass ctx.auth.
+      const auth = ctx?.auth ?? (await getAuthFromCookies())
       if (auth?.orgId && auth?.sub) {
         const container = await createRequestContainer()
         const em = container.resolve('em') as EntityManager
