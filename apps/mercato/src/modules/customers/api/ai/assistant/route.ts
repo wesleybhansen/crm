@@ -286,14 +286,20 @@ async function buildDataContext(knex: any, orgId: string, tenantId: string, em: 
       .where('organization_id', orgId).where('kind', 'person').whereNull('deleted_at').count()
     const [{ count: companyCount }] = await knex('customer_entities')
       .where('organization_id', orgId).where('kind', 'company').whereNull('deleted_at').count()
+    // For small tenants (under 100 contacts) dump the full list so Scout can
+    // reliably answer "who is X" or "is Y in my contacts" without missing
+    // older entries. For larger tenants the recent 100 is the cutoff — if
+    // the user references someone older, extractSearchQuery will pick it up
+    // and searchCrmData adds targeted results.
     const rawRecent = await knex('customer_entities')
       .where('organization_id', orgId).where('kind', 'person').whereNull('deleted_at')
-      .orderBy('created_at', 'desc').limit(5)
+      .orderBy('created_at', 'desc').limit(100)
       .select('id', 'display_name', 'primary_email', 'lifecycle_stage', 'source', 'created_at')
     const recentContacts = await decryptContactRows(em, rawRecent, tenantId, orgId)
     sections.push(`CONTACTS: ${contactCount} people, ${companyCount} companies`)
     if (recentContacts.length > 0) {
-      sections.push('Recent contacts: ' + recentContacts.map((c: any) =>
+      const label = Number(contactCount) > 100 ? 'Recent contacts (100 of ' + contactCount + ')' : 'All contacts'
+      sections.push(`${label}: ` + recentContacts.map((c: any) =>
         `${c.display_name}${c.primary_email ? ` (${c.primary_email})` : ''}${c.lifecycle_stage ? ` [${c.lifecycle_stage}]` : ''} id=${c.id}`
       ).join('; '))
     }
@@ -532,19 +538,24 @@ async function searchCrmData(knex: any, orgId: string, tenantId: string, em: Ent
 function extractSearchQuery(messages: Array<{ role: string; content: string }>): string | null {
   const lastMsg = messages[messages.length - 1]
   if (!lastMsg || lastMsg.role !== 'user') return null
-  const text = lastMsg.content.toLowerCase()
+  const content = lastMsg.content
 
-  // Match patterns like "tell me about X", "find X", "look up X", "search for X", "who is X", "info on X"
+  // Tier 1: explicit search phrases — return the query after the phrase.
   const patterns = [
     /(?:tell me about|find|look up|search for|who is|info on|details on|show me|what do (?:we|you|i) (?:know|have) about)\s+(.+)/i,
     /(?:find|search|look up)\s+(?:contact|person|company|deal)?\s*(?:named?|called)?\s+(.+)/i,
   ]
   for (const pattern of patterns) {
-    const match = lastMsg.content.match(pattern)
-    if (match) {
-      return match[1].replace(/[?.!]$/, '').trim()
-    }
+    const match = content.match(pattern)
+    if (match) return match[1].replace(/[?.!]$/, '').trim()
   }
+
+  // Tier 2: any "Firstname Lastname" proper-noun pair in the message. Catches
+  // "is Maria Chen in my contacts?", "what's Sarah Martinez's email", etc.
+  // Two consecutive capitalized words, each 2+ chars.
+  const nameMatch = content.match(/\b([A-Z][a-z]{1,})\s+([A-Z][a-z]{1,})\b/)
+  if (nameMatch) return `${nameMatch[1]} ${nameMatch[2]}`
+
   return null
 }
 
