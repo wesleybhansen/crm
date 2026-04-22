@@ -11,8 +11,8 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 
 const DEFAULT_JOURNEY_STAGES = ['Prospect', 'First Contact', 'Customer', 'Repeat', 'VIP']
 
-export async function GET() {
-  const auth = await getAuthFromCookies()
+export async function GET(_req: Request, ctx?: any) {
+  const auth = ctx?.auth ?? (await getAuthFromCookies())
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
@@ -122,8 +122,8 @@ export async function GET() {
   }
 }
 
-export async function PUT(req: Request) {
-  const auth = await getAuthFromCookies()
+export async function PUT(req: Request, ctx?: any) {
+  const auth = ctx?.auth ?? (await getAuthFromCookies())
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
