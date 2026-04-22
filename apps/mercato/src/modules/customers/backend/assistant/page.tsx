@@ -186,7 +186,7 @@ async function resolveContactId(idOrName: string): Promise<{ id: string; name: s
     // Fallback: fetch recent 200 and filter client-side against the decrypted
     // display_name. Works for tenants under that size and where the server
     // route decrypts on response.
-    res = await fetch(`/api/customers/people?pageSize=200`, { credentials: 'include' })
+    res = await fetch(`/api/customers/people?pageSize=100`, { credentials: 'include' })
     d = await res.json()
     const pool: any[] = d.items || []
     const needle = idOrName.toLowerCase()
@@ -424,21 +424,19 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return d.ok ? { ok: true, message: `Removed ${contact.name} from pipeline. They're still in Contacts.` } : { ok: false, message: d.error || 'Failed to remove from pipeline' }
       }
       case 'delete_company': {
-        // Try to resolve company name to id if user passed a name
         let companyId: string | null = action.data.companyId || null
-        if (!companyId && action.data.companyName) {
+        const name = String(action.data.companyName || action.data.name || '').trim()
+        if (!companyId && name) {
           try {
-            const resp = await fetch(`/api/customers/companies?search=${encodeURIComponent(action.data.companyName)}&pageSize=5`, { credentials: 'include' })
-            const dd = await resp.json()
-            const items: any[] = dd.items || []
-            if (items.length === 1) companyId = items[0].id
-            else if (items.length > 1) {
-              const exact = items.find((c: any) => (c.display_name || '').toLowerCase() === action.data.companyName.toLowerCase())
-              companyId = exact?.id || items[0].id
-            }
+            const r = await fetch('/api/customers/companies?pageSize=100', { credentials: 'include' })
+            const dd = await r.json()
+            const pool: any[] = dd.items || []
+            const needle = name.toLowerCase()
+            const exact = pool.find((c: any) => (c.display_name || c.name || '').toLowerCase() === needle)
+            companyId = exact?.id || pool.find((c: any) => (c.display_name || c.name || '').toLowerCase().includes(needle))?.id || null
           } catch {}
         }
-        if (!companyId) return { ok: false, message: `Company "${action.data.companyName || 'unknown'}" not found.` }
+        if (!companyId) return { ok: false, message: `Company "${name || 'unknown'}" not found.` }
         const res = await fetch(`/api/customers/companies?id=${encodeURIComponent(companyId)}`, { method: 'DELETE', credentials: 'include' })
         const d = await res.json().catch(() => ({}))
         if (res.ok) return { ok: true, message: 'Company deleted.' }

@@ -108,6 +108,36 @@ function getActionLabel(action: CrmAction): string {
 
 type ActionResult = { success: boolean; message: string; contactId?: string; contactName?: string }
 
+// Resolve a contact name to its UUID. display_name is encrypted in the DB, so
+// the server-side ILIKE search returns nothing — fetch the first 100 contacts
+// (the CRUD factory decrypts them in the response) and filter in memory.
+async function resolveContactIdByName(name: string): Promise<string | null> {
+  if (!name) return null
+  const needle = name.toLowerCase().trim()
+  // Try the cheap server search first in case decrypted query indexes land
+  try {
+    const r = await fetch(`/api/customers/people?search=${encodeURIComponent(name)}&pageSize=5`, { credentials: 'include' })
+    const d = await r.json()
+    const items: any[] = d.items || []
+    if (items.length) {
+      const exact = items.find((c: any) => (c.display_name || '').toLowerCase() === needle)
+      return exact?.id || items[0].id
+    }
+  } catch {}
+  // Fallback: full fetch + in-memory filter
+  try {
+    const r = await fetch('/api/customers/people?pageSize=100', { credentials: 'include' })
+    const d = await r.json()
+    const pool: any[] = d.items || []
+    const exact = pool.find((c) => (c.display_name || '').toLowerCase() === needle)
+    if (exact) return exact.id
+    const partial = pool.find((c) => (c.display_name || '').toLowerCase().includes(needle))
+    return partial?.id || null
+  } catch {
+    return null
+  }
+}
+
 async function executeCrmAction(action: CrmAction): Promise<ActionResult> {
   try {
     switch (action.type) {
@@ -202,16 +232,7 @@ async function executeCrmAction(action: CrmAction): Promise<ActionResult> {
         const stage = action.data.stage
         if (!stage) return { success: false, message: 'Stage is required' }
         if (!contactId && action.data.contactName) {
-          try {
-            const resp = await fetch(`/api/customers/people?search=${encodeURIComponent(action.data.contactName)}&pageSize=5`, { credentials: 'include' })
-            const d = await resp.json()
-            const items: any[] = d.items || []
-            if (items.length === 1) contactId = items[0].id
-            else if (items.length > 1) {
-              const exact = items.find((c: any) => (c.display_name || '').toLowerCase() === action.data.contactName.toLowerCase())
-              contactId = exact?.id || items[0].id
-            }
-          } catch {}
+          contactId = await resolveContactIdByName(action.data.contactName)
         }
         if (!contactId) return { success: false, message: `Contact "${action.data.contactName || action.data.contactId || 'unknown'}" not found.` }
         const res = await fetch('/api/pipeline/journey', {
@@ -249,16 +270,7 @@ async function executeCrmAction(action: CrmAction): Promise<ActionResult> {
         // Contacts. NOT the same as delete_contact.
         let contactId: string | null = action.data.contactId || null
         if (!contactId && action.data.contactName) {
-          try {
-            const resp = await fetch(`/api/customers/people?search=${encodeURIComponent(action.data.contactName)}&pageSize=5`, { credentials: 'include' })
-            const d = await resp.json()
-            const items: any[] = d.items || []
-            if (items.length === 1) contactId = items[0].id
-            else if (items.length > 1) {
-              const exact = items.find((c: any) => (c.display_name || '').toLowerCase() === action.data.contactName.toLowerCase())
-              contactId = exact?.id || items[0].id
-            }
-          } catch {}
+          contactId = await resolveContactIdByName(action.data.contactName)
         }
         if (!contactId) return { success: false, message: `Contact "${action.data.contactName || 'unknown'}" not found.` }
         const res = await fetch('/api/pipeline/journey', {
@@ -277,8 +289,22 @@ async function executeCrmAction(action: CrmAction): Promise<ActionResult> {
         return { success: false, message: data.error || 'Failed to delete contact' }
       }
       case 'delete_company': {
-        if (!action.data.companyId) return { success: false, message: 'Company ID required' }
-        const res = await fetch(`/api/customers/companies?id=${encodeURIComponent(action.data.companyId)}`, { method: 'DELETE', credentials: 'include' })
+        // Resolve by name if no ID given. Company display_name may be
+        // encrypted too, so fetch-and-filter just like contacts.
+        let companyId: string | null = action.data.companyId || null
+        const name = String(action.data.companyName || action.data.name || '').trim()
+        if (!companyId && name) {
+          try {
+            const r = await fetch('/api/customers/companies?pageSize=100', { credentials: 'include' })
+            const d = await r.json()
+            const pool: any[] = d.items || []
+            const needle = name.toLowerCase()
+            const exact = pool.find((c: any) => (c.display_name || c.name || '').toLowerCase() === needle)
+            companyId = exact?.id || pool.find((c: any) => (c.display_name || c.name || '').toLowerCase().includes(needle))?.id || null
+          } catch {}
+        }
+        if (!companyId) return { success: false, message: `Company "${name || 'unknown'}" not found.` }
+        const res = await fetch(`/api/customers/companies?id=${encodeURIComponent(companyId)}`, { method: 'DELETE', credentials: 'include' })
         const data = await res.json().catch(() => ({}))
         if (res.ok) return { success: true, message: 'Company deleted.' }
         return { success: false, message: data.error || 'Failed to delete company' }
