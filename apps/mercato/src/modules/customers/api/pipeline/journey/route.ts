@@ -93,13 +93,16 @@ export async function GET(_req: Request, ctx?: any) {
     })
 
     // Also collect contacts whose stage doesn't match any defined stage
+    // Contacts whose lifecycle_stage doesn't match any known stage AND isn't
+    // explicitly null/empty get dropped into the first stage (legacy bucketing
+    // for stage renames). Contacts with NULL lifecycle_stage are treated as
+    // "removed from pipeline" and skipped entirely.
     const knownStagesLower = new Set(stageNames.map(s => s.toLowerCase()))
     const unmatchedContacts = contacts.filter((c: any) => {
-      const stage = (c.lifecycle_stage || 'prospect').toLowerCase()
-      return !knownStagesLower.has(stage)
+      if (!c.lifecycle_stage) return false
+      return !knownStagesLower.has(String(c.lifecycle_stage).toLowerCase())
     })
     if (unmatchedContacts.length > 0) {
-      // Put them in the first stage
       const firstStage = stages[0]
       if (firstStage) {
         for (const c of unmatchedContacts) {

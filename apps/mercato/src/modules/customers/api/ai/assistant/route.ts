@@ -303,6 +303,16 @@ async function buildDataContext(knex: any, orgId: string, tenantId: string, em: 
         `${c.display_name}${c.primary_email ? ` (${c.primary_email})` : ''}${c.lifecycle_stage ? ` [${c.lifecycle_stage}]` : ''} id=${c.id}`
       ).join('; '))
     }
+    // Also list companies — Scout needs names (not just a count) to answer
+    // "delete Acme Corp" or "who works at BizTech".
+    const rawCompanies = await knex('customer_entities')
+      .where('organization_id', orgId).where('kind', 'company').whereNull('deleted_at')
+      .orderBy('created_at', 'desc').limit(100)
+      .select('id', 'display_name', 'primary_email', 'created_at')
+    const companies = await decryptContactRows(em, rawCompanies, tenantId, orgId)
+    if (companies.length > 0) {
+      sections.push('Companies: ' + companies.map((c: any) => `${c.display_name} id=${c.id}`).join('; '))
+    }
   } catch {}
 
   try {
