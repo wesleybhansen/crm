@@ -32,9 +32,11 @@ export async function GET(_req: Request, ctx?: any) {
       }
     }
 
-    // Get all non-deleted contacts for this org
+    // Get all non-deleted PERSONS for this org. Companies (kind='company')
+    // don't belong on the customer-journey board.
     const rawContacts = await knex('customer_entities')
       .where('organization_id', auth.orgId)
+      .where('kind', 'person')
       .whereNull('deleted_at')
       .select('id', 'display_name', 'primary_email', 'lifecycle_stage', 'created_at')
 
@@ -70,11 +72,14 @@ export async function GET(_req: Request, ctx?: any) {
       }
     }
 
-    // Group contacts by lifecycle_stage
+    // Group contacts by lifecycle_stage. NULL/empty lifecycle_stage means
+    // "not on the pipeline" (e.g. remove_contact_from_pipeline cleared it)
+    // and should be hidden from the board entirely.
     const stages = stageNames.map(stageName => {
       const stageContacts = contacts
         .filter((c: any) => {
-          const contactStage = c.lifecycle_stage || 'Prospect'
+          if (!c.lifecycle_stage) return false
+          const contactStage = c.lifecycle_stage
           return contactStage.toLowerCase() === stageName.toLowerCase()
         })
         .map((c: any) => ({
