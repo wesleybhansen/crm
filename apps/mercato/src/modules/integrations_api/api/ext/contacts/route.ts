@@ -97,6 +97,14 @@ export async function POST(req: Request, ctx: any) {
       created_at: new Date(), updated_at: new Date(),
     }).catch(() => {})
 
+    // Tag with source:api:<key name> so attribution reports reflect the
+    // integration origin instead of a generic "api" bucket.
+    try {
+      const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
+      const keyName = (ctx?.auth?.keyName || '').toString().trim()
+      await tagContactSource(knex, { tenantId: scope.tenantId, organizationId: scope.orgId }, id, 'api', keyName || undefined)
+    } catch {}
+
     const contact = await knex('customer_entities').where('id', id).first()
     return NextResponse.json({ ok: true, data: contact, existed: false }, { status: 201 })
   } catch (error) {

@@ -129,6 +129,15 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           }
         }
 
+        // Source attribution tag — also applies to existing contacts who
+        // submit new forms (multi-touch attribution).
+        if (contactId) {
+          try {
+            const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
+            await tagContactSource(knex, { tenantId: form.tenant_id, organizationId: form.organization_id }, contactId, 'form', form.name || form.slug)
+          } catch {}
+        }
+
         // Link submission to contact
         if (contactId) {
           await knex('form_submissions').where('id', submissionId).update({ contact_id: contactId })

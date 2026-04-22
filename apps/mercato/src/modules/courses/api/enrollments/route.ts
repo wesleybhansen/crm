@@ -93,6 +93,15 @@ export async function POST(req: Request) {
       }
     }
 
+    // Source attribution tag — applies to new enrollees and existing
+    // contacts who enroll in a new course (multi-touch).
+    if (contactId) {
+      try {
+        const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
+        await tagContactSource(knex, { tenantId: course.tenant_id, organizationId: course.organization_id }, contactId, 'course', course.title || course.slug)
+      } catch {}
+    }
+
     // Link contact to enrollment + log timeline
     if (contactId) {
       await knex('course_enrollments').where('id', id).update({ contact_id: contactId }).catch(() => {})

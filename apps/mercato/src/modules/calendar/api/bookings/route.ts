@@ -120,6 +120,15 @@ export async function POST(req: Request) {
       }
     }
 
+    // Source attribution tag — applies to both newly-created and existing
+    // contacts who book a meeting.
+    if (bookingContactId) {
+      try {
+        const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
+        await tagContactSource(knex, { tenantId: page.tenant_id, organizationId: page.organization_id }, bookingContactId, 'booking', page.title || page.slug)
+      } catch {}
+    }
+
     // Auto-add to email lists with source_type 'booking_created'
     if (bookingContactId) {
       try {

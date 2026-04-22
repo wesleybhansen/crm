@@ -149,6 +149,21 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
             .update({ contact_id: contactId })
         }
 
+        // Source attribution — tag the contact with the landing page name
+        // (and also apply to existing contacts who re-submit: multi-touch).
+        if (contactId) {
+          try {
+            const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
+            await tagContactSource(
+              knex,
+              { tenantId: page.tenant_id, organizationId: page.organization_id },
+              contactId,
+              'landing',
+              page.title || page.slug,
+            )
+          } catch {}
+        }
+
         // Track engagement + check sequence triggers
         if (contactId) {
           trackEngagement(knex, page.organization_id, page.tenant_id, contactId, 'form_submitted').catch(() => {})

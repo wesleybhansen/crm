@@ -172,6 +172,37 @@ function normalizeOptionalString(value: string | null | undefined): string | nul
   return trimmed.length ? trimmed : null
 }
 
+/**
+ * Derive the source tag category + detail from the create input + runtime ctx.
+ * Called on every successful person create so marketing reports get real
+ * attribution without manual tagging.
+ */
+function deriveSourceFromInput(parsed: any, ctx: any): { category: string; detail?: string } {
+  const raw = (parsed?.source ?? '').toString().trim().toLowerCase()
+  // Auth context hints
+  const keyName: string | undefined = ctx?.auth?.keyName
+  const isApiKey: boolean = !!ctx?.auth?.isApiKey
+  // Explicit inputs first
+  if (raw === 'ai_assistant' || raw === 'scout') return { category: 'ai_assistant' }
+  if (raw === 'voice' || raw === 'voice_assistant') return { category: 'voice' }
+  if (raw === 'manual' || raw === 'crm' || raw === 'ui') return { category: 'manual' }
+  if (raw === 'import' || raw === 'csv' || raw === 'csv_import') return { category: 'import' }
+  if (raw === 'inbox' || raw === 'inbox_intelligence') return { category: 'inbox' }
+  if (raw === 'chat' || raw === 'chat_widget') return { category: 'chat' }
+  if (raw === 'photo_scan' || raw === 'business_card') return { category: 'photo_scan' }
+  if (raw === 'event' || raw === 'open_house') return { category: 'event' }
+  if (raw === 'referral' || raw === 'affiliate') return { category: 'referral' }
+  if (raw === 'survey') return { category: 'survey' }
+  if (raw === 'course' || raw === 'course_enrollment') return { category: 'course' }
+  if (raw === 'booking') return { category: 'booking' }
+  if (raw === 'form') return { category: 'form' }
+  if (raw === 'landing' || raw === 'landing_page') return { category: 'landing' }
+  if (raw === 'api') return { category: 'api', detail: keyName }
+  // Fallback: API-key origin gets source:api:<key name>
+  if (isApiKey) return { category: 'api', detail: keyName }
+  return { category: 'manual' }
+}
+
 function normalizeHexColor(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim().toLowerCase()
@@ -535,6 +566,14 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
+
+    // Auto source tagging — every contact gets a source:<category>:<detail>
+    // tag at creation so marketing reports have real attribution.
+    try {
+      const { tagContactSource } = await import('../lib/sourceTagging')
+      const { category, detail } = deriveSourceFromInput(parsed, ctx)
+      await tagContactSource(em.getKnex(), { tenantId, organizationId }, entity.id, category as any, detail)
+    } catch {}
 
     return { entityId: entity.id, personId: profile.id }
   },
