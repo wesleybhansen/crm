@@ -155,7 +155,21 @@ export default function TermsPage() {
       <h3 style={s.h3}>6.7 Indemnification for AI Use</h3>
       <p style={s.p}>You agree to indemnify, defend, and hold harmless the Company and its officers, directors, employees, agents, affiliates, and AI service providers from and against any and all claims, damages, losses, liabilities, costs, and expenses (including reasonable attorneys{"'"} fees) arising out of or related to: (a) any AI-generated content you sent, published, or distributed; (b) any action taken by AI on your behalf; (c) any decision you made based on AI output; (d) any data you provided to AI features; or (e) any violation of these Terms or applicable law arising from your use of AI features.</p>
 
-      <h3 style={s.h3}>6.8 AI Features May Change</h3>
+      <h3 style={s.h3}>6.8 AI Usage Limits and Overage Responsibility</h3>
+      <p style={s.p}>Each Platform plan includes a fixed monthly AI usage allotment (measured in AI calls, tokens, or equivalent units as posted in your plan details and in Settings → AI Usage). You are solely responsible for monitoring your own consumption and managing it against the allotment for your plan.</p>
+      <p style={s.p}>When your usage exceeds the allotment for your plan, the Company may, at its sole discretion and without prior notice:</p>
+      <ul style={s.ul}>
+        <li style={s.li}><strong>Pause AI features</strong> until the start of the next billing cycle, during which AI features will return "rate limited" or similar errors;</li>
+        <li style={s.li}><strong>Throttle AI features</strong> to reduced speed, quality, or concurrency;</li>
+        <li style={s.li}><strong>Charge an overage fee</strong> at the then-current posted rate (available in Settings → AI Usage and in your plan details);</li>
+        <li style={s.li}><strong>Route AI requests to your own connected AI provider key (BYOK)</strong> if you have enabled that option, in which case billing for those requests is between you and the provider; or</li>
+        <li style={s.li}>Take any combination of the above measures.</li>
+      </ul>
+      <p style={s.p}><strong>BYOK (Bring Your Own Key).</strong> If you connect your own AI provider API key (Gemini, OpenAI, Claude, or otherwise) in Settings, requests routed through your key are billed directly to you by that provider under that provider's terms. The Company has no liability for any charges, overages, or billing disputes arising from your own API key. You are solely responsible for monitoring and managing usage on your own keys.</p>
+      <p style={s.p}><strong>Abuse and automation.</strong> You may not script, automate, or otherwise artificially inflate AI usage to circumvent plan limits, extract model outputs in bulk, or impose disproportionate cost on the Platform. We reserve the right to throttle, suspend, or terminate accounts exhibiting such patterns and to charge overage fees for the excess usage.</p>
+      <p style={s.p}><strong>No refunds for unused allotment.</strong> AI allotments do not carry over between billing cycles and are not refundable, convertible, or transferable in whole or in part, regardless of whether you use any portion of them.</p>
+
+      <h3 style={s.h3}>6.9 AI Features May Change</h3>
       <p style={s.p}>AI features may be added, modified, improved, degraded, or discontinued at any time, with or without notice, as we update the Platform or as third-party AI providers change their services. The Company is not responsible for any disruption, change, or removal of AI features.</p>
 
       <p style={s.p}><strong>BY USING ANY AI FEATURE OF THE PLATFORM, YOU EXPRESSLY ACKNOWLEDGE THAT YOU HAVE READ, UNDERSTOOD, AND AGREE TO BE BOUND BY THIS SECTION 6 IN ITS ENTIRETY.</strong></p>
