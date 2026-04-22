@@ -235,6 +235,17 @@ export async function POST(req: Request) {
       contact = { id: contactId }
     }
 
+    // Source attribution — tag as source:referral:<campaign name> so the
+    // affiliate program that drove this signup is captured in reports.
+    // Applies to both newly-created and existing contacts (multi-touch).
+    if (contact?.id) {
+      try {
+        const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
+        const campaignLabel = campaign?.name ? String(campaign.name) : undefined
+        await tagContactSource(knex, { tenantId, organizationId }, contact.id, 'referral', campaignLabel)
+      } catch {}
+    }
+
     // Tag as "Affiliate"
     if (contact?.id) {
       try {

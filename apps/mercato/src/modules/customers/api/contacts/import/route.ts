@@ -13,11 +13,15 @@ export async function POST(req: Request) {
     const em = container.resolve('em') as EntityManager
     const knex = em.getKnex()
     const body = await req.json()
-    const { contacts } = body
+    const { contacts, filename } = body
 
     if (!contacts || !Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json({ ok: false, error: 'contacts array required' }, { status: 400 })
     }
+
+    // Lazy-import the source tagger once for the whole batch
+    const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
+    const importDetail = typeof filename === 'string' && filename.trim() ? filename.trim() : undefined
 
     let imported = 0
     let skipped = 0
@@ -68,6 +72,12 @@ export async function POST(req: Request) {
             updated_at: new Date(),
           }).catch(() => {})
         }
+
+        // Source attribution — tag with import:<filename> (or just 'import'
+        // when no filename given) so bulk uploads are clearly attributed.
+        try {
+          await tagContactSource(knex, { tenantId: auth.tenantId, organizationId: auth.orgId }, id, 'import', importDetail)
+        } catch {}
 
         // Fire automation triggers
         try {
