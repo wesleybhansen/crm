@@ -175,15 +175,28 @@ async function resolveContactId(idOrName: string): Promise<{ id: string; name: s
     const c = d.items?.[0]
     return c ? { id: c.id, name: c.display_name || idOrName } : { id: idOrName, name: idOrName }
   }
-  // It's a name — search for the contact
-  const res = await fetch(`/api/customers/people?search=${encodeURIComponent(idOrName)}&pageSize=5`, { credentials: 'include' })
-  const d = await res.json()
-  if (d.items?.length === 1) return { id: d.items[0].id, name: d.items[0].display_name }
-  if (d.items?.length > 1) {
-    // Try exact match first
-    const exact = d.items.find((c: any) => c.display_name?.toLowerCase() === idOrName.toLowerCase())
+  // It's a name — search for the contact. The server's ?search= uses $ilike
+  // which doesn't work against encrypted display_name, so do a fetch-all +
+  // in-memory filter as fallback. First try the normal search (cheaper) and
+  // only fall back when it comes up empty.
+  let res = await fetch(`/api/customers/people?search=${encodeURIComponent(idOrName)}&pageSize=5`, { credentials: 'include' })
+  let d = await res.json()
+  let items: any[] = d.items || []
+  if (items.length === 0) {
+    // Fallback: fetch recent 200 and filter client-side against the decrypted
+    // display_name. Works for tenants under that size and where the server
+    // route decrypts on response.
+    res = await fetch(`/api/customers/people?pageSize=200`, { credentials: 'include' })
+    d = await res.json()
+    const pool: any[] = d.items || []
+    const needle = idOrName.toLowerCase()
+    items = pool.filter((c) => (c.display_name || '').toLowerCase().includes(needle))
+  }
+  if (items.length === 1) return { id: items[0].id, name: items[0].display_name }
+  if (items.length > 1) {
+    const exact = items.find((c: any) => c.display_name?.toLowerCase() === idOrName.toLowerCase())
     if (exact) return { id: exact.id, name: exact.display_name }
-    return { id: d.items[0].id, name: d.items[0].display_name }
+    return { id: items[0].id, name: items[0].display_name }
   }
   return null
 }
@@ -276,14 +289,24 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         }
       }
       case 'create_contact': {
-        const fullName = action.data.name || 'New Contact'
-        const parts = fullName.trim().split(/\s+/)
+        const fullName = (action.data.name || 'New Contact').toString().trim()
+        const parts = fullName.split(/\s+/)
         const firstName = parts[0] || ''
         const lastName = parts.length > 1 ? parts.slice(1).join(' ') : ''
-        const orgId = await getOrgId()
+        const email = String(action.data.email || '').trim()
+        const phone = String(action.data.phone || '').trim()
+        // primaryEmail is validated as .email() — only include if non-empty.
+        const payload: Record<string, unknown> = {
+          displayName: fullName,
+          firstName,
+          lastName,
+          source: action.data.source || 'ai_assistant',
+        }
+        if (email) payload.primaryEmail = email
+        if (phone) payload.primaryPhone = phone
         const res = await fetch('/api/customers/people', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({ displayName: fullName, firstName, lastName, primaryEmail: action.data.email || '', primaryPhone: action.data.phone || '', organizationId: orgId, source: action.data.source || 'ai_assistant' })
+          body: JSON.stringify(payload),
         })
         const d = await res.json()
         return d.id ? { ok: true, message: `Contact "${fullName}" created successfully` } : { ok: false, message: d.error || 'Failed to create contact' }
@@ -385,6 +408,41 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         })
         const d = await res.json()
         return d.ok ? { ok: true, message: `${contact.name} moved to "${stage}".` } : { ok: false, message: d.error || 'Failed to move contact' }
+      }
+      case 'remove_contact_from_pipeline': {
+        // Clears lifecycle_stage — contact stays in Contacts but disappears
+        // from the pipeline board. NOT the same as delete_contact.
+        const ref = action.data.contactId || action.data.contactName
+        if (!ref) return { ok: false, message: 'Contact is required' }
+        const contact = await resolveContactId(ref)
+        if (!contact) return { ok: false, message: `Contact "${ref}" not found` }
+        const res = await fetch('/api/pipeline/journey', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ contactId: contact.id, stage: null })
+        })
+        const d = await res.json()
+        return d.ok ? { ok: true, message: `Removed ${contact.name} from pipeline. They're still in Contacts.` } : { ok: false, message: d.error || 'Failed to remove from pipeline' }
+      }
+      case 'delete_company': {
+        // Try to resolve company name to id if user passed a name
+        let companyId: string | null = action.data.companyId || null
+        if (!companyId && action.data.companyName) {
+          try {
+            const resp = await fetch(`/api/customers/companies?search=${encodeURIComponent(action.data.companyName)}&pageSize=5`, { credentials: 'include' })
+            const dd = await resp.json()
+            const items: any[] = dd.items || []
+            if (items.length === 1) companyId = items[0].id
+            else if (items.length > 1) {
+              const exact = items.find((c: any) => (c.display_name || '').toLowerCase() === action.data.companyName.toLowerCase())
+              companyId = exact?.id || items[0].id
+            }
+          } catch {}
+        }
+        if (!companyId) return { ok: false, message: `Company "${action.data.companyName || 'unknown'}" not found.` }
+        const res = await fetch(`/api/customers/companies?id=${encodeURIComponent(companyId)}`, { method: 'DELETE', credentials: 'include' })
+        const d = await res.json().catch(() => ({}))
+        if (res.ok) return { ok: true, message: 'Company deleted.' }
+        return { ok: false, message: d.error || 'Failed to delete company' }
       }
       case 'create_invoice': {
         const lineItems = (action.data.items || []).map((item: any) => ({
