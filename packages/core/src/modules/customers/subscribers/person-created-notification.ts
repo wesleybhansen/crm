@@ -26,7 +26,6 @@ type ResolverContext = {
 }
 
 export default async function handle(payload: PersonCreatedPayload, ctx: ResolverContext) {
-  console.log('[customers:person-created-notification] FIRED', JSON.stringify(payload))
   if (!payload?.id || !payload?.tenantId) return
   try {
     const em = ctx.resolve<EntityManager>('em')
@@ -39,9 +38,16 @@ export default async function handle(payload: PersonCreatedPayload, ctx: Resolve
       ?? (await knex('users').where('organization_id', payload.organizationId).whereNull('deleted_at').orderBy('created_at', 'asc').first())?.id
     if (!recipientUserId) return
 
-    // Grab the contact row for display name + source attribution
-    const row = await knex('customer_entities')
+    // The payload.id is the customer_people profile ID (that's what the
+    // command emits), not the customer_entities ID. Resolve the entity
+    // first, then fall back to direct-entity lookup for safety.
+    const personRow = await knex('customer_people')
       .where('id', payload.id)
+      .where('organization_id', payload.organizationId ?? null)
+      .first()
+    const entityId = personRow?.entity_id || payload.id
+    const row = await knex('customer_entities')
+      .where('id', entityId)
       .where('organization_id', payload.organizationId ?? null)
       .first()
     if (!row) return
@@ -70,7 +76,7 @@ export default async function handle(payload: PersonCreatedPayload, ctx: Resolve
     try {
       const srcTag = await knex('customer_tag_assignments as a')
         .join('customer_tags as t', 't.id', 'a.tag_id')
-        .where('a.entity_id', payload.id)
+        .where('a.entity_id', entityId)
         .where('t.slug', 'like', 'source-%')
         .orderBy('a.created_at', 'desc')
         .select('t.label')
@@ -89,8 +95,8 @@ export default async function handle(payload: PersonCreatedPayload, ctx: Resolve
       recipientUserId,
       bodyVariables: { contactName, sourceLabel },
       sourceEntityType: 'customers:customer_entity',
-      sourceEntityId: payload.id,
-      linkHref: `/backend/customers/people/${payload.id}`,
+      sourceEntityId: entityId,
+      linkHref: `/backend/customers/people/${entityId}`,
     })
 
     await notificationService.create(notificationInput, {
