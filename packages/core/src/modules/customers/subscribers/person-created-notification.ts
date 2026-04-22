@@ -26,6 +26,7 @@ type ResolverContext = {
 }
 
 export default async function handle(payload: PersonCreatedPayload, ctx: ResolverContext) {
+  console.log('[customers:person-created-notification] FIRED', JSON.stringify(payload))
   if (!payload?.id || !payload?.tenantId) return
   try {
     const em = ctx.resolve<EntityManager>('em')
