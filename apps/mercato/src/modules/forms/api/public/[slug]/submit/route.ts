@@ -87,11 +87,12 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
       }
       return null
     })()
-    // Gate auto-contact-creation on the "Auto-create CRM contact" form
-    // setting. If off (or unset), the submitter is NOT added to the CRM —
-    // they only land in form_submissions.
+    // Always detect the email so we can log a timeline entry on any
+    // existing matching contact, regardless of the createContact setting.
+    // The setting gates *creating* a new contact, not attaching the
+    // interaction to an existing one.
     const shouldCreateContact = settings.createContact === true
-    const email = shouldCreateContact ? ((emailField ? data[emailField.id] : null) || fallbackEmail) : null
+    const email = (emailField ? data[emailField.id] : null) || fallbackEmail
     const rawName = nameField ? data[nameField.id] : null
     const isDisplayNameMapping = nameField && (nameField.crmMapping === 'display_name' || nameField.crm_mapping === 'display_name')
     const firstName = isDisplayNameMapping ? (rawName || '').split(' ')[0] : rawName
@@ -110,7 +111,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
 
         if (existing) {
           contactId = existing.id
-        } else {
+        } else if (shouldCreateContact) {
           contactId = require('crypto').randomUUID()
           await knex('customer_entities').insert({
             id: contactId,

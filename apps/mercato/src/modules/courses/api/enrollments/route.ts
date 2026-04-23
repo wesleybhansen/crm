@@ -181,7 +181,11 @@ export async function POST(req: Request) {
     } catch { /* non-blocking */ }
 
     return NextResponse.json({ ok: true, data: { id, enrolledAt: new Date() } }, { status: 201 })
-  } catch { return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 }) }
+  } catch (err) {
+    console.error('[courses.enrollments.POST]', err)
+    const detail = err instanceof Error ? err.message : 'Failed to enroll'
+    return NextResponse.json({ ok: false, error: `Failed to enroll: ${detail}` }, { status: 500 })
+  }
 }
 
 export const openApi: OpenApiRouteDoc = {
