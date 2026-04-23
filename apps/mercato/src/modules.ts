@@ -67,7 +67,7 @@ export const enabledModules: ModuleEntry[] = [
   // { id: 'perspectives', from: '@open-mercato/core' },
   // { id: 'translations', from: '@open-mercato/core' },
   // { id: 'business_rules', from: '@open-mercato/core' },
-  // { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
+  { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   // { id: 'inbox_ops', from: '@open-mercato/core' },
   // { id: 'example', from: '@app' },
 ]

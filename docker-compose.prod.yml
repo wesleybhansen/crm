@@ -24,6 +24,27 @@ services:
     networks:
       - launchos-network
 
+  mcp:
+    # External MCP HTTPS endpoint (SPEC-062 Phase 3). Runs the same image
+    # as `app` but swaps the command to the MCP streamable-HTTP server.
+    # Nginx fronts this service at /mcp; no host port exposure.
+    image: open-mercato-app
+    container_name: launchos-mcp
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
+    working_dir: /app/apps/mercato
+    command: ["node", "/app/packages/cli/bin/mercato", "ai_assistant", "mcp:serve-http", "--port", "3001"]
+    depends_on:
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    networks:
+      - launchos-network
+
   postgres:
     image: pgvector/pgvector:pg17-trixie
     container_name: launchos-postgres
