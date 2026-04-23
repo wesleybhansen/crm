@@ -70,8 +70,10 @@ export async function POST(req: Request) {
       status: 'active', enrolled_at: new Date(),
     })
 
-    // Auto-create CRM contact (with dedup check)
-    const dedupResult = await findOrMergeContact(knex, course.organization_id, course.tenant_id, studentEmail, studentName)
+    // Auto-create CRM contact (with dedup check). em enables encrypted-email
+    // fallback so we don't create duplicates for ORM-written contacts.
+    const em = container.resolve('em') as EntityManager
+    const dedupResult = await findOrMergeContact(knex, course.organization_id, course.tenant_id, studentEmail, studentName, undefined, em)
 
     let contactId: string | null = dedupResult.existing?.id || null
     if (!dedupResult.existing) {

@@ -29,13 +29,16 @@ function cleanStr(val: any): string | undefined {
 
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  ctx: any,
 ) {
-  const auth = await getAuthFromCookies()
+  const params = ctx?.params ? await ctx.params : undefined
+  // Prefer ctx.auth (populated for x-api-key + cookies by the router)
+  // and fall back to cookie-only resolution for legacy callers.
+  const auth = ctx?.auth ?? (await getAuthFromCookies())
   console.log('[timeline] Auth:', auth ? `org=${auth.orgId}` : 'NULL')
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-  const { id: contactId } = await params
+  const { id: contactId } = (params || {}) as { id: string }
 
   try {
     const container = await createRequestContainer()

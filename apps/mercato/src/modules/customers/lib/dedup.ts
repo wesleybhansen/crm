@@ -18,18 +18,54 @@ export async function findOrMergeContact(
   email: string,
   name?: string,
   phone?: string,
+  em?: any,
 ): Promise<FindResult> {
   if (!email) return { existing: false }
+  const normalized = email.toLowerCase()
 
-  const existing = await knex('customer_entities')
-    .whereRaw('LOWER(primary_email) = ?', [email.toLowerCase()])
+  // 1) Fast path: exact match on plaintext primary_email.
+  const plain = await knex('customer_entities')
+    .whereRaw('LOWER(primary_email) = ?', [normalized])
     .where('organization_id', orgId)
     .whereNull('deleted_at')
     .first()
+  if (plain) return { existing: true, contactId: plain.id }
 
-  if (existing) {
-    return { existing: true, contactId: existing.id }
-  }
+  // 2) Encrypted-email fallback: the ORM-write path stores primary_email as
+  // ciphertext, so LOWER(primary_email) will never match a plaintext needle.
+  // When encryption is on, scan candidates and decrypt their primary_email
+  // in-memory to find the match. Keeps dedup working across both write
+  // paths (raw knex insert + ORM/subscriber insert) so bookings, enrollments,
+  // and form submits don't create duplicate contacts.
+  try {
+    if (!em) return { existing: false }
+    const { isTenantDataEncryptionEnabled } = await import('@open-mercato/shared/lib/encryption/toggles')
+    if (!isTenantDataEncryptionEnabled()) return { existing: false }
+    const { TenantDataEncryptionService } = await import('@open-mercato/shared/lib/encryption/tenantDataEncryptionService')
+    const { createKmsService } = await import('@open-mercato/shared/lib/encryption/kms')
+    const svc = new TenantDataEncryptionService(em, { kms: createKmsService() })
+
+    const candidates = await knex('customer_entities')
+      .where('organization_id', orgId)
+      .whereNull('deleted_at')
+      .whereNotNull('primary_email')
+      .limit(2000)
+      .select('id', 'primary_email')
+    for (const row of candidates) {
+      try {
+        const dec = await svc.decryptEntityPayload(
+          'customers:customer_entity',
+          { primary_email: row.primary_email },
+          tenantId,
+          orgId,
+        )
+        const decrypted = typeof dec.primary_email === 'string' ? dec.primary_email.toLowerCase() : ''
+        if (decrypted && decrypted === normalized) {
+          return { existing: true, contactId: row.id }
+        }
+      } catch { /* skip rows we can't decrypt */ }
+    }
+  } catch { /* fall through */ }
 
   return { existing: false }
 }

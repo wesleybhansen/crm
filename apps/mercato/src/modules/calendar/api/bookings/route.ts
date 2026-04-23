@@ -94,8 +94,10 @@ export async function POST(req: Request) {
       notes: notes || null, created_at: new Date(),
     })
 
-    // Auto-create contact (with dedup check)
-    const dedupResult = await findOrMergeContact(knex, page.organization_id, page.tenant_id, guestEmail, guestName, guestPhone)
+    // Auto-create contact (with dedup check). Pass em so dedup can fall
+    // back to decrypting encrypted primary_email when the raw match misses.
+    const em = container.resolve('em') as EntityManager
+    const dedupResult = await findOrMergeContact(knex, page.organization_id, page.tenant_id, guestEmail, guestName, guestPhone, em)
 
     let bookingContactId: string | null = null
     if (dedupResult.existing) {
