@@ -28,6 +28,7 @@ export const enabledModules: ModuleEntry[] = [
 
   // ── CRM ──
   { id: 'customers', from: '@open-mercato/core' },
+  { id: 'webhooks', from: '@open-mercato/core' },
   { id: 'dashboards', from: '@open-mercato/core' },
   { id: 'notifications', from: '@open-mercato/core' },
   { id: 'messages', from: '@open-mercato/core' },
