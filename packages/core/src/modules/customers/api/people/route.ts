@@ -94,27 +94,48 @@ const crud = makeCrudRoute({
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
         // Search should match name, email, or phone from a single input.
-        // The data engine's $or at the top level didn't play nice with the
-        // query index, so instead we pre-resolve matching ids via knex and
-        // narrow the data-engine query with $in. Scoped to the caller's
-        // org + tenant so we never leak cross-tenant rows.
+        // Tenant encryption turns display_name/email into ciphertext, so
+        // raw ilike doesn't match encrypted rows. Fetch candidates via
+        // knex, decrypt in-memory when the flag is on, then narrow the
+        // data-engine query with id $in.
         try {
           const em = ctx?.container.resolve('em') as any
           const knex = em?.getKnex?.()
-          if (knex && ctx?.auth?.orgId) {
-            const pattern = `%${escapeLikePattern(query.search)}%`
+          if (knex && ctx?.auth?.orgId && ctx?.auth?.tenantId) {
+            const needle = String(query.search).toLowerCase()
             const rows = await knex('customer_entities')
               .where('organization_id', ctx.auth.orgId)
               .where('kind', 'person')
               .whereNull('deleted_at')
-              .andWhere(function (this: any) {
-                this.where('display_name', 'ilike', pattern)
-                  .orWhere('primary_email', 'ilike', pattern)
-                  .orWhere('primary_phone', 'ilike', pattern)
-              })
-              .limit(500)
-              .select('id')
-            const ids = rows.map((r: any) => r.id)
+              .limit(2000)
+              .select('id', 'display_name', 'primary_email', 'primary_phone')
+            let decrypted: Array<{ id: string; display_name?: string; primary_email?: string; primary_phone?: string }> = rows
+            try {
+              const { TenantDataEncryptionService } = await import('@open-mercato/shared/lib/encryption/tenantDataEncryptionService')
+              const { isTenantDataEncryptionEnabled } = await import('@open-mercato/shared/lib/encryption/toggles')
+              const { createKmsService } = await import('@open-mercato/shared/lib/encryption/kms')
+              if (isTenantDataEncryptionEnabled()) {
+                const svc = new TenantDataEncryptionService(em, { kms: createKmsService() })
+                decrypted = await Promise.all(rows.map(async (r: any) => {
+                  try {
+                    const dec = await svc.decryptEntityPayload(
+                      'customers:customer_entity',
+                      { display_name: r.display_name, primary_email: r.primary_email, primary_phone: r.primary_phone },
+                      ctx.auth.tenantId,
+                      ctx.auth.orgId,
+                    )
+                    return { id: r.id, display_name: dec.display_name as string, primary_email: dec.primary_email as string, primary_phone: dec.primary_phone as string }
+                  } catch { return r }
+                }))
+              }
+            } catch { /* fall through — use raw rows */ }
+            const matched = decrypted.filter((r) => {
+              const n = (r.display_name || '').toLowerCase()
+              const e = (r.primary_email || '').toLowerCase()
+              const p = (r.primary_phone || '').toLowerCase()
+              return n.includes(needle) || e.includes(needle) || p.includes(needle)
+            })
+            const ids = matched.map((r) => r.id)
             if (ids.length === 0) {
               filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
             } else {
