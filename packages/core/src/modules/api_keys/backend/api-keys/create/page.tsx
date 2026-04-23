@@ -20,6 +20,7 @@ type FormValues = {
   expiresAt: string | null
   roles: string[]
   rateLimitTier?: string | null
+  scopes?: string[]
 }
 
 export default function CreateApiKeyPage() {
@@ -111,10 +112,16 @@ export default function CreateApiKeyPage() {
       ],
       description: 'Applies to every request this key makes. Leave as Default unless this key needs higher throughput or none at all.',
     },
+    {
+      id: 'scopes',
+      label: 'Scopes (optional)',
+      type: 'tags',
+      description: 'Narrow this key to specific features beyond its role. Examples: customers.people.view, customers.*, sales.invoices.send. Leave empty for full role permissions. Wildcards: "module.*" or "module.entity.*".',
+    },
   ], [loadRoleOptions, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => ([
-    { id: 'details', title: t('api_keys.form.details'), column: 1, fields: ['name', 'description', 'organizationId', 'roles', 'expiresAt', 'rateLimitTier'] },
+    { id: 'details', title: t('api_keys.form.details'), column: 1, fields: ['name', 'description', 'organizationId', 'roles', 'expiresAt', 'rateLimitTier', 'scopes'] },
   ]), [t])
 
   if (createdSecret) {
@@ -161,7 +168,7 @@ export default function CreateApiKeyPage() {
             backHref="/backend/api-keys"
             fields={fields}
             groups={groups}
-            initialValues={{ name: '', description: null, organizationId: null, roles: [], expiresAt: null, rateLimitTier: 'default' } as any}
+            initialValues={{ name: '', description: null, organizationId: null, roles: [], expiresAt: null, rateLimitTier: 'default', scopes: [] } as any}
             submitLabel={t('common.create')}
             cancelHref="/backend/api-keys"
             onSubmit={async (values) => {
@@ -173,6 +180,7 @@ export default function CreateApiKeyPage() {
                 expiresAt: string | null
                 tenantId?: string | null
                 rateLimitTier?: string | null
+                scopes?: string[] | null
               } = {
                 name: values.name,
                 description: values.description || null,
@@ -180,6 +188,7 @@ export default function CreateApiKeyPage() {
                 roles: Array.isArray(values.roles) ? values.roles : [],
                 expiresAt: values.expiresAt || null,
                 rateLimitTier: (values as any).rateLimitTier || null,
+                scopes: Array.isArray((values as any).scopes) && (values as any).scopes.length > 0 ? (values as any).scopes : null,
               }
               if (actorIsSuperAdmin) {
                 const tenant = typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0 ? selectedTenantId.trim() : null

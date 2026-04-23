@@ -50,6 +50,16 @@ export class ApiKey {
   @Property({ name: 'rate_limit_tier', type: 'text', nullable: true })
   rateLimitTier?: string | null
 
+  /**
+   * Optional narrowing of the key's role permissions. NULL/empty = use the
+   * role features as-is (full backward compat). When populated, every
+   * requested feature must match at least one scope (supports wildcards
+   * like 'customers.*'). Scopes can ONLY narrow, never expand — the role
+   * check still runs first. Added in SPEC-062 Phase 4.
+   */
+  @Property({ name: 'scopes', type: 'json', nullable: true })
+  scopes?: string[] | null
+
   @Property({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt?: Date | null
 

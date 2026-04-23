@@ -147,6 +147,9 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       // Carry the tier string through auth so the router can rate-limit
       // without a second DB roundtrip per request.
       rateLimitTier: (record as unknown as { rateLimitTier?: string | null }).rateLimitTier ?? null,
+      // Carry scope list so the router can enforce without a second DB hit.
+      // Null/empty = full role permissions (no narrowing).
+      scopes: (record as unknown as { scopes?: string[] | null }).scopes ?? null,
       ...(actualUserId ? { userId: actualUserId } : {}),
     }
   } catch {

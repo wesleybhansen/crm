@@ -18,6 +18,7 @@ import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { enforceApiKeyRateLimit, applyRateLimitHeaders } from '@open-mercato/core/modules/api_keys/lib/apiKeyRateLimit'
+import { checkApiKeyScopes } from '@open-mercato/core/modules/api_keys/lib/apiKeyScopes'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 
@@ -287,6 +288,35 @@ async function handleRequest(
       durationMs: Date.now() - startedAt,
     })
     return authError
+  }
+
+  // API key scope narrowing — only runs when auth comes from an x-api-key
+  // AND the key has a scope list set. Scopes are an ADDITIONAL restriction
+  // on top of the role features that checkAuthorization just verified; a
+  // key can never call routes beyond its role but a scope can narrow the
+  // key further (e.g. "read-only analytics bot", "invoice-send-only").
+  if (auth?.isApiKey && Array.isArray((auth as any).scopes) && (auth as any).scopes.length > 0) {
+    const scopeCheck = checkApiKeyScopes((auth as any).scopes as string[], methodMetadata?.requireFeatures)
+    if (!scopeCheck.allowed) {
+      const response = NextResponse.json(
+        {
+          ok: false,
+          error: 'This API key is not scoped for the requested action',
+          missingFeature: scopeCheck.missingFeature,
+          keyScopes: (auth as any).scopes,
+        },
+        { status: 403 },
+      )
+      await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
+        ...receivedPayload,
+        status: response.status,
+        userId: auth?.sub ?? null,
+        tenantId: auth?.tenantId ?? null,
+        scopeDenied: scopeCheck.missingFeature,
+        durationMs: Date.now() - startedAt,
+      })
+      return response
+    }
   }
 
   // Global API-key rate limiting — runs before per-route opt-in limits and

@@ -117,6 +117,7 @@ const crud = makeCrudRoute<
         createdBy: ctx.auth?.sub ?? null,
         expiresAt: input.expiresAt ?? null,
         rateLimitTier: input.rateLimitTier ?? null,
+        scopes: Array.isArray(input.scopes) && input.scopes.length > 0 ? input.scopes : null,
       }
     },
     response: (entity) => {
