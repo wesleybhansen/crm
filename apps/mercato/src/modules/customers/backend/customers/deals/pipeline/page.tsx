@@ -211,7 +211,7 @@ export default function PipelinePage() {
   async function moveDeal(dealId: string, newStage: string) {
     setMovingId(dealId)
     try {
-      await fetch('/api/integrations_api/ext/deals', {
+      await fetch('/api/ext/deals', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
