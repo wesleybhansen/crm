@@ -93,7 +93,14 @@ const crud = makeCrudRoute({
       const filters: Record<string, any> = { kind: { $eq: 'person' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
-        filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
+        // Search matches name, email, or phone so users can find contacts
+        // by any identifier from the same search box.
+        const pattern = `%${escapeLikePattern(query.search)}%`
+        filters.$or = [
+          { display_name: { $ilike: pattern } },
+          { primary_email: { $ilike: pattern } },
+          { primary_phone: { $ilike: pattern } },
+        ]
       }
       const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
       const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''

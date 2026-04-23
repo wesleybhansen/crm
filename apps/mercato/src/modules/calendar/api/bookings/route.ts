@@ -128,6 +128,25 @@ export async function POST(req: Request) {
       } catch {}
     }
 
+    // Link booking to contact + log timeline so the interaction shows up on
+    // the contact detail page (regardless of whether contact was created
+    // just now or already existed).
+    if (bookingContactId) {
+      await knex('bookings').where('id', id).update({ contact_id: bookingContactId }).catch(() => {})
+      try {
+        const { logTimelineEvent } = await import('@/lib/timeline')
+        await logTimelineEvent(knex, {
+          tenantId: page.tenant_id,
+          organizationId: page.organization_id,
+          contactId: bookingContactId,
+          eventType: 'booking_created',
+          title: `Booked "${page.title || page.slug}"`,
+          description: `${new Date(start).toLocaleString()} · ${initialStatus}`,
+          metadata: { bookingId: id, bookingPageId, startTime: start, endTime: end },
+        })
+      } catch {}
+    }
+
     // Auto-add to email lists with source_type 'booking_created'
     if (bookingContactId) {
       try {

@@ -96,7 +96,12 @@ const crud = makeCrudRoute({
       const filters: Record<string, any> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
-        filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
+        const pattern = `%${escapeLikePattern(query.search)}%`
+        filters.$or = [
+          { display_name: { $ilike: pattern } },
+          { primary_email: { $ilike: pattern } },
+          { primary_phone: { $ilike: pattern } },
+        ]
       }
       if (query.status) {
         filters.status = { $eq: query.status }
