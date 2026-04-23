@@ -19,6 +19,7 @@ type FormValues = {
   organizationId: string | null
   expiresAt: string | null
   roles: string[]
+  rateLimitTier?: string | null
 }
 
 export default function CreateApiKeyPage() {
@@ -99,10 +100,21 @@ export default function CreateApiKeyPage() {
       description: t('api_keys.form.rolesHint'),
     },
     { id: 'expiresAt', label: t('api_keys.form.expiresAt'), type: 'date', description: t('api_keys.form.expiresHint') },
+    {
+      id: 'rateLimitTier',
+      label: 'Rate limit tier',
+      type: 'select',
+      options: [
+        { value: 'default', label: 'Default — 60/min, 1,000/hour' },
+        { value: 'pro', label: 'Pro — 300/min, 10,000/hour' },
+        { value: 'unlimited', label: 'Unlimited — no throttle' },
+      ],
+      description: 'Applies to every request this key makes. Leave as Default unless this key needs higher throughput or none at all.',
+    },
   ], [loadRoleOptions, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => ([
-    { id: 'details', title: t('api_keys.form.details'), column: 1, fields: ['name', 'description', 'organizationId', 'roles', 'expiresAt'] },
+    { id: 'details', title: t('api_keys.form.details'), column: 1, fields: ['name', 'description', 'organizationId', 'roles', 'expiresAt', 'rateLimitTier'] },
   ]), [t])
 
   if (createdSecret) {
@@ -149,7 +161,7 @@ export default function CreateApiKeyPage() {
             backHref="/backend/api-keys"
             fields={fields}
             groups={groups}
-            initialValues={{ name: '', description: null, organizationId: null, roles: [], expiresAt: null }}
+            initialValues={{ name: '', description: null, organizationId: null, roles: [], expiresAt: null, rateLimitTier: 'default' } as any}
             submitLabel={t('common.create')}
             cancelHref="/backend/api-keys"
             onSubmit={async (values) => {
@@ -160,12 +172,14 @@ export default function CreateApiKeyPage() {
                 roles: string[]
                 expiresAt: string | null
                 tenantId?: string | null
+                rateLimitTier?: string | null
               } = {
                 name: values.name,
                 description: values.description || null,
                 organizationId: values.organizationId || null,
                 roles: Array.isArray(values.roles) ? values.roles : [],
                 expiresAt: values.expiresAt || null,
+                rateLimitTier: (values as any).rateLimitTier || null,
               }
               if (actorIsSuperAdmin) {
                 const tenant = typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0 ? selectedTenantId.trim() : null

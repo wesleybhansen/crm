@@ -144,6 +144,9 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       isApiKey: true,
       keyId: record.id,
       keyName: record.name,
+      // Carry the tier string through auth so the router can rate-limit
+      // without a second DB roundtrip per request.
+      rateLimitTier: (record as unknown as { rateLimitTier?: string | null }).rateLimitTier ?? null,
       ...(actualUserId ? { userId: actualUserId } : {}),
     }
   } catch {

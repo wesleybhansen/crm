@@ -15,6 +15,7 @@ export const createApiKeySchema = z.object({
   organizationId: uuid.optional().nullable(),
   roles: z.array(z.string().trim().min(1)).optional().default([]),
   expiresAt: expiresAtSchema.optional(),
+  rateLimitTier: z.enum(['default', 'pro', 'unlimited']).optional().nullable(),
 })
 
 export const updateApiKeySchema = createApiKeySchema.partial().extend({

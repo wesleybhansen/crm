@@ -116,6 +116,7 @@ const crud = makeCrudRoute<
         rolesJson: roleIds,
         createdBy: ctx.auth?.sub ?? null,
         expiresAt: input.expiresAt ?? null,
+        rateLimitTier: input.rateLimitTier ?? null,
       }
     },
     response: (entity) => {

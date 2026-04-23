@@ -42,6 +42,14 @@ export class ApiKey {
   @Property({ name: 'session_secret_encrypted', type: 'text', nullable: true })
   sessionSecretEncrypted?: string | null
 
+  /**
+   * Rate-limit tier. NULL = default tier (60 req/min, 1000 req/hr).
+   * See packages/core/src/modules/api_keys/lib/rateLimitTiers.ts for the
+   * config map. Added in SPEC-062 Phase 2; NULL preserves v1 behavior.
+   */
+  @Property({ name: 'rate_limit_tier', type: 'text', nullable: true })
+  rateLimitTier?: string | null
+
   @Property({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt?: Date | null
 

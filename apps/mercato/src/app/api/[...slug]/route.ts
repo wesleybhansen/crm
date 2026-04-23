@@ -17,6 +17,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { enforceApiKeyRateLimit, applyRateLimitHeaders } from '@open-mercato/core/modules/api_keys/lib/apiKeyRateLimit'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 
@@ -288,6 +289,42 @@ async function handleRequest(
     return authError
   }
 
+  // Global API-key rate limiting — runs before per-route opt-in limits and
+  // before the feature check, so over-quota keys fail fast. Cookie-auth (UI)
+  // is bypassed because the identity key (auth.keyId) is only set for
+  // x-api-key / apikey-authorization requests.
+  let apiKeyRateHeaders: Record<string, string> | null = null
+  if (auth?.isApiKey) {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (rateLimiterService) {
+      const outcome = await enforceApiKeyRateLimit(rateLimiterService, auth)
+      if (outcome && !outcome.allowed) {
+        const body = {
+          ok: false,
+          error: 'Rate limit exceeded',
+          retryAfterSeconds: outcome.retryAfterSeconds,
+          limit: outcome.limit,
+          windowSeconds: outcome.windowSeconds,
+        }
+        const response = NextResponse.json(body, { status: 429 })
+        for (const [key, value] of Object.entries(outcome.headers)) {
+          response.headers.set(key, value)
+        }
+        await emitLifecycleEvent(applicationLifecycleEvents.requestRateLimited, {
+          ...receivedPayload,
+          status: response.status,
+          clientIp: getClientIp(req, rateLimiterService.trustProxyDepth),
+          apiKeyId: auth.keyId,
+          userId: auth?.sub ?? null,
+          tenantId: auth?.tenantId ?? null,
+          durationMs: Date.now() - startedAt,
+        })
+        return response
+      }
+      if (outcome) apiKeyRateHeaders = outcome.headers
+    }
+  }
+
   if (methodMetadata?.rateLimit) {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
@@ -324,6 +361,11 @@ async function handleRequest(
       tenantId: auth?.tenantId ?? null,
       durationMs: Date.now() - startedAt,
     })
+    // Surface the remaining-quota headers on every successful API-key
+    // response so well-behaved clients can pace themselves.
+    if (apiKeyRateHeaders) {
+      return applyRateLimitHeaders(response, apiKeyRateHeaders)
+    }
     return response
   } catch (error) {
     await emitLifecycleEvent(applicationLifecycleEvents.requestFailed, {
