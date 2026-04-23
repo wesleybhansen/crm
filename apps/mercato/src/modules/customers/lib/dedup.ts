@@ -7,9 +7,14 @@
 
 import type { Knex } from 'knex'
 
-type FindResult =
-  | { existing: true; contactId: string }
-  | { existing: false }
+/**
+ * Return the matched contact row (or null) so callers can use the
+ * natural `if (dedupResult.existing) { dedupResult.existing.id }` pattern.
+ * Prior signature returned a discriminated union which callers were
+ * accessing incorrectly (`dedupResult.existing.id` when existing was a
+ * boolean), silently producing duplicates instead of finding the match.
+ */
+type FindResult = { existing: { id: string; primary_email?: string | null } | null }
 
 export async function findOrMergeContact(
   knex: Knex,
@@ -20,7 +25,7 @@ export async function findOrMergeContact(
   phone?: string,
   em?: any,
 ): Promise<FindResult> {
-  if (!email) return { existing: false }
+  if (!email) return { existing: null }
   const normalized = email.toLowerCase()
 
   // 1) Fast path: exact match on plaintext primary_email.
@@ -29,18 +34,16 @@ export async function findOrMergeContact(
     .where('organization_id', orgId)
     .whereNull('deleted_at')
     .first()
-  if (plain) return { existing: true, contactId: plain.id }
+  if (plain) return { existing: { id: plain.id, primary_email: plain.primary_email } }
 
   // 2) Encrypted-email fallback: the ORM-write path stores primary_email as
   // ciphertext, so LOWER(primary_email) will never match a plaintext needle.
   // When encryption is on, scan candidates and decrypt their primary_email
-  // in-memory to find the match. Keeps dedup working across both write
-  // paths (raw knex insert + ORM/subscriber insert) so bookings, enrollments,
-  // and form submits don't create duplicate contacts.
+  // in-memory to find the match.
   try {
-    if (!em) return { existing: false }
+    if (!em) return { existing: null }
     const { isTenantDataEncryptionEnabled } = await import('@open-mercato/shared/lib/encryption/toggles')
-    if (!isTenantDataEncryptionEnabled()) return { existing: false }
+    if (!isTenantDataEncryptionEnabled()) return { existing: null }
     const { TenantDataEncryptionService } = await import('@open-mercato/shared/lib/encryption/tenantDataEncryptionService')
     const { createKmsService } = await import('@open-mercato/shared/lib/encryption/kms')
     const svc = new TenantDataEncryptionService(em, { kms: createKmsService() })
@@ -61,13 +64,13 @@ export async function findOrMergeContact(
         )
         const decrypted = typeof dec.primary_email === 'string' ? dec.primary_email.toLowerCase() : ''
         if (decrypted && decrypted === normalized) {
-          return { existing: true, contactId: row.id }
+          return { existing: { id: row.id, primary_email: row.primary_email } }
         }
       } catch { /* skip rows we can't decrypt */ }
     }
   } catch { /* fall through */ }
 
-  return { existing: false }
+  return { existing: null }
 }
 
 type MergeResult = { merged: true; primaryId: string; secondaryId: string }

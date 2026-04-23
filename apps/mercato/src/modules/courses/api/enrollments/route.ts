@@ -115,6 +115,24 @@ export async function POST(req: Request) {
       })
     }
 
+    // Fire course.enrollment.created webhook. Courses module has no events.ts
+    // so we dispatch inline rather than via the generic subscriber pattern.
+    try {
+      const { dispatchWebhook } = await import('@open-mercato/core/modules/webhooks/lib/dispatch')
+      dispatchWebhook(knex, course.organization_id, 'course.enrollment.created', {
+        enrollmentId: id,
+        courseId: course.id,
+        courseTitle: course.title,
+        courseSlug: course.slug,
+        contactId,
+        studentName,
+        studentEmail,
+        isFree: !!course.is_free,
+        price: course.price ? Number(course.price) : null,
+        currency: course.currency,
+      }).catch(() => {})
+    } catch {}
+
     // Add "Student" tag
     if (contactId) {
       try {
