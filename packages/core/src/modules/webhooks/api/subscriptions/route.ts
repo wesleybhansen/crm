@@ -134,13 +134,20 @@ export async function DELETE(req: Request, ctx?: any) {
     if (!id) return NextResponse.json({ ok: false, error: 'id required' }, { status: 400 })
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
-    const deleted = await knex('webhook_subscriptions')
+
+    // Verify ownership before touching anything.
+    const sub = await knex('webhook_subscriptions')
       .where('id', id)
       .where('organization_id', auth.orgId)
       .where('tenant_id', auth.tenantId)
-      .del()
-    if (!deleted) return NextResponse.json({ ok: false, error: 'Subscription not found' }, { status: 404 })
+      .first()
+    if (!sub) return NextResponse.json({ ok: false, error: 'Subscription not found' }, { status: 404 })
+
+    // Delete deliveries FIRST — webhook_deliveries.subscription_id has an
+    // FK constraint so deleting the subscription with deliveries still
+    // referencing it violates the constraint and returns 500.
     await knex('webhook_deliveries').where('subscription_id', id).del()
+    await knex('webhook_subscriptions').where('id', id).del()
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[webhooks.subscriptions.DELETE]', err)
