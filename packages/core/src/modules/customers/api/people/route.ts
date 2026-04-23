@@ -93,14 +93,39 @@ const crud = makeCrudRoute({
       const filters: Record<string, any> = { kind: { $eq: 'person' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
-        // Search matches name, email, or phone so users can find contacts
-        // by any identifier from the same search box.
-        const pattern = `%${escapeLikePattern(query.search)}%`
-        filters.$or = [
-          { display_name: { $ilike: pattern } },
-          { primary_email: { $ilike: pattern } },
-          { primary_phone: { $ilike: pattern } },
-        ]
+        // Search should match name, email, or phone from a single input.
+        // The data engine's $or at the top level didn't play nice with the
+        // query index, so instead we pre-resolve matching ids via knex and
+        // narrow the data-engine query with $in. Scoped to the caller's
+        // org + tenant so we never leak cross-tenant rows.
+        try {
+          const em = ctx?.container.resolve('em') as any
+          const knex = em?.getKnex?.()
+          if (knex && ctx?.auth?.orgId) {
+            const pattern = `%${escapeLikePattern(query.search)}%`
+            const rows = await knex('customer_entities')
+              .where('organization_id', ctx.auth.orgId)
+              .where('kind', 'person')
+              .whereNull('deleted_at')
+              .andWhere(function (this: any) {
+                this.where('display_name', 'ilike', pattern)
+                  .orWhere('primary_email', 'ilike', pattern)
+                  .orWhere('primary_phone', 'ilike', pattern)
+              })
+              .limit(500)
+              .select('id')
+            const ids = rows.map((r: any) => r.id)
+            if (ids.length === 0) {
+              filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
+            } else {
+              filters.id = { $in: ids }
+            }
+          } else {
+            filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
+          }
+        } catch {
+          filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
+        }
       }
       const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
       const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''

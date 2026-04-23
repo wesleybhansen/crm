@@ -96,12 +96,37 @@ const crud = makeCrudRoute({
       const filters: Record<string, any> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
-        const pattern = `%${escapeLikePattern(query.search)}%`
-        filters.$or = [
-          { display_name: { $ilike: pattern } },
-          { primary_email: { $ilike: pattern } },
-          { primary_phone: { $ilike: pattern } },
-        ]
+        // Pre-resolve matching ids via knex (same approach as people route)
+        // so name/email/phone search works without colliding with the query
+        // index's $or semantics.
+        try {
+          const em = ctx?.container.resolve('em') as any
+          const knex = em?.getKnex?.()
+          if (knex && ctx?.auth?.orgId) {
+            const pattern = `%${escapeLikePattern(query.search)}%`
+            const rows = await knex('customer_entities')
+              .where('organization_id', ctx.auth.orgId)
+              .where('kind', 'company')
+              .whereNull('deleted_at')
+              .andWhere(function (this: any) {
+                this.where('display_name', 'ilike', pattern)
+                  .orWhere('primary_email', 'ilike', pattern)
+                  .orWhere('primary_phone', 'ilike', pattern)
+              })
+              .limit(500)
+              .select('id')
+            const ids = rows.map((r: any) => r.id)
+            if (ids.length === 0) {
+              filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
+            } else {
+              filters.id = { $in: ids }
+            }
+          } else {
+            filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
+          }
+        } catch {
+          filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
+        }
       }
       if (query.status) {
         filters.status = { $eq: query.status }
