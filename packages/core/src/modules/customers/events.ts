@@ -10,6 +10,7 @@ const events = [
   { id: 'customers.person.created', label: 'Customer (Person) Created', entity: 'person', category: 'crud' },
   { id: 'customers.person.updated', label: 'Customer (Person) Updated', entity: 'person', category: 'crud' },
   { id: 'customers.person.deleted', label: 'Customer (Person) Deleted', entity: 'person', category: 'crud' },
+  { id: 'customers.person.stage_changed', label: 'Contact Lifecycle Stage Changed', entity: 'person', category: 'lifecycle' },
 
   // Companies
   { id: 'customers.company.created', label: 'Customer (Company) Created', entity: 'company', category: 'crud' },

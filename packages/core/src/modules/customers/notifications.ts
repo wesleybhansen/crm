@@ -21,6 +21,25 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     expiresAfterHours: 336, // 14 days
   },
   {
+    type: 'customers.person.stage_changed',
+    module: 'customers',
+    titleKey: 'customers.notifications.person.stage_changed.title',
+    bodyKey: 'customers.notifications.person.stage_changed.body',
+    icon: 'arrow-right',
+    severity: 'info',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/customers/people/{sourceEntityId}',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/customers/people/{sourceEntityId}',
+    expiresAfterHours: 168,
+  },
+  {
     type: 'customers.deal.stage_changed',
     module: 'customers',
     titleKey: 'customers.notifications.deal.stage_changed.title',

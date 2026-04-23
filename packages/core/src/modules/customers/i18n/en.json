@@ -486,6 +486,8 @@
   "customers.notifications.deal.won.title": "Deal Won",
   "customers.notifications.person.created.body": "{contactName} was added{sourceLabel, select, other { {sourceLabel}}}",
   "customers.notifications.person.created.title": "New contact",
+  "customers.notifications.person.stage_changed.body": "{contactName} moved to {stage}",
+  "customers.notifications.person.stage_changed.title": "Contact stage changed",
   "customers.notifications.scout.action.body": "{action}",
   "customers.notifications.scout.action.title": "Scout ran an action",
   "customers.people.create.title": "Create Person",

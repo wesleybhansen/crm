@@ -177,6 +177,23 @@ export async function PUT(req: Request, ctx?: any) {
       created_at: new Date(),
     })
 
+    // Emit lifecycle event for notification subscriber (Customer Journey
+    // mode drag-drop lands here; without this the bell never fires).
+    if (previousStage !== normalizedStage) {
+      try {
+        const bus = container.resolve('eventBus') as any
+        if (bus?.emitEvent) {
+          await bus.emitEvent('customers.person.stage_changed', {
+            id: contactId,
+            organizationId: auth.orgId,
+            tenantId: auth.tenantId,
+            stage: normalizedStage,
+            previousStage,
+          }, { persistent: true })
+        }
+      } catch {}
+    }
+
     // Update engagement score
     const existing = await knex('contact_engagement_scores')
       .where('contact_id', contactId)
