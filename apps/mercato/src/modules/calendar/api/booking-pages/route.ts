@@ -46,7 +46,11 @@ export async function POST(req: Request, ctx: any) {
     })
     const page = await knex('booking_pages').where('id', id).first()
     return NextResponse.json({ ok: true, data: page }, { status: 201 })
-  } catch { return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 }) }
+  } catch (err) {
+    console.error('[calendar.booking-pages.POST]', err)
+    const message = err instanceof Error ? err.message : 'Failed'
+    return NextResponse.json({ ok: false, error: message }, { status: 500 })
+  }
 }
 
 export async function PUT(req: Request, ctx: any) {

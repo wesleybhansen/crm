@@ -461,7 +461,15 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const primaryPhone = normalizeOptionalString(parsed.primaryPhone)
     const status = normalizeOptionalString(parsed.status)
     const lifecycleStage = normalizeOptionalString(parsed.lifecycleStage)
-    const source = normalizeOptionalString(parsed.source)
+    const explicitSource = normalizeOptionalString(parsed.source)
+    // If the caller didn't pass a source, fall back to the derived category
+    // so the detail page's Source field reflects attribution (e.g. "manual",
+    // "ai_assistant") instead of "not set".
+    const derivedSource = deriveSourceFromInput(parsed, ctx)
+    const source = explicitSource
+      ?? (derivedSource.detail
+        ? `${derivedSource.category}:${derivedSource.detail}`
+        : derivedSource.category)
     const preferredName = normalizeOptionalString(parsed.preferredName)
     const jobTitle = normalizeOptionalString(parsed.jobTitle)
     const department = normalizeOptionalString(parsed.department)
@@ -571,8 +579,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     // tag at creation so marketing reports have real attribution.
     try {
       const { tagContactSource } = await import('../lib/sourceTagging')
-      const { category, detail } = deriveSourceFromInput(parsed, ctx)
-      await tagContactSource(em.getKnex(), { tenantId, organizationId }, entity.id, category as any, detail)
+      await tagContactSource(em.getKnex(), { tenantId, organizationId }, entity.id, derivedSource.category as any, derivedSource.detail)
     } catch {}
 
     return { entityId: entity.id, personId: profile.id }

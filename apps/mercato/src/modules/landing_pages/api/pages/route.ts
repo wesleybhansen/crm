@@ -120,7 +120,8 @@ export async function POST(req: Request, ctx: any) {
     return NextResponse.json({ ok: true, data: page }, { status: 201 })
   } catch (error) {
     console.error('[landing_pages.create]', error)
-    return NextResponse.json({ ok: false, error: 'Failed to create page' }, { status: 500 })
+    const detail = error instanceof Error ? error.message : 'Failed to create page'
+    return NextResponse.json({ ok: false, error: `Failed to create page: ${detail}` }, { status: 500 })
   }
 }
 

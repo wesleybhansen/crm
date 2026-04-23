@@ -76,7 +76,18 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     const lastNameField = fields.find((f: any) => f.crm_mapping === 'contact.last_name')
     const phoneField = fields.find((f: any) => f.type === 'phone' || f.crm_mapping === 'contact.phone' || f.crmMapping === 'primary_phone')
 
-    const email = emailField ? data[emailField.id] : null
+    // Fallback: if the form owner didn't mark an email field, scan the
+    // submitted data for the first string that parses as an email. Keeps
+    // auto-contact-creation working for hand-built forms.
+    const isEmailLike = (v: unknown): v is string => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
+    const fallbackEmail = (() => {
+      for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+        if (key.startsWith('_')) continue
+        if (isEmailLike(value)) return (value as string).trim()
+      }
+      return null
+    })()
+    const email = (emailField ? data[emailField.id] : null) || fallbackEmail
     const rawName = nameField ? data[nameField.id] : null
     const isDisplayNameMapping = nameField && (nameField.crmMapping === 'display_name' || nameField.crm_mapping === 'display_name')
     const firstName = isDisplayNameMapping ? (rawName || '').split(' ')[0] : rawName
@@ -129,9 +140,9 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           }
         }
 
-        // Source attribution tag — also applies to existing contacts who
-        // submit new forms (multi-touch attribution).
-        if (contactId) {
+        // First-touch source attribution — only tag newly-created contacts
+        // so re-submissions don't overwrite the original source.
+        if (contactId && !existing) {
           try {
             const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
             await tagContactSource(knex, { tenantId: form.tenant_id, organizationId: form.organization_id }, contactId, 'form', form.name || form.slug)

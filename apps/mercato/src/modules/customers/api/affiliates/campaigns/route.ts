@@ -147,7 +147,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, data: campaign }, { status: 201 })
   } catch (error) {
     console.error('[affiliate_campaigns.POST]', error)
-    return NextResponse.json({ ok: false, error: 'Failed to create campaign' }, { status: 500 })
+    const detail = error instanceof Error ? error.message : 'Failed to create campaign'
+    return NextResponse.json({ ok: false, error: `Failed to create campaign: ${detail}` }, { status: 500 })
   }
 }
 

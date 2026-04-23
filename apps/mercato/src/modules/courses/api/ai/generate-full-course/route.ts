@@ -199,7 +199,8 @@ Write thorough, practical markdown content: start with a brief intro (2-3 senten
     }, { status: 201 })
   } catch (error) {
     console.error('[courses.ai.generate-full-course]', error)
-    return NextResponse.json({ ok: false, error: 'Failed to generate course' }, { status: 500 })
+    const detail = error instanceof Error ? error.message : 'Failed to generate course'
+    return NextResponse.json({ ok: false, error: `Failed to generate course: ${detail}` }, { status: 500 })
   }
 }
 

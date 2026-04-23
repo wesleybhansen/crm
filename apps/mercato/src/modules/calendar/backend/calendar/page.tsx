@@ -145,6 +145,22 @@ function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
+function randomSlugSuffix(): string {
+  // 10 hex chars ≈ 40 bits of entropy, enough to avoid collisions across tenants
+  const arr = new Uint8Array(5)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(arr)
+  } else {
+    for (let i = 0; i < arr.length; i++) arr[i] = Math.floor(Math.random() * 256)
+  }
+  return Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function slugifyWithSuffix(text: string): string {
+  const base = slugify(text)
+  return base ? `${base}-${randomSlugSuffix()}` : randomSlugSuffix()
+}
+
 function contactName(contact: ContactResult): string {
   return contact.display_name || contact.primary_email || 'Unnamed'
 }
@@ -2533,8 +2549,11 @@ function BookingPageForm({
 }) {
   function update(patch: Partial<typeof form>) {
     const next = { ...form, ...patch }
-    if ('title' in patch && patch.title !== undefined) {
-      next.slug = slugify(patch.title)
+    // Auto-generate a unique slug only when the slug is empty (user hasn't
+    // customized it) so editing the title doesn't mint a new random suffix
+    // mid-edit. Slug keeps its random suffix to avoid cross-tenant collisions.
+    if ('title' in patch && patch.title !== undefined && !form.slug.trim()) {
+      next.slug = slugifyWithSuffix(patch.title)
     }
     onChange(next)
   }

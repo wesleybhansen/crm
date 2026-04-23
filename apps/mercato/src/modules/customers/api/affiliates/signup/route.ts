@@ -211,6 +211,7 @@ export async function POST(req: Request) {
 
     // Create or link CRM contact
     let contact = await knex('customer_entities').where('primary_email', email.trim()).where('organization_id', organizationId).whereNull('deleted_at').first()
+    const contactWasNew = !contact
 
     if (!contact) {
       const contactId = crypto.randomUUID()
@@ -235,10 +236,10 @@ export async function POST(req: Request) {
       contact = { id: contactId }
     }
 
-    // Source attribution — tag as source:referral:<campaign name> so the
-    // affiliate program that drove this signup is captured in reports.
-    // Applies to both newly-created and existing contacts (multi-touch).
-    if (contact?.id) {
+    // First-touch source attribution — only tag newly-created contacts with
+    // source:referral:<campaign name>. Existing contacts keep their prior
+    // attribution so the original referral source is preserved.
+    if (contact?.id && contactWasNew) {
       try {
         const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
         const campaignLabel = campaign?.name ? String(campaign.name) : undefined

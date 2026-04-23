@@ -120,9 +120,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // Source attribution tag — applies to both newly-created and existing
-    // contacts who book a meeting.
-    if (bookingContactId) {
+    // First-touch source attribution — only tag newly-created contacts.
+    if (bookingContactId && !dedupResult.existing) {
       try {
         const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
         await tagContactSource(knex, { tenantId: page.tenant_id, organizationId: page.organization_id }, bookingContactId, 'booking', page.title || page.slug)

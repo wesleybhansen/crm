@@ -93,9 +93,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // Source attribution tag — applies to new enrollees and existing
-    // contacts who enroll in a new course (multi-touch).
-    if (contactId) {
+    // First-touch source attribution — only tag newly-created contacts.
+    if (contactId && !dedupResult.existing) {
       try {
         const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
         await tagContactSource(knex, { tenantId: course.tenant_id, organizationId: course.organization_id }, contactId, 'course', course.title || course.slug)

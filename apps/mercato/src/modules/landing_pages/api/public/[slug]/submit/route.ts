@@ -149,9 +149,10 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
             .update({ contact_id: contactId })
         }
 
-        // Source attribution — tag the contact with the landing page name
-        // (and also apply to existing contacts who re-submit: multi-touch).
-        if (contactId) {
+        // First-touch source attribution — only tag newly-created contacts.
+        // Existing contacts keep their original source to preserve the
+        // original attribution in marketing reports.
+        if (contactId && !existing) {
           try {
             const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
             await tagContactSource(
