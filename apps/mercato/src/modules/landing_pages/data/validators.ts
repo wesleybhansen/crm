@@ -5,7 +5,7 @@ export const createLandingPageSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens'),
   templateId: z.string().max(100).optional().nullable(),
   templateCategory: z.string().max(50).optional().nullable(),
-  config: z.record(z.any()).optional().nullable(),
+  config: z.record(z.string(), z.any()).optional().nullable(),
 })
 
 export const updateLandingPageSchema = z.object({
@@ -13,7 +13,7 @@ export const updateLandingPageSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/).optional(),
   templateId: z.string().max(100).optional().nullable(),
   templateCategory: z.string().max(50).optional().nullable(),
-  config: z.record(z.any()).optional().nullable(),
+  config: z.record(z.string(), z.any()).optional().nullable(),
   status: z.enum(['draft', 'published', 'archived']).optional(),
   customDomain: z.string().max(255).optional().nullable(),
   publishedHtml: z.string().optional().nullable(),
@@ -38,7 +38,7 @@ export const createFormSchema = z.object({
 })
 
 export const submitFormSchema = z.object({
-  data: z.record(z.any()),
+  data: z.record(z.string(), z.any()),
 })
 
 export const listLandingPagesSchema = z.object({
