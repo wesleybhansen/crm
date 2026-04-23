@@ -58,8 +58,15 @@ export async function enforceApiKeyRateLimit(
     windows.hour ? service.consume(keyId, windows.hour) : null,
   ])
 
-  // Pick the worst case across both windows.
-  const exhausted = findExhausted(minuteRes, hourRes)
+  // Pick the worst case across both windows. Carry the ORIGINAL configured
+  // limit (not consumed+remaining, which overcounts on overage) so the
+  // response body and headers advertise the real per-window cap.
+  let exhausted: { res: RateLimitResult; points: number; duration: number } | null = null
+  if (minuteRes && !minuteRes.allowed && windows.minute) {
+    exhausted = { res: minuteRes, points: windows.minute.points, duration: windows.minute.duration }
+  } else if (hourRes && !hourRes.allowed && windows.hour) {
+    exhausted = { res: hourRes, points: windows.hour.points, duration: windows.hour.duration }
+  }
   if (exhausted) {
     const retryAfterSeconds = Math.max(1, Math.ceil(exhausted.res.msBeforeNext / 1000))
     return {
@@ -90,15 +97,6 @@ export async function enforceApiKeyRateLimit(
       'RateLimit-Policy': `tier=${tier}; window=${primaryWindow.duration}; limit=${primaryWindow.points}`,
     },
   }
-}
-
-function findExhausted(
-  minute: RateLimitResult | null,
-  hour: RateLimitResult | null,
-): { res: RateLimitResult; points: number; duration: number } | null {
-  if (minute && !minute.allowed) return { res: minute, points: minute.consumedPoints + Math.max(0, minute.remainingPoints), duration: 60 }
-  if (hour && !hour.allowed) return { res: hour, points: hour.consumedPoints + Math.max(0, hour.remainingPoints), duration: 3600 }
-  return null
 }
 
 /**
