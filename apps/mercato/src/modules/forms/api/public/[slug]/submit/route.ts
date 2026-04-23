@@ -87,7 +87,11 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
       }
       return null
     })()
-    const email = (emailField ? data[emailField.id] : null) || fallbackEmail
+    // Gate auto-contact-creation on the "Auto-create CRM contact" form
+    // setting. If off (or unset), the submitter is NOT added to the CRM —
+    // they only land in form_submissions.
+    const shouldCreateContact = settings.createContact === true
+    const email = shouldCreateContact ? ((emailField ? data[emailField.id] : null) || fallbackEmail) : null
     const rawName = nameField ? data[nameField.id] : null
     const isDisplayNameMapping = nameField && (nameField.crmMapping === 'display_name' || nameField.crm_mapping === 'display_name')
     const firstName = isDisplayNameMapping ? (rawName || '').split(' ')[0] : rawName
@@ -119,7 +123,10 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
             source: 'form',
             source_details: JSON.stringify({ form_name: form.name, form_slug: form.slug }),
             status: 'active',
-            lifecycle_stage: settings.pipelineStage || 'prospect',
+            // Leave lifecycle_stage null unless the form owner picked one in
+            // settings — auto-inserting 'prospect' put submitters on the
+            // pipeline board without the user asking for it.
+            lifecycle_stage: settings.pipelineStage || null,
             created_at: now,
             updated_at: now,
           })

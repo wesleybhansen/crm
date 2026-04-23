@@ -953,7 +953,28 @@ export default function ContactsPage() {
               ) : (
                 <>
                   {/* CSV File Upload */}
-                  <div className="rounded-lg border hover:border-accent/50 transition p-4 text-center">
+                  <div
+                    className="rounded-lg border border-dashed hover:border-accent/50 transition p-4 text-center"
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-accent', 'bg-accent/5') }}
+                    onDragLeave={(e) => { e.currentTarget.classList.remove('border-accent', 'bg-accent/5') }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      e.currentTarget.classList.remove('border-accent', 'bg-accent/5')
+                      const file = e.dataTransfer.files?.[0]
+                      if (!file) return
+                      const reader = new FileReader()
+                      reader.onload = (ev) => {
+                        const text = ev.target?.result
+                        if (typeof text === 'string') {
+                          const lines = text.trim().split('\n')
+                          const firstLine = lines[0]?.toLowerCase() || ''
+                          const hasHeader = firstLine.includes('name') || firstLine.includes('email') || firstLine.includes('first')
+                          setImportData(hasHeader ? lines.slice(1).join('\n') : text)
+                        }
+                      }
+                      reader.readAsText(file)
+                    }}
+                  >
                     <input
                       type="file"
                       accept=".csv,.txt,.tsv"
@@ -979,7 +1000,7 @@ export default function ContactsPage() {
                     />
                     <label htmlFor="csv-upload" className="cursor-pointer">
                       <Upload className="size-5 mx-auto mb-1.5 text-muted-foreground" />
-                      <p className="text-sm font-medium">Upload CSV file</p>
+                      <p className="text-sm font-medium">Upload CSV file or drop it here</p>
                       <p className="text-[10px] text-muted-foreground mt-0.5">Supports .csv, .tsv, .txt</p>
                     </label>
                   </div>
