@@ -17,6 +17,20 @@ export type NotificationBellProps = {
 
 export function NotificationBell({ className, t, customRenderers }: NotificationBellProps) {
   const [panelOpen, setPanelOpen] = React.useState(false)
+  // Mutual exclusion with the Scout widget — either panel opening fires
+  // "crm:close-floating-panels"; the other listens and closes itself so
+  // the two floating surfaces never overlap.
+  React.useEffect(() => {
+    const onClose = (e: Event) => {
+      if ((e as CustomEvent).detail?.source !== 'notifications') setPanelOpen(false)
+    }
+    window.addEventListener('crm:close-floating-panels', onClose)
+    return () => window.removeEventListener('crm:close-floating-panels', onClose)
+  }, [])
+  const openPanel = React.useCallback(() => {
+    window.dispatchEvent(new CustomEvent('crm:close-floating-panels', { detail: { source: 'notifications' } }))
+    setPanelOpen(true)
+  }, [])
   const {
     unreadCount,
     hasNew,
@@ -50,7 +64,7 @@ export function NotificationBell({ className, t, customRenderers }: Notification
         variant="ghost"
         size="sm"
         className={cn('relative', className)}
-        onClick={() => setPanelOpen(true)}
+        onClick={openPanel}
         aria-label={ariaLabel}
       >
         <Bell className={cn('h-5 w-5', pulse && 'animate-pulse')} />

@@ -65,6 +65,28 @@ export async function PUT(req: Request, ctx: any) {
     if (status !== undefined) updates.status = status
 
     await knex('customer_deals').where('id', id).update(updates)
+
+    // Emit stage_changed event so notification subscribers + webhooks fire.
+    // The full CRUD command emits this, but this ext route bypasses that
+    // path — so the pipeline drag-drop (which hits here) wouldn't trigger
+    // notifications without this explicit emission.
+    if (pipeline_stage !== undefined && pipeline_stage !== deal.pipeline_stage) {
+      try {
+        const bus = container.resolve('eventBus') as any
+        if (bus?.emitEvent) {
+          await bus.emitEvent('customers.deal.stage_changed', {
+            id,
+            organizationId: auth.orgId,
+            tenantId: auth.tenantId,
+            title: deal.title,
+            stage: pipeline_stage,
+            previousStage: deal.pipeline_stage,
+            status: status ?? deal.status,
+          }, { persistent: true })
+        }
+      } catch {}
+    }
+
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('[ext.deals.update]', error)

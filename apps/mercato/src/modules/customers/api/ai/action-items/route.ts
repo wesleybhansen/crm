@@ -293,37 +293,69 @@ export async function GET() {
       stats.landingPages = { published: Number(lp?.published || 0), views: Number(lp?.views || 0), submissions: Number(lp?.submissions || 0) }
     } catch { stats.landingPages = { published: 0, views: 0, submissions: 0 } }
 
-    // Recent activity — use contacts and deals (not encrypted activities)
+    // Recent activity — use contacts and deals (not encrypted activities).
+    // Names + titles are encrypted at rest; decrypt before rendering.
     const recentActivity: Array<{ type: string; text: string; time: string }> = []
     try {
+      const { TenantDataEncryptionService } = await import('@open-mercato/shared/lib/encryption/tenantDataEncryptionService')
+      const { isTenantDataEncryptionEnabled } = await import('@open-mercato/shared/lib/encryption/toggles')
+      const { createKmsService } = await import('@open-mercato/shared/lib/encryption/kms')
+      const encSvc = isTenantDataEncryptionEnabled()
+        ? new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+        : null
+
       // Recent contacts
-      const recentContacts = await knex('customer_entities')
+      const rawRecentContacts = await knex('customer_entities')
         .where(w).whereNull('deleted_at')
         .orderBy('created_at', 'desc')
         .limit(3)
         .select('display_name', 'source', 'created_at')
 
-      for (const c of recentContacts) {
+      for (const c of rawRecentContacts) {
+        let displayName = c.display_name || 'Contact'
+        if (encSvc) {
+          try {
+            const dec = await encSvc.decryptEntityPayload(
+              'customers:customer_entity',
+              { display_name: c.display_name },
+              auth.tenantId,
+              auth.orgId,
+            )
+            displayName = (dec.display_name as string) || displayName
+          } catch {}
+        }
         const source = c.source ? ` from ${c.source}` : ''
         recentActivity.push({
           type: 'contact',
-          text: `New contact: ${c.display_name}${source}`,
+          text: `New contact: ${displayName}${source}`,
           time: c.created_at,
         })
       }
 
       // Recent deals
-      const recentDeals = await knex('customer_deals')
+      const rawRecentDeals = await knex('customer_deals')
         .where(w).whereNull('deleted_at')
         .orderBy('updated_at', 'desc')
         .limit(3)
         .select('title', 'status', 'value_amount', 'updated_at')
 
-      for (const d of recentDeals) {
+      for (const d of rawRecentDeals) {
+        let title = d.title || 'Deal'
+        if (encSvc) {
+          try {
+            const dec = await encSvc.decryptEntityPayload(
+              'customers:customer_deal',
+              { title: d.title },
+              auth.tenantId,
+              auth.orgId,
+            )
+            title = (dec.title as string) || title
+          } catch {}
+        }
         const value = d.value_amount ? ` — $${Number(d.value_amount).toLocaleString()}` : ''
         recentActivity.push({
           type: 'deal',
-          text: `Deal ${d.status === 'win' ? 'won' : d.status}: ${d.title}${value}`,
+          text: `Deal ${d.status === 'win' ? 'won' : d.status}: ${title}${value}`,
           time: d.updated_at,
         })
       }

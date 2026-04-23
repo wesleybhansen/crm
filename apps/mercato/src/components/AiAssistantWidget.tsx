@@ -405,6 +405,20 @@ function MarkdownText({ text, onNavigate }: { text: string; onNavigate: (path: s
 export function AiAssistantWidget() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  // Mutual exclusion with the NotificationBell panel — the two floating
+  // surfaces cover the same corner and shouldn't overlap. Opening either
+  // dispatches a global event that closes the other.
+  useEffect(() => {
+    const onClose = (e: Event) => {
+      if ((e as CustomEvent).detail?.source !== 'scout') setOpen(false)
+    }
+    window.addEventListener('crm:close-floating-panels', onClose)
+    return () => window.removeEventListener('crm:close-floating-panels', onClose)
+  }, [])
+  const openScout = () => {
+    window.dispatchEvent(new CustomEvent('crm:close-floating-panels', { detail: { source: 'scout' } }))
+    setOpen(true)
+  }
   const [expanded, setExpanded] = useState(false)
   const [personaName, setPersonaName] = useState('Scout')
   const [messages, setMessages] = useState<Message[]>([])
@@ -565,7 +579,7 @@ export function AiAssistantWidget() {
       {!open && (
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={openScout}
           className="fixed bottom-5 right-5 z-50 w-12 h-12 rounded-full bg-accent text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center"
           aria-label={`Open ${personaName}`}
           title={personaName}
