@@ -345,13 +345,35 @@ export default async function BackendLayout({ children, params }: { children: Re
 
 
   const hiddenSidebarRaw = cookieStore.get('crm_hidden_sidebar')?.value || ''
-  // In advanced mode, filter out irrelevant framework pages
+  // In advanced mode, filter out framework / ops-only pages that don't
+  // belong in a CRM sidebar. Full decision table in
+  // .ai/specs/SPEC-063-2026-04-23-advanced-mode-audit.md. Source files stay
+  // — only the nav is hidden, so direct URLs and bookmarks still resolve.
+  const irrelevantPaths = [
+    // Bucket A — ops-only infrastructure
+    '/backend/config/cache',                    // Redis cache inspector
+    '/backend/config/system-status',            // Health dashboard (Admin Panel has it)
+    '/backend/settings/record-locks',           // Enterprise concurrency lock viewer
+    '/backend/storage/attachments',             // Raw file browser
+    '/backend/planner/availability-rulesets',   // Internal scheduling config
+    '/backend/customer_accounts/roles',         // Customer portal RBAC (super niche)
+
+    // Bucket B — confusing / duplicate naming with existing CRM concepts
+    '/backend/events',                          // Workflow events — collides with webhook events
+    '/backend/instances',                       // Workflow instances — technical
+    '/backend/tasks',                           // Workflow task queue — collides with customer tasks
+    '/backend/definitions',                     // Workflow definitions — Automations v2 covers users
+    '/backend/messages',                        // Internal staff messaging
+
+    // Pre-existing framework noise
+    '/backend/dictionaries',
+    '/backend/currencies',
+    '/backend/query-indexes',
+    '/backend/config/attachments',
+  ]
   const advancedGroups = allGroups.map(g => ({
     ...g,
-    items: g.items.filter(item => {
-      const irrelevantPaths = ['/backend/dictionaries', '/backend/currencies', '/backend/query-indexes', '/backend/config/attachments']
-      return !irrelevantPaths.some(p => item.href.startsWith(p))
-    }),
+    items: g.items.filter(item => !irrelevantPaths.some(p => item.href.startsWith(p))),
   })).filter(g => g.items.length > 0)
 
   let groups: NavGroup[] = interfaceMode === 'simple'
