@@ -155,68 +155,6 @@ Extract business data from email signatures (company, title, phone, LinkedIn). L
 ### 29. Automatic Pipeline Stage Advancement
 Auto-move contacts through stages based on events: sequence completion → advance, form submission → set stage, engagement threshold → advance, payment → move to Customer.
 
-### 33. Terms — AI Token Overage Responsibility
-**Priority:** quick fix — small text edit, blocks nothing. Should ship before any paid plan launches to protect against runaway AI cost liability.
-
-Update the Terms of Service to make users explicitly responsible for AI token usage that exceeds their plan allotment. Currently the AI cost model is a system-wide cap (default 500 calls/month, admin adjustable) with BYOK (Bring Your Own Key) fallback — but the terms don't say what happens when usage exceeds the cap or who pays for it.
-
-**Add language covering:**
-- Each plan includes a fixed monthly AI token allotment
-- Excess usage is either (a) paused until next billing cycle, (b) billed against the user's own API key if BYOK is enabled, or (c) charged as overage at a posted rate
-- Users acknowledge they are responsible for monitoring their own usage in Settings → AI Usage
-- The Launch Pad LLC reserves the right to throttle, pause, or charge for overage at its discretion to prevent abuse
-- Specific carve-out for users on BYOK: their own API key bills go directly to whichever AI provider they connected; The Launch Pad LLC has no liability for those charges
-
-**Files to update:**
-- `apps/mercato/src/app/terms/page.tsx` (or wherever the terms component lives)
-- Surface a one-line "AI usage policy" link from Settings → AI section so users can find it
-
-### 35. Contact Source Tagging (auto-tag on creation AND interaction)
-**Priority:** high — foundational data quality. Without source attribution, the marketing reports lie.
-
-Every contact in the CRM should carry a tag identifying where they came from, and existing contacts should be auto-tagged as they interact with new touchpoints. Attribution is the foundation of marketing analytics — users need to see "where did this lead come from?" without ever having to think about tagging manually.
-
-**On contact CREATION, auto-tag with source:**
-
-| Source | Tag format |
-|---|---|
-| Course enrollment | `Course: <course name>` |
-| Form submission | `Form: <form name>` |
-| Email reply (Inbox Intelligence) | `Source: Inbound Email` |
-| Voice assistant | `Source: Voice Assistant` |
-| Manual creation | `Source: Manual` |
-| CSV import | `Import: <filename>` |
-| API / integration | `API: <api key name>` |
-| Booking page | `Booking: <page name>` |
-| Funnel | `Funnel: <funnel name>` |
-| Landing page | `Page: <page name>` |
-| Survey response | `Survey: <survey name>` |
-| Affiliate referral | `Affiliate: <affiliate name>` |
-| Lead magnet download | `Lead Magnet: <name>` |
-| Open House sign-in (realtor) | `Open House: <event name>` |
-| Photo scan (business card) | `Source: Photo Scan` |
-| Live chat | `Source: Live Chat` |
-
-**On EXISTING contact interaction, add tags as they happen:**
-- Existing contact enrolls in a course → add `Course: <name>`
-- Existing contact submits a form → add `Form: <name>`
-- Existing contact books a meeting → add `Booking: <page name>`
-- Existing contact buys → add `Customer` + `Product: <name>`
-- Existing contact joins a sequence → add `Sequence: <name>`
-- Existing contact attends/registers for an event → add `Event: <name>`
-- Existing contact completes a survey → add `Survey: <name>`
-- Existing contact opens a lead magnet → add `Lead Magnet: <name>`
-
-**Implementation:**
-- Hook into the existing `logTimelineEvent` helper — every timeline event already knows the source entity, so the tagging logic can live alongside it
-- Tags auto-create if they don't exist, with category-based color defaults (Course = purple, Form = blue, Booking = green, etc.)
-- "Source-prefix" tags get a special visual treatment in the contact panel: small icon, slightly different shape, grouped separately from manual tags
-- Tag picker UI groups source tags under a collapsed "Auto" section so they don't crowd the manual tag picker
-- The existing Reports → Sources report should pull from these tags directly (verify after implementation)
-- Migration: backfill source tags for existing contacts based on their `lead_source` column and any existing timeline events that reference a source entity
-
-**Why:** Attribution is the foundation of every marketing decision. "Which campaigns work?" "Which lead magnets convert?" "Where is my best ROI?" None of those questions can be answered without source tags on every contact. Auto-tagging means users get clean attribution data without ever lifting a finger — and the data accumulates from day one instead of being a wishlist item people never get around to enforcing manually.
-
 ### 36. Meeting Notes Upload to Knowledge Base
 Allow users to upload meeting notes (text, transcripts, recordings, audio files) into the CRM knowledge base where Scout and other AI features can use them as context. Same upload + indexing pipeline as the existing knowledge base, scoped per contact, deal, or organization-wide.
 
@@ -297,6 +235,8 @@ The AI voice assistant can create things reliably but struggles to edit/delete e
 
 ## Recently Completed (Reference)
 
+- **#33 Terms — AI Token Overage** ✅ — Section 6.8 "AI Usage Limits and Overage Responsibility" shipped in `apps/mercato/src/app/terms/page.tsx`. Covers plan allotments, BYOK carve-out, Launch Pad's discretion to throttle/pause/charge overage at posted rates, user's duty to monitor Settings → AI Usage. Liability protection ready for paid-plan launch.
+- **#35 Contact Source Tagging** ✅ — `packages/core/src/modules/customers/lib/sourceTagging.ts` provides `tagContactSource(knex, scope, contactId, category, detail)` and is wired into every creation path (forms, landing pages, funnels, bookings, courses, affiliates, CSV import, Scout, inbox extraction). First-touch attribution: only new contacts get tagged so re-submissions don't overwrite the original source. Reports → Sources reads these tags directly.
 - **#34 Notification Center — CRM event wiring** ✅ — The notification center UI (bell icon, panel, SSE + polling hooks, unread badge, group dedup, per-type settings) already shipped with the Open Mercato framework and had several customers-module events wired to it (person.created, deal.stage_changed, deal.won/lost, scout.action). This pass wires the remaining CRM-specific events into the same bell so the "what's my CRM doing right now" promise is real: (1) `landing_pages.form.submitted` — new notification type in landing_pages app module + subscriber that decrypts the submitter name, looks up the page title, and skips when the submit also created a new contact (person.created already covers that case) to avoid doubling; also emits the previously declared-but-never-fired event from the public submit route. (2) `payments.payment.received` and `payments.payment.failed` — new types in the payments app module + subscribers on `payment_gateways.payment.captured`/`payment.failed` that fetch amount/currency from `gateway_transactions` and render a localized currency string. (3) `email.sync.failed` — new type in the email app module + subscriber on `data_sync.run.failed` that looks up the integration display name so the error points at the specific connection (Gmail, Outlook, etc.). All subscribers follow the existing `person-created-notification` template: decrypt-aware, owner/admin recipient resolution, groupKey for dedup, non-blocking error handling. `inbox_ops.proposal.created` was already wired via `packages/core/src/modules/inbox_ops/subscribers/proposalNotifier.ts`. `customers.reminder.fired` was skipped — event declared but never emitted; a separate item can wire the cron to emit first. (2026-04-23)
 - **SPEC-063 — Advanced Mode Audit** ✅ — Phase 1: extended the hardcoded hide-list in `apps/mercato/src/app/(backend)/backend/layout.tsx` from 4 → 15 entries, removing ops-only infrastructure pages (Redis cache inspector, system-status, record-locks, raw file browser, planner availability rulesets, customer portal roles) and confusing/duplicate workflow-engine pages (/events, /instances, /tasks, /definitions) plus internal messaging. Phase 2: static code audit of every remaining advanced-mode page — zero RED findings, zero broken imports, zero missing endpoints, zero stale references. 7 YELLOW pages with complex client logic worth a live smoke test but not broken. Phase 3: confirmed the pre-existing DB-backed `/api/auth/sidebar/preferences` + "Customize sidebar" button in AppShell handles user-level hide/rename/reorder across both simple and advanced modes — no additional UI needed. Source files stay, direct URLs still resolve for every hidden path. Hover-to-hide EyeOff icon was built, tested, and reverted per user preference for the dedicated Customize button. (2026-04-23)
 - **SPEC-062 — Full CRM API + MCP Server (4 phases)** ✅ — Public platform for third-party AI agents, bots, and automations. (1) Webhooks module: one-event-per-subscription CRUD, 7 event subscribers wiring module events → outbound HMAC-signed POSTs, delivery log with retries, test-delivery button, secret rotation; covers contact.created/updated, deal.created/stage_changed/won/lost, task.created/completed, form.submitted, booking.created, course.enrollment.created, invoice.created. (2) Per-API-key rate limiting: default (60/min, 1000/hr) / pro (300/min, 10k/hr) / unlimited tiers stored on api_keys.rate_limit_tier, IETF RateLimit-* headers on every response, Retry-After on 429s, cookie-auth bypass (UI unaffected), dual-window enforcement. (3) Public MCP HTTPS endpoint at /mcp: nginx-proxied x-api-key gate, dedicated launchos-mcp container running streamable HTTP transport on :3001, 25 tools (24 curated + get_agent_guide) plus 636 auto-discovered endpoints via call_api. (4) Scoped API keys: additive scopes column on api_keys, wildcard matcher (exact/entity/module/root), router narrows role permissions when scopes present, null preserves v1 behavior. Plus: AGENT_GUIDE.md integration doc (18KB, three control surfaces, auth, webhooks, recipes, BC contract) ships in the repo and at /app in prod; get_agent_guide MCP tool returns it with optional H2 section filter; bootstrap instructions auto-delivered in the MCP initialize response so every agent gets the primer in its system prompt at handshake time. End-to-end verified via agent simulation: initialize→find_api→call_api→customers_create_note→DB confirmation. Systemic fix: normalizeAuthorUserId applied across tier0 commands + 5 raw routes so API-key callers don't 500 on UUID columns. 30+ commits, all deployed, all verified in prod. (2026-04-23)
