@@ -29,7 +29,7 @@
 
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, emitCrudUndoSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, emitCrudUndoSideEffects, requireId, normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -504,7 +504,7 @@ const createNoteCommand: CommandHandler<ContactNoteCreateInput, { noteId: string
       organizationId: parsed.organizationId,
       contactId: parsed.contactId,
       content: parsed.content,
-      authorUserId: parsed.authorUserId ?? ctx.auth?.sub ?? null,
+      authorUserId: parsed.authorUserId ?? normalizeAuthorUserId(null, ctx.auth),
     })
     em.persist(note)
     await em.flush()
@@ -695,7 +695,7 @@ const createAttachmentCommand: CommandHandler<ContactAttachmentCreateInput, { at
       fileUrl: parsed.fileUrl,
       fileSize: parsed.fileSize ?? 0,
       mimeType: parsed.mimeType ?? null,
-      uploadedBy: parsed.uploadedBy ?? ctx.auth?.sub ?? null,
+      uploadedBy: parsed.uploadedBy ?? normalizeAuthorUserId(null, ctx.auth),
     })
     em.persist(att)
     await em.flush()

@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 
 export async function GET() {
   const auth = await getAuthFromCookies()
@@ -65,7 +66,7 @@ export async function PUT(req: Request) {
           id: require('crypto').randomUUID(),
           tenant_id: auth.tenantId,
           organization_id: auth.orgId,
-          user_id: auth.sub,
+          user_id: normalizeAuthorUserId(null, auth),
           setting_key: 'user_ai_key',
           setting_value: body.userKey,
           created_at: new Date(),
@@ -92,7 +93,7 @@ export async function PUT(req: Request) {
           id: require('crypto').randomUUID(),
           tenant_id: auth.tenantId,
           organization_id: auth.orgId,
-          user_id: auth.sub,
+          user_id: normalizeAuthorUserId(null, auth),
           setting_key: 'user_openai_key',
           setting_value: body.openaiKey,
           created_at: new Date(),

@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 import crypto from 'crypto'
 
 // GET: List notes for a conversation
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
     await knex('inbox_notes').insert({
       id,
       inbox_conversation_id: conversationId,
-      user_id: auth.sub,
+      user_id: normalizeAuthorUserId(null, auth),
       user_name: user?.name || user?.email || 'Team',
       content: content.trim(),
       created_at: new Date(),

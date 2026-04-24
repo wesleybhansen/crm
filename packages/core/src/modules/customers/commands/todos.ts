@@ -1,6 +1,6 @@
 import { registerCommand, commandRegistry } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerEntity, CustomerTodoLink } from '../data/entities'
@@ -192,7 +192,7 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
       tenantId: parsed.tenantId,
       todoId,
       todoSource: parsed.todoSource,
-      createdByUserId: ctx.auth?.sub ?? null,
+      createdByUserId: normalizeAuthorUserId(null, ctx.auth),
     })
     em.persist(link)
     await em.flush()

@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLandingPageSchema, listLandingPagesSchema } from '../../data/validators'
 import { TemplateEngine } from '../../services/template-engine'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['landing_pages.view'] },
@@ -86,7 +87,7 @@ export async function POST(req: Request, ctx: any) {
       template_category: parsed.templateCategory || null,
       config: parsed.config ? JSON.stringify(parsed.config) : null,
       status: 'draft',
-      owner_user_id: auth.sub,
+      owner_user_id: normalizeAuthorUserId(null, auth),
       view_count: 0,
       submission_count: 0,
       created_at: now,

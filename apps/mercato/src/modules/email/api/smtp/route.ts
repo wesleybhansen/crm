@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 import { testImapConnection, getProviderPreset } from '../../lib/imap-service'
 
 // POST: Save IMAP + SMTP configuration (unified email connection)
@@ -110,7 +111,7 @@ export async function POST(req: Request) {
         id: require('crypto').randomUUID(),
         tenant_id: auth.tenantId,
         organization_id: auth.orgId,
-        user_id: auth.sub,
+        user_id: normalizeAuthorUserId(null, auth),
         provider: 'smtp',
         is_primary: !anyExisting,
         created_at: new Date(),

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['calendar.view'] },
@@ -41,7 +42,7 @@ export async function POST(req: Request, ctx: any) {
       zoom_link: zoomLink || null,
       auto_confirm: autoConfirm !== undefined ? autoConfirm : true,
       reminder_config: JSON.stringify(reminderConfig || []),
-      owner_user_id: auth.sub,
+      owner_user_id: normalizeAuthorUserId(null, auth),
       created_at: new Date(), updated_at: new Date(),
     })
     const page = await knex('booking_pages').where('id', id).first()
