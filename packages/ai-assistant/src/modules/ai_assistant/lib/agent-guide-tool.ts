@@ -99,3 +99,23 @@ export const agentGuideTool: McpToolDefinition = {
 export function registerAgentGuideTool(): void {
   registerMcpTool(agentGuideTool, { moduleId: 'ai_assistant' })
 }
+
+/**
+ * Short bootstrap instructions injected into the MCP `initialize` response
+ * (under the `instructions` field). Compliant clients — Claude Desktop,
+ * Cursor, OpenCode — fold this into the agent's system prompt automatically,
+ * so every agent sees it on first connection without having to call any
+ * tool. Keep it terse: the full guide is behind `get_agent_guide`.
+ */
+export const MCP_BOOTSTRAP_INSTRUCTIONS = `You are connected to LaunchCRM's MCP server.
+
+Every tool call must include \`_sessionToken\` in its arguments (omit only for read-only tools that explicitly allow it). If a call returns UNAUTHORIZED with code SESSION_EXPIRED, mint a new token: POST https://crm.thelaunchpadincubator.com/api/ai_assistant/session-key with the same x-api-key header.
+
+Workflow for unfamiliar operations:
+1. \`discover_schema\` — find which entities exist (e.g. "Company", "Deal")
+2. \`find_api\` — find the right endpoint (e.g. "update company")
+3. \`call_api\` — execute it. All values in \`query\` must be strings; \`body\` is an object.
+
+For the full integration contract — auth, REST endpoints, webhooks, rate limits (60/min default tier, respect Retry-After on 429), scopes, tenant encryption, BC guarantees, common recipes — call \`get_agent_guide\` (pass \`section: "webhooks"\` etc. to filter by H2 heading). Call it once at the start of a new session; the answer is stable.
+
+Multi-tenant: every tool runs under the caller's tenantId + organizationId. Data from other tenants is invisible to you. Respect this when explaining results.`

@@ -13,6 +13,7 @@ import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { MCP_BOOTSTRAP_INSTRUCTIONS } from './agent-guide-tool'
 
 /**
  * Options for the HTTP MCP server.
@@ -99,9 +100,12 @@ function createMcpServerForRequest(
   config: McpServerConfig,
   toolContext: McpToolContext
 ): McpServer {
+  // Inject bootstrap instructions into the initialize response so compliant
+  // MCP clients fold them into the agent system prompt automatically.
+  // Keeps the primer short; the full guide is behind get_agent_guide.
   const server = new McpServer(
     { name: config.name, version: config.version },
-    { capabilities: { tools: {} } }
+    { capabilities: { tools: {} }, instructions: MCP_BOOTSTRAP_INSTRUCTIONS }
   )
 
   const registry = getToolRegistry()
