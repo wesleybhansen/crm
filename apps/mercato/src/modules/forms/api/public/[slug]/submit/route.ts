@@ -222,6 +222,22 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           contactId, formId: form.id, formName: form.name, formSlug: form.slug, data,
         }).catch(() => {})
 
+        try {
+          const bus = container.resolve('eventBus') as any
+          if (bus?.emitEvent) {
+            await bus.emitEvent('landing_pages.form.submitted', {
+              tenantId: form.tenant_id,
+              organizationId: form.organization_id,
+              contactId,
+              formId: form.id,
+              landingPageId: form.id,
+              landingPageTitle: form.name,
+              submitterName: displayName || null,
+              isNewContact: !existing && !!contactId,
+            }, { persistent: true })
+          }
+        } catch {}
+
         // Fire automation rules
         if (contactId) {
           executeAutomationRules(knex, form.organization_id, form.tenant_id, 'form_submitted', {

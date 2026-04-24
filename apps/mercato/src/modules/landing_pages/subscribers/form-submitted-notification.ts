@@ -75,7 +75,7 @@ export default async function handle(payload: FormSubmittedPayload, ctx: Resolve
 
     const linkHref = payload.contactId
       ? `/backend/customers/people/${payload.contactId}`
-      : `/backend/landing-pages/${payload.landingPageId}/submissions`
+      : `/backend/forms`
 
     const notificationInput = buildNotificationFromType(typeDef, {
       recipientUserId,
