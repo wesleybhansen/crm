@@ -94,7 +94,9 @@ COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 
 # Ship the agent integration guide so the MCP get_agent_guide tool can
 # read it at runtime without baking the 500-line markdown into TS.
-COPY --from=builder /app/AGENT_GUIDE.md ./AGENT_GUIDE.md
+# Copied from the build context (not the builder stage) because the
+# builder stage didn't need it.
+COPY AGENT_GUIDE.md ./AGENT_GUIDE.md
 
 # Install only production dependencies
 RUN yarn workspaces focus @open-mercato/app --production
