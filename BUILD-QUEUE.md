@@ -115,9 +115,6 @@ Expand the Scout AI assistant into a full voice-to-voice CRM control system. Use
 - Context-aware: knows what page the user is on, who they're looking at
 - Streams responses word-by-word for natural conversation feel
 
-### 22. Deploy to Hetzner
-Docker compose for CRM + PostgreSQL + Redis. Nginx reverse proxy + SSL. Set APP_URL. Run setup-tables.sql. Switch Stripe to live keys. Update OAuth redirect URIs.
-
 ### 23. End-to-End Testing
 Full flow: signup → onboarding → connect Gmail → send email → landing page → form → contact → Stripe → payment → sequence → verify.
 
@@ -139,9 +136,6 @@ After Hetzner deploy is live, verify these work in production:
 
 ### 24. CRM Migration Assistant
 Import wizard: CSV/Excel with AI column mapping, Google Sheets, HubSpot/GHL/Salesforce API import. Dedup, pipeline mapping, notes/activities. Progress + undo.
-
-### 25. LaunchBot CRM Skill
-CRM skill for LaunchBot agents. Query/create contacts, deals, pipeline. "Ask AI" on contact pages.
 
 ### 26. Google OAuth Verification
 Submit for production verification. Privacy policy + terms pages. Security assessment if sensitive scopes. 100 test users while pending.
@@ -235,6 +229,8 @@ The AI voice assistant can create things reliably but struggles to edit/delete e
 
 ## Recently Completed (Reference)
 
+- **#22 Deploy to Hetzner** ✅ — Live at https://crm.thelaunchpadincubator.com. Docker compose (app + postgres + redis + nginx + certbot), SSL via Let's Encrypt, crontab for reminders/sequences/email-sync/automations, deploy flow documented in memory (`reference_deployment.md`). Subsequent hardening still lands through regular commits.
+- **#25 LaunchBot CRM Skill** ✅ — Superseded by SPEC-062 (Full CRM API + MCP Server). Every CRM capability is now reachable via the public MCP endpoint at `/mcp` with 25 curated tools + 636 auto-discovered endpoints, HMAC-signed webhooks, per-key rate limiting, scoped API keys, and `AGENT_GUIDE.md` served through `get_agent_guide`. LaunchBot (and any other agent) connects the same way external integrators do — no CRM-specific skill needed.
 - **#33 Terms — AI Token Overage** ✅ — Section 6.8 "AI Usage Limits and Overage Responsibility" shipped in `apps/mercato/src/app/terms/page.tsx`. Covers plan allotments, BYOK carve-out, Launch Pad's discretion to throttle/pause/charge overage at posted rates, user's duty to monitor Settings → AI Usage. Liability protection ready for paid-plan launch.
 - **#35 Contact Source Tagging** ✅ — `packages/core/src/modules/customers/lib/sourceTagging.ts` provides `tagContactSource(knex, scope, contactId, category, detail)` and is wired into every creation path (forms, landing pages, funnels, bookings, courses, affiliates, CSV import, Scout, inbox extraction). First-touch attribution: only new contacts get tagged so re-submissions don't overwrite the original source. Reports → Sources reads these tags directly.
 - **#34 Notification Center — CRM event wiring** ✅ — The notification center UI (bell icon, panel, SSE + polling hooks, unread badge, group dedup, per-type settings) already shipped with the Open Mercato framework and had several customers-module events wired to it (person.created, deal.stage_changed, deal.won/lost, scout.action). This pass wires the remaining CRM-specific events into the same bell so the "what's my CRM doing right now" promise is real: (1) `landing_pages.form.submitted` — new notification type in landing_pages app module + subscriber that decrypts the submitter name, looks up the page title, and skips when the submit also created a new contact (person.created already covers that case) to avoid doubling; also emits the previously declared-but-never-fired event from the public submit route. (2) `payments.payment.received` and `payments.payment.failed` — new types in the payments app module + subscribers on `payment_gateways.payment.captured`/`payment.failed` that fetch amount/currency from `gateway_transactions` and render a localized currency string. (3) `email.sync.failed` — new type in the email app module + subscriber on `data_sync.run.failed` that looks up the integration display name so the error points at the specific connection (Gmail, Outlook, etc.). All subscribers follow the existing `person-created-notification` template: decrypt-aware, owner/admin recipient resolution, groupKey for dedup, non-blocking error handling. `inbox_ops.proposal.created` was already wired via `packages/core/src/modules/inbox_ops/subscribers/proposalNotifier.ts`. `customers.reminder.fired` was skipped — event declared but never emitted; a separate item can wire the cron to emit first. (2026-04-23)
