@@ -371,25 +371,9 @@ export default async function BackendLayout({ children, params }: { children: Re
     '/backend/query-indexes',
     '/backend/config/attachments',
   ]
-  // Per-user hide list from the crm_hidden_sidebar cookie — applies in
-  // both simple and advanced mode (SPEC-063 Phase 3). Users can add hrefs
-  // to this list via the Settings → Sidebar panel to tailor their nav
-  // without needing code changes.
-  let userHiddenItems: string[] = []
-  try {
-    if (hiddenSidebarRaw) {
-      const parsed = JSON.parse(hiddenSidebarRaw)
-      if (Array.isArray(parsed)) userHiddenItems = parsed.filter((x) => typeof x === 'string')
-    }
-  } catch { /* ignore malformed cookie */ }
-
   const advancedGroups = allGroups.map(g => ({
     ...g,
-    items: g.items.filter(item => {
-      if (irrelevantPaths.some(p => item.href.startsWith(p))) return false
-      if (userHiddenItems.includes(item.href)) return false
-      return true
-    }),
+    items: g.items.filter(item => !irrelevantPaths.some(p => item.href.startsWith(p))),
   })).filter(g => g.items.length > 0)
 
   let groups: NavGroup[] = interfaceMode === 'simple'
