@@ -1,28 +1,12 @@
 # CRM Build Queue
 
-Comprehensive prioritized queue. Updated 2026-04-22.
+Comprehensive prioritized queue. Updated 2026-04-23.
 
 ---
 
 ## TOP PRIORITY
 
-### A. Full CRM API + MCP Server
-Build a comprehensive REST API and MCP (Model Context Protocol) server so the CRM can be controlled by external AI agents (LaunchBot, custom agents, etc.).
-
-**REST API:**
-- Complete CRUD for all entities (contacts, deals, tasks, notes, tags, invoices, products, etc.)
-- API key authentication (already exists, needs full endpoint coverage)
-- Webhook subscriptions for real-time events
-- OpenAPI spec auto-generated from routes
-- Rate limiting per API key
-
-**MCP Server:**
-- Expose CRM capabilities as MCP tools
-- Tools: search_contacts, create_contact, update_deal, send_email, get_pipeline, create_task, etc.
-- Connectable from any MCP-compatible AI agent
-- Authentication via API key or session token
-
-### B. Smarter Landing Pages
+### A. Smarter Landing Pages
 Upgrade the landing page system to be more intelligent and produce higher-converting pages:
 - AI analyzes the user's business, audience, and offer to generate truly custom copy (not template-fill)
 - Competitor analysis — AI researches competitor landing pages and incorporates winning patterns
@@ -320,6 +304,7 @@ The AI voice assistant can create things reliably but struggles to edit/delete e
 
 ## Recently Completed (Reference)
 
+- **SPEC-062 — Full CRM API + MCP Server (4 phases)** ✅ — Public platform for third-party AI agents, bots, and automations. (1) Webhooks module: one-event-per-subscription CRUD, 7 event subscribers wiring module events → outbound HMAC-signed POSTs, delivery log with retries, test-delivery button, secret rotation; covers contact.created/updated, deal.created/stage_changed/won/lost, task.created/completed, form.submitted, booking.created, course.enrollment.created, invoice.created. (2) Per-API-key rate limiting: default (60/min, 1000/hr) / pro (300/min, 10k/hr) / unlimited tiers stored on api_keys.rate_limit_tier, IETF RateLimit-* headers on every response, Retry-After on 429s, cookie-auth bypass (UI unaffected), dual-window enforcement. (3) Public MCP HTTPS endpoint at /mcp: nginx-proxied x-api-key gate, dedicated launchos-mcp container running streamable HTTP transport on :3001, 25 tools (24 curated + get_agent_guide) plus 636 auto-discovered endpoints via call_api. (4) Scoped API keys: additive scopes column on api_keys, wildcard matcher (exact/entity/module/root), router narrows role permissions when scopes present, null preserves v1 behavior. Plus: AGENT_GUIDE.md integration doc (18KB, three control surfaces, auth, webhooks, recipes, BC contract) ships in the repo and at /app in prod; get_agent_guide MCP tool returns it with optional H2 section filter; bootstrap instructions auto-delivered in the MCP initialize response so every agent gets the primer in its system prompt at handshake time. End-to-end verified via agent simulation: initialize→find_api→call_api→customers_create_note→DB confirmation. Systemic fix: normalizeAuthorUserId applied across tier0 commands + 5 raw routes so API-key callers don't 500 on UUID columns. 30+ commits, all deployed, all verified in prod. (2026-04-23)
 - **Scout V2 — AI Voice Assistant (5 phases + major reliability pass)** ✅ — Phase 1 multi-step reliability (system-prompt TOOL CALL DISCIPLINE block forbidding past-tense claims without matching tool calls, narrated execution labels with entity names, client-side reconciliation banner that compares transcript verbs vs actual function_call events and offers a Retry button); Phase 2 edit/delete by name (new `find_entity` tool routing to 12 entity search endpoints, fetch-and-filter fallback that works against encrypted display_name where ILIKE can't match, explicit NAME RESOLUTION prompt rule); Phase 3 destructive confirmation (19 tool+subaction combos intercepted — delete_contact, manage_deal/delete|close_lost, manage_invoice/delete, manage_event_advanced/delete|cancel, process_payment/refund|cancel_subscription, etc. — each gated by a Confirm/Cancel UI and a blocked Promise in handleRealtimeToolCall); Phase 4 context awareness (derivePageContext parses URL/referrer for known entity detail pages, passed to both realtime session and text assistant, CURRENT CONTEXT block in prompt defaults ambiguous references to the viewed entity); Phase 5 proactive open (greeting now leads with top action-items instead of generic "how can I help"). Bonus fixes during integration: OpenAI fallback when Gemini 429s, decryption in pipeline/journey + contact-detail slideout + Scout data context for both contacts and deals, company names exposed to Scout, missing action handlers (delete_company/delete_deal/delete_product/delete_task/remove_contact_from_pipeline/move_contact_stage) added across widget + full-page executors, create_contact validator fix (drop empty email), multi-step chain contact-id injection, assistant_conversations table created, auto-scroll, login autofill label overlap, pipeline journey hides null-stage + company entities, Appzi widget removed. API test harness at `/tmp/scout-test-harness.sh` validates 12 endpoints end-to-end and now catches regressions before the user does (2026-04-22)
 - **Login / Signup flow — full overhaul (6 phases)** ✅ — (1) audited the custom signup/forgot/reset routes and found they were all broken against the encrypted-email production schema (raw SQL plaintext lookups, missing `email_hash`, bypassed `setupInitialTenant`, plus `requireAuth: true` blocking every POST); (2) rewrote all three to use `AuthService` + `setupInitialTenant` so encryption maps, role ACLs, and module `onTenantCreated` hooks fire properly; (3) confirmed signup already routes to `/backend/welcome` onboarding wizard; (4) ported auth polish to real pages — float-label inputs, traced-gradient submit button with spring hover, shake-on-error, scale-check-on-success, staggered org picker, 13 drifting particles, 6s card breathing glow, iOS no-zoom fix; (5) built Google OAuth — `users.google_sub` column + unique index, `/api/auth/google/start` with PKCE + state cookies, `/api/auth/google/callback` that finds/links/creates users via existing `GOOGLE_OAUTH_CLIENT_ID` creds, non-sensitive scopes (`openid email profile`) so no verification review needed; forgot-password silently skips Google-only accounts; (6) E2E tested all paths. Bonus: fixed onboarding `pipelineMode: 'journey'` validation bug that was silently failing + surfaced save errors via alert instead of swallowing; fixed reset-email sending to encrypted ciphertext instead of plaintext; ported the darker auth-page hero gradient + drifting particles to the landing page (2026-04-21)
 - Blog-Ops / AMS integration ✅ — API-key auth, ext endpoints (`/api/ext/contacts|deals|dashboard/summary|pipeline/summary`), landing page signups create CRM contacts end-to-end, dedicated "AMS Integration" settings card that generates the CRM API key + step-by-step connection instructions (2026-04-20)
