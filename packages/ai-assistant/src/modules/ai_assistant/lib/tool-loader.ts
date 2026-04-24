@@ -68,6 +68,17 @@ export async function loadAllModuleTools(): Promise<void> {
   registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
   console.error('[MCP Tools] Registered built-in context_whoami tool')
 
+  // 1b. Register the agent integration guide tool. Serves AGENT_GUIDE.md
+  // so new agents can read the full integration contract via one tool call
+  // before doing anything else.
+  try {
+    const { registerAgentGuideTool } = await import('./agent-guide-tool')
+    registerAgentGuideTool()
+    console.error('[MCP Tools] Registered get_agent_guide tool')
+  } catch (error) {
+    console.error('[MCP Tools] Could not register agent guide tool:', error)
+  }
+
   // 2. Register entity graph tools
   try {
     const { entityGraphTools } = await import('./entity-graph-tools')
