@@ -1,5 +1,6 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { randomUUID } from 'node:crypto'
 
 function parseArgs(rest: string[]): Record<string, string> {
   const args: Record<string, string> = {}
@@ -37,8 +38,8 @@ const testNotifications: ModuleCli = {
       return
     }
 
-    const txId = require('crypto').randomUUID()
-    const runId = require('crypto').randomUUID()
+    const txId = randomUUID()
+    const runId = randomUUID()
 
     console.log('[1/3] Inserting synthetic gateway_transactions row…')
     await knex('gateway_transactions').insert({
@@ -46,7 +47,7 @@ const testNotifications: ModuleCli = {
       tenant_id: tenantId,
       organization_id: orgId,
       provider_key: 'stripe',
-      payment_id: require('crypto').randomUUID(),
+      payment_id: randomUUID(),
       amount: '49.99',
       currency_code: 'USD',
       unified_status: 'captured',
