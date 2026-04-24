@@ -3,7 +3,7 @@ import * as React from 'react'
 import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ChevronUp, ChevronDown, EyeOff } from 'lucide-react'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
@@ -383,50 +383,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [availableRoleTargets, setAvailableRoleTargets] = React.useState<SidebarRoleTarget[]>([])
   const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
   const [canApplyToRoles, setCanApplyToRoles] = React.useState(false)
-  const [hidingItem, setHidingItem] = React.useState<string | null>(null)
   const originalNavRef = React.useRef<SidebarGroup[] | null>(null)
-
-  /**
-   * One-click hide: append an item id to the saved hiddenItems preference
-   * and trigger a sidebar refresh. Alternative to entering customize mode
-   * for users who just want to hide a single item from their nav. Uses the
-   * same DB-backed /api/auth/sidebar/preferences endpoint the full customize
-   * flow uses, so the two stay in sync.
-   */
-  const hideSidebarItem = React.useCallback(async (itemId: string) => {
-    if (!itemId || hidingItem) return
-    setHidingItem(itemId)
-    try {
-      const getCall = await apiCall<{ settings?: { hiddenItems?: unknown; groupOrder?: unknown; groupLabels?: unknown; itemLabels?: unknown; version?: unknown } }>('/api/auth/sidebar/preferences')
-      const settings = (getCall.ok && getCall.result?.settings) ? getCall.result.settings : {}
-      const currentHidden = Array.isArray(settings.hiddenItems)
-        ? settings.hiddenItems.filter((x): x is string => typeof x === 'string')
-        : []
-      if (currentHidden.includes(itemId)) { setHidingItem(null); return }
-      const payload = {
-        version: typeof settings.version === 'number' ? settings.version : 1,
-        groupOrder: Array.isArray(settings.groupOrder) ? settings.groupOrder.filter((x): x is string => typeof x === 'string') : [],
-        groupLabels: (settings.groupLabels && typeof settings.groupLabels === 'object') ? settings.groupLabels : {},
-        itemLabels: (settings.itemLabels && typeof settings.itemLabels === 'object') ? settings.itemLabels : {},
-        hiddenItems: [...currentHidden, itemId],
-      }
-      await apiCall('/api/auth/sidebar/preferences', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch { /* noop */ }
-      // Client-side optimistic update: remove item from current nav immediately
-      setNavGroups((prev) => prev.map((g) => ({
-        ...g,
-        items: g.items.filter((it) => (it.id ?? it.href) !== itemId),
-      })).filter((g) => g.items.length > 0))
-    } catch (err) {
-      console.error('[sidebar hide] failed:', err)
-    } finally {
-      setHidingItem(null)
-    }
-  }, [hidingItem])
   const [headerTitle, setHeaderTitle] = React.useState<string | undefined>(currentTitle)
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const effectiveCollapsed = customizing ? false : collapsed
@@ -1307,30 +1264,16 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                             <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''} mb-1`}>
                               {visibleItems.map((i) => {
                                 const isActive = pathname === i.href || (i.href !== '/backend' && !!pathname?.startsWith(i.href + '/'))
-                                const itemId = (i.id ?? i.href) as string
                                 return (
-                                  <div key={i.href} className="group/navitem relative">
-                                    <Link
-                                      href={i.href}
-                                      data-menu-item-id={i.href}
-                                      className={`flex items-center gap-2 rounded-md ${compact ? 'px-2 justify-center' : 'px-3'} py-2 text-sm transition ${isActive ? 'bg-background border shadow-sm font-medium' : 'hover:bg-accent hover:text-accent-foreground'}`}
-                                    >
-                                      {i.icon}
-                                      {!compact && <span>{i.title}</span>}
-                                    </Link>
-                                    {!compact && !customizing ? (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); hideSidebarItem(itemId) }}
-                                        disabled={hidingItem === itemId}
-                                        aria-label={t('appShell.hideFromSidebar', { defaultValue: 'Hide from sidebar' })}
-                                        title={t('appShell.hideFromSidebar', { defaultValue: 'Hide from sidebar' })}
-                                        className="absolute right-1 top-1/2 -translate-y-1/2 hidden size-5 items-center justify-center rounded text-muted-foreground/70 transition hover:bg-muted hover:text-foreground group-hover/navitem:inline-flex"
-                                      >
-                                        <EyeOff className="size-3" />
-                                      </button>
-                                    ) : null}
-                                  </div>
+                                  <Link
+                                    key={i.href}
+                                    href={i.href}
+                                    data-menu-item-id={i.href}
+                                    className={`flex items-center gap-2 rounded-md ${compact ? 'px-2 justify-center' : 'px-3'} py-2 text-sm transition ${isActive ? 'bg-background border shadow-sm font-medium' : 'hover:bg-accent hover:text-accent-foreground'}`}
+                                  >
+                                    {i.icon}
+                                    {!compact && <span>{i.title}</span>}
+                                  </Link>
                                 )
                               })}
                             </div>
@@ -1358,13 +1301,11 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                 const hasActiveChild = !!(pathname && childItems.some((c) => pathname.startsWith(c.href)))
                                 const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
                                 const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
-                                const itemId = (i.id ?? i.href) as string
                                 return (
                                   <React.Fragment key={i.href}>
-                                    <div className="group/navitem relative">
                                     <Link
                                       href={i.href}
-                                      className={`relative text-sm rounded inline-flex items-center w-full ${base} ${
+                                      className={`relative text-sm rounded inline-flex items-center ${base} ${
                                         isParentActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
                                       } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                       aria-disabled={i.enabled === false}
@@ -1380,19 +1321,6 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                       </span>
                                       {!compact && <span>{i.title}</span>}
                                     </Link>
-                                    {!compact && !customizing ? (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); hideSidebarItem(itemId) }}
-                                        disabled={hidingItem === itemId}
-                                        aria-label={t('appShell.hideFromSidebar', { defaultValue: 'Hide from sidebar' })}
-                                        title={t('appShell.hideFromSidebar', { defaultValue: 'Hide from sidebar' })}
-                                        className="absolute right-1 top-1/2 -translate-y-1/2 hidden size-5 items-center justify-center rounded text-muted-foreground/70 transition hover:bg-muted hover:text-foreground group-hover/navitem:inline-flex"
-                                      >
-                                        <EyeOff className="size-3" />
-                                      </button>
-                                    ) : null}
-                                    </div>
                                     {showChildren ? (
                                       <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
                                         {childItems.map((c) => {
