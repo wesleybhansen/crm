@@ -52,12 +52,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Prefer the real user UUID. For cookie auth auth.sub IS the UUID; for
+  // x-api-key auth auth.sub is 'api_key:<id>' but auth.userId carries the
+  // underlying user (session user or key creator). Without this fallback,
+  // downstream queries that treat userId as UUID explode.
+  const userUuid = typeof (auth as any).userId === 'string' && (auth as any).userId
+    ? (auth as any).userId as string
+    : auth.sub
+  if (userUuid.startsWith('api_key:')) {
+    return NextResponse.json(
+      { error: 'Cannot mint a session key from an API key that has no associated user.' },
+      { status: 400 },
+    )
+  }
+
   try {
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
 
     // Get user's role IDs from database
-    const userRoleIds = await getUserRoleIds(em, auth.sub, auth.tenantId)
+    const userRoleIds = await getUserRoleIds(em, userUuid, auth.tenantId)
 
     // Generate session token and create ephemeral key
     const sessionToken = generateSessionToken()
@@ -65,7 +79,7 @@ export async function POST(req: NextRequest) {
 
     await createSessionApiKey(em, {
       sessionToken,
-      userId: auth.sub,
+      userId: userUuid,
       userRoles: userRoleIds,
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
