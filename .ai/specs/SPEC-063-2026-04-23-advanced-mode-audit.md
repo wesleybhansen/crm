@@ -154,4 +154,13 @@ None required. Deploy is strictly additive to the filter list.
 
 ## Changelog
 
-- **2026-04-23** — Initial draft. Phase 1 hide-list proposed. Awaiting approval.
+- **2026-04-23** — Initial draft. Phase 1 hide-list proposed.
+- **2026-04-23** — Phase 1 shipped. Extended `irrelevantPaths` in `layout.tsx` from 4 → 15 entries covering Buckets A + B. Commit `5a3eed33b`.
+- **2026-04-23** — Phase 2 static code audit complete. **Zero RED findings.** ~32 GREEN pages follow the standard CRUD/DataTable pattern — low risk. 7 YELLOW pages with complex client logic worth a live test but not broken:
+  - `customers/people`, `customers/companies`, `customers/deals` — client-side filtering, dictionary loading, label resolution
+  - `settings/webhooks` — manual form state + test/rotate/toggle actions
+  - `audit-logs` — dual-tab with undo/redo
+  - `payment-gateways` — expandable transaction log viewer
+  - `email` — inline fetch + compose modal
+
+  Zero broken imports, zero missing endpoints, zero incomplete-implementation markers, zero stale references to disabled modules. Advanced mode is in good shape after Phase 1's hide-list. No fixes needed in Phase 2b — skip straight to Phase 3 (user-controlled customization).
