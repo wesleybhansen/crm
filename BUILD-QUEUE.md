@@ -6,6 +6,33 @@ Comprehensive prioritized queue. Updated 2026-04-23.
 
 ## TOP PRIORITY
 
+### B. Stripe Connect — Verification + Live Integration
+Finish provisioning Stripe Connect so end users can actually accept payments. This is a two-step unlock — Stripe account verification (external, Wesley) and then one-time platform config on the server.
+
+**Step 1 — Verify the Stripe platform account**
+- Stripe requires the platform itself (The Launch Pad LLC) to be identity-verified before Connect OAuth can be enabled for other users. Submit business details, EIN, address, bank account, and any requested docs in the Stripe dashboard.
+- Wait for Stripe to approve. Typical turnaround: a few hours to a few days.
+
+**Step 2 — Enable OAuth for Standard accounts**
+- In https://dashboard.stripe.com/settings/connect, set integration type to **Standard** (OAuth flow requires Standard — not Express or Custom).
+- Go to the OAuth subsection (https://dashboard.stripe.com/settings/connect/onboarding-options/oauth) and toggle OAuth **on**.
+- Add redirect URI exactly: `https://crm.thelaunchpadincubator.com/api/stripe/connect-oauth/callback`
+- Copy the **Live mode** `ca_xxx` client ID (and optionally the Test mode one for staging).
+
+**Step 3 — Platform env config on the server**
+- SSH into the Hetzner box (`ssh root@5.78.71.144`).
+- Edit `/root/open-mercato/.env.production` and add `STRIPE_CONNECT_CLIENT_ID=ca_xxx` (use live ID for prod).
+- Also set live-mode `STRIPE_SECRET_KEY=sk_live_...` and `STRIPE_WEBHOOK_SECRET=whsec_...` in the same file (these replace the current sandbox values — see #23b).
+- Restart: `docker compose -f /root/open-mercato/docker-compose.prod.yml up -d --no-deps app`
+
+**Step 4 — Verify end-to-end**
+- As a CRM user, click "Connect Stripe" on the payments settings page.
+- Expect redirect to `connect.stripe.com/oauth/authorize?...` (no 500, no "not configured" error).
+- Complete the connected-account OAuth flow, get redirected back to `/api/stripe/connect-oauth/callback`, confirm `acct_xxx` saved against your org in DB.
+- Create a test invoice, pay with a real card (can refund $1 test charge right after), verify payment success webhook and the new `payments.payment.received` bell notification (see Recently Completed — notification center wiring).
+
+**Why this matters:** Every other money-making feature (invoices, checkout, subscriptions, funnel payments, course payments) is dead-on-arrival until Connect OAuth works. Payment received/failed notifications were already wired in the 2026-04-23 notification pass and are waiting for real Stripe events to fire.
+
 ### A. Smarter Landing Pages
 Upgrade the landing page system to be more intelligent and produce higher-converting pages:
 - AI analyzes the user's business, audience, and offer to generate truly custom copy (not template-fill)
