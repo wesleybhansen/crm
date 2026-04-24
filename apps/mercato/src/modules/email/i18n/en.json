@@ -28,5 +28,7 @@
   "email.status.bounced": "Bounced",
   "email.status.failed": "Failed",
   "email.flash.sent": "Email sent",
-  "email.flash.sendFailed": "Failed to send email"
+  "email.flash.sendFailed": "Failed to send email",
+  "email.notifications.sync_failed.title": "Email sync failed",
+  "email.notifications.sync_failed.body": "Sync with {integrationName} failed — {error}"
 }

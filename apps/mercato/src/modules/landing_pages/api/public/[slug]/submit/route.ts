@@ -191,6 +191,22 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           data: cleanData,
         }).catch(() => {})
 
+        try {
+          const bus = container.resolve('eventBus') as any
+          if (bus?.emitEvent) {
+            await bus.emitEvent('landing_pages.form.submitted', {
+              tenantId: page.tenant_id,
+              organizationId: page.organization_id,
+              contactId,
+              formId: form.id,
+              landingPageId: page.id,
+              landingPageTitle: page.title,
+              submitterName: name || null,
+              isNewContact: !existing,
+            }, { persistent: true })
+          }
+        } catch {}
+
         // Fire automation rules for form submission and contact creation
         if (contactId) {
           executeAutomationRules(knex, page.organization_id, page.tenant_id, 'form_submitted', {

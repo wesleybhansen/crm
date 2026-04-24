@@ -1,3 +1,7 @@
 {
-  "payments.nav.title": "Payments"
+  "payments.nav.title": "Payments",
+  "payments.notifications.payment_received.title": "Payment received",
+  "payments.notifications.payment_received.body": "You received {amount} via {provider}",
+  "payments.notifications.payment_failed.title": "Payment failed",
+  "payments.notifications.payment_failed.body": "A {amount} charge via {provider} failed"
 }

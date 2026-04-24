@@ -34,5 +34,7 @@
   "landing_pages.flash.published": "Landing page published",
   "landing_pages.flash.deleted": "Landing page deleted",
   "landing_pages.submissions.title": "Form Submissions",
-  "landing_pages.submissions.empty": "No submissions yet"
+  "landing_pages.submissions.empty": "No submissions yet",
+  "landing_pages.notifications.form_submitted.title": "Form submission",
+  "landing_pages.notifications.form_submitted.body": "{submitterName} submitted {pageTitle}"
 }
