@@ -97,9 +97,9 @@ export default function PipelineAutomationPage() {
     setLoading(true)
     try {
       const [trigRes, rulesRes, runsRes] = await Promise.all([
-        apiCall<{ items: Trigger[] }>('/api/pipeline-automation/triggers'),
-        apiCall<{ items: Rule[] }>('/api/pipeline-automation/rules'),
-        apiCall<{ items: Run[] }>('/api/pipeline-automation/runs?page_size=50'),
+        apiCall<{ items: Trigger[] }>('/api/customers/pipeline-automation/triggers'),
+        apiCall<{ items: Rule[] }>('/api/customers/pipeline-automation/rules'),
+        apiCall<{ items: Run[] }>('/api/customers/pipeline-automation/runs?page_size=50'),
       ])
       if (trigRes.ok && trigRes.result) setTriggers(trigRes.result.items)
       if (rulesRes.ok && rulesRes.result) setRules(rulesRes.result.items)
@@ -111,9 +111,9 @@ export default function PipelineAutomationPage() {
 
   const loadPipelines = React.useCallback(async () => {
     try {
-      const pRes = await apiCall<{ items: Pipeline[] }>('/api/pipelines')
+      const pRes = await apiCall<{ items: Pipeline[] }>('/api/customers/pipelines')
       if (pRes.ok && pRes.result) setPipelines(pRes.result.items)
-      const sRes = await apiCall<{ items: PipelineStage[] }>('/api/pipeline-stages')
+      const sRes = await apiCall<{ items: PipelineStage[] }>('/api/customers/pipeline-stages')
       if (sRes.ok && sRes.result) setStages(sRes.result.items)
     } catch {}
   }, [])
@@ -126,7 +126,7 @@ export default function PipelineAutomationPage() {
   const handleToggleActive = async (rule: Rule) => {
     const next = !rule.isActive
     setRules((prev) => prev.map((r) => (r.id === rule.id ? { ...r, isActive: next } : r)))
-    const res = await apiCall('/api/pipeline-automation/rules', {
+    const res = await apiCall('/api/customers/pipeline-automation/rules', {
       method: 'PUT',
       body: JSON.stringify({ id: rule.id, isActive: next }),
     })
@@ -146,7 +146,7 @@ export default function PipelineAutomationPage() {
       variant: 'destructive',
     })
     if (!ok) return
-    const res = await apiCall(`/api/pipeline-automation/rules?id=${rule.id}`, { method: 'DELETE' })
+    const res = await apiCall(`/api/customers/pipeline-automation/rules?id=${rule.id}`, { method: 'DELETE' })
     if (res.ok) {
       flash('Rule deleted', 'success')
       void refresh()
@@ -367,9 +367,9 @@ function RuleEditorDialog(props: {
       let res
       if (isEdit) {
         body.id = (state as { rule: Rule }).rule.id
-        res = await apiCall('/api/pipeline-automation/rules', { method: 'PUT', body: JSON.stringify(body) })
+        res = await apiCall('/api/customers/pipeline-automation/rules', { method: 'PUT', body: JSON.stringify(body) })
       } else {
-        res = await apiCall('/api/pipeline-automation/rules', { method: 'POST', body: JSON.stringify(body) })
+        res = await apiCall('/api/customers/pipeline-automation/rules', { method: 'POST', body: JSON.stringify(body) })
       }
       if (res.ok) {
         flash(`Rule ${isEdit ? 'updated' : 'created'}`, 'success')
