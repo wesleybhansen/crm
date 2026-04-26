@@ -9,6 +9,30 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+async function emitSequenceCompleted(
+  container: Awaited<ReturnType<typeof createRequestContainer>>,
+  execution: {
+    enrollment_id: string
+    sequence_id: string
+    contact_id: string | null
+    organization_id: string
+    tenant_id: string
+  },
+): Promise<void> {
+  try {
+    const bus = container.resolve('eventBus') as any
+    if (bus?.emitEvent) {
+      await bus.emitEvent('sequences.sequence.completed', {
+        sequenceId: execution.sequence_id,
+        sequenceRunId: execution.enrollment_id,
+        contactId: execution.contact_id,
+        organizationId: execution.organization_id,
+        tenantId: execution.tenant_id,
+      }, { persistent: true })
+    }
+  } catch {}
+}
+
 export async function POST(req: Request) {
   const secret = process.env.SEQUENCE_PROCESS_SECRET
   if (secret) {
@@ -135,6 +159,7 @@ export async function POST(req: Request) {
             status: 'completed',
             completed_at: now,
           })
+          await emitSequenceCompleted(container, execution)
           processed++
           continue
         }
@@ -393,12 +418,14 @@ export async function POST(req: Request) {
                 status: 'completed',
                 completed_at: now,
               })
+              await emitSequenceCompleted(container, execution)
             }
           } else {
             await knex('sequence_enrollments').where('id', execution.enrollment_id).update({
               status: 'completed',
               completed_at: now,
             })
+            await emitSequenceCompleted(container, execution)
           }
 
           processed++
@@ -449,6 +476,7 @@ export async function POST(req: Request) {
             status: 'completed',
             completed_at: new Date(),
           })
+          await emitSequenceCompleted(container, execution)
         }
 
         processed++

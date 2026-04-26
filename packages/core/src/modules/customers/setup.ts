@@ -1,5 +1,6 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { seedCustomerDictionaries, seedCurrencyDictionary, seedCustomerExamples, seedDefaultPipeline } from './cli'
+import { seedDefaultRulesForOrg } from './pipeline_automation/seed'
 
 export const setup: ModuleSetupConfig = {
   seedDefaults: async (ctx) => {
@@ -7,6 +8,8 @@ export const setup: ModuleSetupConfig = {
     await seedCustomerDictionaries(ctx.em, scope)
     await seedCurrencyDictionary(ctx.em, scope)
     await seedDefaultPipeline(ctx.em, scope)
+    // SPEC-064 — Seed default pipeline automation rules (idempotent: skips if any rules exist)
+    await seedDefaultRulesForOrg((ctx.em as any).getKnex(), scope)
   },
 
   seedExamples: async (ctx) => {
@@ -25,6 +28,9 @@ export const setup: ModuleSetupConfig = {
       'customers.deals.manage',
       'customers.pipelines.view',
       'customers.pipelines.manage',
+      // SPEC-064 — Pipeline automation
+      'pipeline_automation.configure',
+      'pipeline_automation.view_history',
     ],
     employee: [
       'customers.*',
@@ -33,6 +39,8 @@ export const setup: ModuleSetupConfig = {
       'customers.companies.view',
       'customers.companies.manage',
       'customers.pipelines.view',
+      // SPEC-064 — view-only by default; admins can grant configure if needed
+      'pipeline_automation.view_history',
     ],
   },
 }

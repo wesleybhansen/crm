@@ -146,8 +146,8 @@ Users publish on their own domain. CNAME/DNS setup, domain verification, SSL via
 ### 28. Data Enrichment
 Extract business data from email signatures (company, title, phone, LinkedIn). Later: paid enrichment API (Clearbit, Hunter.io, Apollo).
 
-### 29. Automatic Pipeline Stage Advancement
-Auto-move contacts through stages based on events: sequence completion → advance, form submission → set stage, engagement threshold → advance, payment → move to Customer.
+### 29. Automatic Pipeline Stage Advancement ✅ Phase 1 shipped 2026-04-25
+Auto-move contacts through stages based on events: sequence completion → advance, form submission → set stage, engagement threshold → advance, payment → move to Customer. **See SPEC-064.** Integration tests deferred to Phase 1.5; deal-target seeded defaults deferred (users add deal rules via UI once they pick pipeline+stage).
 
 ### 36. Meeting Notes Upload to Knowledge Base
 Allow users to upload meeting notes (text, transcripts, recordings, audio files) into the CRM knowledge base where Scout and other AI features can use them as context. Same upload + indexing pipeline as the existing knowledge base, scoped per contact, deal, or organization-wide.
@@ -186,12 +186,277 @@ Allow users to upload meeting notes (text, transcripts, recordings, audio files)
 - Referral tracking: agent-to-agent (25-35% fee), client referrals, vendor/partner exchange, agreement templates
 
 ### 32. Realtor Package — Phase 3 (premium differentiators)
-- MLS/IDX data integration
+- MLS/IDX data integration → **see #37 for full spec**
 - Neighborhood market data + market snapshot email generator
-- CMA builder (manual comps → branded PDF report, shareable link)
+- CMA builder (manual comps → branded PDF report, shareable link) → **see #39 for full spec**
 - AI lead qualification bot (auto-text, qualifying questions, score/categorize)
 - Property alert system for buyers (new listing matches criteria → auto-notify)
 - "Farm area" management with market share tracking
+
+---
+
+## Realtor Vertical — ReChat Parity (added 2026-04-25)
+
+These items close the gap with ReChat (the dominant brokerage-tier RE platform) so the solo-agent RE variant lands as a credible alternative. Sourced from `~/Desktop/ReChat_vs_Your_Stack_Analysis.docx` (Apr 24, 2026) and `~/Desktop/Rechat_Competitive_Analysis.docx` (Apr 1, 2026). Build order roughly follows Section 5 of the analysis: MLS first (blocks everything else), then quick wins (seller reports), then differentiators (Agent Network, CMA), then proactive AI, then mobile/integrations.
+
+Strategic frame: ReChat won't sell to solo agents (15-seat minimum). We win the segment they refuse, with three demo proof points: **Agent Network done better** (#38), **gorgeous CMAs** (#39, attacking ReChat's acknowledged weakness), and **proactive AI** (#44). Suite integration is the moat — these features must feel like one product, not bundled.
+
+### 37. MLS/IDX Integration (RESO Web API)
+
+**Why:** Blocking dependency for #38–#46. Without MLS data, none of the RE-specific marketing, CMAs, agent-network, or property-site features can exist. ReChat's #1 unstated advantage is that brokerages set up MLS once and every agent benefits.
+
+**Scope:**
+- Use **RESO Web API** (modern OData-based standard) as primary; RETS legacy fallback only when MLS doesn't support RESO.
+- Per-tenant MLS credentials (each agent sets up their MLS or inherits brokerage creds). Store encrypted in `mls_credentials` (org-scoped).
+- Resync cadence: 5-minute polling for new/updated listings (matches ReChat); per-listing webhook if MLS supports it.
+- Data model (new `realtor` module under `packages/core/src/modules/`): `mls_listings` (RESO standard fields: ListingKey, ListPrice, BedroomsTotal, BathroomsTotalInteger, LivingArea, PropertyType, StandardStatus, ListAgentMlsId, etc.), `mls_listing_photos`, `mls_listing_history` (price changes, status changes), `mls_offices`, `mls_agents`.
+- Coming-Soon support: ingest CS status when MLS provides it; manual entry path for off-MLS pre-market listings.
+- Saved searches: agent defines criteria (geo, price, beds, etc.); engine matches new/updated listings against saved searches and emits events.
+- Events to emit (used by #38, #41, #43, #44): `realtor.listing.created`, `realtor.listing.updated`, `realtor.listing.status_changed`, `realtor.listing.price_changed`, `realtor.listing.photos_changed`, `realtor.saved_search.matched`.
+- Error handling: rate-limit per MLS, exponential backoff, staleness alerts ("MLS sync failed for 1h — check creds"), notification-bell entry.
+- Field mapping config per MLS (RESO is "standard" but every MLS has quirks). Admin UI under settings → Real Estate.
+
+**Dependencies:** none (foundational). Use existing `packages/core` module patterns (`data/entities.ts`, `subscribers/`, `workers/`). Re-use `@open-mercato/queue` for sync workers, `@open-mercato/cache` for listing reads.
+
+**Differentiator vs ReChat:** ReChat is brokerage-managed; ours is agent-managed (or brokerage-managed if shared). Self-serve onboarding flow ("Connect your MLS in 5 min") is the wedge.
+
+### 38. Agent Network / Reverse Prospecting
+
+**Why:** ReChat's single most-loved feature ("$10M deal attributed to it" in their materials, "cool since sliced bread" in demo notes). Brokerages choose ReChat *because* of this. It's their #1 moat — but it's data-mostly + UI, fully buildable on top of #37.
+
+**Scope:**
+- "Find buyer agents who recently transacted near my listing" workflow:
+  - Input: a listing (your own MLS listing or any address)
+  - Filters: radius slider 0.5–20mi, transaction side (buyer / seller / both), volume tier (1–5 sales / 6–15 / 16+ in window), time window (3 / 6 / 12 / 18 months), price band ±%
+  - Source data: `mls_listings` where `StandardStatus IN ('Closed', 'Pending')` joined with `ListAgentMlsId` and `BuyerAgentMlsId`
+- Result list: agent name, brokerage, email, phone, recent transaction count + volume, last transaction date, side mix
+- Bulk-select → blast branded email via AMS:
+  - Pre-formatted templates: Coming Soon, Just Listed, Open House, Price Reduced, Price Improvement, Just Sold (auto-pull listing photos/data via #46 token system)
+  - Track per-recipient opens, clicks, replies
+- Bulk-select → export to CRM contacts (with `Source: Agent Network — {listing address}` tag and dedup via existing source-tagging pipeline)
+- "Saved networks": persist a filter set, re-run on new listings
+
+**Beat ReChat:**
+1. **SMS in addition to email** (most agents respond to text faster). Use #48 Twilio integration.
+2. **Predictive matching**: rank agents by likelihood of bringing a buyer for *this* listing — features: recent buyer-side count in same price band/property type/neighborhood, response history if they're already in your CRM. Score 0–100, sort by default. Use existing AI infra (Scout / business-rules).
+3. **AI-personalized outreach**: instead of identical blast, generate per-recipient subject + opening line referencing their recent transactions ("Saw you closed 4 condos in Brickell this quarter — got one priced for your buyers"). Brand Voice Engine (#5) keeps it on-brand.
+4. **Reply tracking + auto-CRM**: when an agent replies, auto-create a deal in "Co-op opportunity" stage and notify via bell.
+
+**Dependencies:** #37 (MLS), #46 (marketing token system), optionally #48 (SMS), #5 (voice engine for personalization).
+
+### 39. CMA Builder v2 (premium, fully customizable)
+
+**Why:** Section 3 of the analysis: "ReChat's weakest area, biggest opening." ReChat publicly admits one template, no custom templates, no full-page listing pages. Luxury agents need beautiful presentations and will switch platforms for them. This is the single best demo weapon we can build.
+
+**Scope:**
+- Auto-pull comparable sales from MLS based on subject property: same school/zip/neighborhood, similar beds/baths/sqft (configurable tolerance), sold within last 6 months. Manual add/remove/replace.
+- Per-comp **adjustments**: $/sqft delta, lot size delta, condition delta, view, parking, beds/baths delta, time-of-sale (market drift). Per-feature dollar adjustments (configurable defaults + override per comp). Show adjusted price prominently.
+- **Custom templates** (the killer feature): drag-drop layout editor with sections — cover, agent bio, market overview, subject details, comp grid, comp detail (full-page), pricing strategy, marketing plan, testimonials, signature page. Save / share templates within team.
+- **Full-page individual listing pages** for hero comps (ReChat doesn't have this).
+- Output formats: branded **interactive web** version (clickable, image galleries, embedded maps, scroll analytics) + **print-quality PDF** (vector, exportable to InDesign).
+- Shareable link with view tracking (timeon-page, scroll depth, which comps got the most attention) — feeds back into Seller Activity Report (#40).
+- Reuse AMS template engine + custom entities (already supports the layout/data/print pattern). New `cma` entity scoped to deal/listing.
+
+**Dependencies:** #37 (MLS for comps), AMS template engine (already shipped). Optional: Brand Voice Engine (#5) for AI-drafted narrative copy.
+
+### 40. Seller Activity Report
+
+**Why:** Section 5 calls this "cheap, high-perceived-value." ReChat is *just* launching this in 2026 — we can ship it before they finish polishing. Sellers constantly ask "what have you done for my listing?" — automating the answer is a renewal/referral driver.
+
+**Scope:**
+- Per-listing aggregator that compiles all marketing activity:
+  - Email sends (subject, recipients, opens, clicks) — from `email` module
+  - Social posts (platform, post URL, reach if available) — from social module
+  - Landing-page views + form submissions — from `landing_pages`
+  - Open houses held + visitor counts — from #43 / `events`
+  - Showings + agent feedback — from `bookings` / showing module
+  - Calls + texts to inquiries — from #48
+  - CMA views + Agent Network outreach (#38, #39)
+- Time-range filter (week / month / since-listing).
+- Output: branded one-page dashboard URL (shareable to seller) + downloadable PDF.
+- Auto-send weekly/biweekly via email to seller (config per listing).
+- "What's next this week" section: scheduled emails, upcoming open houses, planned price reduction (if set).
+- Lives under deal/listing detail page; one-click "Send to seller" button.
+
+**Dependencies:** #37 (so we know which CRM activity belongs to which listing). Reads existing event log + module data — mostly aggregation work, no new event capture needed.
+
+### 41. Property Website Auto-Generator
+
+**Why:** Section 5 step 6: "Easy once MLS exists plus AMS landing-page builder." ReChat does this via Lucy. Match-then-beat by personalizing copy in the agent's voice.
+
+**Scope:**
+- New listing in MLS → background worker generates a single-property landing page within 5 min.
+- Pulls: photos (gallery + hero), description, features grid, video tour, virtual tour link, neighborhood data, school ratings, walk score (via free APIs), map.
+- Branded with agent (logo, colors, headshot, contact info).
+- AI-rewrites stale MLS description in agent's voice (#5 Brand Voice Engine) — keeps factual claims, improves prose.
+- Lead capture: schedule-showing CTA (creates booking + CRM contact), "request info" form, mortgage calculator.
+- Source-tagged leads (`Source: Property site — {address}`) routed to listing agent.
+- Custom subdomain or path: `agent.com/123-main-st` (pairs with #27 Custom Domain Landing Pages).
+- Auto-update when MLS data changes (price reduction → page refreshes + optional "Price Improvement" social post).
+- Analytics: views, time-on-page, photo gallery engagement, lead conversions — fed into #40.
+
+**Dependencies:** #37 (MLS), #5 (Brand Voice), AMS landing-page wizard v2 (TOP PRIORITY item A "Smarter Landing Pages"), optionally #27 (Custom Domain).
+
+### 42. Buyer Tour Sheets (polished)
+
+**Why:** ReChat's tour sheet is buggy ("being finicky" in demo, basic info only). A polished version is a daily-use feature for buyer agents. Section 2 calls it medium-effort, high-differentiation.
+
+**Scope:**
+- Create tour: select buyer contact(s), add agent participants (co-listing, showing agent), drag-drop list of properties.
+- Search MLS to add properties (#37); also accept manual address entry for off-market.
+- Map view with optimized driving route + estimated drive times between stops.
+- Public client-facing tour page via magic-link auth (reuse the same pattern just fixed in `apps/mercato/src/modules/courses/api/student/verify`):
+  - One-tap secure access from text/email
+  - Per-property: full MLS detail (all photos, description, features, virtual tour, map)
+  - Client adds: 👍/👎/❤️ react, free-text notes, photos they snap during showing
+  - All client input syncs to CRM contact + appears in agent's view in real time
+- Agent **private notes** per property (lockbox code, gate code, owner present, alarm, pet warning, listing agent's tip) — never shown to client.
+- Reorder stops via drag (route auto-recalculates).
+- Send tour: SMS (#48) + email link to client; ICS calendar invite.
+- Mobile-optimized — agents drive between showings; one-thumb operation.
+- Post-tour: AI summary of client reactions ("client liked the open kitchen and natural light, disliked busy street") saved to contact via #47 note-taker.
+
+**Dependencies:** #37 (MLS), magic-link auth pattern (already in courses module — copy/adapt), #48 (SMS), #47 (post-tour summary).
+
+### 43. Open House Auto-Detection + Marketing Pack
+
+**Why:** Section 2 lists this as low-effort once MLS + AMS wired. ReChat auto-detects from MLS and creates marketing pack — table-stakes parity. Building blocks for the speed-to-lead automation in #30.
+
+**Scope:**
+- Background worker scans `mls_listings.OpenHouseStartTime` daily; auto-creates open-house event in agent's calendar (`events` module).
+- For each detected open house, auto-generate a marketing pack:
+  - Email blast template populated with listing details
+  - Instagram post + Facebook post (image + caption)
+  - Postcard PDF (mailable to farm area)
+  - Sign rider design (printable)
+  - Branded sign-in form (paper) + iPad/QR digital sign-in URL
+- Daily 7am email digest: "Open houses this weekend — marketing packs ready" with one-click "Send all" / "Customize first" buttons.
+- iPad sign-in mode (full-screen):
+  - Visitor enters name/email/phone
+  - Auto-creates CRM contact tagged `Source: Open House — {address}`, `Open House` tag
+  - Triggers Speed-to-Lead sequence (already in #30): auto-text within 1 minute
+- Post-open-house: automated visitor-count + leads-captured report appended to listing's #40 Seller Activity Report.
+
+**Dependencies:** #37 (MLS), #30 (Open House mode is the precursor — this is the auto-detection + marketing-pack upgrade), #46 (marketing tokens), `events`/`bookings` modules.
+
+### 44. Proactive RE AI Agent (overnight prep)
+
+**Why:** Section 4 of the analysis: "Whoever nails proactive AI first wins the next generation of this market." ReChat is *promising* this with Lucy but hasn't shipped. We have the Inbox Ops + Scout + business-rules infra to ship a real proactive agent. This is the strategic differentiator.
+
+**Scope:**
+- Daemon/scheduled worker watches: new MLS listings (own + matching saved searches for buyers in CRM), price changes on listings the agent has shown, status changes (under contract / closed) on competing comps, new comps in farm areas (#32), inbox triage (extends existing Inbox Ops).
+- Each morning at 6am, agent receives a single **briefing email** + bell notification:
+  - "New listing matches Sarah's criteria — drafted a personal note" (link to approve/edit/skip)
+  - "3 new comps in your Brickell farm — drafted a market-update email to your sphere"
+  - "Coming Soon at 123 Main — drafted Just Listed package for Saturday's open house"
+  - "Inbox: 12 emails triaged — 3 need response (drafts ready), 5 promo (auto-archived), 4 contacts (added to CRM)"
+- Each item is a **proposal**, not an action — agent approves, edits, or dismisses. Already the Inbox Ops pattern (LLM proposes → human approves).
+- Per-agent control panel: which triggers are on, draft tone, approval thresholds (auto-send if confidence > X%, otherwise queue).
+- Audit log: every proposal + every decision, so the agent can see what the AI did/didn't do.
+
+**Beat ReChat:** Ship the actual product while ReChat is still "working on it." Position publicly: "Your AI gets up at 4am so you don't have to."
+
+**Dependencies:** #37 (MLS triggers), Inbox Ops (already shipped), #20 Scout V2 (action execution), #5 (Brand Voice), #46 (marketing tokens for drafted social/email).
+
+### 45. E-Sign Integration (DocuSign + Dropbox Sign)
+
+**Why:** Section 5 step 8: "Integrate, do not build." ReChat partnered with SkySlope + DocuSign. We do the same — both providers, since DocuSign is brand-leader and Dropbox Sign is cheaper for solo agents.
+
+**Scope:**
+- Two adapter packages: `packages/integration-docusign/` and `packages/integration-dropbox-sign/` (per AGENTS.md "every external integration provider in a dedicated npm workspace package"). Wire through Integration Marketplace (`packages/core/src/modules/integrations/`) and Data Sync hub (`packages/core/src/modules/data_sync/`).
+- OAuth connect per agent (each carries their own e-sign account/billing).
+- Pre-fill from CRM contact + deal data: buyer/seller name, address, listing data from MLS, agent info, brokerage info.
+- Templates: purchase agreement, listing agreement, buyer rep agreement, disclosures, addenda, counter-offer (state-specific template library — start with CA/FL/TX/NY).
+- Send envelope from deal detail page → status sync via webhook: `sent → viewed → signed → completed → declined → voided`.
+- Signed PDFs auto-attached to deal record + filed in `documents` module.
+- Notifications: signature requested / signed / declined → bell + optional email.
+
+**Dependencies:** Integration Marketplace + Data Sync hub (both shipped). Optional: dedicated `realtor.deals` module (extension of `sales`) for state-specific contract templates.
+
+### 46. MLS-Aware Marketing Auto-Population
+
+**Why:** Section 7 of OLD analysis: "Marketing auto-population from MLS — table stakes." ReChat's templates auto-pull listing photos/data from MLS, what used to take days takes seconds. Foundation for #38, #41, #43.
+
+**Scope:**
+- Token system for AMS templates (email, landing page, social post, print): `{{listing.address}}`, `{{listing.price}}`, `{{listing.beds}}`, `{{listing.baths}}`, `{{listing.sqft}}`, `{{listing.lot}}`, `{{listing.year}}`, `{{listing.photos[0..N]}}`, `{{listing.virtual_tour_url}}`, `{{listing.video_url}}`, `{{listing.description}}`, `{{listing.features[]}}`, `{{listing.openhouse.next}}`, `{{listing.price_change}}` (with delta).
+- Token resolver runs at send-time (not template-save-time), so price/photo updates auto-propagate.
+- Pre-built RE template library auto-populated from a selected MLS listing:
+  - Email: Coming Soon, Just Listed, Open House This Weekend, Price Reduced, Just Sold, Under Contract, Listing Anniversary
+  - Social: Just Listed (carousel), Open House (story), Price Reduced (single), Just Sold (carousel), Coming Soon teaser
+  - Print: postcard (front/back), flyer (one-page), brochure (tri-fold), sign rider, business card with QR to listing
+- One-click "Create Just Listed package" workflow:
+  - Pick listing → select template variants → AI fills tokens + drafts captions in agent voice → preview side-by-side (email + IG + FB + flyer) → approve → send/schedule
+- Auto-rebuild trigger: MLS event (`listing.price_changed`, `listing.photos_changed`) → re-render any active drafts and queue notification "Listing changed — review marketing? [Update] [Skip]".
+
+**Dependencies:** #37 (MLS), #5 (Brand Voice), AMS template engine (shipped), social-post infrastructure.
+
+### 47. AI Note-Taker for Client Conversations (RE-tuned)
+
+**Why:** ReChat's AI note-taker is a popular Lucy feature ("speak about a client, AI saves structured notes"). Scout V2 (#20) has the voice infra; this is RE-specific extraction + prompting. Cheap add-on once #20 ships.
+
+**Scope:**
+- One-tap voice capture button in Scout (mobile-first) for: post-showing debrief, listing-presentation recap, buyer consult, listing-appointment recap, open-house lead conversation.
+- Whisper transcription → RE-tuned LLM prompt extracts structured fields:
+  - **Buyer signals**: budget range, target neighborhoods, must-haves, deal-breakers, timeline ("ready in 30 days" / "watching for next 6 months"), financing status (cash / pre-approved / needs lender), buyer type (first-time / move-up / downsizer / investor), motivation level (1–5)
+  - **Seller signals**: target list price, motivation, timeline to list, repairs/staging needed, current marketing concerns, competing agent interviews
+  - **Showing feedback**: liked / disliked per property, deal-breaker callouts, would-revisit list
+  - **Commitments**: "I'll send the disclosures Tuesday", "schedule second showing Saturday" → auto-task with due date + reminder
+  - **Mentioned people**: spouse, parents, agent referral source → auto-create related contact suggestions
+- All saved to contact's notes timeline + structured fields populate contact CRM panel (no manual data entry).
+- Searchable in Scout: "What did the Hendersons say about the second floor?" → semantic retrieval of matching note chunks.
+
+**Dependencies:** #20 Scout V2 (voice + action), Whisper or equivalent transcription, existing custom-fields infra for structured extraction storage.
+
+### 48. Auto Call/Text Logging (Twilio)
+
+**Why:** Section 2 lists as native-mobile feature in ReChat. RE workflow lives on phone — every call/text must auto-log against the contact. Also unblocks the speed-to-lead text in #30 (which today has no actual SMS infra) and #38/#42 SMS sends.
+
+**Scope:**
+- Provision Twilio number per agent (or BYO their existing number via Twilio porting). Cost-tier with markup, or pass-through.
+- Outbound:
+  - Click-to-call from contact card / deal page / tour sheet — opens softphone (Twilio Voice JS SDK) or rings agent's mobile then bridges
+  - Send SMS from contact card with template picker
+  - Bulk SMS for #38 Agent Network blasts and #43 Open House follow-up
+- Inbound:
+  - Calls forwarded to agent's mobile + recorded (with consent prompt per state law)
+  - Voicemail transcription via Twilio + Whisper
+  - Texts arrive in unified inbox (already shipped) — threaded per phone number, matched to contact
+- Auto-match by phone number to existing CRM contact; if no match, create a "Stranger" contact + prompt agent to merge later
+- Activity log: every call (duration, direction, recording link, transcription) and every SMS thread auto-logged on contact's timeline + counts toward "engagement" score
+- Push notification on agent's mobile (PWA #50) for new SMS / missed call
+- Compliance: TCPA-safe sending hours, opt-out keywords (STOP/UNSUBSCRIBE) auto-honored, consent capture at form submission
+
+**Dependencies:** Twilio account + verified business profile (10DLC for SMS), unified inbox (shipped), `customer_accounts` for contact matching, #50 PWA for push.
+
+### 49. Lucy-Style Real Estate Form Reading
+
+**Why:** ReChat's Lucy "reads and interprets standard real estate documents, offers context-sensitive guidance — helps at 2am when managing broker isn't available." High agent-perceived AI value. We have PKB RAG + Scout — adding RE form templates is an extension, not a build-from-scratch.
+
+**Scope:**
+- Upload PDFs (purchase agreement, listing agreement, disclosures, addenda, counter-offer, inspection report, appraisal) → OCR + parse to structured form data + index in PKB.
+- Agent asks Scout natural language: "What's the closing date?", "What contingencies?", "How much earnest money?", "Are there any unusual clauses?", "Compare this counter to the original offer."
+- AI returns: cited answer (with page+line reference), highlighted PDF preview.
+- Side-by-side compare: redline two versions (original vs counter, vs counter-counter) — visual diff of changed terms.
+- Pre-built RE form templates per state (CAR, FAR, TREC, NYSAR top 4) — known-field extraction for closing date, EMD, contingencies (inspection / appraisal / financing / sale-of-buyer-home), price, seller concessions, included/excluded items, possession date.
+- Risk flags: AI surfaces unusual clauses ("Buyer's earnest money is non-refundable after 3 days — atypical for this state"), missing standard clauses, dates in conflict (close date before financing contingency expiry), etc.
+- "Ask the broker" escalation: send the form + AI summary + flagged clauses to managing broker via email with one click.
+
+**Dependencies:** PKB module (RAG infra), Scout (#20), #45 (DocuSign for getting signed forms back into the system), state-specific form template library.
+
+### 50. RE PWA Mobile Experience
+
+**Why:** Section 5 step 9: "PWA before native." ReChat's biggest UX win is mobile-first. We can match parity via PWA in weeks; native iOS/Android is a year-2 bet. Generalizes #19 mobile pass with RE-specific surfaces.
+
+**Scope:**
+- Phone-optimized layouts (one-thumb workflows) for the surfaces RE agents use in the field: contact card, deal pipeline, calendar, today's open houses, MLS search, buyer tour creation/edit (#42), Scout voice (#47), unified inbox, sign-in mode (#43).
+- "Add to Home Screen" prompt with branded icon/splash, full-screen mode (no browser chrome).
+- Service worker offline cache: today's calendar, last 50 contacts, active deals, current tour sheets — read-only when offline; queued mutations sync on reconnect.
+- Camera input flows: scan business card → OCR → new contact, snap document → OCR → attach to deal, snap property photo → attach to listing/showing note.
+- Web push notifications: new SMS (#48), missed call, new lead from open-house sign-in, urgent inbox item, AI proposal needs approval (#44).
+- Geolocation: "I'm here" check-in at showing/open house auto-logs activity + proximity-based listing suggestions.
+- Performance budget: <2s TTI on 4G, <500KB initial JS, all images lazy-loaded.
+
+**Dependencies:** #19 mobile responsive pass (foundation), #43 (sign-in mode), #44 (push for AI proposals), #48 (push for SMS/calls). Native iOS/Android explicitly **out of scope** — defer to year 2.
 
 ---
 

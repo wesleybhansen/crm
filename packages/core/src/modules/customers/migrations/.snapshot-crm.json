@@ -259,6 +259,24 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "ams_url": {
+          "name": "ams_url",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "ams_webhook_secret": {
+          "name": "ams_webhook_secret",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -429,14 +447,12 @@
       "indexes": [
         {
           "keyName": "attachments_contact_idx",
-          "columnNames": [
-            "contact_id",
-            "created_at"
-          ],
-          "composite": true,
+          "columnNames": [],
+          "composite": false,
           "constraint": false,
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create index \"attachments_contact_idx\" on \"contact_attachments\" (\"contact_id\", \"created_at\" desc)"
         },
         {
           "keyName": "contact_attachments_pkey",
@@ -538,14 +554,12 @@
       "indexes": [
         {
           "keyName": "engagement_scores_org_score_idx",
-          "columnNames": [
-            "organization_id",
-            "score"
-          ],
-          "composite": true,
+          "columnNames": [],
+          "composite": false,
           "constraint": false,
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create index \"engagement_scores_org_score_idx\" on \"contact_engagement_scores\" (\"organization_id\", \"score\" desc)"
         },
         {
           "keyName": "engagement_scores_contact_idx",
@@ -1227,14 +1241,12 @@
       "indexes": [
         {
           "keyName": "engagement_events_contact_idx",
-          "columnNames": [
-            "contact_id",
-            "created_at"
-          ],
-          "composite": true,
+          "columnNames": [],
+          "composite": false,
           "constraint": false,
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create index \"engagement_events_contact_idx\" on \"engagement_events\" (\"contact_id\", \"created_at\" desc)"
         },
         {
           "keyName": "engagement_events_pkey",
@@ -3938,6 +3950,373 @@
           "updateRule": "cascade"
         }
       },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "trigger_key": {
+          "name": "trigger_key",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "filters": {
+          "name": "filters",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'{}'",
+          "mappedType": "json"
+        },
+        "target_entity": {
+          "name": "target_entity",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "target_pipeline_id": {
+          "name": "target_pipeline_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "target_stage_id": {
+          "name": "target_stage_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "target_lifecycle_stage": {
+          "name": "target_lifecycle_stage",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "target_action": {
+          "name": "target_action",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "allow_backward": {
+          "name": "allow_backward",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "customer_pipeline_automation_rules",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "customer_pipeline_automation_rules_trigger_active_idx",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"customer_pipeline_automation_rules_trigger_active_idx\" on \"customer_pipeline_automation_rules\" (\"trigger_key\") where is_active = true and deleted_at is null"
+        },
+        {
+          "keyName": "customer_pipeline_automation_rules_org_tenant_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "customer_pipeline_automation_rules_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "rule_id": {
+          "name": "rule_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "trigger_event_id": {
+          "name": "trigger_event_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "trigger_event_key": {
+          "name": "trigger_event_key",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "from_stage": {
+          "name": "from_stage",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "to_stage": {
+          "name": "to_stage",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "ran_at": {
+          "name": "ran_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "customer_pipeline_automation_runs",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "customer_pipeline_automation_runs_entity_idx",
+          "columnNames": [
+            "entity_type",
+            "entity_id",
+            "ran_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "customer_pipeline_automation_runs_idempotency_idx",
+          "columnNames": [
+            "rule_id",
+            "entity_id",
+            "trigger_event_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "customer_pipeline_automation_runs_org_tenant_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "customer_pipeline_automation_runs_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
       "nativeEnums": {}
     }
   ],

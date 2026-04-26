@@ -23,10 +23,14 @@ export async function trackEngagement(
   tenantId: string,
   contactId: string,
   eventType: string,
-  metadata?: any
+  metadata?: any,
+  container?: any,
 ) {
   const points = SCORE_POINTS[eventType]
   if (points === undefined) return
+
+  let previousScore = 0
+  let newScore = 0
 
   try {
     // Log the event
@@ -46,23 +50,47 @@ export async function trackEngagement(
       .first()
 
     if (existing) {
+      previousScore = Number(existing.score) || 0
+      newScore = Math.max(0, previousScore + points)
       await knex('contact_engagement_scores')
         .where('contact_id', contactId)
         .update({
-          score: Math.max(0, existing.score + points),
+          score: newScore,
           last_activity_at: new Date(),
           updated_at: new Date(),
         })
     } else {
+      previousScore = 0
+      newScore = Math.max(0, points)
       await knex('contact_engagement_scores').insert({
         id: require('crypto').randomUUID(),
         tenant_id: tenantId,
         organization_id: orgId,
         contact_id: contactId,
-        score: Math.max(0, points),
+        score: newScore,
         last_activity_at: new Date(),
         updated_at: new Date(),
       })
+    }
+
+    // Emit score_updated event so consumers (e.g. pipeline automation
+    // threshold rules) can react. Includes previousScore so consumers can
+    // detect threshold crossings rather than firing on every score change.
+    if (container && previousScore !== newScore) {
+      try {
+        const bus = container.resolve('eventBus') as any
+        if (bus?.emitEvent) {
+          await bus.emitEvent('customers.engagement.score_updated', {
+            contactId,
+            organizationId: orgId,
+            tenantId,
+            score: newScore,
+            previousScore,
+            points,
+            eventType,
+          }, { persistent: true })
+        }
+      } catch {}
     }
   } catch (err) {
     console.error('[engagement.score] Failed to track:', err)

@@ -83,6 +83,10 @@ const events = [
 
   // Business profile (1:1 with org, no create/delete)
   { id: 'customers.business_profile.updated', label: 'Business Profile Updated', entity: 'business_profile', category: 'crud' },
+
+  // Pipeline automation (SPEC-064)
+  { id: 'customers.deal.auto_advanced', label: 'Deal Auto-Advanced by Automation', entity: 'deal', category: 'lifecycle' },
+  { id: 'customers.person.auto_advanced', label: 'Contact Lifecycle Auto-Advanced by Automation', entity: 'person', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

@@ -1189,3 +1189,124 @@ export class CustomerBusinessProfile {
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
+
+export type PipelineAutomationTargetEntity = 'deal' | 'person'
+export type PipelineAutomationTargetAction = 'set_stage' | 'advance_one' | 'set_lifecycle'
+export type PipelineAutomationRunOutcome =
+  | 'applied'
+  | 'skipped_backward'
+  | 'skipped_idempotent'
+  | 'skipped_filter'
+  | 'failed'
+
+@Entity({ tableName: 'customer_pipeline_automation_rules' })
+@Index({ name: 'customer_pipeline_automation_rules_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'customer_pipeline_automation_rules_trigger_active_idx',
+  expression:
+    `create index "customer_pipeline_automation_rules_trigger_active_idx" on "customer_pipeline_automation_rules" ("trigger_key") where is_active = true and deleted_at is null`,
+})
+export class PipelineAutomationRule {
+  [OptionalProps]?:
+    | 'filters'
+    | 'allowBackward'
+    | 'isActive'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'trigger_key', type: 'text' })
+  triggerKey!: string
+
+  @Property({ type: 'json', default: '{}' })
+  filters: Record<string, unknown> = {}
+
+  @Property({ name: 'target_entity', type: 'text' })
+  targetEntity!: PipelineAutomationTargetEntity
+
+  @Property({ name: 'target_pipeline_id', type: 'uuid', nullable: true })
+  targetPipelineId?: string | null
+
+  @Property({ name: 'target_stage_id', type: 'uuid', nullable: true })
+  targetStageId?: string | null
+
+  @Property({ name: 'target_lifecycle_stage', type: 'text', nullable: true })
+  targetLifecycleStage?: string | null
+
+  @Property({ name: 'target_action', type: 'text' })
+  targetAction!: PipelineAutomationTargetAction
+
+  @Property({ name: 'allow_backward', type: 'boolean', default: false })
+  allowBackward: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'customer_pipeline_automation_runs' })
+@Index({ name: 'customer_pipeline_automation_runs_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'customer_pipeline_automation_runs_idempotency_idx', properties: ['ruleId', 'entityId', 'triggerEventId'] })
+@Index({ name: 'customer_pipeline_automation_runs_entity_idx', properties: ['entityType', 'entityId', 'ranAt'] })
+export class PipelineAutomationRun {
+  [OptionalProps]?: 'fromStage' | 'toStage' | 'error' | 'ranAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'rule_id', type: 'uuid' })
+  ruleId!: string
+
+  @Property({ name: 'trigger_event_id', type: 'text' })
+  triggerEventId!: string
+
+  @Property({ name: 'trigger_event_key', type: 'text' })
+  triggerEventKey!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  entityType!: PipelineAutomationTargetEntity
+
+  @Property({ name: 'entity_id', type: 'uuid' })
+  entityId!: string
+
+  @Property({ name: 'from_stage', type: 'text', nullable: true })
+  fromStage?: string | null
+
+  @Property({ name: 'to_stage', type: 'text', nullable: true })
+  toStage?: string | null
+
+  @Property({ type: 'text' })
+  outcome!: PipelineAutomationRunOutcome
+
+  @Property({ type: 'text', nullable: true })
+  error?: string | null
+
+  @Property({ name: 'ran_at', type: Date, onCreate: () => new Date() })
+  ranAt: Date = new Date()
+}

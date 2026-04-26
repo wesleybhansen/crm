@@ -2825,7 +2825,29 @@ async function seedDefaultPipeline(em: EntityManager, { tenantId, organizationId
 export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedCurrencyDictionary, seedDefaultPipeline }
 export type { SeedArgs as CustomerSeedArgs }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest]
+const seedPipelineAutomation: ModuleCli = {
+  command: 'seed-pipeline-automation',
+  async run(rest) {
+    const { seedDefaultRulesForOrg } = await import('./pipeline_automation/seed')
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato customers seed-pipeline-automation --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const { resolve } = await createRequestContainer()
+    const em = resolve<EntityManager>('em')
+    const seeded = await seedDefaultRulesForOrg((em as any).getKnex(), { tenantId, organizationId })
+    if (seeded) {
+      console.log('Pipeline automation defaults seeded for organization', organizationId)
+    } else {
+      console.log('Pipeline automation rules already exist for organization', organizationId, '— skipping')
+    }
+  },
+}
+
+const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, seedPipelineAutomation]
 
 export default customersCliCommands
 const CUSTOMER_CUSTOM_FIELD_SETS = [

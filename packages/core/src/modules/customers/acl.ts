@@ -29,6 +29,9 @@ export const features = [
   { id: 'customers.task_templates.manage', title: 'Manage task templates', module: 'customers' },
   { id: 'customers.business_profile.view', title: 'View business profile', module: 'customers' },
   { id: 'customers.business_profile.manage', title: 'Manage business profile', module: 'customers' },
+  // SPEC-064 — Pipeline automation
+  { id: 'pipeline_automation.configure', title: 'Configure pipeline automation rules', module: 'customers' },
+  { id: 'pipeline_automation.view_history', title: 'View pipeline automation history', module: 'customers' },
 ]
 
 export default features
