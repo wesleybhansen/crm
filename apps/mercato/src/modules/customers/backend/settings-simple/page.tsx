@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Settings, Monitor, Key, User, Moon, Sun, Check, Mail, X as XIcon, Server, Send, CreditCard, Phone, Sparkles, Briefcase, Smile, Minus, Kanban, Users as UsersIcon, GripVertical, Pencil, Trash2, Plus, ChevronUp, ChevronDown, BookOpen, LayoutDashboard, EyeOff, Eye } from 'lucide-react'
+import { Settings, Monitor, Key, User, Moon, Sun, Check, Mail, X as XIcon, Server, Send, CreditCard, Phone, Sparkles, Briefcase, Smile, Minus, Kanban, Users as UsersIcon, GripVertical, Pencil, Trash2, Plus, ChevronUp, ChevronDown, BookOpen, LayoutDashboard, EyeOff, Eye, Zap, ArrowRight } from 'lucide-react'
 
 export default function SimpleSettingsPage() {
   const [mode, setMode] = useState('simple')
@@ -922,6 +922,34 @@ export default function SimpleSettingsPage() {
                 <Plus className="size-3.5" />
               </Button>
             </div>
+          </div>
+        </div>
+      </section>
+
+
+      {/* Pipeline Automation */}
+      <section className="mb-8">
+        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <Zap className="size-4 text-muted-foreground" /> Pipeline Automation
+        </h2>
+        <div className="rounded-lg border">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium mb-0.5">Auto-advance contacts and deals</p>
+              <p className="text-xs text-muted-foreground">
+                Move contacts to <span className="font-medium">Lead</span>, <span className="font-medium">Customer</span>, <span className="font-medium">Hot Lead</span>, or <span className="font-medium">Engaged</span> automatically when they submit a form, pay, complete a sequence, or cross an engagement threshold.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => window.location.href = '/backend/config/customers/pipeline-automation'}
+              className="shrink-0 ml-4"
+            >
+              Manage rules
+              <ArrowRight className="size-3.5 ml-1" />
+            </Button>
           </div>
         </div>
       </section>

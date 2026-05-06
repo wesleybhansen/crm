@@ -306,7 +306,7 @@ export default function FormBuilderPage() {
 
   // ── Auto-save ──
 
-  const triggerSave = useCallback((updatedFields?: FormField[], updatedName?: string, updatedTheme?: FormTheme, updatedDescription?: string) => {
+  const triggerSave = useCallback((updatedFields?: FormField[], updatedName?: string, updatedTheme?: FormTheme, updatedDescription?: string, updatedSettings?: Form['settings']) => {
     if (!form) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
@@ -320,7 +320,7 @@ export default function FormBuilderPage() {
             description: updatedDescription ?? formDescription,
             fields: (updatedFields ?? fields).map((f, i) => ({ ...f, order: i })),
             theme: updatedTheme ?? theme,
-            settings: form.settings,
+            settings: updatedSettings ?? form.settings,
           }),
         })
         const data = await res.json()
@@ -751,9 +751,9 @@ export default function FormBuilderPage() {
                 <Input
                   value={form.settings?.submitLabel || 'Submit'}
                   onChange={(e) => {
-                    const updated = { ...form, settings: { ...form.settings, submitLabel: e.target.value } } as Form
-                    setForm(updated)
-                    triggerSave()
+                    const nextSettings = { ...form.settings, submitLabel: e.target.value }
+                    setForm({ ...form, settings: nextSettings } as Form)
+                    triggerSave(undefined, undefined, undefined, undefined, nextSettings)
                   }}
                   className="h-8 text-sm"
                 />
@@ -764,9 +764,9 @@ export default function FormBuilderPage() {
                 <Input
                   value={form.settings?.successMessage || ''}
                   onChange={(e) => {
-                    const updated = { ...form, settings: { ...form.settings, successMessage: e.target.value } } as Form
-                    setForm(updated)
-                    triggerSave()
+                    const nextSettings = { ...form.settings, successMessage: e.target.value }
+                    setForm({ ...form, settings: nextSettings } as Form)
+                    triggerSave(undefined, undefined, undefined, undefined, nextSettings)
                   }}
                   className="h-8 text-sm"
                   placeholder="Thank you for your submission!"
@@ -778,9 +778,9 @@ export default function FormBuilderPage() {
                 <Input
                   value={form.settings?.notifyEmail || ''}
                   onChange={(e) => {
-                    const updated = { ...form, settings: { ...form.settings, notifyEmail: e.target.value } } as Form
-                    setForm(updated)
-                    triggerSave()
+                    const nextSettings = { ...form.settings, notifyEmail: e.target.value }
+                    setForm({ ...form, settings: nextSettings } as Form)
+                    triggerSave(undefined, undefined, undefined, undefined, nextSettings)
                   }}
                   className="h-8 text-sm"
                   placeholder="you@company.com"
@@ -794,9 +794,9 @@ export default function FormBuilderPage() {
                 <Input
                   value={form.settings?.redirectUrl || ''}
                   onChange={(e) => {
-                    const updated = { ...form, settings: { ...form.settings, redirectUrl: e.target.value } } as Form
-                    setForm(updated)
-                    triggerSave()
+                    const nextSettings = { ...form.settings, redirectUrl: e.target.value }
+                    setForm({ ...form, settings: nextSettings } as Form)
+                    triggerSave(undefined, undefined, undefined, undefined, nextSettings)
                   }}
                   className="h-8 text-sm"
                   placeholder="https://yoursite.com/thank-you"
@@ -813,9 +813,9 @@ export default function FormBuilderPage() {
                   type="button"
                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${form.settings?.createContact ? 'bg-accent' : 'bg-muted'}`}
                   onClick={() => {
-                    const updated = { ...form, settings: { ...form.settings, createContact: !form.settings?.createContact } } as Form
-                    setForm(updated)
-                    triggerSave()
+                    const nextSettings = { ...form.settings, createContact: !form.settings?.createContact }
+                    setForm({ ...form, settings: nextSettings } as Form)
+                    triggerSave(undefined, undefined, undefined, undefined, nextSettings)
                   }}
                 >
                   <span className={`inline-block size-3.5 rounded-full bg-white shadow transition-transform ${form.settings?.createContact ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
