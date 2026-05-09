@@ -1,24 +1,73 @@
-import type { NextRequest } from 'next/server'
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
-// Note: Do NOT import bootstrap here - middleware runs in Edge runtime
-// which cannot use Node.js modules like MikroORM. Bootstrap is called
-// in layout.tsx which runs in Node.js runtime.
+// Note: Do NOT import bootstrap here — proxy runs in Edge runtime which
+// cannot use Node.js modules like MikroORM. Bootstrap is called in
+// layout.tsx, which runs in Node.js runtime.
+//
+// Phase 1.4 (Clerk migration): clerkMiddleware annotates the request so
+// downstream getAuthFromRequest can resolve the Clerk session. The
+// dispatcher (`/api/[...slug]`) keeps owning per-route auth via its
+// requireAuth metadata; this proxy only enforces redirect-to-sign-in
+// for top-level page navigations.
 
-export function proxy(req: NextRequest) {
-  // Serve the marketing landing page (apps/mercato/public/landing.html) at the
-  // root URL without changing the visible URL in the browser. This bypasses
-  // the Next.js page at apps/mercato/src/app/page.tsx for the home route only.
+const HUB_SIGN_IN_URL =
+  process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL ?? 'https://app.noliai.com/sign-in'
+
+// Pages that must NOT trigger a Clerk redirect:
+//   - public token surfaces (validated by the token in the URL)
+//   - legacy auth UI orphans (deleted in Phase G but still routable now)
+//   - the marketing landing — root rewrite handles it below before any auth check
+const isPublicPage = createRouteMatcher([
+  '/login',
+  '/signup',
+  '/forgot-password',
+  '/reset-password',
+  '/landing',
+  '/terms',
+  '/privacy',
+])
+
+export default clerkMiddleware(async (auth, req) => {
+  // 1. Marketing landing rewrite — preserved from the original proxy.
+  //    Bypasses any auth check; root URL is intentionally public.
   if (req.nextUrl.pathname === '/') {
     return NextResponse.rewrite(new URL('/landing.html', req.url))
   }
 
+  // 2. Set x-next-url for server components (preserved from original).
   const requestHeaders = new Headers(req.headers)
-  // Expose current URL path (no query) to server components via request headers
   requestHeaders.set('x-next-url', req.nextUrl.pathname)
-  return NextResponse.next({ request: { headers: requestHeaders } })
-}
+  const passThrough = NextResponse.next({ request: { headers: requestHeaders } })
+
+  // 3. Public-page allowlist — auth UI orphans and legal pages.
+  if (isPublicPage(req)) return passThrough
+
+  // 4. API routes: dispatcher's requireAuth metadata gates per-route via
+  //    the Clerk-aware getAuthFromRequest. Don't enforce here.
+  if (req.nextUrl.pathname.startsWith('/api/')) return passThrough
+
+  // 5. MCP edge — separate container, API-key gated at nginx + service.
+  if (req.nextUrl.pathname.startsWith('/mcp')) return passThrough
+
+  // 6. Page navigations: enforce sign-in by bouncing unauthed visitors
+  //    to the Noli hub. Hub is the single sign-in surface for the suite.
+  const { userId } = await auth()
+  if (!userId) {
+    const signInUrl = new URL(HUB_SIGN_IN_URL)
+    signInUrl.searchParams.set('redirect_url', req.url)
+    return NextResponse.redirect(signInUrl)
+  }
+
+  return passThrough
+})
 
 export const config = {
-  matcher: ['/', '/backend/:path*'],
+  matcher: [
+    // Skip Next internals and static assets, but otherwise cover everything
+    // so clerkMiddleware can annotate every request and getAuthFromRequest
+    // sees the Clerk session.
+    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    '/(api|trpc)(.*)',
+  ],
 }
