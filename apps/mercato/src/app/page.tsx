@@ -55,7 +55,7 @@ export default async function Home() {
     <main className="min-h-svh w-full p-8 flex flex-col gap-8">
       <header className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
         <Image
-          src="/launchos-logo.png"
+          src="/noli-logo.svg"
           alt={t('app.page.logoAlt', 'Noli CRM')}
           width={40}
           height={40}

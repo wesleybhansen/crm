@@ -98,7 +98,7 @@ function InviteAcceptForm() {
       <div style={styles.page}>
         <div style={styles.card}>
           <div style={styles.logoWrap}>
-            <img src="/launchos-logo.png" alt="Noli CRM" style={styles.logo} />
+            <img src="/noli-logo.svg" alt="Noli CRM" style={styles.logo} />
             <p style={styles.brand}>Noli CRM</p>
           </div>
           <p style={{ ...styles.subtitle, margin: 0 }}>Validating invitation...</p>
@@ -112,7 +112,7 @@ function InviteAcceptForm() {
       <div style={styles.page}>
         <div style={styles.card}>
           <div style={styles.logoWrap}>
-            <img src="/launchos-logo.png" alt="Noli CRM" style={styles.logo} />
+            <img src="/noli-logo.svg" alt="Noli CRM" style={styles.logo} />
             <p style={styles.brand}>Noli CRM</p>
           </div>
           <h1 style={styles.heading}>Invalid Invitation</h1>
@@ -129,7 +129,7 @@ function InviteAcceptForm() {
     <div style={styles.page}>
       <div style={styles.card}>
         <div style={styles.logoWrap}>
-          <img src="/launchos-logo.png" alt="Noli CRM" style={styles.logo} />
+          <img src="/noli-logo.svg" alt="Noli CRM" style={styles.logo} />
           <p style={styles.brand}>Noli CRM</p>
         </div>
         <h1 style={styles.heading}>Join {orgName}</h1>
@@ -188,7 +188,7 @@ export default function InviteAcceptPage() {
       <div style={styles.page}>
         <div style={styles.card}>
           <div style={styles.logoWrap}>
-            <img src="/launchos-logo.png" alt="Noli CRM" style={styles.logo} />
+            <img src="/noli-logo.svg" alt="Noli CRM" style={styles.logo} />
             <p style={styles.brand}>Noli CRM</p>
           </div>
           <p style={{ ...styles.subtitle, margin: 0 }}>Loading...</p>
