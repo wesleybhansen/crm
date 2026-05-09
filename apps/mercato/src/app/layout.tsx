@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   title: 'Noli CRM',
   description: 'The all-in-one operating system for your business',
   icons: {
-    icon: '/favicon.ico',
+    icon: '/icon.svg',
   },
   manifest: '/manifest.webmanifest',
 }

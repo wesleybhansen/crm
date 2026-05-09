@@ -73,7 +73,7 @@ export async function POST(req: Request) {
       // verification + App Password fallback ships.
       return NextResponse.json({
         ok: false,
-        error: 'Gmail voice learning is temporarily unavailable while Launch OS completes Google verification. Please upload a document with sample writing instead.',
+        error: 'Gmail voice learning is temporarily unavailable while Noli CRM completes Google verification. Please upload a document with sample writing instead.',
       }, { status: 503 })
     } else if (source === 'document') {
       if (!documentContent?.trim()) return NextResponse.json({ ok: false, error: 'documentContent required for document source' }, { status: 400 })

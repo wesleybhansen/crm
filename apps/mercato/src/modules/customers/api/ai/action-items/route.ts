@@ -172,11 +172,35 @@ export async function GET() {
         .orderBy('updated_at', 'asc')
         .limit(3)
 
+      // Deal titles are encrypted at rest (customers:customer_deal → title).
+      // The recentDeals/recentContacts blocks below already decrypt; this one
+      // was missed and was rendering raw ciphertext like
+      // "MNtcNbywdfGjzPtF:p9REadSTN1lwepMdBCyg5g==:lK3bjrgAh+G+Hw0B5O/wRg==:v1"
+      // into the dashboard's "Follow up on …" action items.
+      const { TenantDataEncryptionService } = await import('@open-mercato/shared/lib/encryption/tenantDataEncryptionService')
+      const { isTenantDataEncryptionEnabled } = await import('@open-mercato/shared/lib/encryption/toggles')
+      const { createKmsService } = await import('@open-mercato/shared/lib/encryption/kms')
+      const encSvc = isTenantDataEncryptionEnabled()
+        ? new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+        : null
+
       for (const deal of staleDeals) {
+        let title = deal.title || 'Untitled deal'
+        if (encSvc) {
+          try {
+            const dec = await encSvc.decryptEntityPayload(
+              'customers:customer_deal',
+              { title: deal.title },
+              auth.tenantId,
+              auth.orgId,
+            )
+            title = (dec.title as string) || title
+          } catch {}
+        }
         const days = Math.floor((now.getTime() - new Date(deal.updated_at).getTime()) / (1000 * 60 * 60 * 24))
         actionItems.push({
           type: 'deal',
-          title: `Follow up on "${deal.title}"`,
+          title: `Follow up on "${title}"`,
           description: `This deal hasn't been updated in ${days} days.`,
           href: `/backend/customers/deals/${deal.id}`,
           priority: 1,

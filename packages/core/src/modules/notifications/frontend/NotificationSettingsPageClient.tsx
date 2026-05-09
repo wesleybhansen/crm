@@ -213,7 +213,7 @@ export function NotificationSettingsPageClient() {
             <Input
               id="notifications-email-subject-prefix"
               value={settings.strategies.email.subjectPrefix ?? ''}
-              placeholder="[Launch OS]"
+              placeholder="[Noli CRM]"
               onChange={(event) => updateStrategy('email', { subjectPrefix: event.target.value || undefined })}
             />
           </div>

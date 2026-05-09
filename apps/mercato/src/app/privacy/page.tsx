@@ -1,4 +1,4 @@
-export const metadata = { title: 'Privacy Policy — Launch OS CRM' }
+export const metadata = { title: 'Privacy Policy — Noli CRM CRM' }
 
 export default function PrivacyPage() {
   const s = {
@@ -17,14 +17,14 @@ export default function PrivacyPage() {
 
   return (
     <div style={s.page}>
-      <h1 style={s.h1}>Launch OS CRM — Privacy Policy</h1>
+      <h1 style={s.h1}>Noli CRM CRM — Privacy Policy</h1>
       <p style={s.updated}>Last updated: April 6, 2026</p>
 
       <div style={s.callout}>
-        <strong>Incorporation of Company-Wide Privacy Policy:</strong> <a href="https://thelaunchpadincubator.com/privacy/" style={s.link}>The Launch Pad LLC Privacy Policy</a> is expressly incorporated into and made a part of this policy by reference. All terms and provisions of the company-wide privacy policy apply to your use of the Launch OS CRM platform, except where they directly conflict with the terms set forth in this document, in which case the terms of this document shall control with respect to the Platform.
+        <strong>Incorporation of Company-Wide Privacy Policy:</strong> <a href="https://thelaunchpadincubator.com/privacy/" style={s.link}>Noli LLC Privacy Policy</a> is expressly incorporated into and made a part of this policy by reference. All terms and provisions of the company-wide privacy policy apply to your use of the Noli CRM CRM platform, except where they directly conflict with the terms set forth in this document, in which case the terms of this document shall control with respect to the Platform.
       </div>
 
-      <p style={s.p}>The Launch Pad LLC ("Company," "we," "our," "us") operates the Launch OS CRM platform at crm.thelaunchpadincubator.com (the "Platform"). This Privacy Policy explains how we collect, use, store, share, and protect your information when you use the Platform. By accessing or using Launch OS, you consent to the practices described in this policy.</p>
+      <p style={s.p}>Noli LLC ("Company," "we," "our," "us") operates the Noli CRM CRM platform at crm.thelaunchpadincubator.com (the "Platform"). This Privacy Policy explains how we collect, use, store, share, and protect your information when you use the Platform. By accessing or using Noli CRM, you consent to the practices described in this policy.</p>
 
       <h2 style={s.h2}>1. Information We Collect</h2>
 
@@ -51,7 +51,7 @@ export default function PrivacyPage() {
       <h2 style={s.h2}>2. Google User Data — Limited Use Disclosure</h2>
 
       <div style={s.callout}>
-        <strong>Google API Services User Data Policy Compliance:</strong> Launch OS's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" style={s.link}>Google API Services User Data Policy</a>, including the Limited Use requirements.
+        <strong>Google API Services User Data Policy Compliance:</strong> Noli CRM's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" style={s.link}>Google API Services User Data Policy</a>, including the Limited Use requirements.
       </div>
 
       <h3 style={s.h3}>2.1 What Google Data We Access</h3>
@@ -75,7 +75,7 @@ export default function PrivacyPage() {
       <p style={s.p}>Gmail OAuth tokens (access and refresh tokens) are stored encrypted in our database. Calendar events synced from Google Calendar are stored in the CRM as part of your scheduling data. Outbound email metadata (recipient, subject, send timestamp) is logged in the CRM activity timeline for messages you send through the Platform. You can disconnect Google at any time in Settings, which immediately revokes our access and deletes stored tokens.</p>
 
       <h2 style={s.h2}>3. AI and Third-Party Data Processing</h2>
-      <p style={s.p}>Launch OS uses AI services to power intelligent features. When you use these features, relevant context is sent to the AI provider to generate responses:</p>
+      <p style={s.p}>Noli CRM uses AI services to power intelligent features. When you use these features, relevant context is sent to the AI provider to generate responses:</p>
       <ul style={s.ul}>
         <li style={s.li}><strong>Google Gemini:</strong> Powers email drafting, landing page copy generation, course content generation, brand voice analysis, and the Scout text assistant.</li>
         <li style={s.li}><strong>OpenAI:</strong> Powers the Scout voice assistant (speech-to-speech) and text-to-speech features.</li>
@@ -84,7 +84,7 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>4. How We Use Your Information</h2>
       <ul style={s.ul}>
-        <li style={s.li}>To provide, operate, and maintain the Launch OS CRM Platform</li>
+        <li style={s.li}>To provide, operate, and maintain the Noli CRM CRM Platform</li>
         <li style={s.li}>To send emails, manage contacts, and process payments on your behalf</li>
         <li style={s.li}>To generate AI-powered content and recommendations</li>
         <li style={s.li}>To send you system notifications (reminders, alerts, digest emails)</li>
@@ -199,7 +199,7 @@ export default function PrivacyPage() {
       <p style={s.p}>We use only essential cookies required for authentication and session management. We do not use third-party tracking cookies, analytics cookies, or advertising cookies on the Platform.</p>
 
       <h2 style={s.h2}>12. Children{"'"}s Privacy</h2>
-      <p style={s.p}>Launch OS is not directed to children under 13 (or under 16 in the EEA). We do not knowingly collect personal information from children. If we become aware that we have collected data from a child, we will delete it promptly.</p>
+      <p style={s.p}>Noli CRM is not directed to children under 13 (or under 16 in the EEA). We do not knowingly collect personal information from children. If we become aware that we have collected data from a child, we will delete it promptly.</p>
 
       <h2 style={s.h2}>13. International Data Transfers</h2>
       <p style={s.p}>Your data is stored on servers in Germany (EU). If you access the Platform from outside the EU, your data will be transferred to and processed in the EU. We rely on Hetzner{"'"}s GDPR-compliant infrastructure for data hosting.</p>
@@ -211,8 +211,8 @@ export default function PrivacyPage() {
       <p style={s.p}>If you have questions about this policy or our practices, contact us at <a href="mailto:privacy@thelaunchpadincubator.com" style={s.link}>privacy@thelaunchpadincubator.com</a>.</p>
 
       <div style={s.footer}>
-        <p><a href="/terms" style={s.link}>Terms &amp; Conditions</a> · <a href="/login" style={s.link}>Back to Launch OS</a></p>
-        <p style={{ marginTop: 8, color: '#bbb' }}>© {new Date().getFullYear()} The Launch Pad LLC. All rights reserved.</p>
+        <p><a href="/terms" style={s.link}>Terms &amp; Conditions</a> · <a href="/login" style={s.link}>Back to Noli CRM</a></p>
+        <p style={{ marginTop: 8, color: '#bbb' }}>© {new Date().getFullYear()} Noli LLC. All rights reserved.</p>
       </div>
     </div>
   )

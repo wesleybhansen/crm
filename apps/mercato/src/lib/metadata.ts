@@ -4,7 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 export async function resolveLocalizedAppMetadata(): Promise<Metadata> {
   const { t } = await resolveTranslations()
   return {
-    title: t('app.metadata.title', 'Launch OS'),
+    title: t('app.metadata.title', 'Noli CRM'),
     description: t(
       'app.metadata.description',
       'The all-in-one operating system for your business',
@@ -18,7 +18,7 @@ export async function resolveLocalizedTitleMetadata(input: {
   fallback?: string
 }): Promise<Metadata> {
   const { t } = await resolveTranslations()
-  const fallbackTitle = input.title || input.fallback || 'Launch OS'
+  const fallbackTitle = input.title || input.fallback || 'Noli CRM'
   return {
     title: input.titleKey ? t(input.titleKey, fallbackTitle) : fallbackTitle,
   }

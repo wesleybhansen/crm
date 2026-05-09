@@ -69,7 +69,7 @@ function LoginInner() {
       <div className="auth-topbar">
         <Link href="/" className="auth-logo">
           <div className="auth-logo-mark" />
-          Launch OS
+          Noli CRM
         </Link>
         <Link href="/" className="auth-back">
           <ArrowLeftIcon />
@@ -106,7 +106,7 @@ function LoginInner() {
           ) : (
             <div className="auth-swap" key="login">
               <h1>Welcome back, rockstar.</h1>
-              <p className="auth-sub">Sign in to your Launch OS workspace.</p>
+              <p className="auth-sub">Sign in to your Noli CRM workspace.</p>
 
               <a href="/api/auth/google/start" className="auth-google">
                 <GoogleIcon />
@@ -133,7 +133,7 @@ function LoginInner() {
 
                 <button type="submit" className={`auth-submit ${loading ? 'is-loading' : ''}`} disabled={loading}>
                   <span className="auth-spinner" />
-                  <span className="auth-submit-label">Log in to Launch OS</span>
+                  <span className="auth-submit-label">Log in to Noli CRM</span>
                   <ArrowRightIcon />
                 </button>
               </form>
@@ -152,7 +152,7 @@ function LoginInner() {
           <span>·</span>
           <Link href="/privacy">Privacy</Link>
         </div>
-        <div className="auth-bottom-copy">© {new Date().getFullYear()} The Launch Pad LLC</div>
+        <div className="auth-bottom-copy">© {new Date().getFullYear()} Noli LLC</div>
       </footer>
     </div>
   )

@@ -71,7 +71,7 @@ function ResetPasswordForm() {
       <div className="auth-topbar">
         <Link href="/" className="auth-logo">
           <div className="auth-logo-mark" />
-          Launch OS
+          Noli CRM
         </Link>
         <Link href="/login" className="auth-back">
           <ArrowLeftIcon />
@@ -124,7 +124,7 @@ function ResetPasswordForm() {
       </main>
 
       <footer className="auth-bottom">
-        © {new Date().getFullYear()} The Launch Pad LLC
+        © {new Date().getFullYear()} Noli LLC
       </footer>
     </div>
   )

@@ -1362,7 +1362,7 @@ export default function SimpleSettingsPage() {
                 <div className="flex-1">
                   <label className="text-[10px] font-medium text-muted-foreground block mb-0.5">Display Name</label>
                   <Input value={newSenderName} onChange={e => setNewSenderName(e.target.value)}
-                    placeholder="e.g. The Launch Pad" className="h-8 text-xs" />
+                    placeholder="e.g. Your Business" className="h-8 text-xs" />
                 </div>
                 <div className="flex-1">
                   <label className="text-[10px] font-medium text-muted-foreground block mb-0.5">Email Address</label>
@@ -1921,7 +1921,7 @@ export default function SimpleSettingsPage() {
                 <li>Log in to your AMS dashboard at <strong>marketing.thelaunchpadincubator.com</strong></li>
                 <li>Go to <strong>Settings</strong> (gear icon in the sidebar)</li>
                 <li>Click <strong>API Keys</strong></li>
-                <li>Scroll to the <strong>Launch OS (CRM)</strong> section</li>
+                <li>Scroll to the <strong>Noli CRM (CRM)</strong> section</li>
                 <li>Paste your <strong>API Key</strong> into the API Key field</li>
                 <li>Paste your <strong>CRM URL</strong> (<code className="bg-muted px-1 rounded">https://crm.thelaunchpadincubator.com</code>) into the CRM URL field</li>
                 <li>Click <strong>Connect</strong></li>
