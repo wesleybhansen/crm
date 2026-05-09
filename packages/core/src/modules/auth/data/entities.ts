@@ -21,6 +21,9 @@ export class User {
   @Property({ name: 'google_sub', type: 'text', nullable: true })
   googleSub?: string | null
 
+  @Property({ name: 'clerk_user_id', type: 'text', nullable: true })
+  clerkUserId?: string | null
+
   @Property({ type: 'text', nullable: true })
   name?: string
 
