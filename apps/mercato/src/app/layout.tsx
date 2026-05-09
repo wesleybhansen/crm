@@ -30,6 +30,16 @@ export const metadata: Metadata = {
   manifest: '/manifest.webmanifest',
 }
 
+// ClerkProvider needs NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY at instantiation,
+// which during static prerender means at build time. The Hetzner Docker
+// build doesn't have access to runtime env vars during `yarn build`, so
+// any prerendered page (e.g. /_not-found) crashes with "Missing
+// publishableKey". Forcing the layout to render at runtime avoids this
+// without restructuring the Dockerfile to plumb through build args.
+// CRM is an internal app with very low request rate; per-request
+// rendering is a non-issue here.
+export const dynamic = 'force-dynamic'
+
 export default async function RootLayout({
   children,
 }: Readonly<{
