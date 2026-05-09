@@ -54,8 +54,18 @@ export default clerkMiddleware(async (auth, req) => {
   //    to the Noli hub. Hub is the single sign-in surface for the suite.
   const { userId } = await auth()
   if (!userId) {
+    // Behind nginx, req.url reads as http://0.0.0.0:3000/... because Next's
+    // standalone server doesn't trust the proxy's X-Forwarded-* headers by
+    // default. Reconstruct the public-facing URL so the hub can redirect
+    // back to the original CRM page after sign-in.
+    const proto = req.headers.get('x-forwarded-proto') ?? 'https'
+    const host =
+      req.headers.get('x-forwarded-host') ??
+      req.headers.get('host') ??
+      req.nextUrl.host
+    const publicUrl = `${proto}://${host}${req.nextUrl.pathname}${req.nextUrl.search}`
     const signInUrl = new URL(HUB_SIGN_IN_URL)
-    signInUrl.searchParams.set('redirect_url', req.url)
+    signInUrl.searchParams.set('redirect_url', publicUrl)
     return NextResponse.redirect(signInUrl)
   }
 
