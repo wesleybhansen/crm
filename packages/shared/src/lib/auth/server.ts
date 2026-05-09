@@ -167,7 +167,35 @@ function extractApiKey(req: Request): string | null {
   return null
 }
 
+// Clerk session resolver loaded on demand. Keeps the dynamic import out of
+// the hot path when CLERK_SECRET_KEY isn't configured (dev/test) and avoids
+// pulling @clerk/nextjs into the shared package's static graph.
+async function tryClerkAuth(): Promise<AuthContext> {
+  if (!process.env.CLERK_SECRET_KEY) return null
+  try {
+    const { auth } = await import('@clerk/nextjs/server')
+    const { userId: clerkUserId } = await auth()
+    if (!clerkUserId) return null
+    const { resolveClerkUserToAuthContext } = await import('./clerk')
+    return await resolveClerkUserToAuthContext(clerkUserId)
+  } catch {
+    // Clerk middleware didn't run for this request, or @clerk/nextjs not
+    // installed in this environment. Caller falls through to legacy paths.
+    return null
+  }
+}
+
 export async function getAuthFromCookies(): Promise<AuthContext> {
+  // 1. Clerk session — production-Clerk cookie on .noliai.com.
+  const clerkAuth = await tryClerkAuth()
+  if (clerkAuth) {
+    const cookieStore = await cookies()
+    const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
+    const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
+    return applySuperAdminScope(clerkAuth, tenantCookie, orgCookie)
+  }
+
+  // 2. Legacy JWT cookie (kept until Phase G removes it).
   const cookieStore = await cookies()
   const token = cookieStore.get('auth_token')?.value
   if (!token) return null
@@ -187,6 +215,13 @@ export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
   const cookieHeader = req.headers.get('cookie') || ''
   const tenantCookie = readCookieFromHeader(cookieHeader, TENANT_COOKIE_NAME)
   const orgCookie = readCookieFromHeader(cookieHeader, ORGANIZATION_COOKIE_NAME)
+
+  // 1. Clerk session — primary identity path post-Phase-1.4.
+  const clerkAuth = await tryClerkAuth()
+  if (clerkAuth) return applySuperAdminScope(clerkAuth, tenantCookie, orgCookie)
+
+  // 2. Legacy JWT (Bearer or auth_token cookie). Kept until Phase G drops
+  //    the deprecated /api/auth/login + signup + reset routes.
   const authHeader = (req.headers.get('authorization') || '').trim()
   let token: string | undefined
   if (authHeader.toLowerCase().startsWith('bearer ')) token = authHeader.slice(7).trim()
@@ -204,6 +239,7 @@ export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
     }
   }
 
+  // 3. API key (MCP, integrations, programmatic clients) — unchanged.
   const apiKey = extractApiKey(req)
   if (!apiKey) return null
   const apiAuth = await resolveApiKeyAuth(apiKey)
