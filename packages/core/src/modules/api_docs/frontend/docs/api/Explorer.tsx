@@ -356,7 +356,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
               ☰
             </button>
             <Link href="/" className="flex items-center gap-3">
-              <Image src="/launchos-logo.png" alt="Noli CRM" width={36} height={36} />
+              <Image src="/noli-logo.svg" alt="Noli CRM" width={36} height={36} />
               <div>
                 <div className="text-base font-semibold leading-tight">{title}</div>
                 <div className="text-xs text-muted-foreground">Version {version}</div>

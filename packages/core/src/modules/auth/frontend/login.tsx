@@ -267,7 +267,7 @@ export default function LoginPage() {
     <div className="min-h-svh flex items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="flex flex-col items-center gap-4 text-center p-10">
-          <Image alt={translate('auth.login.logoAlt', 'Noli CRM logo')} src="/launchos-logo.png" width={150} height={150} priority />
+          <Image alt={translate('auth.login.logoAlt', 'Noli CRM logo')} src="/noli-logo.svg" width={150} height={150} priority />
           <h1 className="text-2xl font-semibold">{translate('auth.login.brandName', 'Noli CRM')}</h1>
           <CardDescription>{translate('auth.login.subtitle', 'Access your workspace')}</CardDescription>
         </CardHeader>

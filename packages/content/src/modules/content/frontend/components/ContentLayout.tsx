@@ -24,7 +24,7 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
         <div className="mx-auto flex w-full max-w-screen-lg items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-3 text-foreground transition hover:text-primary" aria-label="Go to the LaunchOS home page">
             <Image
-              src="/launchos-logo.png"
+              src="/noli-logo.svg"
               alt="LaunchOS logo"
               width={32}
               height={32}
@@ -101,7 +101,7 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
             className="flex items-center gap-2 text-muted-foreground transition hover:text-foreground"
             aria-label="LaunchOS"
           >
-            <Image src="/launchos-logo.png" alt="LaunchOS logo" width={28} height={28} className="dark:invert" />
+            <Image src="/noli-logo.svg" alt="LaunchOS logo" width={28} height={28} className="dark:invert" />
             <span className="font-medium text-foreground">LaunchOS</span>
           </Link>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
