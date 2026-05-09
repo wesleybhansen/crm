@@ -110,6 +110,10 @@ export async function resolveClerkUserToAuthContext(
       tenantId: user.tenantId ?? null,
       orgId: user.organizationId ?? null,
       roles: roleNames,
+      // noliUserId is consumed by lib/usage/log.ts to write per-call rows
+      // into noli-core's ai_usage table for cross-app aggregation. The
+      // AuthContext type has `[k: string]: unknown` so this is type-safe.
+      noliUserId: noliUser.id,
     }
   } catch (err) {
     console.error('[clerk-auth] Mercato user resolution failed:', err)

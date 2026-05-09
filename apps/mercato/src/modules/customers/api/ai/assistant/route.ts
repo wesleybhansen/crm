@@ -653,14 +653,14 @@ export async function POST(req: Request, ctx?: any) {
 
     // Gemini first (preferred for cost), then OpenAI fallback if Gemini is
     // rate-limited, keyless, or otherwise unreachable. Either provider returns
-    // plain text or throws a classified error for the caller to handle.
-    let text: string | null = null
+    // {text, model, tokensIn, tokensOut} or throws a classified error.
+    let result: { text: string; model: string; tokensIn: number; tokensOut: number } | null = null
     let provider: 'gemini' | 'openai' | null = null
     let lastError: { provider: string; message: string } | null = null
 
     if (geminiKey) {
       try {
-        text = await callGemini(geminiKey, systemPrompt, contextPrefixed)
+        result = await callGemini(geminiKey, systemPrompt, contextPrefixed)
         provider = 'gemini'
       } catch (err: any) {
         lastError = { provider: 'gemini', message: err?.message || String(err) }
@@ -673,9 +673,9 @@ export async function POST(req: Request, ctx?: any) {
       }
     }
 
-    if (text === null && openaiKey) {
+    if (result === null && openaiKey) {
       try {
-        text = await callOpenAI(openaiKey, systemPrompt, contextPrefixed)
+        result = await callOpenAI(openaiKey, systemPrompt, contextPrefixed)
         provider = 'openai'
         console.log('[ai.assistant] Served via OpenAI fallback')
       } catch (err: any) {
@@ -684,8 +684,25 @@ export async function POST(req: Request, ctx?: any) {
       }
     }
 
-    if (text !== null) {
-      return NextResponse.json({ ok: true, message: text, provider })
+    if (result !== null) {
+      // Fire-and-forget noli-core ai_usage log. Skipped if the request didn't
+      // resolve to a Clerk-authenticated user (e.g. legacy JWT or API-key
+      // auth) — those callers don't yet have a noliUserId on AuthContext.
+      try {
+        const auth = ctx?.auth ?? (await getAuthFromCookies())
+        const noliUserId = (auth as any)?.noliUserId
+        if (noliUserId) {
+          const { logAiUsage } = await import('@/lib/usage/log')
+          logAiUsage({
+            noliUserId: String(noliUserId),
+            model: result.model,
+            tokensIn: result.tokensIn,
+            tokensOut: result.tokensOut,
+            feature: 'scout-assistant',
+          }).catch(() => {})
+        }
+      } catch {}
+      return NextResponse.json({ ok: true, message: result.text, provider })
     }
 
     // Both providers exhausted or unavailable
@@ -704,7 +721,7 @@ export async function POST(req: Request, ctx?: any) {
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 
-async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<string> {
+async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<{ text: string; model: string; tokensIn: number; tokensOut: number }> {
   const model = process.env.AI_MODEL || 'gemini-2.0-flash'
   const contents = msgs.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
@@ -746,10 +763,12 @@ async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessag
     err.retriable = true
     throw err
   }
-  return text
+  const tokensIn = Number(data?.usageMetadata?.promptTokenCount) || 0
+  const tokensOut = Number(data?.usageMetadata?.candidatesTokenCount) || 0
+  return { text, model, tokensIn, tokensOut }
 }
 
-async function callOpenAI(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<string> {
+async function callOpenAI(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<{ text: string; model: string; tokensIn: number; tokensOut: number }> {
   const model = process.env.OPENAI_FALLBACK_MODEL || 'gpt-4o-mini'
   const openaiMessages = [
     { role: 'system', content: systemPrompt },
@@ -783,5 +802,7 @@ async function callOpenAI(apiKey: string, systemPrompt: string, msgs: ChatMessag
   }
   const text = data?.choices?.[0]?.message?.content
   if (!text) throw new Error('Empty OpenAI response')
-  return text
+  const tokensIn = Number(data?.usage?.prompt_tokens) || 0
+  const tokensOut = Number(data?.usage?.completion_tokens) || 0
+  return { text, model, tokensIn, tokensOut }
 }
