@@ -16,15 +16,14 @@ export async function POST(req: Request) {
     try { const c = await createRequestContainer(); const auth = c.resolve<AuthService>('authService'); await auth.deleteSessionByToken(sessToken) } catch {}
   }
   // Post-Phase-1.4 (Clerk migration): when CLERK_SECRET_KEY is configured,
-  // bounce the user to the Noli hub instead of /login (which still renders
-  // the legacy Mercato sign-in form during the Phase G transition window).
-  // Full Clerk sign-out across .noliai.com is a hub responsibility — until
-  // the hub gets a /sign-out route that calls Clerk's signOut(), users
-  // with a live Clerk session will land on the hub launcher signed in.
-  // The legacy Mercato JWT cookies cleared below are now inert anyway
-  // because getAuthFromRequest tries Clerk first.
+  // route through the hub's /sign-out endpoint which calls Clerk's
+  // signOut() to clear the .noliai.com cookie + session row, then
+  // redirects the browser to the marketing site. Without this hop,
+  // clearing only the Mercato JWT cookies below would leave the user
+  // technically still signed in to the suite (Clerk session intact).
+  const hubUrl = process.env.NEXT_PUBLIC_HUB_URL ?? 'https://app.noliai.com'
   const target = process.env.CLERK_SECRET_KEY
-    ? (process.env.NEXT_PUBLIC_HUB_URL ?? 'https://app.noliai.com')
+    ? `${hubUrl}/sign-out`
     : toAbsoluteUrl(req, '/login')
   const res = NextResponse.redirect(target)
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
