@@ -117,7 +117,7 @@ function InviteAcceptForm() {
           </div>
           <h1 style={styles.heading}>Invalid Invitation</h1>
           <p style={styles.error}>{invalidMessage}</p>
-          <a href="/login" style={styles.link}>
+          <a href="https://app.noliai.com/sign-in" style={styles.link}>
             Go to Sign In
           </a>
         </div>
@@ -174,7 +174,7 @@ function InviteAcceptForm() {
           </button>
         </form>
 
-        <a href="/login" style={styles.link}>
+        <a href="https://app.noliai.com/sign-in" style={styles.link}>
           Already have an account? <span style={{ color: '#0000CC' }}>Sign in</span>
         </a>
       </div>

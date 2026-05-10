@@ -119,7 +119,7 @@ export default async function Home() {
       <section className="rounded-lg border bg-card p-4">
         <div className="text-sm font-medium mb-2">{t('app.page.quickLinks.title', 'Quick Links')}</div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <Link className="underline hover:text-primary transition-colors" href="/login">{t('app.page.quickLinks.login', 'Login')}</Link>
+          <a className="underline hover:text-primary transition-colors" href="https://app.noliai.com/sign-in">{t('app.page.quickLinks.login', 'Login')}</a>
           <span className="text-muted-foreground">·</span>
           <Link className="underline hover:text-primary transition-colors" href="/example">{t('app.page.quickLinks.examplePage', 'Example Page')}</Link>
           <span className="text-muted-foreground">·</span>

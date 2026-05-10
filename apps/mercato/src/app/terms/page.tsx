@@ -370,7 +370,7 @@ export default function TermsPage() {
       <p style={s.p}>The Services are offered by Noli LLC. You may contact us by email at: <a href="mailto:hello@thelaunchpadincubator.com" style={s.link}>hello@thelaunchpadincubator.com</a>.</p>
 
       <div style={s.footer}>
-        <p><a href="/privacy" style={s.link}>Privacy Policy</a> · <a href="/login" style={s.link}>Back to Noli CRM</a></p>
+        <p><a href="/privacy" style={s.link}>Privacy Policy</a> · <a href="https://app.noliai.com/sign-in" style={s.link}>Back to Noli CRM</a></p>
         <p style={{ marginTop: 8, color: '#bbb' }}>© {new Date().getFullYear()} Noli LLC. All rights reserved.</p>
       </div>
     </div>

@@ -211,7 +211,7 @@ export default function PrivacyPage() {
       <p style={s.p}>If you have questions about this policy or our practices, contact us at <a href="mailto:privacy@thelaunchpadincubator.com" style={s.link}>privacy@thelaunchpadincubator.com</a>.</p>
 
       <div style={s.footer}>
-        <p><a href="/terms" style={s.link}>Terms &amp; Conditions</a> · <a href="/login" style={s.link}>Back to Noli CRM</a></p>
+        <p><a href="/terms" style={s.link}>Terms &amp; Conditions</a> · <a href="https://app.noliai.com/sign-in" style={s.link}>Back to Noli CRM</a></p>
         <p style={{ marginTop: 8, color: '#bbb' }}>© {new Date().getFullYear()} Noli LLC. All rights reserved.</p>
       </div>
     </div>
