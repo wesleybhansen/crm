@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 const DEMO_NOTICE_COOKIE = 'om_demo_notice_ack'
-const COOKIE_NOTICE_COOKIE = 'om_cookie_notice_ack'
 
 function getCookie(name: string): string | null {
   if (typeof document === 'undefined') return null
@@ -24,33 +23,25 @@ function setCookie(name: string, value: string, days = 365) {
 export function GlobalNoticeBars({ demoModeEnabled }: { demoModeEnabled: boolean }) {
   const t = useT()
   const [showDemoNotice, setShowDemoNotice] = useState(false)
-  const [showCookieNotice, setShowCookieNotice] = useState(false)
+
+  // The cookie-consent banner used to render here too. Removed for the
+  // authenticated CRM: signed-in users implicitly accept essential
+  // cookies by using the app, and EU consent rules don't require a
+  // banner for essential/auth cookies on a paid product. A proper
+  // banner belongs on the marketing site (noliai.com) where anonymous
+  // visitors are tracked — tracked under build-queue Phase 2.1.
 
   useEffect(() => {
     if (demoModeEnabled && !getCookie(DEMO_NOTICE_COOKIE)) {
       setShowDemoNotice(true)
     }
-    if (!getCookie(COOKIE_NOTICE_COOKIE)) {
-      setShowCookieNotice(true)
-    }
   }, [demoModeEnabled])
 
-  const activeBars = [showDemoNotice, showCookieNotice].filter(Boolean).length
-  if (activeBars === 0) return null
+  if (!showDemoNotice) return null
 
   const handleDismissDemo = () => {
     setCookie(DEMO_NOTICE_COOKIE, 'ack')
     setShowDemoNotice(false)
-  }
-
-  const handleDismissCookies = () => {
-    setCookie(COOKIE_NOTICE_COOKIE, 'dismissed')
-    setShowCookieNotice(false)
-  }
-
-  const handleAcceptCookies = () => {
-    setCookie(COOKIE_NOTICE_COOKIE, 'ack')
-    setShowCookieNotice(false)
   }
 
   return (
@@ -91,26 +82,6 @@ export function GlobalNoticeBars({ demoModeEnabled }: { demoModeEnabled: boolean
         </div>
       ) : null}
 
-      {showCookieNotice ? (
-        <div className="pointer-events-auto w-full max-w-4xl rounded-lg border border-slate-300 bg-background/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80 dark:border-slate-700">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-sm text-muted-foreground">
-              {t('notices.cookies.description', 'We use essential cookies to remember your preferences. Learn how we handle data in our')}{' '}
-              <Link className="underline font-medium hover:text-foreground" href="/privacy">
-                {t('common.privacy')}
-              </Link>.
-            </div>
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              <Button variant="ghost" size="sm" onClick={handleDismissCookies}>
-                {t('notices.cookies.dismiss', 'Dismiss')}
-              </Button>
-              <Button size="sm" onClick={handleAcceptCookies}>
-                {t('notices.cookies.accept', 'Accept cookies')}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }
