@@ -38,6 +38,7 @@ export async function trackEngagement(
       id: require('crypto').randomUUID(),
       contact_id: contactId,
       organization_id: orgId,
+      tenant_id: tenantId,
       event_type: eventType,
       points,
       metadata: metadata ? JSON.stringify(metadata) : null,
