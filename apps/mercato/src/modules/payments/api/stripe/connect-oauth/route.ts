@@ -23,7 +23,7 @@ export async function GET() {
 
   const baseUrl = process.env.APP_URL || 'http://localhost:3000'
   const state = Buffer.from(JSON.stringify({ userId: auth.sub, orgId: auth.orgId, tenantId: auth.tenantId })).toString('base64')
-  const redirectUri = `${baseUrl}/api/stripe/connect-oauth/callback`
+  const redirectUri = `${baseUrl}/api/payments/stripe/connect-oauth/callback`
 
   const params = new URLSearchParams({
     response_type: 'code',
