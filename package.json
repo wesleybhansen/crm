@@ -112,6 +112,7 @@
     "nodemailer": "^8.0.4",
     "pdf2pic": "^3.2.0",
     "pg": "8.20.0",
+    "posthog-js": "^1.373.2",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "react-email": "^5.0.6",

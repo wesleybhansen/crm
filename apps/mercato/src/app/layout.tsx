@@ -48,6 +48,10 @@ export default async function RootLayout({
   const locale = await detectLocale()
   const dict = await loadDictionary(locale)
   const demoModeEnabled = process.env.DEMO_MODE !== 'false'
+  // Read PostHog config at runtime (force-dynamic) and thread to the client
+  // provider as props — the Docker build has no NEXT_PUBLIC_* vars to inline.
+  const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY
+  const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST
   return (
     <ClerkProvider appearance={noliClerkAppearance}>
       <html lang={locale} suppressHydrationWarning>
@@ -70,7 +74,7 @@ export default async function RootLayout({
           />
         </head>
         <body className={`${inter.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
-          <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled}>
+          <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled} posthogKey={posthogKey} posthogHost={posthogHost}>
             {children}
           </AppProviders>
         </body>

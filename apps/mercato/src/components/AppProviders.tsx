@@ -7,25 +7,32 @@ import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { ThemeProvider, FrontendLayout, QueryProvider, AuthFooter } from '@open-mercato/ui'
 import { ClientBootstrapProvider } from '@/components/ClientBootstrap'
 import { GlobalNoticeBars } from '@/components/GlobalNoticeBars'
+import { PostHogProvider } from '@/components/PostHogProvider'
 
 type AppProvidersProps = {
   children: ReactNode
   locale: Locale
   dict: Dict
   demoModeEnabled: boolean
+  // PostHog key/host are read server-side at runtime in the layout (the
+  // Docker build has no NEXT_PUBLIC_* vars) and threaded down here.
+  posthogKey?: string
+  posthogHost?: string
 }
 
-export function AppProviders({ children, locale, dict, demoModeEnabled }: AppProvidersProps) {
+export function AppProviders({ children, locale, dict, demoModeEnabled, posthogKey, posthogHost }: AppProvidersProps) {
   return (
     <I18nProvider locale={locale} dict={dict}>
-      <ClientBootstrapProvider>
-        <ThemeProvider>
-          <QueryProvider>
-            <FrontendLayout footer={null}>{children}</FrontendLayout>
-            <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
-          </QueryProvider>
-        </ThemeProvider>
-      </ClientBootstrapProvider>
+      <PostHogProvider posthogKey={posthogKey} posthogHost={posthogHost}>
+        <ClientBootstrapProvider>
+          <ThemeProvider>
+            <QueryProvider>
+              <FrontendLayout footer={null}>{children}</FrontendLayout>
+              <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
+            </QueryProvider>
+          </ThemeProvider>
+        </ClientBootstrapProvider>
+      </PostHogProvider>
     </I18nProvider>
   )
 }
