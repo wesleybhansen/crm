@@ -17,7 +17,7 @@ const HUB_SIGN_IN_URL =
 // Pages that must NOT trigger a Clerk redirect:
 //   - public token surfaces (validated by the token in the URL)
 //   - legacy auth UI orphans (deleted in Phase G but still routable now)
-//   - the marketing landing — root rewrite handles it below before any auth check
+//   (the root path is handled separately below: redirected to marketing or the app)
 const isPublicPage = createRouteMatcher([
   '/login',
   '/signup',
@@ -29,10 +29,23 @@ const isPublicPage = createRouteMatcher([
 ])
 
 export default clerkMiddleware(async (auth, req) => {
-  // 1. Marketing landing rewrite — preserved from the original proxy.
-  //    Bypasses any auth check; root URL is intentionally public.
+  // 1. Root: the marketing page is the single source of truth at
+  //    noliai.com/crm. The in-repo landing.html drifted from it, so we no
+  //    longer serve a local copy. Logged-out visitors are redirected to the
+  //    marketing page; signed-in users go straight to the CRM app.
   if (req.nextUrl.pathname === '/') {
-    return NextResponse.rewrite(new URL('/landing.html', req.url))
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.redirect(`https://noliai.com/crm${req.nextUrl.search}`)
+    }
+    // Reconstruct the public-facing origin (behind nginx, req.url reads as
+    // http://0.0.0.0:3000) so the redirect lands on crm.noliai.com/backend.
+    const proto = req.headers.get('x-forwarded-proto') ?? 'https'
+    const host =
+      req.headers.get('x-forwarded-host') ??
+      req.headers.get('host') ??
+      req.nextUrl.host
+    return NextResponse.redirect(new URL('/backend', `${proto}://${host}`))
   }
 
   // 2. Set x-next-url for server components (preserved from original).
