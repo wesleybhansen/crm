@@ -51,6 +51,24 @@ export async function findUserByClerkId(
   return (data as NoliCoreUser | null) ?? null;
 }
 
+/* The noli-core organization the user belongs to (v1 = one org per user).
+ * Used to map a whole noli-core team onto ONE shared Mercato org. Returns
+ * null if the user has no org membership yet. */
+export async function findPrimaryOrgIdForUser(
+  noliUserId: string,
+): Promise<string | null> {
+  const supabase = getNoliCoreClient();
+  const { data, error } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', noliUserId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.organization_id as string | undefined) ?? null;
+}
+
 /* Check whether a noli-core user has an active entitlement for a given
  * Noli app. Used by the Clerk auth resolver to gate access to CRM. */
 export async function isEntitled(

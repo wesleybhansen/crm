@@ -39,6 +39,12 @@ export class Organization {
   @Property({ type: 'text', nullable: true })
   slug?: string | null
 
+  // Links this Mercato org to a noli-core organization, so all members of a
+  // noli-core team share ONE Mercato org (contacts/deals/pipelines). null =
+  // legacy/standalone org created before multi-tenancy.
+  @Property({ name: 'noli_org_id', type: 'text', nullable: true })
+  noliOrgId?: string | null
+
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
