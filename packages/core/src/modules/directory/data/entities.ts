@@ -42,6 +42,7 @@ export class Organization {
   // Links this Mercato org to a noli-core organization, so all members of a
   // noli-core team share ONE Mercato org (contacts/deals/pipelines). null =
   // legacy/standalone org created before multi-tenancy.
+  @Unique({ name: 'organizations_noli_org_id_uniq' })
   @Property({ name: 'noli_org_id', type: 'text', nullable: true })
   noliOrgId?: string | null
 

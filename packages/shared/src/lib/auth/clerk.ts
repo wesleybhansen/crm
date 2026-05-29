@@ -228,7 +228,12 @@ async function provisionMercatoUserForClerk(
 
     let createdUser: unknown = null
 
-    await em.transactional(async (tem) => {
+    // Retry once at the transaction boundary: if a teammate's concurrent first
+    // sign-in raced us on the unique noli_org_id, reset the EM and retry — the
+    // org findOne then resolves the winner and we join it (no duplicate org).
+    for (let attempt = 0; attempt < 2; attempt++) {
+     try {
+      await em.transactional(async (tem) => {
       // a. Find the team's shared Mercato org by its noli-core link, or create
       //    it. All members of one noli-core org share ONE Mercato org (so they
       //    see the same contacts/deals/pipelines). The org's tenant governs the
@@ -350,7 +355,20 @@ async function provisionMercatoUserForClerk(
       }
 
       createdUser = newUser
-    })
+      })
+      break
+     } catch (txErr) {
+      const code = (txErr as { code?: string }).code
+      if (
+        attempt === 0 &&
+        (code === '23505' || /unique|duplicate key/i.test(String(txErr)))
+      ) {
+        em.clear()
+        continue
+      }
+      throw txErr
+     }
+    }
 
     console.info(
       `[clerk-auth] Auto-provisioned Mercato user for clerkUserId=${clerkUserId} email=${noliUser.email}`,
