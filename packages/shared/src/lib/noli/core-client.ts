@@ -51,6 +51,22 @@ export async function findUserByClerkId(
   return (data as NoliCoreUser | null) ?? null;
 }
 
+/* Look up a noli-core user by their noli-core UUID. Used by the internal
+ * connectivity endpoint, which receives a noliUserId (not a Clerk id) from a
+ * sibling app and needs the Clerk id to resolve/provision the Mercato user. */
+export async function findNoliUserById(
+  noliUserId: string,
+): Promise<NoliCoreUser | null> {
+  const supabase = getNoliCoreClient();
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, clerk_user_id, email, first_name, last_name, cohort')
+    .eq('id', noliUserId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as NoliCoreUser | null) ?? null;
+}
+
 /* The noli-core organization the user belongs to (v1 = one org per user).
  * Used to map a whole noli-core team onto ONE shared Mercato org. Returns
  * null if the user has no org membership yet. */
