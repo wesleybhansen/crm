@@ -2,6 +2,7 @@ export const metadata = { POST: { requireAuth: true } }
 export const openApi = { summary: 'ai-chat', methods: {} }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { meterCustomersAi } from '@/lib/usage/meter'
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
@@ -131,6 +132,13 @@ GUIDELINES:
     if (!text) {
       return NextResponse.json({ ok: false, error: 'No response from AI' }, { status: 500 })
     }
+
+    void meterCustomersAi(auth, {
+      model: 'gemini-3.5-flash',
+      tokensIn: data?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+      feature: 'sequence-ai-chat',
+    })
 
     return NextResponse.json({ ok: true, data: { message: text } })
   } catch {

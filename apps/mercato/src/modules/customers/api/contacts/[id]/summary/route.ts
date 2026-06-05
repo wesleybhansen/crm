@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { meterCustomersAi } from '@/lib/usage/meter'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 // GET — load saved summary (no generation)
@@ -258,6 +259,12 @@ ${promptSections}`
           },
         )
         const aiData = await aiRes.json()
+        void meterCustomersAi(auth, {
+          model: 'gemini-3.5-flash',
+          tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
+          tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+          feature: 'contact-summary',
+        })
         const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text
         if (aiText) {
           summary = aiText.trim()

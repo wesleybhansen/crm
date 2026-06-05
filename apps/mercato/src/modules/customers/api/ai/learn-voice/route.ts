@@ -7,6 +7,7 @@ export const metadata = { path: '/ai/learn-voice', GET: { requireAuth: true }, P
  */
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { meterCustomersAi } from '@/lib/usage/meter'
 import { query, queryOne } from '@/lib/db'
 // Gmail-based voice learning is disabled pending Tier 1 OAuth verification.
 // Re-add these imports when restoring the Gmail source path:
@@ -123,6 +124,13 @@ export async function POST(req: Request) {
       `UPDATE business_profiles SET brand_voice_profile = $1, brand_voice_updated_at = now(), brand_voice_source = $2, updated_at = now() WHERE organization_id = $3`,
       [JSON.stringify(voiceProfile), resolvedSource, auth.orgId]
     )
+
+    void meterCustomersAi(auth, {
+      model: 'gemini-3.5-flash',
+      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      feature: 'learn-voice',
+    })
 
     return NextResponse.json({ ok: true, data: voiceProfile })
   } catch (error) {

@@ -6,9 +6,11 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg, buildVoicePromptSection } from '../persona'
+import { meterCustomersAi } from '@/lib/usage/meter'
 
 export async function POST(req: Request) {
   try {
+    const auth = await getAuthFromCookies()
     const body = await req.json()
     const { contactName, contactEmail, purpose, context } = body
 
@@ -33,7 +35,6 @@ Best regards`,
     // Load persona for tone matching
     let toneInstruction = 'Friendly but professional tone'
     try {
-      const auth = await getAuthFromCookies()
       if (auth?.orgId) {
         const container = await createRequestContainer()
         const em = container.resolve('em') as EntityManager
@@ -108,6 +109,13 @@ Best regards`,
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
     text = text.trim()
     if (text.startsWith('```')) text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
+
+    void meterCustomersAi(auth, {
+      model,
+      tokensIn: data?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+      feature: 'draft-email',
+    })
 
     try {
       const parsed = JSON.parse(text)

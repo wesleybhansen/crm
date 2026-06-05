@@ -7,6 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { meterCustomersAi } from '@/lib/usage/meter'
 
 export const metadata = { path: '/ai/digest',
   POST: { requireAuth: false },
@@ -112,7 +113,7 @@ async function gatherDigestData(knex: ReturnType<EntityManager['getKnex']>, orgI
   }
 }
 
-async function generateDigestHtml(data: Awaited<ReturnType<typeof gatherDigestData>>, personaPrompt: string): Promise<string> {
+async function generateDigestHtml(data: Awaited<ReturnType<typeof gatherDigestData>>, personaPrompt: string, orgId?: string | null): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
   if (!apiKey) {
     throw new Error('Gemini API key not configured')
@@ -166,6 +167,13 @@ ${dataSection}`
 
   const result = await res.json()
   const text = result.candidates?.[0]?.content?.parts?.[0]?.text || ''
+
+  void meterCustomersAi({ orgId }, {
+    model: 'gemini-3.5-flash',
+    tokensIn: result?.usageMetadata?.promptTokenCount || 0,
+    tokensOut: result?.usageMetadata?.candidatesTokenCount || 0,
+    feature: 'digest',
+  })
 
   // Strip markdown code fences if present
   return text.replace(/^```html?\n?/i, '').replace(/\n?```$/i, '').trim()
@@ -234,7 +242,7 @@ export async function POST(req: Request) {
         const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
 
         const data = await gatherDigestData(knex, org.organization_id, org.tenant_id, days)
-        const digestHtml = await generateDigestHtml(data, personaPrompt)
+        const digestHtml = await generateDigestHtml(data, personaPrompt, org.organization_id)
 
         const businessName = org.business_name || 'Your Business'
         const periodLabel = frequency === 'daily' ? 'Daily' : 'Weekly'
@@ -292,7 +300,7 @@ export async function GET() {
     const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
 
     const data = await gatherDigestData(knex, auth.orgId, auth.tenantId, 7)
-    const digestHtml = await generateDigestHtml(data, personaPrompt)
+    const digestHtml = await generateDigestHtml(data, personaPrompt, auth.orgId)
 
     return NextResponse.json({
       ok: true,

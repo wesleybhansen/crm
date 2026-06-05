@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
+import { meterCustomersAi } from '@/lib/usage/meter'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const openApi: OpenApiRouteDoc = {
@@ -191,6 +192,12 @@ Return ONLY the email body text, no subject line.`
             )
 
             const data = await response.json()
+            void meterCustomersAi({ orgId: org.id }, {
+              model,
+              tokensIn: data?.usageMetadata?.promptTokenCount || 0,
+              tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+              feature: 'relationship-decay',
+            })
             const draftBody = data.candidates?.[0]?.content?.parts?.[0]?.text
             if (draftBody) {
               alert.draftEmail = draftBody

@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
+import { meterCustomersAi } from '@/lib/usage/meter'
 
 export const metadata = { path: '/ai/meeting-prep',
   POST: { requireAuth: false },
@@ -189,6 +190,7 @@ async function generateBrief(
   contactData: NonNullable<Awaited<ReturnType<typeof loadContactData>>>,
   eventSummary: string | null,
   personaPrompt: string,
+  orgId?: string | null,
 ): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
   if (!apiKey) {
@@ -245,6 +247,14 @@ ${dataSection}`
 
   const result = await res.json()
   const text = result.candidates?.[0]?.content?.parts?.[0]?.text || ''
+
+  void meterCustomersAi({ orgId }, {
+    model: 'gemini-3.5-flash',
+    tokensIn: result?.usageMetadata?.promptTokenCount || 0,
+    tokensOut: result?.usageMetadata?.candidatesTokenCount || 0,
+    feature: 'meeting-prep',
+  })
+
   return text.replace(/^```html?\n?/i, '').replace(/\n?```$/i, '').trim()
 }
 
@@ -273,7 +283,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
       }
 
-      const brief = await generateBrief(contactData, null, personaPrompt)
+      const brief = await generateBrief(contactData, null, personaPrompt, auth.orgId)
 
       const result: MeetingPrepResult = {
         contact: {
@@ -359,7 +369,7 @@ export async function GET(req: Request) {
         const contactData = await loadContactData(knex, auth.orgId, mc.id)
         if (!contactData) continue
 
-        const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt)
+        const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt, auth.orgId)
 
         // Cache the brief
         try {
@@ -493,7 +503,7 @@ export async function POST(req: Request) {
             const contactData = await loadContactData(knex, connection.organization_id, mc.id)
             if (!contactData) continue
 
-            const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt)
+            const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt, connection.organization_id)
 
             await knex('meeting_prep_briefs').insert({
               tenant_id: connection.tenant_id,

@@ -2,6 +2,7 @@
 export const metadata = { path: '/ai/optimize-subject', POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { meterCustomersAi } from '@/lib/usage/meter'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export async function POST(req: Request) {
@@ -62,6 +63,12 @@ Return ONLY valid JSON, no markdown.`
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || ''
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (jsonMatch) result = JSON.parse(jsonMatch[0])
+      void meterCustomersAi(auth, {
+        model: 'gemini-3.5-flash',
+        tokensIn: data?.usageMetadata?.promptTokenCount || 0,
+        tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+        feature: 'optimize-subject',
+      })
     }
 
     if (!result) {
