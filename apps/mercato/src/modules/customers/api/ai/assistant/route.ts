@@ -722,7 +722,7 @@ export async function POST(req: Request, ctx?: any) {
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 
 async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<{ text: string; model: string; tokensIn: number; tokensOut: number }> {
-  const model = process.env.AI_MODEL || 'gemini-2.0-flash'
+  const model = process.env.AI_MODEL || 'gemini-3.5-flash'
   const contents = msgs.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],

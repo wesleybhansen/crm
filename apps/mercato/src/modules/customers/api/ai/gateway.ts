@@ -23,7 +23,7 @@ export async function checkAIAccess(): Promise<AICallResult> {
   const auth = await getAuthFromCookies()
   const systemKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || ''
   const provider = process.env.AI_PROVIDER || 'google'
-  const model = process.env.AI_MODEL || 'gemini-2.0-flash'
+  const model = process.env.AI_MODEL || 'gemini-3.5-flash'
 
   if (!auth?.orgId) {
     return { allowed: !!systemKey, apiKey: systemKey, provider, model }

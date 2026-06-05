@@ -88,7 +88,7 @@ export async function POST(req: Request) {
     if (!apiKey) return NextResponse.json({ ok: false, error: 'AI not configured' }, { status: 500 })
 
     const aiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

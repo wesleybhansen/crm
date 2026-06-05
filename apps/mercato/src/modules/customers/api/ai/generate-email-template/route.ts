@@ -51,7 +51,7 @@ PLACEHOLDERS TO INCLUDE:
 
 OUTPUT: Return ONLY the raw HTML. No markdown fences, no explanation. Just the complete HTML document starting with <!DOCTYPE html> and ending with </html>.`
 
-    const model = process.env.AI_MODEL || 'gemini-2.0-flash'
+    const model = process.env.AI_MODEL || 'gemini-3.5-flash'
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 30000)
 

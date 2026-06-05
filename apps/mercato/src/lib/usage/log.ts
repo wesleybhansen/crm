@@ -31,8 +31,8 @@ const PRICING: Record<string, ModelPricing> = {
   'gpt-5-mini': { in: 0.25, out: 2.0 },
   'gpt-5.4': { in: 5.0, out: 15.0 },
   // Google
-  'gemini-2.0-flash': { in: 0.075, out: 0.3 },
-  'gemini-1.5-pro': { in: 1.25, out: 5.0 },
+  'gemini-3.5-flash': { in: 0.075, out: 0.3 },
+  'gemini-2.5-pro': { in: 1.25, out: 5.0 },
 }
 
 export type LogAiUsageArgs = {

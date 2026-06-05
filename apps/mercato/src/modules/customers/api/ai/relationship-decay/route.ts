@@ -151,7 +151,7 @@ export async function POST(req: Request) {
     const orgs = await knex('organizations').select('id', 'tenant_id')
 
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-    const model = process.env.AI_MODEL || 'gemini-2.0-flash'
+    const model = process.env.AI_MODEL || 'gemini-3.5-flash'
     const results: Array<{ orgId: string; alertCount: number; draftsGenerated: number }> = []
 
     for (const org of orgs) {

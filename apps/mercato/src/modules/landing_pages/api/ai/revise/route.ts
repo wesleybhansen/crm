@@ -42,7 +42,7 @@ IMPORTANT:
 CURRENT PAGE BODY:
 ${bodyContent}`
 
-    const model = process.env.AI_MODEL || 'gemini-2.0-flash'
+    const model = process.env.AI_MODEL || 'gemini-3.5-flash'
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 90000)
     const response = await fetch(

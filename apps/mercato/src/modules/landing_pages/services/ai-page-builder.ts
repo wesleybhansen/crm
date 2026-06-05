@@ -96,10 +96,10 @@ export class AIPageBuilder {
   private resolveModel(): string {
     const provider = process.env.AI_PROVIDER || 'google'
     switch (provider) {
-      case 'google': return process.env.AI_MODEL || 'gemini-2.0-flash'
+      case 'google': return process.env.AI_MODEL || 'gemini-3.5-flash'
       case 'anthropic': return process.env.AI_MODEL || 'claude-haiku-4-5-20251001'
       case 'openai': return process.env.AI_MODEL || 'gpt-4o-mini'
-      default: return 'gemini-2.0-flash'
+      default: return 'gemini-3.5-flash'
     }
   }
 

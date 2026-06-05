@@ -35,7 +35,7 @@ Rules:
 - Return ONLY JSON: [{"name": "Stage Name", "order": 1}, ...]
 - No markdown fences`
 
-    const model = process.env.AI_MODEL || 'gemini-2.0-flash'
+    const model = process.env.AI_MODEL || 'gemini-3.5-flash'
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 15000)
 

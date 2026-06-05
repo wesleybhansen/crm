@@ -295,7 +295,7 @@ RULES:
     const { generateText } = await import('ai')
 
     const google = createGoogleGenerativeAI({ apiKey })
-    const model = google('gemini-3.1-flash-lite-preview')
+    const model = google('gemini-3.5-flash')
 
     const aiMessages = messagesForContext.map((m: { sender_type: string; message: string }) => ({
       role: m.sender_type === 'visitor' ? 'user' as const : 'assistant' as const,

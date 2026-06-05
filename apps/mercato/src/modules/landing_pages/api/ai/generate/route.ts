@@ -68,7 +68,7 @@ ${bodyContent}`
     let html: string
 
     if (provider === 'google') {
-      const model = process.env.AI_MODEL || 'gemini-2.0-flash'
+      const model = process.env.AI_MODEL || 'gemini-3.5-flash'
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 90000) // 90 second timeout
       const response = await fetch(

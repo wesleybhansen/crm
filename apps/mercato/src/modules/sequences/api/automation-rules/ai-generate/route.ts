@@ -85,7 +85,7 @@ User request: ${prompt}`
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${aiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

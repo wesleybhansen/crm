@@ -80,7 +80,7 @@ async function callGemini(
   opts: { jsonMode: boolean; maxTokens: number },
   retries = 2
 ): Promise<string> {
-  const model = process.env.AI_MODEL || 'gemini-2.0-flash'
+  const model = process.env.AI_MODEL || 'gemini-3.5-flash'
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (attempt > 0) {
