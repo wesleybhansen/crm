@@ -12,6 +12,8 @@ import { inboxProposalCategoryEnum } from './data/validators'
 import { executeAction } from './lib/executionEngine'
 import { resolveExtractionProviderId, createStructuredModel, withTimeout } from './lib/llmProvider'
 import { resolveOptionalEventBus } from './lib/eventBus'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
 
 type ToolContext = {
   tenantId: string | null
@@ -424,6 +426,25 @@ Return a JSON object with:
       15000,
       'Email categorization timed out after 15s',
     )
+
+    // Cross-product usage metering (fire-and-forget; never breaks the tool).
+    try {
+      const meterEm = ctx.container.resolve<EntityManager>('em').fork()
+      const meterOrg = ctx.organizationId
+        ? await meterEm.findOne(Organization, { id: ctx.organizationId })
+        : null
+      if (meterOrg?.noliOrgId) {
+        void logCrmAiUsage({
+          noliOrgId: meterOrg.noliOrgId,
+          model: modelConfig.modelId,
+          tokensIn: Number(result.usage?.inputTokens ?? 0) || 0,
+          tokensOut: Number(result.usage?.outputTokens ?? 0) || 0,
+          feature: 'inbox-categorize',
+        }).catch(() => {})
+      }
+    } catch {
+      /* ignore — metering is best-effort */
+    }
 
     return {
       category: result.object.category,

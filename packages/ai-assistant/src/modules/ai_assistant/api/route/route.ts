@@ -18,6 +18,8 @@ import {
   isProviderConfigured,
   type ChatProviderId,
 } from '../../lib/chat-config'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
@@ -144,6 +146,25 @@ Respond with:
     })
 
     console.log('[AI Route] Result:', result.object)
+
+    // Cross-product usage metering (fire-and-forget; never blocks the response).
+    try {
+      const meterEm = (container.resolve('em') as { fork: () => { findOne: (e: unknown, w: unknown) => Promise<{ noliOrgId?: string | null } | null> } }).fork()
+      const meterOrg = auth.orgId ? await meterEm.findOne(Organization, { id: auth.orgId }) : null
+      if (meterOrg?.noliOrgId) {
+        const bareModel = modelWithProvider.includes('/') ? modelWithProvider.split('/').pop()! : modelWithProvider
+        void logCrmAiUsage({
+          noliOrgId: meterOrg.noliOrgId,
+          model: bareModel,
+          tokensIn: Number(result.usage?.inputTokens ?? 0) || 0,
+          tokensOut: Number(result.usage?.outputTokens ?? 0) || 0,
+          feature: 'assistant-routing',
+        }).catch(() => {})
+      }
+    } catch {
+      /* ignore — metering is best-effort */
+    }
+
     return NextResponse.json(result.object)
   } catch (error) {
     console.error('[AI Route] Error routing query:', error)
