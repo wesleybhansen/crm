@@ -2,6 +2,7 @@
 export const metadata = { path: '/ai/scan-website', POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { meterCustomersAi } from '@/lib/usage/meter'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export async function POST(req: Request) {
@@ -142,6 +143,13 @@ ${textContent}`
     if (jsonMatch) {
       try { aiResult = JSON.parse(jsonMatch[0]) } catch { /* ignore parse errors */ }
     }
+
+    void meterCustomersAi(auth, {
+      model: 'gemini-3.5-flash',
+      tokensIn: geminiData?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: geminiData?.usageMetadata?.candidatesTokenCount || 0,
+      feature: 'scan-website',
+    })
 
     return NextResponse.json({
       ok: true,

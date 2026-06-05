@@ -685,22 +685,18 @@ export async function POST(req: Request, ctx?: any) {
     }
 
     if (result !== null) {
-      // Fire-and-forget noli-core ai_usage log. Skipped if the request didn't
-      // resolve to a Clerk-authenticated user (e.g. legacy JWT or API-key
-      // auth) — those callers don't yet have a noliUserId on AuthContext.
+      // Cross-product metering: count this customer-AI call against the org's
+      // pooled allowance. Resolves the noli org from the Mercato org, so it
+      // works even when the request has no noliUserId on AuthContext.
       try {
         const auth = ctx?.auth ?? (await getAuthFromCookies())
-        const noliUserId = (auth as any)?.noliUserId
-        if (noliUserId) {
-          const { logAiUsage } = await import('@/lib/usage/log')
-          logAiUsage({
-            noliUserId: String(noliUserId),
-            model: result.model,
-            tokensIn: result.tokensIn,
-            tokensOut: result.tokensOut,
-            feature: 'scout-assistant',
-          }).catch(() => {})
-        }
+        const { meterCustomersAi } = await import('@/lib/usage/meter')
+        void meterCustomersAi(auth as { orgId?: string | null }, {
+          model: result.model,
+          tokensIn: result.tokensIn,
+          tokensOut: result.tokensOut,
+          feature: 'scout-assistant',
+        })
       } catch {}
       return NextResponse.json({ ok: true, message: result.text, provider })
     }
