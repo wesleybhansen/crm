@@ -18,7 +18,11 @@ export async function translateProposalContent(input: {
   actionDescriptions: Record<string, string>
   sourceLanguage: string
   targetLocale: string
-}): Promise<{ summary: string; actions: Record<string, string> }> {
+}): Promise<{
+  summary: string
+  actions: Record<string, string>
+  usage: { model: string; tokensIn: number; tokensOut: number }
+}> {
   const providerId = resolveExtractionProviderId()
   const apiKey = resolveOpenCodeProviderApiKey(providerId)
   if (!apiKey) {
@@ -56,5 +60,12 @@ Action IDs to preserve exactly: ${JSON.stringify(actionIds)}`,
 
   const text = result.text.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim()
   const parsed = translationResultSchema.parse(JSON.parse(text))
-  return parsed
+  return {
+    ...parsed,
+    usage: {
+      model: modelConfig.modelId,
+      tokensIn: Number(result.usage?.inputTokens ?? 0) || 0,
+      tokensOut: Number(result.usage?.outputTokens ?? 0) || 0,
+    },
+  }
 }

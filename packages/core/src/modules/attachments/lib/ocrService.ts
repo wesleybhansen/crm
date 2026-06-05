@@ -21,6 +21,9 @@ export type OcrResult = {
   content: string
   pageCount?: number
   processingTimeMs: number
+  tokensIn?: number
+  tokensOut?: number
+  model?: string
 }
 
 const DEFAULT_MODEL = 'gpt-4o'
@@ -122,6 +125,9 @@ export class OcrService {
       return {
         content: result.text.trim(),
         processingTimeMs: Date.now() - startTime,
+        tokensIn: Number(result.usage?.inputTokens ?? 0) || 0,
+        tokensOut: Number(result.usage?.outputTokens ?? 0) || 0,
+        model: resolvedModel,
       }
     } catch (err: any) {
       const statusCandidate =
@@ -200,10 +206,15 @@ export class OcrService {
           content: '',
           pageCount: 0,
           processingTimeMs: Date.now() - startTime,
+          tokensIn: 0,
+          tokensOut: 0,
+          model: resolvedModel,
         }
       }
 
       const pageContents: string[] = []
+      let tokensIn = 0
+      let tokensOut = 0
 
       for (let i = 0; i < pageCount; i++) {
         const pageInfo = pdfInfo[i]
@@ -218,6 +229,9 @@ export class OcrService {
             mimeType: 'image/png',
             model: resolvedModel,
           })
+
+          tokensIn += pageResult.tokensIn ?? 0
+          tokensOut += pageResult.tokensOut ?? 0
 
           if (pageResult.content) {
             if (pageCount > 1) {
@@ -239,6 +253,9 @@ export class OcrService {
         content: pageContents.join('\n\n'),
         pageCount,
         processingTimeMs: Date.now() - startTime,
+        tokensIn,
+        tokensOut,
+        model: resolvedModel,
       }
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch((err) => {

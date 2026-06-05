@@ -5,6 +5,8 @@ import { InboxProposalAction } from '../../../../data/entities'
 import type { ProposalTranslationEntry } from '../../../../data/entities'
 import { translateProposalSchema } from '../../../../data/validators'
 import { translateProposalContent } from '../../../../lib/translationProvider'
+import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import {
   resolveRequestContext,
   resolveProposal,
@@ -66,6 +68,22 @@ export async function POST(req: Request) {
       sourceLanguage: proposalLanguage,
       targetLocale,
     })
+
+    // Cross-product usage metering (fire-and-forget; never blocks the response).
+    try {
+      const org = await ctx.em.findOne(Organization, { id: ctx.organizationId })
+      if (org?.noliOrgId) {
+        void logCrmAiUsage({
+          noliOrgId: org.noliOrgId,
+          model: result.usage.model,
+          tokensIn: result.usage.tokensIn,
+          tokensOut: result.usage.tokensOut,
+          feature: 'proposal-translation',
+        }).catch(() => {})
+      }
+    } catch {
+      /* ignore — metering is best-effort */
+    }
 
     const entry: ProposalTranslationEntry = {
       summary: result.summary,

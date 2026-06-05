@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment, AttachmentPartition } from '../data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
 import { OcrService } from './ocrService'
 
 export type OcrRequestedEvent = {
@@ -50,6 +52,24 @@ export async function processAttachmentOcr(
 
     attachment.content = result.content
     await em.persistAndFlush(attachment)
+
+    // Cross-product usage metering (fire-and-forget; never breaks OCR).
+    try {
+      if (payload.organizationId && ((result.tokensIn ?? 0) > 0 || (result.tokensOut ?? 0) > 0)) {
+        const org = await em.findOne(Organization, { id: payload.organizationId })
+        if (org?.noliOrgId) {
+          void logCrmAiUsage({
+            noliOrgId: org.noliOrgId,
+            model: result.model ?? resolvedModel,
+            tokensIn: result.tokensIn ?? 0,
+            tokensOut: result.tokensOut ?? 0,
+            feature: 'attachment-ocr',
+          }).catch(() => {})
+        }
+      }
+    } catch {
+      /* ignore — metering is best-effort */
+    }
 
     console.log(`[attachments.ocr] Processing completed:`, {
       attachmentId,

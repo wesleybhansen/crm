@@ -14,6 +14,8 @@ import { validatePrices } from '../lib/priceValidator'
 import { extractParticipantsFromThread } from '../lib/emailParser'
 import { runExtractionWithConfiguredProvider } from '../lib/llmProvider'
 import { safeParsePayloadJson } from '../lib/validation'
+import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { htmlToPlainText } from '../lib/htmlToPlainText'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { emitInboxOpsEvent } from '../events'
@@ -184,6 +186,24 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       extractionResult = extraction.object
       tokensUsed = extraction.totalTokens
       modelUsed = extraction.modelWithProvider
+
+      // Cross-product usage metering — count this AI call against the org's
+      // pooled allowance. Await the (indexed) org lookup for EM safety, but fire
+      // the noli-core insert async; metering must never break extraction.
+      try {
+        const org = await em.findOne(Organization, { id: email.organizationId })
+        if (org?.noliOrgId) {
+          void logCrmAiUsage({
+            noliOrgId: org.noliOrgId,
+            model: extraction.model,
+            tokensIn: extraction.inputTokens,
+            tokensOut: extraction.outputTokens,
+            feature: 'inbox-extraction',
+          }).catch(() => {})
+        }
+      } catch {
+        /* ignore — metering is best-effort */
+      }
     } catch (llmError) {
       email.status = 'failed'
       email.processingError = `LLM extraction failed: ${llmError instanceof Error ? llmError.message : String(llmError)}`

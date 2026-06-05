@@ -81,6 +81,9 @@ export async function runExtractionWithConfiguredProvider(input: {
 }): Promise<{
   object: ReturnType<typeof extractionOutputSchema.parse>
   totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  model: string
   modelWithProvider: string
 }> {
   const providerId = resolveExtractionProviderId()
@@ -109,6 +112,9 @@ export async function runExtractionWithConfiguredProvider(input: {
   return {
     object: result.object,
     totalTokens: Number(result.usage?.totalTokens ?? 0) || 0,
+    inputTokens: Number(result.usage?.inputTokens ?? 0) || 0,
+    outputTokens: Number(result.usage?.outputTokens ?? 0) || 0,
+    model: modelConfig.modelId,
     modelWithProvider: modelConfig.modelWithProvider,
   }
 }
