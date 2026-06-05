@@ -579,7 +579,14 @@ export async function POST(req: Request, ctx?: any) {
       return NextResponse.json({ ok: false, error: 'messages required' }, { status: 400 })
     }
 
-    const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+    // Resolve auth + allowance up front so we can BYO-key the Gemini call.
+    const gateAuth = ctx?.auth ?? (await getAuthFromCookies())
+    const gate = await checkCustomersAiAllowance(gateAuth as { orgId?: string | null })
+    if (!gate.allowed) {
+      return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+    }
+
+    const geminiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
     const openaiKey = process.env.OPENAI_API_KEY
     if (!geminiKey && !openaiKey) {
       return NextResponse.json({
@@ -595,12 +602,9 @@ export async function POST(req: Request, ctx?: any) {
     try {
       // Prefer the auth resolved by the catch-all router (supports both
       // cookie sessions and x-api-key) — fall back to cookie-only if
-      // running in a context that didn't pass ctx.auth.
-      const auth = ctx?.auth ?? (await getAuthFromCookies())
-      const allowanceGate = await checkCustomersAiAllowance(auth as { orgId?: string | null })
-      if (!allowanceGate.allowed) {
-        return NextResponse.json({ ok: false, error: allowanceGate.message }, { status: 402 })
-      }
+      // running in a context that didn't pass ctx.auth. Allowance was already
+      // gated above (gateAuth/gate).
+      const auth = gateAuth
       if (auth?.orgId && auth?.sub) {
         const container = await createRequestContainer()
         const em = container.resolve('em') as EntityManager
@@ -694,13 +698,15 @@ export async function POST(req: Request, ctx?: any) {
       // pooled allowance. Resolves the noli org from the Mercato org, so it
       // works even when the request has no noliUserId on AuthContext.
       try {
-        const auth = ctx?.auth ?? (await getAuthFromCookies())
         const { meterCustomersAi } = await import('@/lib/usage/meter')
-        void meterCustomersAi(auth as { orgId?: string | null }, {
+        void meterCustomersAi(gateAuth as { orgId?: string | null }, {
           model: result.model,
           tokensIn: result.tokensIn,
           tokensOut: result.tokensOut,
           feature: 'scout-assistant',
+          // BYO key only applies when Gemini served (it consumed the BYO key);
+          // OpenAI fallback always uses the platform key.
+          byoKey: provider === 'gemini' && !!gate.byoApiKey,
         })
       } catch {}
       return NextResponse.json({ ok: true, message: result.text, provider })

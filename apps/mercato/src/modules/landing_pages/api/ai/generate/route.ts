@@ -3,6 +3,10 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { TEMPLATES_DIR } from '../../../services/paths'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import type { ByoProvider } from '@open-mercato/shared/lib/noli/core-client'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['landing_pages.create'] },
@@ -10,6 +14,16 @@ export const metadata = {
 
 export async function POST(req: Request) {
   try {
+    const auth = await getAuthFromCookies()
+    if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+
+    const provider = process.env.AI_PROVIDER || 'google'
+    const gateProvider: ByoProvider = provider === 'openai' ? 'openai' : provider === 'anthropic' ? 'anthropic' : 'google'
+    const gate = await checkCustomersAiAllowance(auth, gateProvider)
+    if (!gate.allowed) {
+      return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+    }
+
     const body = await req.json()
     const { templateId, messages, templateCategory } = body
 
@@ -37,8 +51,7 @@ export async function POST(req: Request) {
       : String(messages)
 
     // Call Gemini to rewrite the template
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-    const provider = process.env.AI_PROVIDER || 'google'
+    const apiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
 
     if (!apiKey && provider === 'google') {
       return NextResponse.json({ ok: false, error: 'AI API key not configured. Add GOOGLE_GENERATIVE_AI_API_KEY to .env' }, { status: 500 })
@@ -89,22 +102,45 @@ ${bodyContent}`
         console.error('[ai.generate] Gemini error:', data.error)
         return NextResponse.json({ ok: false, error: `AI error: ${data.error.message}` }, { status: 500 })
       }
+      void meterCustomersAi(auth, {
+        model,
+        tokensIn: data?.usageMetadata?.promptTokenCount || 0,
+        tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+        feature: 'landing-generate',
+        byoKey: !!gate.byoApiKey,
+      })
       html = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
     } else if (provider === 'anthropic') {
+      const model = process.env.AI_MODEL || 'claude-haiku-4-5-20251001'
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey!, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: process.env.AI_MODEL || 'claude-haiku-4-5-20251001', max_tokens: 16384, messages: [{ role: 'user', content: prompt }] }),
+        body: JSON.stringify({ model, max_tokens: 16384, messages: [{ role: 'user', content: prompt }] }),
       })
       const data = await response.json()
+      void meterCustomersAi(auth, {
+        model,
+        tokensIn: data?.usage?.input_tokens || 0,
+        tokensOut: data?.usage?.output_tokens || 0,
+        feature: 'landing-generate',
+        byoKey: !!gate.byoApiKey,
+      })
       html = data.content?.[0]?.text || ''
     } else {
+      const model = process.env.AI_MODEL || 'gpt-4o-mini'
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: process.env.AI_MODEL || 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 16384 }),
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 16384 }),
       })
       const data = await response.json()
+      void meterCustomersAi(auth, {
+        model,
+        tokensIn: data?.usage?.prompt_tokens || 0,
+        tokensOut: data?.usage?.completion_tokens || 0,
+        feature: 'landing-generate',
+        byoKey: !!gate.byoApiKey,
+      })
       html = data.choices?.[0]?.message?.content || ''
     }
 

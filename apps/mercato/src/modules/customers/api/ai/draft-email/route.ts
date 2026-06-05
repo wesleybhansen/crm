@@ -12,9 +12,9 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 export async function POST(req: Request) {
   try {
     const auth = await getAuthFromCookies()
-    const allowanceGate = await checkCustomersAiAllowance(auth)
-    if (!allowanceGate.allowed) {
-      return NextResponse.json({ ok: false, error: allowanceGate.message }, { status: 402 })
+    const gate = await checkCustomersAiAllowance(auth)
+    if (!gate.allowed) {
+      return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
     }
     const body = await req.json()
     const { contactName, contactEmail, purpose, context } = body
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'contactName required' }, { status: 400 })
     }
 
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+    const apiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
     if (!apiKey) {
       // Fallback without AI
       return NextResponse.json({
@@ -120,6 +120,7 @@ Best regards`,
       tokensIn: data?.usageMetadata?.promptTokenCount || 0,
       tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
       feature: 'draft-email',
+      byoKey: !!gate.byoApiKey,
     })
 
     try {

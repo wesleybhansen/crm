@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { meterCustomersAi } from '@/lib/usage/meter'
 
 export const metadata = { path: '/ai/classify-sentiment', POST: { requireAuth: false } }
 
@@ -84,6 +85,14 @@ Sentiment:`
         )
 
         const data = await res.json()
+        // Background cron: meter against the email's owning org (no auth ctx).
+        void meterCustomersAi({ orgId: email.organization_id }, {
+          model: 'gemini-3.5-flash',
+          tokensIn: data?.usageMetadata?.promptTokenCount || 0,
+          tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+          feature: 'classify-sentiment',
+          byoKey: false,
+        })
         const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().toLowerCase()
 
         let sentiment = 'neutral'

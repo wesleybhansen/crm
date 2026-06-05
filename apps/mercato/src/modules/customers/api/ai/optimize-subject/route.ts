@@ -10,9 +10,9 @@ export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-  const allowanceGate = await checkCustomersAiAllowance(auth)
-  if (!allowanceGate.allowed) {
-    return NextResponse.json({ ok: false, error: allowanceGate.message }, { status: 402 })
+  const gate = await checkCustomersAiAllowance(auth)
+  if (!gate.allowed) {
+    return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
   }
 
   try {
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'subject is required' }, { status: 400 })
     }
 
-    const apiKey = process.env.GEMINI_API_KEY || process.env.AI_API_KEY
+    const apiKey = gate.byoApiKey || process.env.GEMINI_API_KEY || process.env.AI_API_KEY
     if (!apiKey) {
       return NextResponse.json({ ok: false, error: 'AI not configured' }, { status: 500 })
     }
@@ -74,6 +74,7 @@ Return ONLY valid JSON, no markdown.`
         tokensIn: data?.usageMetadata?.promptTokenCount || 0,
         tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
         feature: 'optimize-subject',
+        byoKey: !!gate.byoApiKey,
       })
     }
 

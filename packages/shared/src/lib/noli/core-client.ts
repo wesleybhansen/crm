@@ -85,6 +85,39 @@ export async function findPrimaryOrgIdForUser(
   return (data?.organization_id as string | undefined) ?? null;
 }
 
+/* Unified BYOK: resolve the org's own provider keys from noli-core
+ * (org_provider_keys, pgcrypto). Used for over-allowance fall-through — once the
+ * pooled allowance is exhausted, CRM runs on the customer's own key. The
+ * decryption secret is passed to the RPC and never stored. Fail-safe to {}. */
+export type ByoProvider = 'openai' | 'anthropic' | 'google';
+
+export async function resolveOrgByoKeys(
+  noliOrgId: string,
+): Promise<{ openai?: string; anthropic?: string; google?: string }> {
+  const secret = process.env.BYO_KEY_ENCRYPTION_SECRET;
+  if (!noliOrgId || !secret) return {};
+  try {
+    const supabase = getNoliCoreClient();
+    const { data, error } = await supabase.rpc('get_org_provider_keys', {
+      p_org_id: noliOrgId,
+      p_secret: secret,
+    });
+    if (error || !Array.isArray(data) || data.length === 0) return {};
+    const row = data[0] as {
+      openai_api_key: string | null;
+      anthropic_api_key: string | null;
+      google_api_key: string | null;
+    };
+    const out: { openai?: string; anthropic?: string; google?: string } = {};
+    if (row.openai_api_key) out.openai = row.openai_api_key;
+    if (row.anthropic_api_key) out.anthropic = row.anthropic_api_key;
+    if (row.google_api_key) out.google = row.google_api_key;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 /* Check whether a noli-core user has an active entitlement for a given
  * Noli app. Used by the Clerk auth resolver to gate access to CRM. */
 export async function isEntitled(
