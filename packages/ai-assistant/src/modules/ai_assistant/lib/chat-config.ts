@@ -37,7 +37,7 @@ export const CHAT_PROVIDERS: Record<ChatProviderId, ChatProviderInfo> = {
     envKeyRequired: OPEN_CODE_PROVIDERS.openai.envKeys[0],
     defaultModel: OPEN_CODE_PROVIDERS.openai.defaultModel,
     models: [
-      { id: OPEN_CODE_PROVIDERS.openai.defaultModel, name: 'GPT-4o Mini', contextWindow: 128000 },
+      { id: OPEN_CODE_PROVIDERS.openai.defaultModel, name: 'GPT-5 Mini', contextWindow: 400000 },
     ],
   },
   anthropic: {
@@ -53,7 +53,7 @@ export const CHAT_PROVIDERS: Record<ChatProviderId, ChatProviderInfo> = {
     envKeyRequired: OPEN_CODE_PROVIDERS.google.envKeys[0],
     defaultModel: OPEN_CODE_PROVIDERS.google.defaultModel,
     models: [
-      { id: OPEN_CODE_PROVIDERS.google.defaultModel, name: 'Gemini 3 Flash', contextWindow: 1048576 },
+      { id: OPEN_CODE_PROVIDERS.google.defaultModel, name: 'Gemini 3.5 Flash', contextWindow: 1048576 },
     ],
   },
 }
@@ -83,6 +83,17 @@ type Resolver = {
   resolve: <T = unknown>(name: string) => T
 }
 
+/* Guard against a stale saved model (e.g. a retired gemini-2.0-flash) — if the
+ * saved model is no longer an offered model for its provider, fall back to that
+ * provider's current default rather than 404 on a dead model name. */
+export function sanitizeChatConfig(config: ChatProviderConfig | null): ChatProviderConfig | null {
+  if (!config) return config
+  const provider = CHAT_PROVIDERS[config.providerId]
+  if (!provider) return config
+  const valid = provider.models.some((m) => m.id === config.model)
+  return valid ? config : { ...config, model: provider.defaultModel }
+}
+
 export async function resolveChatConfig(
   resolver: Resolver,
   options?: { defaultValue?: ChatProviderConfig | null }
@@ -96,7 +107,7 @@ export async function resolveChatConfig(
   }
   try {
     const value = await service.getValue<ChatProviderConfig>('ai_assistant', CHAT_CONFIG_KEY, { defaultValue: fallback })
-    return value
+    return sanitizeChatConfig(value)
   } catch {
     return fallback
   }

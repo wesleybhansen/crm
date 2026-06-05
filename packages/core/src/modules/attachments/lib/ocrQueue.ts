@@ -24,7 +24,7 @@ export async function processAttachmentOcr(
 
   try {
     const partition = await em.findOne(AttachmentPartition, { code: partitionCode })
-    const resolvedModel = partition?.ocrModel ?? process.env.OCR_MODEL ?? 'gpt-4o'
+    const resolvedModel = partition?.ocrModel ?? process.env.OCR_MODEL ?? 'gpt-5-mini'
 
     const ocrService = new OcrService()
 

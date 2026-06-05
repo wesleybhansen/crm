@@ -26,7 +26,7 @@ export type OcrResult = {
   model?: string
 }
 
-const DEFAULT_MODEL = 'gpt-4o'
+const DEFAULT_MODEL = 'gpt-5-mini'
 
 const DEFAULT_OCR_PROMPT = `Extract all text content from this image. Preserve the structure and formatting where possible. Output the text in markdown format. If there are tables, preserve them as markdown tables. If there is no text visible, respond with an empty string.`
 
