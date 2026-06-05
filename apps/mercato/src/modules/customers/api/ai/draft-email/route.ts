@@ -7,10 +7,15 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg, buildVoicePromptSection } from '../persona'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 
 export async function POST(req: Request) {
   try {
     const auth = await getAuthFromCookies()
+    const allowanceGate = await checkCustomersAiAllowance(auth)
+    if (!allowanceGate.allowed) {
+      return NextResponse.json({ ok: false, error: allowanceGate.message }, { status: 402 })
+    }
     const body = await req.json()
     const { contactName, contactEmail, purpose, context } = body
 

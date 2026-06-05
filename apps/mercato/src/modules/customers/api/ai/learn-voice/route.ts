@@ -8,6 +8,7 @@ export const metadata = { path: '/ai/learn-voice', GET: { requireAuth: true }, P
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { query, queryOne } from '@/lib/db'
 // Gmail-based voice learning is disabled pending Tier 1 OAuth verification.
 // Re-add these imports when restoring the Gmail source path:
@@ -57,6 +58,11 @@ export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
   const userId = auth?.sub
   if (!auth?.orgId || !userId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+
+  const allowanceGate = await checkCustomersAiAllowance(auth)
+  if (!allowanceGate.allowed) {
+    return NextResponse.json({ ok: false, error: allowanceGate.message }, { status: 402 })
+  }
 
   try {
     const body = await req.json()

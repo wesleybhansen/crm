@@ -3,6 +3,7 @@ export const openApi = { summary: 'ai-generate', methods: {} }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 
 const VALID_TRIGGERS = ['contact_created', 'tag_added', 'tag_removed', 'form_submitted', 'invoice_paid', 'booking_created', 'deal_won', 'deal_lost', 'course_enrolled', 'stage_change']
 const VALID_ACTIONS = ['send_email', 'send_sms', 'add_tag', 'remove_tag', 'move_to_stage', 'create_task', 'add_to_list', 'enroll_in_sequence', 'webhook']
@@ -11,6 +12,11 @@ export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.tenantId || !auth?.orgId) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const allowanceGate = await checkCustomersAiAllowance(auth)
+  if (!allowanceGate.allowed) {
+    return NextResponse.json({ ok: false, error: allowanceGate.message }, { status: 402 })
   }
 
   const aiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY

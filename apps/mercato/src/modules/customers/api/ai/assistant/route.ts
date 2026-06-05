@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
@@ -596,6 +597,10 @@ export async function POST(req: Request, ctx?: any) {
       // cookie sessions and x-api-key) — fall back to cookie-only if
       // running in a context that didn't pass ctx.auth.
       const auth = ctx?.auth ?? (await getAuthFromCookies())
+      const allowanceGate = await checkCustomersAiAllowance(auth as { orgId?: string | null })
+      if (!allowanceGate.allowed) {
+        return NextResponse.json({ ok: false, error: allowanceGate.message }, { status: 402 })
+      }
       if (auth?.orgId && auth?.sub) {
         const container = await createRequestContainer()
         const em = container.resolve('em') as EntityManager
