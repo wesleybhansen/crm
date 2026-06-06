@@ -23,6 +23,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 const FIRST_TWO_SEAT_CENTS = 4000
 const EXTRA_SEAT_CENTS = 3000
 const CREDITS_PER_CENT = 2500
+const TOKENS_PER_BOOST = 10_000_000 // each purchased token-boost add-on (P-9)
 
 export const ALLOWANCE_BLOCK_MESSAGE =
   "You've used your team's monthly AI allowance. Add your own provider API key or upgrade your plan to keep using AI."
@@ -43,7 +44,7 @@ export async function checkCustomersAiAllowance(
 
     const now = new Date()
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
-    const [{ data: members }, { data: usage }] = await Promise.all([
+    const [{ data: members }, { data: usage }, { data: subs }] = await Promise.all([
       supabase.from('organization_members').select('user_id').eq('organization_id', org.noliOrgId),
       supabase
         .from('ai_usage')
@@ -51,15 +52,26 @@ export async function checkCustomersAiAllowance(
         .eq('organization_id', org.noliOrgId)
         .eq('byo_key', false)
         .gte('ts', monthStart),
+      supabase
+        .from('subscriptions')
+        .select('seats, token_boosts, status')
+        .eq('organization_id', org.noliOrgId),
     ])
-    const seats = Math.max(1, ((members as unknown[]) ?? []).length)
+    // Paid seats (base + purchased overflow) drive allowance, matching the hub —
+    // a Team with unfilled seats still gets its full pooled budget. Fall back to
+    // the member count for legacy/unsubscribed orgs.
+    const sub = (((subs as { seats: number | null; token_boosts: number | null; status: string | null }[]) ?? [])
+      .find((s) => s.status === 'active' || s.status === 'trialing'))
+    const memberSeats = Math.max(1, ((members as unknown[]) ?? []).length)
+    const seats = sub?.seats && sub.seats > 0 ? sub.seats : memberSeats
+    const tokenBoosts = sub?.token_boosts ?? 0
     const used = (((usage as { credits_consumed: number | null }[]) ?? []).reduce(
       (sum, r) => sum + (r.credits_consumed ?? 0),
       0,
     ))
     const allowanceCents =
       Math.min(2, seats) * FIRST_TWO_SEAT_CENTS + Math.max(0, seats - 2) * EXTRA_SEAT_CENTS
-    const allowanceCredits = allowanceCents * CREDITS_PER_CENT
+    const allowanceCredits = allowanceCents * CREDITS_PER_CENT + tokenBoosts * TOKENS_PER_BOOST
     if (allowanceCredits > 0 && used >= allowanceCredits) {
       // Over allowance: fall through to the org's own key for this provider.
       const keys = await resolveOrgByoKeys(org.noliOrgId)
