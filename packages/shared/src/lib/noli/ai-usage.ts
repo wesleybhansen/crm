@@ -16,36 +16,44 @@ import { getNoliCoreClient, findPrimaryOrgIdForUser } from './core-client';
  * allowance is pooled at the org level, and ai_usage.user_id is NOT NULL.
  */
 
-// USD per 1M tokens. Prefix-matched (longest match wins). Keep in sync with the
-// noli-platform MODEL_PRICING table.
-const PRICING: Record<string, { in: number; out: number }> = {
-  'claude-opus-4-8': { in: 15, out: 75 },
-  'claude-opus': { in: 15, out: 75 },
-  'claude-sonnet-4-6': { in: 3, out: 15 },
-  'claude-sonnet': { in: 3, out: 15 },
-  'claude-haiku-4-5-20251001': { in: 0.8, out: 4 },
-  'claude-haiku': { in: 0.8, out: 4 },
-  'gpt-5.5': { in: 5, out: 15 },
-  'gpt-5-mini': { in: 0.25, out: 2 },
-  'gpt-5-nano': { in: 0.05, out: 0.4 },
-  'gpt-4o-mini': { in: 0.15, out: 0.6 },
-  'gpt-4o': { in: 2.5, out: 10 },
-  'gemini-3.5-flash': { in: 0.1, out: 0.4 },
-  'gemini-2.5-flash': { in: 0.15, out: 0.6 },
-  'gemini-2.5-pro': { in: 1.25, out: 10 },
-  'gemini': { in: 0.15, out: 0.6 },
+// USD per 1M tokens (input / output / cached-input). Prefix-matched (longest
+// match wins). Keep in sync with the noli-platform MODEL_PRICING canonical table
+// (@noli/entitlements-client) — values verified against live provider pricing.
+const PRICING: Record<string, { in: number; out: number; cached: number }> = {
+  // Anthropic
+  'claude-opus-4-2025': { in: 15, out: 75, cached: 1.5 }, // retired Opus 4 (legacy rows)
+  'claude-opus': { in: 5, out: 25, cached: 0.5 }, // current Opus
+  'claude-sonnet-4-6': { in: 3, out: 15, cached: 0.3 },
+  'claude-sonnet': { in: 3, out: 15, cached: 0.3 },
+  'claude-haiku-4-5-20251001': { in: 1, out: 5, cached: 0.1 },
+  'claude-haiku': { in: 1, out: 5, cached: 0.1 },
+  // OpenAI
+  'gpt-5.5': { in: 5, out: 30, cached: 0.5 },
+  'gpt-5.4-mini': { in: 0.75, out: 4.5, cached: 0.075 },
+  'gpt-5.4': { in: 2.5, out: 15, cached: 0.25 },
+  'gpt-5-mini': { in: 0.25, out: 2, cached: 0.025 },
+  'gpt-5-nano': { in: 0.05, out: 0.4, cached: 0.005 },
+  'gpt-4o-mini': { in: 0.15, out: 0.6, cached: 0.075 },
+  'gpt-4o': { in: 2.5, out: 10, cached: 1.25 },
+  // Google
+  'gemini-3.5-flash': { in: 1.5, out: 9, cached: 0.15 },
+  'gemini-3-flash': { in: 0.5, out: 3, cached: 0.05 },
+  'gemini-3-pro': { in: 2, out: 12, cached: 0.2 },
+  'gemini-2.5-flash': { in: 0.3, out: 2.5, cached: 0.03 },
+  'gemini-2.5-pro': { in: 1.25, out: 10, cached: 0.125 },
+  'gemini': { in: 0.3, out: 2.5, cached: 0.03 }, // generic Gemini fallback (2.5-flash class)
 };
 
 // Conservative fallback (round up so we never under-count an unknown model).
-const FALLBACK_RATE = { in: 5, out: 15 };
+const FALLBACK_RATE = { in: 5, out: 15, cached: 0.5 };
 
-// Customer-facing display tokens: $40 of provider cost = 10,000,000 tokens
-// (250,000 per $1). Derived from full-precision cost so cheap calls accumulate.
+// Customer-facing display tokens (credits) peg: 250,000 credits per $1 of
+// provider cost. Canonical formula: credits = round((costCents / 100) * 250000).
 const DISPLAY_TOKENS_PER_DOLLAR = 250_000;
 
-function rateForModel(model: string): { in: number; out: number } {
+function rateForModel(model: string): { in: number; out: number; cached: number } {
   const m = (model || '').toLowerCase().trim();
-  let best: { key: string; rate: { in: number; out: number } } | null = null;
+  let best: { key: string; rate: { in: number; out: number; cached: number } } | null = null;
   for (const [key, rate] of Object.entries(PRICING)) {
     if (m.startsWith(key) && (!best || key.length > best.key.length)) best = { key, rate };
   }
@@ -81,6 +89,11 @@ export async function logCrmAiUsage(args: {
   model: string;
   tokensIn: number;
   tokensOut: number;
+  // Portion of tokensIn that was served from the provider's prompt cache (cache
+  // reads). Billed at the cached-input rate, not the full input rate. Optional —
+  // most CRM callers don't yet surface this; when omitted, all input is billed
+  // at the full rate.
+  cachedTokensIn?: number;
   feature?: string;
   byoKey?: boolean;
   metadata?: Record<string, unknown>;
@@ -100,11 +113,19 @@ export async function logCrmAiUsage(args: {
     if (!userId) return; // ai_usage.user_id is NOT NULL — skip if unresolved
 
     const rate = rateForModel(args.model);
+    const tokensIn = Math.max(0, args.tokensIn || 0);
+    const tokensOut = Math.max(0, args.tokensOut || 0);
+    // Cache netting: cached input is billed at the cached rate, the rest at the
+    // full input rate. Clamp cached to the total input so it can never go negative.
+    const cachedIn = Math.min(tokensIn, Math.max(0, args.cachedTokensIn || 0));
+    const freshIn = tokensIn - cachedIn;
     const costDollars =
-      (Math.max(0, args.tokensIn || 0) / 1_000_000) * rate.in +
-      (Math.max(0, args.tokensOut || 0) / 1_000_000) * rate.out;
-    const costCents = Math.round(costDollars * 100);
-    const creditsConsumed = Math.round(costDollars * DISPLAY_TOKENS_PER_DOLLAR);
+      (freshIn / 1_000_000) * rate.in +
+      (cachedIn / 1_000_000) * rate.cached +
+      (tokensOut / 1_000_000) * rate.out;
+    // Round provider cost UP to whole cents so we never under-bill.
+    const costCents = Math.ceil(costDollars * 100);
+    const creditsConsumed = Math.round((costCents / 100) * DISPLAY_TOKENS_PER_DOLLAR);
 
     const supabase = getNoliCoreClient();
     const { error } = await supabase.from('ai_usage').insert({
