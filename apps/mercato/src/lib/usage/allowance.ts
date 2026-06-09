@@ -7,7 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 /*
  * P-3 allowance gate for the CRM customer-facing AI suite, with unified BYOK
  * fall-through. Resolves the noli org from the Mercato org and checks the pooled
- * credit allowance ($40/user first two seats + $30/user extra). Within the pool
+ * credit allowance ($40/user = 10M tokens, every seat). Within the pool
  * → allowed (platform key). Over the pool:
  *   - org has a BYO key for this feature's provider → allowed, `byoApiKey` set
  *     (use it for the call + meter byoKey: true).
@@ -21,7 +21,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
  *   void meterCustomersAi(auth, { ..., byoKey: !!gate.byoApiKey })
  */
 const FIRST_TWO_SEAT_CENTS = 4000
-const EXTRA_SEAT_CENTS = 3000
+const EXTRA_SEAT_CENTS = 4000;
 const CREDITS_PER_CENT = 2500
 const TOKENS_PER_BOOST = 10_000_000 // each purchased token-boost add-on (P-9)
 
