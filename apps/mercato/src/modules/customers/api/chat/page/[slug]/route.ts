@@ -27,7 +27,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
       })
     }
 
-    const origin = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+    const origin = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
     const businessName = widget.business_name || widget.name || 'Chat'
     const brandColor = widget.brand_color || '#3B82F6'
     const welcomeMessage = (widget.welcome_message || widget.greeting_message || 'Hi there! How can we help you today?')
