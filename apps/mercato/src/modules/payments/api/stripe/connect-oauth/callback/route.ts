@@ -1,5 +1,7 @@
 
 import { NextResponse } from 'next/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { verifyOAuthState } from '@/lib/oauth-state'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -25,10 +27,15 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${settingsUrl}?stripe_error=missing_params`)
   }
 
-  let stateData: { userId: string; orgId: string; tenantId?: string }
-  try {
-    stateData = JSON.parse(Buffer.from(stateParam, 'base64').toString('utf-8'))
-  } catch {
+  // Verify the SIGNED state and bind it to the authenticated session, so the
+  // connection is written only to the caller's own org (never a forged orgId
+  // that would route a victim's payouts to the attacker).
+  const stateData = verifyOAuthState<{ userId: string; orgId: string; tenantId?: string }>(stateParam)
+  if (!stateData) {
+    return NextResponse.redirect(`${settingsUrl}?stripe_error=invalid_state`)
+  }
+  const auth = await getAuthFromCookies()
+  if (!auth?.orgId || auth.orgId !== stateData.orgId) {
     return NextResponse.redirect(`${settingsUrl}?stripe_error=invalid_state`)
   }
 

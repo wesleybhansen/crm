@@ -7,6 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { requireProcessAuth } from '@/lib/cron-auth'
 
 export const openApi: OpenApiRouteDoc = {
   GET: { summary: 'Get relationship decay alerts for current org', tags: ['AI', 'Relationship Decay'] },
@@ -137,12 +138,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    // Cron auth
-    const authHeader = req.headers.get('authorization')
-    const cronSecret = process.env.SEQUENCE_PROCESS_SECRET
-    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    // Cron auth (fail-closed, constant-time)
+    const denied = requireProcessAuth(req, process.env.SEQUENCE_PROCESS_SECRET)
+    if (denied) return denied
 
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager

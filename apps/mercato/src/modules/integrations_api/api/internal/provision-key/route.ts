@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -22,7 +23,12 @@ export async function POST(req: Request) {
   // 1. Shared-secret auth (constant prefix compare; the secret is high-entropy)
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
   const authHeader = (req.headers.get('authorization') || '').trim()
-  if (!secret || authHeader !== `Bearer ${secret}`) {
+  const expected = secret ? `Bearer ${secret}` : ''
+  if (
+    !secret ||
+    authHeader.length !== expected.length ||
+    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+  ) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 

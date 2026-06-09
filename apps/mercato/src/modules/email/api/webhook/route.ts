@@ -1,4 +1,5 @@
 
+import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -8,6 +9,30 @@ import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
 
 export const metadata = { POST: { requireAuth: false } }
 
+/* Verify a Resend (Svix) webhook signature: HMAC-SHA256 over
+ * `${svix-id}.${svix-timestamp}.${rawBody}`, keyed by the base64 secret (after
+ * the `whsec_` prefix), with a ±5min tolerance. Inline (no svix dependency). */
+function verifyResendSignature(secret: string, headers: Headers, payload: string): boolean {
+  const id = headers.get('svix-id')
+  const timestamp = headers.get('svix-timestamp')
+  const sigHeader = headers.get('svix-signature')
+  if (!id || !timestamp || !sigHeader) return false
+  const ts = Number(timestamp)
+  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) return false
+  const rawKey = secret.startsWith('whsec_') ? secret.slice(6) : secret
+  let keyBytes: Buffer
+  try { keyBytes = Buffer.from(rawKey, 'base64') } catch { return false }
+  const expected = crypto.createHmac('sha256', keyBytes).update(`${id}.${timestamp}.${payload}`).digest('base64')
+  const expectedBuf = Buffer.from(expected)
+  for (const part of sigHeader.split(' ')) {
+    const sig = part.split(',')[1]
+    if (!sig) continue
+    const sigBuf = Buffer.from(sig)
+    if (sigBuf.length === expectedBuf.length && crypto.timingSafeEqual(sigBuf, expectedBuf)) return true
+  }
+  return false
+}
+
 /**
  * Resend webhook handler for email delivery events.
  * Handles: email.bounced, email.complained, email.delivered
@@ -15,7 +40,16 @@ export const metadata = { POST: { requireAuth: false } }
  */
 export async function POST(req: Request) {
   try {
-    const body = await req.json()
+    const rawBody = await req.text()
+    const secret = process.env.RESEND_WEBHOOK_SECRET
+    if (!secret) {
+      console.error('[email.webhook] RESEND_WEBHOOK_SECRET not set — rejecting')
+      return NextResponse.json({ ok: false, error: 'Webhook not configured' }, { status: 401 })
+    }
+    if (!verifyResendSignature(secret, req.headers, rawBody)) {
+      return NextResponse.json({ ok: false, error: 'Invalid signature' }, { status: 401 })
+    }
+    const body = JSON.parse(rawBody)
     const { type, data } = body
 
     if (!type || !data) {

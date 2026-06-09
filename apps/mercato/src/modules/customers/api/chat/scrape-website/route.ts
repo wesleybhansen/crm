@@ -2,6 +2,7 @@ export const metadata = { path: '/chat/scrape-website', POST: { requireAuth: tru
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { safeFetch } from '@/lib/safe-fetch'
 
 // Common pages that typically contain useful business information
 const COMMON_PATHS = [
@@ -65,13 +66,12 @@ function extractInternalLinks(html: string, baseUrl: URL): string[] {
 
 async function fetchPage(url: string): Promise<{ html: string; text: string } | null> {
   try {
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; CRM-Bot/1.0; +https://example.com/bot)',
         'Accept': 'text/html,application/xhtml+xml',
       },
       signal: AbortSignal.timeout(PAGE_TIMEOUT),
-      redirect: 'follow',
     })
     if (!response.ok) return null
     const contentType = response.headers.get('content-type') || ''

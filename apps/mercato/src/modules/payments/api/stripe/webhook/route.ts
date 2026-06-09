@@ -16,13 +16,15 @@ export async function POST(req: Request) {
     const stripe = new Stripe(stripeKey)
     const body = await req.text()
 
-    let event: any
-    if (webhookSecret) {
-      const sig = req.headers.get('stripe-signature') || ''
-      event = stripe.webhooks.constructEvent(body, sig, webhookSecret)
-    } else {
-      event = JSON.parse(body)
+    // Fail closed: never trust an unsigned body. Without the secret we can't
+    // verify Stripe sent this, so refuse rather than JSON.parse it — a forged
+    // event here would fabricate payments, paid invoices, and affiliate credit.
+    if (!webhookSecret) {
+      console.error('[stripe.webhook] STRIPE_WEBHOOK_SECRET not set — refusing to process')
+      return NextResponse.json({ error: 'Not configured' }, { status: 500 })
     }
+    const sig = req.headers.get('stripe-signature') || ''
+    const event: any = stripe.webhooks.constructEvent(body, sig, webhookSecret)
 
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
@@ -64,6 +66,17 @@ export async function POST(req: Request) {
 
       // Resolve customer email — Stripe puts it in different places
       const customerEmail = session.customer_email || session.customer_details?.email || null
+
+      // Idempotency: if we already recorded this checkout session, this is a
+      // replay/redelivery — skip the whole handler (avoids double payments,
+      // double affiliate commission, duplicate enrollments).
+      const alreadyProcessed = await knex('payment_records')
+        .where('stripe_checkout_session_id', session.id)
+        .where('organization_id', orgId)
+        .first()
+      if (alreadyProcessed) {
+        return NextResponse.json({ received: true, duplicate: true })
+      }
 
       // Record the payment
       await knex('payment_records').insert({
@@ -240,7 +253,14 @@ export async function POST(req: Request) {
 
       if (attributedAffiliateId && orgId) {
         try {
-          const affiliate = await knex('affiliates').where('id', attributedAffiliateId).where('organization_id', orgId).first()
+          // Idempotency: skip if this Stripe session was already attributed (a
+          // replayed/redelivered event) so commission isn't double-credited.
+          const existingReferral = await knex('affiliate_referrals')
+            .where('stripe_session_id', session.id)
+            .first()
+          const affiliate = existingReferral
+            ? null
+            : await knex('affiliates').where('id', attributedAffiliateId).where('organization_id', orgId).first()
           if (affiliate) {
             const saleAmount = (session.amount_total || 0) / 100
             const commission = affiliate.commission_type === 'percentage'

@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { safeFetch } from '@/lib/safe-fetch'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export async function POST(req: Request) {
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
     const timeout = setTimeout(() => controller.abort(), 10000)
     let html: string
     try {
-      const res = await fetch(targetUrl, {
+      const res = await safeFetch(targetUrl, {
         signal: controller.signal,
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CRMBot/1.0)' },
       })

@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { requireProcessAuth } from '@/lib/cron-auth'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -34,15 +35,8 @@ async function emitSequenceCompleted(
 }
 
 export async function POST(req: Request) {
-  const secret = process.env.SEQUENCE_PROCESS_SECRET
-  if (secret) {
-    const authHeader = req.headers.get('authorization')
-    if (authHeader !== `Bearer ${secret}`) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
-    }
-  } else if (process.env.NODE_ENV === 'production') {
-    return NextResponse.json({ ok: false, error: 'SEQUENCE_PROCESS_SECRET not configured' }, { status: 500 })
-  }
+  const denied = requireProcessAuth(req, process.env.SEQUENCE_PROCESS_SECRET)
+  if (denied) return denied
 
   try {
     const container = await createRequestContainer()

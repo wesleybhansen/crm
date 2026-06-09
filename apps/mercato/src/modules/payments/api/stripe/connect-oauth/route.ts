@@ -2,6 +2,7 @@ export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true 
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { signOAuthState } from '@/lib/oauth-state'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -22,7 +23,7 @@ export async function GET() {
   }
 
   const baseUrl = process.env.APP_URL || 'http://localhost:3000'
-  const state = Buffer.from(JSON.stringify({ userId: auth.sub, orgId: auth.orgId, tenantId: auth.tenantId })).toString('base64')
+  const state = signOAuthState({ userId: auth.sub, orgId: auth.orgId, tenantId: auth.tenantId })
   const redirectUri = `${baseUrl}/api/payments/stripe/connect-oauth/callback`
 
   const params = new URLSearchParams({
