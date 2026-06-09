@@ -34,6 +34,11 @@ const PRICING: Record<string, { in: number; out: number; cached: number }> = {
   'gpt-5-mini': { in: 0.25, out: 2, cached: 0.025 },
   'gpt-5-nano': { in: 0.05, out: 0.4, cached: 0.005 },
   'gpt-4o-mini': { in: 0.15, out: 0.6, cached: 0.075 },
+  // Realtime (voice) — audio-weighted rates. Must precede 'gpt-4o' so the
+  // longer prefix wins; otherwise realtime audio bills at gpt-4o text rates
+  // ($2.5/$10) and is ~16x under-counted.
+  'gpt-4o-realtime': { in: 40, out: 80, cached: 2.5 },
+  'gpt-realtime': { in: 40, out: 80, cached: 2.5 },
   'gpt-4o': { in: 2.5, out: 10, cached: 1.25 },
   // Google
   'gemini-3.5-flash': { in: 1.5, out: 9, cached: 0.15 },

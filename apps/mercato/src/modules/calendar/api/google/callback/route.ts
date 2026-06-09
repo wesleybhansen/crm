@@ -15,7 +15,10 @@ export async function GET(req: Request) {
   const baseUrl = process.env.APP_URL || 'http://localhost:3000'
 
   if (error || !code) {
-    return NextResponse.redirect(`${redirectBase}?google_error=${error || 'no_code'}`)
+    // redirectBase isn't computed until after state parsing below; this early
+    // return ran before it existed (TDZ ReferenceError, masked by
+    // ignoreBuildErrors) → 500 whenever a user clicks "Cancel" on Google consent.
+    return NextResponse.redirect(`${baseUrl}/backend/settings-simple?google_error=${error || 'no_code'}`)
   }
 
   // Parse state

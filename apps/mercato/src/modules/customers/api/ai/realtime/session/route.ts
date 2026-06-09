@@ -595,13 +595,14 @@ export async function POST(req: Request) {
   }
 
   // Cap gate — voice is the most expensive surface; block over-allowance orgs.
-  // (Every other AI route gates; this one was missing it.)
-  const gate = await checkCustomersAiAllowance(auth)
+  // Realtime runs on OpenAI, so the BYOK fall-through must resolve the org's
+  // OpenAI key (not the default Google).
+  const gate = await checkCustomersAiAllowance(auth, 'openai')
   if (!gate.allowed) {
     return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
   }
 
-  const apiKey = process.env.OPENAI_API_KEY
+  const apiKey = gate.byoApiKey || process.env.OPENAI_API_KEY
   if (!apiKey) {
     return NextResponse.json({ ok: false, error: 'OpenAI API key not configured' }, { status: 500 })
   }
@@ -882,13 +883,15 @@ TOOL CALL DISCIPLINE (CRITICAL — read carefully):
     const sessionData = await sessionRes.json()
 
     // Voice sessions don't expose token counts at mint time; charge a flat
-    // per-session estimate toward the cap so voice isn't entirely free. (Precise
-    // realtime metering would need the client to report usage post-session.)
+    // per-session estimate toward the cap so voice isn't free. Billed at the
+    // audio-weighted realtime rate (see PRICING) — precise metering would need
+    // the client to report usage post-session.
     void meterCustomersAi(auth, {
       model: 'gpt-4o-realtime-preview-2024-12-17',
       tokensIn: 3000,
       tokensOut: 3000,
       feature: 'realtime-voice',
+      byoKey: !!gate.byoApiKey,
     })
 
     // Return the ephemeral key + session config (client will send session.update after connecting)

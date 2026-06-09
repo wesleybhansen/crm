@@ -3,6 +3,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import crypto from 'crypto'
+import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['courses.manage'] },
@@ -16,7 +18,10 @@ export async function POST(req: Request, ctx: any) {
   const auth = ctx?.auth
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-  const aiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  const gate = await checkCustomersAiAllowance(auth)
+  if (!gate.allowed) return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+
+  const aiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
   if (!aiKey) return NextResponse.json({ ok: false, error: 'AI not configured' }, { status: 400 })
 
   try {
@@ -78,6 +83,13 @@ Return ONLY valid JSON (no markdown fences):
       const jsonMatch = outlineText.match(/\{[\s\S]*\}/)
       if (!jsonMatch) return NextResponse.json({ ok: false, error: 'AI failed to generate outline' }, { status: 500 })
       outline = JSON.parse(jsonMatch[0])
+      void meterCustomersAi(auth, {
+        model: 'gemini-2.5-flash',
+        tokensIn: outlineData?.usageMetadata?.promptTokenCount || 0,
+        tokensOut: outlineData?.usageMetadata?.candidatesTokenCount || 0,
+        feature: 'courses-generate-full-course',
+        byoKey: !!gate.byoApiKey,
+      })
     }
 
     // Step 2: Create course in DB
@@ -149,6 +161,8 @@ Return ONLY valid JSON (no markdown fences):
     // Background task with its own DB connection
     ;(async () => {
       let bgKnex: any
+      let bgTokensIn = 0
+      let bgTokensOut = 0
       try {
         const bgContainer = await createRequestContainer()
         bgKnex = (bgContainer.resolve('em') as EntityManager).getKnex()
@@ -173,6 +187,8 @@ Write thorough, practical markdown content: start with a brief intro (2-3 senten
             )
             clearTimeout(timeout)
             const data = await res.json()
+            bgTokensIn += data?.usageMetadata?.promptTokenCount || 0
+            bgTokensOut += data?.usageMetadata?.candidatesTokenCount || 0
             const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
             if (content) {
               await bgKnex('course_lessons').where('id', lesson.id).update({ content })
@@ -183,6 +199,14 @@ Write thorough, practical markdown content: start with a brief intro (2-3 senten
           }
         }
         await bgKnex('courses').where('id', courseId).update({ generation_status: 'complete', updated_at: new Date() })
+        // Meter the full background lesson-generation batch in one row.
+        void meterCustomersAi(auth, {
+          model: 'gemini-2.5-flash',
+          tokensIn: bgTokensIn,
+          tokensOut: bgTokensOut,
+          feature: 'courses-generate-full-course-lessons',
+          byoKey: !!gate.byoApiKey,
+        })
       } catch (err) {
         console.error('[courses.ai.generate-full-course] background generation failed', err)
         try {

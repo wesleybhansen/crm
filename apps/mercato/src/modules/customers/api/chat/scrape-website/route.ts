@@ -3,6 +3,8 @@ export const metadata = { path: '/chat/scrape-website', POST: { requireAuth: tru
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { safeFetch } from '@/lib/safe-fetch'
+import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 
 // Common pages that typically contain useful business information
 const COMMON_PATHS = [
@@ -95,6 +97,10 @@ export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
+  // Gate before the multi-page crawl + AI summarization (expensive work).
+  const gate = await checkCustomersAiAllowance(auth)
+  if (!gate.allowed) return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+
   try {
     const { url } = await req.json()
     if (!url?.trim()) return NextResponse.json({ ok: false, error: 'URL required' }, { status: 400 })
@@ -171,7 +177,7 @@ ${p.text}`)
       .join('\n\n')
 
     // Phase 6: Use AI to create a comprehensive knowledge base
-    const aiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+    const aiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
     if (aiKey && combinedContent.length > 200) {
       try {
         const prompt = `You are building a comprehensive knowledge base for a customer-facing AI chat bot.
@@ -254,6 +260,13 @@ ${combinedContent.substring(0, 120000)}`
         const aiData = await aiRes.json()
         const summary = aiData.candidates?.[0]?.content?.parts?.[0]?.text
         if (summary) {
+          void meterCustomersAi(auth, {
+            model: 'gemini-2.5-flash',
+            tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
+            tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+            feature: 'chat-scrape-website',
+            byoKey: !!gate.byoApiKey,
+          })
           return NextResponse.json({
             ok: true,
             data: {

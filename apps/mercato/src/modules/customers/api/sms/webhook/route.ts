@@ -74,6 +74,16 @@ export async function POST(req: Request) {
       .whereNull('deleted_at')
       .first()
 
+    // Idempotency: Twilio retries inbound webhooks on timeout/5xx. Skip if we
+    // already stored this MessageSid so a retry doesn't duplicate the message
+    // or double-increment the inbox unread count.
+    if (sid) {
+      const seen = await knex('sms_messages').where('twilio_sid', sid).first()
+      if (seen) {
+        return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+      }
+    }
+
     // Store the inbound message
     await knex('sms_messages').insert({
       id: require('crypto').randomUUID(),

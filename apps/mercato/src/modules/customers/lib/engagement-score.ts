@@ -45,34 +45,29 @@ export async function trackEngagement(
       created_at: new Date(),
     })
 
-    // Upsert score
-    const existing = await knex('contact_engagement_scores')
-      .where('contact_id', contactId)
-      .first()
-
-    if (existing) {
-      previousScore = Number(existing.score) || 0
-      newScore = Math.max(0, previousScore + points)
-      await knex('contact_engagement_scores')
-        .where('contact_id', contactId)
-        .update({
-          score: newScore,
-          last_activity_at: new Date(),
-          updated_at: new Date(),
-        })
-    } else {
-      previousScore = 0
-      newScore = Math.max(0, points)
-      await knex('contact_engagement_scores').insert({
+    // Atomic upsert keyed on the unique contact_id index. Doing the increment
+    // in SQL (GREATEST(0, score + points)) instead of read-modify-write means
+    // concurrent events (open + submit + pay near-simultaneously) can't clobber
+    // each other's points. previousScore is derived for the threshold event.
+    const [row] = await knex('contact_engagement_scores')
+      .insert({
         id: require('crypto').randomUUID(),
         tenant_id: tenantId,
         organization_id: orgId,
         contact_id: contactId,
-        score: newScore,
+        score: Math.max(0, points),
         last_activity_at: new Date(),
         updated_at: new Date(),
       })
-    }
+      .onConflict('contact_id')
+      .merge({
+        score: knex.raw('GREATEST(0, contact_engagement_scores.score + ?)', [points]),
+        last_activity_at: new Date(),
+        updated_at: new Date(),
+      })
+      .returning(['score'])
+    newScore = Number(row?.score) || 0
+    previousScore = Math.max(0, newScore - points)
 
     // Emit score_updated event so consumers (e.g. pipeline automation
     // threshold rules) can react. Includes previousScore so consumers can

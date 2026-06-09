@@ -314,7 +314,9 @@ RULES:
     const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
     const { generateText } = await import('ai')
 
-    const google = createGoogleGenerativeAI({ apiKey })
+    // Over-allowance orgs that gated through on a BYO key run on that key, not
+    // the platform key (otherwise Noli eats the over-pool cost).
+    const google = createGoogleGenerativeAI({ apiKey: gate.byoApiKey || apiKey })
     const model = google('gemini-3.5-flash')
 
     const aiMessages = messagesForContext.map((m: { sender_type: string; message: string }) => ({
@@ -335,6 +337,7 @@ RULES:
       tokensIn: usage.promptTokens ?? usage.inputTokens ?? 0,
       tokensOut: usage.completionTokens ?? usage.outputTokens ?? 0,
       feature: 'public-chatbot',
+      byoKey: !!gate.byoApiKey,
     })
 
     const botReply = result.text?.trim()

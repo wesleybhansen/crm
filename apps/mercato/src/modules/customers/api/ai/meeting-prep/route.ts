@@ -193,8 +193,10 @@ async function generateBrief(
   eventSummary: string | null,
   personaPrompt: string,
   orgId?: string | null,
+  byoApiKey?: string | null,
 ): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  // Over-allowance orgs that gated through on a BYO key run on that key.
+  const apiKey = byoApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
   if (!apiKey) {
     throw new Error('Gemini API key not configured')
   }
@@ -255,6 +257,7 @@ ${dataSection}`
     tokensIn: result?.usageMetadata?.promptTokenCount || 0,
     tokensOut: result?.usageMetadata?.candidatesTokenCount || 0,
     feature: 'meeting-prep',
+    byoKey: !!byoApiKey,
   })
 
   return text.replace(/^```html?\n?/i, '').replace(/\n?```$/i, '').trim()
@@ -268,6 +271,10 @@ export async function GET(req: Request) {
     if (!auth?.tenantId || !auth?.orgId || !auth?.userId) {
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
     }
+
+    // Gate before generating any brief (interactive path was ungated).
+    const gate = await checkCustomersAiAllowance(auth)
+    if (!gate.allowed) return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
 
     const url = new URL(req.url)
     const contactId = url.searchParams.get('contactId')
@@ -285,7 +292,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
       }
 
-      const brief = await generateBrief(contactData, null, personaPrompt, auth.orgId)
+      const brief = await generateBrief(contactData, null, personaPrompt, auth.orgId, gate.byoApiKey)
 
       const result: MeetingPrepResult = {
         contact: {
@@ -371,7 +378,7 @@ export async function GET(req: Request) {
         const contactData = await loadContactData(knex, auth.orgId, mc.id)
         if (!contactData) continue
 
-        const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt, auth.orgId)
+        const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt, auth.orgId, gate.byoApiKey)
 
         // Cache the brief
         try {
@@ -505,7 +512,7 @@ export async function POST(req: Request) {
             const contactData = await loadContactData(knex, connection.organization_id, mc.id)
             if (!contactData) continue
 
-            const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt, connection.organization_id)
+            const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt, connection.organization_id, capGate.byoApiKey)
 
             await knex('meeting_prep_briefs').insert({
               tenant_id: connection.tenant_id,

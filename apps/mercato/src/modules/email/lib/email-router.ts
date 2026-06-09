@@ -401,7 +401,9 @@ async function trackEngagement(
   contactId: string,
 ): Promise<void> {
   try {
-    await knex('people')
+    // Contacts live in customer_entities, not a `people` table (which does not
+    // exist) — the old name made every send's engagement update a silent no-op.
+    await knex('customer_entities')
       .where('id', contactId)
       .where('organization_id', orgId)
       .update({ updated_at: new Date() })

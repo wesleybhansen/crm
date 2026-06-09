@@ -66,6 +66,15 @@ export async function POST(req: Request) {
 
     for (const execution of dueExecutions) {
       try {
+        // Atomically claim this row before doing any work. If a second
+        // (overlapping/retried) cron tick already claimed it, the conditional
+        // UPDATE affects 0 rows and we skip — preventing duplicate sends.
+        // Mirrors the claim pattern in automation-execute.ts.
+        const claimed = await knex('sequence_step_executions')
+          .where({ id: execution.execution_id, status: 'scheduled' })
+          .update({ status: 'processing' })
+        if (!claimed) continue
+
         const step = await knex('sequence_steps').where('id', execution.step_id).first()
         if (!step) {
           await knex('sequence_step_executions').where('id', execution.execution_id).update({

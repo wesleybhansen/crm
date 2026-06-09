@@ -115,8 +115,9 @@ async function gatherDigestData(knex: ReturnType<EntityManager['getKnex']>, orgI
   }
 }
 
-async function generateDigestHtml(data: Awaited<ReturnType<typeof gatherDigestData>>, personaPrompt: string, orgId?: string | null): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
+async function generateDigestHtml(data: Awaited<ReturnType<typeof gatherDigestData>>, personaPrompt: string, orgId?: string | null, byoApiKey?: string | null): Promise<string> {
+  // Over-allowance orgs that gated through on a BYO key run on that key.
+  const apiKey = byoApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
   if (!apiKey) {
     throw new Error('Gemini API key not configured')
   }
@@ -175,6 +176,7 @@ ${dataSection}`
     tokensIn: result?.usageMetadata?.promptTokenCount || 0,
     tokensOut: result?.usageMetadata?.candidatesTokenCount || 0,
     feature: 'digest',
+    byoKey: !!byoApiKey,
   })
 
   // Strip markdown code fences if present
@@ -244,7 +246,7 @@ export async function POST(req: Request) {
         const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
 
         const data = await gatherDigestData(knex, org.organization_id, org.tenant_id, days)
-        const digestHtml = await generateDigestHtml(data, personaPrompt, org.organization_id)
+        const digestHtml = await generateDigestHtml(data, personaPrompt, org.organization_id, capGate.byoApiKey)
 
         const businessName = org.business_name || 'Your Business'
         const periodLabel = frequency === 'daily' ? 'Daily' : 'Weekly'
@@ -298,11 +300,15 @@ export async function GET() {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
+    // Gate before generating (interactive preview path was ungated).
+    const gate = await checkCustomersAiAllowance(auth)
+    if (!gate.allowed) return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+
     const persona = await getPersonaForOrg(knex, auth.orgId)
     const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
 
     const data = await gatherDigestData(knex, auth.orgId, auth.tenantId, 7)
-    const digestHtml = await generateDigestHtml(data, personaPrompt, auth.orgId)
+    const digestHtml = await generateDigestHtml(data, personaPrompt, auth.orgId, gate.byoApiKey)
 
     return NextResponse.json({
       ok: true,

@@ -39,7 +39,8 @@ export async function POST(req: Request) {
     }
 
     let processed = 0
-    const capCache = new Map<string, boolean>() // orgId -> within allowance
+    // orgId -> gate result (allowed + optional BYO key for over-allowance orgs)
+    const gateCache = new Map<string, { allowed: boolean; byoApiKey?: string }>()
 
     for (const email of emails) {
       try {
@@ -55,13 +56,15 @@ export async function POST(req: Request) {
           continue
         }
 
-        // Skip orgs over their AI allowance (cached per run) — don't bill the platform.
-        let withinCap = capCache.get(email.organization_id)
-        if (withinCap === undefined) {
-          withinCap = (await checkCustomersAiAllowance({ orgId: email.organization_id })).allowed
-          capCache.set(email.organization_id, withinCap)
+        // Skip orgs over their AI allowance (cached per run) — don't bill the
+        // platform. Over-allowance orgs with a BYO key run on that key.
+        let gate = gateCache.get(email.organization_id)
+        if (gate === undefined) {
+          gate = await checkCustomersAiAllowance({ orgId: email.organization_id })
+          gateCache.set(email.organization_id, gate)
         }
-        if (!withinCap) continue
+        if (!gate.allowed) continue
+        const orgKey = gate.byoApiKey || apiKey
 
         const prompt = `Classify the sentiment of this email. Return ONLY one word: positive, neutral, negative, or urgent.
 
@@ -80,7 +83,7 @@ Sentiment:`
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': orgKey },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
               generationConfig: { temperature: 0, maxOutputTokens: 10 },
@@ -95,7 +98,7 @@ Sentiment:`
           tokensIn: data?.usageMetadata?.promptTokenCount || 0,
           tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
           feature: 'classify-sentiment',
-          byoKey: false,
+          byoKey: !!gate.byoApiKey,
         })
         const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().toLowerCase()
 

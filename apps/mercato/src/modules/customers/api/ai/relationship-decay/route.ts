@@ -156,14 +156,16 @@ export async function POST(req: Request) {
 
     for (const org of orgs) {
       // Skip orgs over their AI allowance — don't bill the platform for cron AI.
+      // Over-allowance orgs with a BYO key run on that key.
       const capGate = await checkCustomersAiAllowance({ orgId: org.id })
       if (!capGate.allowed) continue
+      const orgKey = capGate.byoApiKey || apiKey
       const alerts = await detectDecayingRelationships(knex, org.id)
       const redAlerts = alerts.filter(a => a.severity === 'red')
 
       let draftsGenerated = 0
 
-      if (redAlerts.length > 0 && apiKey) {
+      if (redAlerts.length > 0 && orgKey) {
         // Load persona for draft emails
         let personaPrompt = ''
         const profile = await getPersonaForOrg(knex, org.id)
@@ -184,7 +186,7 @@ Return ONLY the email body text, no subject line.`
               `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
               {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+                headers: { 'Content-Type': 'application/json', 'x-goog-api-key': orgKey },
                 body: JSON.stringify({
                   system_instruction: { parts: [{ text: systemPrompt }] },
                   contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -199,6 +201,7 @@ Return ONLY the email body text, no subject line.`
               tokensIn: data?.usageMetadata?.promptTokenCount || 0,
               tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
               feature: 'relationship-decay',
+              byoKey: !!capGate.byoApiKey,
             })
             const draftBody = data.candidates?.[0]?.content?.parts?.[0]?.text
             if (draftBody) {

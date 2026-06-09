@@ -101,7 +101,13 @@ export async function POST(req: Request) {
           connectedAccount: connectedAccountId,
         }),
         created_at: new Date(),
-      }).catch(e => console.error('[stripe.webhook] payment record failed:', e))
+      }).catch((e) => {
+        // Do NOT swallow. A lost payment_records insert means the payment
+        // disappears from the CRM while Stripe sees a 2xx and never retries.
+        // Rethrow so the outer handler returns 400 and Stripe redelivers.
+        console.error('[stripe.webhook] payment record failed:', e)
+        throw e
+      })
 
       // Update invoice status if applicable
       if (meta.invoiceId) {
@@ -435,6 +441,9 @@ export async function POST(req: Request) {
                 }).catch(() => {})
               }
             }
+            // Look up the event BEFORE its first use below (event?.title) — it was
+            // declared later, a TDZ ReferenceError masked by ignoreBuildErrors.
+            const event = await knex('events').where('id', eventId).first()
             if (contactId) {
               await knex('event_attendees').where('id', attendeeId).update({ contact_id: contactId }).catch(() => {})
               await knex('contact_notes').insert({
@@ -445,7 +454,6 @@ export async function POST(req: Request) {
             }
 
             // Send confirmation email
-            const event = await knex('events').where('id', eventId).first()
             if (event) {
               const eventDate = new Date(event.start_time).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
               const eventTime = new Date(event.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
@@ -505,10 +513,13 @@ export async function POST(req: Request) {
                 .update({ status: 'succeeded' })
             }
 
-            // Create contact if not exists
+            // Create contact if not exists. `contactId` is declared OUTSIDE the
+            // funnelEmail block — it's used later (confirmation email, automation
+            // rules, course enrollment), which was a runtime ReferenceError when
+            // declared inside the block (masked by ignoreBuildErrors).
+            let contactId: string | null = funnelSession.contact_id ?? null
             const funnelEmail = meta.customerEmail || session.customer_email
             if (funnelEmail) {
-              let contactId = funnelSession.contact_id
               if (!contactId) {
                 const existing = await knex('customer_entities')
                   .where('primary_email', funnelEmail.toLowerCase())

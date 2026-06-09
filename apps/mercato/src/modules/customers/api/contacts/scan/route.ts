@@ -5,12 +5,17 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-  const aiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  const gate = await checkCustomersAiAllowance(auth)
+  if (!gate.allowed) return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+
+  const aiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
   if (!aiKey) return NextResponse.json({ ok: false, error: 'AI not configured' }, { status: 400 })
 
   try {
@@ -73,6 +78,14 @@ Return ONLY a valid JSON array (no markdown, no explanation):
       if (!match) return NextResponse.json({ ok: false, error: 'Could not parse extracted data' }, { status: 400 })
       contacts = [JSON.parse(match[0])]
     }
+
+    void meterCustomersAi(auth, {
+      model: 'gemini-2.5-flash',
+      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      feature: 'contacts-scan',
+      byoKey: !!gate.byoApiKey,
+    })
 
     // Return extracted data for review — saving is done via PUT
     return NextResponse.json({ ok: true, data: { contacts, count: contacts.length } })

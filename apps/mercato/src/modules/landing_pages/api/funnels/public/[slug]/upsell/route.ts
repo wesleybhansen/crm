@@ -44,6 +44,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         return NextResponse.json({ ok: false, error: 'No saved payment method. Please complete checkout first.' }, { status: 400 })
       }
 
+      // Idempotency guard: this endpoint is public and the upsell button is a
+      // one-click off-session charge. A double-click, browser retry, or replay
+      // must not charge the card twice. If this (session, step) already has a
+      // succeeded order, skip the charge and advance to the next step.
+      const existingOrder = await knex('funnel_orders')
+        .where('session_id', session.id)
+        .where('step_id', step.id)
+        .where('status', 'succeeded')
+        .first()
+      if (existingOrder) {
+        const advanceStep = step.on_accept_step_id
+          ? await knex('funnel_steps').where('id', step.on_accept_step_id).first()
+          : await knex('funnel_steps').where('funnel_id', funnel.id).where('step_order', '>', step.step_order).orderBy('step_order').first()
+        const redirectUrl = advanceStep
+          ? `${baseUrl}/api/landing_pages/funnels/public/${slug}?step=${advanceStep.id}&sid=${session.id}`
+          : `${baseUrl}/api/landing_pages/funnels/public/${slug}?step=thank_you&sid=${session.id}`
+        return NextResponse.json({ ok: true, redirectUrl, alreadyCharged: true })
+      }
+
       const product = step.product_id ? await knex('products').where('id', step.product_id).first() : null
       const config = typeof step.config === 'string' ? JSON.parse(step.config) : (step.config || {})
       const amount = product ? Math.round(Number(product.price) * 100) : Math.round(Number(config.price || 0) * 100)
@@ -82,6 +101,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           },
         }, {
           stripeAccount: stripeConnection.stripe_account_id,
+          // Stripe-side dedup: identical retries within 24h return the same
+          // PaymentIntent instead of creating a second charge.
+          idempotencyKey: `funnel_upsell_${session.id}_${step.id}`,
         })
 
         if (paymentIntent.status === 'succeeded') {

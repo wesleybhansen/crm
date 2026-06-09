@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['courses.manage'] },
@@ -11,7 +13,10 @@ export async function POST(req: Request, ctx: any) {
   const auth = ctx?.auth
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-  const aiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  const gate = await checkCustomersAiAllowance(auth)
+  if (!gate.allowed) return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+
+  const aiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
   if (!aiKey) return NextResponse.json({ ok: false, error: 'AI not configured' }, { status: 400 })
 
   try {
@@ -121,6 +126,14 @@ Return ONLY valid JSON (no markdown, no explanation):
     if (!jsonMatch) return NextResponse.json({ ok: false, error: 'AI returned invalid format' }, { status: 500 })
 
     const landingCopy = JSON.parse(jsonMatch[0])
+
+    void meterCustomersAi(auth, {
+      model: 'gemini-2.5-flash',
+      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      feature: 'courses-generate-landing-copy',
+      byoKey: !!gate.byoApiKey,
+    })
 
     // Save to course if it exists
     if (courseId) {
