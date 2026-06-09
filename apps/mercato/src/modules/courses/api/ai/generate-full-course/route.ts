@@ -68,8 +68,8 @@ Return ONLY valid JSON (no markdown fences):
 }`
 
       const outlineRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${aiKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
           body: JSON.stringify({ contents: [{ parts: [{ text: outlinePrompt }] }], generationConfig: { maxOutputTokens: 4000 } }) },
       )
       const outlineData = await outlineRes.json()
@@ -167,8 +167,8 @@ Write thorough, practical markdown content: start with a brief intro (2-3 senten
           const timeout = setTimeout(() => controller.abort(), 60000)
           try {
             const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${aiKey}`,
-              { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+              { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey }, signal: controller.signal,
                 body: JSON.stringify({ contents: [{ parts: [{ text: lessonPrompt }] }], generationConfig: { maxOutputTokens: 10000, temperature: 0.7 } }) },
             )
             clearTimeout(timeout)

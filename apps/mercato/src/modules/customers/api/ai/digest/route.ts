@@ -8,6 +8,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
 
 export const metadata = { path: '/ai/digest',
@@ -150,10 +151,10 @@ DATA:
 ${dataSection}`
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
@@ -215,6 +216,13 @@ export async function POST(req: Request) {
           results.push({ orgId: org.organization_id, status: 'skipped', error: 'Not digest day' })
           continue
         }
+      }
+
+      // Skip orgs over their AI allowance — the digest body is AI-generated.
+      const capGate = await checkCustomersAiAllowance({ orgId: org.organization_id })
+      if (!capGate.allowed) {
+        results.push({ orgId: org.organization_id, status: 'skipped', error: 'Over AI allowance' })
+        continue
       }
 
       try {

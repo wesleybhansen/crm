@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { requireProcessAuth } from '@/lib/cron-auth'
 
@@ -154,6 +155,9 @@ export async function POST(req: Request) {
     const results: Array<{ orgId: string; alertCount: number; draftsGenerated: number }> = []
 
     for (const org of orgs) {
+      // Skip orgs over their AI allowance — don't bill the platform for cron AI.
+      const capGate = await checkCustomersAiAllowance({ orgId: org.id })
+      if (!capGate.allowed) continue
       const alerts = await detectDecayingRelationships(knex, org.id)
       const redAlerts = alerts.filter(a => a.severity === 'red')
 
@@ -177,10 +181,10 @@ Return ONLY the email body text, no subject line.`
             const systemPrompt = personaPrompt || 'You are a helpful business assistant drafting follow-up emails.'
 
             const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
               {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
                 body: JSON.stringify({
                   system_instruction: { parts: [{ text: systemPrompt }] },
                   contents: [{ role: 'user', parts: [{ text: prompt }] }],

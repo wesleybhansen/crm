@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
 
 export const metadata = { path: '/ai/classify-sentiment', POST: { requireAuth: false } }
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
     }
 
     let processed = 0
+    const capCache = new Map<string, boolean>() // orgId -> within allowance
 
     for (const email of emails) {
       try {
@@ -53,6 +55,14 @@ export async function POST(req: Request) {
           continue
         }
 
+        // Skip orgs over their AI allowance (cached per run) — don't bill the platform.
+        let withinCap = capCache.get(email.organization_id)
+        if (withinCap === undefined) {
+          withinCap = (await checkCustomersAiAllowance({ orgId: email.organization_id })).allowed
+          capCache.set(email.organization_id, withinCap)
+        }
+        if (!withinCap) continue
+
         const prompt = `Classify the sentiment of this email. Return ONLY one word: positive, neutral, negative, or urgent.
 
 Rules:
@@ -67,10 +77,10 @@ Email:
 Sentiment:`
 
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
               generationConfig: { temperature: 0, maxOutputTokens: 10 },

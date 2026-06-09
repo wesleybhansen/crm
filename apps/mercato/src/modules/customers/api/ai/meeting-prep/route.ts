@@ -7,6 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
 
 export const metadata = { path: '/ai/meeting-prep',
@@ -230,10 +231,10 @@ DATA:
 ${dataSection}`
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.7, maxOutputTokens: 1500 },
@@ -463,6 +464,13 @@ export async function POST(req: Request) {
         })
 
         if (relevantEvents.length === 0) {
+          skipped++
+          continue
+        }
+
+        // Skip orgs over their AI allowance — briefs are AI-generated.
+        const capGate = await checkCustomersAiAllowance({ orgId: connection.organization_id })
+        if (!capGate.allowed) {
           skipped++
           continue
         }

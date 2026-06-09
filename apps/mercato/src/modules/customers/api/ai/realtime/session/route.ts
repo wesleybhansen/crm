@@ -2,6 +2,8 @@
 export const metadata = { path: '/ai/realtime/session', POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { meterCustomersAi } from '@/lib/usage/meter'
 import { query, queryOne } from '@/lib/db'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -592,6 +594,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Cap gate — voice is the most expensive surface; block over-allowance orgs.
+  // (Every other AI route gates; this one was missing it.)
+  const gate = await checkCustomersAiAllowance(auth)
+  if (!gate.allowed) {
+    return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+  }
+
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     return NextResponse.json({ ok: false, error: 'OpenAI API key not configured' }, { status: 500 })
@@ -871,6 +880,16 @@ TOOL CALL DISCIPLINE (CRITICAL — read carefully):
     }
 
     const sessionData = await sessionRes.json()
+
+    // Voice sessions don't expose token counts at mint time; charge a flat
+    // per-session estimate toward the cap so voice isn't entirely free. (Precise
+    // realtime metering would need the client to report usage post-session.)
+    void meterCustomersAi(auth, {
+      model: 'gpt-4o-realtime-preview-2024-12-17',
+      tokensIn: 3000,
+      tokensOut: 3000,
+      feature: 'realtime-voice',
+    })
 
     // Return the ephemeral key + session config (client will send session.update after connecting)
     return NextResponse.json({
