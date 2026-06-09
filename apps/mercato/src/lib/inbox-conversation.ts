@@ -82,24 +82,53 @@ export async function upsertInboxConversation(
       await knex('inbox_conversations').where('id', existing.id).update(updates)
     } else {
       // Create new conversation
-      await knex('inbox_conversations').insert({
-        id: crypto.randomUUID(),
-        tenant_id: tenantId,
-        organization_id: orgId,
-        contact_id: contactId || null,
-        chat_conversation_id: chatConversationId || null,
-        status: 'open',
-        last_message_at: now,
-        last_message_channel: channel,
-        last_message_preview: (preview || '').substring(0, 120),
-        last_message_direction: direction,
-        unread_count: direction === 'inbound' ? 1 : 0,
-        display_name: displayName || 'Unknown',
-        avatar_email: avatarEmail || null,
-        avatar_phone: avatarPhone || null,
-        created_at: now,
-        updated_at: now,
-      })
+      try {
+        await knex('inbox_conversations').insert({
+          id: crypto.randomUUID(),
+          tenant_id: tenantId,
+          organization_id: orgId,
+          contact_id: contactId || null,
+          chat_conversation_id: chatConversationId || null,
+          status: 'open',
+          last_message_at: now,
+          last_message_channel: channel,
+          last_message_preview: (preview || '').substring(0, 120),
+          last_message_direction: direction,
+          unread_count: direction === 'inbound' ? 1 : 0,
+          display_name: displayName || 'Unknown',
+          avatar_email: avatarEmail || null,
+          avatar_phone: avatarPhone || null,
+          created_at: now,
+          updated_at: now,
+        })
+      } catch (insErr) {
+        // Lost an insert race against a concurrent message for the same
+        // (org, contact) — the unique index rejected the duplicate. Re-fetch
+        // the row the winner created and apply this message's update instead,
+        // so we don't drop the unread increment or duplicate the thread.
+        if (contactId && (insErr as { code?: string })?.code === '23505') {
+          const row = await knex('inbox_conversations')
+            .where('contact_id', contactId)
+            .where('organization_id', orgId)
+            .first()
+          if (row) {
+            const u: Record<string, unknown> = {
+              last_message_at: now,
+              last_message_channel: channel,
+              last_message_preview: (preview || '').substring(0, 120),
+              last_message_direction: direction,
+              updated_at: now,
+            }
+            if (direction === 'inbound') {
+              u.unread_count = knex.raw('unread_count + 1')
+              u.status = 'open'
+            }
+            await knex('inbox_conversations').where('id', row.id).update(u)
+          }
+        } else {
+          throw insErr
+        }
+      }
     }
   } catch (err) {
     console.error('[upsertInboxConversation] failed:', err)

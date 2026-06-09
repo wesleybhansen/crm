@@ -100,6 +100,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     const displayName = rawName || (firstName ? (lastName ? `${firstName} ${lastName}` : firstName) : email)
     const phone = phoneField ? data[phoneField.id] : null
     let contactId: string | null = null
+    let createdNewContact = false
 
     if (email) {
       try {
@@ -113,28 +114,47 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           contactId = existing.id
         } else if (shouldCreateContact) {
           contactId = require('crypto').randomUUID()
-          await knex('customer_entities').insert({
-            id: contactId,
-            tenant_id: form.tenant_id,
-            organization_id: form.organization_id,
-            kind: 'person',
-            display_name: displayName || email,
-            primary_email: email,
-            primary_phone: phone || null,
-            source: 'form',
-            source_details: JSON.stringify({ form_name: form.name, form_slug: form.slug }),
-            status: 'active',
-            // Leave lifecycle_stage null unless the form owner picked one in
-            // settings — auto-inserting 'prospect' put submitters on the
-            // pipeline board without the user asking for it.
-            lifecycle_stage: settings.pipelineStage || null,
-            created_at: now,
-            updated_at: now,
-          })
+          createdNewContact = true
+          try {
+            await knex('customer_entities').insert({
+              id: contactId,
+              tenant_id: form.tenant_id,
+              organization_id: form.organization_id,
+              kind: 'person',
+              display_name: displayName || email,
+              primary_email: email,
+              primary_phone: phone || null,
+              source: 'form',
+              source_details: JSON.stringify({ form_name: form.name, form_slug: form.slug }),
+              status: 'active',
+              // Leave lifecycle_stage null unless the form owner picked one in
+              // settings — auto-inserting 'prospect' put submitters on the
+              // pipeline board without the user asking for it.
+              lifecycle_stage: settings.pipelineStage || null,
+              created_at: now,
+              updated_at: now,
+            })
+          } catch (insErr) {
+            // A concurrent submit for the same email won the race (unique index
+            // on org + lower(email)). Adopt the winner's contact instead of
+            // creating a duplicate, and skip the people/source-tag writes the
+            // winner already performed.
+            if ((insErr as { code?: string })?.code === '23505') {
+              const winner = await knex('customer_entities')
+                .whereRaw('lower(primary_email) = lower(?)', [email])
+                .where('organization_id', form.organization_id)
+                .whereNull('deleted_at')
+                .first()
+              contactId = winner?.id ?? contactId
+              createdNewContact = false
+            } else {
+              throw insErr
+            }
+          }
 
-          const resolvedFirst = firstName || (displayName || '').split(' ')[0] || email.split('@')[0] || ''
-          const resolvedLast = lastName || (displayName || '').split(' ').slice(1).join(' ') || ''
-          {
+          if (createdNewContact) {
+            const resolvedFirst = firstName || (displayName || '').split(' ')[0] || email.split('@')[0] || ''
+            const resolvedLast = lastName || (displayName || '').split(' ').slice(1).join(' ') || ''
             await knex('customer_people').insert({
               id: require('crypto').randomUUID(),
               tenant_id: form.tenant_id,
@@ -150,7 +170,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
 
         // First-touch source attribution — only tag newly-created contacts
         // so re-submissions don't overwrite the original source.
-        if (contactId && !existing) {
+        if (contactId && createdNewContact) {
           try {
             const { tagContactSource } = await import('@open-mercato/core/modules/customers/lib/sourceTagging')
             await tagContactSource(knex, { tenantId: form.tenant_id, organizationId: form.organization_id }, contactId, 'form', form.name || form.slug)

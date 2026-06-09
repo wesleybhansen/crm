@@ -106,25 +106,44 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           }
         } else {
           contactId = require('crypto').randomUUID()
-          await knex('customer_entities').insert({
-            id: contactId,
-            tenant_id: page.tenant_id,
-            organization_id: page.organization_id,
-            kind: 'person',
-            display_name: name,
-            primary_email: email,
-            primary_phone: cleanData.phone || cleanData.Phone || null,
-            source: utmSource ? `landing_page:${utmSource}` : 'landing_page',
-            source_details: JSON.stringify(sourceDetails),
-            status: 'active',
-            lifecycle_stage: 'prospect',
-            created_at: new Date(),
-            updated_at: new Date(),
-          })
+          let createdContact = true
+          try {
+            await knex('customer_entities').insert({
+              id: contactId,
+              tenant_id: page.tenant_id,
+              organization_id: page.organization_id,
+              kind: 'person',
+              display_name: name,
+              primary_email: email,
+              primary_phone: cleanData.phone || cleanData.Phone || null,
+              source: utmSource ? `landing_page:${utmSource}` : 'landing_page',
+              source_details: JSON.stringify(sourceDetails),
+              status: 'active',
+              lifecycle_stage: 'prospect',
+              created_at: new Date(),
+              updated_at: new Date(),
+            })
+          } catch (insErr) {
+            // A concurrent submit for the same email won the race (unique index
+            // on org + lower(email)). Adopt the winner's contact rather than
+            // creating a duplicate.
+            if ((insErr as { code?: string })?.code === '23505') {
+              const winner = await knex('customer_entities')
+                .whereRaw('lower(primary_email) = lower(?)', [email])
+                .where('organization_id', page.organization_id)
+                .whereNull('deleted_at')
+                .first()
+              contactId = winner?.id ?? contactId
+              createdContact = false
+            } else {
+              throw insErr
+            }
+          }
 
-          // Create person profile if we have name parts
+          // Create person profile if we have name parts (skip if we adopted an
+          // existing contact — it already has its profile).
           const nameParts = (name || '').split(' ')
-          if (nameParts.length > 0) {
+          if (createdContact && nameParts.length > 0) {
             await knex('customer_people').insert({
               id: require('crypto').randomUUID(),
               tenant_id: page.tenant_id,
