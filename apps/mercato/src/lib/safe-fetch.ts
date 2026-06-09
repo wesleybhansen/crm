@@ -55,6 +55,23 @@ async function assertPublicHost(hostname: string): Promise<void> {
   }
 }
 
+/* Validate a user-supplied URL is http(s) and resolves to a public address.
+ * Use when a target URL is SAVED (e.g. a webhook subscription) so an SSRF target
+ * (localhost / 169.254.169.254 / RFC-1918) can never be stored. Delivery-time
+ * fetch should still be guarded to fully close DNS-rebinding. */
+export async function assertPublicUrl(rawUrl: string): Promise<void> {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    throw new SsrfError('invalid URL')
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new SsrfError(`blocked protocol: ${url.protocol}`)
+  }
+  await assertPublicHost(url.hostname)
+}
+
 export async function safeFetch(rawUrl: string, init?: RequestInit, maxRedirects = 5): Promise<Response> {
   let url: URL
   try {

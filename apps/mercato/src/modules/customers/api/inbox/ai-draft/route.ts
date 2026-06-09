@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     // Load contact info if available
     let contactInfo = ''
     if (conv.contact_id) {
-      const contact = await knex('customer_entities').where('id', conv.contact_id).first()
+      const contact = await knex('customer_entities').where('id', conv.contact_id).where('organization_id', auth.orgId).first()
       if (contact) {
         contactInfo = `Contact: ${contact.display_name || 'Unknown'}${contact.primary_email ? `, Email: ${contact.primary_email}` : ''}${contact.primary_phone ? `, Phone: ${contact.primary_phone}` : ''}${contact.lifecycle_stage ? `, Stage: ${contact.lifecycle_stage}` : ''}`
       }

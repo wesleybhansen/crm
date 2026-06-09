@@ -25,6 +25,7 @@ export async function GET(req: Request) {
       const tags = await knex('customer_tag_assignments as cta')
         .join('customer_tags as ct', 'ct.id', 'cta.tag_id')
         .where('cta.entity_id', contactId)
+        .where('cta.organization_id', auth.orgId)
         .select('ct.id', 'ct.label as name', 'ct.slug', 'ct.color')
       return NextResponse.json({ ok: true, data: tags })
     } else {
@@ -53,14 +54,18 @@ export async function POST(req: Request) {
     const { contactId, tagName, action } = body
 
     if (action === 'remove' && contactId && body.tagId) {
-      // Remove tag from contact
-      await knex('customer_tag_assignments').where('entity_id', contactId).where('tag_id', body.tagId).del()
+      // Remove tag from contact (org-scoped — can't touch another tenant's assignment)
+      await knex('customer_tag_assignments').where('entity_id', contactId).where('organization_id', auth.orgId).where('tag_id', body.tagId).del()
       return NextResponse.json({ ok: true })
     }
 
     if (!contactId || !tagName?.trim()) {
       return NextResponse.json({ ok: false, error: 'contactId and tagName required' }, { status: 400 })
     }
+
+    // The contact must belong to the caller's org before we assign/trigger anything.
+    const ownsContact = await knex('customer_entities').where('id', contactId).where('organization_id', auth.orgId).first()
+    if (!ownsContact) return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
 
     // Find or create tag
     const slug = tagName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')

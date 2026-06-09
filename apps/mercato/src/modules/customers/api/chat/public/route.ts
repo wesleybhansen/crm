@@ -6,6 +6,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import crypto from 'crypto'
 import type { Knex } from 'knex'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { meterCustomersAi } from '@/lib/usage/meter'
 
 export const metadata = { path: '/chat/public',
   GET: { requireAuth: false },
@@ -285,6 +287,24 @@ RULES:
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
     if (!apiKey) return
 
+    // Cost guard: the public chatbot runs on the platform Gemini key. If the
+    // widget's org is over its AI allowance, hand off to a human instead of
+    // burning AI the platform can't recover (otherwise an embedded widget id is
+    // an unmetered, unbounded LLM-spend vector).
+    const gate = await checkCustomersAiAllowance({ orgId: widget.organization_id })
+    if (!gate.allowed) {
+      await knex('chat_messages').insert({
+        id: crypto.randomUUID(),
+        conversation_id: conversationId,
+        sender_type: 'business',
+        message: handoffMessage,
+        is_bot: true,
+        created_at: new Date(),
+      })
+      await knex('chat_conversations').where('id', conversationId).update({ updated_at: new Date(), agent_typing: false, agent_typing_at: null }).catch(() => {})
+      return
+    }
+
     // Show typing indicator while AI generates response
     await knex('chat_conversations').where('id', conversationId).update({
       agent_typing: true,
@@ -306,6 +326,15 @@ RULES:
       model,
       system: systemPrompt,
       messages: aiMessages,
+    })
+
+    // Meter against the widget's org so public-chatbot AI counts toward their pool.
+    const usage = (result.usage || {}) as { promptTokens?: number; completionTokens?: number; inputTokens?: number; outputTokens?: number }
+    void meterCustomersAi({ orgId: widget.organization_id }, {
+      model: 'gemini-3.5-flash',
+      tokensIn: usage.promptTokens ?? usage.inputTokens ?? 0,
+      tokensOut: usage.completionTokens ?? usage.outputTokens ?? 0,
+      feature: 'public-chatbot',
     })
 
     const botReply = result.text?.trim()

@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { signEmailToken } from '@/lib/email-token'
 
 // Send a blast to all matching contacts
 export async function POST(req: Request) {
@@ -107,8 +108,8 @@ export async function POST(req: Request) {
       const firstName = (contact.display_name || '').split(' ')[0] || 'there'
       const toEmail = contact.primary_email.trim()
 
-      // Generate preference center token
-      const prefToken = Buffer.from(`${contact.id}:${auth.orgId}`).toString('base64')
+      // Signed preference-center token (HMAC — not forgeable)
+      const prefToken = signEmailToken(contact.id, auth.orgId)
       const preferenceCenterUrl = `${baseUrl}/api/email/preferences/${prefToken}`
 
       // Personalize email

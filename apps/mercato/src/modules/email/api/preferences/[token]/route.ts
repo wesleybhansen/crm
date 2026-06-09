@@ -2,22 +2,12 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { verifyEmailToken } from '@/lib/email-token'
 
 export const metadata = { GET: { requireAuth: false } }
 
-function decodeToken(token: string): { contactId: string; orgId: string } | null {
-  try {
-    const decoded = Buffer.from(token, 'base64').toString('utf-8')
-    const [contactId, orgId] = decoded.split(':')
-    if (!contactId || !orgId) return null
-    return { contactId, orgId }
-  } catch {
-    return null
-  }
-}
-
 export async function GET(req: Request, { params }: { params: { token: string } }) {
-  const parsed = decodeToken(params.token)
+  const parsed = verifyEmailToken(params.token)
   if (!parsed) return new NextResponse('Invalid link', { status: 400 })
 
   try {

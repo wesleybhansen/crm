@@ -2,8 +2,13 @@ import { z } from 'zod'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { exampleTag, exampleErrorSchema } from '../../openapi'
 
-export const requireAuth = true
-export const requireFeatures = ['example.todos.view']
+// Auth MUST be declared inside `metadata`, per method — a top-level
+// `export const requireAuth` is IGNORED by the dispatcher (the route would be
+// public). This is the correct, enforced pattern to copy for new routes:
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
+  POST: { requireAuth: true, requireFeatures: ['example.todos.view'] },
+}
 
 export async function GET(_req: Request, ctx: { params: { id: string } }) {
   return new Response(JSON.stringify({ id: ctx.params.id, method: 'GET' }), {

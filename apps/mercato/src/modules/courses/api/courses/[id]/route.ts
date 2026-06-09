@@ -42,6 +42,12 @@ export async function PUT(req: Request, ctx: any) {
     const id = ctx.params?.id
     const body = await req.json()
 
+    // Verify the course belongs to the caller's org BEFORE touching any child rows.
+    // (The final courses update is org-scoped, but the module/lesson writes below
+    // address rows by request-supplied ids and would otherwise hit other tenants.)
+    const owned = await knex('courses').where('id', id).where('organization_id', auth.orgId).whereNull('deleted_at').first()
+    if (!owned) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+
     const update: Record<string, any> = { updated_at: new Date() }
     if (body.title !== undefined) update.title = body.title
     if (body.description !== undefined) update.description = body.description
@@ -58,7 +64,10 @@ export async function PUT(req: Request, ctx: any) {
       for (let i = 0; i < body.modules.length; i++) {
         const mod = body.modules[i]
         if (mod.id) {
-          await knex('course_modules').where('id', mod.id).update({ title: mod.title, description: mod.description, sort_order: i })
+          // Only modules belonging to this org's course may be touched (skip foreign ids).
+          const ownMod = await knex('course_modules').where('id', mod.id).where('course_id', id).first()
+          if (!ownMod) continue
+          await knex('course_modules').where('id', mod.id).where('course_id', id).update({ title: mod.title, description: mod.description, sort_order: i })
         } else {
           const modId = require('crypto').randomUUID()
           await knex('course_modules').insert({ id: modId, course_id: id, title: mod.title, description: mod.description || null, sort_order: i })
@@ -69,7 +78,7 @@ export async function PUT(req: Request, ctx: any) {
           for (let j = 0; j < mod.lessons.length; j++) {
             const lesson = mod.lessons[j]
             if (lesson.id) {
-              await knex('course_lessons').where('id', lesson.id).update({
+              await knex('course_lessons').where('id', lesson.id).where('module_id', mod.id).update({
                 title: lesson.title, description: lesson.description || null,
                 content: lesson.content || null, content_type: lesson.contentType || 'text',
                 video_url: lesson.videoUrl || null, file_url: lesson.fileUrl || null, sort_order: j,

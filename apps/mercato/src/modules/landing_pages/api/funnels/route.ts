@@ -204,6 +204,11 @@ export async function DELETE(req: Request, ctx: any) {
     const id = url.searchParams.get('id')
     if (!id) return NextResponse.json({ ok: false, error: 'Missing funnel id' }, { status: 400 })
 
+    // Verify ownership BEFORE deleting child rows — otherwise another tenant's
+    // funnel_steps/funnel_visits get wiped while the org-scoped funnel delete no-ops.
+    const funnel = await knex('funnels').where('id', id).where('organization_id', scope.orgId).first()
+    if (!funnel) return NextResponse.json({ ok: false, error: 'Funnel not found' }, { status: 404 })
+
     await knex('funnel_steps').where('funnel_id', id).delete()
     await knex('funnel_visits').where('funnel_id', id).delete()
     await knex('funnels').where('id', id).where('organization_id', scope.orgId).delete()

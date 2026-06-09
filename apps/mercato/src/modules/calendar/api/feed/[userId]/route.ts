@@ -1,25 +1,30 @@
 export const metadata = { GET: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-// Public .ics calendar feed — subscribe from Apple Calendar, Outlook, etc.
+// Authenticated .ics booking feed. The path userId is NOT a capability — the
+// caller must be logged in and the target user must be in the caller's own org,
+// otherwise any member could read another tenant's bookings (guest PII).
 export async function GET(req: Request, { params }: { params: { userId: string } }) {
   try {
+    const auth = await getAuthFromCookies()
+    if (!auth?.orgId) return new NextResponse('Unauthorized', { status: 401 })
     const userId = params.userId?.replace('.ics', '')
     if (!userId) return new NextResponse('Not found', { status: 404 })
 
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    // Get user's org
-    const user = await knex('users').where('id', userId).first()
+    // Target user must belong to the caller's org.
+    const user = await knex('users').where('id', userId).where('organization_id', auth.orgId).first()
     if (!user) return new NextResponse('Not found', { status: 404 })
 
-    // Get upcoming bookings for this user's org
+    // Get upcoming bookings for the caller's own org
     const bookings = await knex('bookings')
-      .where('organization_id', user.organization_id)
+      .where('organization_id', auth.orgId)
       .where('status', 'confirmed')
       .where('start_time', '>=', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) // last 30 days + future
       .orderBy('start_time')

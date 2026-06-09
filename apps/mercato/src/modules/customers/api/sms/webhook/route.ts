@@ -1,20 +1,38 @@
 // ORM-SKIP: complex multi-table logic or public/webhook endpoint
 
+import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const metadata = { path: '/sms/webhook', POST: { requireAuth: false } }
 
+// Twilio signs each request: HMAC-SHA1 over (full URL + each POST param sorted by
+// key, concatenated), keyed by the account auth token, base64. We try a couple of
+// URL reconstructions to tolerate the nginx proxy rewriting host/proto.
+function validTwilioSignature(authToken: string, urls: string[], params: Record<string, string>, signature: string | null): boolean {
+  if (!signature) return false
+  const suffix = Object.keys(params).sort().map((k) => k + params[k]).join('')
+  const expectedBuf = Buffer.from(signature)
+  for (const u of urls) {
+    const digest = crypto.createHmac('sha1', authToken).update(Buffer.from(u + suffix, 'utf-8')).digest('base64')
+    const got = Buffer.from(digest)
+    if (got.length === expectedBuf.length && crypto.timingSafeEqual(got, expectedBuf)) return true
+  }
+  return false
+}
+
 // Twilio webhook for incoming SMS
 // Routes inbound messages to the correct org by looking up the "To" phone number
 export async function POST(req: Request) {
   try {
     const formData = await req.formData()
-    const from = formData.get('From') as string
-    const to = formData.get('To') as string
-    const body = formData.get('Body') as string
-    const sid = formData.get('MessageSid') as string
+    const params: Record<string, string> = {}
+    for (const [k, v] of formData.entries()) params[k] = typeof v === 'string' ? v : ''
+    const from = params['From']
+    const to = params['To']
+    const body = params['Body']
+    const sid = params['MessageSid']
 
     if (!from || !body) {
       return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
@@ -29,24 +47,32 @@ export async function POST(req: Request) {
       .where('is_active', true)
       .first()
 
-    const orgId = twilioConnection?.organization_id || null
-    const tenantId = twilioConnection?.tenant_id || null
-
-    // Find the contact by phone number within the org
-    let contact = null
-    if (orgId) {
-      contact = await knex('customer_entities')
-        .where('primary_phone', from)
-        .where('organization_id', orgId)
-        .whereNull('deleted_at')
-        .first()
-    } else {
-      // Fallback: search across all orgs (legacy behavior)
-      contact = await knex('customer_entities')
-        .where('primary_phone', from)
-        .whereNull('deleted_at')
-        .first()
+    // SECURITY: an inbound SMS is only trusted if it carries a valid Twilio
+    // signature from the owning connection. No connection / bad signature → drop
+    // (prevents forged inbound SMS being injected into any org's inbox). This
+    // also removes the old cross-org "search all orgs" fallback.
+    const reqUrl = new URL(req.url)
+    const fwdHost = req.headers.get('x-forwarded-host') || reqUrl.host
+    const candidateUrls = [
+      `${process.env.APP_URL || ''}${reqUrl.pathname}${reqUrl.search}`,
+      `https://${fwdHost}${reqUrl.pathname}${reqUrl.search}`,
+      `${reqUrl.origin}${reqUrl.pathname}${reqUrl.search}`,
+    ].filter((u) => u && !u.startsWith(reqUrl.pathname))
+    const signature = req.headers.get('x-twilio-signature')
+    if (!twilioConnection?.auth_token || !validTwilioSignature(twilioConnection.auth_token, candidateUrls, params, signature)) {
+      console.warn('[sms.webhook] rejected: missing connection or invalid Twilio signature', { to })
+      return new NextResponse('<Response></Response>', { status: 403, headers: { 'Content-Type': 'text/xml' } })
     }
+
+    const orgId = twilioConnection.organization_id
+    const tenantId = twilioConnection.tenant_id
+
+    // Find the contact by phone number within the (verified) org
+    const contact = await knex('customer_entities')
+      .where('primary_phone', from)
+      .where('organization_id', orgId)
+      .whereNull('deleted_at')
+      .first()
 
     // Store the inbound message
     await knex('sms_messages').insert({

@@ -3,19 +3,9 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { verifyEmailToken } from '@/lib/email-token'
 
 export const metadata = { POST: { requireAuth: false } }
-
-function decodeToken(token: string): { contactId: string; orgId: string } | null {
-  try {
-    const decoded = Buffer.from(token, 'base64').toString('utf-8')
-    const [contactId, orgId] = decoded.split(':')
-    if (!contactId || !orgId) return null
-    return { contactId, orgId }
-  } catch {
-    return null
-  }
-}
 
 export async function POST(req: Request) {
   try {
@@ -24,7 +14,7 @@ export async function POST(req: Request) {
 
     if (!token) return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400 })
 
-    const parsed = decodeToken(token)
+    const parsed = verifyEmailToken(token)
     if (!parsed) return NextResponse.json({ ok: false, error: 'Invalid token' }, { status: 400 })
 
     const container = await createRequestContainer()

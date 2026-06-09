@@ -4,6 +4,7 @@ export const openApi = { summary: 'Email unsubscribe redirect', methods: { GET: 
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { signEmailToken } from '@/lib/email-token'
 
 export async function GET(req: Request, { params }: { params: { contactId: string } }) {
   try {
@@ -13,8 +14,8 @@ export async function GET(req: Request, { params }: { params: { contactId: strin
     const contact = await knex('customer_entities').where('id', params.contactId).first()
     if (!contact) return new NextResponse('Not found', { status: 404 })
 
-    // Generate preference center token (base64 of contactId:orgId)
-    const token = Buffer.from(`${params.contactId}:${contact.organization_id}`).toString('base64')
+    // Signed preference-center token (HMAC of contactId:orgId — not forgeable)
+    const token = signEmailToken(params.contactId, contact.organization_id)
     const baseUrl = process.env.APP_URL || 'http://localhost:3000'
 
     // Redirect to the preference center

@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { assertPublicUrl } from '@/lib/safe-fetch'
 
 const VALID_EVENTS = [
   'contact.created',
@@ -59,10 +60,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: `Invalid event. Valid events: ${VALID_EVENTS.join(', ')}` }, { status: 400 })
     }
 
+    // Block SSRF: the target must be a public http(s) host, not localhost /
+    // cloud-metadata / RFC-1918 — otherwise a delivery could read internal services.
     try {
-      new URL(targetUrl)
+      await assertPublicUrl(targetUrl)
     } catch {
-      return NextResponse.json({ ok: false, error: 'targetUrl must be a valid URL' }, { status: 400 })
+      return NextResponse.json({ ok: false, error: 'targetUrl must be a valid, public http(s) URL' }, { status: 400 })
     }
 
     const id = require('crypto').randomUUID()

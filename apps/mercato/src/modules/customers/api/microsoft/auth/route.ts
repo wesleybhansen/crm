@@ -1,6 +1,7 @@
 export const metadata = { path: '/microsoft/auth', GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { signOAuthState } from '@/lib/oauth-state'
 
 const MICROSOFT_SCOPES = [
   'Mail.Send',
@@ -19,7 +20,9 @@ export async function GET() {
   const baseUrl = process.env.APP_URL || 'http://localhost:3000'
   const redirectUri = `${baseUrl}/api/microsoft/callback`
 
-  const state = JSON.stringify({ userId: auth.sub })
+  // Sign the state so the callback can't be tricked into linking a mailbox to an
+  // attacker-chosen userId (was plain JSON — forgeable).
+  const state = signOAuthState({ userId: auth.sub })
 
   const params = new URLSearchParams({
     client_id: clientId,

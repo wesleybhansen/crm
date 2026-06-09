@@ -1,6 +1,8 @@
 // ORM-SKIP: complex multi-table logic or public/webhook endpoint
 
 import { NextResponse } from 'next/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { verifyOAuthState } from '@/lib/oauth-state'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -17,15 +19,16 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${baseUrl}/backend/settings-simple?email_error=${error || 'no_code'}`)
   }
 
-  let userId: string | null = null
-  try {
-    const parsed = JSON.parse(stateRaw || '')
-    userId = parsed.userId
-  } catch {
-    userId = stateRaw
-  }
-
+  // State must be one WE signed in /microsoft/auth (never trust a raw, attacker-
+  // suppliable userId), and must match the active browser session — otherwise an
+  // attacker could link their mailbox onto a victim's account.
+  const stateData = verifyOAuthState<{ userId: string }>(stateRaw)
+  const userId = stateData?.userId || null
   if (!userId) {
+    return NextResponse.redirect(`${baseUrl}/backend/settings-simple?email_error=invalid_state`)
+  }
+  const sessionAuth = await getAuthFromCookies()
+  if (!sessionAuth?.sub || sessionAuth.sub !== userId) {
     return NextResponse.redirect(`${baseUrl}/backend/settings-simple?email_error=invalid_state`)
   }
 
