@@ -12,12 +12,14 @@ export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-  const resendKey = process.env.RESEND_API_KEY
-  if (!resendKey) return NextResponse.json({ ok: true, data: { sent: 0, message: 'Email not configured' } })
-
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
+
+    // Send via the org's own ESP only (no platform sender).
+    const espConn = await knex('esp_connections').where('organization_id', auth.orgId).where('is_active', true).first()
+    const resendKey = espConn?.provider === 'resend' ? espConn.api_key : null
+    if (!resendKey) return NextResponse.json({ ok: true, data: { sent: 0, message: 'No ESP connected' } })
 
     const now = new Date()
     const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000)
@@ -64,7 +66,7 @@ export async function POST(req: Request) {
       for (const attendee of attendees) {
         try {
           await resend.emails.send({
-            from: process.env.EMAIL_FROM || 'noreply@localhost',
+            from: espConn?.default_sender_email || process.env.EMAIL_FROM || 'noreply@localhost',
             to: [attendee.attendee_email],
             subject: `Reminder: ${event.title} is ${timeLabel}`,
             html: `<div style="font-family:-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:32px">

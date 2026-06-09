@@ -78,10 +78,10 @@ export async function POST(req: Request) {
           </div>
         `
 
-        // Try ESP from DB first, then RESEND_API_KEY env fallback
+        // Use the org's own ESP only — never a platform key.
         const espConn = await knex('esp_connections')
           .where('organization_id', reminder.organization_id).where('is_active', true).first()
-        const apiKey = espConn?.api_key || process.env.RESEND_API_KEY
+        const apiKey = espConn?.provider === 'resend' ? espConn.api_key : undefined
         const fromAddress = espConn?.default_sender_email || process.env.EMAIL_FROM || 'noreply@localhost'
 
         if (apiKey) {

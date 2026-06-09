@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 
 /**
  * Run Scheduled Automations
@@ -109,18 +110,14 @@ async function executeScheduledAction(
         .replace(/\{\{firstName\}\}/g, firstName)
         .replace(/\{\{reference\}\}/g, context.reference || '')
 
-      if (process.env.RESEND_API_KEY && actionConfig.fromEmail) {
-        try {
-          const res = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: actionConfig.fromEmail, to: [contact.primary_email], subject, html: bodyHtml }),
-          })
-          const result = await res.json()
-          return { success: res.ok, detail: res.ok ? `Email sent via Resend: ${result.id}` : `Resend error: ${JSON.stringify(result)}` }
-        } catch (err) {
-          console.error('[run-scheduled] Resend failed, falling back to queue:', err)
-        }
+      // Send via the org's own connection/ESP (no platform sender). Falls through
+      // to the queue below if the org has nothing connected.
+      const sendRes = await sendEmailByPurpose(knex, orgId, tenantId, 'automations', {
+        to: contact.primary_email, subject, htmlBody: bodyHtml, contactId: context.contactId,
+        fromName: actionConfig.fromName,
+      })
+      if (sendRes.ok) {
+        return { success: true, detail: `Email sent via ${sendRes.sentVia}` }
       }
 
       await knex('email_messages').insert({

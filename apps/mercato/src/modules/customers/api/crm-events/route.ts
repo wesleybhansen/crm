@@ -192,14 +192,16 @@ export async function PUT(req: Request) {
     if (body.status === 'cancelled' && body.sendCancellationEmail) {
       const event = await knex('events').where('id', id).first()
       const attendees = await knex('event_attendees').where('event_id', id).where('status', 'registered')
-      const resendKey = process.env.RESEND_API_KEY
+      // Send via the org's own ESP only (no platform sender).
+      const espConn = await knex('esp_connections').where('organization_id', auth.orgId).where('is_active', true).first()
+      const resendKey = espConn?.provider === 'resend' ? espConn.api_key : null
       if (resendKey && event && attendees.length > 0) {
         try {
           const { Resend } = await import('resend')
           const resend = new Resend(resendKey)
           for (const att of attendees) {
             await resend.emails.send({
-              from: process.env.EMAIL_FROM || 'noreply@localhost',
+              from: espConn?.default_sender_email || process.env.EMAIL_FROM || 'noreply@localhost',
               to: [att.attendee_email],
               subject: `Event Cancelled: ${event.title}`,
               html: `<div style="font-family:-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:32px">

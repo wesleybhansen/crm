@@ -58,14 +58,15 @@ export async function POST(req: Request) {
     const origin = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const magicLink = `${origin}/api/courses/student/verify?token=${token}`
 
-    // Try Resend first, then email router
-    const resendKey = process.env.RESEND_API_KEY
+    // Send the login link via the org's own ESP only (no platform sender).
+    const espConn = await knex('esp_connections').where('organization_id', organizationId).where('is_active', true).first()
+    const resendKey = espConn?.provider === 'resend' ? espConn.api_key : null
     if (resendKey) {
       try {
         const { Resend } = await import('resend')
         const resend = new Resend(resendKey)
         await resend.emails.send({
-          from: process.env.EMAIL_FROM || 'noreply@localhost',
+          from: espConn?.default_sender_email || process.env.EMAIL_FROM || 'noreply@localhost',
           to: [email.trim()],
           subject: 'Your Course Access Link',
           html: `

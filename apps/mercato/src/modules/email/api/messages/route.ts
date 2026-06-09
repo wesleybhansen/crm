@@ -100,17 +100,11 @@ export async function POST(req: Request, ctx: any) {
       fromAddress = routerResult.fromAddress || ''
       metadata = { providerId: routerResult.messageId, provider: routerResult.sentVia }
     } else {
-      // No connected email — fall back to Resend/system sender
+      // No connected provider — do NOT fall back to a platform sender. All email
+      // must go through the org's own connection/ESP.
       fromAddress = process.env.EMAIL_FROM || 'noreply@localhost'
-      try {
-        const result = await sender.send({ to, subject, html: trackedHtml, text: bodyText, replyTo })
-        status = 'sent'
-        sentAt = new Date()
-        metadata = { providerId: result.id, provider: result.provider, fallback: true }
-      } catch (err) {
-        status = 'failed'
-        metadata = { error: err instanceof Error ? err.message : 'Unknown error' }
-      }
+      status = 'failed'
+      metadata = { error: routerResult.error || 'No email provider connected. Connect Gmail, Outlook, or an ESP in Settings.' }
     }
 
     await knex('email_messages').insert({
