@@ -69,9 +69,26 @@ export async function checkCustomersAiAllowance(
       (sum, r) => sum + (r.credits_consumed ?? 0),
       0,
     ))
+    // Admin allowance override (comps / support bumps) — sum non-expired
+    // user_cap_overrides across the org's members. Mirrors the hub's
+    // getOrgAdminOverrideCredits so an override set in the admin dashboard
+    // applies to CRM too (CRM inlines its own allowance math).
+    const memberIds = ((members as { user_id: string }[]) ?? []).map((m) => m.user_id)
+    let overrideCredits = 0
+    if (memberIds.length) {
+      const { data: ov } = await supabase
+        .from('user_cap_overrides')
+        .select('monthly_credits, expires_at')
+        .in('user_id', memberIds)
+      const nowIso = now.toISOString()
+      overrideCredits = ((ov as { monthly_credits: number | null; expires_at: string | null }[]) ?? []).reduce(
+        (s, r) => (r.expires_at && r.expires_at < nowIso ? s : s + Math.max(0, r.monthly_credits ?? 0)),
+        0,
+      )
+    }
     const allowanceCents =
       Math.min(2, seats) * FIRST_TWO_SEAT_CENTS + Math.max(0, seats - 2) * EXTRA_SEAT_CENTS
-    const allowanceCredits = allowanceCents * CREDITS_PER_CENT + tokenBoosts * TOKENS_PER_BOOST
+    const allowanceCredits = allowanceCents * CREDITS_PER_CENT + tokenBoosts * TOKENS_PER_BOOST + overrideCredits
     if (allowanceCredits > 0 && used >= allowanceCredits) {
       // Over allowance: fall through to the org's own key for this provider.
       const keys = await resolveOrgByoKeys(org.noliOrgId)
