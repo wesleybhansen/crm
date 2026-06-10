@@ -3,6 +3,22 @@ export const metadata = { POST: { requireAuth: false } }
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+
+// Modest abuse guard: per-session sliding-window message cap (in-memory, resets on restart).
+const TUTOR_MESSAGES_PER_HOUR = 30
+const tutorRate = new Map<string, { count: number; windowStart: number }>()
+function tutorRateLimited(sessionToken: string): boolean {
+  const now = Date.now()
+  const entry = tutorRate.get(sessionToken)
+  if (!entry || now - entry.windowStart > 60 * 60 * 1000) {
+    tutorRate.set(sessionToken, { count: 1, windowStart: now })
+    return false
+  }
+  entry.count += 1
+  return entry.count > TUTOR_MESSAGES_PER_HOUR
+}
 
 export async function POST(req: Request) {
   try {
@@ -20,6 +36,10 @@ export async function POST(req: Request) {
       .first()
     if (!session) return NextResponse.json({ ok: false, error: 'Session expired' }, { status: 401 })
 
+    if (tutorRateLimited(sessionMatch[1])) {
+      return NextResponse.json({ ok: false, error: 'Too many messages — please take a short break and try again.' }, { status: 429 })
+    }
+
     const body = await req.json()
     const { courseId, lessonId, message, history } = body
 
@@ -27,12 +47,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'courseId and message required' }, { status: 400 })
     }
 
-    const aiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-    if (!aiKey) return NextResponse.json({ ok: false, error: 'AI not configured' }, { status: 400 })
-
-    // Load course context
-    const course = await knex('courses').where('id', courseId).first()
+    // Load course context — must belong to the session's org
+    const course = await knex('courses')
+      .where('id', courseId)
+      .where('organization_id', session.organization_id)
+      .whereNull('deleted_at')
+      .first()
     if (!course) return NextResponse.json({ ok: false, error: 'Course not found' }, { status: 404 })
+
+    // Verify the student is actively enrolled in THIS course
+    const enrollment = await knex('course_enrollments')
+      .where('student_email', session.email)
+      .where('course_id', course.id)
+      .where('status', 'active')
+      .first()
+    if (!enrollment) return NextResponse.json({ ok: false, error: 'Not enrolled' }, { status: 403 })
+
+    // Allowance gate + BYOK fall-through — tutoring runs on the course org's pooled allowance
+    const orgAuth = { orgId: session.organization_id as string }
+    const gate = await checkCustomersAiAllowance(orgAuth)
+    if (!gate.allowed) {
+      return NextResponse.json({ ok: false, error: 'The AI tutor is unavailable right now. Please try again later.' }, { status: 402 })
+    }
+
+    const aiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
+    if (!aiKey) return NextResponse.json({ ok: false, error: 'AI not configured' }, { status: 400 })
 
     const modules = await knex('course_modules').where('course_id', courseId).orderBy('sort_order')
     for (const mod of modules) {
@@ -121,6 +160,14 @@ RULES:
     if (!reply) {
       return NextResponse.json({ ok: false, error: 'AI could not generate a response' }, { status: 500 })
     }
+
+    void meterCustomersAi(orgAuth, {
+      model: 'gemini-2.5-flash',
+      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      feature: 'course-tutor',
+      byoKey: !!gate.byoApiKey,
+    })
 
     return NextResponse.json({ ok: true, data: { reply } })
   } catch (error) {

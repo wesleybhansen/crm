@@ -1,5 +1,5 @@
 // ORM-SKIP: complex multi-table logic or public/webhook endpoint
-export const metadata = { path: '/affiliates/signup', GET: { requireAuth: true }, POST: { requireAuth: true } }
+export const metadata = { path: '/affiliates/signup', GET: { requireAuth: false }, POST: { requireAuth: false } }
 
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'

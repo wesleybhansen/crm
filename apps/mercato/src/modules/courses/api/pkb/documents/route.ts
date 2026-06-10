@@ -3,7 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
-const PKB_URL = 'https://kb.thelaunchpadincubator.com'
+const PKB_URL = process.env.NOLI_KB_BASE_URL ?? 'https://kb.noliai.com'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['courses.manage'] },

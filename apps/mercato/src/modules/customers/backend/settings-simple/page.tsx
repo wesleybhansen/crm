@@ -1814,7 +1814,7 @@ export default function SimpleSettingsPage() {
             <details className="text-xs text-muted-foreground">
               <summary className="cursor-pointer font-medium hover:text-foreground transition-colors">How to get your API key</summary>
               <ol className="list-decimal list-inside space-y-1.5 mt-2 ml-1">
-                <li>Go to <a href="https://kb.thelaunchpadincubator.com" target="_blank" className="text-accent underline">kb.thelaunchpadincubator.com</a> and log in</li>
+                <li>Go to <a href="https://kb.noliai.com" target="_blank" className="text-accent underline">kb.noliai.com</a> and log in</li>
                 <li>Click the <strong>gear icon</strong> (Settings) in the bottom-left corner of the sidebar</li>
                 <li>Navigate to the <strong>"API Keys"</strong> section</li>
                 <li>Click <strong>"Create New API Key"</strong></li>
@@ -1875,9 +1875,9 @@ export default function SimpleSettingsPage() {
             <div className="rounded-md border bg-muted/40 p-4 space-y-2">
               <p className="text-xs font-medium text-foreground">Your CRM URL</p>
               <div className="flex items-center gap-2">
-                <code className="text-xs font-mono flex-1 bg-background border rounded px-2 py-1.5">https://crm.thelaunchpadincubator.com</code>
+                <code className="text-xs font-mono flex-1 bg-background border rounded px-2 py-1.5">https://crm.noliai.com</code>
                 <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => {
-                  navigator.clipboard.writeText('https://crm.thelaunchpadincubator.com')
+                  navigator.clipboard.writeText('https://crm.noliai.com')
                   setAmsUrlCopied(true)
                   setTimeout(() => setAmsUrlCopied(false), 2000)
                 }}>
@@ -1918,12 +1918,12 @@ export default function SimpleSettingsPage() {
             <div className="mt-3 space-y-2 ml-1 border-l-2 border-border pl-3">
               <p className="font-medium text-foreground">After generating your key, follow these steps in AMS:</p>
               <ol className="list-decimal list-inside space-y-2">
-                <li>Log in to your AMS dashboard at <strong>marketing.thelaunchpadincubator.com</strong></li>
+                <li>Log in to your AMS dashboard at <strong>ams.noliai.com</strong></li>
                 <li>Go to <strong>Settings</strong> (gear icon in the sidebar)</li>
                 <li>Click <strong>API Keys</strong></li>
                 <li>Scroll to the <strong>Noli CRM (CRM)</strong> section</li>
                 <li>Paste your <strong>API Key</strong> into the API Key field</li>
-                <li>Paste your <strong>CRM URL</strong> (<code className="bg-muted px-1 rounded">https://crm.thelaunchpadincubator.com</code>) into the CRM URL field</li>
+                <li>Paste your <strong>CRM URL</strong> (<code className="bg-muted px-1 rounded">https://crm.noliai.com</code>) into the CRM URL field</li>
                 <li>Click <strong>Connect</strong></li>
               </ol>
               <p className="mt-2">Once connected, AMS will be able to sync contacts, send emails through your CRM, and publish landing pages directly to your CRM.</p>

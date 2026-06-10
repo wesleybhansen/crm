@@ -670,7 +670,7 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">PKB API Key</label>
                 <Input value={pkbApiKey} onChange={e => setPkbApiKey(e.target.value)} placeholder="pkb_..." type="password" className="text-sm" />
                 <p className="text-[10px] text-muted-foreground mt-1.5">
-                  To get your API key: log into your <a href="https://kb.thelaunchpadincubator.com" target="_blank" className="text-accent underline">Knowledge Base</a> → Settings (gear icon) → API Keys → Create new key.
+                  To get your API key: log into your <a href="https://kb.noliai.com" target="_blank" className="text-accent underline">Knowledge Base</a> → Settings (gear icon) → API Keys → Create new key.
                 </p>
               </div>
               <div className="flex gap-2">
