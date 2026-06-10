@@ -71,8 +71,7 @@ GENERAL RULES:
 - Keep ALL HTML tags, classes, and structure unchanged. Only change visible text between tags.
 - Make copy compelling, specific, and conversion-focused for this exact business.
 - Replace any placeholder brand names (like "BrandName") with the actual business name.
-- Update all stats/numbers to be believable for this business.
-- Update testimonials to sound realistic for this business's industry.
+- Never invent stats, numbers, client names, or testimonial quotes. If the BUSINESS context above provides real results, numbers, or testimonials, use those exactly as given. Otherwise, replace template stats/numbers with clearly-marked placeholders like "[ADD YOUR REAL RESULT]" or "[YOUR NUMBER]", and replace testimonial quotes/names with "[REAL CLIENT QUOTE HERE]" and "[CLIENT NAME]" so the owner knows to fill them in.
 - Form inputs: keep the input types/names but update placeholder text and labels to match the page purpose.
 - Return ONLY the rewritten body content. No <html>/<head>/<body> wrapper tags. No markdown fences. No explanation.
 
@@ -189,7 +188,7 @@ function getCategoryGuidance(category: string): { pageType: string; rules: strin
 - Feature sections should describe what's INSIDE the free resource.
 - CTA buttons should say things like "Download Free Guide", "Get Your Copy", "Send It To Me".
 - Stats should relate to downloads, ratings, or pages/chapters.
-- Create urgency but keep it believable ("Limited time", "Join 500+ others").`,
+- Create urgency but keep it honest ("Limited time", "Doors close Friday"). Never invent subscriber or download counts.`,
     },
     'booking': {
       pageType: 'booking / consultation / appointment',

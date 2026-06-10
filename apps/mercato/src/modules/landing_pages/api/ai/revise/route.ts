@@ -3,6 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { BASE_CRAFT_RULES } from '@/lib/landing-page-wizard/constants'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['landing_pages.edit'] },
@@ -36,9 +37,14 @@ export async function POST(req: Request) {
     const bodyContent = bodyMatch ? bodyMatch[1] : currentHtml
     const headSection = headMatch ? headMatch[1] : ''
 
-    const prompt = `You are a landing page copywriter. The user wants to revise their page. Make the requested changes thoroughly and completely.
+    const prompt = `You are an expert direct response landing page copywriter. The user wants to revise their page. Make the requested changes thoroughly and completely.
 
 USER'S REQUEST: "${feedback}"
+
+COPYWRITING RULES (apply to every line you rewrite — never let an edit drift the page back toward generic copy):
+${BASE_CRAFT_RULES}
+- Match the page's existing tone and voice exactly — infer it from the current copy, unless the user's request explicitly asks for a tone change.
+- Never invent stats, client names, testimonials, or quotes that are not already on the page or in the user's request.
 
 IMPORTANT:
 - Make SIGNIFICANT changes to fulfill the request — don't just tweak one word

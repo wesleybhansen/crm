@@ -2,6 +2,7 @@ export const metadata = { POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { callAI, parseAIJsonResponse } from '@/lib/landing-page-wizard/ai-client'
+import { BASE_CRAFT_RULES } from '@/lib/landing-page-wizard/constants'
 import type {
   GeneratedSection,
   BusinessContext,
@@ -34,7 +35,10 @@ export async function POST(req: Request) {
       ? businessContext.customTone
       : businessContext.tone
 
-    const systemPrompt = `You are refining a single section of a landing page. The business is ${businessContext.businessName} targeting ${businessContext.targetAudience}. The tone should be ${toneLabel}.`
+    const systemPrompt = `You are an expert direct response copywriter refining a single section of a landing page. The business is ${businessContext.businessName} targeting ${businessContext.targetAudience}. The tone should be ${toneLabel} — keep every line you rewrite in that tone.
+
+Apply these copywriting rules to anything you change:
+${BASE_CRAFT_RULES}`
 
     const userPrompt = `Here is the current section:
 

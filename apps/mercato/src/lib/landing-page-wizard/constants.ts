@@ -623,6 +623,108 @@ export const OFFER_QUESTIONS: Record<PageType, Record<string, OfferQuestion[]>> 
 }
 
 // ---------------------------------------------------------------------------
+// Base copywriting craft rules — injected into every AI copy call
+// (generation AND refinement) so edits don't drift back to generic copy
+// ---------------------------------------------------------------------------
+
+export const BASE_CRAFT_RULES = `- No generic filler. Every sentence must be specific to this business and audience.
+- BANNED phrases, never write any of these: "in today's world", "in today's fast-paced world", "take it to the next level", "unlock your potential", "it's important to", "game-changer", "look no further".
+- The hero headline must contain a specific number or a concrete object/outcome the reader can picture (e.g., "Fill your calendar with 10 qualified calls a month"). Never write abstract headlines like "Transform your business".
+- Every bullet and item description must state what the reader will be able to DO after saying yes: a concrete action or result, not an abstract quality.
+- CTAs must name the specific thing the reader gets (e.g., "Get the 12-point checklist", "Book my 30-minute audit"). Never use generic CTAs like "Get started", "Learn more", or "Submit".
+- Headlines must be benefit-driven — lead with what the reader gains.
+- CTAs must be action-oriented. First-person preferred ("Get my..." not "Get your...").
+- Match the requested tone throughout all copy.`
+
+// ---------------------------------------------------------------------------
+// Quality-bar exemplars per page type — shown to the AI as the expected
+// caliber of headlines and CTAs (never copied verbatim into output)
+// ---------------------------------------------------------------------------
+
+export const COPY_EXEMPLARS: Record<PageType, { headlines: string[]; ctas: string[] }> = {
+  'capture-leads': {
+    headlines: [
+      'The 12-Point Checklist That Catches the Mistakes Costing You Bookings',
+      'Write a Week of Social Posts in 45 Minutes (Free Template Inside)',
+      '27 Subject Lines That Earned 40%+ Open Rates. Steal Them.',
+    ],
+    ctas: ['Send me the 12-point checklist', 'Get the free template', 'Steal the 27 subject lines'],
+  },
+  'book-a-call': {
+    headlines: [
+      'Walk Away With a 90-Day Growth Plan in One Free 30-Minute Call',
+      'Find the 3 Leaks in Your Sales Process. Free 20-Minute Audit.',
+      'In 30 Minutes, Know Exactly What Your Website Should Say',
+    ],
+    ctas: ['Book my free 30-minute call', 'Claim my 20-minute audit', 'Pick a time that works for me'],
+  },
+  'sell-digital': {
+    headlines: [
+      'Launch Your First Paid Course in 6 Weeks, Even With Zero Audience',
+      'The 25-Template Kit That Turns a Blank Page Into a Finished Proposal in 20 Minutes',
+      'Go From Inbox Chaos to a 4-Hour-a-Week Admin System',
+    ],
+    ctas: ['Get instant access to all 25 templates', 'Enroll in the 6-week program', 'Start module 1 today'],
+  },
+  'sell-physical': {
+    headlines: [
+      'The 1.2 lb Carry-On Organizer That Ends Repacking Forever',
+      'Brew Cafe-Grade Espresso at Home in Under 4 Minutes',
+      'One Desk Mat. Zero Cable Clutter. 10 Seconds to a Clean Workspace.',
+    ],
+    ctas: ['Add the organizer to my cart', 'Order mine, ships in 2 days', 'Get the starter bundle'],
+  },
+  'sell-service': {
+    headlines: [
+      'We Build and Run Your Ad Funnel. You Just Take the Sales Calls.',
+      'Your Books Closed by the 5th of Every Month, Guaranteed',
+      'A Conversion-Ready Website Live in 21 Days',
+    ],
+    ctas: ['Get my 21-day build plan', 'Book a 15-minute scoping call', 'See packages and pricing'],
+  },
+  'promote-event': {
+    headlines: [
+      'Build Your 2027 Content Calendar Live in This 90-Minute Workshop',
+      'Watch Us Audit 5 Real Landing Pages, Live on June 24',
+      'Leave With a Finished Pitch Deck: A Hands-On Half-Day Workshop',
+    ],
+    ctas: ['Save my seat for June 24', 'Register free, 200 spots', 'Reserve my workshop spot'],
+  },
+  general: {
+    headlines: [
+      'Everything You Need to Switch Accountants in 14 Days',
+      'See Exactly How the Program Works: Curriculum, Pricing, and Dates',
+      'The Straight Answer to "What Does It Cost?"',
+    ],
+    ctas: ['Show me the 14-day switch plan', 'Download the full curriculum', 'Get exact pricing'],
+  },
+  upsell: {
+    headlines: [
+      'Add the Done-For-You Template Library and Skip 20 Hours of Setup',
+      'Upgrade to Lifetime Access for $40 More, on This Page Only',
+      'You Have the Plan. Add the Weekly Coaching That Makes It Stick.',
+    ],
+    ctas: ['Yes, add it to my order', 'Upgrade my order for $40', 'Add lifetime access'],
+  },
+  downsell: {
+    headlines: [
+      'Not Ready for the Full Program? Start With the 5 Core Modules for $49',
+      'Keep the Coaching, Split the Cost: 3 Payments of $99',
+      'The Starter Version: Same System, First 30 Days Only',
+    ],
+    ctas: ['Start with the 5 core modules', 'Switch to 3 payments of $99', 'Get the starter version'],
+  },
+  'funnel-checkout': {
+    headlines: [
+      "You're One Step From the Full 12-Module Program",
+      'Complete Your Order. Instant Access the Moment You Pay.',
+      'Almost There: Your Templates Are Waiting on the Other Side',
+    ],
+    ctas: ['Complete my order', 'Pay securely and get instant access', 'Finish checkout'],
+  },
+}
+
+// ---------------------------------------------------------------------------
 // Default form fields by page type
 // ---------------------------------------------------------------------------
 

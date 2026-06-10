@@ -2,7 +2,7 @@ export const metadata = { POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { callAI, parseAIJsonResponse } from '@/lib/landing-page-wizard/ai-client'
-import { SECTION_DEFINITIONS, OFFER_QUESTIONS } from '@/lib/landing-page-wizard/constants'
+import { SECTION_DEFINITIONS, OFFER_QUESTIONS, BASE_CRAFT_RULES, COPY_EXEMPLARS } from '@/lib/landing-page-wizard/constants'
 import type {
   PageType,
   SubType,
@@ -53,7 +53,9 @@ function buildSystemPrompt(framework: Framework, pageType: PageType, subType: Su
 The page is a ${pageType} page (${subType}) using the ${framework} framework.`
   }
 
-  return `You are an expert copywriter writing a landing page using the ${framework} framework. The page is a ${pageType} page for a ${subType}.`
+  return `You are an expert direct response copywriter writing a high-converting landing page. You write like Alex Hormozi, Ramit Sethi, and Joanna Wiebe. Your copy is specific, benefit-driven, and emotionally compelling. You never use generic filler. Every sentence earns the next.
+
+The page is a ${pageType} page (${subType}) using the ${framework} framework. The conversion goal is the page's primary action (an email signup, a booked call, an event registration, or a purchase). Sell that action with the same craft you would apply to a paid offer.`
 }
 
 function buildSellPageSectionSchema(sectionType: SectionType): string | null {
@@ -167,20 +169,26 @@ function buildSectionSchemas(sections: SectionType[], isSellPage: boolean): stri
   })
 }
 
-function buildSellPageRules(price: string | undefined): string {
-  const priceContext = price ? `
+function buildCraftRules(isSellPage: boolean, price: string | undefined): string {
+  const priceContext = isSellPage && price ? `
 The user's price is ${price}. Match the copy tone to this price point: $47 = casual/accessible, $497 = confident/thorough, $5000+ = authoritative/exclusive.` : ''
 
-  return `
-## Sell Page Copywriting Rules
-
-- Write pain-points with emotional depth, not surface-level descriptions. Make the reader feel understood.
-- Name every component in the offer with proprietary-sounding names (e.g., "The Silent Close Framework" not "Sales Training").
+  const offerRules = isSellPage
+    ? `- Name every component in the offer with proprietary-sounding names (e.g., "The Silent Close Framework" not "Sales Training").
 - Value-stack values must be defensible — justify with "based on comparable coaching/workshop/consulting rates".
 - The total value should be 5-10x the actual price.
-- For the two-futures close, be specific — name timeframes, describe specific scenarios, use sensory details.
+- For the two-futures close, be specific — name timeframes, describe specific scenarios, use sensory details.`
+    : `- Treat the free or low-commitment offer (lead magnet, call, event seat, trial) with the same craft as a paid product: name it, spell out exactly what is inside it, and make the value of saying yes obvious.
+- If the page includes a value or pricing section, anchor the offer's worth to what it would cost elsewhere (a paid consult, a course, an agency engagement) — never invent arbitrary numbers.
+- For the final CTA section, restate the single next action and what happens immediately after they take it (e.g., what arrives in their inbox, what the call covers, what they get at the event).`
+
+  return `
+## Copywriting Craft Rules
+
+- Write pain-points with emotional depth, not surface-level descriptions. Make the reader feel understood.
+${offerRules}
 - Every headline should pass the "so what?" test — if the reader can say "so what?" after reading it, rewrite it.
-- Lead with transformation, not features. Features go in the offer-breakdown, not headlines.
+- Lead with transformation, not features. Features go in the body sections, not headlines.
 - Use power words: "unlock", "eliminate", "transform", "proven", "guaranteed" — but only where they are earned.${priceContext}`
 }
 
@@ -236,13 +244,21 @@ Use this as the actual price in the value-stack section. Calculate a believable 
 
     // Layer 5 + 6: Rules and output format combined into user prompt
     const baseRules = `- No fake testimonials. Only generate testimonial content if the user provided social proof data in their answers above. If no social proof was provided, use a placeholder headline like "What Our Customers Say" and set items to an empty array.
-- No generic filler. Every sentence must be specific to this business and audience.
-- Headlines must be benefit-driven — lead with what the reader gains.
-- CTAs must be action-oriented. First-person preferred ("Get my..." not "Get your...").
-- Match the requested tone throughout all copy.
+${BASE_CRAFT_RULES}
 - For pricing sections, only include a price if the user provided one. Always include an "items" array with 4-6 bullet points summarizing what's included (e.g., [{title: "12 Video Modules", description: "Self-paced learning"}, ...]).`
 
-    const sellPageRules = isSellPage ? buildSellPageRules(userPrice) : ''
+    const craftRules = buildCraftRules(isSellPage, userPrice)
+
+    const exemplars = COPY_EXEMPLARS[pageType]
+    const exemplarBlock = exemplars ? `
+
+## Quality Bar — Exemplars
+
+These show the caliber of headline and CTA expected for a ${pageType} page. Do NOT copy them — match their specificity for this business:
+Headlines:
+${exemplars.headlines.map(h => `- "${h}"`).join('\n')}
+CTAs:
+${exemplars.ctas.map(c => `- "${c}"`).join('\n')}` : ''
 
     const userPrompt = `## Sections to generate
 
@@ -260,7 +276,7 @@ ${offerLines || 'No additional details provided.'}${priceContext}
 
 ## Rules
 
-${baseRules}${sellPageRules}
+${baseRules}${craftRules}${exemplarBlock}
 
 ## Output Format
 
