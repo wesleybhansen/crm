@@ -22,7 +22,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const funnel = await knex('funnels').where('slug', slug).first()
     if (!funnel) return NextResponse.json({ ok: false, error: 'Funnel not found' }, { status: 404 })
 
-    const session = await knex('funnel_sessions').where('id', sid).first()
+    // Bind the session to THIS funnel — sid leaks via redirect query strings,
+    // so a sid from one funnel must not authorize a one-click charge in another.
+    const session = await knex('funnel_sessions').where('id', sid).where('funnel_id', funnel.id).first()
     if (!session) return NextResponse.json({ ok: false, error: 'Session not found' }, { status: 404 })
 
     const step = await knex('funnel_steps').where('id', stepId).where('funnel_id', funnel.id).first()

@@ -10,8 +10,11 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 
 export const metadata = { path: '/chat/public',
-  GET: { requireAuth: false },
-  POST: { requireAuth: false },
+  // Anonymous widget endpoint: per-IP rate limits keep one visitor (or bot)
+  // from burning a customer org's AI allowance. POST triggers the LLM call,
+  // so it gets the tight limit.
+  GET: { requireAuth: false, rateLimit: { points: 60, duration: 60, keyPrefix: 'chat-public-get' } },
+  POST: { requireAuth: false, rateLimit: { points: 10, duration: 60, blockDuration: 300, keyPrefix: 'chat-public-post' } },
   OPTIONS: { requireAuth: false },
 }
 
