@@ -106,8 +106,44 @@ export async function POST(req: Request) {
     put('brandColors', existing?.brandColors, rec(body.brandColors))
     put('socialLinks', existing?.socialLinks, rec(body.socialLinks))
 
+    // U-52: the audit's drafted follow-up email becomes a real, reusable
+    // email template (idempotent by name; never duplicates).
+    let template = false
+    const fu = rec(body.followUpEmail)
+    const fuSubject = str(fu.subject, 200)
+    const fuBody = str(fu.body, 4000)
+    if (fuSubject && fuBody) {
+      try {
+        const { EmailTemplate } = await import('@/modules/email/data/schema')
+        const name = 'Follow-up: new inquiry (drafted by your Noli team)'
+        const prior = await em.findOne(EmailTemplate, {
+          organizationId: auth.orgId as string,
+          name,
+          deletedAt: null,
+        })
+        if (!prior) {
+          const esc = (s: string) =>
+            s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          const tpl = new EmailTemplate()
+          tpl.tenantId = auth.tenantId as string
+          tpl.organizationId = auth.orgId as string
+          tpl.name = name
+          tpl.subject = fuSubject
+          tpl.bodyHtml = fuBody
+            .split(/\n{2,}/)
+            .map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`)
+            .join('\n')
+          tpl.category = 'sequence'
+          await em.persistAndFlush(tpl)
+          template = true
+        }
+      } catch (err) {
+        console.error('[internal.seed-profile] template create failed', err)
+      }
+    }
+
     if (Object.keys(input).length <= 2) {
-      return NextResponse.json({ ok: true, seeded: false, reason: 'nothing to fill' })
+      return NextResponse.json({ ok: true, seeded: template, template, reason: 'profile already filled' })
     }
 
     // 5. Upsert through the same command the authed PUT route uses.
@@ -123,7 +159,7 @@ export async function POST(req: Request) {
       ctx: { container, auth, request: req },
     })
 
-    return NextResponse.json({ ok: true, seeded: true })
+    return NextResponse.json({ ok: true, seeded: true, template })
   } catch (err) {
     console.error('[internal.seed-profile]', err)
     return NextResponse.json({ ok: false, error: 'Seed failed' }, { status: 500 })
