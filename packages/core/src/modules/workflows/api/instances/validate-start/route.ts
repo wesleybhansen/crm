@@ -23,8 +23,7 @@ import {
 } from '../../openapi'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.instances.view'],
+  POST: { requireAuth: true, requireFeatures: ['workflows.instances.view'] },
 }
 
 // Input schema for validation request

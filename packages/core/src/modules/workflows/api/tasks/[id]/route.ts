@@ -19,8 +19,7 @@ import {
 } from '../../openapi'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.tasks.view'],
+  GET: { requireAuth: true, requireFeatures: ['workflows.tasks.view'] },
 }
 
 /**

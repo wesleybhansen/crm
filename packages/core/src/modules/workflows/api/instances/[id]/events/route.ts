@@ -13,8 +13,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { WorkflowInstance, WorkflowEvent } from '../../../../data/entities'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.instances.view'],
+  GET: { requireAuth: true, requireFeatures: ['workflows.instances.view'] },
 }
 
 interface RouteContext {

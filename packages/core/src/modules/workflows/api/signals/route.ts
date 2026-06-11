@@ -13,8 +13,7 @@ import {
 } from '../openapi'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.signals.send'],
+  POST: { requireAuth: true, requireFeatures: ['workflows.signals.send'] },
 }
 
 const sendSignalByKeySchema = z.object({

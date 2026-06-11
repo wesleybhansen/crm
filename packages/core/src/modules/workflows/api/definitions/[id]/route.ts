@@ -20,8 +20,9 @@ import {
 import { serializeWorkflowDefinition } from '../serialize'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.definitions.view'],
+  GET: { requireAuth: true, requireFeatures: ['workflows.definitions.view'] },
+  PUT: { requireAuth: true, requireFeatures: ['workflows.definitions.view'] },
+  DELETE: { requireAuth: true, requireFeatures: ['workflows.definitions.view'] },
 }
 
 interface RouteContext {

@@ -8,8 +8,7 @@ import { RateFetchingService } from '../../services/rateFetchingService'
 import { CurrencyFetchConfig } from '../../data/entities'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['currencies.fetch.manage'],
+  POST: { requireAuth: true, requireFeatures: ['currencies.fetch.manage'] },
 }
 
 export async function POST(req: NextRequest) {

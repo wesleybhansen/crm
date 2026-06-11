@@ -12,8 +12,7 @@ import type { ExecuteSchedulePayload } from '../../workers/execute-schedule.work
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['scheduler.jobs.trigger'],
+  POST: { requireAuth: true, requireFeatures: ['scheduler.jobs.trigger'] },
 }
 
 /**

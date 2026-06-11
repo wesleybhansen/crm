@@ -13,8 +13,10 @@ import {
 import { currencyFetchConfigCreateSchema, currencyFetchConfigUpdateSchema } from '../../data/validators'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['currencies.fetch.view'],
+  GET: { requireAuth: true, requireFeatures: ['currencies.fetch.view'] },
+  POST: { requireAuth: true, requireFeatures: ['currencies.fetch.view'] },
+  PUT: { requireAuth: true, requireFeatures: ['currencies.fetch.view'] },
+  DELETE: { requireAuth: true, requireFeatures: ['currencies.fetch.view'] },
 }
 
 export async function GET(req: NextRequest) {

@@ -14,8 +14,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowEvent, WorkflowInstance } from '../../data/entities'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.instances.view'],
+  GET: { requireAuth: true, requireFeatures: ['workflows.instances.view'] },
 }
 
 /**

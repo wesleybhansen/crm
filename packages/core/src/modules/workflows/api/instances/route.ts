@@ -20,8 +20,8 @@ import {
 import * as workflowExecutor from '../../lib/workflow-executor'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.instances.view'],
+  GET: { requireAuth: true, requireFeatures: ['workflows.instances.view'] },
+  POST: { requireAuth: true, requireFeatures: ['workflows.instances.view'] },
 }
 
 /**

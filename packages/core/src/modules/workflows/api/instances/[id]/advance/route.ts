@@ -281,8 +281,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 }
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.instances.create'],
+  POST: { requireAuth: true, requireFeatures: ['workflows.instances.create'] },
 }
 
 export const openApi: OpenApiRouteDoc = {

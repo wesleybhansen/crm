@@ -16,8 +16,7 @@ import { WorkflowInstance } from '../../../data/entities'
 import * as workflowExecutor from '../../../lib/workflow-executor'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.instances.view'],
+  GET: { requireAuth: true, requireFeatures: ['workflows.instances.view'] },
 }
 
 interface RouteContext {

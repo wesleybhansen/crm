@@ -19,8 +19,8 @@ import {
 import { serializeWorkflowDefinition } from './serialize'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.definitions.view'],
+  GET: { requireAuth: true, requireFeatures: ['workflows.definitions.view'] },
+  POST: { requireAuth: true, requireFeatures: ['workflows.definitions.view'] },
 }
 
 const WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT = 'workflow_definitions_workflow_id_tenant_id_unique'

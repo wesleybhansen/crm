@@ -20,4 +20,8 @@ const route = makeSalesLineRoute({
 });
 
 export const { GET, POST, PUT, DELETE } = route;
+// Without this export the dispatcher never sees the factory's per-method
+// requireAuth/requireFeatures (sales.orders.view/manage) — handlers only
+// self-enforce 401 + org scope, not features.
+export const metadata = route.metadata;
 export const openApi = route.openApi;

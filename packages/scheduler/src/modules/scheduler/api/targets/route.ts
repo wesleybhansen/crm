@@ -6,8 +6,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['scheduler.jobs.view'],
+  GET: { requireAuth: true, requireFeatures: ['scheduler.jobs.view'] },
 }
 
 /**

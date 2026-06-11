@@ -8,8 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['scheduler.jobs.view'],
+  GET: { requireAuth: true, requireFeatures: ['scheduler.jobs.view'] },
 }
 
 /**

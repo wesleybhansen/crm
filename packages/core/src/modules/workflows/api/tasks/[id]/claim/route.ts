@@ -18,8 +18,7 @@ import {
 } from '../../../openapi'
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['workflows.tasks.claim'],
+  POST: { requireAuth: true, requireFeatures: ['workflows.tasks.claim'] },
 }
 
 /**
