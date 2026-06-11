@@ -10,7 +10,13 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
-export const metadata = { path: '/chat/typing', POST: { requireAuth: false }, OPTIONS: { requireAuth: false } }
+// Public widget endpoint that mutates conversation state — per-IP rate limit
+// keeps anonymous visitors from flooding it (typing pings are frequent, so the
+// limit is generous).
+export const metadata = { path: '/chat/typing',
+  POST: { requireAuth: false, rateLimit: { points: 60, duration: 60, keyPrefix: 'chat-typing' } },
+  OPTIONS: { requireAuth: false },
+}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS })

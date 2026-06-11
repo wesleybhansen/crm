@@ -38,8 +38,8 @@ const FALLBACK = `# LaunchCRM Agent Integration Guide
 should fetch the guide at: https://raw.githubusercontent.com/wesleybhansen/crm/main/AGENT_GUIDE.md)
 
 Quick reference:
-- **REST:** https://crm.thelaunchpadincubator.com/api — pass \`x-api-key\` header
-- **MCP:** https://crm.thelaunchpadincubator.com/mcp — pass \`x-api-key\` + \`_sessionToken\` per tool call
+- **REST:** https://crm.noliai.com/api — pass \`x-api-key\` header
+- **MCP:** https://crm.noliai.com/mcp — pass \`x-api-key\` + \`_sessionToken\` per tool call
 - **Session token:** \`POST /api/ai_assistant/session-key\` with \`x-api-key\` → \`{ sessionToken, expiresAt }\`
 - **OpenAPI spec:** \`GET /api/docs/openapi\` or MCP tool \`find_api\`
 - **Webhooks:** \`POST /api/webhooks/subscriptions\` → HMAC-SHA256 signed POSTs on events
@@ -109,7 +109,7 @@ export function registerAgentGuideTool(): void {
  */
 export const MCP_BOOTSTRAP_INSTRUCTIONS = `You are connected to LaunchCRM's MCP server.
 
-Every tool call must include \`_sessionToken\` in its arguments (omit only for read-only tools that explicitly allow it). If a call returns UNAUTHORIZED with code SESSION_EXPIRED, mint a new token: POST https://crm.thelaunchpadincubator.com/api/ai_assistant/session-key with the same x-api-key header.
+Every tool call must include \`_sessionToken\` in its arguments (omit only for read-only tools that explicitly allow it). If a call returns UNAUTHORIZED with code SESSION_EXPIRED, mint a new token: POST https://crm.noliai.com/api/ai_assistant/session-key with the same x-api-key header.
 
 Workflow for unfamiliar operations:
 1. \`discover_schema\` — find which entities exist (e.g. "Company", "Deal")

@@ -6,7 +6,9 @@ import { findOrMergeContact } from '@/modules/customers/lib/dedup'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['calendar.view'] },
-  POST: { requireAuth: false }, // Public — guests book appointments
+  // Public — guests book appointments. Per-IP rate limit so an anonymous
+  // visitor can't flood the bookings table / spam confirmation emails.
+  POST: { requireAuth: false, rateLimit: { points: 5, duration: 60, blockDuration: 300, keyPrefix: 'bookings-public' } },
   PUT: { requireAuth: true, requireFeatures: ['calendar.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['calendar.manage'] },
 }
@@ -80,19 +82,41 @@ export async function POST(req: Request) {
     const confirmationToken = autoConfirm ? null : require('crypto').randomUUID()
     const confirmationTokenExpiresAt = autoConfirm ? null : new Date(Date.now() + 72 * 60 * 60 * 1000)
 
-    await knex('bookings').insert({
-      id, tenant_id: page.tenant_id, organization_id: page.organization_id,
-      booking_page_id: bookingPageId,
-      guest_name: guestName, guest_email: guestEmail, guest_phone: guestPhone || null,
-      start_time: start, end_time: end,
-      status: initialStatus,
-      meeting_type: page.meeting_type || 'in_person',
-      meeting_location: page.meeting_location || null,
-      confirmation_token: confirmationToken,
-      confirmation_token_expires_at: confirmationTokenExpiresAt,
-      confirmed_at: autoConfirm ? new Date() : null,
-      notes: notes || null, created_at: new Date(),
+    // Double-book race: the conflict check above is only advisory — two
+    // concurrent POSTs for the same slot can both pass it. Serialize on the
+    // booking page row (FOR UPDATE) and re-check inside the transaction so
+    // exactly one insert wins.
+    let slotTaken = false
+    await knex.transaction(async (trx) => {
+      await trx('booking_pages').where('id', bookingPageId).forUpdate().first()
+      const raceConflict = await trx('bookings')
+        .where('booking_page_id', bookingPageId)
+        .where('status', 'confirmed')
+        .where(function () {
+          this.where('start_time', '<', end).andWhere('end_time', '>', start)
+        })
+        .first()
+      if (raceConflict) {
+        slotTaken = true
+        return
+      }
+      await trx('bookings').insert({
+        id, tenant_id: page.tenant_id, organization_id: page.organization_id,
+        booking_page_id: bookingPageId,
+        guest_name: guestName, guest_email: guestEmail, guest_phone: guestPhone || null,
+        start_time: start, end_time: end,
+        status: initialStatus,
+        meeting_type: page.meeting_type || 'in_person',
+        meeting_location: page.meeting_location || null,
+        confirmation_token: confirmationToken,
+        confirmation_token_expires_at: confirmationTokenExpiresAt,
+        confirmed_at: autoConfirm ? new Date() : null,
+        notes: notes || null, created_at: new Date(),
+      })
     })
+    if (slotTaken) {
+      return NextResponse.json({ ok: false, error: 'This time slot is no longer available' }, { status: 409 })
+    }
 
     // Auto-create contact (with dedup check). Pass em so dedup can fall
     // back to decrypting encrypted primary_email when the raw match misses.
