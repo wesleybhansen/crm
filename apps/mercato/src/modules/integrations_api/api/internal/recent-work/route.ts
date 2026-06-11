@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    const [emails, briefs, automations, pages, leads, pendingBookings, proposals] =
+    const [emails, briefs, automations, pages, leads, pendingBookings, proposals, stallingDeals] =
       await Promise.all([
         knex('email_messages')
           .where('organization_id', orgId)
@@ -111,6 +111,15 @@ export async function POST(req: Request) {
           .limit(8)
           .select('id', 'summary', 'created_at')
           .catch(() => []),
+        // Watchdog: open deals that haven't moved in a week.
+        knex('customer_deals')
+          .where('organization_id', orgId)
+          .where('status', 'open')
+          .whereNull('deleted_at')
+          .where('updated_at', '<', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+          .count({ n: '*' })
+          .first()
+          .catch(() => ({ n: 0 })),
       ])
 
     const iso = (v: unknown) =>
@@ -194,6 +203,18 @@ export async function POST(req: Request) {
         specialist: 'CRM',
         title: 'Review a proposed action from your inbox',
         detail: p.summary ? String(p.summary).slice(0, 100) : undefined,
+        url: 'https://crm.noliai.com/backend',
+        kind: 'needs_you',
+      })
+    }
+    const stalled = Number((stallingDeals as { n?: string | number } | undefined)?.n ?? 0)
+    if (stalled > 0) {
+      events.push({
+        id: `crm-stalled-${orgId}`,
+        at: new Date().toISOString(),
+        specialist: 'CRM',
+        title: `${stalled} open deal${stalled === 1 ? ' has' : 's have'} not moved in a week`,
+        detail: 'Worth a nudge or a stage update.',
         url: 'https://crm.noliai.com/backend',
         kind: 'needs_you',
       })
