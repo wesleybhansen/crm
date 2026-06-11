@@ -220,6 +220,7 @@ export async function POST(req: Request) {
         tenant_id: tenantId,
         organization_id: orgId,
         action_type: 'draft_reply',
+        sort_order: 0,
         description: `Save a drafted follow-up email for ${c.display_name || c.primary_email} to the contact timeline`,
         payload: JSON.stringify({
           to: c.primary_email,
