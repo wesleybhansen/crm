@@ -197,6 +197,7 @@ export async function POST(req: Request) {
         received_at: now,
         is_active: true,
         created_at: now,
+        updated_at: now,
       })
       const proposalId = crypto.randomUUID()
       await knex('inbox_proposals').insert({
@@ -211,6 +212,7 @@ export async function POST(req: Request) {
         status: 'pending',
         is_active: true,
         created_at: now,
+        updated_at: now,
       })
       await knex('inbox_proposal_actions').insert({
         id: crypto.randomUUID(),
@@ -229,6 +231,7 @@ export async function POST(req: Request) {
         status: 'pending',
         confidence: 0.75,
         created_at: now,
+        updated_at: now,
       })
       drafted += 1
       names.push(c.display_name || c.primary_email)
