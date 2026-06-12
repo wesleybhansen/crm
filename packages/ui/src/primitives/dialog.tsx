@@ -21,7 +21,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm transition-opacity data-[state=open]:animate-in data-[state=closed]:animate-out',
+      'fixed inset-0 z-50 bg-foreground/40 dark:bg-black/70 backdrop-blur-sm transition-opacity data-[state=open]:animate-in data-[state=closed]:animate-out',
       className
     )}
     {...props}
@@ -42,8 +42,8 @@ const DialogContent = React.forwardRef<
         ref={ref}
         data-dialog-content=""
         className={cn(
-          'fixed inset-x-0 bottom-0 z-50 flex min-h-[50vh] max-h-[70vh] w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-2xl border-t bg-card p-6 shadow-lg',
-          'sm:inset-auto sm:left-1/2 sm:top-1/2 sm:min-h-0 sm:h-auto sm:w-full sm:max-w-lg sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border',
+          'fixed inset-x-0 bottom-0 z-50 flex min-h-[50vh] max-h-[70vh] w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-2xl border-t border-input bg-popover p-6 shadow-[0_16px_48px_-12px_rgba(16,16,18,.18)] dark:shadow-[0_16px_48px_-12px_rgba(0,0,0,.6)]',
+          'sm:inset-auto sm:left-1/2 sm:top-1/2 sm:min-h-0 sm:h-auto sm:w-full sm:max-w-lg sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[14px] sm:border sm:border-input',
           'focus:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out',
           className,
         )}

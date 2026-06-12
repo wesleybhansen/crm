@@ -460,7 +460,7 @@ export function CustomerAddressTiles({
             errors={fieldErrors}
             showFormatHint={!formatLoading}
           />
-          {generalError ? <p className="text-xs text-red-600">{generalError}</p> : null}
+          {generalError ? <p className="text-xs text-[#b91c1c] dark:text-[#f87171]">{generalError}</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={handleCancel} disabled={disableActions}>
               {t('customers.people.detail.addresses.cancel')}
@@ -539,7 +539,7 @@ export function CustomerAddressTiles({
                         t('customers.people.detail.address')}
                     </span>
                     {address.isPrimary ? (
-                      <span className="mt-1 inline-flex w-fit rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      <span className="mt-1 inline-flex w-fit h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]">
                         {t('customers.people.detail.primary')}
                       </span>
                     ) : null}

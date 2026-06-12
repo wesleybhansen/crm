@@ -15,7 +15,8 @@ export function SettingsButton({ href = '/backend/settings' }: SettingsButtonPro
     <IconButton
       asChild
       variant="ghost"
-      size="sm" 
+      size="sm"
+      className="size-[33px] rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]"
       title={t('backend.nav.settings', 'Settings')}
     >
       <Link href={href}>

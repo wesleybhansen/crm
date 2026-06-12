@@ -703,7 +703,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
   const asideWidth = effectiveCollapsed ? '72px' : expandedSidebarWidth
   // Use min-h-svh so the border extends with tall content; keep overflow for long menus
-  const asideClassesBase = `border-r bg-background/60 py-4 min-h-svh overflow-y-auto`;
+  const asideClassesBase = `border-r border-border bg-sidebar py-4 min-h-svh overflow-y-auto`;
 
   // Persist collapse state to localStorage and cookie
   React.useEffect(() => {
@@ -879,19 +879,19 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       <div className="flex flex-col min-h-full gap-3">
         {!hideHeader && (
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-            <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-              <Image src="/noli-logo.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
-              {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
+            <Link href="/backend" className="flex items-center gap-2.5 px-2 py-1.5" aria-label={t('appShell.goToDashboard')}>
+              <Image src="/noli-logo.svg" alt={resolvedProductName} width={32} height={32} className="h-[26px] w-[26px] rounded-lg" />
+              {!compact && <div className="text-[15px] font-extrabold tracking-[-0.01em] text-foreground">{resolvedProductName}</div>}
             </Link>
           </div>
         )}
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
           <Link
             href="/backend"
-            className={`flex items-center gap-2 ${compact ? 'justify-center px-2' : 'px-2'} py-1 text-sm text-muted-foreground hover:text-foreground transition-colors`}
+            className={`flex items-center gap-2.5 ${compact ? 'justify-center px-2' : 'px-2'} h-[33px] rounded-md text-[13.5px] font-medium text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground transition-colors`}
             aria-label={t('backend.nav.backToMain', 'Back')}
           >
-            <span className="flex items-center justify-center shrink-0">{BackArrowIcon}</span>
+            <span className="flex items-center justify-center shrink-0 opacity-70 [&_svg]:h-[15px] [&_svg]:w-[15px]">{BackArrowIcon}</span>
             {!compact && <span>{title}</span>}
           </Link>
           <nav className="flex flex-col gap-2">
@@ -918,7 +918,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               )))
               const showChildren = childItems.length > 0 && isOnItemBranch
               const isActive = isOnItemBranch || hasActiveChild
-              const base = compact ? 'w-10 h-10 justify-center' : 'py-1 gap-2'
+              const base = compact ? 'w-10 h-[33px] justify-center' : 'h-[33px] gap-2.5'
               const spacingStyle = !compact
                 ? {
                     paddingLeft: `${8 + depth * 16}px`,
@@ -930,10 +930,10 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 <React.Fragment key={item.id}>
                   <Link
                     href={item.href}
-                    className={`relative text-sm rounded inline-flex items-center ${base} ${
+                    className={`relative text-[13.5px] font-medium rounded-md inline-flex items-center transition-colors ${base} ${
                       isActive
-                        ? 'bg-background border shadow-sm'
-                        : 'hover:bg-accent hover:text-accent-foreground'
+                        ? 'bg-foreground/[.04] dark:bg-white/[.05] text-foreground'
+                        : 'text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground'
                     }`}
                     style={spacingStyle}
                     title={compact ? label : undefined}
@@ -941,9 +941,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                     onClick={() => setMobileOpen(false)}
                   >
                     {isActive && (
-                      <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                      <span className="absolute left-0 top-[7px] bottom-[7px] w-[2.5px] rounded-full bg-primary" />
                     )}
-                    <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                    <span className="flex items-center justify-center shrink-0 opacity-70 [&_svg]:h-[15px] [&_svg]:w-[15px]">
                       {item.icon ?? (item.href.includes('/backend/entities/user/') && item.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
                     </span>
                     {!compact && <span className="truncate">{label}</span>}
@@ -958,7 +958,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 <Button
                   variant="muted"
                   onClick={() => toggleGroup(sectionKey)}
-                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-2`}
+                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex font-mono text-[10px] font-medium uppercase tracking-[.09em] text-muted-foreground py-2`}
                   aria-expanded={open}
                 >
                   {!compact && <span>{sectionLabel}</span>}
@@ -969,7 +969,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                     {sortedItems.map((item) => renderSectionItem(item))}
                   </div>
                 )}
-                {sectionIndex !== lastVisibleIndex && <div className="my-2 border-t border-dotted" />}
+                {sectionIndex !== lastVisibleIndex && <div className="my-2 border-t border-border" />}
               </div>
             )
           })}
@@ -1202,9 +1202,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       <div className="flex flex-col min-h-full gap-3">
         {!hideHeader && (
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-            <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-              <Image src="/noli-logo.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
-              {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
+            <Link href="/backend" className="flex items-center gap-2.5 px-2 py-1.5" aria-label={t('appShell.goToDashboard')}>
+              <Image src="/noli-logo.svg" alt={resolvedProductName} width={32} height={32} className="h-[26px] w-[26px] rounded-lg" />
+              {!compact && <div className="text-[15px] font-extrabold tracking-[-0.01em] text-foreground">{resolvedProductName}</div>}
             </Link>
           </div>
         )}
@@ -1269,15 +1269,18 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                     key={i.href}
                                     href={i.href}
                                     data-menu-item-id={i.href}
-                                    className={`flex items-center gap-2 rounded-md ${compact ? 'px-2 justify-center' : 'px-3'} py-2 text-sm transition ${isActive ? 'bg-background border shadow-sm font-medium' : 'hover:bg-accent hover:text-accent-foreground'}`}
+                                    className={`relative flex items-center gap-2.5 rounded-md ${compact ? 'px-2 justify-center' : 'px-3'} h-[33px] text-[13.5px] font-medium transition-colors ${isActive ? 'bg-foreground/[.04] dark:bg-white/[.05] text-foreground' : 'text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground'}`}
                                   >
-                                    {i.icon}
+                                    {isActive ? (
+                                      <span className="absolute left-0 top-[7px] bottom-[7px] w-[2.5px] rounded-full bg-primary" />
+                                    ) : null}
+                                    <span className="flex items-center justify-center shrink-0 opacity-70 [&_svg]:h-[15px] [&_svg]:w-[15px]">{i.icon}</span>
                                     {!compact && <span>{i.title}</span>}
                                   </Link>
                                 )
                               })}
                             </div>
-                            {gi !== mainLastVisibleGroupIndex && <div className="my-2 border-t border-dotted" />}
+                            {gi !== mainLastVisibleGroupIndex && <div className="my-2 border-t border-border" />}
                           </React.Fragment>
                         )
                       }
@@ -1287,7 +1290,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                           <Button
                             variant="muted"
                             onClick={() => toggleGroup(groupId)}
-                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-1.5`}
+                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex font-mono text-[10px] font-medium uppercase tracking-[.09em] text-muted-foreground py-1.5`}
                             aria-expanded={open}
                           >
                             {!compact && <span>{g.name}</span>}
@@ -1300,13 +1303,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                 const showChildren = !!pathname && childItems.length > 0 && pathname.startsWith(i.href)
                                 const hasActiveChild = !!(pathname && childItems.some((c) => pathname.startsWith(c.href)))
                                 const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
-                                const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+                                const base = compact ? 'w-10 h-[33px] justify-center' : 'px-2 h-[33px] gap-2.5'
                                 return (
                                   <React.Fragment key={i.href}>
                                     <Link
                                       href={i.href}
-                                      className={`relative text-sm rounded inline-flex items-center ${base} ${
-                                        isParentActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                                      className={`relative text-[13.5px] font-medium rounded-md inline-flex items-center transition-colors ${base} ${
+                                        isParentActive ? 'bg-foreground/[.04] dark:bg-white/[.05] text-foreground' : 'text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground'
                                       } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                       aria-disabled={i.enabled === false}
                                       title={compact ? i.title : undefined}
@@ -1314,9 +1317,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                       onClick={() => setMobileOpen(false)}
                                     >
                                       {isParentActive ? (
-                                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                                        <span className="absolute left-0 top-[7px] bottom-[7px] w-[2.5px] rounded-full bg-primary" />
                                       ) : null}
-                                      <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                                      <span className="flex items-center justify-center shrink-0 opacity-70 [&_svg]:h-[15px] [&_svg]:w-[15px]">
                                         {i.icon ?? DefaultIcon}
                                       </span>
                                       {!compact && <span>{i.title}</span>}
@@ -1325,13 +1328,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                       <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
                                         {childItems.map((c) => {
                                           const childActive = pathname?.startsWith(c.href)
-                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 py-1 gap-2'
+                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 h-[33px] gap-2.5'
                                           return (
                                             <Link
                                               key={c.href}
                                               href={c.href}
-                                              className={`relative text-sm rounded inline-flex items-center ${childBase} ${
-                                                childActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                                              className={`relative text-[13.5px] font-medium rounded-md inline-flex items-center transition-colors ${childBase} ${
+                                                childActive ? 'bg-foreground/[.04] dark:bg-white/[.05] text-foreground' : 'text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground'
                                               } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                               aria-disabled={c.enabled === false}
                                               title={compact ? c.title : undefined}
@@ -1339,9 +1342,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                               onClick={() => setMobileOpen(false)}
                                             >
                                               {childActive ? (
-                                                <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                                                <span className="absolute left-0 top-[7px] bottom-[7px] w-[2.5px] rounded-full bg-primary" />
                                               ) : null}
-                                              <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                                              <span className="flex items-center justify-center shrink-0 opacity-70 [&_svg]:h-[15px] [&_svg]:w-[15px]">
                                                 {c.icon ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
                                               </span>
                                               {!compact && <span>{c.title}</span>}
@@ -1355,7 +1358,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                               })}
                             </div>
                           )}
-                          {gi !== mainLastVisibleGroupIndex && <div className="my-2 border-t border-dotted" />}
+                          {gi !== mainLastVisibleGroupIndex && <div className="my-2 border-t border-border" />}
                         </div>
                       )
                     })}
@@ -1369,20 +1372,20 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                     ) : null}
                     <Link
                       href="/backend/settings"
-                      className={`relative text-sm rounded inline-flex items-center w-full ${
-                        compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+                      className={`relative text-[13.5px] font-medium rounded-md inline-flex items-center transition-colors w-full ${
+                        compact ? 'w-10 h-[33px] justify-center' : 'px-2 h-[33px] gap-2.5'
                       } ${
                         pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')
-                          ? 'bg-background border shadow-sm font-medium'
-                          : 'hover:bg-accent hover:text-accent-foreground'
+                          ? 'bg-foreground/[.04] dark:bg-white/[.05] text-foreground'
+                          : 'text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground'
                       }`}
                       title={compact ? t('backend.nav.settings', 'Settings') : undefined}
                       onClick={() => setMobileOpen(false)}
                     >
                       {(pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')) && (
-                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                        <span className="absolute left-0 top-[7px] bottom-[7px] w-[2.5px] rounded-full bg-primary" />
                       )}
-                      <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                      <span className="flex items-center justify-center shrink-0 opacity-70 [&_svg]:h-[15px] [&_svg]:w-[15px]">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <circle cx="12" cy="12" r="3" />
                           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -1456,7 +1459,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             <Link
               key={item.id}
               href={item.href}
-              className="inline-flex items-center rounded border px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground"
+              className="inline-flex h-7 items-center rounded-[10px] border border-border bg-card px-2.5 text-xs font-medium text-foreground/80 hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]"
               data-menu-item-id={item.id}
             >
               {label}
@@ -1487,17 +1490,17 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
+        <header className="border-b border-border bg-background/60 backdrop-blur px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
-            <IconButton variant="outline" size="sm" className="lg:hidden" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
+            <IconButton variant="ghost" size="sm" className="lg:hidden size-[33px] rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </IconButton>
             {/* Desktop collapse toggle */}
             <IconButton
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="hidden lg:inline-flex"
+              className="hidden lg:inline-flex size-[33px] rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]"
               aria-label={t('appShell.toggleSidebar')}
               onClick={() => setCollapsed((c) => !c)}
               disabled={customizing}
@@ -1522,19 +1525,19 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               const items = [...root, ...rest]
               const lastIndex = items.length - 1
               return (
-                <nav className="flex items-center gap-2 text-sm min-w-0">
+                <nav className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[.09em] min-w-0">
                   {items.map((b, i) => {
                     const isLast = i === lastIndex
                     const hiddenOnMobile = !isLast ? 'hidden md:inline' : ''
                     return (
                       <React.Fragment key={i}>
-                        {i > 0 && <span className={`text-muted-foreground hidden md:inline`}>/</span>}
+                        {i > 0 && <span className={`text-muted-foreground/50 hidden md:inline`}>/</span>}
                         {b.href ? (
-                          <Link href={b.href} className={`text-muted-foreground hover:text-foreground ${hiddenOnMobile}`}>
+                          <Link href={b.href} className={`text-muted-foreground hover:text-foreground transition-colors ${hiddenOnMobile}`}>
                             {b.label}
                           </Link>
                         ) : (
-                          <span className={`font-medium truncate max-w-[45vw] md:max-w-[60vw]`}>{b.label}</span>
+                          <span className={`text-foreground truncate max-w-[45vw] md:max-w-[60vw]`}>{b.label}</span>
                         )}
                       </React.Fragment>
                     )
@@ -1556,7 +1559,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (
-              <span className="opacity-80">{email || t('appShell.userFallback')}</span>
+              <span className="text-[13px] text-muted-foreground">{email || t('appShell.userFallback')}</span>
             )}
           </div>
         </header>
@@ -1596,14 +1599,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} aria-hidden="true" />
-          <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-background border-r overflow-hidden">
-            <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b">
-              <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src="/noli-logo.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
+          <div className="absolute inset-0 bg-black/70" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+          <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-sidebar border-r border-border overflow-hidden">
+            <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b border-border">
+              <Link href="/backend" className="flex items-center gap-2.5 text-[15px] font-extrabold tracking-[-0.01em] text-foreground" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
+                <Image src="/noli-logo.svg" alt={resolvedProductName} width={28} height={28} className="h-[26px] w-[26px] rounded-lg" />
                 {resolvedProductName}
               </Link>
-              <IconButton variant="outline" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>
+              <IconButton variant="ghost" size="sm" className="size-[33px] rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>
             </div>
             {mobileSidebarSlot && (
               <div className="shrink-0 border-b px-3 py-2">

@@ -256,7 +256,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
           disabled={disabled}
         />
         {!error && duplicate ? (
-          <p className="text-xs text-amber-600">
+          <p className="text-xs text-[#b45309] dark:text-[#fbbf24]">
             {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}{' '}
             <Link className="font-medium text-primary underline underline-offset-2" href={`/backend/customers/people/${duplicate.id}`}>
               {t('customers.people.form.emailDuplicateLink')}
@@ -598,7 +598,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
                   disabled={saving}
                 />
               </div>
-              {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
+              {formError ? <p className="text-sm text-[#b91c1c] dark:text-[#f87171]">{formError}</p> : null}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
                   {labels.cancelLabel}
@@ -752,7 +752,7 @@ export const createDisplayNameSection = (t: Translator) =>
                   onChange={handleChange}
                   placeholder={t('customers.people.form.displayName.placeholder')}
                 />
-                {error ? <p className="text-xs text-red-600">{error}</p> : null}
+                {error ? <p className="text-xs text-[#b91c1c] dark:text-[#f87171]">{error}</p> : null}
               </div>
             ) : (
               <div className="mt-1 text-base font-medium">{previewValue || placeholder}</div>

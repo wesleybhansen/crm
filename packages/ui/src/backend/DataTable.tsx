@@ -588,12 +588,12 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         <div
           ref={menuRef}
           role="menu"
-          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-20"
+          className="absolute right-0 mt-2 w-60 rounded-[14px] border border-input bg-popover py-2 shadow-[0_16px_48px_-12px_rgba(16,16,18,.18)] dark:shadow-[0_16px_48px_-12px_rgba(0,0,0,.6)] z-20"
         >
           {sections.map((section, idx) => (
             <div key={section.key} className={idx > 0 ? 'mt-2 border-t pt-3' : ''}>
               <div className="px-3">
-                <div className="text-xs font-semibold uppercase text-muted-foreground">{section.title}</div>
+                <div className="font-mono text-[10px] font-medium uppercase tracking-[.09em] text-muted-foreground">{section.title}</div>
                 {section.description ? (
                   <p className="mt-1 text-xs text-muted-foreground leading-snug">{section.description}</p>
                 ) : null}
@@ -1495,7 +1495,7 @@ export function DataTable<T>({
 
     return (
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t">
-        <div className="text-sm text-muted-foreground flex items-center justify-center sm:justify-start gap-2">
+        <div className="font-mono text-[10px] font-medium uppercase tracking-[.09em] text-muted-foreground flex items-center justify-center sm:justify-start gap-2">
           <span>
             {durationLabel
               ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
@@ -1513,7 +1513,7 @@ export function DataTable<T>({
           >
             {t('ui.dataTable.pagination.previous', 'Previous')}
           </Button>
-          <span className="text-sm whitespace-nowrap">
+          <span className="font-mono text-[10px] font-medium uppercase tracking-[.09em] text-muted-foreground whitespace-nowrap">
             {t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}
           </span>
           <Button
@@ -1714,7 +1714,7 @@ export function DataTable<T>({
     const injectedOnly = injectedFilters.filter((f) => !existing.has(f.id) && !cfOnly.some((cf) => cf.id === f.id))
     const combined: FilterDef[] = [...baseList, ...cfOnly, ...injectedOnly]
     const perspectiveButton = canUsePerspectives ? (
-      <Button variant="outline" className="h-9" onClick={() => setPerspectiveOpen(true)}>
+      <Button variant="outline" className="h-[34px]" onClick={() => setPerspectiveOpen(true)}>
         <SlidersHorizontal className="mr-2 h-4 w-4" />
         {t('ui.dataTable.perspectives.button', 'Perspectives')}
       </Button>
@@ -1723,11 +1723,11 @@ export function DataTable<T>({
       supportsCustomFieldFilterFieldsets && resolvedEntityIds.length === 1
         ? (
           <div className="space-y-1">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="font-mono text-[10px] font-medium uppercase tracking-[.09em] text-muted-foreground">
               {t('ui.dataTable.fieldset.label', 'Fieldset')}
             </div>
             <select
-              className="w-full rounded border bg-background px-2 py-2 text-sm"
+              className="h-[34px] w-full rounded-[10px] border border-input bg-card px-2 text-[13.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary"
               value={activeCustomFieldFilterFieldset ?? ''}
               onChange={(event) => handleCustomFieldFilterFieldsetChange(event.target.value)}
             >
@@ -1913,7 +1913,7 @@ export function DataTable<T>({
                       {header.isPlaceholder ? null : (
                         <Button
                           variant="ghost"
-                          className={`h-auto p-0 font-medium ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
+                          className={`h-auto p-0 font-mono text-[10px] font-medium uppercase tracking-[.09em] text-muted-foreground hover:bg-transparent dark:hover:bg-transparent ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
                           onClick={() => sortable && header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
@@ -1959,7 +1959,7 @@ export function DataTable<T>({
                   <TableRow 
                     key={row.id} 
                     data-state={row.getIsSelected() && 'selected'}
-                    className={isClickable ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}
+                    className={isClickable ? 'cursor-pointer hover:bg-foreground/[.03] dark:hover:bg-white/[.035] transition-colors' : ''}
                     onClick={isClickable ? (e) => {
                       // Don't trigger row click if clicking on actions cell
                       if ((e.target as HTMLElement).closest('[data-actions-cell]')) {

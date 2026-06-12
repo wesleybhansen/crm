@@ -75,6 +75,7 @@ export function UserMenu({ email }: { email?: string }) {
         ref={buttonRef}
         variant="ghost"
         size="sm"
+        className="size-[30px] rounded-full bg-foreground/[.08] text-foreground/80 hover:bg-foreground/[.12] hover:text-foreground dark:bg-white/[.08] dark:hover:bg-white/[.12]"
         onClick={() => setOpen(true)}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -88,21 +89,21 @@ export function UserMenu({ email }: { email?: string }) {
         <div
           ref={menuRef}
           id="user-menu-dropdown"
-          className="absolute right-0 top-full mt-0 w-56 rounded-md border bg-background p-1 shadow z-50"
+          className="absolute right-0 top-full mt-0 w-56 rounded-[14px] border border-border bg-popover p-1.5 shadow-[0_16px_48px_-12px_rgba(16,16,18,.22)] dark:shadow-[0_16px_48px_-12px_rgba(0,0,0,.6)] z-50"
           role="menu"
           aria-labelledby="user-menu-button"
           tabIndex={-1}
         >
           {email && (
-            <div className="px-2 py-2 text-xs text-muted-foreground border-b mb-1">
-              <div className="font-medium">{t('ui.userMenu.loggedInAs', 'Logged in as:')}</div>
-              <div className="truncate">{email}</div>
+            <div className="px-2 py-2 text-muted-foreground border-b border-border mb-1">
+              <div className="font-mono text-[10px] font-medium uppercase tracking-[.09em]">{t('ui.userMenu.loggedInAs', 'Logged in as:')}</div>
+              <div className="truncate font-mono text-[11px] mt-0.5">{email}</div>
             </div>
           )}
           <Link
             ref={profileButtonRef}
             href="/backend/profile/change-password"
-            className="w-full text-left text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
+            className="w-full text-left text-[13.5px] font-medium text-foreground/80 px-2 py-1.5 rounded-md hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground inline-flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
             role="menuitem"
             tabIndex={0}
             onClick={() => setOpen(false)}
@@ -128,7 +129,7 @@ export function UserMenu({ email }: { email?: string }) {
               ref={logoutButtonRef}
               variant="ghost"
               size="sm"
-              className="w-full justify-start"
+              className="w-full justify-start text-[13.5px] font-medium text-foreground/80 hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground"
               type="submit"
               role="menuitem"
               tabIndex={0}

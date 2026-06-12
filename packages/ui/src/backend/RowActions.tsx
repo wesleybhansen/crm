@@ -109,7 +109,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
         <div
           ref={menuRef}
           role="menu"
-          className="fixed w-44 max-w-[calc(100vw-1rem)] rounded-md border bg-background p-1 shadow focus:outline-none z-[1000]"
+          className="fixed w-44 max-w-[calc(100vw-1rem)] rounded-[14px] border border-input bg-popover p-1 shadow-[0_16px_48px_-12px_rgba(16,16,18,.18)] dark:shadow-[0_16px_48px_-12px_rgba(0,0,0,.6)] focus:outline-none z-[1000]"
           style={{
             top: direction === 'down' ? anchorRect.bottom + 8 : anchorRect.top - 8,
             left: Math.min(anchorRect.right, window.innerWidth - 8),
@@ -123,7 +123,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
               <a
                 key={idx}
                 href={it.href}
-                className={`block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent ${it.destructive ? 'text-red-600' : ''}`}
+                className={`block w-full text-left px-2 py-1 text-[13.5px] rounded-[8px] hover:bg-foreground/[.03] dark:hover:bg-white/[.035] ${it.destructive ? 'text-[#b91c1c] dark:text-[#f87171]' : ''}`}
                 role="menuitem"
                 onClick={(event) => {
                   event.stopPropagation()
@@ -138,7 +138,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className={`w-full justify-start rounded-none font-normal ${it.destructive ? 'text-red-600' : ''}`}
+                className={`w-full justify-start rounded-[8px] font-normal ${it.destructive ? 'text-[#b91c1c] dark:text-[#f87171]' : ''}`}
                 role="menuitem"
                 onClick={(event) => {
                   event.stopPropagation()

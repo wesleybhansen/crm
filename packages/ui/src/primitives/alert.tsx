@@ -4,19 +4,19 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const alertVariants = cva(
-  "relative w-full rounded-lg border px-4 py-3 text-sm [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg~*]:pl-8 [&>svg]:text-current",
+  "relative w-full rounded-[10px] border px-4 py-3 text-[13px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg~*]:pl-8 [&>svg]:text-current",
   {
     variants: {
       variant: {
-        default: 'border-border bg-background text-foreground',
+        default: 'border-border bg-card text-foreground',
         destructive:
-          'border-destructive/60 bg-destructive/10 text-destructive dark:border-destructive/40 dark:bg-destructive/20 dark:text-destructive-foreground',
+          'border-[rgba(239,68,68,.20)] bg-[rgba(239,68,68,.06)] text-[#b91c1c] dark:border-[rgba(239,68,68,.25)] dark:bg-[rgba(239,68,68,.09)] dark:text-[#f87171]',
         success:
-          'border-emerald-600/30 bg-emerald-500/10 text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-500/15 dark:text-emerald-50',
+          'border-[rgba(16,185,129,.22)] bg-[rgba(16,185,129,.06)] text-[#047857] dark:border-[rgba(16,185,129,.25)] dark:bg-[rgba(16,185,129,.09)] dark:text-[#34d399]',
         warning:
-          'border-amber-500/30 bg-amber-400/10 text-amber-950 dark:border-amber-400/40 dark:bg-amber-400/20 dark:text-amber-50',
+          'border-[rgba(217,119,6,.22)] bg-[rgba(217,119,6,.06)] text-[#b45309] dark:border-[rgba(245,158,11,.25)] dark:bg-[rgba(245,158,11,.08)] dark:text-[#fbbf24]',
         info:
-          'border-sky-600/30 bg-sky-500/10 text-sky-900 dark:border-sky-500/40 dark:bg-sky-500/20 dark:text-sky-50',
+          'border-[rgba(37,99,235,.18)] bg-[rgba(37,99,235,.05)] text-[#1d4ed8] dark:border-[rgba(59,130,246,.25)] dark:bg-[rgba(59,130,246,.10)] dark:text-[#93c5fd]',
       },
     },
     defaultVariants: {
@@ -35,7 +35,7 @@ Alert.displayName = 'Alert'
 
 const AlertTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h5 ref={ref} className={cn('mb-1 text-sm font-semibold leading-tight', className)} {...props} />
+    <h5 ref={ref} className={cn('mb-1 text-[13.5px] font-semibold leading-tight', className)} {...props} />
   )
 )
 
@@ -43,7 +43,7 @@ AlertTitle.displayName = 'AlertTitle'
 
 const AlertDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn('text-sm leading-relaxed', className)} {...props} />
+    <p ref={ref} className={cn('text-[13px] leading-relaxed', className)} {...props} />
   )
 )
 

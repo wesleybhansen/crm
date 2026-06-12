@@ -7,7 +7,7 @@ export type NotificationCountBadgeProps = {
 export function NotificationCountBadge({ count }: NotificationCountBadgeProps) {
   if (count <= 0) return null
   return (
-    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[10px] font-medium text-white dark:bg-destructive dark:text-destructive-foreground">
+    <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-mono text-[9px] font-medium tabular-nums text-primary-foreground ring-2 ring-background">
       {count > 99 ? '99+' : count}
     </span>
   )

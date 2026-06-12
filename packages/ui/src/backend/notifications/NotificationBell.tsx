@@ -63,11 +63,11 @@ export function NotificationBell({ className, t, customRenderers }: Notification
       <IconButton
         variant="ghost"
         size="sm"
-        className={cn('relative', className)}
+        className={cn('relative size-[33px] rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]', className)}
         onClick={openPanel}
         aria-label={ariaLabel}
       >
-        <Bell className={cn('h-5 w-5', pulse && 'animate-pulse')} />
+        <Bell className={cn('h-4 w-4', pulse && 'animate-pulse')} />
         <NotificationCountBadge count={unreadCount} />
       </IconButton>
 

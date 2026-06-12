@@ -59,97 +59,98 @@ TODO: Fix that latter to have reference by the package names
 
 :root {
   color-scheme: light;
-  --radius: 0.5rem;
-  --background: #FFFFFF;
-  --foreground: #1A1A1A;
-  --card: #FFFFFF;
-  --card-foreground: #1A1A1A;
-  --popover: #FFFFFF;
-  --popover-foreground: #1A1A1A;
-  --primary: #1A1A1A;
-  --primary-foreground: #FFFFFF;
-  --secondary: #FAFAFA;
-  --secondary-foreground: #1A1A1A;
-  --muted: #FAFAFA;
-  --muted-foreground: #666666;
-  --accent: #3B82F6;
-  --accent-foreground: #FFFFFF;
+  --radius: 0.625rem;
+  --font-geist-sans: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --background: #f6f6f7;
+  --foreground: #101012;
+  --card: #ffffff;
+  --card-foreground: #101012;
+  --popover: #ffffff;
+  --popover-foreground: #101012;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #efeff1;
+  --secondary-foreground: #101012;
+  --muted: #efeff1;
+  --muted-foreground: rgba(16, 16, 18, 0.62);
+  --accent: #7c3aed;
+  --accent-foreground: #ffffff;
   --destructive: #EF4444;
-  --border: #EBEBEB;
-  --input: #EBEBEB;
-  --ring: #3B82F6;
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --border: rgba(16, 16, 18, 0.09);
+  --input: rgba(16, 16, 18, 0.16);
+  --ring: #7c3aed;
+  --chart-1: #7c3aed;
+  --chart-2: #c026d3;
+  --chart-3: #06b6d4;
+  --chart-4: #f59e0b;
+  --chart-5: #10b981;
   /* Chart named colors - light theme */
   --chart-blue: #3B82F6;
   --chart-emerald: #10B981;
   --chart-amber: #F59E0B;
   --chart-rose: #F43F5E;
-  --chart-violet: #8B5CF6;
+  --chart-violet: #7C3AED;
   --chart-cyan: #06B6D4;
   --chart-indigo: #6366F1;
   --chart-pink: #EC4899;
   --chart-teal: #14B8A6;
   --chart-orange: #F97316;
-  --sidebar: #FAFAFA;
-  --sidebar-foreground: #666666;
-  --sidebar-primary: #1A1A1A;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F0F0F0;
-  --sidebar-accent-foreground: #1A1A1A;
-  --sidebar-border: #F0F0F0;
-  --sidebar-ring: #3B82F6;
+  --sidebar: #f6f6f7;
+  --sidebar-foreground: rgba(16, 16, 18, 0.62);
+  --sidebar-primary: #7c3aed;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #efeff1;
+  --sidebar-accent-foreground: #101012;
+  --sidebar-border: rgba(16, 16, 18, 0.09);
+  --sidebar-ring: #7c3aed;
 }
 
 .dark {
   color-scheme: dark;
-  /* Twenty CRM dark palette (exact) */
-  --background: #171717;         /* gray1 — page background */
-  --foreground: #EBEBEB;         /* gray12 — primary text */
-  --card: #1D1D1D;               /* gray4 — elevated surfaces */
-  --card-foreground: #EBEBEB;    /* gray12 */
-  --popover: #1D1D1D;            /* gray4 */
-  --popover-foreground: #EBEBEB; /* gray12 */
-  --primary: #EBEBEB;            /* gray12 */
-  --primary-foreground: #171717; /* gray1 */
-  --secondary: #222222;          /* gray5 — hover/input backgrounds */
-  --secondary-foreground: #EBEBEB;
-  --muted: #1B1B1B;              /* gray2 */
-  --muted-foreground: #818181;   /* gray9 — tertiary text */
-  --accent: #3E63DD;             /* Twenty's indigo9 brand blue */
-  --accent-foreground: #EBEBEB;
-  --destructive: #E5484D;        /* Twenty's red9 */
-  --border: #222222;             /* gray5 — medium borders */
-  --input: #222222;              /* gray5 */
-  --ring: #3E63DD;               /* indigo9 */
-  --chart-1: #3E63DD;            /* indigo9 */
-  --chart-2: #12A594;            /* teal9 */
-  --chart-3: #FFC53D;            /* amber9 */
-  --chart-4: #6E56CF;            /* violet9 */
-  --chart-5: #E5484D;            /* red9 */
-  /* Chart named colors - Twenty dark */
+  /* Noli v7 night palette */
+  --background: #09090a;         /* page background */
+  --foreground: #f4f4f5;         /* primary text (ink) */
+  --card: #101012;               /* elevated surfaces */
+  --card-foreground: #f4f4f5;
+  --popover: #17171a;            /* raise (menus/popovers) */
+  --popover-foreground: #f4f4f5;
+  --primary: #8b5cf6;            /* v7 accent (night) */
+  --primary-foreground: #ffffff;
+  --secondary: #17171a;          /* hover/input backgrounds */
+  --secondary-foreground: #f4f4f5;
+  --muted: #17171a;
+  --muted-foreground: rgba(255, 255, 255, 0.6);
+  --accent: #8b5cf6;             /* v7 brand violet */
+  --accent-foreground: #ffffff;
+  --destructive: #E5484D;
+  --border: rgba(255, 255, 255, 0.08);   /* hairline */
+  --input: rgba(255, 255, 255, 0.14);    /* line-strong */
+  --ring: #8b5cf6;
+  --chart-1: #8b5cf6;            /* violet */
+  --chart-2: #d946ef;            /* magenta */
+  --chart-3: #22d3ee;            /* cyan */
+  --chart-4: #fbbf24;            /* amber */
+  --chart-5: #34d399;            /* green */
+  /* Chart named colors - dark */
   --chart-blue: #3E63DD;
   --chart-emerald: #30A46C;
   --chart-amber: #FFC53D;
   --chart-rose: #E5484D;
-  --chart-violet: #6E56CF;
+  --chart-violet: #8B5CF6;
   --chart-cyan: #00A2C7;
   --chart-indigo: #5B5BD6;
   --chart-pink: #D6409F;
   --chart-teal: #12A594;
   --chart-orange: #F76B15;
   /* Sidebar */
-  --sidebar: #1B1B1B;            /* gray2 */
-  --sidebar-foreground: #B3B3B3; /* gray11 — secondary text */
-  --sidebar-primary: #3E63DD;    /* indigo9 */
-  --sidebar-primary-foreground: #EBEBEB;
-  --sidebar-accent: #222222;     /* gray5 — hover/active bg */
-  --sidebar-accent-foreground: #EBEBEB;
-  --sidebar-border: #1D1D1D;    /* gray4 — subtle border */
-  --sidebar-ring: #3E63DD;
+  --sidebar: #09090a;
+  --sidebar-foreground: rgba(255, 255, 255, 0.6);
+  --sidebar-primary: #8b5cf6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #19191d;     /* hover/active wash surface */
+  --sidebar-accent-foreground: #f4f4f5;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #8b5cf6;
 }
 
 /* Dark mode: ensure button hover states are consistent */
@@ -341,26 +342,26 @@ TODO: Fix that latter to have reference by the package names
 
 /* Selected card states — defined here so they're always in the CSS bundle */
 .selected-card {
-  border-color: #3B82F6 !important;
-  background-color: #EFF6FF !important;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3) !important;
+  border-color: #8b5cf6 !important;
+  background-color: #f5f3ff !important;
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.3) !important;
 }
 .dark .selected-card {
-  background-color: rgba(30, 58, 138, 0.2) !important;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25) !important;
+  background-color: rgba(91, 33, 182, 0.2) !important;
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.25) !important;
 }
 .selected-card-text {
-  color: #2563EB !important;
+  color: #6d28d9 !important;
   font-weight: 600 !important;
 }
 .dark .selected-card-text {
-  color: #60A5FA !important;
+  color: #c4b5fd !important;
 }
 .selected-card-icon {
-  color: #2563EB !important;
+  color: #6d28d9 !important;
 }
 .dark .selected-card-icon {
-  color: #60A5FA !important;
+  color: #c4b5fd !important;
 }
 
 /* Hide the "Customize sidebar" button in simple mode — targets the text content */
@@ -373,4 +374,21 @@ TODO: Fix that latter to have reference by the package names
 /* Hide the Last Operation / Undo banner */
 .border-amber-200\/80.bg-amber-50\/95 {
   display: none !important;
+}
+
+/* Noli v7 aurora — fixed radial glow at the viewport top (unlayered so it
+   wins over the @layer base body background) */
+body {
+  background:
+    radial-gradient(1100px 480px at 38% -14%, rgba(124, 58, 237, 0.04), transparent 60%),
+    radial-gradient(900px 420px at 74% -16%, rgba(192, 38, 211, 0.03), transparent 55%),
+    var(--background);
+  background-attachment: fixed;
+}
+.dark body {
+  background:
+    radial-gradient(1100px 480px at 38% -14%, rgba(139, 92, 246, 0.10), transparent 60%),
+    radial-gradient(900px 420px at 74% -16%, rgba(217, 70, 239, 0.05), transparent 55%),
+    var(--background);
+  background-attachment: fixed;
 }

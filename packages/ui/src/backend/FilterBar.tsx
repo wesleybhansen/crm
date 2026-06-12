@@ -76,7 +76,7 @@ export function FilterBar({
     <div className={`${containerClass} ${className ?? ''}`}>
       <div className="flex flex-wrap items-center gap-2 w-full">
         {filters.length > 0 && (
-          <Button variant="outline" className="h-9" onClick={() => setOpen(true)}>
+          <Button variant="outline" className="h-[34px]" onClick={() => setOpen(true)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
             {activeCount 
               ? t('ui.filterBar.filtersWithCount', 'Filters {count}', { count: activeCount })
@@ -92,7 +92,7 @@ export function FilterBar({
               value={searchDraft}
               onChange={(e) => setSearchDraft(e.target.value)}
               placeholder={resolvedSearchPlaceholder}
-              className="h-9 w-full rounded border pl-8 pr-2 text-sm"
+              className="h-[34px] w-full rounded-[10px] border border-input bg-card pl-8 pr-2 text-[13.5px] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary"
               suppressHydrationWarning
             />
             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">🔍</span>
@@ -132,7 +132,7 @@ export function FilterBar({
             }
             if (Array.isArray(v)) {
               return v.map((item) => (
-                <Button key={`${f.id}:${item}`} size="sm" variant="outline" className="max-w-[calc(100vw-4rem)] truncate" onClick={() => removeValue(item)}>
+                <Button key={`${f.id}:${item}`} size="sm" variant="outline" className="h-[30px] rounded-full text-[12.5px] max-w-[calc(100vw-4rem)] truncate" onClick={() => removeValue(item)}>
                   {f.label}: {toLabel(item)} ×
                 </Button>
               ))
@@ -140,7 +140,7 @@ export function FilterBar({
             const label = toLabel(v)
             if (!label) return null
             return (
-              <Button key={f.id} size="sm" variant="outline" className="max-w-[calc(100vw-4rem)] truncate" onClick={() => removeValue()}>
+              <Button key={f.id} size="sm" variant="outline" className="h-[30px] rounded-full text-[12.5px] max-w-[calc(100vw-4rem)] truncate" onClick={() => removeValue()}>
                 {f.label}: {label} ×
               </Button>
             )

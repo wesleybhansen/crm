@@ -1200,7 +1200,7 @@ export default function CalendarPage() {
                         onClick={() => { setCalView(v); setShowViewDropdown(false) }}
                         className={`flex w-full items-center px-3 py-1.5 text-xs font-medium transition ${
                           calView === v
-                            ? 'bg-blue-50 text-blue-700'
+                            ? 'bg-muted text-foreground'
                             : 'text-foreground hover:bg-muted/50'
                         }`}
                       >
@@ -1258,7 +1258,7 @@ export default function CalendarPage() {
                     <div className="flex items-center gap-2">
                       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Event Details</h3>
                       {selectedEvent.resource.source === 'google' && (
-                        <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[9px] font-semibold text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">Google Calendar</span>
+                        <span className="inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] bg-[rgba(124,58,237,.09)] text-[#6d28d9] border-[rgba(124,58,237,.24)] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd] dark:border-[rgba(139,92,246,.32)]">Google Calendar</span>
                       )}
                     </div>
                     <button
@@ -1307,7 +1307,7 @@ export default function CalendarPage() {
                     {/* Recurring series indicator */}
                     {(selectedEvent.resource.recurrenceRule || selectedEvent.resource.recurrenceParentId) && (
                       <div>
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                        <span className="inline-flex h-[21px] items-center gap-1.5 px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] bg-[rgba(37,99,235,.08)] text-[#1d4ed8] border-[rgba(37,99,235,.22)] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd] dark:border-[rgba(59,130,246,.30)]">
                           <Repeat className="size-3" />
                           Recurring event
                         </span>
@@ -1345,14 +1345,14 @@ export default function CalendarPage() {
 
                     {selectedEvent.resource.status && (
                       <div>
-                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                        <span className={`inline-flex h-[21px] items-center gap-1.5 px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${
                           selectedEvent.resource.status === 'confirmed'
-                            ? 'bg-emerald-50 text-emerald-700'
+                            ? 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]'
                             : selectedEvent.resource.status === 'pending'
-                            ? 'bg-amber-50 text-amber-700'
+                            ? 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]'
                             : selectedEvent.resource.status === 'blocked'
-                            ? 'bg-red-50 text-red-700'
-                            : 'bg-gray-100 text-gray-600'
+                            ? 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] border-[rgba(239,68,68,.24)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)]'
+                            : 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'
                         }`}>
                           {selectedEvent.resource.status === 'confirmed' && <CheckCircle2 className="size-3" />}
                           {selectedEvent.resource.status === 'pending' && <AlertCircle className="size-3" />}
@@ -1391,7 +1391,7 @@ export default function CalendarPage() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 gap-1 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-700"
+                            className="h-8 gap-1 rounded-lg text-xs font-semibold text-[#b91c1c] hover:bg-[rgba(239,68,68,.06)] hover:text-[#b91c1c] dark:text-[#f87171] dark:hover:bg-[rgba(239,68,68,.08)] dark:hover:text-[#f87171]"
                             onClick={() => handleEventAction(selectedEvent.resource.id, 'cancel', selectedEvent.resource)}
                           >
                             <XCircle className="size-3.5" />
@@ -1403,7 +1403,7 @@ export default function CalendarPage() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="h-8 gap-1 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-700"
+                          className="h-8 gap-1 rounded-lg text-xs font-semibold text-[#b91c1c] hover:bg-[rgba(239,68,68,.06)] hover:text-[#b91c1c] dark:text-[#f87171] dark:hover:bg-[rgba(239,68,68,.08)] dark:hover:text-[#f87171]"
                           onClick={() => {
                             const isRecurring = !!(selectedEvent.resource.recurrenceRule || selectedEvent.resource.recurrenceParentId)
                             if (isRecurring) {
@@ -1490,7 +1490,7 @@ export default function CalendarPage() {
                   {groupedUpcoming.map(group => (
                     <div key={group.label}>
                       <h3 className={`mb-3 text-xs font-bold uppercase tracking-wider ${
-                        isToday(group.date) ? 'text-blue-600' : 'text-muted-foreground'
+                        isToday(group.date) ? 'text-[#1d4ed8] dark:text-[#93c5fd]' : 'text-muted-foreground'
                       }`}>
                         {group.label}
                       </h3>
@@ -1549,14 +1549,14 @@ export default function CalendarPage() {
                                   )}
                                 </div>
                                 {ev.resource.status && (
-                                  <span className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                                  <span className={`mt-1.5 inline-flex h-[21px] items-center gap-1 px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${
                                     ev.resource.status === 'confirmed'
-                                      ? 'bg-emerald-50 text-emerald-700'
+                                      ? 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]'
                                       : ev.resource.status === 'pending'
-                                      ? 'bg-amber-50 text-amber-700'
+                                      ? 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]'
                                       : ev.resource.status === 'blocked'
-                                      ? 'bg-red-50 text-red-700'
-                                      : 'bg-gray-100 text-gray-600'
+                                      ? 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] border-[rgba(239,68,68,.24)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)]'
+                                      : 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'
                                   }`}>
                                     {ev.resource.status === 'confirmed' && <CheckCircle2 className="size-2.5" />}
                                     {ev.resource.status === 'pending' && <AlertCircle className="size-2.5" />}
@@ -1591,7 +1591,7 @@ export default function CalendarPage() {
                                     <button
                                       type="button"
                                       onClick={() => handleEventAction(ev.resource.id, 'cancel', ev.resource)}
-                                      className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium text-red-600 transition hover:bg-red-50"
+                                      className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium text-[#b91c1c] dark:text-[#f87171] transition hover:bg-[rgba(239,68,68,.06)] dark:hover:bg-[rgba(239,68,68,.08)]"
                                     >
                                       Cancel
                                     </button>
@@ -1906,16 +1906,16 @@ export default function CalendarPage() {
                           {newAttendees.map(att => (
                             <span
                               key={att.id}
-                              className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700"
+                              className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(37,99,235,.08)] dark:bg-[rgba(59,130,246,.15)] border border-[rgba(37,99,235,.22)] dark:border-[rgba(59,130,246,.30)] px-2.5 py-1 text-xs font-medium text-[#1d4ed8] dark:text-[#93c5fd]"
                             >
                               <span>{contactName(att)}</span>
                               {att.primary_email && att.primary_email !== att.display_name && (
-                                <span className="text-blue-500">{att.primary_email}</span>
+                                <span className="text-[#1d4ed8]/70 dark:text-[#93c5fd]/70">{att.primary_email}</span>
                               )}
                               <button
                                 type="button"
                                 onClick={() => setNewAttendees(prev => prev.filter(a => a.id !== att.id))}
-                                className="ml-0.5 rounded-full p-0.5 transition hover:bg-blue-100"
+                                className="ml-0.5 rounded-full p-0.5 transition hover:bg-[rgba(37,99,235,.12)] dark:hover:bg-[rgba(59,130,246,.22)]"
                               >
                                 <X className="size-3" />
                               </button>
@@ -1965,7 +1965,7 @@ export default function CalendarPage() {
                                   }}
                                   className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition hover:bg-muted/50"
                                 >
-                                  <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                  <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[rgba(37,99,235,.08)] dark:bg-[rgba(59,130,246,.15)] text-xs font-semibold text-[#1d4ed8] dark:text-[#93c5fd]">
                                     {(contact.display_name?.[0] || contact.primary_email?.[0] || '?').toUpperCase()}
                                   </div>
                                   <div className="min-w-0">
@@ -2184,12 +2184,12 @@ export default function CalendarPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <h4 className="truncate text-sm font-semibold">{page.title}</h4>
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            <span className={`inline-flex h-[21px] items-center gap-1 px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${
                               page.is_active
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-gray-100 text-gray-500'
+                                ? 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]'
+                                : 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'
                             }`}>
-                              <span className={`size-1.5 rounded-full ${page.is_active ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+                              <span className={`size-1.5 rounded-full ${page.is_active ? 'bg-[#047857] dark:bg-[#34d399]' : 'bg-[rgba(16,16,18,.46)] dark:bg-[rgba(255,255,255,.42)]'}`} />
                               {page.is_active ? 'Active' : 'Inactive'}
                             </span>
                           </div>
@@ -2211,7 +2211,7 @@ export default function CalendarPage() {
                             className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition hover:bg-muted"
                           >
                             {copiedId === page.id
-                              ? <><Check className="size-3 text-emerald-600" />Copied</>
+                              ? <><Check className="size-3 text-[#047857] dark:text-[#34d399]" />Copied</>
                               : <><Copy className="size-3" />Copy Link</>}
                           </button>
                           <button
@@ -2243,7 +2243,7 @@ export default function CalendarPage() {
                             type="button"
                             onClick={() => handleDeleteBookingPage(page.id)}
                             disabled={deletingPageId === page.id}
-                            className="flex size-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50"
+                            className="flex size-7 items-center justify-center rounded-md text-[#b91c1c] dark:text-[#f87171] transition hover:bg-[rgba(239,68,68,.06)] dark:hover:bg-[rgba(239,68,68,.08)]"
                             aria-label="Delete"
                           >
                             {deletingPageId === page.id
@@ -2340,12 +2340,12 @@ export default function CalendarPage() {
               <button
                 type="button"
                 onClick={() => handleDeleteRecurring(showRecurringDeleteModal.eventId, true)}
-                className="flex w-full items-center gap-3 rounded-lg border border-red-200 px-4 py-3 text-left text-sm font-medium text-red-700 transition hover:bg-red-50"
+                className="flex w-full items-center gap-3 rounded-lg border border-[rgba(239,68,68,.24)] dark:border-[rgba(239,68,68,.30)] px-4 py-3 text-left text-sm font-medium text-[#b91c1c] dark:text-[#f87171] transition hover:bg-[rgba(239,68,68,.06)] dark:hover:bg-[rgba(239,68,68,.08)]"
               >
                 <Trash2 className="size-4" />
                 <div>
                   <p>All events in this series</p>
-                  <p className="text-xs text-red-500">Remove all recurring occurrences</p>
+                  <p className="text-xs text-[#b91c1c]/70 dark:text-[#f87171]/70">Remove all recurring occurrences</p>
                 </div>
               </button>
             </div>
@@ -2381,15 +2381,15 @@ export default function CalendarPage() {
                 <label className="mb-1 block text-xs font-semibold text-muted-foreground">To</label>
                 {sendEmailSelectedContact ? (
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(37,99,235,.08)] dark:bg-[rgba(59,130,246,.15)] border border-[rgba(37,99,235,.22)] dark:border-[rgba(59,130,246,.30)] px-2.5 py-1 text-xs font-medium text-[#1d4ed8] dark:text-[#93c5fd]">
                       {contactName(sendEmailSelectedContact)}
                       {sendEmailSelectedContact.primary_email && sendEmailSelectedContact.primary_email !== sendEmailSelectedContact.display_name && (
-                        <span className="text-blue-500">{sendEmailSelectedContact.primary_email}</span>
+                        <span className="text-[#1d4ed8]/70 dark:text-[#93c5fd]/70">{sendEmailSelectedContact.primary_email}</span>
                       )}
                       <button
                         type="button"
                         onClick={() => { setSendEmailSelectedContact(null); setSendEmailTo('') }}
-                        className="ml-0.5 rounded-full p-0.5 hover:bg-blue-100"
+                        className="ml-0.5 rounded-full p-0.5 hover:bg-[rgba(37,99,235,.12)] dark:hover:bg-[rgba(59,130,246,.22)]"
                       >
                         <X className="size-3" />
                       </button>
@@ -2417,7 +2417,7 @@ export default function CalendarPage() {
                         }}
                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-muted/50"
                       >
-                        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-700">
+                        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[rgba(37,99,235,.08)] dark:bg-[rgba(59,130,246,.15)] text-[10px] font-semibold text-[#1d4ed8] dark:text-[#93c5fd]">
                           {(contact.display_name?.[0] || contact.primary_email?.[0] || '?').toUpperCase()}
                         </div>
                         <div>

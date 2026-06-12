@@ -339,15 +339,20 @@ export default function ListsTab() {
   const triggerNeedsOptions = ['form_submitted', 'product_purchased', 'tag_added', 'booking_created'].includes(autoTrigger)
   const triggerOptions = getTriggerOptions()
 
+  const chipNeutral = 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'
+  const chipBlue = 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] border-[rgba(37,99,235,.22)] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd] dark:border-[rgba(59,130,246,.30)]'
+  const chipViolet = 'bg-[rgba(124,58,237,.09)] text-[#6d28d9] border-[rgba(124,58,237,.24)] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd] dark:border-[rgba(139,92,246,.32)]'
+  const chipGreen = 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]'
+  const chipAmber = 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]'
   const sourceBadge: Record<string, string> = {
-    manual: 'bg-muted text-muted-foreground',
-    event: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    course: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-    form_submitted: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    product_purchased: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    tag_added: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
-    booking_created: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
-    invoice_paid: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    manual: chipNeutral,
+    event: chipBlue,
+    course: chipViolet,
+    form_submitted: chipGreen,
+    product_purchased: chipAmber,
+    tag_added: chipViolet,
+    booking_created: chipBlue,
+    invoice_paid: chipAmber,
   }
   const sourceLabel: Record<string, string> = {
     manual: 'Manual', event: 'Event', course: 'Course',
@@ -375,7 +380,7 @@ export default function ListsTab() {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold">{selectedList.name}</h2>
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${sourceBadge[selectedList.source_type] || 'bg-muted text-muted-foreground'}`}>
+              <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${sourceBadge[selectedList.source_type] || chipNeutral}`}>
                 {sourceLabel[selectedList.source_type] || selectedList.source_type}
               </span>
             </div>
@@ -395,7 +400,7 @@ export default function ListsTab() {
             <Button type="button" variant="outline" size="sm" onClick={() => { if (!showEdit) startEditList(); else setShowEdit(false) }}>
               <Pencil className="size-3.5 mr-1.5" /> Edit
             </Button>
-            <Button type="button" variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/30"
+            <Button type="button" variant="outline" size="sm" className="text-[#b91c1c] border-[rgba(239,68,68,.24)] hover:bg-[rgba(239,68,68,.06)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)] dark:hover:bg-[rgba(239,68,68,.08)]"
               onClick={() => deleteList(selectedList.id, selectedList.name)}><Trash2 className="size-3.5" /></Button>
           </div>
         </div>
@@ -500,7 +505,7 @@ export default function ListsTab() {
                   {m.primary_email && <p className="text-xs text-muted-foreground">{m.primary_email}</p>}
                 </div>
                 <button type="button" onClick={() => removeMember(m.contact_id)}
-                  className="text-muted-foreground hover:text-red-600 transition"><X className="size-3.5" /></button>
+                  className="text-muted-foreground hover:text-[#b91c1c] dark:hover:text-[#f87171] transition"><X className="size-3.5" /></button>
               </div>
             ))}
           </div>
@@ -609,7 +614,7 @@ export default function ListsTab() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium">{list.name}</p>
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${sourceBadge[list.source_type] || 'bg-muted text-muted-foreground'}`}>
+                  <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${sourceBadge[list.source_type] || chipNeutral}`}>
                     {sourceLabel[list.source_type] || list.source_type}
                   </span>
                 </div>
@@ -620,7 +625,7 @@ export default function ListsTab() {
                 <p className="text-[11px] text-muted-foreground">member{list.member_count !== 1 ? 's' : ''}</p>
               </div>
               <button type="button" onClick={e => { e.stopPropagation(); deleteList(list.id, list.name) }}
-                className="text-muted-foreground hover:text-red-600 transition shrink-0"><Trash2 className="size-3.5" /></button>
+                className="text-muted-foreground hover:text-[#b91c1c] dark:hover:text-[#f87171] transition shrink-0"><Trash2 className="size-3.5" /></button>
             </button>
           ))}
         </div>

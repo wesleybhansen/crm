@@ -204,8 +204,8 @@ export default function SimpleDashboard() {
       {/* Empty state */}
       {!isNewUser && !data?.actionItems?.length && !data?.recentActivity?.length && (
         <div className="text-center py-16 mt-8">
-          <div className="size-14 rounded-2xl bg-emerald-100 dark:bg-emerald-900/20 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 className="size-7 text-emerald-600" />
+          <div className="size-14 rounded-2xl bg-[rgba(16,185,129,.10)] dark:bg-[rgba(16,185,129,.14)] flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="size-7 text-[#047857] dark:text-[#34d399]" />
           </div>
           <p className="text-sm font-semibold">You're all caught up!</p>
           <p className="text-xs text-muted-foreground mt-1">No action items right now. Check back later.</p>
@@ -229,7 +229,7 @@ function StatCard({ icon: Icon, label, value, change, trend, href }: {
       <p className="text-2xl font-bold tabular-nums tracking-tight">{value}</p>
       <div className="flex items-center gap-1 mt-1">
         <span className="text-xs text-muted-foreground">{label}</span>
-        {change && trend === 'up' && <TrendingUp className="size-3 text-emerald-500" />}
+        {change && trend === 'up' && <TrendingUp className="size-3 text-[#047857] dark:text-[#34d399]" />}
       </div>
       {change && <p className="text-[11px] text-muted-foreground/70 mt-0.5">{change}</p>}
     </a>
@@ -251,25 +251,25 @@ function NeedsAttention() {
   return (
     <div className="mb-8">
       <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-        <AlertTriangle className="size-3.5 text-amber-500" /> Needs Attention
+        <AlertTriangle className="size-3.5 text-[#b45309] dark:text-[#fbbf24]" /> Needs Attention
       </h2>
       <div className="space-y-2">
         {alerts.map(alert => (
           <div key={alert.id}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
               alert.type === 'urgent'
-                ? 'border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-900/10'
-                : 'border-amber-200 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-900/10'
+                ? 'border-[rgba(239,68,68,.24)] bg-[rgba(239,68,68,.06)] dark:border-[rgba(239,68,68,.30)] dark:bg-[rgba(239,68,68,.08)]'
+                : 'border-[rgba(217,119,6,.22)] bg-[rgba(217,119,6,.06)] dark:border-[rgba(245,158,11,.25)] dark:bg-[rgba(245,158,11,.08)]'
             }`}>
-            <Mail className={`size-4 shrink-0 ${alert.type === 'urgent' ? 'text-red-500' : 'text-amber-500'}`} />
+            <Mail className={`size-4 shrink-0 ${alert.type === 'urgent' ? 'text-[#b91c1c] dark:text-[#f87171]' : 'text-[#b45309] dark:text-[#fbbf24]'}`} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{alert.title}</p>
               <p className="text-xs text-muted-foreground">{alert.description}</p>
             </div>
-            <Badge variant="secondary" className={`text-[10px] shrink-0 ${
+            <Badge variant="secondary" className={`h-[21px] px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] shrink-0 ${
               alert.type === 'urgent'
-                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                ? 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] border-[rgba(239,68,68,.24)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)]'
+                : 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]'
             }`}>{alert.type}</Badge>
             <a href="/backend/inbox" className="text-xs text-accent hover:underline shrink-0 font-medium">View</a>
           </div>
@@ -292,7 +292,7 @@ function HottestLeads() {
   if (leads.length === 0) return (
     <div>
       <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-        <Flame className="size-3.5 text-orange-500" /> Hottest Leads
+        <Flame className="size-3.5 text-[#b45309] dark:text-[#fbbf24]" /> Hottest Leads
       </h2>
       <div className="rounded-xl border p-6 text-center">
         <Flame className="size-6 mx-auto text-muted-foreground/20 mb-2" />
@@ -306,7 +306,7 @@ function HottestLeads() {
   return (
     <div>
       <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-        <Flame className="size-3.5 text-orange-500" /> Hottest Leads
+        <Flame className="size-3.5 text-[#b45309] dark:text-[#fbbf24]" /> Hottest Leads
       </h2>
       <div className="rounded-xl border divide-y">
         {leads.map(lead => (
@@ -323,7 +323,7 @@ function HottestLeads() {
               <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
                 <div className="h-full bg-orange-400 rounded-full" style={{ width: `${(lead.score / maxScore) * 100}%` }} />
               </div>
-              <span className="text-xs font-semibold tabular-nums text-orange-600 dark:text-orange-400 w-6 text-right">{lead.score}</span>
+              <span className="text-xs font-semibold tabular-nums text-[#b45309] dark:text-[#fbbf24] w-6 text-right">{lead.score}</span>
             </div>
           </a>
         ))}
@@ -381,12 +381,12 @@ function RelationshipDecay() {
   return (
     <div>
       <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-        <HeartCrack className="size-3.5 text-amber-500" /> Fading Relationships
+        <HeartCrack className="size-3.5 text-[#b45309] dark:text-[#fbbf24]" /> Fading Relationships
       </h2>
       <div className="rounded-xl border divide-y">
         {alerts.slice(0, 5).map(alert => (
           <div key={alert.contactId} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-            <div className={`size-2 rounded-full shrink-0 ${alert.severity === 'red' ? 'bg-red-500' : 'bg-amber-400'}`} />
+            <div className={`size-2 rounded-full shrink-0 ${alert.severity === 'red' ? 'bg-[#b91c1c] dark:bg-[#f87171]' : 'bg-[#b45309] dark:bg-[#fbbf24]'}`} />
             <div className="size-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground shrink-0">
               {(alert.displayName || '?')[0].toUpperCase()}
             </div>
@@ -397,10 +397,10 @@ function RelationshipDecay() {
                 {alert.currentGapDays}d since last contact · avg every {alert.avgFrequencyDays}d
               </p>
             </div>
-            <Badge variant="secondary" className={`text-[10px] shrink-0 ${
+            <Badge variant="secondary" className={`h-[21px] px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] shrink-0 ${
               alert.severity === 'red'
-                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                ? 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] border-[rgba(239,68,68,.24)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)]'
+                : 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]'
             }`}>{alert.severity === 'red' ? 'Fading' : 'Cooling'}</Badge>
             <a href={`/backend/email?compose=true&to=${encodeURIComponent(alert.email)}&subject=${encodeURIComponent('Checking in')}&contactId=${alert.contactId}&name=${encodeURIComponent(alert.displayName || '')}`}
               className="text-xs text-accent hover:underline shrink-0 font-medium">Follow up</a>

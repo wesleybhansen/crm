@@ -14,14 +14,14 @@ export function TableBody(props: React.HTMLAttributes<HTMLTableSectionElement>) 
 }
 
 export function TableRow({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) {
-  return <tr className={cn('border-b last:border-b-0', className)} {...props} />
+  return <tr className={cn('border-b border-border last:border-b-0 transition-colors hover:bg-foreground/[.03] dark:hover:bg-white/[.035]', className)} {...props} />
 }
 
 export function TableHead({ className, ...props }: React.ThHTMLAttributes<HTMLTableCellElement>) {
-  return <th className={cn('text-left font-medium px-4 py-2 whitespace-nowrap text-muted-foreground', className)} {...props} />
+  return <th className={cn('text-left font-mono text-[10px] font-medium uppercase tracking-[.09em] px-4 py-2 whitespace-nowrap text-muted-foreground', className)} {...props} />
 }
 
 export function TableCell({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) {
-  return <td className={cn('px-4 py-2', className)} {...props} />
+  return <td className={cn('px-4 py-2 text-[13.5px]', className)} {...props} />
 }
 

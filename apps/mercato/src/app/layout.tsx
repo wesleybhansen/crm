@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
-import { Geist_Mono } from 'next/font/google'
+import { JetBrains_Mono } from 'next/font/google'
 import { ClerkProvider } from '@clerk/nextjs'
 import './globals.css'
 import { bootstrap } from '@/bootstrap'
@@ -11,12 +10,10 @@ import { noliClerkAppearance } from '@open-mercato/shared/lib/noli/appearance'
 bootstrap()
 import { detectLocale, loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 
-const inter = Inter({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
+// Satoshi (body/display) is not on Google Fonts; it loads via the Fontshare
+// stylesheet <link> in <head> below, and globals.css maps --font-geist-sans
+// to 'Satoshi' (variable name kept so nothing downstream changes).
+const jetbrainsMono = JetBrains_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
@@ -56,6 +53,10 @@ export default async function RootLayout({
     <ClerkProvider appearance={noliClerkAppearance}>
       <html lang={locale} suppressHydrationWarning>
         <head>
+          <link
+            rel="stylesheet"
+            href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,600,700,800,900&display=swap"
+          />
           <script
             key="om-theme-init"
             dangerouslySetInnerHTML={{
@@ -73,7 +74,7 @@ export default async function RootLayout({
             }}
           />
         </head>
-        <body className={`${inter.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
+        <body className={`${jetbrainsMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
           <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled} posthogKey={posthogKey} posthogHost={posthogHost}>
             {children}
           </AppProviders>

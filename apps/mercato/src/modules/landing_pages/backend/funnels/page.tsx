@@ -345,12 +345,12 @@ export default function FunnelsPage() {
   }
 
   const stepTypeColors: Record<string, string> = {
-    lead_capture: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
-    page: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-    checkout: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
-    upsell: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
-    downsell: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
-    thank_you: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
+    lead_capture: 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] border-[rgba(37,99,235,.22)] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd] dark:border-[rgba(59,130,246,.30)]',
+    page: 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] border-[rgba(37,99,235,.22)] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd] dark:border-[rgba(59,130,246,.30)]',
+    checkout: 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]',
+    upsell: 'bg-[rgba(124,58,237,.09)] text-[#6d28d9] border-[rgba(124,58,237,.24)] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd] dark:border-[rgba(139,92,246,.32)]',
+    downsell: 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]',
+    thank_you: 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]',
   }
 
   // LIST VIEW
@@ -429,10 +429,10 @@ export default function FunnelsPage() {
                     <td className="px-4 py-3 font-medium text-sm">{funnel.name}</td>
                     <td className="px-4 py-3 text-sm text-center tabular-nums">{funnel.step_count}</td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                      <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${
                         funnel.is_published
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-                          : 'bg-muted text-muted-foreground'
+                          ? 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]'
+                          : 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'
                       }`}>
                         {funnel.is_published && <Globe className="size-3 mr-1" />}
                         {funnel.is_published ? 'Published' : 'Draft'}
@@ -444,14 +444,14 @@ export default function FunnelsPage() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <IconButton variant="ghost" size="sm" type="button" aria-label="Copy URL" onClick={(e) => copyFunnelUrl(funnel, e)}>
-                          {copiedId === funnel.id ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
+                          {copiedId === funnel.id ? <Check className="size-4 text-[#047857] dark:text-[#34d399]" /> : <Copy className="size-4" />}
                         </IconButton>
                         <IconButton
                           variant="ghost" size="sm" type="button"
                           aria-label={funnel.is_published ? 'Unpublish' : 'Publish'}
                           onClick={(e) => togglePublish(funnel, e)}
                         >
-                          {funnel.is_published ? <ToggleRight className="size-4 text-emerald-600" /> : <ToggleLeft className="size-4" />}
+                          {funnel.is_published ? <ToggleRight className="size-4 text-[#047857] dark:text-[#34d399]" /> : <ToggleLeft className="size-4" />}
                         </IconButton>
                         <IconButton
                           variant="ghost" size="sm" type="button"
@@ -631,7 +631,7 @@ export default function FunnelsPage() {
                         <option value="checkout">Checkout — pay for all items in cart</option>
                         <option value="thank_you">Thank You — confirmation + order summary</option>
                       </select>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${stepTypeColors[step.stepType] || ''}`}>
+                      <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${stepTypeColors[step.stepType] || 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'}`}>
                         {stepTypeLabels[step.stepType]}
                       </span>
                     </div>
@@ -841,7 +841,7 @@ export default function FunnelsPage() {
                             <BarChart3 className="size-3" /> {stepAnalytics.visits} visits
                           </span>
                           {stepAnalytics.dropOffRate > 0 && (
-                            <span className="text-red-500">
+                            <span className="text-[#b91c1c] dark:text-[#f87171]">
                               {stepAnalytics.dropOffRate}% drop-off
                             </span>
                           )}
@@ -917,7 +917,7 @@ export default function FunnelsPage() {
                     <span className="text-muted-foreground tabular-nums">
                       {step.visits} visits
                       {step.dropOffRate > 0 && (
-                        <span className="text-red-500 ml-2">-{step.dropOffRate}%</span>
+                        <span className="text-[#b91c1c] dark:text-[#f87171] ml-2">-{step.dropOffRate}%</span>
                       )}
                     </span>
                   </div>

@@ -255,7 +255,7 @@ export default function AiSetupPage() {
             <Switch id="ai-enabled" checked={enabled} onCheckedChange={setEnabled} />
           </div>
           <Button type="button" onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="size-4 mr-2 animate-spin" /> : saved ? <Check className="size-4 mr-2 text-emerald-500" /> : <Save className="size-4 mr-2" />}
+            {saving ? <Loader2 className="size-4 mr-2 animate-spin" /> : saved ? <Check className="size-4 mr-2 text-[#047857] dark:text-[#34d399]" /> : <Save className="size-4 mr-2" />}
             {saving ? 'Saving...' : saved ? 'Saved!' : 'Save'}
           </Button>
         </div>
@@ -266,8 +266,8 @@ export default function AiSetupPage() {
       <div className="flex items-center gap-1 mb-8">
         {steps.map((label, idx) => (
           <button key={idx} type="button" onClick={() => setStep(idx)}
-            className={`flex-1 relative py-3 text-center text-sm font-medium rounded-lg transition-colors ${step === idx ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' : 'bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted'}`}>
-            <span className="text-[10px] font-bold text-violet-400 block mb-0.5">{idx + 1}</span>
+            className={`flex-1 relative py-3 text-center text-sm font-medium rounded-lg transition-colors ${step === idx ? 'bg-[rgba(124,58,237,.09)] text-[#6d28d9] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd]' : 'bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted'}`}>
+            <span className="text-[10px] font-bold text-[#6d28d9]/70 dark:text-[#c4b5fd]/70 block mb-0.5">{idx + 1}</span>
             {label}
           </button>
         ))}
@@ -369,9 +369,9 @@ export default function AiSetupPage() {
           <div className="grid grid-cols-1 gap-2">
             {TONES.map(t => (
               <button key={t.id} type="button" onClick={() => setTone(t.id)}
-                className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${tone === t.id ? 'border-violet-400 bg-violet-50 dark:bg-violet-950/20' : 'hover:border-violet-200 hover:bg-muted/50'}`}>
-                <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 ${tone === t.id ? 'border-violet-500' : 'border-muted-foreground/30'}`}>
-                  {tone === t.id && <div className="size-2 rounded-full bg-violet-500" />}
+                className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${tone === t.id ? 'border-[rgba(124,58,237,.40)] bg-[rgba(124,58,237,.06)] dark:border-[rgba(139,92,246,.45)] dark:bg-[rgba(139,92,246,.10)]' : 'hover:border-[rgba(124,58,237,.22)] dark:hover:border-[rgba(139,92,246,.28)] hover:bg-muted/50'}`}>
+                <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 ${tone === t.id ? 'border-[#7c3aed] dark:border-[#8b5cf6]' : 'border-muted-foreground/30'}`}>
+                  {tone === t.id && <div className="size-2 rounded-full bg-[#7c3aed] dark:bg-[#8b5cf6]" />}
                 </div>
                 <div>
                   <p className="text-sm font-medium">{t.label}</p>
@@ -394,8 +394,8 @@ export default function AiSetupPage() {
           <div className="bg-card rounded-xl border p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="size-9 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                  <Mic className="size-4 text-amber-600" />
+                <div className="size-9 rounded-lg bg-[rgba(217,119,6,.10)] dark:bg-[rgba(245,158,11,.13)] flex items-center justify-center">
+                  <Mic className="size-4 text-[#b45309] dark:text-[#fbbf24]" />
                 </div>
                 <div>
                   <Label className="text-sm font-medium">Brand Voice Engine</Label>
@@ -425,13 +425,13 @@ export default function AiSetupPage() {
 
                 {voiceAnalyzing && (
                   <div className="flex items-center gap-2 py-4 justify-center">
-                    <Loader2 className="size-4 animate-spin text-amber-600" />
+                    <Loader2 className="size-4 animate-spin text-[#b45309] dark:text-[#fbbf24]" />
                     <span className="text-sm text-muted-foreground">Analyzing your writing style...</span>
                   </div>
                 )}
 
                 {voiceError && (
-                  <div className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">{voiceError}</div>
+                  <div className="text-sm text-[#b91c1c] dark:text-[#f87171] bg-[rgba(239,68,68,.06)] dark:bg-[rgba(239,68,68,.08)] border border-[rgba(239,68,68,.24)] dark:border-[rgba(239,68,68,.30)] rounded-lg p-3">{voiceError}</div>
                 )}
 
                 {voiceProfile && !voiceAnalyzing && (
@@ -460,7 +460,7 @@ export default function AiSetupPage() {
                       {voiceProfile.sample_phrases?.length > 0 && (
                         <div className="flex flex-wrap gap-1 pt-1">
                           {voiceProfile.sample_phrases.map((phrase: string, i: number) => (
-                            <span key={i} className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full px-2 py-0.5">
+                            <span key={i} className="text-[10px] bg-[rgba(217,119,6,.10)] text-[#b45309] border border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)] rounded-full px-2 py-0.5">
                               {phrase}
                             </span>
                           ))}
@@ -555,7 +555,7 @@ export default function AiSetupPage() {
           <div className="flex justify-between">
             <Button type="button" variant="outline" onClick={() => setStep(2)}>Back</Button>
             <Button type="button" onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 className="size-4 mr-2 animate-spin" /> : saved ? <Check className="size-4 mr-2 text-emerald-500" /> : <Save className="size-4 mr-2" />}
+              {saving ? <Loader2 className="size-4 mr-2 animate-spin" /> : saved ? <Check className="size-4 mr-2 text-[#047857] dark:text-[#34d399]" /> : <Save className="size-4 mr-2" />}
               {saving ? 'Saving...' : saved ? 'Saved!' : 'Finish Setup'}
             </Button>
           </div>

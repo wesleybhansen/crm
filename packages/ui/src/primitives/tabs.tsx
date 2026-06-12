@@ -65,7 +65,7 @@ export function TabsList({ children, className }: TabsListProps) {
   return (
     <div
       className={cn(
-        'inline-flex h-9 items-center justify-start rounded-lg bg-muted p-1 text-muted-foreground',
+        'inline-flex h-9 items-center justify-start gap-4 border-b border-border text-muted-foreground',
         className,
       )}
       role="tablist"
@@ -95,9 +95,10 @@ export function TabsTrigger({ value, children, className, disabled }: TabsTrigge
       disabled={disabled}
       onClick={() => onValueChange(value)}
       className={cn(
+        'relative h-9 rounded-none px-1 text-[13.5px] font-semibold hover:bg-transparent dark:hover:bg-transparent',
         isSelected
-          ? 'bg-background text-foreground shadow'
-          : 'hover:bg-background/50 hover:text-foreground',
+          ? "text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-full after:bg-primary after:content-['']"
+          : 'text-muted-foreground hover:text-foreground',
         className,
       )}
     >

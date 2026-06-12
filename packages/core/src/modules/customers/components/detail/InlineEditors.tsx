@@ -293,7 +293,7 @@ export function InlineDictionaryEditor({
             selectClassName={selectClassName}
           />
           {dictionaryQuery.isError ? (
-            <p className="text-xs text-red-600">
+            <p className="text-xs text-[#b91c1c] dark:text-[#f87171]">
               {dictionaryQuery.error instanceof Error
                 ? dictionaryQuery.error.message
                 : translate('customers.people.form.dictionary.errorLoad', 'Failed to load options')}

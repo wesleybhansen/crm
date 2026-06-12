@@ -45,7 +45,7 @@ type Note = { id: string; user_name: string; content: string; created_at: string
 // ── Helpers ──
 const chIcon = (ch: string | null, sz = 'size-3.5') => ch === 'sms' ? <Smartphone className={sz} /> : ch === 'chat' ? <MessageCircle className={sz} /> : <Mail className={sz} />
 const chLabel = (ch: string | null) => ch === 'sms' ? 'SMS' : ch === 'chat' ? 'Chat' : 'Email'
-const chColor = (ch: string | null) => ch === 'email' ? 'text-blue-600' : ch === 'sms' ? 'text-emerald-600' : ch === 'chat' ? 'text-violet-600' : 'text-muted-foreground'
+const chColor = (ch: string | null) => ch === 'email' ? 'text-[#1d4ed8] dark:text-[#93c5fd]' : ch === 'sms' ? 'text-[#047857] dark:text-[#34d399]' : ch === 'chat' ? 'text-[#6d28d9] dark:text-[#c4b5fd]' : 'text-muted-foreground'
 
 function relTime(d: string | null): string {
   if (!d) return ''
@@ -462,7 +462,7 @@ export default function UnifiedInboxPage() {
                 <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={() => handleBulkAction('reopen')}>
                   <RotateCcw className="size-2.5 mr-1" /> Reopen
                 </Button>
-                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20" onClick={() => handleBulkAction('delete')}>
+                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2 text-[#b91c1c] hover:text-[#b91c1c] hover:bg-[rgba(239,68,68,.06)] dark:text-[#f87171] dark:hover:text-[#f87171] dark:hover:bg-[rgba(239,68,68,.08)]" onClick={() => handleBulkAction('delete')}>
                   <Trash2 className="size-2.5 mr-1" /> Delete
                 </Button>
               </>
@@ -473,13 +473,13 @@ export default function UnifiedInboxPage() {
 
         {/* AI Assistant banner */}
         {!selectMode && (
-          <a href="/backend/inbox/ai-setup" className="flex items-center gap-2.5 mx-3 mt-2 mb-1 px-3 py-2 rounded-lg bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/20 dark:to-purple-950/20 border border-violet-200 dark:border-violet-800 hover:border-violet-300 transition-colors">
-            <Sparkles className="size-4 text-violet-500 shrink-0" />
+          <a href="/backend/inbox/ai-setup" className="flex items-center gap-2.5 mx-3 mt-2 mb-1 px-3 py-2 rounded-lg bg-[rgba(124,58,237,.06)] dark:bg-[rgba(139,92,246,.10)] border border-[rgba(124,58,237,.22)] dark:border-[rgba(139,92,246,.28)] hover:border-[rgba(124,58,237,.34)] dark:hover:border-[rgba(139,92,246,.40)] transition-colors">
+            <Sparkles className="size-4 text-[#6d28d9] dark:text-[#c4b5fd] shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold text-violet-700 dark:text-violet-300">{aiSettings?.enabled ? 'AI Reply Assistant' : 'Set up AI Reply Assistant'}</p>
-              <p className="text-[10px] text-violet-500/70">{aiSettings?.enabled ? 'Drafts replies using your knowledge base' : 'Auto-draft replies based on your business context'}</p>
+              <p className="text-[11px] font-semibold text-[#6d28d9] dark:text-[#c4b5fd]">{aiSettings?.enabled ? 'AI Reply Assistant' : 'Set up AI Reply Assistant'}</p>
+              <p className="text-[10px] text-[#6d28d9]/70 dark:text-[#c4b5fd]/70">{aiSettings?.enabled ? 'Drafts replies using your knowledge base' : 'Auto-draft replies based on your business context'}</p>
             </div>
-            <ChevronRight className="size-3.5 text-violet-400 shrink-0" />
+            <ChevronRight className="size-3.5 text-[#6d28d9]/60 dark:text-[#c4b5fd]/60 shrink-0" />
           </a>
         )}
 
@@ -497,17 +497,17 @@ export default function UnifiedInboxPage() {
               <p className="text-xs text-muted-foreground mb-6">When you send emails, receive SMS messages, or get chat conversations, they'll all appear here in one place.</p>
               <div className="space-y-2">
                 <a href="/backend/payments" className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors">
-                  <Mail className="size-5 text-blue-500 shrink-0" />
+                  <Mail className="size-5 text-[#1d4ed8] dark:text-[#93c5fd] shrink-0" />
                   <div><p className="text-xs font-medium">Send an email</p><p className="text-[10px] text-muted-foreground">Invoice a client or reach out to a contact</p></div>
                   <ChevronRight className="size-4 text-muted-foreground ml-auto shrink-0" />
                 </a>
                 <a href="/backend/chat" className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors">
-                  <MessageCircle className="size-5 text-violet-500 shrink-0" />
+                  <MessageCircle className="size-5 text-[#6d28d9] dark:text-[#c4b5fd] shrink-0" />
                   <div><p className="text-xs font-medium">Set up live chat</p><p className="text-[10px] text-muted-foreground">Add a chat widget to your website</p></div>
                   <ChevronRight className="size-4 text-muted-foreground ml-auto shrink-0" />
                 </a>
                 <a href="/backend/settings-simple" className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors">
-                  <Smartphone className="size-5 text-emerald-500 shrink-0" />
+                  <Smartphone className="size-5 text-[#047857] dark:text-[#34d399] shrink-0" />
                   <div><p className="text-xs font-medium">Connect SMS</p><p className="text-[10px] text-muted-foreground">Set up Twilio to send and receive texts</p></div>
                   <ChevronRight className="size-4 text-muted-foreground ml-auto shrink-0" />
                 </a>
@@ -592,7 +592,7 @@ export default function UnifiedInboxPage() {
                     <div className="mt-2">
                       <label className="text-xs font-medium text-muted-foreground mb-1 block">
                         {composeChannel === 'sms' ? 'Phone Number' : 'Email Address'}
-                        {composeNeedsManualAddress && <span className="text-amber-600 ml-1">(not on file — enter manually)</span>}
+                        {composeNeedsManualAddress && <span className="text-[#b45309] dark:text-[#fbbf24] ml-1">(not on file, enter manually)</span>}
                       </label>
                       <Input value={composeTo} onChange={e => setComposeTo(e.target.value)}
                         placeholder={composeChannel === 'sms' ? '+15551234567' : 'recipient@example.com'}
@@ -638,7 +638,7 @@ export default function UnifiedInboxPage() {
                     className="text-sm min-h-[200px]" rows={8}
                     onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); handleComposeSend() } }} />
                   {composeChannel === 'sms' && composeBody.length > 0 && (
-                    <p className={`text-[10px] mt-1 ${composeBody.length > 160 ? 'text-amber-600' : 'text-muted-foreground/50'}`}>
+                    <p className={`text-[10px] mt-1 ${composeBody.length > 160 ? 'text-[#b45309] dark:text-[#fbbf24]' : 'text-muted-foreground/50'}`}>
                       {composeBody.length}/160 {composeBody.length > 160 ? `(${Math.ceil(composeBody.length / 160)} segments)` : ''}
                     </p>
                   )}
@@ -684,7 +684,7 @@ export default function UnifiedInboxPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                <Badge variant={detail.status === 'open' ? 'default' : 'secondary'} className={`text-[10px] cursor-pointer ${detail.status === 'open' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : ''}`} onClick={toggleStatus}>
+                <Badge variant={detail.status === 'open' ? 'default' : 'secondary'} className={`h-[21px] px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] cursor-pointer ${detail.status === 'open' ? 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]' : 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'}`} onClick={toggleStatus}>
                   {detail.status}
                 </Badge>
                 <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={toggleStatus}>
@@ -713,13 +713,13 @@ export default function UnifiedInboxPage() {
                   if (item.type === 'note') {
                     return (
                       <div key={`note-${item.data.id}`} className="flex justify-center">
-                        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2 max-w-[80%]">
+                        <div className="bg-[rgba(217,119,6,.06)] dark:bg-[rgba(245,158,11,.08)] border border-[rgba(217,119,6,.22)] dark:border-[rgba(245,158,11,.25)] rounded-lg px-4 py-2 max-w-[80%]">
                           <div className="flex items-center gap-1.5 mb-1">
-                            <StickyNote className="size-3 text-amber-600" />
-                            <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400">Internal Note · {item.data.user_name}</span>
-                            <span className="text-[10px] text-amber-600/60">{fmtTime(item.data.created_at)}</span>
+                            <StickyNote className="size-3 text-[#b45309] dark:text-[#fbbf24]" />
+                            <span className="text-[10px] font-medium text-[#b45309] dark:text-[#fbbf24]">Internal Note · {item.data.user_name}</span>
+                            <span className="text-[10px] text-[#b45309]/60 dark:text-[#fbbf24]/60">{fmtTime(item.data.created_at)}</span>
                           </div>
-                          <p className="text-xs text-amber-900 dark:text-amber-200 whitespace-pre-wrap">{item.data.content}</p>
+                          <p className="text-xs text-[#b45309] dark:text-[#fbbf24] whitespace-pre-wrap">{item.data.content}</p>
                         </div>
                       </div>
                     )
@@ -745,7 +745,7 @@ export default function UnifiedInboxPage() {
                           <div className={`flex items-center gap-1 mb-1 ${out ? 'justify-end' : ''}`}>
                             <span className={chColor(msg.channel)}>{chIcon(msg.channel, 'size-2.5')}</span>
                             <span className="text-[9px] text-muted-foreground font-medium uppercase">{chLabel(msg.channel)}</span>
-                            {msg.isBot && <Bot className="size-2.5 text-violet-500" />}
+                            {msg.isBot && <Bot className="size-2.5 text-[#6d28d9] dark:text-[#c4b5fd]" />}
                           </div>
                           <div className={`rounded-2xl px-4 py-2.5 ${out ? 'bg-accent text-accent-foreground rounded-tr-md' : 'bg-muted rounded-tl-md'}`}>
                             {msg.channel === 'email' && msg.subject && <p className="text-xs font-semibold mb-1 opacity-70">{msg.subject}</p>}
@@ -758,8 +758,8 @@ export default function UnifiedInboxPage() {
                           <div className={`flex items-center gap-1.5 mt-1 ${out ? 'justify-end' : ''}`}>
                             <span className="text-[10px] text-muted-foreground">{fmtTime(msg.createdAt)}</span>
                             {out && msg.channel === 'email' && (
-                              msg.clickedAt ? <CheckCheck className="size-3 text-blue-500" /> :
-                              msg.openedAt ? <Eye className="size-3 text-emerald-500" /> :
+                              msg.clickedAt ? <CheckCheck className="size-3 text-[#1d4ed8] dark:text-[#93c5fd]" /> :
+                              msg.openedAt ? <Eye className="size-3 text-[#047857] dark:text-[#34d399]" /> :
                               msg.status === 'sent' ? <Check className="size-3 text-muted-foreground/50" /> : null
                             )}
                           </div>
@@ -777,9 +777,9 @@ export default function UnifiedInboxPage() {
               {/* AI Draft suggestion */}
               {aiDraft && (
                 <div className="px-3 pt-3">
-                  <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800 rounded-lg p-3">
+                  <div className="bg-[rgba(124,58,237,.06)] dark:bg-[rgba(139,92,246,.10)] border border-[rgba(124,58,237,.22)] dark:border-[rgba(139,92,246,.28)] rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="flex items-center gap-1.5 text-[10px] font-medium text-violet-700 dark:text-violet-300"><Sparkles className="size-3" /> AI Draft Suggestion</span>
+                      <span className="flex items-center gap-1.5 text-[10px] font-medium text-[#6d28d9] dark:text-[#c4b5fd]"><Sparkles className="size-3" /> AI Draft Suggestion</span>
                       <div className="flex items-center gap-1">
                         <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] px-2" onClick={() => { setReplyBody(aiDraft); setAiDraft(null) }}>
                           <Check className="size-2.5 mr-1" /> Use
@@ -789,7 +789,7 @@ export default function UnifiedInboxPage() {
                         </Button>
                       </div>
                     </div>
-                    <p className="text-xs text-violet-900 dark:text-violet-200 whitespace-pre-wrap">{aiDraft}</p>
+                    <p className="text-xs text-[#6d28d9] dark:text-[#c4b5fd] whitespace-pre-wrap">{aiDraft}</p>
                   </div>
                 </div>
               )}
@@ -797,10 +797,10 @@ export default function UnifiedInboxPage() {
               {/* Note input */}
               {showNoteInput && (
                 <div className="px-3 pt-3">
-                  <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                  <div className="bg-[rgba(217,119,6,.06)] dark:bg-[rgba(245,158,11,.08)] border border-[rgba(217,119,6,.22)] dark:border-[rgba(245,158,11,.25)] rounded-lg p-3">
                     <div className="flex items-center gap-1.5 mb-2">
-                      <StickyNote className="size-3 text-amber-600" />
-                      <span className="text-[10px] font-medium text-amber-700">Add Internal Note (only your team sees this)</span>
+                      <StickyNote className="size-3 text-[#b45309] dark:text-[#fbbf24]" />
+                      <span className="text-[10px] font-medium text-[#b45309] dark:text-[#fbbf24]">Add Internal Note (only your team sees this)</span>
                     </div>
                     <Textarea value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Type a note..." className="text-sm mb-2 bg-white dark:bg-background" rows={2}
                       onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); addNote() } }} />
@@ -825,11 +825,11 @@ export default function UnifiedInboxPage() {
                   ))}
                   <div className="ml-auto flex items-center gap-1">
                     <IconButton variant="ghost" size="xs" type="button" title="Add internal note" aria-label="Add note" onClick={() => setShowNoteInput(!showNoteInput)}>
-                      <StickyNote className="size-3.5 text-amber-500" />
+                      <StickyNote className="size-3.5 text-[#b45309] dark:text-[#fbbf24]" />
                     </IconButton>
                     {aiSettings?.enabled && (
                       <IconButton variant="ghost" size="xs" type="button" title="AI draft reply" aria-label="AI draft" onClick={generateAiDraft} disabled={aiDrafting}>
-                        {aiDrafting ? <Loader2 className="size-3.5 animate-spin text-violet-500" /> : <Sparkles className="size-3.5 text-violet-500" />}
+                        {aiDrafting ? <Loader2 className="size-3.5 animate-spin text-[#6d28d9] dark:text-[#c4b5fd]" /> : <Sparkles className="size-3.5 text-[#6d28d9] dark:text-[#c4b5fd]" />}
                       </IconButton>
                     )}
                   </div>
@@ -853,7 +853,7 @@ export default function UnifiedInboxPage() {
                   </Button>
                 </div>
                 {activeChannel === 'sms' && replyBody.length > 0 && (
-                  <p className={`text-[10px] mt-1 ${replyBody.length > 160 ? 'text-amber-600' : 'text-muted-foreground/50'}`}>
+                  <p className={`text-[10px] mt-1 ${replyBody.length > 160 ? 'text-[#b45309] dark:text-[#fbbf24]' : 'text-muted-foreground/50'}`}>
                     {replyBody.length}/160 {replyBody.length > 160 ? `(${Math.ceil(replyBody.length / 160)} segments)` : ''}
                   </p>
                 )}

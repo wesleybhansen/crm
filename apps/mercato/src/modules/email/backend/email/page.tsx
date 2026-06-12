@@ -55,14 +55,14 @@ export default function EmailPage() {
   }, [filter])
 
   const statusColors: Record<string, string> = {
-    draft: 'text-muted-foreground',
-    queued: 'text-amber-600 dark:text-amber-400',
-    sent: 'text-blue-600 dark:text-blue-400',
-    delivered: 'text-blue-600 dark:text-blue-400',
-    opened: 'text-emerald-600 dark:text-emerald-400',
-    clicked: 'text-emerald-700 dark:text-emerald-300',
-    bounced: 'text-red-600 dark:text-red-400',
-    failed: 'text-red-600 dark:text-red-400',
+    draft: 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]',
+    queued: 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]',
+    sent: 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] border-[rgba(37,99,235,.22)] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd] dark:border-[rgba(59,130,246,.30)]',
+    delivered: 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] border-[rgba(37,99,235,.22)] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd] dark:border-[rgba(59,130,246,.30)]',
+    opened: 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]',
+    clicked: 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]',
+    bounced: 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] border-[rgba(239,68,68,.24)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)]',
+    failed: 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] border-[rgba(239,68,68,.24)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)]',
   }
 
   return (
@@ -112,14 +112,14 @@ export default function EmailPage() {
           {messages.map((msg) => (
             <div key={msg.id} className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 cursor-pointer">
               <div className={`size-8 rounded-full flex items-center justify-center text-xs ${
-                msg.direction === 'inbound' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
+                msg.direction === 'inbound' ? 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd]' : 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399]'
               }`}>
                 {msg.direction === 'inbound' ? <Inbox className="size-4" /> : <Send className="size-4" />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium truncate">{msg.subject}</span>
-                  <span className={`text-xs ${statusColors[msg.status] || ''}`}>{msg.status}</span>
+                  <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${statusColors[msg.status] || 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'}`}>{msg.status}</span>
                 </div>
                 <div className="text-xs text-muted-foreground truncate">
                   {msg.direction === 'inbound' ? `From: ${msg.from_address}` : `To: ${msg.to_address}`}

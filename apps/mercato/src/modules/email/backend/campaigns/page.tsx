@@ -241,9 +241,9 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
   }
 
   const statusColors: Record<string, string> = {
-    draft: 'bg-muted text-muted-foreground',
-    sending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    sent: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    draft: 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]',
+    sending: 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]',
+    sent: 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]',
   }
 
   const groupedTemplates = templates.reduce<Record<string, StyleTemplate[]>>((acc, t) => {
@@ -339,7 +339,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                               </IconButton>
                               {!t.is_default && (
                                 <IconButton type="button" variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); deleteTemplate(t.id) }} aria-label="Delete">
-                                  <Trash2 className="size-3 text-red-500" />
+                                  <Trash2 className="size-3 text-[#b91c1c] dark:text-[#f87171]" />
                                 </IconButton>
                               )}
                             </div>
@@ -570,7 +570,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium truncate">{c.name}</p>
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${statusColors[c.status] || ''}`}>{c.status}</span>
+                      <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] shrink-0 ${statusColors[c.status] || 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'}`}>{c.status}</span>
                     </div>
                   </div>
                   {c.status === 'sent' && stats && (
@@ -604,7 +604,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                   )}
                   <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                     <IconButton type="button" variant="ghost" size="sm" onClick={() => deleteCampaign(c.id)} aria-label="Delete">
-                      <Trash2 className="size-3.5 text-red-500" />
+                      <Trash2 className="size-3.5 text-[#b91c1c] dark:text-[#f87171]" />
                     </IconButton>
                   </div>
                   <span className="text-xs text-muted-foreground shrink-0">{new Date(c.created_at).toLocaleDateString()}</span>

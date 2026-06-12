@@ -6,8 +6,8 @@ import type { Appearance } from '@clerk/types';
 
 export const noliClerkAppearance: Appearance = {
   variables: {
-    colorPrimary: '#6366F1',
-    colorBackground: '#0E0E16',
+    colorPrimary: '#8B5CF6',
+    colorBackground: '#101012',
     colorInputBackground: 'rgba(255,255,255,0.04)',
     colorText: '#FFFFFF',
     colorTextSecondary: 'rgba(255,255,255,0.6)',

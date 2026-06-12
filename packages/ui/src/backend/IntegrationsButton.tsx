@@ -18,6 +18,7 @@ export function IntegrationsButton({ href = '/backend/integrations' }: Integrati
       asChild
       variant="ghost"
       size="sm"
+      className="size-[33px] rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]"
       title={label}
       aria-label={label}
     >

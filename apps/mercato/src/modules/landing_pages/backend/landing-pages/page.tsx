@@ -61,9 +61,9 @@ export default function LandingPagesListPage() {
   }
 
   const statusColors: Record<string, string> = {
-    draft: 'bg-muted text-muted-foreground',
-    published: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
-    archived: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+    draft: 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]',
+    published: 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]',
+    archived: 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] border-[rgba(239,68,68,.24)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)]',
   }
 
   return (
@@ -108,7 +108,7 @@ export default function LandingPagesListPage() {
                   <tr key={page.id} className="border-b last:border-0 hover:bg-muted/30">
                     <td className="px-4 py-3 font-medium text-sm">{page.title}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusColors[page.status] || ''}`}>
+                      <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${statusColors[page.status] || 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'}`}>
                         {page.status === 'published' && <Globe className="size-3 mr-1" />}
                         {page.status}
                       </span>
@@ -125,7 +125,7 @@ export default function LandingPagesListPage() {
                           aria-label={page.status === 'published' ? 'Unpublish' : 'Publish'}
                           onClick={(e) => togglePublish(page, e)}
                         >
-                          {page.status === 'published' ? <ToggleRight className="size-4 text-emerald-600" /> : <ToggleLeft className="size-4" />}
+                          {page.status === 'published' ? <ToggleRight className="size-4 text-[#047857] dark:text-[#34d399]" /> : <ToggleLeft className="size-4" />}
                         </IconButton>
                         <IconButton
                           variant="ghost"

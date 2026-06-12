@@ -100,7 +100,7 @@ export function ProfileDropdown({
   }
 
   const menuItemClass =
-    'w-full text-left text-sm cursor-pointer px-3 py-2 rounded hover:bg-accent inline-flex items-center gap-2.5 outline-none focus-visible:ring-1 focus-visible:ring-ring'
+    'w-full text-left text-[13.5px] font-medium text-foreground/80 cursor-pointer px-3 py-2 rounded-md hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground inline-flex items-center gap-2.5 outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
   const resolveMenuLabel = React.useCallback(
     (item: Pick<MergedMenuItem, 'id' | 'label' | 'labelKey'>): string => {
@@ -160,7 +160,7 @@ export function ProfileDropdown({
           type="button"
           variant="ghost"
           size="sm"
-          className="w-full justify-start"
+          className="w-full justify-start text-[13.5px] font-medium text-foreground/80 hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground"
           role="menuitem"
           data-menu-item-id={item.id}
           onClick={() => {
@@ -215,7 +215,7 @@ export function ProfileDropdown({
             type="button"
             variant="ghost"
             size="sm"
-            className="w-full justify-between"
+            className="w-full justify-between text-[13.5px] font-medium text-foreground/80 hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground"
             role="menuitem"
             onClick={handleThemeToggle}
           >
@@ -237,7 +237,7 @@ export function ProfileDropdown({
               type="button"
               variant="ghost"
               size="sm"
-              className="w-full justify-between"
+              className="w-full justify-between text-[13.5px] font-medium text-foreground/80 hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground"
               role="menuitem"
               onClick={() => setLanguageOpen(!languageOpen)}
               aria-expanded={languageOpen}
@@ -258,7 +258,7 @@ export function ProfileDropdown({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className={`w-full justify-start gap-2 ${locale === currentLocale ? 'text-primary font-medium' : ''}`}
+                    className={`w-full justify-start gap-2 text-[13.5px] hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground ${locale === currentLocale ? 'text-foreground font-medium' : 'font-medium text-foreground/80'}`}
                     onClick={() => handleLocaleChange(locale)}
                   >
                     <span>{localeLabels[locale]}</span>
@@ -277,7 +277,7 @@ export function ProfileDropdown({
             <Button
               variant="ghost"
               size="sm"
-              className="w-full justify-start"
+              className="w-full justify-start text-[13.5px] font-medium text-foreground/80 hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground"
               type="submit"
               role="menuitem"
             >
@@ -309,6 +309,7 @@ export function ProfileDropdown({
         ref={buttonRef}
         variant="ghost"
         size="sm"
+        className="size-[30px] rounded-full bg-foreground/[.08] text-foreground/80 hover:bg-foreground/[.12] hover:text-foreground dark:bg-white/[.08] dark:hover:bg-white/[.12]"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -321,24 +322,24 @@ export function ProfileDropdown({
       {open && (
         <div
           ref={menuRef}
-          className="absolute right-0 top-full mt-1 w-56 rounded-md border bg-background p-1 shadow-lg z-50"
+          className="absolute right-0 top-full mt-1 w-56 rounded-[14px] border border-border bg-popover p-1.5 shadow-[0_16px_48px_-12px_rgba(16,16,18,.22)] dark:shadow-[0_16px_48px_-12px_rgba(0,0,0,.6)] z-50"
           role="menu"
           data-testid="profile-dropdown"
         >
           {/* User info header */}
           {(displayName || email) && (
-            <div className="px-3 py-2.5 border-b mb-1">
+            <div className="px-3 py-2.5 border-b border-border mb-1">
               {displayName && (
-                <div className="font-medium text-sm flex items-center gap-2">
+                <div className="text-[13.5px] font-semibold text-foreground flex items-center gap-2">
                   <User className="size-4" />
                   {displayName}
                 </div>
               )}
               {displayName && email && (
-                <div className="text-xs text-muted-foreground mt-0.5 ml-6">{email}</div>
+                <div className="font-mono text-[11px] text-muted-foreground mt-0.5 ml-6">{email}</div>
               )}
               {!displayName && email && (
-                <div className="text-xs text-muted-foreground">
+                <div className="font-mono text-[11px] text-muted-foreground">
                   {t('ui.userMenu.loggedInAs', 'Logged in as:')} {email}
                 </div>
               )}

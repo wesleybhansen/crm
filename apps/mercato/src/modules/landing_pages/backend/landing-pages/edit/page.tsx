@@ -11,7 +11,7 @@ function EditorWithParams() {
   if (!id) {
     return (
       <div className="p-6 text-center text-sm text-muted-foreground">
-        No page ID provided. <a href="/backend/landing-pages" className="text-blue-600 underline">Back to Landing Pages</a>
+        No page ID provided. <a href="/backend/landing-pages" className="text-[#1d4ed8] dark:text-[#93c5fd] underline">Back to Landing Pages</a>
       </div>
     )
   }

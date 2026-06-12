@@ -121,12 +121,12 @@ export default function ReportsPage() {
             <TrendingUp className="size-4 text-muted-foreground" /> Deal Outcomes
           </h2>
           <div className="grid grid-cols-3 gap-4 text-center">
-            <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/10 p-4">
-              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{data.dealOutcomes.won}</p>
+            <div className="rounded-xl bg-[rgba(16,185,129,.06)] dark:bg-[rgba(16,185,129,.08)] border border-[rgba(16,185,129,.22)] dark:border-[rgba(16,185,129,.26)] p-4">
+              <p className="text-2xl font-bold text-[#047857] dark:text-[#34d399]">{data.dealOutcomes.won}</p>
               <p className="text-xs text-muted-foreground mt-0.5">Won</p>
             </div>
-            <div className="rounded-xl bg-red-50 dark:bg-red-900/10 p-4">
-              <p className="text-2xl font-bold text-red-600 dark:text-red-400">{data.dealOutcomes.lost}</p>
+            <div className="rounded-xl bg-[rgba(239,68,68,.06)] dark:bg-[rgba(239,68,68,.08)] border border-[rgba(239,68,68,.20)] dark:border-[rgba(239,68,68,.26)] p-4">
+              <p className="text-2xl font-bold text-[#b91c1c] dark:text-[#f87171]">{data.dealOutcomes.lost}</p>
               <p className="text-xs text-muted-foreground mt-0.5">Lost</p>
             </div>
             <div className="rounded-xl bg-muted/50 p-4">
@@ -175,9 +175,9 @@ export default function ReportsPage() {
 function KpiCard({ icon: Icon, label, value, sub, accent }: {
   icon: any; label: string; value: string; sub: string; accent?: string
 }) {
-  const accentColor = accent === 'emerald' ? 'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600'
-    : accent === 'blue' ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-600'
-    : accent === 'purple' ? 'bg-purple-100 dark:bg-purple-900/20 text-purple-600'
+  const accentColor = accent === 'emerald' ? 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399]'
+    : accent === 'blue' ? 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd]'
+    : accent === 'purple' ? 'bg-[rgba(124,58,237,.09)] text-[#6d28d9] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd]'
     : 'bg-accent/8 text-accent'
 
   return (
