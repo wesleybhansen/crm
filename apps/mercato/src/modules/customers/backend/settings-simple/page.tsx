@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Settings, Monitor, Key, User, Moon, Sun, Check, Mail, X as XIcon, Server, Send, CreditCard, Phone, Sparkles, Briefcase, Smile, Minus, Kanban, Users as UsersIcon, GripVertical, Pencil, Trash2, Plus, ChevronUp, ChevronDown, BookOpen, LayoutDashboard, EyeOff, Eye, Zap, ArrowRight } from 'lucide-react'
 
 export default function SimpleSettingsPage() {
@@ -619,7 +620,7 @@ export default function SimpleSettingsPage() {
       <h1 className="text-lg font-semibold mb-6">Settings</h1>
 
       {saved && (
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 px-4 py-2 text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
+        <div className="mb-4 rounded-lg border border-[rgba(16,185,129,.26)] bg-[rgba(16,185,129,.10)] px-4 py-2 text-sm text-[#047857] dark:text-[#34d399] flex items-center gap-2">
           <Check className="size-4" /> Settings saved. Reloading...
         </div>
       )}
@@ -649,11 +650,11 @@ export default function SimpleSettingsPage() {
             <div className="flex gap-1.5">
               <button type="button" onClick={() => changeMode('simple')}
                 className="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
-                style={mode === 'simple' ? { borderColor: '#3B82F6', backgroundColor: '#EFF6FF', color: '#2563EB', boxShadow: '0 0 0 1px rgba(59,130,246,0.3)' } : undefined}>
+                style={mode === 'simple' ? { borderColor: 'rgba(37,99,235,.22)', backgroundColor: 'rgba(37,99,235,.08)', color: '#1d4ed8', boxShadow: '0 0 0 1px rgba(37,99,235,0.3)' } : undefined}>
                 Simple</button>
               <button type="button" onClick={() => changeMode('advanced')}
                 className="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
-                style={mode === 'advanced' ? { borderColor: '#3B82F6', backgroundColor: '#EFF6FF', color: '#2563EB', boxShadow: '0 0 0 1px rgba(59,130,246,0.3)' } : undefined}>
+                style={mode === 'advanced' ? { borderColor: 'rgba(37,99,235,.22)', backgroundColor: 'rgba(37,99,235,.08)', color: '#1d4ed8', boxShadow: '0 0 0 1px rgba(37,99,235,0.3)' } : undefined}>
                 Advanced</button>
             </div>
           </div>
@@ -684,8 +685,8 @@ export default function SimpleSettingsPage() {
                   {inviting ? 'Sending...' : 'Send Invite'}
                 </Button>
               </div>
-              {inviteError && <p className="text-xs text-red-500 mt-2">{inviteError}</p>}
-              {inviteSuccess && <p className="text-xs text-emerald-600 mt-2">{inviteSuccess}</p>}
+              {inviteError && <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mt-2">{inviteError}</p>}
+              {inviteSuccess && <p className="text-xs text-[#047857] dark:text-[#34d399] mt-2">{inviteSuccess}</p>}
             </div>
           )}
 
@@ -702,16 +703,12 @@ export default function SimpleSettingsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${
-                  member.is_owner ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
-                  : member.role_name === 'admin' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                  : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                }`}>
+                <Badge variant={member.is_owner ? 'violet' : member.role_name === 'admin' ? 'blue' : 'secondary'}>
                   {member.is_owner ? 'Owner' : member.role_name === 'admin' ? 'Admin' : 'Member'}
-                </span>
+                </Badge>
                 {(currentUserRole === 'owner' || currentUserRole === 'admin') && !member.is_owner && member.id !== teamMembers.find(m => m.is_owner)?.id && (
                   <button type="button" onClick={() => removeMember(member.id, member.name || member.email)}
-                    className="text-xs text-muted-foreground hover:text-red-500 transition">Remove</button>
+                    className="text-xs text-muted-foreground hover:text-[#b91c1c] dark:hover:text-[#f87171] transition">Remove</button>
                 )}
               </div>
             </div>
@@ -727,12 +724,10 @@ export default function SimpleSettingsPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                  Pending
-                </span>
+                <Badge variant="amber">Pending</Badge>
                 {(currentUserRole === 'owner' || currentUserRole === 'admin') && (
                   <button type="button" onClick={() => revokeInvite(invite.id)}
-                    className="text-xs text-muted-foreground hover:text-red-500 transition">Revoke</button>
+                    className="text-xs text-muted-foreground hover:text-[#b91c1c] dark:hover:text-[#f87171] transition">Revoke</button>
                 )}
               </div>
             </div>
@@ -804,7 +799,7 @@ export default function SimpleSettingsPage() {
           </div>
           <div className="px-4 py-3">
             {personaSaved && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> Persona saved!</p>
+              <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Persona saved!</p>
             )}
             <Button type="button" variant="outline" size="sm" onClick={savePersona} disabled={savingPersona}>
               {savingPersona ? 'Saving...' : 'Save AI Settings'}
@@ -823,7 +818,7 @@ export default function SimpleSettingsPage() {
             <p className="text-sm font-medium mb-1">Pipeline Display</p>
             <p className="text-xs text-muted-foreground mb-3">Choose how your pipeline page works</p>
             {pipelineModeSaved && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> Pipeline mode saved!</p>
+              <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Pipeline mode saved!</p>
             )}
             <div className="grid grid-cols-2 gap-2">
               <button type="button" onClick={() => savePipelineMode('deals')}
@@ -858,7 +853,7 @@ export default function SimpleSettingsPage() {
               {pipelineMode === 'journey' ? 'Define the lifecycle stages contacts move through' : 'Define the stages deals move through in your pipeline'}
             </p>
             {stagesSaved && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> Stages saved!</p>
+              <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Stages saved!</p>
             )}
             <div className="space-y-1.5 mb-3">
               {pipelineStages.map((stage, index) => (
@@ -967,7 +962,7 @@ export default function SimpleSettingsPage() {
               <p className="text-sm font-medium">Google Calendar</p>
               <p className="text-xs text-muted-foreground">Two-way sync with your Google Calendar</p>
               {emailConnections.some(c => c.provider === 'gmail') && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1"><Check className="size-3" /> Connected via Gmail</p>
+                <p className="text-xs text-[#047857] dark:text-[#34d399] mt-1 flex items-center gap-1"><Check className="size-3" /> Connected via Gmail</p>
               )}
             </div>
             {!emailConnections.some(c => c.provider === 'gmail') && (
@@ -1054,7 +1049,7 @@ export default function SimpleSettingsPage() {
                 <div>
                   <p className="text-sm font-medium flex items-center gap-2">
                     {conn.email_address}
-                    {conn.is_primary && <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded font-medium">Primary</span>}
+                    {conn.is_primary && <Badge variant="violet">Primary</Badge>}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Connected via {conn.provider === 'gmail' ? 'Gmail (OAuth)' : conn.provider === 'microsoft' ? 'Outlook (OAuth)' : conn.provider === 'smtp' ? 'Email (IMAP/SMTP)' : conn.provider}
@@ -1087,10 +1082,10 @@ export default function SimpleSettingsPage() {
               </p>
 
               {smtpError && (
-                <p className="text-xs text-red-600 dark:text-red-400 mb-2">{smtpError}</p>
+                <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{smtpError}</p>
               )}
               {smtpSuccess && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> Email connected!</p>
+                <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Email connected!</p>
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
@@ -1131,7 +1126,7 @@ export default function SimpleSettingsPage() {
                         <li><span className="font-medium text-foreground">9.</span> Copy that password — <strong>you only see it once</strong></li>
                         <li><span className="font-medium text-foreground">10.</span> Paste it into the App Password field above. Spaces are fine.</li>
                       </ol>
-                      <p className="text-amber-600 dark:text-amber-400 pt-1">⚠️ If you don't see App Passwords after enabling 2-Step Verification, your Google Workspace admin may have disabled it — contact them or use a personal Gmail account.</p>
+                      <p className="text-[#b45309] dark:text-[#fbbf24] pt-1">⚠️ If you don't see App Passwords after enabling 2-Step Verification, your Google Workspace admin may have disabled it — contact them or use a personal Gmail account.</p>
                     </div>
                   )}
                 </div>
@@ -1160,7 +1155,7 @@ export default function SimpleSettingsPage() {
                         <li><span className="font-medium text-foreground">6.</span> Microsoft generates a password automatically — copy it</li>
                         <li><span className="font-medium text-foreground">7.</span> Paste it into the App Password field above</li>
                       </ol>
-                      <p className="text-amber-600 dark:text-amber-400 pt-1">⚠️ Microsoft 365 business accounts may have app passwords disabled by your IT admin. If you don't see the option, ask your admin or try a personal Outlook/Hotmail account.</p>
+                      <p className="text-[#b45309] dark:text-[#fbbf24] pt-1">⚠️ Microsoft 365 business accounts may have app passwords disabled by your IT admin. If you don't see the option, ask your admin or try a personal Outlook/Hotmail account.</p>
                     </div>
                   )}
                 </div>
@@ -1248,7 +1243,7 @@ export default function SimpleSettingsPage() {
               <div>
                 <p className="text-sm font-medium flex items-center gap-2">
                   {espConnection.provider.charAt(0).toUpperCase() + espConnection.provider.slice(1)}
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded font-medium">Active</span>
+                  <Badge variant="green">Active</Badge>
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {espConnection.default_sender_email
@@ -1266,10 +1261,10 @@ export default function SimpleSettingsPage() {
               <p className="text-xs text-muted-foreground mb-3">For bulk email campaigns. Bring your own API key.</p>
 
               {espError && (
-                <p className="text-xs text-red-600 dark:text-red-400 mb-2">{espError}</p>
+                <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{espError}</p>
               )}
               {espSuccess && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> ESP connected!</p>
+                <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> ESP connected!</p>
               )}
 
               <div className="space-y-3">
@@ -1344,7 +1339,7 @@ export default function SimpleSettingsPage() {
                       {sa.sender_name ? `${sa.sender_name} <${sa.sender_email}>` : sa.sender_email}
                     </p>
                     {sa.is_default && (
-                      <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded font-medium">Default</span>
+                      <Badge variant="violet">Default</Badge>
                     )}
                   </div>
                   <button type="button" onClick={async () => {
@@ -1355,7 +1350,7 @@ export default function SimpleSettingsPage() {
                       fetch('/api/email/routing', { credentials: 'include' })
                         .then(r => r.json()).then(d => { if (d.ok && d.data) setRoutingAddresses(d.data.addresses || []) }).catch(() => {})
                     } catch {}
-                  }} className="text-xs text-muted-foreground hover:text-red-600 transition">Remove</button>
+                  }} className="text-xs text-muted-foreground hover:text-[#b91c1c] dark:hover:text-[#f87171] transition">Remove</button>
                 </div>
               ))}
               <div className="flex gap-2 items-end mt-2">
@@ -1399,7 +1394,7 @@ export default function SimpleSettingsPage() {
                 </Button>
               </div>
               {senderFeedback && (
-                <p className={`text-[11px] mt-1.5 ${senderFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                <p className={`text-[11px] mt-1.5 ${senderFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                   {senderFeedback.text}
                 </p>
               )}
@@ -1437,7 +1432,7 @@ export default function SimpleSettingsPage() {
               type="button"
               onClick={() => { const next = !eiEnabled; setEiEnabled(next); saveEiSettings({ is_enabled: next }) }}
               disabled={eiSaving}
-              className={`relative w-10 h-5 rounded-full transition-colors ${eiEnabled ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}
+              className={`relative w-10 h-5 rounded-full transition-colors ${eiEnabled ? 'bg-[#047857] dark:bg-[#34d399]' : 'bg-zinc-300 dark:bg-zinc-600'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${eiEnabled ? 'translate-x-5' : ''}`} />
             </button>
@@ -1461,7 +1456,7 @@ export default function SimpleSettingsPage() {
                     type="button"
                     onClick={() => { const next = !item.value; item.set(next); saveEiSettings({ [item.key]: next }) }}
                     disabled={eiSaving}
-                    className={`relative w-9 h-[18px] rounded-full transition-colors ${item.value ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}
+                    className={`relative w-9 h-[18px] rounded-full transition-colors ${item.value ? 'bg-[#047857] dark:bg-[#34d399]' : 'bg-zinc-300 dark:bg-zinc-600'}`}
                   >
                     <span className={`absolute top-[1px] left-[1px] w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${item.value ? 'translate-x-[18px]' : ''}`} />
                   </button>
@@ -1487,22 +1482,22 @@ export default function SimpleSettingsPage() {
                 {eiLastSync && (
                   <p className="text-xs text-muted-foreground">
                     Last sync: {new Date(eiLastSync).toLocaleString()}
-                    {eiSyncStatus === 'success' && <span className="text-emerald-600 ml-1.5"><Check className="size-3 inline" /> Success</span>}
-                    {eiSyncStatus === 'error' && <span className="text-red-500 ml-1.5">Failed</span>}
-                    {eiSyncStatus === 'running' && <span className="text-blue-500 ml-1.5">Running...</span>}
+                    {eiSyncStatus === 'success' && <span className="text-[#047857] dark:text-[#34d399] ml-1.5"><Check className="size-3 inline" /> Success</span>}
+                    {eiSyncStatus === 'error' && <span className="text-[#b91c1c] dark:text-[#f87171] ml-1.5">Failed</span>}
+                    {eiSyncStatus === 'running' && <span className="text-[#1d4ed8] dark:text-[#93c5fd] ml-1.5">Running...</span>}
                   </p>
                 )}
                 {eiSyncResult && (
-                  <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                  <p className="text-xs text-[#047857] dark:text-[#34d399] mt-1 flex items-center gap-1">
                     <Check className="size-3" />
                     Processed {eiSyncResult.emailsProcessed} emails, created {eiSyncResult.contactsCreated} contacts
                   </p>
                 )}
                 {eiSyncError && eiSyncStatus === 'error' && (
-                  <p className="text-xs text-red-500 mt-1">{eiSyncError}</p>
+                  <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mt-1">{eiSyncError}</p>
                 )}
                 {!emailConnections.some(c => c.is_active) && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                  <p className="text-xs text-[#b45309] dark:text-[#fbbf24] mt-2">
                     Connect an email account above to use Inbox Intelligence
                   </p>
                 )}
@@ -1588,7 +1583,7 @@ export default function SimpleSettingsPage() {
                   </div>
 
                   {routingFeedback?.purpose === purpose && (
-                    <p className={`text-[11px] mt-1 ${routingFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                    <p className={`text-[11px] mt-1 ${routingFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                       {routingFeedback.text}
                     </p>
                   )}
@@ -1610,9 +1605,9 @@ export default function SimpleSettingsPage() {
               <div>
                 <p className="text-sm font-medium flex items-center gap-2">
                   {stripeConnection.businessName || stripeConnection.stripeAccountId}
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded font-medium">Connected</span>
+                  <Badge variant="green">Connected</Badge>
                   {stripeConnection.livemode && (
-                    <span className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded font-medium">Live</span>
+                    <Badge variant="blue">Live</Badge>
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">
@@ -1629,10 +1624,10 @@ export default function SimpleSettingsPage() {
               <p className="text-sm font-medium mb-1">Connect Stripe Account</p>
               <p className="text-xs text-muted-foreground mb-3">Accept payments through your own Stripe account via Stripe Connect</p>
               {new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('stripe_connected') === 'true' && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> Stripe connected successfully!</p>
+                <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Stripe connected successfully!</p>
               )}
               {new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('stripe_error') && (
-                <p className="text-xs text-red-600 dark:text-red-400 mb-2">
+                <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">
                   Failed to connect Stripe: {new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('stripe_error')}
                 </p>
               )}
@@ -1666,7 +1661,7 @@ export default function SimpleSettingsPage() {
               </Button>
             </div>
             {termsSaved && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-center gap-1"><Check className="size-3" /> Saved!</p>
+              <p className="text-xs text-[#047857] dark:text-[#34d399] mt-1.5 flex items-center gap-1"><Check className="size-3" /> Saved!</p>
             )}
           </div>
         </div>
@@ -1683,7 +1678,7 @@ export default function SimpleSettingsPage() {
               <div>
                 <p className="text-sm font-medium flex items-center gap-2">
                   {twilioConnection.phoneNumber}
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded font-medium">Connected</span>
+                  <Badge variant="green">Connected</Badge>
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Account: {twilioConnection.accountSid}
@@ -1700,10 +1695,10 @@ export default function SimpleSettingsPage() {
               <p className="text-xs text-muted-foreground mb-3">Send and receive SMS using your own Twilio account</p>
 
               {twilioError && (
-                <p className="text-xs text-red-600 dark:text-red-400 mb-2">{twilioError}</p>
+                <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{twilioError}</p>
               )}
               {twilioSuccess && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1"><Check className="size-3" /> Twilio connected!</p>
+                <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Twilio connected!</p>
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
@@ -1802,7 +1797,7 @@ export default function SimpleSettingsPage() {
       <section className="mb-8">
         <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
           <BookOpen className="size-4 text-muted-foreground" /> Knowledge Base Connection
-          {pkbConnected && <span className="text-[10px] font-medium text-emerald-600 ml-2">Connected</span>}
+          {pkbConnected && <span className="text-[10px] font-medium text-[#047857] dark:text-[#34d399] ml-2">Connected</span>}
         </h2>
         <div className="bg-card rounded-lg border p-5">
           <p className="text-xs text-muted-foreground mb-4">Connect your Personal Knowledge Base to pull documents into AI course generation and other AI features.</p>
@@ -1835,7 +1830,7 @@ export default function SimpleSettingsPage() {
             </Button>
           </div>
           {pkbMessage && (
-            <p className={`text-xs mt-2 px-1 ${pkbMessage.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+            <p className={`text-xs mt-2 px-1 ${pkbMessage.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
               {pkbMessage.type === 'success' && <Check className="size-3 inline mr-1" />}
               {pkbMessage.text}
             </p>
@@ -1847,7 +1842,7 @@ export default function SimpleSettingsPage() {
       <section className="mb-8">
         <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
           <Key className="size-4 text-muted-foreground" /> AMS Integration
-          {amsKeyExists && !amsKeySecret && <span className="text-[10px] font-medium text-emerald-600 ml-2">Key Generated</span>}
+          {amsKeyExists && !amsKeySecret && <span className="text-[10px] font-medium text-[#047857] dark:text-[#34d399] ml-2">Key Generated</span>}
         </h2>
         <div className="bg-card rounded-lg border p-5 space-y-4">
           <p className="text-xs text-muted-foreground">Generate an API key that allows the Automatic Marketing System (AMS) to connect to your CRM and sync contacts, send emails, and publish landing pages.</p>
@@ -1856,7 +1851,7 @@ export default function SimpleSettingsPage() {
           {amsKeySecret && (
             <div className="rounded-md border bg-muted/40 p-4 space-y-3">
               <p className="text-xs font-medium text-foreground">Your AMS API Key — copy this now</p>
-              <p className="text-[11px] text-amber-600 dark:text-amber-400">This key will only be shown once. Copy it before leaving this page.</p>
+              <p className="text-[11px] text-[#b45309] dark:text-[#fbbf24]">This key will only be shown once. Copy it before leaving this page.</p>
               <div className="flex items-center gap-2">
                 <code className="text-xs font-mono break-all flex-1 bg-background border rounded px-2 py-1.5">{amsKeySecret}</code>
                 <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => {
@@ -1962,7 +1957,7 @@ export default function SimpleSettingsPage() {
             <div key={item.href} className="flex items-center justify-between px-4 py-2.5">
               <span className="text-sm">{item.label}</span>
               <button type="button" onClick={() => toggleSidebarItem(item.href)}
-                className={`p-1 rounded transition-colors ${hiddenSidebar.includes(item.href) ? 'text-muted-foreground/40 hover:text-foreground' : 'text-emerald-500 hover:text-emerald-600'}`}
+                className={`p-1 rounded transition-colors ${hiddenSidebar.includes(item.href) ? 'text-muted-foreground/40 hover:text-foreground' : 'text-[#047857] dark:text-[#34d399]'}`}
                 title={hiddenSidebar.includes(item.href) ? 'Show in sidebar' : 'Hide from sidebar'}>
                 {hiddenSidebar.includes(item.href) ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -243,19 +244,21 @@ function conditionSummary(conditions: AutomationRule['conditions']): string | nu
 
 function statusColor(status: string): string {
   switch (status) {
-    case 'active': return 'bg-emerald-500'
-    case 'paused': return 'bg-amber-400'
-    case 'error': return 'bg-red-500'
-    default: return 'bg-slate-400'
+    case 'active': return 'bg-[#10b981]'
+    case 'paused': return 'bg-[#d97706]'
+    case 'error': return 'bg-[#ef4444]'
+    default: return 'bg-muted-foreground/40'
   }
 }
 
-function statusBadgeClasses(status: string): string {
+type BadgeVariant = 'violet' | 'blue' | 'green' | 'amber' | 'red' | 'secondary'
+
+function statusBadgeVariant(status: string): BadgeVariant {
   switch (status) {
-    case 'active': return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-    case 'paused': return 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-    case 'error': return 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-    default: return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+    case 'active': return 'green'
+    case 'paused': return 'amber'
+    case 'error': return 'red'
+    default: return 'secondary'
   }
 }
 
@@ -280,10 +283,10 @@ function InfoTip({ text }: { text: string }) {
 
 function Pill({ variant, children }: { variant: 'trigger' | 'action' | 'condition' | 'value'; children: React.ReactNode }) {
   const classes: Record<string, string> = {
-    trigger: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-    action: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-    condition: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-    value: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+    trigger: 'bg-[rgba(124,58,237,.09)] text-[#6d28d9] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd]',
+    action: 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd]',
+    condition: 'bg-[rgba(217,119,6,.10)] text-[#b45309] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24]',
+    value: 'bg-foreground/10 text-muted-foreground',
   }
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${classes[variant]}`}>
@@ -341,7 +344,7 @@ function KebabMenu({ onEdit, onDuplicate, onHistory, onTest, onDelete }: {
             <FlaskConical className="size-3.5 mr-2" /> Test
           </Button>
           <div className="my-1 border-t" />
-          <Button type="button" variant="ghost" size="sm" className="w-full justify-start rounded-none h-8 px-3 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+          <Button type="button" variant="ghost" size="sm" className="w-full justify-start rounded-none h-8 px-3 text-xs text-[#b91c1c] dark:text-[#f87171] hover:bg-[rgba(239,68,68,.10)]"
             onClick={(event) => { event.stopPropagation(); setOpen(false); onDelete() }}>
             <Trash2 className="size-3.5 mr-2" /> Delete
           </Button>
@@ -369,22 +372,22 @@ function LogEntry({ log }: { log: any }) {
     : null)
 
   const statusIconMap: Record<string, React.ReactNode> = {
-    test: <FlaskConical className="size-3 text-blue-500" />,
-    executed: <CheckCircle2 className="size-3 text-emerald-500" />,
-    success: <CheckCircle2 className="size-3 text-emerald-500" />,
-    skipped: <SkipForward className="size-3 text-amber-500" />,
-    failed: <XCircle className="size-3 text-red-500" />,
-    error: <XCircle className="size-3 text-red-500" />,
+    test: <FlaskConical className="size-3 text-[#1d4ed8] dark:text-[#93c5fd]" />,
+    executed: <CheckCircle2 className="size-3 text-[#047857] dark:text-[#34d399]" />,
+    success: <CheckCircle2 className="size-3 text-[#047857] dark:text-[#34d399]" />,
+    skipped: <SkipForward className="size-3 text-[#b45309] dark:text-[#fbbf24]" />,
+    failed: <XCircle className="size-3 text-[#b91c1c] dark:text-[#f87171]" />,
+    error: <XCircle className="size-3 text-[#b91c1c] dark:text-[#f87171]" />,
   }
   const statusIcon = statusIconMap[status] || <CheckCircle2 className="size-3 text-muted-foreground" />
 
   const borderColorMap: Record<string, string> = {
-    test: 'border-l-blue-400',
-    executed: 'border-l-emerald-400',
-    success: 'border-l-emerald-400',
-    skipped: 'border-l-amber-400',
-    failed: 'border-l-red-400',
-    error: 'border-l-red-400',
+    test: 'border-l-[#1d4ed8] dark:border-l-[#93c5fd]',
+    executed: 'border-l-[#047857] dark:border-l-[#34d399]',
+    success: 'border-l-[#047857] dark:border-l-[#34d399]',
+    skipped: 'border-l-[#b45309] dark:border-l-[#fbbf24]',
+    failed: 'border-l-[#b91c1c] dark:border-l-[#f87171]',
+    error: 'border-l-[#b91c1c] dark:border-l-[#f87171]',
   }
   const borderColor = borderColorMap[status] || 'border-l-muted-foreground'
 
@@ -416,9 +419,7 @@ function LogEntry({ log }: { log: any }) {
           </>
         )}
         {isTest && (
-          <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-            Test
-          </span>
+          <Badge variant="blue" className="ml-1">Test</Badge>
         )}
         <span className="flex-1" />
         <ChevronDown className={`size-3 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
@@ -442,7 +443,7 @@ function LogEntry({ log }: { log: any }) {
             <div><span className="font-medium text-foreground/70">Result:</span> {resultSummary}</div>
           )}
           {errorMessage && status !== 'executed' && status !== 'success' && (
-            <div className="text-red-500"><span className="font-medium">Error:</span> {errorMessage}</div>
+            <div className="text-[#b91c1c] dark:text-[#f87171]"><span className="font-medium">Error:</span> {errorMessage}</div>
           )}
         </div>
       )}
@@ -508,7 +509,7 @@ function SentenceCard({
                 <span key={idx} className="inline-flex items-center gap-1.5">
                   {idx > 0 && <ArrowRight className="size-3 text-muted-foreground/50" />}
                   {step.type === 'delay' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-foreground/10 text-muted-foreground">
                       <Timer className="size-3" /> {formatDelay(step.delayMinutes || 60)}
                     </span>
                   ) : (
@@ -532,12 +533,12 @@ function SentenceCard({
 
       {/* Meta line */}
       <div className="px-4 pb-3 flex items-center gap-3 text-xs text-muted-foreground pl-8">
-        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${statusBadgeClasses(rule.status)}`}>
+        <Badge variant={statusBadgeVariant(rule.status)} className="gap-1">
           {rule.status === 'active' && <Play className="size-2.5" />}
           {rule.status === 'paused' && <Pause className="size-2.5" />}
           {rule.status === 'error' && <AlertTriangle className="size-2.5" />}
           {rule.status}
-        </span>
+        </Badge>
         <button
           type="button"
           className="flex items-center gap-1 hover:text-foreground transition-colors rounded px-1 -mx-1 hover:bg-muted/50"
@@ -1088,7 +1089,7 @@ function StepEditor({ steps, onChange }: { steps: StepItem[]; onChange: (steps: 
           <div key={index} className="rounded-lg border bg-muted/20">
             {step.type === 'delay' ? (
               <div className="flex items-center gap-2 px-3 py-2.5">
-                <Timer className="size-3.5 text-orange-500 shrink-0" />
+                <Timer className="size-3.5 text-muted-foreground shrink-0" />
                 <DelayEditor
                   minutes={step.delayMinutes || 60}
                   onChange={(minutes) => updateStep(index, { delayMinutes: minutes })}
@@ -1437,12 +1438,12 @@ function TemplateGallery({
   }
 
   const categoryColors: Record<string, string> = {
-    sales: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
-    marketing: 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400',
-    customer_success: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400',
-    operations: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
-    notifications: 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400',
-    solopreneur: 'bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400',
+    sales: 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd]',
+    marketing: 'bg-[rgba(124,58,237,.09)] text-[#6d28d9] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd]',
+    customer_success: 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399]',
+    operations: 'bg-[rgba(217,119,6,.10)] text-[#b45309] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24]',
+    notifications: 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171]',
+    solopreneur: 'bg-foreground/10 text-muted-foreground',
   }
 
   if (!open) return null
@@ -1510,7 +1511,7 @@ function TemplateGallery({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {popular.map(template => {
                         const Icon = resolveIcon(template.icon)
-                        const colorClass = categoryColors[template.category] ?? 'bg-slate-100 text-slate-600'
+                        const colorClass = categoryColors[template.category] ?? 'bg-foreground/10 text-muted-foreground'
                         return (
                           <div key={template.id}
                             className="rounded-lg border p-4 hover:border-primary/30 hover:shadow-sm transition-all group flex gap-3">
@@ -1550,7 +1551,7 @@ function TemplateGallery({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {filtered.map(template => {
                         const Icon = resolveIcon(template.icon)
-                        const colorClass = categoryColors[template.category] ?? 'bg-slate-100 text-slate-600'
+                        const colorClass = categoryColors[template.category] ?? 'bg-foreground/10 text-muted-foreground'
                         return (
                           <div key={template.id}
                             className="rounded-lg border p-4 hover:border-primary/30 hover:shadow-sm transition-all group flex gap-3">
@@ -1702,8 +1703,8 @@ function HelpChatPanel({
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <div className="flex items-center gap-2">
-            <div className="size-7 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-              <Bot className="size-3.5 text-blue-600 dark:text-blue-400" />
+            <div className="size-7 rounded-lg bg-[rgba(37,99,235,.08)] dark:bg-[rgba(59,130,246,.15)] flex items-center justify-center">
+              <Bot className="size-3.5 text-[#1d4ed8] dark:text-[#93c5fd]" />
             </div>
             <span className="text-sm font-semibold">Automation Assistant</span>
           </div>
@@ -2594,8 +2595,8 @@ export default function AutomationsV2Page() {
           <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]" onClick={() => setDeletingId(null)} />
           <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-card rounded-xl border shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-start gap-3 mb-4">
-              <div className="size-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
-                <Trash2 className="size-5 text-red-600 dark:text-red-400" />
+              <div className="size-10 rounded-full bg-[rgba(239,68,68,.10)] dark:bg-[rgba(239,68,68,.13)] flex items-center justify-center shrink-0">
+                <Trash2 className="size-5 text-[#b91c1c] dark:text-[#f87171]" />
               </div>
               <div>
                 <h3 className="text-sm font-semibold">Delete automation?</h3>
@@ -2641,8 +2642,8 @@ export default function AutomationsV2Page() {
           <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-card rounded-xl border shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-6 pt-5 pb-0">
               <div className="flex items-center gap-2">
-                <div className="size-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                  <Wand2 className="size-4 text-purple-600 dark:text-purple-400" />
+                <div className="size-8 rounded-lg bg-[rgba(124,58,237,.09)] dark:bg-[rgba(139,92,246,.16)] flex items-center justify-center">
+                  <Wand2 className="size-4 text-[#6d28d9] dark:text-[#c4b5fd]" />
                 </div>
                 <h3 className="text-sm font-semibold">AI Automation Builder</h3>
               </div>
@@ -2716,7 +2717,7 @@ export default function AutomationsV2Page() {
                   />
 
                   {aiError && (
-                    <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">
+                    <div className="flex items-center gap-2 text-xs text-[#b91c1c] dark:text-[#f87171] bg-[rgba(239,68,68,.10)] rounded-md px-3 py-2">
                       <AlertTriangle className="size-3.5 shrink-0" />
                       {aiError}
                     </div>
@@ -2775,8 +2776,8 @@ export default function AutomationsV2Page() {
               {/* Header */}
               <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b shrink-0">
                 <div className="flex items-center gap-2.5">
-                  <div className="size-8 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-                    <FlaskConical className="size-4 text-violet-600 dark:text-violet-400" />
+                  <div className="size-8 rounded-lg bg-[rgba(124,58,237,.09)] dark:bg-[rgba(139,92,246,.16)] flex items-center justify-center">
+                    <FlaskConical className="size-4 text-[#6d28d9] dark:text-[#c4b5fd]" />
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold">Test Automation</h3>
@@ -2792,7 +2793,7 @@ export default function AutomationsV2Page() {
               <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
                 {/* Paused warning */}
                 {testingRule.status === 'paused' && (
-                  <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs text-[#b45309] dark:text-[#fbbf24] bg-[rgba(217,119,6,.10)] rounded-lg px-3 py-2">
                     <AlertTriangle className="size-3.5 shrink-0" />
                     This automation is paused. Testing will still evaluate conditions and preview steps.
                   </div>
@@ -2951,12 +2952,12 @@ export default function AutomationsV2Page() {
                           {testResults.conditions.items.map((condition: any, idx: number) => (
                             <div key={idx} className={`flex items-start gap-2 text-xs rounded-md px-2.5 py-1.5 ${
                               condition.passes
-                                ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300'
-                                : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-300'
+                                ? 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:text-[#34d399]'
+                                : 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:text-[#f87171]'
                             }`}>
                               {condition.passes
-                                ? <CheckCircle2 className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
-                                : <XCircle className="size-3.5 shrink-0 mt-0.5 text-red-500" />
+                                ? <CheckCircle2 className="size-3.5 shrink-0 mt-0.5 text-[#047857] dark:text-[#34d399]" />
+                                : <XCircle className="size-3.5 shrink-0 mt-0.5 text-[#b91c1c] dark:text-[#f87171]" />
                               }
                               <span>
                                 <span className="font-medium">{condition.field}</span> {condition.operator} {condition.value != null ? `"${condition.value}"` : ''}
@@ -2975,17 +2976,17 @@ export default function AutomationsV2Page() {
                         {testResults.steps.map((step: any) => (
                           <div key={step.index} className={`flex items-start gap-2 text-xs rounded-md px-2.5 py-1.5 ${
                             step.type === 'delay'
-                              ? 'bg-slate-50 text-slate-600 dark:bg-slate-800/50 dark:text-slate-400'
+                              ? 'bg-foreground/5 text-muted-foreground'
                               : step.wouldExecute
-                                ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300'
-                                : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-300'
+                                ? 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:text-[#34d399]'
+                                : 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:text-[#f87171]'
                           }`}>
                             {step.type === 'delay' ? (
-                              <Timer className="size-3.5 shrink-0 mt-0.5 text-slate-400" />
+                              <Timer className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" />
                             ) : step.wouldExecute ? (
-                              <CheckCircle2 className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                              <CheckCircle2 className="size-3.5 shrink-0 mt-0.5 text-[#047857] dark:text-[#34d399]" />
                             ) : (
-                              <XCircle className="size-3.5 shrink-0 mt-0.5 text-red-500" />
+                              <XCircle className="size-3.5 shrink-0 mt-0.5 text-[#b91c1c] dark:text-[#f87171]" />
                             )}
                             <span>
                               <span className="font-medium">{step.index + 1}.</span> {step.description}
@@ -2998,8 +2999,8 @@ export default function AutomationsV2Page() {
                     {/* Summary */}
                     <div className={`rounded-lg px-3 py-2.5 text-xs font-medium ${
                       testResults.conditions.allPass
-                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
-                        : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'
+                        ? 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:text-[#34d399]'
+                        : 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:text-[#f87171]'
                     }`}>
                       {testResults.conditions.allPass ? (
                         <span className="flex items-center gap-2">
@@ -3018,8 +3019,8 @@ export default function AutomationsV2Page() {
                     {testResults.executionResults && (
                       <div className={`rounded-lg px-3 py-2.5 text-xs ${
                         testResults.executionResults.executed
-                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
-                          : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'
+                          ? 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] dark:text-[#93c5fd]'
+                          : 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:text-[#f87171]'
                       }`}>
                         {testResults.executionResults.message}
                       </div>
@@ -3029,7 +3030,7 @@ export default function AutomationsV2Page() {
 
                 {/* Error state */}
                 {testResults?.error && (
-                  <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2.5">
+                  <div className="flex items-center gap-2 text-xs text-[#b91c1c] dark:text-[#f87171] bg-[rgba(239,68,68,.10)] rounded-lg px-3 py-2.5">
                     <AlertTriangle className="size-3.5 shrink-0" />
                     {testResults.error}
                   </div>

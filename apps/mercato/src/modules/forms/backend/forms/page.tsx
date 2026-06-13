@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
   Plus, ClipboardList, Globe, Eye, BarChart3, Copy, Trash2, Check, Code, Link2,
   MoreHorizontal, Pencil, ExternalLink, FileText, Mail, Phone,
@@ -223,9 +224,9 @@ const categoryIcons: Record<TemplateCategory, React.ReactNode> = {
   lead_gen: <Zap className="size-3.5" />,
 }
 
-const statusColors: Record<string, string> = {
-  draft: 'bg-muted text-muted-foreground',
-  published: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
+const statusVariants: Record<string, 'amber' | 'green'> = {
+  draft: 'amber',
+  published: 'green',
 }
 
 type Submission = {
@@ -566,9 +567,9 @@ export default function FormsListPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <h3 className="text-sm font-medium truncate">{form.name}</h3>
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${statusColors[form.status] || ''}`}>
+                      <Badge variant={statusVariants[form.status] || 'secondary'} className="shrink-0">
                         {form.status}
-                      </span>
+                      </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {form.submission_count} submission{form.submission_count !== 1 ? 's' : ''}

@@ -315,7 +315,7 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
             </IconButton>
           )}
           <Button type="button" onClick={saveCourse} disabled={saving}>
-            {saving ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : saved ? <Check className="size-4 mr-1.5 text-emerald-500" /> : <Save className="size-4 mr-1.5" />}
+            {saving ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : saved ? <Check className="size-4 mr-1.5" /> : <Save className="size-4 mr-1.5" />}
             {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
           </Button>
         </div>
@@ -323,17 +323,17 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
 
       {/* Generation status banner */}
       {course.generation_status === 'generating' && (
-        <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800 rounded-lg px-4 py-3 mb-6 flex items-center gap-3">
-          <Loader2 className="size-4 animate-spin text-violet-500" />
+        <div className="border border-[rgba(217,119,6,.26)] bg-[rgba(217,119,6,.10)] dark:border-[rgba(245,158,11,.30)] dark:bg-[rgba(245,158,11,.13)] rounded-lg px-4 py-3 mb-6 flex items-center gap-3">
+          <Loader2 className="size-4 animate-spin text-[#b45309] dark:text-[#fbbf24]" />
           <div>
-            <p className="text-sm font-medium text-violet-700 dark:text-violet-300">AI is generating lesson content...</p>
-            <p className="text-xs text-violet-500">This page will refresh automatically when complete.</p>
+            <p className="text-sm font-medium text-[#b45309] dark:text-[#fbbf24]">AI is generating lesson content...</p>
+            <p className="text-xs text-[#b45309] dark:text-[#fbbf24]">This page will refresh automatically when complete.</p>
           </div>
         </div>
       )}
       {course.generation_status === 'failed' && (
-        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3 mb-6">
-          <p className="text-sm font-medium text-red-700 dark:text-red-300">AI generation failed. You can still edit the course manually or try generating individual lessons.</p>
+        <div className="border border-[rgba(239,68,68,.24)] bg-[rgba(239,68,68,.10)] dark:border-[rgba(239,68,68,.30)] dark:bg-[rgba(239,68,68,.13)] rounded-lg px-4 py-3 mb-6">
+          <p className="text-sm font-medium text-[#b91c1c] dark:text-[#f87171]">AI generation failed. You can still edit the course manually or try generating individual lessons.</p>
         </div>
       )}
 
@@ -426,8 +426,7 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
                       <td className="px-4 py-3 text-muted-foreground">{e.student_email}</td>
                       <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(e.enrolled_at).toLocaleDateString()}</td>
                       <td className="px-4 py-3 text-center">
-                        <Badge variant={e.completed_at ? 'default' : 'secondary'}
-                          className={`text-[10px] ${e.completed_at ? 'bg-emerald-100 text-emerald-700' : ''}`}>
+                        <Badge variant={e.completed_at ? 'green' : 'secondary'}>
                           {e.completed_at ? 'Completed' : e.status}
                         </Badge>
                       </td>
@@ -620,7 +619,7 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
                 { id: 'dark', label: 'Dark', desc: 'Dark mode, purple accents', preview: 'bg-gray-900 border-purple-500' },
               ].map(s => (
                 <button key={s.id} type="button" onClick={() => setEditLandingStyle(s.id)}
-                  className={`rounded-lg border p-3 text-left transition-all ${editLandingStyle === s.id ? 'ring-2 ring-violet-400 border-violet-400' : 'hover:border-accent/30'}`}>
+                  className={`rounded-lg border p-3 text-left transition-all ${editLandingStyle === s.id ? 'ring-2 ring-primary border-primary' : 'hover:border-accent/30'}`}>
                   <div className={`w-full h-8 rounded ${s.preview} border mb-2`} />
                   <p className="text-xs font-medium">{s.label}</p>
                   <p className="text-[10px] text-muted-foreground">{s.desc}</p>
@@ -637,7 +636,7 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
             </div>
             <div className="flex items-center gap-2">
               <Button type="button" onClick={saveCourse} disabled={saving} size="sm">
-                {saving ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : saved ? <Check className="size-3.5 mr-1.5 text-emerald-500" /> : <Save className="size-3.5 mr-1.5" />}
+                {saving ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : saved ? <Check className="size-3.5 mr-1.5" /> : <Save className="size-3.5 mr-1.5" />}
                 {saving ? 'Saving...' : saved ? 'Saved' : 'Save Changes'}
               </Button>
               {course.is_published && (
@@ -656,14 +655,14 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
           {/* PKB Connection */}
           <div className="bg-card rounded-xl border p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="size-10 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-                <BookOpen className="size-5 text-violet-600" />
+              <div className="size-10 rounded-lg border border-primary/30 bg-foreground/[.04] dark:bg-white/[.04] flex items-center justify-center">
+                <BookOpen className="size-5 text-primary" />
               </div>
               <div>
                 <h3 className="font-semibold text-sm">Personal Knowledge Base</h3>
                 <p className="text-xs text-muted-foreground">Connect your PKB to pull documents into AI course generation.</p>
               </div>
-              {pkbStatus === 'connected' && <Badge variant="default" className="ml-auto text-[10px] bg-emerald-100 text-emerald-700">Connected</Badge>}
+              {pkbStatus === 'connected' && <Badge variant="green" className="ml-auto">Connected</Badge>}
             </div>
             <div className="space-y-3">
               <div>
@@ -747,12 +746,12 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
                           <div className="flex items-center gap-1">
                             <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] px-2"
                               onClick={() => openPkbPicker(modIdx, lesIdx)}>
-                              <BookOpen className="size-2.5 mr-1 text-blue-500" /> Pull from KB
+                              <BookOpen className="size-2.5 mr-1 text-[#1d4ed8] dark:text-[#93c5fd]" /> Pull from KB
                             </Button>
                             <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] px-2"
                               disabled={isGenerating || !lesson.title.trim()}
                               onClick={() => generateLessonContent(modIdx, lesIdx)}>
-                              {isGenerating ? <><Loader2 className="size-2.5 animate-spin mr-1" /> Generating...</> : <><Sparkles className="size-2.5 mr-1 text-violet-500" /> Generate with AI</>}
+                              {isGenerating ? <><Loader2 className="size-2.5 animate-spin mr-1" /> Generating...</> : <><Sparkles className="size-2.5 mr-1 text-primary" /> Generate with AI</>}
                             </Button>
                           </div>
                         </div>
@@ -773,7 +772,7 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
                           </div>
                         )}
                         {lesson.videoUrl && !embedUrl && (
-                          <p className="text-[10px] text-amber-600">Paste a YouTube, Vimeo, or Loom URL to see the preview</p>
+                          <p className="text-[10px] text-[#b45309] dark:text-[#fbbf24]">Paste a YouTube, Vimeo, or Loom URL to see the preview</p>
                         )}
                       </div>
                     )}

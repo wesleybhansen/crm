@@ -299,7 +299,7 @@ export default function AffiliatesPage() {
           <button key={t.id} type="button" onClick={() => setTab(t.id)}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
             {t.icon} {t.label}
-            {t.badge ? <span className="ml-1 bg-orange-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{t.badge}</span> : null}
+            {t.badge ? <span className="ml-1 bg-[rgba(217,119,6,.10)] text-[#b45309] dark:text-[#fbbf24] border border-[rgba(217,119,6,.26)] dark:border-[rgba(245,158,11,.30)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">{t.badge}</span> : null}
           </button>
         ))}
       </div>
@@ -335,7 +335,7 @@ export default function AffiliatesPage() {
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-semibold">{c.name}</h3>
-                          <Badge variant={c.status === 'active' ? 'default' : 'secondary'} className={`text-[10px] ${c.status === 'active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : ''}`}>
+                          <Badge variant={c.status === 'active' ? 'green' : 'secondary'}>
                             {c.status}
                           </Badge>
                         </div>
@@ -436,10 +436,10 @@ export default function AffiliatesPage() {
 
           {/* Pending approvals banner */}
           {pendingApprovals > 0 && (
-            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
+            <div className="bg-[rgba(217,119,6,.10)] border border-[rgba(217,119,6,.26)] dark:border-[rgba(245,158,11,.30)] rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Clock className="size-4 text-amber-600" />
-                <span className="text-sm font-medium text-amber-800 dark:text-amber-300">{pendingApprovals} affiliate{pendingApprovals > 1 ? 's' : ''} awaiting approval</span>
+                <Clock className="size-4 text-[#b45309] dark:text-[#fbbf24]" />
+                <span className="text-sm font-medium text-[#b45309] dark:text-[#fbbf24]">{pendingApprovals} affiliate{pendingApprovals > 1 ? 's' : ''} awaiting approval</span>
               </div>
             </div>
           )}
@@ -474,10 +474,9 @@ export default function AffiliatesPage() {
                       </td>
                       <td className="px-4 py-3 text-right">{aff.total_referrals}</td>
                       <td className="px-4 py-3 text-right">{aff.total_conversions}</td>
-                      <td className="px-4 py-3 text-right font-medium text-emerald-600">{fmt(aff.total_earned)}</td>
+                      <td className="px-4 py-3 text-right font-medium text-[#047857] dark:text-[#34d399]">{fmt(aff.total_earned)}</td>
                       <td className="px-4 py-3 text-center">
-                        <Badge variant={aff.status === 'active' ? 'default' : 'secondary'}
-                          className={`text-[10px] ${aff.status === 'active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : aff.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : ''}`}>
+                        <Badge variant={aff.status === 'active' ? 'green' : aff.status === 'pending' ? 'amber' : 'secondary'}>
                           {aff.status}
                         </Badge>
                       </td>
@@ -576,7 +575,7 @@ export default function AffiliatesPage() {
                       <td className="px-4 py-3"><Badge variant="secondary" className="text-[10px]">{r.referral_source || 'link'}</Badge></td>
                       <td className="px-4 py-3 text-muted-foreground text-xs">{fmtDateTime(r.referred_at)}</td>
                       <td className="px-4 py-3 text-center">
-                        <Badge variant={r.converted ? 'default' : 'secondary'} className={`text-[10px] ${r.converted ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : ''}`}>
+                        <Badge variant={r.converted ? 'green' : 'secondary'}>
                           {r.converted ? 'Converted' : 'Pending'}
                         </Badge>
                       </td>
@@ -598,11 +597,11 @@ export default function AffiliatesPage() {
             <div className="flex items-center gap-4">
               <div className="bg-card rounded-lg border px-4 py-2">
                 <span className="text-[10px] text-muted-foreground uppercase">Pending</span>
-                <p className="text-lg font-bold text-orange-600">{fmt(pendingPayouts)}</p>
+                <p className="text-lg font-bold text-[#b45309] dark:text-[#fbbf24]">{fmt(pendingPayouts)}</p>
               </div>
               <div className="bg-card rounded-lg border px-4 py-2">
                 <span className="text-[10px] text-muted-foreground uppercase">Total Paid</span>
-                <p className="text-lg font-bold text-emerald-600">{fmt(allPayouts.filter(p => p.status === 'paid').reduce((s, p) => s + Number(p.amount), 0))}</p>
+                <p className="text-lg font-bold text-[#047857] dark:text-[#34d399]">{fmt(allPayouts.filter(p => p.status === 'paid').reduce((s, p) => s + Number(p.amount), 0))}</p>
               </div>
             </div>
             <Button type="button" size="sm" onClick={() => setShowPayoutForm(true)}>
@@ -631,7 +630,7 @@ export default function AffiliatesPage() {
                       <td className="px-4 py-3 font-medium">{p.affiliate_name}</td>
                       <td className="px-4 py-3 text-right font-semibold">{fmt(p.amount)}</td>
                       <td className="px-4 py-3 text-center">
-                        <Badge variant={p.status === 'paid' ? 'default' : 'secondary'} className={`text-[10px] ${p.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{p.status}</Badge>
+                        <Badge variant={p.status === 'paid' ? 'green' : 'amber'}>{p.status}</Badge>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground text-xs">{fmtDate(p.created_at)}</td>
                       <td className="px-4 py-3 text-right">
@@ -673,7 +672,7 @@ export default function AffiliatesPage() {
                 ].map(s => (
                   <div key={s.label} className="bg-muted/50 rounded-lg p-3">
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</p>
-                    <p className={`text-sm font-bold mt-1 ${s.mono ? 'font-mono' : ''} ${s.green ? 'text-emerald-600' : ''}`}>{s.value}</p>
+                    <p className={`text-sm font-bold mt-1 ${s.mono ? 'font-mono' : ''} ${s.green ? 'text-[#047857] dark:text-[#34d399]' : ''}`}>{s.value}</p>
                   </div>
                 ))}
               </div>
@@ -731,12 +730,12 @@ export default function AffiliatesPage() {
                 <div className="space-y-2 mb-6">
                   {detailReferrals.slice(0, 20).map(r => (
                     <div key={r.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-                      <div className={`size-2 rounded-full shrink-0 ${r.converted ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`} />
+                      <div className={`size-2 rounded-full shrink-0 ${r.converted ? 'bg-[#047857] dark:bg-[#34d399]' : 'bg-muted-foreground/30'}`} />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium truncate">{r.referred_email || 'Anonymous'}</p>
                         <p className="text-[10px] text-muted-foreground">{fmtDateTime(r.referred_at)}</p>
                       </div>
-                      {r.converted && <p className="text-xs font-medium text-emerald-600">{fmt(r.commission_amount)}</p>}
+                      {r.converted && <p className="text-xs font-medium text-[#047857] dark:text-[#34d399]">{fmt(r.commission_amount)}</p>}
                     </div>
                   ))}
                 </div>
@@ -751,7 +750,7 @@ export default function AffiliatesPage() {
                   {detailPayouts.map(p => (
                     <div key={p.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
                       <div className="flex-1"><p className="text-xs font-medium">{fmt(p.amount)}</p><p className="text-[10px] text-muted-foreground">{fmtDate(p.created_at)}</p></div>
-                      <Badge variant={p.status === 'paid' ? 'default' : 'secondary'} className={`text-[9px] ${p.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{p.status}</Badge>
+                      <Badge variant={p.status === 'paid' ? 'green' : 'amber'}>{p.status}</Badge>
                     </div>
                   ))}
                 </div>

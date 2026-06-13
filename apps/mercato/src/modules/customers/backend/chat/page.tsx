@@ -221,7 +221,7 @@ function Avatar({ name, email, size = 'md' }: { name: string | null; email: stri
 
 function StatusDot({ status }: { status: string }) {
   return (
-    <span className={`size-2 rounded-full flex-shrink-0 ${status === 'open' ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+    <span className={`size-2 rounded-full flex-shrink-0 ${status === 'open' ? 'bg-[#047857] dark:bg-[#34d399]' : 'bg-muted-foreground/30'}`} />
   )
 }
 
@@ -254,7 +254,7 @@ function useToast() {
               className={`px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg animate-in slide-in-from-bottom-2 ${
                 t.type === 'error'
                   ? 'bg-destructive text-white'
-                  : 'bg-emerald-600 text-white'
+                  : 'bg-[#047857] dark:bg-[#34d399] text-white'
               }`}
             >
               {t.message}
@@ -398,8 +398,8 @@ function LandingPage({
                         {widget.is_active ? 'Active' : 'Inactive'}
                       </Badge>
                       {widget.bot_enabled && (
-                        <Badge variant="default" className="text-[10px] h-5 bg-violet-600">
-                          <Bot className="size-3 mr-0.5" /> AI
+                        <Badge variant="violet" className="gap-1">
+                          <Bot className="size-3" /> AI
                         </Badge>
                       )}
                     </div>
@@ -420,7 +420,7 @@ function LandingPage({
                         aria-label="Copy public link"
                         title="Copy public chat link"
                       >
-                        {copiedSlug === widget.slug ? <Check className="size-4 text-emerald-500" /> : <Link className="size-4" />}
+                        {copiedSlug === widget.slug ? <Check className="size-4 text-[#047857] dark:text-[#34d399]" /> : <Link className="size-4" />}
                       </IconButton>
                     )}
                     <IconButton
@@ -431,7 +431,7 @@ function LandingPage({
                       aria-label="Copy embed code"
                       title="Copy embed code"
                     >
-                      {copiedEmbed === widget.id ? <Check className="size-4 text-emerald-500" /> : <Code className="size-4" />}
+                      {copiedEmbed === widget.id ? <Check className="size-4 text-[#047857] dark:text-[#34d399]" /> : <Code className="size-4" />}
                     </IconButton>
                     {widget.slug && widget.public_page_enabled && (
                       <IconButton
@@ -462,7 +462,7 @@ function LandingPage({
                       aria-label={widget.is_active ? 'Deactivate' : 'Activate'}
                       title={widget.is_active ? 'Deactivate widget' : 'Activate widget'}
                     >
-                      <div className={`size-2 rounded-full ${widget.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                      <div className={`size-2 rounded-full ${widget.is_active ? 'bg-[#047857] dark:bg-[#34d399]' : 'bg-muted-foreground/30'}`} />
                     </IconButton>
                     <IconButton
                       variant="ghost"
@@ -724,7 +724,7 @@ function CreationWizard({
 
             <div className="flex items-center justify-between bg-muted/50 rounded-xl px-5 py-4 mb-6">
               <div className="flex items-center gap-3">
-                <Bot className="size-5 text-violet-500" />
+                <Bot className="size-5 text-[#6d28d9] dark:text-[#c4b5fd]" />
                 <div>
                   <Label htmlFor="wizard-bot-toggle" className="text-sm font-medium cursor-pointer">
                     Enable AI Chat Bot
@@ -1018,8 +1018,8 @@ function CreationWizard({
         {step === 3 && createdWidget && (
           <div>
             <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-emerald-500/10 mb-3">
-                <Check className="size-7 text-emerald-500" />
+              <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-[rgba(16,185,129,.10)] mb-3">
+                <Check className="size-7 text-[#047857] dark:text-[#34d399]" />
               </div>
               <h2 className="text-xl font-bold text-foreground mb-1">Widget Created</h2>
               <p className="text-sm text-muted-foreground">
@@ -1044,7 +1044,7 @@ function CreationWizard({
                     {origin}/api/chat/page/{widgetSlug}
                   </code>
                   <Button variant="ghost" size="sm" type="button" onClick={copyLink} className="h-7 px-2 text-xs flex-shrink-0">
-                    {copiedLink ? <Check className="size-3 mr-1 text-emerald-500" /> : <Copy className="size-3 mr-1" />}
+                    {copiedLink ? <Check className="size-3 mr-1 text-[#047857] dark:text-[#34d399]" /> : <Copy className="size-3 mr-1" />}
                     {copiedLink ? 'Copied!' : 'Copy'}
                   </Button>
                 </div>
@@ -1069,7 +1069,7 @@ function CreationWizard({
                     {`<script src="${origin}/api/chat/widget/${createdWidget.id}" async></script>`}
                   </code>
                   <Button variant="ghost" size="sm" type="button" onClick={copyEmbed} className="h-7 px-2 text-xs flex-shrink-0">
-                    {copiedEmbed ? <Check className="size-3 mr-1 text-emerald-500" /> : <Copy className="size-3 mr-1" />}
+                    {copiedEmbed ? <Check className="size-3 mr-1 text-[#047857] dark:text-[#34d399]" /> : <Copy className="size-3 mr-1" />}
                     {copiedEmbed ? 'Copied!' : 'Copy'}
                   </Button>
                 </div>
@@ -2347,7 +2347,7 @@ function WidgetCard({
                   }}
                   className="h-auto py-0.5 px-2 text-xs"
                 >
-                  {copiedLink ? <Check className="size-3 mr-1 text-emerald-600" /> : <Copy className="size-3 mr-1" />}
+                  {copiedLink ? <Check className="size-3 mr-1 text-[#047857] dark:text-[#34d399]" /> : <Copy className="size-3 mr-1" />}
                   {copiedLink ? 'Copied!' : 'Copy'}
                 </Button>
                 <Button
@@ -2384,7 +2384,7 @@ function WidgetCard({
               }}
               className="h-auto py-0.5 px-2 text-xs"
             >
-              {copiedEmbed ? <Check className="size-3 mr-1 text-emerald-600" /> : <Copy className="size-3 mr-1" />}
+              {copiedEmbed ? <Check className="size-3 mr-1 text-[#047857] dark:text-[#34d399]" /> : <Copy className="size-3 mr-1" />}
               {copiedEmbed ? 'Copied!' : 'Copy'}
             </Button>
           </div>
@@ -2395,13 +2395,13 @@ function WidgetCard({
       {/* AI Bot Toggle — always visible on card */}
       <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3 mb-3">
         <div className="flex items-center gap-2.5">
-          <Bot className="size-4 text-violet-500" />
+          <Bot className="size-4 text-[#6d28d9] dark:text-[#c4b5fd]" />
           <div>
             <Label htmlFor={`bot-toggle-${widget.id}`} className="text-sm font-medium cursor-pointer">
               Enable AI Chat Bot
             </Label>
             {botEnabled && (
-              <Badge variant="default" className="ml-2 text-[10px] h-4 bg-emerald-600">AI Active</Badge>
+              <Badge variant="green" className="ml-2">AI Active</Badge>
             )}
           </div>
         </div>

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
   Plus, X, Loader2, GitBranch, Play, Pause, Trash2, Mail, Clock, Pencil,
   Filter, MessageSquare, Users, ChevronDown, ChevronRight, Sparkles, UserPlus,
@@ -101,11 +102,16 @@ function TriggerSubOptions({ triggerType, config, onChange }: { triggerType: str
   )
 }
 
-const statusColors: Record<string, string> = {
-  draft: 'bg-muted text-muted-foreground',
-  active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  paused: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  archived: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+const statusVariant: Record<string, 'violet' | 'blue' | 'green' | 'amber' | 'red' | 'secondary'> = {
+  draft: 'amber',
+  active: 'green',
+  paused: 'amber',
+  archived: 'red',
+  completed: 'green',
+  pending: 'amber',
+  scheduled: 'blue',
+  failed: 'red',
+  bounced: 'red',
 }
 
 export default function SequencesPage({ embedded }: { embedded?: boolean } = {}) {
@@ -402,9 +408,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium">{seq.name}</p>
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusColors[seq.status] || ''}`}>
-                      {seq.status}
-                    </span>
+                    <Badge variant={statusVariant[seq.status] || 'secondary'}>{seq.status}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {TRIGGER_TYPES.find(t => t.value === seq.trigger_type)?.label || seq.trigger_type}
@@ -472,9 +476,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
                                 <p className="text-sm font-medium">{recipe.name}</p>
-                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                                  {recipe.category}
-                                </span>
+                                <Badge variant="violet">{recipe.category}</Badge>
                               </div>
                               <p className="text-xs text-muted-foreground mb-2">{recipe.description}</p>
                               <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
@@ -741,9 +743,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-semibold">{seq.name}</h1>
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusColors[seq.status] || ''}`}>
-                {seq.status}
-              </span>
+              <Badge variant={statusVariant[seq.status] || 'secondary'}>{seq.status}</Badge>
             </div>
             {seq.description && <p className="text-xs text-muted-foreground mt-0.5">{seq.description}</p>}
           </div>
@@ -794,7 +794,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
 
         {/* Trigger */}
         <div className="rounded-lg border bg-card p-4 mb-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-1">Trigger</p>
+          <p className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground mb-1">Trigger</p>
           <p className="text-sm font-medium">{TRIGGER_TYPES.find(t => t.value === seq.trigger_type)?.label || seq.trigger_type}</p>
           {seq.trigger_config && Object.keys(seq.trigger_config).length > 0 && (
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -805,7 +805,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
 
         {/* Steps */}
         <div className="rounded-lg border bg-card p-4 mb-6">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-3">
+          <p className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground mb-3">
             Steps ({seq.steps?.length || 0})
           </p>
           <div className="space-y-2">
@@ -873,7 +873,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                 autoFocus
               />
               {enrollSelectedIds.size > 0 && (
-                <p className="text-xs text-emerald-600 font-medium mb-2">{enrollSelectedIds.size} contact{enrollSelectedIds.size > 1 ? 's' : ''} selected</p>
+                <p className="text-xs text-primary font-medium mb-2">{enrollSelectedIds.size} contact{enrollSelectedIds.size > 1 ? 's' : ''} selected</p>
               )}
               <div className="max-h-56 overflow-y-auto rounded border mb-3">
                 {enrollContactListLoading ? (
@@ -929,7 +929,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
         {/* Enrollments */}
         <div className="rounded-lg border bg-card">
           <div className="flex items-center justify-between px-4 py-3 border-b">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
+            <p className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground">
               <Users className="size-3.5 inline mr-1" /> Enrollments ({enrollments.length})
             </p>
           </div>
@@ -945,9 +945,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                     <p className="text-sm font-medium">{enr.display_name || 'Unknown'}</p>
                     <p className="text-xs text-muted-foreground">{enr.primary_email || ''}</p>
                   </div>
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusColors[enr.status] || 'bg-muted text-muted-foreground'}`}>
-                    {enr.status}
-                  </span>
+                  <Badge variant={statusVariant[enr.status] || 'secondary'}>{enr.status}</Badge>
                   <span className="text-xs text-muted-foreground tabular-nums">
                     Step {enr.current_step_order}
                   </span>

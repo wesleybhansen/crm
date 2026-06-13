@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Plus, DollarSign, FileText, Link2, Loader2, X, Package, CreditCard, Check, XCircle, Plug, Trash2, CheckCircle, Clock, History, Mail, Copy, ExternalLink, Pencil, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownLeft, Eye, MousePointerClick, RotateCcw, Ban } from 'lucide-react'
 
 type Product = {
@@ -543,31 +544,33 @@ export default function PaymentsPage() {
     })
   }
 
-  const statusColors: Record<string, string> = {
-    draft: 'bg-muted text-muted-foreground',
-    sent: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    overdue: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    cancelled: 'bg-muted text-muted-foreground line-through',
+  type BadgeVariant = 'violet' | 'blue' | 'green' | 'amber' | 'red' | 'secondary'
+
+  const statusVariants: Record<string, BadgeVariant> = {
+    draft: 'amber',
+    sent: 'blue',
+    paid: 'green',
+    overdue: 'red',
+    cancelled: 'secondary',
   }
 
-  const paymentStatusColors: Record<string, string> = {
-    succeeded: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    refunded: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-    partially_refunded: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  const paymentStatusVariants: Record<string, BadgeVariant> = {
+    succeeded: 'green',
+    completed: 'green',
+    pending: 'amber',
+    failed: 'red',
+    refunded: 'red',
+    partially_refunded: 'amber',
   }
 
-  const emailStatusColors: Record<string, string> = {
-    sent: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    delivered: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    opened: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-    clicked: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
-    bounced: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    queued: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  const emailStatusVariants: Record<string, BadgeVariant> = {
+    sent: 'blue',
+    delivered: 'green',
+    opened: 'violet',
+    clicked: 'blue',
+    bounced: 'red',
+    queued: 'amber',
+    failed: 'red',
   }
 
   return (
@@ -585,8 +588,8 @@ export default function PaymentsPage() {
       {stripeMessage && (
         <div className={`rounded-lg px-4 py-3 mb-4 flex items-center justify-between text-sm ${
           stripeMessage.type === 'success'
-            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
-            : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
+            ? 'border border-[rgba(16,185,129,.26)] bg-[rgba(16,185,129,.10)] text-[#047857] dark:border-[rgba(16,185,129,.30)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399]'
+            : 'border border-[rgba(239,68,68,.24)] bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:border-[rgba(239,68,68,.30)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171]'
         }`}>
           <span className="flex items-center gap-2">
             {stripeMessage.type === 'success' ? <Check className="size-4" /> : <XCircle className="size-4" />}
@@ -606,15 +609,15 @@ export default function PaymentsPage() {
         ) : stripeConnection ? (
           <div className="px-5 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
-                <CreditCard className="size-5 text-emerald-600 dark:text-emerald-400" />
+              <div className="w-10 h-10 rounded-lg bg-[rgba(16,185,129,.10)] dark:bg-[rgba(16,185,129,.14)] flex items-center justify-center shrink-0">
+                <CreditCard className="size-5 text-[#047857] dark:text-[#34d399]" />
               </div>
               <div>
                 <p className="text-sm font-medium flex items-center gap-2">
                   {stripeConnection.businessName || stripeConnection.stripeAccountId}
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded font-medium">Connected</span>
+                  <Badge variant="green">Connected</Badge>
                   {stripeConnection.livemode && (
-                    <span className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded font-medium">Live</span>
+                    <Badge variant="blue">Live</Badge>
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">Account: {stripeConnection.stripeAccountId}</p>
@@ -1043,7 +1046,7 @@ export default function PaymentsPage() {
                   </div>
                 )}
                 {emailFeedback?.id === p.id && (
-                  <div className={`px-5 pb-3 -mt-1 text-xs ${emailFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                  <div className={`px-5 pb-3 -mt-1 text-xs ${emailFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                     {emailFeedback.text}
                   </div>
                 )}
@@ -1072,9 +1075,7 @@ export default function PaymentsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
                         <p className="text-sm font-semibold">{inv.invoice_number}</p>
-                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusColors[inv.status] || ''}`}>
-                          {inv.status}
-                        </span>
+                        <Badge variant={statusVariants[inv.status] || 'secondary'}>{inv.status}</Badge>
                         {inv.paid_at && (
                           <span className="text-[10px] text-muted-foreground">
                             Paid {new Date(inv.paid_at).toLocaleDateString()}
@@ -1094,7 +1095,7 @@ export default function PaymentsPage() {
                   {inv.status !== 'draft' && invoiceEmails[inv.id]?.length > 0 && (() => {
                     const lastEmail = invoiceEmails[inv.id][0]
                     return (
-                      <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-medium bg-muted text-muted-foreground rounded px-2 py-0.5">
+                      <Badge variant="secondary" className="mt-2 gap-1 normal-case tracking-normal">
                         <Mail className="size-2.5" />
                         Email sent {new Date(lastEmail.sent_at).toLocaleDateString()}
                         {lastEmail.opened_at && (
@@ -1102,7 +1103,7 @@ export default function PaymentsPage() {
                             · <Eye className="size-2.5" /> Opened
                           </span>
                         )}
-                      </span>
+                      </Badge>
                     )
                   })()}
 
@@ -1173,7 +1174,7 @@ export default function PaymentsPage() {
 
                   {/* Feedback message */}
                   {emailFeedback?.id === inv.id && (
-                    <div className={`mt-2 text-xs ${emailFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                    <div className={`mt-2 text-xs ${emailFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                       {emailFeedback.text}
                     </div>
                   )}
@@ -1207,9 +1208,9 @@ export default function PaymentsPage() {
                             <div key={em.id} className="px-4 py-2.5">
                               <div className="flex items-center gap-2 mb-1">
                                 {em.direction === 'outbound' ? (
-                                  <ArrowUpRight className="size-3 text-blue-500 shrink-0" />
+                                  <ArrowUpRight className="size-3 text-[#1d4ed8] dark:text-[#93c5fd] shrink-0" />
                                 ) : (
-                                  <ArrowDownLeft className="size-3 text-emerald-500 shrink-0" />
+                                  <ArrowDownLeft className="size-3 text-[#047857] dark:text-[#34d399] shrink-0" />
                                 )}
                                 <div className="flex-1 min-w-0">
                                   <span className="text-xs font-medium truncate block">
@@ -1218,9 +1219,7 @@ export default function PaymentsPage() {
                                   {em.cc && <span className="text-[10px] text-muted-foreground truncate block">CC: {em.cc}</span>}
                                   {em.bcc && <span className="text-[10px] text-muted-foreground truncate block">BCC: {em.bcc}</span>}
                                 </div>
-                                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${emailStatusColors[em.status] || 'bg-muted text-muted-foreground'}`}>
-                                  {em.status}
-                                </span>
+                                <Badge variant={emailStatusVariants[em.status] || 'secondary'} className="shrink-0">{em.status}</Badge>
                               </div>
                               <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
                                 <span>{new Date(em.sent_at || em.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
@@ -1481,20 +1480,18 @@ export default function PaymentsPage() {
                           <p className="text-sm font-medium">
                             {rec.contact_name || 'Unknown'}
                           </p>
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${paymentStatusColors[rec.status] || 'bg-muted text-muted-foreground'}`}>
+                          <Badge variant={paymentStatusVariants[rec.status] || 'secondary'}>
                             {rec.status === 'partially_refunded' ? 'partial refund' : rec.status}
-                          </span>
+                          </Badge>
                           {rec.stripe_subscription_id && (
-                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                              subscription
-                            </span>
+                            <Badge variant="blue">subscription</Badge>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground">
                           {new Date(rec.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           {rec.invoice_number && <span className="ml-2">- {rec.invoice_number}</span>}
                           {Number(rec.refunded_amount) > 0 && (
-                            <span className="ml-2 text-orange-600 dark:text-orange-400">
+                            <span className="ml-2 text-[#b45309] dark:text-[#fbbf24]">
                               · ${Number(rec.refunded_amount).toFixed(2)} refunded
                             </span>
                           )}
@@ -1520,7 +1517,7 @@ export default function PaymentsPage() {
                       )}
                       {rec.stripe_subscription_id && rec.status === 'succeeded' && (
                         <Button type="button" variant="outline" size="sm"
-                          className="text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/30"
+                          className="text-[#b91c1c] border-[rgba(239,68,68,.24)] hover:bg-[rgba(239,68,68,.10)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)] dark:hover:bg-[rgba(239,68,68,.13)]"
                           onClick={() => { setCancelSubRecord(rec); setCancelAtPeriodEnd(true); setCancelSubFeedback(null) }}>
                           <Ban className="size-3 mr-1.5" /> Cancel Subscription
                         </Button>
@@ -1536,12 +1533,12 @@ export default function PaymentsPage() {
 
                   {/* Inline feedback */}
                   {refundFeedback?.id === rec.id && (
-                    <div className={`px-5 pb-3 ml-[4.25rem] text-xs ${refundFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                    <div className={`px-5 pb-3 ml-[4.25rem] text-xs ${refundFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                       {refundFeedback.text}
                     </div>
                   )}
                   {cancelSubFeedback?.id === rec.id && (
-                    <div className={`px-5 pb-3 ml-[4.25rem] text-xs ${cancelSubFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                    <div className={`px-5 pb-3 ml-[4.25rem] text-xs ${cancelSubFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                       {cancelSubFeedback.text}
                     </div>
                   )}
@@ -1591,7 +1588,7 @@ export default function PaymentsPage() {
                 </div>
               )}
               {refundFeedback && (
-                <div className={`text-xs ${refundFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                <div className={`text-xs ${refundFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                   {refundFeedback.text}
                 </div>
               )}
@@ -1599,7 +1596,7 @@ export default function PaymentsPage() {
                 <Button type="button" variant="outline" size="sm" onClick={() => setRefundRecord(null)}>Cancel</Button>
                 <Button type="button" size="sm" onClick={issueRefund}
                   disabled={refunding || (refundType === 'partial' && (!refundAmount || Number(refundAmount) <= 0))}
-                  className="bg-orange-600 hover:bg-orange-700 text-white">
+                  className="bg-[#b45309] hover:bg-[#92400e] text-white">
                   {refunding ? <Loader2 className="size-3 animate-spin mr-1" /> : <RotateCcw className="size-3 mr-1" />}
                   {refunding ? 'Processing...' : 'Issue Refund'}
                 </Button>
@@ -1642,14 +1639,14 @@ export default function PaymentsPage() {
                 </label>
               </div>
               {cancelSubFeedback && (
-                <div className={`text-xs ${cancelSubFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                <div className={`text-xs ${cancelSubFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                   {cancelSubFeedback.text}
                 </div>
               )}
               <div className="flex justify-end gap-2 pt-2 border-t">
                 <Button type="button" variant="outline" size="sm" onClick={() => setCancelSubRecord(null)}>Keep Subscription</Button>
                 <Button type="button" size="sm" onClick={cancelSubscription} disabled={cancellingSub}
-                  className="bg-red-600 hover:bg-red-700 text-white">
+                  className="bg-[#b91c1c] hover:bg-[#991b1b] text-white">
                   {cancellingSub ? <Loader2 className="size-3 animate-spin mr-1" /> : <Ban className="size-3 mr-1" />}
                   {cancellingSub ? 'Cancelling...' : 'Cancel Subscription'}
                 </Button>

@@ -375,7 +375,7 @@ export default function AutomationRulesPage() {
                   <IconButton type="button" variant="ghost" size="sm"
                     onClick={() => toggleRule(rule)} aria-label={rule.is_active ? 'Disable' : 'Enable'}
                     className="opacity-0 group-hover:opacity-100 transition">
-                    {rule.is_active ? <Power className="size-3.5 text-green-500" /> : <PowerOff className="size-3.5 text-muted-foreground" />}
+                    {rule.is_active ? <Power className="size-3.5 text-[#047857] dark:text-[#34d399]" /> : <PowerOff className="size-3.5 text-muted-foreground" />}
                   </IconButton>
                   <IconButton type="button" variant="ghost" size="sm"
                     onClick={() => deleteRule(rule.id)} aria-label="Delete"
@@ -400,7 +400,7 @@ export default function AutomationRulesPage() {
                           const result = typeof log.action_result === 'string' ? JSON.parse(log.action_result) : (log.action_result || {})
                           return (
                             <div key={log.id} className="flex items-center gap-2 text-xs">
-                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${log.status === 'executed' ? 'bg-green-500' : 'bg-red-500'}`} />
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${log.status === 'executed' ? 'bg-[#10b981]' : 'bg-[#ef4444]'}`} />
                               <span className="text-muted-foreground tabular-nums">
                                 {new Date(log.created_at).toLocaleDateString()} {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>

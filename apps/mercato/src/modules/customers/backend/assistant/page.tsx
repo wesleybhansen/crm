@@ -2016,7 +2016,7 @@ export default function VoiceAssistantPage() {
                   </button>
                 )}
                 <button onClick={e => { e.stopPropagation(); deleteConversation(conv.id) }}
-                  className="p-1 rounded hover:bg-muted text-red-500" title="Delete">
+                  className="p-1 rounded hover:bg-muted text-[#b91c1c] dark:text-[#f87171]" title="Delete">
                   <Trash2 className="size-3" />
                 </button>
               </div>
@@ -2105,12 +2105,12 @@ export default function VoiceAssistantPage() {
                   </div>
                 )}
                 {msg.actionStatus === 'success' && (
-                  <div className="mt-3 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300">
+                  <div className="mt-3 p-3 rounded-lg bg-[rgba(16,185,129,.10)] text-[#047857] dark:text-[#34d399]">
                     <Check className="size-3 inline mr-1" /> <span className="text-xs">{msg.actionResult}</span>
                   </div>
                 )}
                 {msg.actionStatus === 'error' && (
-                  <div className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300">
+                  <div className="mt-3 p-3 rounded-lg bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:text-[#f87171]">
                     <AlertCircle className="size-3 inline mr-1" /> <span className="text-xs">{msg.actionResult}</span>
                   </div>
                 )}
@@ -2120,14 +2120,14 @@ export default function VoiceAssistantPage() {
                   </div>
                 )}
                 {msg.reconciliationWarning && (
-                  <div className="mt-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-300/60 dark:border-amber-800/60">
+                  <div className="mt-3 p-3 rounded-lg bg-[rgba(217,119,6,.10)] border border-[rgba(217,119,6,.30)]">
                     <div className="flex items-start gap-2 text-xs">
-                      <AlertCircle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+                      <AlertCircle className="size-4 text-[#b45309] dark:text-[#fbbf24] shrink-0 mt-0.5" />
                       <div className="flex-1">
-                        <div className="font-medium text-amber-900 dark:text-amber-200">
+                        <div className="font-medium text-[#b45309] dark:text-[#fbbf24]">
                           Scout described actions it didn&apos;t actually run.
                         </div>
-                        <div className="text-amber-700 dark:text-amber-300/80 mt-0.5">
+                        <div className="text-[#b45309] dark:text-[#fbbf24] mt-0.5">
                           Mentioned: {msg.reconciliationWarning.verbsClaimed.join(', ')} · Tool calls emitted: {msg.reconciliationWarning.toolsCalled}
                         </div>
                         <div className="flex gap-2 mt-2">

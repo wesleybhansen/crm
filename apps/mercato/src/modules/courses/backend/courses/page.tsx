@@ -239,9 +239,9 @@ export default function CoursesPage() {
       {showMode === 'select' && (
         <div className="grid grid-cols-3 gap-4 mb-8">
           <button type="button" onClick={() => setShowMode('ai-wizard')}
-            className="group rounded-xl border border-violet-200 dark:border-violet-800 p-6 text-left hover:border-violet-400 hover:bg-violet-50/50 dark:hover:bg-violet-950/20 transition-all">
-            <div className="size-10 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center mb-3">
-              <Sparkles className="size-5 text-white" />
+            className="group rounded-xl border border-primary/30 p-6 text-left hover:border-primary/60 hover:bg-foreground/[.04] dark:hover:bg-white/[.04] transition-all">
+            <div className="size-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center mb-3">
+              <Sparkles className="size-5" />
             </div>
             <h3 className="font-semibold mb-1">AI Auto-Generate</h3>
             <p className="text-xs text-muted-foreground">Describe your topic and AI creates the entire course — outline, modules, and lesson content.</p>
@@ -272,7 +272,7 @@ export default function CoursesPage() {
         <div className="bg-card rounded-xl border shadow-sm p-6 mb-8 max-w-2xl mx-auto">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
-              <Sparkles className="size-5 text-violet-500" />
+              <Sparkles className="size-5 text-primary" />
               <h3 className="font-semibold">AI Course Generator</h3>
             </div>
             <IconButton variant="ghost" size="sm" type="button" onClick={() => setShowMode('none')} aria-label="Close"><X className="size-4" /></IconButton>
@@ -282,7 +282,7 @@ export default function CoursesPage() {
           <div className="flex gap-1 mb-6">
             {['Topic', 'Sources', 'Settings', 'Outline', 'Landing Page', 'Generate'].map((label, i) => (
               <button key={i} type="button" onClick={() => { if (i <= aiStep) setAiStep(i) }}
-                className={`flex-1 py-2 rounded-lg text-[11px] font-medium text-center transition-colors ${aiStep === i ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' : i < aiStep ? 'bg-violet-50 text-violet-500 dark:bg-violet-950/10 dark:text-violet-400' : 'bg-muted text-muted-foreground'}`}>
+                className={`flex-1 py-2 rounded-lg text-[11px] font-medium text-center transition-colors ${aiStep === i ? 'border border-primary bg-foreground/[.04] dark:bg-white/[.04] text-primary' : i < aiStep ? 'bg-foreground/[.04] dark:bg-white/[.04] text-primary' : 'bg-muted text-muted-foreground'}`}>
                 {label}
               </button>
             ))}
@@ -327,7 +327,7 @@ export default function CoursesPage() {
                   <label className="text-sm font-medium">Upload Files</label>
                 </div>
                 <p className="text-xs text-muted-foreground mb-3">Upload .txt, .md, or .csv files with your existing content, notes, or outlines.</p>
-                <label className="flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-6 cursor-pointer hover:border-violet-300 hover:bg-violet-50/30 transition-colors">
+                <label className="flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-6 cursor-pointer hover:border-primary/40 hover:bg-foreground/[.04] dark:hover:bg-white/[.04] transition-colors">
                   <Upload className="size-5 text-muted-foreground mb-2" />
                   <span className="text-sm font-medium text-muted-foreground">Click to upload files</span>
                   <span className="text-[11px] text-muted-foreground/60 mt-1">TXT, MD, CSV — up to 50KB per file</span>
@@ -398,7 +398,7 @@ export default function CoursesPage() {
                     </div>
                   )}
                   {pkbSelectedDocs.length > 0 && (
-                    <p className="text-[11px] text-violet-600 dark:text-violet-400 mt-2 font-medium">{pkbSelectedDocs.length} document{pkbSelectedDocs.length > 1 ? 's' : ''} selected</p>
+                    <p className="text-[11px] text-primary mt-2 font-medium">{pkbSelectedDocs.length} document{pkbSelectedDocs.length > 1 ? 's' : ''} selected</p>
                   )}
                 </div>
               )}
@@ -414,9 +414,9 @@ export default function CoursesPage() {
 
               {/* Source summary */}
               {(uploadedFiles.length > 0 || pkbSelectedDocs.length > 0) && (
-                <div className="bg-violet-50 dark:bg-violet-950/20 rounded-lg p-3 flex items-center gap-2">
-                  <Sparkles className="size-4 text-violet-500 shrink-0" />
-                  <p className="text-xs text-violet-700 dark:text-violet-300">
+                <div className="border border-primary/30 bg-foreground/[.04] dark:bg-white/[.04] rounded-lg p-3 flex items-center gap-2">
+                  <Sparkles className="size-4 text-primary shrink-0" />
+                  <p className="text-xs text-foreground">
                     AI will use {uploadedFiles.length + pkbSelectedDocs.length} source document{uploadedFiles.length + pkbSelectedDocs.length > 1 ? 's' : ''} to guide course creation — content will be more accurate and aligned with your material.
                   </p>
                 </div>
@@ -439,9 +439,9 @@ export default function CoursesPage() {
                 <div className="grid gap-2">
                   {DEPTHS.map(d => (
                     <button key={d.id} type="button" onClick={() => setAiDepth(d.id)}
-                      className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${aiDepth === d.id ? 'border-violet-400 bg-violet-50 dark:bg-violet-950/20' : 'hover:bg-muted/50'}`}>
-                      <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 ${aiDepth === d.id ? 'border-violet-500' : 'border-muted-foreground/30'}`}>
-                        {aiDepth === d.id && <div className="size-2 rounded-full bg-violet-500" />}
+                      className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${aiDepth === d.id ? 'border-primary bg-foreground/[.04] dark:bg-white/[.04]' : 'hover:bg-muted/50'}`}>
+                      <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 ${aiDepth === d.id ? 'border-primary' : 'border-muted-foreground/30'}`}>
+                        {aiDepth === d.id && <div className="size-2 rounded-full bg-primary" />}
                       </div>
                       <div><p className="text-sm font-medium">{d.label}</p><p className="text-[11px] text-muted-foreground">{d.desc}</p></div>
                     </button>
@@ -453,7 +453,7 @@ export default function CoursesPage() {
                 <div className="grid grid-cols-2 gap-2">
                   {STYLES.map(s => (
                     <button key={s.id} type="button" onClick={() => setAiStyle(s.id)}
-                      className={`rounded-lg border p-3 text-left transition-colors ${aiStyle === s.id ? 'border-violet-400 bg-violet-50 dark:bg-violet-950/20' : 'hover:bg-muted/50'}`}>
+                      className={`rounded-lg border p-3 text-left transition-colors ${aiStyle === s.id ? 'border-primary bg-foreground/[.04] dark:bg-white/[.04]' : 'hover:bg-muted/50'}`}>
                       <p className="text-sm font-medium">{s.label}</p>
                       <p className="text-[10px] text-muted-foreground">{s.desc}</p>
                     </button>
@@ -480,7 +480,7 @@ export default function CoursesPage() {
           {/* Step 3: Outline Review */}
           {aiStep === 3 && !aiOutline && (
             <div className="text-center py-8">
-              <Loader2 className="size-6 animate-spin text-violet-500 mx-auto mb-3" />
+              <Loader2 className="size-6 animate-spin text-primary mx-auto mb-3" />
               <p className="text-sm text-muted-foreground">Generating course outline...</p>
             </div>
           )}
@@ -565,7 +565,7 @@ export default function CoursesPage() {
 
               {aiLandingCopyGenerating && !aiLandingCopy && (
                 <div className="rounded-lg bg-muted/30 p-6 text-center">
-                  <Loader2 className="size-5 animate-spin text-violet-500 mx-auto mb-2" />
+                  <Loader2 className="size-5 animate-spin text-primary mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground">Generating landing page copy...</p>
                 </div>
               )}
@@ -610,7 +610,7 @@ export default function CoursesPage() {
                     { id: 'dark', label: 'Dark', desc: 'Dark mode, purple accents', color: 'bg-gray-900 border-purple-500 text-white' },
                   ].map(s => (
                     <button key={s.id} type="button" onClick={() => setAiLandingStyle(s.id)}
-                      className={`rounded-lg border p-3 text-left transition-all ${aiLandingStyle === s.id ? 'ring-2 ring-violet-400 border-violet-400' : 'hover:border-accent/30'}`}>
+                      className={`rounded-lg border p-3 text-left transition-all ${aiLandingStyle === s.id ? 'ring-2 ring-primary border-primary' : 'hover:border-accent/30'}`}>
                       <div className={`w-full h-6 rounded ${s.color} mb-2`} />
                       <p className="text-xs font-medium">{s.label}</p>
                       <p className="text-[10px] text-muted-foreground">{s.desc}</p>
@@ -746,12 +746,11 @@ export default function CoursesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="font-semibold">{c.title}</h3>
-                    <Badge variant={c.is_published ? 'default' : 'secondary'}
-                      className={`text-[10px] ${c.is_published ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : ''}`}>
+                    <Badge variant={c.is_published ? 'green' : 'amber'}>
                       {c.is_published ? 'Published' : 'Draft'}
                     </Badge>
                     {c.generation_status === 'generating' && (
-                      <Badge variant="secondary" className="text-[10px] gap-1">
+                      <Badge variant="amber" className="gap-1">
                         <Loader2 className="size-2.5 animate-spin" /> AI generating...
                       </Badge>
                     )}

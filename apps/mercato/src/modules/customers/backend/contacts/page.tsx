@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Plus, Search, X, Mail, DollarSign, Tag, StickyNote, Phone, Building2, ExternalLink, CheckCircle2, Circle, Send, Loader2, Upload, MessageSquare, Flame, FileText, Activity, CheckSquare, Calendar, BookOpen, TrendingUp, Clock, Bell, Paperclip, Download, Trash2, Briefcase, Sparkles, RefreshCw, Camera, Users, Pencil, Check, ChevronDown, Filter } from 'lucide-react'
 import { EmailComposeModal } from '@/components/EmailComposeModal'
 import { CreateDealModal } from '@/components/CreateDealModal'
@@ -560,10 +561,10 @@ export default function ContactsPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  const stageColors: Record<string, string> = {
-    prospect: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    customer: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  const stageVariants: Record<string, 'violet' | 'blue' | 'green' | 'amber' | 'red' | 'secondary'> = {
+    prospect: 'blue',
+    customer: 'green',
+    active: 'green',
   }
 
   return (
@@ -651,7 +652,7 @@ export default function ContactsPage() {
                 <Filter className="size-3" />
                 {showFilters ? 'Hide Filters' : 'Filters'}
                 {(filterTag || filterStage || filterEngagement) && (
-                  <span className="size-1.5 rounded-full bg-blue-500" />
+                  <span className="size-1.5 rounded-full bg-[#1d4ed8] dark:bg-[#93c5fd]" />
                 )}
               </button>
 
@@ -707,12 +708,12 @@ export default function ContactsPage() {
                 {allTasks.map(task => (
                   <div key={task.id} className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border hover:bg-muted/30 transition group">
                     <button type="button" onClick={() => toggleTask(task)} className="shrink-0">
-                      {task.is_done ? <CheckCircle2 className="size-4 text-emerald-500" /> : <Circle className="size-4 text-muted-foreground/40 group-hover:text-accent transition" />}
+                      {task.is_done ? <CheckCircle2 className="size-4 text-[#047857] dark:text-[#34d399]" /> : <Circle className="size-4 text-muted-foreground/40 group-hover:text-accent transition" />}
                     </button>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm ${task.is_done ? 'line-through text-muted-foreground' : ''}`}>{task.title}</p>
                       {task.due_date && (
-                        <p className={`text-[10px] ${new Date(task.due_date) < new Date() && !task.is_done ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+                        <p className={`text-[10px] ${new Date(task.due_date) < new Date() && !task.is_done ? 'text-[#b91c1c] dark:text-[#f87171] font-medium' : 'text-muted-foreground'}`}>
                           {new Date(task.due_date) < new Date() && !task.is_done ? 'Overdue — ' : 'Due '}{new Date(task.due_date).toLocaleDateString()}
                         </p>
                       )}
@@ -740,7 +741,7 @@ export default function ContactsPage() {
                     {completedTasks.map(task => (
                       <div key={task.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-muted/30 transition group opacity-60">
                         <button type="button" onClick={() => toggleTask(task)} className="shrink-0 mt-0.5">
-                          <CheckCircle2 className="size-4 text-emerald-500" />
+                          <CheckCircle2 className="size-4 text-[#047857] dark:text-[#34d399]" />
                         </button>
                         <p className="flex-1 text-sm line-through text-muted-foreground">{task.title}</p>
                         <button type="button" onClick={() => deleteTask(task.id)}
@@ -803,9 +804,9 @@ export default function ContactsPage() {
                     )}
                   </div>
                   {contact.lifecycle_stage && editCompanyId !== contact.id && (
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${stageColors[contact.lifecycle_stage] || 'bg-muted text-muted-foreground'}`}>
+                    <Badge variant={stageVariants[contact.lifecycle_stage] || 'secondary'}>
                       {contact.lifecycle_stage}
-                    </span>
+                    </Badge>
                   )}
                   {tab === 'companies' && editCompanyId !== contact.id && (
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition shrink-0" onClick={e => e.stopPropagation()}>
@@ -945,7 +946,7 @@ export default function ContactsPage() {
             <div className="p-5 space-y-3">
               {importResult ? (
                 <div className="text-center py-4">
-                  <CheckCircle2 className="size-8 mx-auto mb-2 text-emerald-500" />
+                  <CheckCircle2 className="size-8 mx-auto mb-2 text-[#047857] dark:text-[#34d399]" />
                   <p className="text-sm font-medium">{importResult.imported} contacts imported</p>
                   {importResult.skipped > 0 && <p className="text-xs text-muted-foreground">{importResult.skipped} skipped (duplicates)</p>}
                   <Button type="button" size="sm" className="mt-4" onClick={() => { setShowImport(false); setImportResult(null); setImportData('') }}>Done</Button>
@@ -1566,8 +1567,8 @@ export default function ContactsPage() {
                     <p className="text-[11px] text-muted-foreground">Engagement</p>
                     <div className="flex items-center gap-2">
                       <span className={`text-sm font-semibold tabular-nums ${
-                        engagementScore >= 20 ? 'text-emerald-600 dark:text-emerald-400' :
-                        engagementScore >= 5 ? 'text-amber-600 dark:text-amber-400' :
+                        engagementScore >= 20 ? 'text-[#047857] dark:text-[#34d399]' :
+                        engagementScore >= 5 ? 'text-[#b45309] dark:text-[#fbbf24]' :
                         'text-muted-foreground'
                       }`}>{engagementScore}</span>
                       <span className="text-[10px] text-muted-foreground">
@@ -1736,7 +1737,7 @@ export default function ContactsPage() {
                       <div key={task.id} className="flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-muted/50 transition group">
                         <button type="button" onClick={() => toggleTask(task)} className="shrink-0 mt-0.5">
                           {task.is_done
-                            ? <CheckCircle2 className="size-4 text-emerald-500" />
+                            ? <CheckCircle2 className="size-4 text-[#047857] dark:text-[#34d399]" />
                             : <Circle className="size-4 text-muted-foreground/40 group-hover:text-accent transition" />
                           }
                         </button>
@@ -1753,7 +1754,7 @@ export default function ContactsPage() {
                           <div className="flex-1 min-w-0">
                             <p className={`text-sm ${task.is_done ? 'line-through text-muted-foreground' : ''}`}>{task.title}</p>
                             {task.due_date && (
-                              <p className={`text-[10px] ${new Date(task.due_date) < new Date() && !task.is_done ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+                              <p className={`text-[10px] ${new Date(task.due_date) < new Date() && !task.is_done ? 'text-[#b91c1c] dark:text-[#f87171] font-medium' : 'text-muted-foreground'}`}>
                                 {new Date(task.due_date) < new Date() && !task.is_done ? 'Overdue — ' : 'Due '}
                                 {new Date(task.due_date).toLocaleDateString()}
                               </p>

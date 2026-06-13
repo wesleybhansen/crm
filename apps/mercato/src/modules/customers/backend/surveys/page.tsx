@@ -618,7 +618,7 @@ export default function SurveysPage() {
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold truncate">{survey.title}</h3>
               {!isInactive && (
-                <Badge variant="default" className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Active</Badge>
+                <Badge variant="green">Active</Badge>
               )}
             </div>
             {survey.description && <p className="text-xs text-muted-foreground line-clamp-1">{survey.description}</p>}
@@ -633,7 +633,7 @@ export default function SurveysPage() {
               <Send className="size-4" />
             </IconButton>
             <IconButton variant="ghost" size="sm" type="button" title="Copy link" onClick={() => copyLink(survey)}>
-              {copied === survey.id ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
+              {copied === survey.id ? <Check className="size-4 text-[#047857] dark:text-[#34d399]" /> : <Copy className="size-4" />}
             </IconButton>
             <IconButton variant="ghost" size="sm" type="button" title="Preview" onClick={() => window.open(`/api/surveys/public/${survey.slug}`, '_blank')}>
               <ExternalLink className="size-4" />

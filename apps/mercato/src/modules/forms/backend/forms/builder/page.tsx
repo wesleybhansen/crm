@@ -7,6 +7,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
   ArrowLeft, GripVertical, Trash2, Plus, Eye, Globe, Palette, Check,
   Type, AlignLeft, Mail, Phone, Hash, Calendar,
@@ -914,7 +915,7 @@ export default function FormBuilderPage() {
         <div className="flex-1 flex items-center justify-center p-6 bg-muted/30">
           <div className="max-w-lg w-full">
             <div className="bg-card rounded-xl border shadow-sm p-8 text-center">
-              <div className="inline-flex items-center justify-center size-14 rounded-full bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600 mb-5">
+              <div className="inline-flex items-center justify-center size-14 rounded-full border border-[rgba(16,185,129,.26)] bg-[rgba(16,185,129,.10)] text-[#047857] dark:border-[rgba(16,185,129,.30)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] mb-5">
                 <Check className="size-7" />
               </div>
               <h2 className="text-xl font-bold mb-2">Your form is published!</h2>
@@ -1028,12 +1029,10 @@ function SortableField({
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium">
                 {field.label}
-                {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                {field.required && <span className="text-destructive ml-0.5">*</span>}
               </label>
               {field.crm_mapping && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 font-medium">
-                  CRM
-                </span>
+                <Badge variant="blue">CRM</Badge>
               )}
             </div>
             {field.description && (

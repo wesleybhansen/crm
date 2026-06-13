@@ -161,10 +161,10 @@ export default function PipelinePage() {
   }
 
   const ENGAGEMENT_TAGS = [
-    { label: 'Hot', score: 85, color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-    { label: 'Warm', score: 55, color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-    { label: 'Cool', score: 25, color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-    { label: 'New', score: 0, color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
+    { label: 'Hot', score: 85, color: 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171]' },
+    { label: 'Warm', score: 55, color: 'bg-[rgba(217,119,6,.10)] text-[#b45309] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24]' },
+    { label: 'Cool', score: 25, color: 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd]' },
+    { label: 'New', score: 0, color: 'bg-foreground/10 text-muted-foreground' },
   ]
 
   async function setEngagementTag(contactId: string, score: number) {
@@ -262,10 +262,10 @@ export default function PipelinePage() {
   }
 
   function getScoreBadge(score: number) {
-    if (score >= 70) return { label: 'Hot', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }
-    if (score >= 40) return { label: 'Warm', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' }
-    if (score >= 10) return { label: 'Cool', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' }
-    return { label: 'New', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' }
+    if (score >= 70) return { label: 'Hot', color: 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171]' }
+    if (score >= 40) return { label: 'Warm', color: 'bg-[rgba(217,119,6,.10)] text-[#b45309] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24]' }
+    if (score >= 10) return { label: 'Cool', color: 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd]' }
+    return { label: 'New', color: 'bg-foreground/10 text-muted-foreground' }
   }
 
   if (loading) {
