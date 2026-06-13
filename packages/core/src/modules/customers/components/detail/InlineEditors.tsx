@@ -131,7 +131,7 @@ export function InlineTextEditor(props: InlineFieldProps) {
               <p className="text-xs text-muted-foreground">
                 {t('customers.people.detail.inline.emailDuplicate', undefined, { name: emailDuplicate.displayName })}{' '}
                 <Link
-                  className="font-medium text-primary underline underline-offset-2"
+                  className="font-medium text-[#1d4ed8] dark:text-[#60a5fa] underline underline-offset-2"
                   href={`/backend/customers/people/${emailDuplicate.id}`}
                 >
                   {t('customers.people.detail.inline.emailDuplicateLink')}
@@ -151,7 +151,7 @@ export function InlineTextEditor(props: InlineFieldProps) {
                 {t('customers.people.form.phoneDuplicateNotice', undefined, { name: phoneDuplicate.label })}{' '}
                 {phoneDuplicate.href ? (
                   <Link
-                    className="font-medium text-primary underline underline-offset-2"
+                    className="font-medium text-[#1d4ed8] dark:text-[#60a5fa] underline underline-offset-2"
                     href={phoneDuplicate.href}
                   >
                     {t('customers.people.form.phoneDuplicateLink')}
@@ -184,7 +184,7 @@ function createSocialRenderDisplay(IconComponent: typeof Linkedin): NonNullable<
     const display = raw.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')
     return (
       <a
-        className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/90 hover:underline"
+        className="inline-flex items-center gap-2 text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-90 hover:underline"
         href={raw}
         target="_blank"
         rel="noreferrer"

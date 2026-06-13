@@ -220,8 +220,8 @@ export function InlineTextEditor({
     const baseValue = value && typeof value === 'string' ? value : ''
     const anchorClass =
       variant === 'plain'
-        ? 'inline-flex max-w-full min-w-0 items-center gap-2 text-xl font-semibold leading-tight text-primary hover:text-primary/90 hover:underline'
-        : 'flex max-w-full min-w-0 items-center gap-2 text-sm text-primary hover:text-primary/90 hover:underline'
+        ? 'inline-flex max-w-full min-w-0 items-center gap-2 text-xl font-semibold leading-tight text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-90 hover:underline'
+        : 'flex max-w-full min-w-0 items-center gap-2 text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-90 hover:underline'
     const textClass = variant === 'plain' ? 'text-2xl font-semibold leading-tight' : 'text-sm break-words'
     if (resolvedType === 'email') {
       if (!baseValue.length) {

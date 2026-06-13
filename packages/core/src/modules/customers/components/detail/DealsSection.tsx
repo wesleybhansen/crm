@@ -908,7 +908,7 @@ export function DealsSection({
               <div className="mt-3 text-xs">
                 <Link
                   href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                  className="inline-flex items-center gap-1 text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
                 >
                   <ArrowUpRightSquare className="h-3.5 w-3.5" aria-hidden />
                   {t('customers.people.detail.deals.openDeal', 'Open deal')}

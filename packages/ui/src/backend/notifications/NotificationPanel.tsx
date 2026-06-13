@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { X, Bell, CheckCheck, Loader2, RotateCcw } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
@@ -73,6 +74,16 @@ export function NotificationPanel({
 }: NotificationPanelProps) {
   const [filter, setFilter] = React.useState<'all' | 'unread' | 'action'>('all')
   const [markingAllRead, setMarkingAllRead] = React.useState(false)
+  // The panel is rendered into a portal on document.body so that its
+  // position:fixed overlay is resolved against the viewport. When the bell
+  // is mounted inside the AppShell header (which uses backdrop-blur, i.e.
+  // backdrop-filter), that header becomes the containing block for fixed
+  // descendants, collapsing the panel to the header's height and clipping
+  // the scrollable body. Portaling to body escapes that containing block.
+  const [mounted, setMounted] = React.useState(false)
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const filteredNotifications = React.useMemo(() => {
     switch (filter) {
@@ -106,9 +117,9 @@ export function NotificationPanel({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [open, onOpenChange])
 
-  if (!open) return null
+  if (!open || !mounted) return null
 
-  return (
+  return createPortal(
     <>
       <div
         className="fixed inset-0 z-40 bg-black/20"
@@ -211,6 +222,7 @@ export function NotificationPanel({
           </div>
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   )
 }

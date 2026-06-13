@@ -352,7 +352,7 @@ export function TasksSection({
                   ) : null}
                   <div className="flex flex-wrap items-center gap-3 text-xs">
                     {todoHref ? (
-                      <Link href={todoHref} className="text-primary hover:underline">
+                      <Link href={todoHref} className="text-[#1d4ed8] dark:text-[#60a5fa] hover:underline">
                         {t('customers.people.detail.tasks.openTask', 'Open task')}
                       </Link>
                     ) : null}

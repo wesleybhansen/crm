@@ -296,7 +296,7 @@ export function PersonHighlights({
                   {t('customers.people.detail.company.loading', 'Loading company…')}
                 </span>
               ) : company ? (
-                <span className="text-primary transition group-hover:underline">
+                <span className="text-[#1d4ed8] dark:text-[#60a5fa] transition group-hover:underline">
                   {t('customers.people.detail.company.current', undefined, { company: company.name })}
                 </span>
               ) : companyError ? (
