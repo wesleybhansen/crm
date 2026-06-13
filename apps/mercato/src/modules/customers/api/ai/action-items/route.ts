@@ -317,6 +317,35 @@ export async function GET() {
       stats.landingPages = { published: Number(lp?.published || 0), views: Number(lp?.views || 0), submissions: Number(lp?.submissions || 0) }
     } catch { stats.landingPages = { published: 0, views: 0, submissions: 0 } }
 
+    // 8-week sparkline series (real data) for stat cards
+    const eightWeeksAgo = new Date(Date.now() - 8 * 7 * 86400_000)
+    const toBuckets = (rows: Array<{ wk: unknown; n: unknown }>): number[] => {
+      const arr = new Array(8).fill(0)
+      const now = Date.now()
+      for (const r of rows) {
+        const t = new Date(r.wk as string).getTime()
+        if (Number.isNaN(t)) continue
+        const wAgo = Math.floor((now - t) / (7 * 86400_000))
+        if (wAgo >= 0 && wAgo < 8) arr[7 - wAgo] += Number(r.n || 0)
+      }
+      return arr
+    }
+    try {
+      const rows = await knex('customer_entities').where(w).whereNull('deleted_at').where('created_at', '>=', eightWeeksAgo)
+        .select(knex.raw("date_trunc('week', created_at) as wk"), knex.raw('count(*) as n')).groupBy('wk')
+      if (stats.contacts) stats.contacts.series = toBuckets(rows)
+    } catch {}
+    try {
+      const rows = await knex('customer_deals').where(w).whereNull('deleted_at').where('created_at', '>=', eightWeeksAgo)
+        .select(knex.raw("date_trunc('week', created_at) as wk"), knex.raw('count(*) as n')).groupBy('wk')
+      if (stats.deals) stats.deals.series = toBuckets(rows)
+    } catch {}
+    try {
+      const rows = await knex('email_messages').where('organization_id', auth.orgId).where('direction', 'inbound').where('created_at', '>=', eightWeeksAgo)
+        .select(knex.raw("date_trunc('week', created_at) as wk"), knex.raw('count(*) as n')).groupBy('wk')
+      if (stats.inbox) stats.inbox.series = toBuckets(rows)
+    } catch {}
+
     // Recent activity — use contacts and deals (not encrypted activities).
     // Names + titles are encrypted at rest; decrypt before rendering.
     const recentActivity: Array<{ type: string; text: string; time: string }> = []

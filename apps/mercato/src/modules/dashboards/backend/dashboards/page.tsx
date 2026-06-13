@@ -14,10 +14,10 @@ interface ActionItem { type: string; title: string; description: string; href: s
 interface DashboardData {
   actionItems: ActionItem[]
   stats: {
-    contacts: { total: number; last7Days: number }
-    deals: { open: number; pipelineValue: number; wonThisWeek: number }
+    contacts: { total: number; last7Days: number; series?: number[] }
+    deals: { open: number; pipelineValue: number; wonThisWeek: number; series?: number[] }
     landingPages: { published: number; views: number; submissions: number }
-    inbox?: { unread: number; last7Days: number }
+    inbox?: { unread: number; last7Days: number; series?: number[] }
   }
   recentActivity: Array<{ type: string; text: string; time: string }>
   personaName?: string
@@ -178,17 +178,21 @@ export default function SimpleDashboard() {
         <StatCard icon={Mail} label="Inbox" value={unreadInbox > 0 ? `${unreadInbox} unread` : '0 unread'}
           change={weeklyInbox > 0 ? `${weeklyInbox} received this week` : undefined}
           trend={unreadInbox > 0 ? 'up' : undefined}
+          color="blue" series={stats?.inbox?.series}
           href="/backend/inbox" />
         <StatCard icon={Users} label="Contacts" value={totalContacts.toLocaleString()}
           change={weeklyContacts > 0 ? `+${weeklyContacts} this week` : undefined}
           trend={weeklyContacts > 0 ? 'up' : undefined}
+          color="violet" series={stats?.contacts?.series}
           href="/backend/contacts" />
         <StatCard icon={Target} label="Pipeline" value={`$${pipelineValue.toLocaleString()}`}
           change={openDeals > 0 ? `${openDeals} open deal${openDeals !== 1 ? 's' : ''}` : undefined}
+          color="green" series={stats?.deals?.series}
           href="/backend/customers/deals/pipeline" />
         <StatCard icon={Activity} label="Conversion" value={`${convRate}%`}
           change={submissions > 0 ? `${submissions} leads from ${pageViews} views` : undefined}
           trend={submissions > 0 ? 'up' : undefined}
+          color="amber"
           href="/backend/reports" />
       </div>
 
@@ -215,16 +219,38 @@ export default function SimpleDashboard() {
   )
 }
 
-function StatCard({ icon: Icon, label, value, change, trend, href }: {
-  icon: any; label: string; value: string; change?: string; trend?: 'up' | 'down'; href: string
-}) {
+const STAT_COLORS = {
+  violet: { icon: 'text-[#7c3aed] dark:text-[#a78bfa]', tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]' },
+  blue: { icon: 'text-[#1d4ed8] dark:text-[#60a5fa]', tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]' },
+  green: { icon: 'text-[#047857] dark:text-[#34d399]', tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]' },
+  amber: { icon: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]' },
+} as const
+
+function Sparkline({ data, className = '' }: { data: number[]; className?: string }) {
+  const w = 72, h = 22, max = Math.max(...data, 1), n = Math.max(data.length - 1, 1)
+  const pts = data.map((v, i) => `${(2 + (i * (w - 4)) / n).toFixed(1)},${(h - 3 - (v * (h - 6)) / max).toFixed(1)}`).join(' ')
   return (
-    <a href={href} className="rounded-xl border bg-card p-4 hover:border-accent/30 hover:shadow-sm transition group">
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className={`shrink-0 ${className}`}>
+      <polygon points={`${pts} ${w - 2},${h} 2,${h}`} className="fill-current opacity-[.12]" />
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function StatCard({ icon: Icon, label, value, change, trend, href, color = 'violet', series }: {
+  icon: any; label: string; value: string; change?: string; trend?: 'up' | 'down'; href: string; color?: keyof typeof STAT_COLORS; series?: number[]
+}) {
+  const c = STAT_COLORS[color]
+  const hasSeries = Array.isArray(series) && series.some((v) => v > 0)
+  return (
+    <a href={href} className="rounded-xl border bg-card p-4 hover:shadow-sm transition group">
       <div className="flex items-center justify-between mb-3">
-        <div className="size-9 rounded-lg bg-accent/8 flex items-center justify-center">
-          <Icon className="size-4 text-accent" />
+        <div className={`size-9 rounded-lg flex items-center justify-center ${c.tile}`}>
+          <Icon className={`size-4 ${c.icon}`} />
         </div>
-        <ArrowUpRight className="size-3.5 text-muted-foreground/30 group-hover:text-accent transition" />
+        {hasSeries
+          ? <Sparkline data={series!} className={`${c.icon} opacity-90`} />
+          : <ArrowUpRight className="size-3.5 text-muted-foreground/30 group-hover:text-foreground/50 transition" />}
       </div>
       <p className="text-2xl font-bold tabular-nums tracking-tight">{value}</p>
       <div className="flex items-center gap-1 mt-1">
