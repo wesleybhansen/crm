@@ -37,10 +37,16 @@ const personaStyles = [
   { id: 'minimal', label: 'Minimal & Efficient', icon: Minus, description: 'Concise, no filler, just substance' },
 ]
 
+// Selected state = mode-adaptive violet accent-soft wash (NOT a light fill),
+// so it stays readable on both light and dark papers.
 const SEL = {
-  card: { borderColor: '#3B82F6', backgroundColor: '#EFF6FF', boxShadow: '0 0 0 1px rgba(59,130,246,0.3)' } as React.CSSProperties,
-  text: { color: '#2563EB', fontWeight: 600 } as React.CSSProperties,
-  icon: { color: '#2563EB' } as React.CSSProperties,
+  card: {
+    borderColor: 'var(--primary)',
+    backgroundColor: 'color-mix(in srgb, var(--primary) 12%, transparent)',
+    boxShadow: '0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent)',
+  } as React.CSSProperties,
+  text: { color: 'var(--primary)', fontWeight: 600 } as React.CSSProperties,
+  icon: { color: 'var(--primary)' } as React.CSSProperties,
 }
 
 function SelectableCard({ selected, onClick, children, className = '' }: {
@@ -452,9 +458,9 @@ export default function WelcomePage() {
                     className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition text-sm ${
                       businessType === bt.id ? '' : 'hover:bg-muted/50 text-foreground/70 hover:text-foreground'
                     }`}
-                    style={businessType === bt.id ? { borderColor: '#3B82F6', backgroundColor: '#EFF6FF', boxShadow: '0 0 0 1px rgba(59,130,246,0.3)' } : undefined}>
-                    <bt.icon className="size-4 shrink-0" style={{ color: businessType === bt.id ? '#2563EB' : undefined }} />
-                    <span className="text-xs leading-tight" style={businessType === bt.id ? { color: '#2563EB', fontWeight: 600 } : undefined}>{bt.label}</span>
+                    style={businessType === bt.id ? SEL.card : undefined}>
+                    <bt.icon className="size-4 shrink-0" style={businessType === bt.id ? SEL.icon : undefined} />
+                    <span className="text-xs leading-tight" style={businessType === bt.id ? SEL.text : undefined}>{bt.label}</span>
                   </button>
                 ))}
               </div>
@@ -555,7 +561,7 @@ export default function WelcomePage() {
                     style={selectedSources.includes(cs.id) ? SEL.card : undefined}>
                     <cs.icon className="size-4 shrink-0" style={selectedSources.includes(cs.id) ? SEL.icon : { color: 'var(--muted-foreground)' }} />
                     <span className="text-xs" style={selectedSources.includes(cs.id) ? SEL.text : undefined}>{cs.label}</span>
-                    {selectedSources.includes(cs.id) && <Check className="size-3 ml-auto shrink-0" style={{ color: '#2563EB' }} />}
+                    {selectedSources.includes(cs.id) && <Check className="size-3 ml-auto shrink-0" style={{ color: 'var(--primary)' }} />}
                   </button>
                 ))}
               </div>
