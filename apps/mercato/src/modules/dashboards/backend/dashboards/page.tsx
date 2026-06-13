@@ -226,16 +226,15 @@ const STAT_COLORS = {
   amber: { icon: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]' },
 } as const
 
-// Full-width area chart that spans the bottom of a stat card (stretched
-// edge-to-edge). Color comes from the parent's currentColor.
+// AMS-style compact sparkline: small, with a soft colored area fill.
+// Color comes from the parent's currentColor.
 function Sparkline({ data, className = '' }: { data: number[]; className?: string }) {
-  const max = Math.max(...data, 1), n = Math.max(data.length - 1, 1)
-  const pts = data.map((v, i) => `${((i / n) * 100).toFixed(2)},${(36 - (v / max) * 30).toFixed(2)}`).join(' ')
+  const w = 84, h = 26, max = Math.max(...data, 1), n = Math.max(data.length - 1, 1)
+  const pts = data.map((v, i) => `${(2 + (i * (w - 4)) / n).toFixed(1)},${(h - 4 - (v * (h - 8)) / max).toFixed(1)}`).join(' ')
   return (
-    <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden
-      className={`pointer-events-none absolute inset-x-0 bottom-0 h-12 w-full ${className}`}>
-      <polygon points={`0,40 ${pts} 100,40`} className="fill-current opacity-[.11]" />
-      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.75} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className={`shrink-0 ${className}`}>
+      <polygon points={`${pts} ${w - 2},${h} 2,${h}`} className="fill-current opacity-[.12]" />
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -244,16 +243,18 @@ function StatCard({ icon: Icon, label, value, change, trend, href, color = 'viol
   icon: any; label: string; value: string; change?: string; trend?: 'up' | 'down'; href: string; color?: keyof typeof STAT_COLORS; series?: number[]
 }) {
   const c = STAT_COLORS[color]
-  // Full-width area chart is forgiving of sparse data; draw it whenever
-  // there's any activity at all (otherwise just the colored number + label).
-  const hasSeries = Array.isArray(series) && series.some((v) => v > 0)
+  // Show the sparkline whenever we have a series (flat line when no activity),
+  // matching the AMS dashboard; fall back to the hover arrow when no series.
+  const hasSeries = Array.isArray(series) && series.length > 0
   return (
-    <a href={href} className="relative overflow-hidden rounded-xl border bg-card p-4 pb-11 hover:shadow-sm transition group">
+    <a href={href} className="rounded-xl border bg-card p-4 hover:shadow-sm transition group">
       <div className="flex items-center justify-between mb-3">
         <div className={`size-9 rounded-lg flex items-center justify-center ${c.tile}`}>
           <Icon className={`size-4 ${c.icon}`} />
         </div>
-        <ArrowUpRight className="size-3.5 text-muted-foreground/30 group-hover:text-foreground/50 transition" />
+        {hasSeries
+          ? <Sparkline data={series!} className={`${c.icon} opacity-90`} />
+          : <ArrowUpRight className="size-3.5 text-muted-foreground/30 group-hover:text-foreground/50 transition" />}
       </div>
       <p className="text-2xl font-bold tabular-nums tracking-tight">{value}</p>
       <div className="flex items-center gap-1 mt-1">
@@ -261,7 +262,6 @@ function StatCard({ icon: Icon, label, value, change, trend, href, color = 'viol
         {change && trend === 'up' && <TrendingUp className="size-3 text-[#047857] dark:text-[#34d399]" />}
       </div>
       {change && <p className="text-[11px] text-muted-foreground/70 mt-0.5">{change}</p>}
-      {hasSeries && <Sparkline data={series!} className={c.icon} />}
     </a>
   )
 }
