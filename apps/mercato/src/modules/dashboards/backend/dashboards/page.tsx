@@ -241,7 +241,9 @@ function StatCard({ icon: Icon, label, value, change, trend, href, color = 'viol
   icon: any; label: string; value: string; change?: string; trend?: 'up' | 'down'; href: string; color?: keyof typeof STAT_COLORS; series?: number[]
 }) {
   const c = STAT_COLORS[color]
-  const hasSeries = Array.isArray(series) && series.some((v) => v > 0)
+  // Only draw a sparkline when there's real shape (>=3 weeks with data);
+  // sparse/new data renders as a sloppy thin line, so skip it.
+  const hasSeries = Array.isArray(series) && series.filter((v) => v > 0).length >= 3
   return (
     <a href={href} className="rounded-xl border bg-card p-4 hover:shadow-sm transition group">
       <div className="flex items-center justify-between mb-3">
