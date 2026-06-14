@@ -1177,6 +1177,12 @@ export class CustomerBusinessProfile {
   @Property({ name: 'brand_voice_source', type: 'text', nullable: true })
   brandVoiceSource?: string | null
 
+  // Per-user KB key cache: { [noliUserId]: kbApiKey }. Each member of a shared
+  // CRM org reads their OWN Knowledge Base. The legacy org-level pasted key (not
+  // an entity prop; raw column read via knex in kb-connect) is the fallback.
+  @Property({ name: 'pkb_api_keys', type: 'json', nullable: true })
+  pkbApiKeys?: Record<string, string> | null
+
   @Property({ name: 'ams_url', type: 'text', nullable: true })
   amsUrl?: string | null
 
