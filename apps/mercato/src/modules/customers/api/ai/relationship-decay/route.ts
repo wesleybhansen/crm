@@ -1,5 +1,6 @@
 // ORM-SKIP: AI generation/analysis — complex prompt construction, not CRUD
 
+import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -29,6 +30,91 @@ interface DecayAlert {
   currentGapDays: number
   severity: 'yellow' | 'red'
   draftEmail?: string
+}
+
+// Reuses the proactive-followups inbox-proposal mechanism: a synthetic
+// inbox_emails row (the proposal UI renders its subject), an inbox_proposals
+// row (pending, shown in the dashboard review queue + bell), and a draft_reply
+// inbox_proposal_actions row carrying the drafted body. The owner reviews and
+// sends from the approval queue. NEVER auto-sends.
+const DECAY_MARKER = 'Re-engage'
+
+async function createDecayProposal(
+  knex: any,
+  orgId: string,
+  tenantId: string,
+  alert: DecayAlert,
+): Promise<boolean> {
+  if (!alert.draftEmail || !alert.email) return false
+
+  // Idempotent: skip if an open (pending) re-engage proposal already exists for
+  // this contact's email.
+  const existing = await knex('inbox_proposals')
+    .where('organization_id', orgId)
+    .where('status', 'pending')
+    .where('summary', 'like', `${DECAY_MARKER}%`)
+    .whereRaw("participants::text ilike '%' || ? || '%'", [alert.email])
+    .first()
+  if (existing) return false
+
+  const now = new Date()
+  const title = `${DECAY_MARKER} ${alert.displayName} (going cold)`
+  const subject = `Checking in, ${alert.displayName}`
+
+  const emailId = crypto.randomUUID()
+  await knex('inbox_emails').insert({
+    id: emailId,
+    tenant_id: tenantId,
+    organization_id: orgId,
+    forwarded_by_address: 'scout@noliai.com',
+    to_address: alert.email,
+    subject: title,
+    status: 'processed',
+    received_at: now,
+    is_active: true,
+    created_at: now,
+    updated_at: now,
+  })
+
+  const proposalId = crypto.randomUUID()
+  await knex('inbox_proposals').insert({
+    id: proposalId,
+    inbox_email_id: emailId,
+    tenant_id: tenantId,
+    organization_id: orgId,
+    summary: `${title}. It has been ${alert.currentGapDays} days since you last connected. Your team drafted a check-in email.`,
+    participants: JSON.stringify([{ name: alert.displayName, email: alert.email }]),
+    confidence: 0.7,
+    category: 'inquiry',
+    status: 'pending',
+    is_active: true,
+    created_at: now,
+    updated_at: now,
+  })
+
+  await knex('inbox_proposal_actions').insert({
+    id: crypto.randomUUID(),
+    proposal_id: proposalId,
+    tenant_id: tenantId,
+    organization_id: orgId,
+    action_type: 'draft_reply',
+    sort_order: 0,
+    description: `Save a drafted check-in email for ${alert.displayName} to the contact timeline`,
+    payload: JSON.stringify({
+      to: alert.email,
+      toName: alert.displayName,
+      contactId: alert.contactId,
+      subject,
+      body: alert.draftEmail,
+      context: 'Drafted by your Noli team (relationship decay): this contact is going cold.',
+    }),
+    status: 'pending',
+    confidence: 0.7,
+    created_at: now,
+    updated_at: now,
+  })
+
+  return true
 }
 
 async function detectDecayingRelationships(knex: any, orgId: string): Promise<DecayAlert[]> {
@@ -152,9 +238,18 @@ export async function POST(req: Request) {
 
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
     const model = process.env.AI_MODEL || 'gemini-3.5-flash'
-    const results: Array<{ orgId: string; alertCount: number; draftsGenerated: number }> = []
+    const results: Array<{ orgId: string; alertCount: number; draftsGenerated: number; proposalsCreated: number }> = []
 
     for (const org of orgs) {
+      // Per-org opt-in. business_profiles.decay_alerts_enabled defaults on;
+      // a missing column/row is treated as enabled (feature is default-on).
+      const profileFlag = await knex('business_profiles')
+        .where('organization_id', org.id)
+        .select('tenant_id', 'decay_alerts_enabled')
+        .first()
+        .catch(() => null as { tenant_id?: string; decay_alerts_enabled?: boolean } | null)
+      if (profileFlag && profileFlag.decay_alerts_enabled === false) continue
+
       // Skip orgs over their AI allowance — don't bill the platform for cron AI.
       // Over-allowance orgs with a BYO key run on that key.
       const capGate = await checkCustomersAiAllowance({ orgId: org.id })
@@ -164,6 +259,8 @@ export async function POST(req: Request) {
       const redAlerts = alerts.filter(a => a.severity === 'red')
 
       let draftsGenerated = 0
+      let proposalsCreated = 0
+      const tenantId = org.tenant_id || profileFlag?.tenant_id || null
 
       if (redAlerts.length > 0 && orgKey) {
         // Load persona for draft emails
@@ -207,6 +304,18 @@ Return ONLY the email body text, no subject line.`
             if (draftBody) {
               alert.draftEmail = draftBody
               draftsGenerated++
+
+              // Persist the draft as an inbox proposal for owner review. The
+              // owner approves/sends from the queue — NEVER auto-sent. Idempotent:
+              // skips if an open re-engage proposal for this contact exists.
+              if (tenantId) {
+                try {
+                  const created = await createDecayProposal(knex, org.id, tenantId, alert)
+                  if (created) proposalsCreated++
+                } catch (perr) {
+                  console.error(`[relationship-decay] Failed to create proposal for ${alert.contactId}:`, perr)
+                }
+              }
             }
           } catch (err) {
             console.error(`[relationship-decay] Failed to draft for ${alert.contactId}:`, err)
@@ -214,7 +323,7 @@ Return ONLY the email body text, no subject line.`
         }
       }
 
-      results.push({ orgId: org.id, alertCount: alerts.length, draftsGenerated })
+      results.push({ orgId: org.id, alertCount: alerts.length, draftsGenerated, proposalsCreated })
     }
 
     return NextResponse.json({ ok: true, data: results })

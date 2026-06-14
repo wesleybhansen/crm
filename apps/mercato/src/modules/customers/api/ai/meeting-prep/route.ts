@@ -1,11 +1,13 @@
 // ORM-SKIP: AI generation/analysis — complex prompt construction, not CRUD
 
+import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
+import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
@@ -420,6 +422,38 @@ export async function GET(req: Request) {
 
 // ── POST — Cron-triggered: generate briefs for all orgs ──────────────────────
 
+// A single meeting + brief queued for the owner summary email.
+interface BriefForEmail {
+  briefId: string | null
+  eventSummary: string
+  startTime: string
+  contactName: string
+  briefHtml: string
+}
+
+function buildMeetingPrepEmailHtml(briefs: BriefForEmail[]): string {
+  const sorted = [...briefs].sort(
+    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+  )
+  const items = sorted
+    .map((b) => {
+      const when = b.startTime ? new Date(b.startTime).toLocaleString() : 'Soon'
+      return `
+        <div style="margin:0 0 28px 0;padding:0 0 24px 0;border-bottom:1px solid #eee;">
+          <div style="font-size:16px;font-weight:600;color:#111;margin-bottom:2px;">${b.eventSummary}</div>
+          <div style="font-size:13px;color:#666;margin-bottom:12px;">${when} with ${b.contactName}</div>
+          <div style="font-size:14px;color:#222;line-height:1.5;">${b.briefHtml}</div>
+        </div>`
+    })
+    .join('')
+  return `
+    <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;">
+      <h2 style="font-size:20px;color:#111;margin:0 0 4px 0;">Today's meeting prep</h2>
+      <p style="font-size:14px;color:#666;margin:0 0 24px 0;">You have ${sorted.length} upcoming ${sorted.length === 1 ? 'meeting' : 'meetings'} with people in your CRM. Here is a quick brief for each.</p>
+      ${items}
+    </div>`
+}
+
 export async function POST(req: Request) {
   const denied = requireProcessAuth(req, process.env.SEQUENCE_PROCESS_SECRET)
   if (denied) return denied
@@ -436,16 +470,24 @@ export async function POST(req: Request) {
     let generated = 0
     let skipped = 0
     let failed = 0
+    let emailed = 0
 
     for (const connection of connections) {
       try {
-        // Get the tenant_id from the connection's org
-        const orgProfile = await knex('business_profiles')
+        // Per-org opt-in. business_profiles.meeting_prep_enabled defaults on;
+        // treat a missing column/row as enabled so the feature is default-on.
+        let orgProfile = await knex('business_profiles')
           .where('organization_id', connection.organization_id)
-          .select('tenant_id')
+          .select('tenant_id', 'meeting_prep_enabled')
           .first()
+          .catch(() => null as { tenant_id?: string; meeting_prep_enabled?: boolean } | null)
 
-        if (!orgProfile) {
+        if (orgProfile && orgProfile.meeting_prep_enabled === false) {
+          skipped++
+          continue
+        }
+
+        if (!orgProfile?.tenant_id) {
           // Try email_connections for tenant_id
           const emailConn = await knex('email_connections')
             .where('organization_id', connection.organization_id)
@@ -461,8 +503,8 @@ export async function POST(req: Request) {
           connection.tenant_id = orgProfile.tenant_id
         }
 
-        // Get events starting in 1-2 hours
-        const events = await getUpcomingEvents(knex, connection, 2)
+        // Get events in the next 24 hours so the daily prep email covers the day.
+        const events = await getUpcomingEvents(knex, connection, 24)
         const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000)
 
         const relevantEvents = events.filter(event => {
@@ -485,6 +527,10 @@ export async function POST(req: Request) {
         const persona = await getPersonaForOrg(knex, connection.organization_id)
         const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
 
+        // Collect every brief for an upcoming meeting (newly generated + cached)
+        // so the owner email is a complete picture of the day.
+        const briefsForEmail: BriefForEmail[] = []
+
         for (const event of relevantEvents) {
           if (!event.attendees || event.attendees.length === 0) continue
 
@@ -496,36 +542,121 @@ export async function POST(req: Request) {
             .where('organization_id', connection.organization_id)
             .whereNull('deleted_at')
             .whereRaw('lower(primary_email) = ANY(?)', [attendeeEmails])
-            .select('id')
+            .select('id', 'display_name')
             .limit(3)
 
           for (const mc of matchingContacts) {
-            // Skip if already generated
+            const eventStart = event.start.dateTime || event.start.date
+            // Reuse the cached brief if we already generated one for this meeting.
             const existing = await knex('meeting_prep_briefs')
               .where('organization_id', connection.organization_id)
               .where('contact_id', mc.id)
-              .where('event_start', event.start.dateTime || event.start.date)
+              .where('event_start', eventStart)
               .first()
 
-            if (existing) continue
+            if (existing) {
+              briefsForEmail.push({
+                briefId: existing.id,
+                eventSummary: event.summary || 'Untitled Event',
+                startTime: eventStart || '',
+                contactName: mc.display_name || existing.event_summary || 'a contact',
+                briefHtml: existing.brief_html,
+              })
+              continue
+            }
 
             const contactData = await loadContactData(knex, connection.organization_id, mc.id)
             if (!contactData) continue
 
             const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt, connection.organization_id, capGate.byoApiKey)
 
+            const briefId = crypto.randomUUID()
             await knex('meeting_prep_briefs').insert({
+              id: briefId,
               tenant_id: connection.tenant_id,
               organization_id: connection.organization_id,
               user_id: connection.user_id,
               contact_id: mc.id,
               event_summary: event.summary || null,
-              event_start: event.start.dateTime || event.start.date,
+              event_start: eventStart,
               brief_html: brief,
             })
 
             generated++
+            briefsForEmail.push({
+              briefId,
+              eventSummary: event.summary || 'Untitled Event',
+              startTime: eventStart || '',
+              contactName: contactData.contact.display_name || 'a contact',
+              briefHtml: brief,
+            })
           }
+        }
+
+        if (briefsForEmail.length === 0) {
+          skipped++
+          continue
+        }
+
+        // Idempotency: only email briefs we have not already emailed (tracked
+        // via meeting_prep_briefs.emailed_at). A re-run the same day re-sends
+        // nothing because every brief is already marked emailed.
+        const unEmailed: BriefForEmail[] = []
+        for (const b of briefsForEmail) {
+          if (!b.briefId) { unEmailed.push(b); continue }
+          const row = await knex('meeting_prep_briefs')
+            .where('id', b.briefId)
+            .select('emailed_at')
+            .first()
+            .catch(() => null as { emailed_at?: string | null } | null)
+          // If the column is missing the row read still succeeds (no emailed_at
+          // key) -> treat as not yet emailed. If present and set, skip it.
+          if (!row || !row.emailed_at) unEmailed.push(b)
+        }
+
+        if (unEmailed.length === 0) {
+          skipped++
+          continue
+        }
+
+        // Owner-only delivery: send to the org's active email connection.
+        const emailConnection = await knex('email_connections')
+          .where('organization_id', connection.organization_id)
+          .where('is_active', true)
+          .orderBy('is_primary', 'desc')
+          .first()
+
+        if (!emailConnection) {
+          skipped++
+          continue
+        }
+
+        const html = buildMeetingPrepEmailHtml(unEmailed)
+        const sendResult = await sendEmailByPurpose(
+          knex,
+          connection.organization_id,
+          connection.tenant_id,
+          'transactional',
+          {
+            to: emailConnection.email_address,
+            subject: `Today's meeting prep (${unEmailed.length})`,
+            htmlBody: html,
+          },
+        )
+
+        if (sendResult.ok) {
+          emailed++
+          // Mark these briefs emailed so re-runs are idempotent. Best-effort:
+          // if the emailed_at column is not present yet the update is a no-op.
+          const ids = unEmailed.map(b => b.briefId).filter((x): x is string => !!x)
+          if (ids.length > 0) {
+            await knex('meeting_prep_briefs')
+              .whereIn('id', ids)
+              .update({ emailed_at: new Date() })
+              .catch(() => {})
+          }
+        } else {
+          failed++
         }
       } catch (err) {
         console.error(`[ai.meeting-prep] Cron error for connection ${connection.id}:`, err)
@@ -533,7 +664,7 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, data: { generated, skipped, failed } })
+    return NextResponse.json({ ok: true, data: { generated, emailed, skipped, failed } })
   } catch (error) {
     console.error('[ai.meeting-prep] POST error:', error)
     return NextResponse.json({ ok: false, error: 'Failed to process meeting prep' }, { status: 500 })
