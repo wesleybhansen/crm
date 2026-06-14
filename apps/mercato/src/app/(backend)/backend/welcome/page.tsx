@@ -735,6 +735,35 @@ export default function WelcomePage() {
         {/* Step 6: Connect Accounts */}
         {step === 6 && (
           <div className="space-y-3">
+            {/* Order: easiest, highest-value first (one-click Stripe), then the
+                connections that take a few minutes (email, SMS). */}
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Payments</p>
+            {/* Stripe — easiest win, one-click OAuth */}
+            <div className="rounded-lg border p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${stripeConnected ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-muted'}`}>
+                    <CreditCard className={`size-4 ${stripeConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Payments (Stripe) <span className="text-[10px] font-normal text-muted-foreground">1 click</span></p>
+                    <p className="text-xs text-muted-foreground">Accept payments from your customers</p>
+                  </div>
+                </div>
+                {stripeConnected ? (
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><CheckCircle2 className="size-3" /> Connected</span>
+                ) : (
+                  <Button type="button" variant="outline" size="sm" onClick={() => {
+                    saveState()
+                    window.location.href = '/api/payments/stripe/connect-oauth'
+                  }}>
+                    <Link className="size-3 mr-1.5" /> Connect Stripe
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider pt-2">Email</p>
             {/* Email (IMAP/SMTP) */}
             <div className="rounded-lg border p-4 space-y-3">
               <div className="flex items-center gap-3">
@@ -742,7 +771,7 @@ export default function WelcomePage() {
                   <Mail className={`size-4 ${emailConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-medium">Connect Email</p>
+                  <p className="text-sm font-medium">Connect Email <span className="text-[10px] font-normal text-muted-foreground">about 3 min</span></p>
                   <p className="text-xs text-muted-foreground">Works with Gmail, Outlook, Yahoo, iCloud, and any email provider</p>
                 </div>
                 {emailConnected && <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0"><CheckCircle2 className="size-3" /> Connected</span>}
@@ -800,31 +829,6 @@ export default function WelcomePage() {
                   </Button>
                 </div>
               )}
-            </div>
-
-            {/* Stripe */}
-            <div className="rounded-lg border p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${stripeConnected ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-muted'}`}>
-                    <CreditCard className={`size-4 ${stripeConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Payments (Stripe)</p>
-                    <p className="text-xs text-muted-foreground">Accept payments from your customers</p>
-                  </div>
-                </div>
-                {stripeConnected ? (
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><CheckCircle2 className="size-3" /> Connected</span>
-                ) : (
-                  <Button type="button" variant="outline" size="sm" onClick={() => {
-                    saveState()
-                    window.location.href = '/api/payments/stripe/connect-oauth'
-                  }}>
-                    <Link className="size-3 mr-1.5" /> Connect Stripe
-                  </Button>
-                )}
-              </div>
             </div>
 
             {/* Outlook — only show if Gmail not connected and Microsoft is configured */}
@@ -946,7 +950,7 @@ export default function WelcomePage() {
                     <MessageSquare className={`size-4 ${twilioConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
                   </div>
                   <div>
-                    <p className="text-sm font-medium">SMS (Twilio)</p>
+                    <p className="text-sm font-medium">SMS (Twilio) <span className="text-[10px] font-normal text-muted-foreground">about 5 min</span></p>
                     <p className="text-xs text-muted-foreground">Send text messages to contacts</p>
                   </div>
                 </div>
