@@ -41,6 +41,70 @@ export type DraftReplyResult = {
 
 const DRAFT_MODEL = 'gemini-2.5-flash'
 
+// Total budget for injected grounding-library content (model answers +
+// documents). If the org has more than this, we include the most recently
+// updated entries first and note that the rest were truncated.
+const KNOWLEDGE_BUDGET_CHARS = 8000
+
+/**
+ * Load the org's active Customer Service grounding library (model answers +
+ * reference documents) and render it into prompt sections. Newest entries are
+ * preferred when over the budget. Returns '' when the org has no entries.
+ */
+async function buildKnowledgeSection(knex: Knex, orgId: string): Promise<string> {
+  let rows: any[] = []
+  try {
+    rows = await knex('customer_service_knowledge')
+      .where('organization_id', orgId)
+      .where('is_active', true)
+      .orderBy('updated_at', 'desc')
+      .limit(200)
+  } catch {
+    // Table may not exist yet (pre-migration); grounding is optional.
+    return ''
+  }
+  if (!rows.length) return ''
+
+  const modelAnswers: string[] = []
+  const documents: string[] = []
+  let used = 0
+  let truncated = false
+
+  for (const row of rows) {
+    const title = (row.title || '').toString().trim()
+    const content = (row.content || '').toString().trim()
+    if (!content) continue
+    const block = title ? `- ${title}:\n${content}` : `- ${content}`
+    if (used + block.length > KNOWLEDGE_BUDGET_CHARS) {
+      truncated = true
+      const remaining = KNOWLEDGE_BUDGET_CHARS - used
+      if (remaining > 200) {
+        const clipped = `${block.substring(0, remaining)}...`
+        if (row.kind === 'model_answer') modelAnswers.push(clipped)
+        else documents.push(clipped)
+        used = KNOWLEDGE_BUDGET_CHARS
+      }
+      break
+    }
+    used += block.length
+    if (row.kind === 'model_answer') modelAnswers.push(block)
+    else documents.push(block)
+  }
+
+  const parts: string[] = []
+  if (modelAnswers.length) {
+    parts.push(`Approved example answers — reuse or adapt these when relevant:\n${modelAnswers.join('\n\n')}`)
+  }
+  if (documents.length) {
+    parts.push(`Reference material:\n${documents.join('\n\n')}`)
+  }
+  if (!parts.length) return ''
+  if (truncated) {
+    parts.push('(Some grounding entries were omitted to stay within the prompt budget. The most recently updated entries are shown.)')
+  }
+  return parts.join('\n\n')
+}
+
 /**
  * Build the contact context line used in the prompt. Mirrors the original
  * inline logic from ai-draft/route.ts.
@@ -92,11 +156,16 @@ export async function generateReplyDraft(
     voiceSection = buildVoicePromptSection(voiceProfile)
   }
 
+  // Load the org's Customer Service grounding library (model answers + docs).
+  const knowledgeSection = await buildKnowledgeSection(knex, orgId)
+
   const systemPrompt = `You are a helpful AI assistant drafting a reply for a ${channel || 'message'} conversation on behalf of ${businessName || 'a business'}.
 
 ${businessDesc ? `About the business: ${businessDesc}` : ''}
 ${knowledgeBase ? `Knowledge base:
 ${knowledgeBase}` : ''}
+${knowledgeSection ? `
+${knowledgeSection}` : ''}
 ${customInstructions ? `Special instructions: ${customInstructions}` : ''}
 ${contactInfo ? `
 ${contactInfo}` : ''}

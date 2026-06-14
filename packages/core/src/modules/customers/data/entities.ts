@@ -1360,3 +1360,50 @@ export class CustomerServiceSettings {
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
+
+export type CustomerServiceKnowledgeKind = 'model_answer' | 'document'
+
+// Customer Service feature (Phase 2): grounding library. MANY rows per org. Each
+// row is either a user-supplied "model answer" (an approved example reply the
+// drafter can reuse/adapt) or a reference "document" (pasted text or extracted
+// from an uploaded file). The shared reply drafter loads the org's active rows
+// and injects them into the prompt so future replies draw from them.
+@Entity({ tableName: 'customer_service_knowledge' })
+@Index({ name: 'customer_service_knowledge_org_active_idx', properties: ['organizationId', 'isActive'] })
+export class CustomerServiceKnowledge {
+  [OptionalProps]?:
+    | 'isActive'
+    | 'sourceFilename'
+    | 'createdAt'
+    | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'kind', type: 'text' })
+  kind!: CustomerServiceKnowledgeKind
+
+  @Property({ name: 'title', type: 'text' })
+  title!: string
+
+  @Property({ name: 'content', type: 'text' })
+  content!: string
+
+  @Property({ name: 'source_filename', type: 'text', nullable: true })
+  sourceFilename?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}

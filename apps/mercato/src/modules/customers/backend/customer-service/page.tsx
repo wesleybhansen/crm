@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Headphones, Mail, Check, FileEdit, Lock, ArrowRight } from 'lucide-react'
+import { Headphones, Mail, Check, FileEdit, Lock, ArrowRight, BookOpen, MessageSquareQuote, FileText, Trash2, Plus } from 'lucide-react'
 
 type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean }
 type Settings = {
@@ -12,6 +12,14 @@ type Settings = {
   watchedConnectionIds: string[] | null
   replyMode: 'draft'
   signature: string | null
+}
+type KnowledgeEntry = {
+  id: string
+  kind: 'model_answer' | 'document'
+  title: string
+  sourceFilename: string | null
+  contentPreview: string
+  createdAt: string
 }
 
 export default function CustomerServiceSettingsPage() {
@@ -27,12 +35,28 @@ export default function CustomerServiceSettingsPage() {
 
   const [connections, setConnections] = useState<EmailConnection[]>([])
 
+  // Knowledge and model answers (grounding library).
+  const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([])
+  const [kbError, setKbError] = useState('')
+  const [kbSaving, setKbSaving] = useState(false)
+  const [maTitle, setMaTitle] = useState('')
+  const [maContent, setMaContent] = useState('')
+  const [docTitle, setDocTitle] = useState('')
+  const [docContent, setDocContent] = useState('')
+  const [docFile, setDocFile] = useState<File | null>(null)
+
+  async function loadKnowledge() {
+    const res = await fetch('/api/customer-service/knowledge', { credentials: 'include' }).then(r => r.json()).catch(() => null)
+    if (res?.ok) setKnowledge(res.data || [])
+  }
+
   useEffect(() => {
     let cancelled = false
     Promise.all([
       fetch('/api/customer-service/settings', { credentials: 'include' }).then(r => r.json()).catch(() => null),
       fetch('/api/email/connections', { credentials: 'include' }).then(r => r.json()).catch(() => null),
-    ]).then(([settingsRes, connRes]) => {
+      fetch('/api/customer-service/knowledge', { credentials: 'include' }).then(r => r.json()).catch(() => null),
+    ]).then(([settingsRes, connRes, kbRes]) => {
       if (cancelled) return
       if (settingsRes?.ok && settingsRes.data) {
         const s: Settings = settingsRes.data
@@ -41,10 +65,82 @@ export default function CustomerServiceSettingsPage() {
         setSignature(s.signature || '')
       }
       if (connRes?.ok) setConnections(connRes.data || [])
+      if (kbRes?.ok) setKnowledge(kbRes.data || [])
       setLoading(false)
     })
     return () => { cancelled = true }
   }, [])
+
+  async function addModelAnswer() {
+    setKbError('')
+    if (!maContent.trim()) { setKbError('Enter the answer text first.'); return }
+    setKbSaving(true)
+    try {
+      const res = await fetch('/api/customer-service/knowledge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ kind: 'model_answer', title: maTitle.trim() || undefined, content: maContent.trim() }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setMaTitle(''); setMaContent('')
+        await loadKnowledge()
+      } else {
+        setKbError(data.error || 'Failed to add model answer.')
+      }
+    } catch {
+      setKbError('Failed to add model answer.')
+    }
+    setKbSaving(false)
+  }
+
+  async function addDocument() {
+    setKbError('')
+    if (!docFile && !docContent.trim()) { setKbError('Upload a file or paste the document text.'); return }
+    setKbSaving(true)
+    try {
+      let res: Response
+      if (docFile) {
+        const form = new FormData()
+        form.append('kind', 'document')
+        if (docTitle.trim()) form.append('title', docTitle.trim())
+        form.append('file', docFile)
+        if (docContent.trim()) form.append('content', docContent.trim())
+        res = await fetch('/api/customer-service/knowledge', { method: 'POST', credentials: 'include', body: form })
+      } else {
+        res = await fetch('/api/customer-service/knowledge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ kind: 'document', title: docTitle.trim() || undefined, content: docContent.trim() }),
+        })
+      }
+      const data = await res.json()
+      if (data.ok) {
+        setDocTitle(''); setDocContent(''); setDocFile(null)
+        await loadKnowledge()
+      } else {
+        setKbError(data.error || 'Failed to add document.')
+      }
+    } catch {
+      setKbError('Failed to add document.')
+    }
+    setKbSaving(false)
+  }
+
+  async function deleteKnowledge(id: string) {
+    setKbError('')
+    const prev = knowledge
+    setKnowledge(prev.filter(k => k.id !== id))
+    try {
+      const res = await fetch(`/api/customer-service/knowledge/${id}`, { method: 'DELETE', credentials: 'include' })
+      const data = await res.json()
+      if (!data.ok) { setKnowledge(prev); setKbError(data.error || 'Failed to delete.') }
+    } catch {
+      setKnowledge(prev); setKbError('Failed to delete.')
+    }
+  }
 
   function toggleMailbox(id: string) {
     setWatchedIds(prev => {
@@ -226,12 +322,110 @@ export default function CustomerServiceSettingsPage() {
             </div>
           </section>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 mb-10">
             <Button type="button" onClick={save} disabled={saving}>
               {saving ? 'Saving...' : 'Save settings'}
             </Button>
             {saved && <span className="text-xs text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> Saved</span>}
           </div>
+
+          {/* Knowledge and model answers */}
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold mb-1 flex items-center gap-2">
+              <BookOpen className="size-4 text-muted-foreground" /> Knowledge and model answers
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Give Noli example answers and reference documents to draw from. Drafted replies will reuse and adapt them when relevant.
+            </p>
+
+            {kbError && (
+              <div className="mb-3 rounded-lg border border-[rgba(239,68,68,.26)] bg-[rgba(239,68,68,.10)] px-4 py-2 text-sm text-[#b91c1c] dark:text-[#f87171]">
+                {kbError}
+              </div>
+            )}
+
+            {/* Existing entries */}
+            <div className="rounded-lg border divide-y mb-4">
+              {knowledge.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  No entries yet. Add a model answer or a reference document below.
+                </div>
+              ) : (
+                knowledge.map(entry => (
+                  <div key={entry.id} className="flex items-start justify-between px-4 py-3 gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <Badge variant="secondary" className="shrink-0">
+                          {entry.kind === 'model_answer' ? (
+                            <span className="flex items-center gap-1"><MessageSquareQuote className="size-3" /> Model answer</span>
+                          ) : (
+                            <span className="flex items-center gap-1"><FileText className="size-3" /> Document</span>
+                          )}
+                        </Badge>
+                        <p className="text-sm font-medium truncate">{entry.title}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2">{entry.contentPreview}</p>
+                      {entry.sourceFilename && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">From {entry.sourceFilename}</p>
+                      )}
+                    </div>
+                    <button type="button" onClick={() => deleteKnowledge(entry.id)}
+                      className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Delete entry">
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Add a model answer */}
+            <div className="rounded-lg border mb-4">
+              <div className="px-4 py-3 border-b">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <MessageSquareQuote className="size-4 text-muted-foreground" /> Add a model answer
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">An example reply Noli can reuse or adapt for similar questions.</p>
+              </div>
+              <div className="px-4 py-3 space-y-3">
+                <input value={maTitle} onChange={e => setMaTitle(e.target.value)}
+                  placeholder="Title (optional), e.g. Refund request"
+                  className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                <textarea value={maContent} onChange={e => setMaContent(e.target.value)}
+                  placeholder="Write the model answer here..."
+                  className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28" />
+                <Button type="button" size="sm" onClick={addModelAnswer} disabled={kbSaving}>
+                  <Plus className="size-3.5 mr-1" /> Add model answer
+                </Button>
+              </div>
+            </div>
+
+            {/* Add a reference document */}
+            <div className="rounded-lg border">
+              <div className="px-4 py-3 border-b">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <FileText className="size-4 text-muted-foreground" /> Add a reference document
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Upload a .txt, .md, or .csv file, or paste text. For PDF or Word, paste the text in for now.
+                </p>
+              </div>
+              <div className="px-4 py-3 space-y-3">
+                <input value={docTitle} onChange={e => setDocTitle(e.target.value)}
+                  placeholder="Title (optional), e.g. Shipping policy"
+                  className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                <input type="file" accept=".txt,.md,.markdown,.csv,text/plain,text/markdown,text/csv"
+                  onChange={e => setDocFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:bg-card file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-muted/50" />
+                <p className="text-[11px] text-muted-foreground">Or paste the document text:</p>
+                <textarea value={docContent} onChange={e => setDocContent(e.target.value)}
+                  placeholder="Paste reference text here..."
+                  className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28" />
+                <Button type="button" size="sm" onClick={addDocument} disabled={kbSaving}>
+                  <Plus className="size-3.5 mr-1" /> Add document
+                </Button>
+              </div>
+            </div>
+          </section>
         </>
       )}
     </div>
