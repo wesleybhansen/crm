@@ -567,6 +567,39 @@ export default function ContactsPage() {
     active: 'green',
   }
 
+  // House-palette hue per lifecycle stage (light / dark). Unknown stages fall back to muted.
+  const STAGE_HUE: Record<string, { tile: string; text: string }> = {
+    lead: { tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]', text: 'text-[#7c3aed] dark:text-[#a78bfa]' },
+    prospect: { tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]', text: 'text-[#1d4ed8] dark:text-[#60a5fa]' },
+    opportunity: { tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]', text: 'text-[#047857] dark:text-[#34d399]' },
+    customer: { tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]', text: 'text-[#b45309] dark:text-[#fbbf24]' },
+    active: { tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]', text: 'text-[#b45309] dark:text-[#fbbf24]' },
+    partner: { tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]', text: 'text-[#7c3aed] dark:text-[#a78bfa]' },
+    churned: { tile: 'bg-[rgba(185,28,28,0.10)] dark:bg-[rgba(248,113,113,0.16)]', text: 'text-[#b91c1c] dark:text-[#f87171]' },
+    inactive: { tile: 'bg-[rgba(185,28,28,0.10)] dark:bg-[rgba(248,113,113,0.16)]', text: 'text-[#b91c1c] dark:text-[#f87171]' },
+  }
+  const STAGE_NEUTRAL = { tile: 'bg-muted', text: 'text-muted-foreground' }
+
+  // Lifecycle-stage breakdown computed client-side from the loaded contacts (no extra fetch).
+  const stageBreakdown = (() => {
+    const counts = new Map<string, number>()
+    for (const c of contacts) {
+      const s = (c.lifecycle_stage || '').trim()
+      if (!s) continue
+      counts.set(s, (counts.get(s) || 0) + 1)
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
+  })()
+
+  // Engagement hue from the already-loaded contact status (hot / warm / cold).
+  function statusHue(status: string): { dot: string; text: string } | null {
+    const s = (status || '').toLowerCase()
+    if (s === 'hot') return { dot: 'bg-[#047857] dark:bg-[#34d399]', text: 'text-[#047857] dark:text-[#34d399]' }
+    if (s === 'warm') return { dot: 'bg-[#b45309] dark:bg-[#fbbf24]', text: 'text-[#b45309] dark:text-[#fbbf24]' }
+    if (s === 'cold') return { dot: 'bg-[#b91c1c] dark:bg-[#f87171]', text: 'text-[#b91c1c] dark:text-[#f87171]' }
+    return null
+  }
+
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-52px)]">
       {/* Contact List — hidden on mobile when a contact is selected */}
@@ -757,6 +790,26 @@ export default function ContactsPage() {
           </div>
         )}
 
+        {/* Lifecycle stage breakdown — computed client-side from loaded contacts, no extra fetch */}
+        {tab !== 'tasks' && !loading && stageBreakdown.length > 0 && (
+          <div className="px-3 sm:px-6 py-2.5 border-b flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground mr-1">
+              <Activity className="size-3.5 text-[#7c3aed] dark:text-[#a78bfa]" />
+              {contacts.length} loaded
+            </span>
+            {stageBreakdown.map(([stage, count]) => {
+              const hue = STAGE_HUE[stage.toLowerCase()] || STAGE_NEUTRAL
+              return (
+                <span key={stage}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${hue.tile} ${hue.text}`}>
+                  <span className="capitalize">{stage}</span>
+                  <span className="tabular-nums font-semibold">{count}</span>
+                </span>
+              )
+            })}
+          </div>
+        )}
+
         {/* Contact List */}
         {tab !== 'tasks' && <div className="flex-1 overflow-y-auto">
           {loading ? (
@@ -803,6 +856,13 @@ export default function ContactsPage() {
                       </>
                     )}
                   </div>
+                  {tab === 'people' && editCompanyId !== contact.id && statusHue(contact.status) && (
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${statusHue(contact.status)!.text}`}
+                      title={`Engagement: ${contact.status}`}>
+                      <span className={`size-1.5 rounded-full ${statusHue(contact.status)!.dot}`} />
+                      <span className="capitalize hidden sm:inline">{contact.status}</span>
+                    </span>
+                  )}
                   {contact.lifecycle_stage && editCompanyId !== contact.id && (
                     <Badge variant={stageVariants[contact.lifecycle_stage] || 'secondary'}>
                       {contact.lifecycle_stage}
@@ -1562,7 +1622,11 @@ export default function ContactsPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Flame className="size-4 text-muted-foreground shrink-0" />
+                  <Flame className={`size-4 shrink-0 ${
+                    engagementScore >= 20 ? 'text-[#047857] dark:text-[#34d399]' :
+                    engagementScore >= 5 ? 'text-[#b45309] dark:text-[#fbbf24]' :
+                    'text-muted-foreground'
+                  }`} />
                   <div className="flex-1">
                     <p className="text-[11px] text-muted-foreground">Engagement</p>
                     <div className="flex items-center gap-2">

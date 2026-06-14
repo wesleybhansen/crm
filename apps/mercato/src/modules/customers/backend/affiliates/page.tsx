@@ -10,7 +10,7 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Label } from '@open-mercato/ui/primitives/label'
 import {
   Users, Plus, Copy, Check, X, Link, ExternalLink, Search,
-  TrendingUp, UserPlus, MousePointerClick, Wallet, Eye,
+  UserPlus, MousePointerClick, Wallet, Eye,
   Loader2, BarChart3, Percent, Ban, CheckCircle, Clock, Archive, Pause, Play,
   Share2, DollarSign, Package, Settings, ChevronRight,
   Megaphone, ArrowRightLeft, Send, Globe, Sparkles,
@@ -69,6 +69,51 @@ const fmt = (v: number | string | null) => `$${Number(v || 0).toFixed(2)}`
 const fmtRate = (rate: number, type: string) => type === 'percentage' ? `${Number(rate).toFixed(0)}%` : fmt(rate)
 const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString() : '-'
 const fmtDateTime = (d: string | null) => d ? new Date(d).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
+
+// House palette tinted tiles (light/dark) for summary stat icons.
+const STAT_COLORS = {
+  violet: { icon: 'text-[#7c3aed] dark:text-[#a78bfa]', tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]' },
+  blue: { icon: 'text-[#1d4ed8] dark:text-[#60a5fa]', tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]' },
+  green: { icon: 'text-[#047857] dark:text-[#34d399]', tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]' },
+  amber: { icon: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]' },
+} as const
+
+// Semantic status -> chip variant. Active/paid = green, pending = amber,
+// inactive/declined/archived = neutral/red.
+type ChipVariant = 'green' | 'amber' | 'red' | 'neutral'
+const affiliateStatusVariant = (status: string): ChipVariant => {
+  switch (status) {
+    case 'active': return 'green'
+    case 'pending': return 'amber'
+    case 'inactive': return 'red'
+    default: return 'neutral'
+  }
+}
+const payoutStatusVariant = (status: string): ChipVariant => {
+  switch (status) {
+    case 'paid': return 'green'
+    case 'pending': return 'amber'
+    case 'failed':
+    case 'cancelled': return 'red'
+    default: return 'neutral'
+  }
+}
+
+// Colored count badge: distinct hue per metric, muted when zero.
+const COUNT_BADGE = {
+  violet: 'bg-[rgba(124,58,237,.09)] text-[#6d28d9] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd]',
+  blue: 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd]',
+  green: 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399]',
+  amber: 'bg-[rgba(217,119,6,.10)] text-[#b45309] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24]',
+} as const
+function CountBadge({ value, color }: { value: number; color: keyof typeof COUNT_BADGE }) {
+  const muted = !value
+  return (
+    <span className={`inline-flex min-w-[1.75rem] justify-center items-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ${muted ? 'text-muted-foreground/60' : COUNT_BADGE[color]}`}>
+      {value}
+    </span>
+  )
+}
 
 export default function AffiliatesPage() {
   const [tab, setTab] = useState<Tab>('campaigns')
@@ -277,20 +322,25 @@ export default function AffiliatesPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
         {[
-          { label: 'Campaigns', value: String(campaigns.length), icon: <Megaphone className="size-4" />, color: 'text-violet-600' },
-          { label: 'Affiliates', value: String(affiliates.filter(a => a.status === 'active').length), icon: <Users className="size-4" />, color: 'text-blue-600' },
-          { label: 'Referrals', value: String(totalReferrals), icon: <MousePointerClick className="size-4" />, color: 'text-cyan-600' },
-          { label: 'Revenue', value: fmt(totalRevenue), icon: <TrendingUp className="size-4" />, color: 'text-emerald-600' },
-          { label: 'Pending Pay', value: fmt(pendingPayouts), icon: <Clock className="size-4" />, color: 'text-orange-600' },
-        ].map(m => (
-          <div key={m.label} className="bg-card rounded-xl border px-4 py-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{m.label}</span>
-              <span className={m.color}>{m.icon}</span>
+          { label: 'Affiliates', value: String(affiliates.length), icon: <Users className="size-4" />, color: 'violet' as const },
+          { label: 'Active', value: String(affiliates.filter(a => a.status === 'active').length), icon: <CheckCircle className="size-4" />, color: 'green' as const },
+          { label: 'Referrals', value: String(totalReferrals), icon: <MousePointerClick className="size-4" />, color: 'blue' as const },
+          { label: 'Earnings', value: fmt(totalRevenue), icon: <Wallet className="size-4" />, color: 'amber' as const },
+          { label: 'Pending Pay', value: fmt(pendingPayouts), icon: <Clock className="size-4" />, color: 'amber' as const },
+        ].map(m => {
+          const c = STAT_COLORS[m.color]
+          return (
+            <div key={m.label} className="bg-card rounded-xl border px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{m.label}</span>
+                <span className={`size-7 rounded-lg flex items-center justify-center ${c.tile}`}>
+                  <span className={c.icon}>{m.icon}</span>
+                </span>
+              </div>
+              <p className="text-xl font-bold">{m.value}</p>
             </div>
-            <p className="text-xl font-bold">{m.value}</p>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Tabs */}
@@ -472,11 +522,11 @@ export default function AffiliatesPage() {
                       <td className="px-4 py-3">
                         <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{aff.stripe_promo_code || aff.affiliate_code}</code>
                       </td>
-                      <td className="px-4 py-3 text-right">{aff.total_referrals}</td>
-                      <td className="px-4 py-3 text-right">{aff.total_conversions}</td>
+                      <td className="px-4 py-3 text-right"><CountBadge value={aff.total_referrals} color="blue" /></td>
+                      <td className="px-4 py-3 text-right"><CountBadge value={aff.total_conversions} color="green" /></td>
                       <td className="px-4 py-3 text-right font-medium text-[#047857] dark:text-[#34d399]">{fmt(aff.total_earned)}</td>
                       <td className="px-4 py-3 text-center">
-                        <Badge variant={aff.status === 'active' ? 'green' : aff.status === 'pending' ? 'amber' : 'secondary'}>
+                        <Badge variant={affiliateStatusVariant(aff.status)}>
                           {aff.status}
                         </Badge>
                       </td>
@@ -630,7 +680,7 @@ export default function AffiliatesPage() {
                       <td className="px-4 py-3 font-medium">{p.affiliate_name}</td>
                       <td className="px-4 py-3 text-right font-semibold">{fmt(p.amount)}</td>
                       <td className="px-4 py-3 text-center">
-                        <Badge variant={p.status === 'paid' ? 'green' : 'amber'}>{p.status}</Badge>
+                        <Badge variant={payoutStatusVariant(p.status)}>{p.status}</Badge>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground text-xs">{fmtDate(p.created_at)}</td>
                       <td className="px-4 py-3 text-right">
@@ -750,7 +800,7 @@ export default function AffiliatesPage() {
                   {detailPayouts.map(p => (
                     <div key={p.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
                       <div className="flex-1"><p className="text-xs font-medium">{fmt(p.amount)}</p><p className="text-[10px] text-muted-foreground">{fmtDate(p.created_at)}</p></div>
-                      <Badge variant={p.status === 'paid' ? 'green' : 'amber'}>{p.status}</Badge>
+                      <Badge variant={payoutStatusVariant(p.status)}>{p.status}</Badge>
                     </div>
                   ))}
                 </div>

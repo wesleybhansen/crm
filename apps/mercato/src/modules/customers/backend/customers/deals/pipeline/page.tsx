@@ -51,6 +51,18 @@ type ContactDetail = {
   engagementScore: number | null
 }
 
+// House-palette hues, rotated across stages so the board has color variety
+// instead of being all-violet. Each entry covers light + dark.
+const STAGE_HUES = [
+  { name: 'violet', text: 'text-[#7c3aed] dark:text-[#a78bfa]', tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]', dot: 'bg-[#7c3aed] dark:bg-[#a78bfa]', bar: 'bg-[#7c3aed] dark:bg-[#a78bfa]' },
+  { name: 'blue', text: 'text-[#1d4ed8] dark:text-[#60a5fa]', tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]', dot: 'bg-[#1d4ed8] dark:bg-[#60a5fa]', bar: 'bg-[#1d4ed8] dark:bg-[#60a5fa]' },
+  { name: 'green', text: 'text-[#047857] dark:text-[#34d399]', tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]', dot: 'bg-[#047857] dark:bg-[#34d399]', bar: 'bg-[#047857] dark:bg-[#34d399]' },
+  { name: 'amber', text: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]', dot: 'bg-[#b45309] dark:bg-[#fbbf24]', bar: 'bg-[#b45309] dark:bg-[#fbbf24]' },
+  { name: 'red', text: 'text-[#b91c1c] dark:text-[#f87171]', tile: 'bg-[rgba(185,28,28,0.10)] dark:bg-[rgba(248,113,113,0.14)]', dot: 'bg-[#b91c1c] dark:bg-[#f87171]', bar: 'bg-[#b91c1c] dark:bg-[#f87171]' },
+] as const
+
+const hueFor = (index: number) => STAGE_HUES[index % STAGE_HUES.length]
+
 export default function PipelinePage() {
   const [mode, setMode] = useState<PipelineMode | null>(null)
   const [loading, setLoading] = useState(true)
@@ -308,12 +320,73 @@ export default function PipelinePage() {
         </div>
       </div>
 
+      {/* Pipeline value summary (deals mode) — per-stage value bars from existing stage.totalValue */}
+      {mode === 'deals' && (() => {
+        const totalValue = dealStages.reduce((s, st) => s + st.totalValue, 0)
+        const totalDeals = dealStages.reduce((s, st) => s + st.count, 0)
+        const activeStages = dealStages.filter(st => st.totalValue > 0 || st.count > 0)
+        if (totalDeals === 0) return null
+        return (
+          <div className="shrink-0 border-b bg-card/40 px-6 py-3">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mb-3">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-bold tabular-nums tracking-tight text-[#047857] dark:text-[#34d399]">
+                  ${totalValue.toLocaleString()}
+                </span>
+                <span className="text-[11px] text-muted-foreground">open pipeline value</span>
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-bold tabular-nums tracking-tight text-[#1d4ed8] dark:text-[#60a5fa]">
+                  {totalDeals}
+                </span>
+                <span className="text-[11px] text-muted-foreground">open {totalDeals === 1 ? 'deal' : 'deals'}</span>
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-bold tabular-nums tracking-tight text-[#7c3aed] dark:text-[#a78bfa]">
+                  {activeStages.length}
+                </span>
+                <span className="text-[11px] text-muted-foreground">active {activeStages.length === 1 ? 'stage' : 'stages'}</span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              {dealStages.map((stage, i) => {
+                const hue = hueFor(i)
+                const share = totalValue > 0 ? (stage.totalValue / totalValue) * 100 : 0
+                if (stage.count === 0 && stage.totalValue === 0) return null
+                return (
+                  <div key={stage.name} className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-1.5 w-32 shrink-0 min-w-0">
+                      <span className={`size-2 rounded-full shrink-0 ${hue.dot}`} />
+                      <span className="text-[11px] font-medium truncate">{stage.name}</span>
+                    </div>
+                    <div className="flex-1 h-2 rounded-full bg-muted/60 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${hue.bar} transition-all`}
+                        style={{ width: `${share > 0 ? Math.max(share, 2) : 0}%` }}
+                      />
+                    </div>
+                    <span className={`text-[11px] font-semibold tabular-nums shrink-0 w-20 text-right ${hue.text}`}>
+                      ${stage.totalValue.toLocaleString()}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground tabular-nums shrink-0 w-14 text-right">
+                      {stage.count} {stage.count === 1 ? 'deal' : 'deals'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Kanban Board */}
       <div className="flex-1 flex overflow-hidden">
         <div ref={scrollRef} className={`flex-1 overflow-x-auto overflow-y-hidden transition-all ${selectedContact ? 'mr-0' : ''}`}>
           <div className="flex gap-4 p-6 h-full min-w-max">
             {mode === 'journey' ? (
-              journeyStages.map(stage => (
+              journeyStages.map((stage, stageIndex) => {
+                const hue = hueFor(stageIndex)
+                return (
                 <div
                   key={stage.name}
                   className={`flex flex-col w-72 shrink-0 rounded-lg border bg-card transition-colors ${
@@ -323,10 +396,11 @@ export default function PipelinePage() {
                   onDragLeave={handleDragLeave}
                   onDrop={e => handleDrop(e, stage.name)}
                 >
-                  <div className="flex items-center justify-between px-3 py-2.5 border-b">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-semibold">{stage.name}</h3>
-                      <span className="text-[10px] font-medium bg-muted px-1.5 py-0.5 rounded-full tabular-nums">
+                  <div className={`flex items-center justify-between px-3 py-2.5 border-b ${hue.tile}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`size-2 rounded-full shrink-0 ${hue.dot}`} />
+                      <h3 className="text-sm font-semibold truncate">{stage.name}</h3>
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full tabular-nums shrink-0 ${hue.tile} ${hue.text}`}>
                         {stage.count}
                       </span>
                     </div>
@@ -402,23 +476,27 @@ export default function PipelinePage() {
                     )}
                   </div>
                 </div>
-              ))
+                )
+              })
             ) : (
-              dealStages.map(stage => (
+              dealStages.map((stage, stageIndex) => {
+                const hue = hueFor(stageIndex)
+                return (
                 <div key={stage.name} className={`flex flex-col w-72 shrink-0 rounded-lg border bg-card transition ${dragOverStage === stage.name ? 'ring-2 ring-accent border-accent' : ''}`}
                   onDragOver={(e) => handleDragOver(e, stage.name)}
                   onDragLeave={handleDragLeave}
                   onDrop={(e) => handleDrop(e, stage.name)}
                 >
-                  <div className="flex items-center justify-between px-3 py-2.5 border-b">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-semibold">{stage.name}</h3>
-                      <span className="text-[10px] font-medium bg-muted px-1.5 py-0.5 rounded-full tabular-nums">
+                  <div className={`flex items-center justify-between px-3 py-2.5 border-b ${hue.tile}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`size-2 rounded-full shrink-0 ${hue.dot}`} />
+                      <h3 className="text-sm font-semibold truncate">{stage.name}</h3>
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full tabular-nums shrink-0 ${hue.tile} ${hue.text}`}>
                         {stage.count}
                       </span>
                     </div>
                     {stage.totalValue > 0 && (
-                      <span className="text-[10px] text-muted-foreground font-medium tabular-nums">
+                      <span className={`text-[10px] font-semibold tabular-nums shrink-0 ${hue.text}`}>
                         ${stage.totalValue.toLocaleString()}
                       </span>
                     )}
@@ -459,7 +537,8 @@ export default function PipelinePage() {
                     )}
                   </div>
                 </div>
-              ))
+                )
+              })
             )}
           </div>
         </div>

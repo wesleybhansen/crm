@@ -103,7 +103,7 @@ function TriggerSubOptions({ triggerType, config, onChange }: { triggerType: str
 }
 
 const statusVariant: Record<string, 'violet' | 'blue' | 'green' | 'amber' | 'red' | 'secondary'> = {
-  draft: 'amber',
+  draft: 'violet',
   active: 'green',
   paused: 'amber',
   archived: 'red',
@@ -112,6 +112,43 @@ const statusVariant: Record<string, 'violet' | 'blue' | 'green' | 'amber' | 'red
   scheduled: 'blue',
   failed: 'red',
   bounced: 'red',
+}
+
+// House palette for tinted-icon stat tiles + count badges (matches the CRM dashboard).
+const STAT_COLORS = {
+  violet: { icon: 'text-[#7c3aed] dark:text-[#a78bfa]', tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]' },
+  blue: { icon: 'text-[#1d4ed8] dark:text-[#60a5fa]', tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]' },
+  green: { icon: 'text-[#047857] dark:text-[#34d399]', tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]' },
+  amber: { icon: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]' },
+} as const
+
+function SummaryStat({ icon: Icon, label, value, color }: {
+  icon: any; label: string; value: number; color: keyof typeof STAT_COLORS
+}) {
+  const c = STAT_COLORS[color]
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className={`size-9 rounded-lg flex items-center justify-center mb-3 ${c.tile}`}>
+        <Icon className={`size-4 ${c.icon}`} />
+      </div>
+      <p className="text-2xl font-bold tabular-nums tracking-tight">{value.toLocaleString()}</p>
+      <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+    </div>
+  )
+}
+
+// Small colored count badge with a tinted icon (per-row step / enrollment counts).
+function CountBadge({ icon: Icon, value, color, title }: {
+  icon: any; value: number; color: keyof typeof STAT_COLORS; title: string
+}) {
+  const c = STAT_COLORS[color]
+  return (
+    <span title={title}
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium tabular-nums ${c.tile} ${c.icon}`}>
+      <Icon className="size-3" />
+      {value.toLocaleString()}
+    </span>
+  )
 }
 
 export default function SequencesPage({ embedded }: { embedded?: boolean } = {}) {
@@ -369,6 +406,11 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
 
   // ── LIST VIEW ──
   if (view === 'list') {
+    // Client-side aggregates from already-loaded sequences (no extra fetches).
+    const totalSequences = sequences.length
+    const activeCount = sequences.filter(s => s.status === 'active').length
+    const pausedCount = sequences.filter(s => s.status === 'paused').length
+    const totalEnrollments = sequences.reduce((sum, s) => sum + (s.enrollment_count || 0), 0)
     return (
       <div className={embedded ? '' : 'p-6 max-w-4xl mx-auto'}>
         {!embedded && (
@@ -391,6 +433,15 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
           </div>
         </div>
 
+        {!loading && sequences.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            <SummaryStat icon={GitBranch} label="Total sequences" value={totalSequences} color="violet" />
+            <SummaryStat icon={Play} label="Active" value={activeCount} color="green" />
+            <SummaryStat icon={Users} label="Total enrollments" value={totalEnrollments} color="blue" />
+            <SummaryStat icon={Pause} label="Paused" value={pausedCount} color="amber" />
+          </div>
+        )}
+
         {loading ? <div className="text-sm text-muted-foreground">Loading...</div> :
         sequences.length === 0 ? (
           <div className="rounded-lg border p-12 text-center">
@@ -410,11 +461,15 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                     <p className="text-sm font-medium">{seq.name}</p>
                     <Badge variant={statusVariant[seq.status] || 'secondary'}>{seq.status}</Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {TRIGGER_TYPES.find(t => t.value === seq.trigger_type)?.label || seq.trigger_type}
-                    {' · '}{seq.step_count} step{seq.step_count !== 1 ? 's' : ''}
-                    {' · '}{seq.enrollment_count} enrolled
-                  </p>
+                  <div className="flex items-center flex-wrap gap-2 mt-1">
+                    <span className="text-xs text-muted-foreground">
+                      {TRIGGER_TYPES.find(t => t.value === seq.trigger_type)?.label || seq.trigger_type}
+                    </span>
+                    <CountBadge icon={GitBranch} value={seq.step_count} color="violet"
+                      title={`${seq.step_count} step${seq.step_count !== 1 ? 's' : ''}`} />
+                    <CountBadge icon={Users} value={seq.enrollment_count} color="blue"
+                      title={`${seq.enrollment_count} enrolled`} />
+                  </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                   {seq.status === 'draft' && (
@@ -805,9 +860,11 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
 
         {/* Steps */}
         <div className="rounded-lg border bg-card p-4 mb-6">
-          <p className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground mb-3">
-            Steps ({seq.steps?.length || 0})
-          </p>
+          <div className="flex items-center gap-2 mb-3">
+            <p className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground">Steps</p>
+            <CountBadge icon={GitBranch} value={seq.steps?.length || 0} color="violet"
+              title={`${seq.steps?.length || 0} step${(seq.steps?.length || 0) !== 1 ? 's' : ''}`} />
+          </div>
           <div className="space-y-2">
             {(seq.steps || []).map((step: any, idx: number) => {
               const StepIcon = STEP_TYPES.find(t => t.value === step.step_type)?.icon || Mail
@@ -929,9 +986,13 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
         {/* Enrollments */}
         <div className="rounded-lg border bg-card">
           <div className="flex items-center justify-between px-4 py-3 border-b">
-            <p className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground">
-              <Users className="size-3.5 inline mr-1" /> Enrollments ({enrollments.length})
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground">
+                <Users className="size-3.5 inline mr-1" /> Enrollments
+              </p>
+              <CountBadge icon={Users} value={enrollments.length} color="blue"
+                title={`${enrollments.length} enrolled`} />
+            </div>
           </div>
           {enrollments.length === 0 ? (
             <div className="p-8 text-center">

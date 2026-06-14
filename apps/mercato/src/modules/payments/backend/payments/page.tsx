@@ -50,6 +50,62 @@ type InvoiceEmail = {
 
 type Tab = 'products' | 'invoices' | 'history'
 
+// House palette tinted tiles + text for colored summary stats.
+const STAT_COLORS = {
+  violet: { icon: 'text-[#7c3aed] dark:text-[#a78bfa]', tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]' },
+  blue: { icon: 'text-[#1d4ed8] dark:text-[#60a5fa]', tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]' },
+  green: { icon: 'text-[#047857] dark:text-[#34d399]', tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]' },
+  amber: { icon: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]' },
+  red: { icon: 'text-[#b91c1c] dark:text-[#f87171]', tile: 'bg-[rgba(239,68,68,0.10)] dark:bg-[rgba(239,68,68,0.13)]' },
+} as const
+
+// Tinted count badge for a status breakdown chip.
+const STATUS_CHIP: Record<string, string> = {
+  green: 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399]',
+  amber: 'bg-[rgba(217,119,6,.10)] text-[#b45309] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24]',
+  red: 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171]',
+  blue: 'bg-[rgba(37,99,235,.10)] text-[#1d4ed8] dark:bg-[rgba(59,130,246,.15)] dark:text-[#60a5fa]',
+  violet: 'bg-[rgba(124,58,237,.10)] text-[#7c3aed] dark:bg-[rgba(139,92,246,.16)] dark:text-[#a78bfa]',
+  secondary: 'bg-muted text-muted-foreground',
+}
+
+// Colored summary stat with a tinted icon tile (no chart; honest aggregate only).
+function StatTile({ icon: Icon, label, value, color }: {
+  icon: any; label: string; value: string; color: keyof typeof STAT_COLORS
+}) {
+  const c = STAT_COLORS[color]
+  return (
+    <div className="rounded-lg border bg-card px-4 py-3 flex items-center gap-3">
+      <div className={`size-9 rounded-lg flex items-center justify-center shrink-0 ${c.tile}`}>
+        <Icon className={`size-4 ${c.icon}`} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-lg font-bold tabular-nums tracking-tight">{value}</p>
+        <p className="text-[11px] text-muted-foreground">{label}</p>
+      </div>
+    </div>
+  )
+}
+
+// Row of tinted count chips, one per non-zero status. Order + hue are semantic.
+function StatusBreakdown({ counts, order }: {
+  counts: Record<string, number>; order: Array<{ key: string; label: string; color: string }>
+}) {
+  const shown = order.filter(o => (counts[o.key] || 0) > 0)
+  if (shown.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {shown.map(o => (
+        <span key={o.key}
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_CHIP[o.color] || STATUS_CHIP.secondary}`}>
+          <span className="tabular-nums font-semibold">{counts[o.key]}</span>
+          <span className="opacity-80">{o.label}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export default function PaymentsPage() {
   const [tab, setTab] = useState<Tab>('products')
   const [products, setProducts] = useState<Product[]>([])
@@ -1065,6 +1121,29 @@ export default function PaymentsPage() {
             <p className="text-sm text-muted-foreground">No invoices yet. Create your first invoice to get paid.</p>
           </div>
         ) : (
+          <>
+            {(() => {
+              const collected = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + Number(i.total || 0), 0)
+              const outstanding = invoices.filter(i => i.status === 'sent' || i.status === 'overdue').reduce((s, i) => s + Number(i.total || 0), 0)
+              const counts: Record<string, number> = {}
+              for (const i of invoices) counts[i.status] = (counts[i.status] || 0) + 1
+              return (
+                <div className="mb-4 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <StatTile icon={CheckCircle} label="Collected (paid)" value={`$${collected.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color="green" />
+                    <StatTile icon={Clock} label="Outstanding (sent + overdue)" value={`$${outstanding.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color="amber" />
+                    <StatTile icon={FileText} label="Total invoices" value={invoices.length.toLocaleString()} color="blue" />
+                  </div>
+                  <StatusBreakdown counts={counts} order={[
+                    { key: 'paid', label: 'paid', color: 'green' },
+                    { key: 'sent', label: 'sent', color: 'blue' },
+                    { key: 'overdue', label: 'overdue', color: 'red' },
+                    { key: 'draft', label: 'draft', color: 'amber' },
+                    { key: 'cancelled', label: 'cancelled', color: 'secondary' },
+                  ]} />
+                </div>
+              )
+            })()}
           <div className="rounded-lg border divide-y">
             {invoices.map(inv => (
               <div key={inv.id}>
@@ -1261,6 +1340,7 @@ export default function PaymentsPage() {
               </div>
             ))}
           </div>
+          </>
         )
       )}
 
@@ -1462,6 +1542,31 @@ export default function PaymentsPage() {
               <p className="text-sm text-muted-foreground">No payment records yet. Payments will appear here once customers start paying.</p>
             </div>
           ) : (
+            <>
+            {(() => {
+              const isSettled = (s: string) => s === 'succeeded' || s === 'completed' || s === 'partially_refunded'
+              const grossCollected = records.filter(r => isSettled(r.status)).reduce((s, r) => s + Number(r.amount || 0), 0)
+              const refunded = records.reduce((s, r) => s + Number(r.refunded_amount || 0), 0)
+              const counts: Record<string, number> = {}
+              for (const r of records) counts[r.status] = (counts[r.status] || 0) + 1
+              return (
+                <div className="mb-4 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <StatTile icon={DollarSign} label="Collected" value={`$${grossCollected.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color="green" />
+                    <StatTile icon={RotateCcw} label="Refunded" value={`$${refunded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color="amber" />
+                    <StatTile icon={History} label="Transactions" value={records.length.toLocaleString()} color="blue" />
+                  </div>
+                  <StatusBreakdown counts={counts} order={[
+                    { key: 'succeeded', label: 'succeeded', color: 'green' },
+                    { key: 'completed', label: 'completed', color: 'green' },
+                    { key: 'pending', label: 'pending', color: 'amber' },
+                    { key: 'partially_refunded', label: 'partial refund', color: 'amber' },
+                    { key: 'refunded', label: 'refunded', color: 'red' },
+                    { key: 'failed', label: 'failed', color: 'red' },
+                  ]} />
+                </div>
+              )
+            })()}
             <div className="rounded-lg border divide-y">
               {records.map(rec => {
                 const isExpanded = expandedRecord === rec.id
@@ -1546,6 +1651,7 @@ export default function PaymentsPage() {
                 )
               })}
             </div>
+            </>
           )}
         </>
       )}
