@@ -1316,3 +1316,47 @@ export class PipelineAutomationRun {
   @Property({ name: 'ran_at', type: Date, onCreate: () => new Date() })
   ranAt: Date = new Date()
 }
+
+// Customer Service feature (Phase 1): per-org config for the recurring engine
+// that drafts a reply for each new inbound customer inquiry and queues it for
+// approval. One row per org. watched_connection_ids null/empty means "watch all
+// active email connections". reply_mode is 'draft' in Phase 1 (never auto-send).
+@Entity({ tableName: 'customer_service_settings' })
+@Unique({ name: 'customer_service_settings_organization_id_key', properties: ['organizationId'] })
+export class CustomerServiceSettings {
+  [OptionalProps]?:
+    | 'enabled'
+    | 'replyMode'
+    | 'watchedConnectionIds'
+    | 'signature'
+    | 'createdAt'
+    | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'enabled', type: 'boolean', default: false })
+  enabled: boolean = false
+
+  // null/empty = watch all active email_connections for the org
+  @Property({ name: 'watched_connection_ids', type: 'json', nullable: true })
+  watchedConnectionIds?: string[] | null
+
+  @Property({ name: 'reply_mode', type: 'text', default: 'draft' })
+  replyMode: string = 'draft'
+
+  @Property({ name: 'signature', type: 'text', nullable: true })
+  signature?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
