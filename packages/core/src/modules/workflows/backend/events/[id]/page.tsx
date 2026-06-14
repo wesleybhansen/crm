@@ -205,7 +205,7 @@ export default function WorkflowEventDetailPage() {
                   <dd className="mt-1">
                     <Link
                       href={`/backend/instances/${event.workflowInstance.id}`}
-                      className="text-sm text-primary hover:underline font-mono"
+                      className="text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:underline font-mono"
                     >
                       {event.workflowInstance.id}
                     </Link>

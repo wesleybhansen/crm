@@ -789,7 +789,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                         </td>
                         <td className="px-4 py-3 text-sm">
                           <details className="cursor-pointer">
-                            <summary className="text-primary hover:underline">
+                            <summary className="text-[#1d4ed8] dark:text-[#60a5fa] hover:underline">
                               {t('common.details')}
                             </summary>
                             <div className="mt-2">

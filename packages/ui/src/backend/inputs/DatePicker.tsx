@@ -140,7 +140,7 @@ export function DatePicker({
               <button
                 type="button"
                 onClick={handleToday}
-                className="text-sm text-primary hover:underline focus:outline-none"
+                className="text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:underline focus:outline-none"
               >
                 {todayText}
               </button>

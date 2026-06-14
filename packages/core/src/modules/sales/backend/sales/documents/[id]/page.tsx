@@ -1144,7 +1144,7 @@ function ContactEmailInlineEditor({
                 <p className="text-xs text-muted-foreground">
                   {t('customers.people.detail.inline.emailDuplicate', undefined, { name: duplicate.displayName })}{' '}
                   <Link
-                    className="font-medium text-primary underline underline-offset-2"
+                    className="font-medium text-[#1d4ed8] dark:text-[#60a5fa] underline underline-offset-2"
                     href={`/backend/customers/people/${duplicate.id}`}
                   >
                     {t('customers.people.detail.inline.emailDuplicateLink')}
@@ -3895,7 +3895,7 @@ export default function SalesDocumentDetailPage({
       }
       return (
         <a
-          className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline"
+          className="inline-flex items-center gap-2 text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-80 hover:underline"
           href={`mailto:${emailValue}`}
         >
           <Mail className="h-4 w-4" aria-hidden />

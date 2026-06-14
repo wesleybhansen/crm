@@ -498,7 +498,7 @@ function CustomDataSectionImpl({
                 {definitionHref && labels.defineFields ? (
                   <Link
                     href={definitionHref}
-                    className="font-medium text-primary underline-offset-2 hover:underline focus-visible:underline"
+                    className="font-medium text-[#1d4ed8] dark:text-[#60a5fa] underline-offset-2 hover:underline focus-visible:underline"
                   >
                     {labels.defineFields}
                   </Link>

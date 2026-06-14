@@ -592,7 +592,7 @@ function SentenceCard({
               {histLogs.length >= 10 && (
                 <button
                   type="button"
-                  className="flex items-center gap-1 text-xs text-primary hover:underline pt-1"
+                  className="flex items-center gap-1 text-xs text-[#1d4ed8] dark:text-[#60a5fa] hover:underline pt-1"
                   onClick={onToggleHistory}
                 >
                   View all <ChevronRight className="size-3" />

@@ -222,7 +222,7 @@ export function MobileTaskForm({
             <span className="text-muted-foreground">{t('workflows.tasks.detail.workflowInstance')}:</span>
             <Link
               href={`/backend/instances/${task.workflowInstanceId}`}
-              className="text-primary hover:underline text-xs font-mono"
+              className="text-[#1d4ed8] dark:text-[#60a5fa] hover:underline text-xs font-mono"
             >
               {task.workflowInstanceId.slice(0, 8)}...
             </Link>

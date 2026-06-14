@@ -98,7 +98,7 @@ export function TimePicker({
               <button
                 type="button"
                 onClick={handleNow}
-                className="text-sm text-primary hover:underline focus:outline-none"
+                className="text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:underline focus:outline-none"
               >
                 {nowText}
               </button>

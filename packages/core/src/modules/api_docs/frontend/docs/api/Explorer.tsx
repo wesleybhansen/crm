@@ -1249,7 +1249,7 @@ function TesterPanel(props: TesterPanelProps) {
 
       <div className="space-y-2 text-xs">
         <div className="font-semibold text-foreground">Endpoint</div>
-        <code className="rounded-md bg-muted px-3 py-2 text-xs text-primary">{operation.path}</code>
+        <code className="rounded-md bg-muted px-3 py-2 text-xs text-[#1d4ed8] dark:text-[#60a5fa]">{operation.path}</code>
       </div>
 
       <label className="space-y-2 text-sm">

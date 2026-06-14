@@ -64,7 +64,7 @@ export default function CompanyUsersWidget({ context }: CompanyUsersProps) {
                 </span>
                 <a
                   href={`/backend/customer_accounts/${user.id}`}
-                  className="text-xs text-primary hover:underline"
+                  className="text-xs text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
                 >
                   {t('common.view', 'View')}
                 </a>

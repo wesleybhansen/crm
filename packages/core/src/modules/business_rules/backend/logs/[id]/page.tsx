@@ -181,7 +181,7 @@ export default function ExecutionLogDetailPage() {
                   <dd className="mt-1">
                     <Link
                       href={`/backend/rules/${log.rule.id}`}
-                      className="text-sm text-primary hover:underline"
+                      className="text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
                     >
                       {log.rule.ruleName}
                     </Link>

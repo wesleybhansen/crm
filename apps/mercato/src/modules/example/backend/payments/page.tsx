@@ -475,7 +475,7 @@ export default function PaymentGatewayDemoPage() {
                   {transaction.redirectUrl && (
                     <>
                       <span className="font-medium text-muted-foreground">{t('example.payments.fields.paymentPage', 'Payment page')}</span>
-                      <a href={transaction.redirectUrl} target="_blank" rel="noreferrer" className="text-primary underline text-xs break-all">
+                      <a href={transaction.redirectUrl} target="_blank" rel="noreferrer" className="text-[#1d4ed8] dark:text-[#60a5fa] underline text-xs break-all">
                         {t('example.payments.fields.openPaymentPage', 'Open hosted payment page')}
                       </a>
                     </>

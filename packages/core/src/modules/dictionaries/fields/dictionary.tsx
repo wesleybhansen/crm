@@ -107,7 +107,7 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
       {selectedId ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-background/60 px-2 py-1 text-xs text-muted-foreground">
           <span>{t('dictionaries.customFields.selectedHint', 'Entries from this dictionary populate the field.')}</span>
-          <a href={manageHref} className="font-medium text-primary hover:underline" target="_blank" rel="noreferrer">
+          <a href={manageHref} className="font-medium text-[#1d4ed8] dark:text-[#60a5fa] hover:underline" target="_blank" rel="noreferrer">
             {t('dictionaries.customFields.manageLink', 'Manage dictionaries')}
           </a>
         </div>

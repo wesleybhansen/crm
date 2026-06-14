@@ -243,7 +243,7 @@ export function SystemStatusPanel() {
                     )}{' '}
                     <a
                       href={ENV_GUIDE_URL}
-                      className="font-medium text-primary hover:underline"
+                      className="font-medium text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -254,7 +254,7 @@ export function SystemStatusPanel() {
                     <div>
                       <a
                         href={item.docUrl}
-                        className="text-sm font-medium text-primary hover:underline"
+                        className="text-sm font-medium text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
                         target="_blank"
                         rel="noreferrer"
                       >

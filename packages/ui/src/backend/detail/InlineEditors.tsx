@@ -120,7 +120,7 @@ export function InlineTextEditor({
       ? 'relative rounded border bg-muted/20 p-3'
       : variant === 'plain'
         ? 'relative flex items-center gap-3 rounded-none border-0 p-0'
-        : 'rounded-lg border p-4',
+        : 'rounded-lg border bg-muted/30 p-4',
     activateOnClick && !editing ? 'cursor-pointer' : null,
     containerClassName ?? null,
   )
@@ -766,7 +766,7 @@ export function InlineSelectEditor({
       ? 'relative rounded border bg-muted/30 p-3'
       : variant === 'plain'
         ? 'relative flex flex-col gap-1 rounded-none border-0 p-0'
-        : 'rounded-lg border bg-card p-4',
+        : 'rounded-lg border bg-muted/30 p-4',
     activateOnClick && !editing ? 'cursor-pointer' : null,
     containerClassName ?? null,
   )

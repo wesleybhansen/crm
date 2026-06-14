@@ -202,7 +202,7 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
                 </div>
                 {href ? (
                   <div className="mt-2 text-xs">
-                    <Link className="text-primary hover:underline" href={href}>
+                    <Link className="text-[#1d4ed8] dark:text-[#60a5fa] hover:underline" href={href}>
                       {t('customers.widgets.common.viewRecord')}
                     </Link>
                   </div>

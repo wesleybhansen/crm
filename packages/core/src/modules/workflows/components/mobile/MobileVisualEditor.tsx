@@ -149,7 +149,7 @@ export function MobileVisualEditor({
               <p className="mb-3 text-sm text-muted-foreground">{t('workflows.mobile.startBuildingHint', 'Tap a step type above to add it')}</p>
               <button
                 onClick={onLoadExample}
-                className="pointer-events-auto text-sm text-primary hover:underline"
+                className="pointer-events-auto text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
               >
                 {t('workflows.mobile.loadExample', 'Load an example workflow')}
               </button>

@@ -873,7 +873,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                 autoFocus
               />
               {enrollSelectedIds.size > 0 && (
-                <p className="text-xs text-primary font-medium mb-2">{enrollSelectedIds.size} contact{enrollSelectedIds.size > 1 ? 's' : ''} selected</p>
+                <p className="text-xs text-[#1d4ed8] dark:text-[#60a5fa] font-medium mb-2">{enrollSelectedIds.size} contact{enrollSelectedIds.size > 1 ? 's' : ''} selected</p>
               )}
               <div className="max-h-56 overflow-y-auto rounded border mb-3">
                 {enrollContactListLoading ? (

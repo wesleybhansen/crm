@@ -106,7 +106,7 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
             </span>
             <button
               type="button"
-              className="text-xs font-semibold text-primary transition-colors hover:text-primary/80"
+              className="text-xs font-semibold text-[#1d4ed8] dark:text-[#60a5fa] transition-colors hover:opacity-80"
               onClick={() => setExpanded((prev) => !prev)}
             >
               {expanded ? t('sales.documents.detail.totals.hideDetails') : t('sales.documents.detail.totals.showDetails')}

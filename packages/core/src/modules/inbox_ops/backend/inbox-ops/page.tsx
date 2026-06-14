@@ -234,7 +234,7 @@ export default function InboxOpsProposalsPage() {
         <div className="min-w-0">
           <Link
             href={`/backend/inbox-ops/proposals/${row.original.id}`}
-            className="text-sm font-medium text-primary hover:underline truncate max-w-[300px] block"
+            className="text-sm font-medium text-[#1d4ed8] dark:text-[#60a5fa] hover:underline truncate max-w-[300px] block"
           >
             {row.original.emailSubject || row.original.summary?.slice(0, 80) || t('inbox_ops.untitled_proposal', 'Untitled proposal')}
           </Link>

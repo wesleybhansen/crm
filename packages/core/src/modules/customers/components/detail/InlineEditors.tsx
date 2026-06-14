@@ -376,7 +376,7 @@ export function InlineNextInteractionEditor({
   const formRef = React.useRef<HTMLFormElement | null>(null)
   const dateErrorId = React.useId()
   const nameErrorId = React.useId()
-  const containerClasses = cn('group relative rounded-lg border p-4', activateOnClick && !editing ? 'cursor-pointer' : null)
+  const containerClasses = cn('group relative rounded-lg border bg-muted/30 p-4', activateOnClick && !editing ? 'cursor-pointer' : null)
   const requiredMessage = React.useMemo(
     () => t('customers.people.detail.inline.required', 'This field is required'),
     [t],

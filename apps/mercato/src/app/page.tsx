@@ -119,15 +119,15 @@ export default async function Home() {
       <section className="rounded-lg border bg-card p-4">
         <div className="text-sm font-medium mb-2">{t('app.page.quickLinks.title', 'Quick Links')}</div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <a className="underline hover:text-primary transition-colors" href="https://app.noliai.com/sign-in">{t('app.page.quickLinks.login', 'Login')}</a>
+          <a className="underline text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-80 transition-colors" href="https://app.noliai.com/sign-in">{t('app.page.quickLinks.login', 'Login')}</a>
           <span className="text-muted-foreground">·</span>
-          <Link className="underline hover:text-primary transition-colors" href="/example">{t('app.page.quickLinks.examplePage', 'Example Page')}</Link>
+          <Link className="underline text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-80 transition-colors" href="/example">{t('app.page.quickLinks.examplePage', 'Example Page')}</Link>
           <span className="text-muted-foreground">·</span>
-          <Link className="underline hover:text-primary transition-colors" href="/backend/example">{t('app.page.quickLinks.exampleAdmin', 'Example Admin')}</Link>
+          <Link className="underline text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-80 transition-colors" href="/backend/example">{t('app.page.quickLinks.exampleAdmin', 'Example Admin')}</Link>
           <span className="text-muted-foreground">·</span>
-          <Link className="underline hover:text-primary transition-colors" href="/backend/todos">{t('app.page.quickLinks.exampleTodos', 'Example Todos with Custom Fields')}</Link>
+          <Link className="underline text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-80 transition-colors" href="/backend/todos">{t('app.page.quickLinks.exampleTodos', 'Example Todos with Custom Fields')}</Link>
           <span className="text-muted-foreground">·</span>
-          <Link className="underline hover:text-primary transition-colors" href="/blog/123">{t('app.page.quickLinks.exampleBlog', 'Example Blog Post')}</Link>
+          <Link className="underline text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-80 transition-colors" href="/blog/123">{t('app.page.quickLinks.exampleBlog', 'Example Blog Post')}</Link>
         </div>
       </section>
 

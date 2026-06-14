@@ -491,7 +491,7 @@ export default function SalesPipelinePage(): React.ReactElement {
               ) : null}
               <Link
                 href="/backend/config/customers/pipeline-stages"
-                className="text-sm font-medium text-primary hover:underline"
+                className="text-sm font-medium text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
               >
                 {translate('customers.deals.pipeline.manageStages', 'Manage stages')}
               </Link>
@@ -638,7 +638,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                                   <div className="mt-1 flex flex-wrap gap-2 text-xs">
                                     <Link
                                       href={`/backend/customers/deals/${deal.id}`}
-                                      className="font-medium text-primary hover:underline"
+                                      className="font-medium text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
                                       draggable={false}
                                       onClick={handleActionClick}
                                     >

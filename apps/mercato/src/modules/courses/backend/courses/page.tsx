@@ -398,7 +398,7 @@ export default function CoursesPage() {
                     </div>
                   )}
                   {pkbSelectedDocs.length > 0 && (
-                    <p className="text-[11px] text-primary mt-2 font-medium">{pkbSelectedDocs.length} document{pkbSelectedDocs.length > 1 ? 's' : ''} selected</p>
+                    <p className="text-[11px] text-[#1d4ed8] dark:text-[#60a5fa] mt-2 font-medium">{pkbSelectedDocs.length} document{pkbSelectedDocs.length > 1 ? 's' : ''} selected</p>
                   )}
                 </div>
               )}

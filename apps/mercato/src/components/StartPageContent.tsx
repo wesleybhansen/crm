@@ -176,7 +176,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
                   href="https://github.com/open-mercato"
                   target="_blank"
                   rel="noreferrer"
-                  className="underline hover:text-primary transition-colors"
+                  className="underline text-[#1d4ed8] dark:text-[#60a5fa] hover:opacity-80 transition-colors"
                 >
                   github.com/open-mercato
                 </a>
@@ -242,7 +242,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
             >
               <div className="font-medium text-foreground">{resource.label}</div>
               <p className="mt-1 text-xs text-muted-foreground">{resource.description}</p>
-              <span className="mt-3 inline-flex text-xs font-medium text-primary">{resource.actionLabel ?? t('startPage.apiResources.openLink', 'Open link')}</span>
+              <span className="mt-3 inline-flex text-xs font-medium text-[#1d4ed8] dark:text-[#60a5fa]">{resource.actionLabel ?? t('startPage.apiResources.openLink', 'Open link')}</span>
             </a>
           ))}
         </div>

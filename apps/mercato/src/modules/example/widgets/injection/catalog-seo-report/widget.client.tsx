@@ -124,7 +124,7 @@ export default function CatalogSeoReportWidget(_props: InjectionWidgetComponentP
             'example.widgets.catalogSeoReport.docs',
             'This widget is injected into the products table via the injection system.',
           )}{' '}
-          <a className="text-primary underline" href="/docs/framework/admin-ui/widget-injection" target="_blank" rel="noreferrer">
+          <a className="text-[#1d4ed8] dark:text-[#60a5fa] underline" href="/docs/framework/admin-ui/widget-injection" target="_blank" rel="noreferrer">
             {t('example.widgets.catalogSeoReport.learnMore', 'Learn more')}
           </a>
         </AlertDescription>

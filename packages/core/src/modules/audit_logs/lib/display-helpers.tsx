@@ -176,7 +176,7 @@ export function CollapsibleJsonSection({ label, value, truncateAt = DEFAULT_TRUN
           {isTruncated ? (
             <button
               type="button"
-              className="mt-1 text-xs text-primary hover:underline"
+              className="mt-1 text-xs text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
               onClick={() => setShowFull((prev) => !prev)}
             >
               {showFull ? 'Show less' : `Show all (${Math.ceil(stringified.length / 1024)} KB)`}

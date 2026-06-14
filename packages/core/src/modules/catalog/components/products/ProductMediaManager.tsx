@@ -222,7 +222,7 @@ export function ProductMediaManager({
                   <p className="line-clamp-1 text-sm font-medium">{item.fileName}</p>
                   <p className="text-xs text-muted-foreground">{humanFileSize(item.fileSize)}</p>
                   {isDefault ? (
-                    <p className="text-xs font-semibold text-primary">
+                    <p className="text-xs font-semibold text-[#1d4ed8] dark:text-[#60a5fa]">
                       {t('catalog.products.media.default', 'Default preview')}
                     </p>
                   ) : null}

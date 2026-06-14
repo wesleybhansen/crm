@@ -24,7 +24,7 @@ export default async function ApiDocsPage() {
                 href={resource.href}
                 target={resource.external ? '_blank' : undefined}
                 rel={resource.external ? 'noreferrer' : undefined}
-                className="inline-flex items-center text-sm font-medium text-primary hover:underline"
+                className="inline-flex items-center text-sm font-medium text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
               >
                 {resource.actionLabel ?? (resource.external ? 'Open docs' : 'Open link')}
               </a>

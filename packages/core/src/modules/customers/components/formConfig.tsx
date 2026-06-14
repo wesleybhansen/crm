@@ -258,7 +258,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
         {!error && duplicate ? (
           <p className="text-xs text-[#b45309] dark:text-[#fbbf24]">
             {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}{' '}
-            <Link className="font-medium text-primary underline underline-offset-2" href={`/backend/customers/people/${duplicate.id}`}>
+            <Link className="font-medium text-[#1d4ed8] dark:text-[#60a5fa] underline underline-offset-2" href={`/backend/customers/people/${duplicate.id}`}>
               {t('customers.people.form.emailDuplicateLink')}
             </Link>
           </p>

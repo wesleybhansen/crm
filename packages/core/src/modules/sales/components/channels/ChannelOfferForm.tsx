@@ -925,7 +925,7 @@ function ChannelSelectInput({
           ) : null}
         </div>
         {showDetailsLink ? (
-          <Link href={`/backend/sales/channels/${value}/edit`} className="text-xs font-medium text-primary hover:underline">
+          <Link href={`/backend/sales/channels/${value}/edit`} className="text-xs font-medium text-[#1d4ed8] dark:text-[#60a5fa] hover:underline">
             {t('sales.channels.offers.form.channelDetails', 'Details')}
           </Link>
         ) : null}
@@ -1106,7 +1106,7 @@ function ProductSelectInput({
                             href={`/backend/sales/channels/${encodeURIComponent(
                               String(channelId)
                             )}/offers/${encodeURIComponent(String(product.existingOfferId))}/edit`}
-                            className="shrink-0 font-medium text-primary hover:underline"
+                            className="shrink-0 font-medium text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
                           >
                             {t('sales.channels.offers.form.productHasOfferLink', 'View offer')}
                           </Link>

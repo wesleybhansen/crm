@@ -79,7 +79,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
       <div className="mt-2">
         <a
           href={`/backend/customer_accounts/${data.id}`}
-          className="text-xs text-primary hover:underline"
+          className="text-xs text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
         >
           {t('customer_accounts.widgets.viewAccount', 'View account details →')}
         </a>

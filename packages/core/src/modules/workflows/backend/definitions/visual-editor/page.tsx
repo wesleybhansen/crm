@@ -839,7 +839,7 @@ export default function VisualEditorPage() {
                   <p className="mb-4 text-sm text-muted-foreground">Tap a step type below to add it to the canvas</p>
                   <button
                     onClick={handleLoadExample}
-                    className="pointer-events-auto text-sm text-primary hover:underline"
+                    className="pointer-events-auto text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
                   >
                     Load an example workflow
                   </button>
@@ -1017,7 +1017,7 @@ export default function VisualEditorPage() {
                     </p>
                     <button
                       onClick={handleLoadExample}
-                      className="pointer-events-auto text-sm text-primary hover:underline"
+                      className="pointer-events-auto text-sm text-[#1d4ed8] dark:text-[#60a5fa] hover:underline"
                     >
                       Load an example workflow
                     </button>
