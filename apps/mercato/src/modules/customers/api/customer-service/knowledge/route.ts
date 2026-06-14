@@ -16,8 +16,40 @@ const VALID_KINDS = new Set(['model_answer', 'document'])
 // Per-entry content cap. Keeps a single paste/upload from being unbounded; the
 // drafter also caps the TOTAL injected length separately.
 const MAX_CONTENT_CHARS = 20000
-// Allowed text upload types. PDF/DOCX extraction is deferred (see note below).
-const ALLOWED_UPLOAD_EXT = ['.txt', '.md', '.markdown', '.csv']
+// Plain-text upload types. Read as UTF-8 directly.
+const TEXT_UPLOAD_EXT = ['.txt', '.md', '.markdown', '.csv']
+
+// Extract text from an uploaded document buffer based on filename/mime.
+// Returns the raw extracted text. Throws on unsupported type or parse failure;
+// the caller maps those to clear 400s.
+async function extractDocumentText(buf: Buffer, name: string, mime: string): Promise<string> {
+  const lower = (name || '').toLowerCase()
+  const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.')) : ''
+  const isPdf = mime === 'application/pdf' || ext === '.pdf'
+  const isDocx =
+    mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    ext === '.docx'
+
+  if (isPdf) {
+    // Import the inner module directly so pdf-parse does not run its
+    // debug-mode test-file read on package-root import.
+    const { default: pdfParse } = await import('pdf-parse/lib/pdf-parse.js')
+    const parsed = await pdfParse(buf)
+    return parsed.text || ''
+  }
+  if (isDocx) {
+    const mammoth = await import('mammoth')
+    const result = await mammoth.extractRawText({ buffer: buf })
+    return result.value || ''
+  }
+  if (TEXT_UPLOAD_EXT.includes(ext) || (mime || '').startsWith('text/')) {
+    return buf.toString('utf8')
+  }
+  // Legacy .doc and everything else.
+  const err = new Error('unsupported_type') as Error & { code?: string }
+  err.code = 'unsupported_type'
+  throw err
+}
 
 function previewOf(content: string): string {
   const flat = (content || '').replace(/\s+/g, ' ').trim()
@@ -72,7 +104,7 @@ export async function POST(req: Request) {
     const contentType = req.headers.get('content-type') || ''
 
     if (contentType.includes('multipart/form-data')) {
-      // Document upload path. Extract text server-side for .txt/.md/.csv only.
+      // Document upload path. Extracts text server-side for PDF, DOCX, and plain text.
       const form = await req.formData()
       kind = (form.get('kind') as string) || 'document'
       title = ((form.get('title') as string) || '').trim()
@@ -81,16 +113,36 @@ export async function POST(req: Request) {
 
       if (file && typeof file.arrayBuffer === 'function') {
         const name = file.name || 'upload.txt'
+        const mime = (file.type || '').toLowerCase()
         const lower = name.toLowerCase()
-        const ext = lower.slice(lower.lastIndexOf('.'))
-        if (!ALLOWED_UPLOAD_EXT.includes(ext)) {
+        const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.')) : ''
+        const isKnownType =
+          mime === 'application/pdf' || ext === '.pdf' ||
+          mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || ext === '.docx' ||
+          TEXT_UPLOAD_EXT.includes(ext) || mime.startsWith('text/')
+        if (!isKnownType) {
           return NextResponse.json({
             ok: false,
-            error: 'Only .txt, .md, and .csv files are supported. For PDF or Word, paste the text instead.',
+            error: 'Unsupported file type. Upload a PDF, Word (.docx), or text (.txt, .md, .csv) file, or paste the text instead.',
           }, { status: 400 })
         }
         const buf = Buffer.from(await file.arrayBuffer())
-        content = buf.toString('utf8')
+        try {
+          content = await extractDocumentText(buf, name, mime)
+        } catch (extractErr) {
+          console.error('[customer-service.knowledge.extract]', extractErr)
+          return NextResponse.json({
+            ok: false,
+            error: 'Could not read that file, try pasting the text instead.',
+          }, { status: 400 })
+        }
+        content = (content || '').replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+        if (!content) {
+          return NextResponse.json({
+            ok: false,
+            error: 'No readable text found in that file, try pasting the text instead.',
+          }, { status: 400 })
+        }
         sourceFilename = name
         if (!title) title = name
       } else if (pasted) {
@@ -111,7 +163,9 @@ export async function POST(req: Request) {
     if (!content) {
       return NextResponse.json({ ok: false, error: 'Content is required' }, { status: 400 })
     }
-    if (content.length > MAX_CONTENT_CHARS) content = content.substring(0, MAX_CONTENT_CHARS)
+    if (content.length > MAX_CONTENT_CHARS) {
+      content = content.substring(0, MAX_CONTENT_CHARS).trimEnd() + '\n\n[Truncated: this document was longer than the per-entry limit.]'
+    }
     if (!title) title = kind === 'model_answer' ? 'Model answer' : 'Reference document'
     title = title.substring(0, 200)
 

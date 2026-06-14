@@ -8,11 +8,14 @@ import { Headphones, Mail, Check, FileEdit, Send, Sparkles, ArrowRight, BookOpen
 
 type ReplyMode = 'draft' | 'auto' | 'hybrid'
 type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean }
+type SourceMode = { mode: ReplyMode; threshold: number }
+type SourceModes = Record<string, SourceMode>
 type Settings = {
   enabled: boolean
   watchedConnectionIds: string[] | null
   replyMode: ReplyMode
   hybridConfidenceThreshold: number
+  sourceModes: SourceModes | null
   signature: string | null
 }
 type KnowledgeEntry = {
@@ -35,6 +38,8 @@ export default function CustomerServiceSettingsPage() {
   const [watchedIds, setWatchedIds] = useState<string[] | null>(null)
   const [replyMode, setReplyMode] = useState<ReplyMode>('draft')
   const [hybridThreshold, setHybridThreshold] = useState(0.8)
+  // Per-mailbox overrides, keyed by connection id. Absent key = use account default.
+  const [sourceModes, setSourceModes] = useState<SourceModes>({})
   const [signature, setSignature] = useState('')
 
   const [connections, setConnections] = useState<EmailConnection[]>([])
@@ -70,6 +75,7 @@ export default function CustomerServiceSettingsPage() {
         if (typeof s.hybridConfidenceThreshold === 'number' && Number.isFinite(s.hybridConfidenceThreshold)) {
           setHybridThreshold(Math.min(1, Math.max(0, s.hybridConfidenceThreshold)))
         }
+        setSourceModes(s.sourceModes && typeof s.sourceModes === 'object' ? s.sourceModes : {})
         setSignature(s.signature || '')
       }
       if (connRes?.ok) setConnections(connRes.data || [])
@@ -158,6 +164,37 @@ export default function CustomerServiceSettingsPage() {
       // Empty selection means watch all again.
       return next.length === 0 ? null : next
     })
+    // Drop any per-source override when a mailbox is unchecked.
+    setSourceModes(prev => {
+      if (watchingAll) return prev
+      if (watchedIds?.includes(id)) {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      }
+      return prev
+    })
+  }
+
+  // "" = use the account default; otherwise an explicit per-mailbox mode.
+  function setSourceMode(id: string, value: '' | ReplyMode) {
+    setSourceModes(prev => {
+      const next = { ...prev }
+      if (value === '') {
+        delete next[id]
+      } else {
+        next[id] = { mode: value, threshold: prev[id]?.threshold ?? hybridThreshold }
+      }
+      return next
+    })
+  }
+
+  function setSourceThreshold(id: string, threshold: number) {
+    setSourceModes(prev => {
+      const cur = prev[id]
+      if (!cur) return prev
+      return { ...prev, [id]: { ...cur, threshold: Math.min(1, Math.max(0, threshold)) } }
+    })
   }
 
   async function save() {
@@ -174,6 +211,11 @@ export default function CustomerServiceSettingsPage() {
           watchedConnectionIds: watchedIds,
           replyMode,
           hybridConfidenceThreshold: hybridThreshold,
+          // Only send overrides for currently-watched mailboxes. When watching
+          // all, the server can't constrain to ids, so send what we have.
+          sourceModes: watchedIds === null
+            ? sourceModes
+            : Object.fromEntries(Object.entries(sourceModes).filter(([k]) => watchedIds.includes(k))),
           signature: signature.trim() || undefined,
         }),
       })
@@ -259,18 +301,56 @@ export default function CustomerServiceSettingsPage() {
               ) : (
                 connections.map(conn => {
                   const checked = watchingAll ? false : (watchedIds?.includes(conn.id) ?? false)
+                  const override = sourceModes[conn.id]
+                  const selectValue = override?.mode ?? ''
                   return (
-                    <label key={conn.id} className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <input type="checkbox" checked={checked} onChange={() => toggleMailbox(conn.id)}
-                          className="size-4 rounded border-input accent-[#2563eb]" />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{conn.email_address}</p>
-                          <p className="text-xs text-muted-foreground capitalize">{conn.provider}</p>
+                    <div key={conn.id}>
+                      <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <input type="checkbox" checked={checked} onChange={() => toggleMailbox(conn.id)}
+                            className="size-4 rounded border-input accent-[#2563eb]" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{conn.email_address}</p>
+                            <p className="text-xs text-muted-foreground capitalize">{conn.provider}</p>
+                          </div>
                         </div>
-                      </div>
-                      {conn.is_primary && <Badge variant="secondary">Primary</Badge>}
-                    </label>
+                        {conn.is_primary && <Badge variant="secondary">Primary</Badge>}
+                      </label>
+                      {checked && (
+                        <div className="px-4 pb-3 pl-11 flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] text-muted-foreground">Reply mode for this mailbox:</span>
+                          <select
+                            value={selectValue}
+                            onChange={e => setSourceMode(conn.id, e.target.value as '' | ReplyMode)}
+                            className="rounded-md border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                          >
+                            <option value="">
+                              Use account default ({replyMode === 'auto' ? 'Auto-send' : replyMode === 'hybrid' ? 'Hybrid' : 'Draft for approval'})
+                            </option>
+                            <option value="draft">Draft for approval</option>
+                            <option value="auto">Auto-send</option>
+                            <option value="hybrid">Hybrid</option>
+                          </select>
+                          {override?.mode === 'hybrid' && (
+                            <span className="flex items-center gap-1.5">
+                              <span className="text-[11px] text-muted-foreground">Threshold</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={1}
+                                step={0.05}
+                                value={override.threshold}
+                                onChange={e => {
+                                  const v = Number(e.target.value)
+                                  if (Number.isFinite(v)) setSourceThreshold(conn.id, v)
+                                }}
+                                className="w-20 rounded-md border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                              />
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )
                 })
               )}
@@ -463,14 +543,14 @@ export default function CustomerServiceSettingsPage() {
                   <FileText className="size-4 text-muted-foreground" /> Add a reference document
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Upload a .txt, .md, or .csv file, or paste text. For PDF or Word, paste the text in for now.
+                  Upload a PDF, Word (.docx), or text (.txt, .md, .csv) file, or paste text. The text is pulled out automatically.
                 </p>
               </div>
               <div className="px-4 py-3 space-y-3">
                 <input value={docTitle} onChange={e => setDocTitle(e.target.value)}
                   placeholder="Title (optional), e.g. Shipping policy"
                   className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
-                <input type="file" accept=".txt,.md,.markdown,.csv,text/plain,text/markdown,text/csv"
+                <input type="file" accept=".pdf,.docx,.txt,.md,.markdown,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv"
                   onChange={e => setDocFile(e.target.files?.[0] || null)}
                   className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:bg-card file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-muted/50" />
                 <p className="text-[11px] text-muted-foreground">Or paste the document text:</p>

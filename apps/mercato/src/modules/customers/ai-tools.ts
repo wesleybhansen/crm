@@ -68,6 +68,40 @@ function normalizeThreshold(v: unknown, fallback: number): number {
   return Math.min(1, Math.max(0, n))
 }
 
+// jsonb source_modes can arrive parsed or as a string; coerce + validate.
+function parseSourceModes(raw: any): Record<string, { mode: string; threshold: number }> {
+  let obj: any = raw
+  if (typeof obj === 'string') {
+    try { obj = JSON.parse(obj) } catch { return {} }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {}
+  const out: Record<string, { mode: string; threshold: number }> = {}
+  for (const [k, v] of Object.entries(obj)) {
+    if (!v || typeof v !== 'object') continue
+    const mode = (v as any).mode
+    if (!VALID_MODES.has(mode)) continue
+    out[k] = { mode, threshold: normalizeThreshold((v as any).threshold, 0.8) }
+  }
+  return out
+}
+
+// Build stored source_modes from tool input, keeping only entries for watched
+// connections and with valid mode/threshold. watched === null = watch all (any id ok).
+function normalizeSourceModesInput(input: any, watched: string[] | null): Record<string, { mode: string; threshold: number }> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
+  const allowed = watched && watched.length > 0 ? new Set(watched) : null
+  const out: Record<string, { mode: string; threshold: number }> = {}
+  for (const [k, v] of Object.entries(input)) {
+    if (typeof k !== 'string' || !k) continue
+    if (allowed && !allowed.has(k)) continue
+    if (!v || typeof v !== 'object') continue
+    const mode = (v as any).mode
+    if (!VALID_MODES.has(mode)) continue
+    out[k] = { mode, threshold: normalizeThreshold((v as any).threshold, 0.8) }
+  }
+  return out
+}
+
 function previewOf(content: string): string {
   const flat = (content || '').replace(/\s+/g, ' ').trim()
   return flat.length > 200 ? `${flat.substring(0, 200)}...` : flat
@@ -75,7 +109,7 @@ function previewOf(content: string): string {
 
 function serializeSettings(row: any) {
   if (!row) {
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, signature: null }
+    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null }
   }
   return {
     id: row.id,
@@ -83,6 +117,7 @@ function serializeSettings(row: any) {
     watchedConnectionIds: row.watched_connection_ids ?? null,
     replyMode: row.reply_mode || 'draft',
     hybridConfidenceThreshold: row.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
+    sourceModes: parseSourceModes(row.source_modes),
     signature: row.signature ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -107,7 +142,7 @@ function serializeKnowledgeRow(row: any) {
 const getSettingsTool: AiToolDefinition = {
   name: 'customer_service_get_settings',
   description: `Get the customer-service auto-reply configuration for the authenticated organization. Use this to see whether customer service is turned on, how replies are handled, and which email accounts are watched.
-Returns: { enabled, watchedConnectionIds (string[] or null = all active accounts), replyMode (draft|auto|hybrid), hybridConfidenceThreshold (0..1), signature, createdAt, updatedAt }. Returns defaults if not yet set up.`,
+Returns: { enabled, watchedConnectionIds (string[] or null = all active accounts), replyMode (draft|auto|hybrid), hybridConfidenceThreshold (0..1), sourceModes (per-mailbox overrides keyed by connection id), signature, createdAt, updatedAt }. Returns defaults if not yet set up.`,
   inputSchema: z.object({}),
   requiredFeatures: ['email.view'],
   handler: async (_input: never, ctx) => {
@@ -125,14 +160,19 @@ Returns: { enabled, watchedConnectionIds (string[] or null = all active accounts
 const updateSettingsTool: AiToolDefinition = {
   name: 'customer_service_update_settings',
   description: `Set up or modify the customer-service auto-reply configuration for the authenticated organization. Upserts the single settings row. Only provided fields are changed; omitted fields keep their current value.
-replyMode: "draft" queues replies for human approval, "auto" sends automatically, "hybrid" auto-sends only when the model's confidence is at or above hybridConfidenceThreshold (clamped to 0..1).
+replyMode: "draft" queues replies for human approval, "auto" sends automatically, "hybrid" auto-sends only when the model's confidence is at or above hybridConfidenceThreshold (clamped to 0..1). This is the account-wide default.
 watchedConnectionIds: list of email connection ids to watch, or omit / pass an empty list to watch all active accounts.
+sourceModes: optional per-mailbox overrides, keyed by email connection id, e.g. { "<connectionId>": { "mode": "auto", "threshold": 0.8 } }. Each overrides the account default for that specific mailbox. Only ids in the watched list are kept. Threshold is clamped to 0..1. Omit to leave per-mailbox overrides unchanged.
 Returns the saved settings.`,
   inputSchema: z.object({
     enabled: z.boolean().optional().describe('Turn customer service on or off'),
     watchedConnectionIds: z.array(z.string()).optional().describe('Email connection ids to watch; empty = all active accounts'),
     replyMode: z.enum(['draft', 'auto', 'hybrid']).optional(),
     hybridConfidenceThreshold: z.number().optional().describe('Confidence cutoff for hybrid auto-send, 0..1'),
+    sourceModes: z.record(z.string(), z.object({
+      mode: z.enum(['draft', 'auto', 'hybrid']),
+      threshold: z.number().optional(),
+    })).optional().describe('Per-mailbox overrides keyed by email connection id; overrides the account default for that mailbox'),
     signature: z.string().optional().describe('Signature appended to replies; pass empty string to clear'),
   }),
   requiredFeatures: ['email.send'],
@@ -166,11 +206,25 @@ Returns the saved settings.`,
       ? normalizeThreshold(input.hybridConfidenceThreshold, existingThreshold)
       : existingThreshold
 
+    // Per-mailbox overrides: keep only entries for watched connections. Omitted
+    // in input = keep existing (pruned to the current watched list).
+    let sourceModes: Record<string, { mode: string; threshold: number }>
+    if (input.sourceModes !== undefined) {
+      sourceModes = normalizeSourceModesInput(input.sourceModes, watched)
+    } else {
+      sourceModes = parseSourceModes(existing?.source_modes)
+      if (watched && watched.length > 0) {
+        const allowed = new Set(watched)
+        sourceModes = Object.fromEntries(Object.entries(sourceModes).filter(([k]) => allowed.has(k)))
+      }
+    }
+
     const fields = {
       enabled: typeof input.enabled === 'boolean' ? input.enabled : (existing?.enabled ?? false),
       watched_connection_ids: watched ? JSON.stringify(watched) : null,
       reply_mode: replyMode,
       hybrid_confidence_threshold: hybridConfidenceThreshold,
+      source_modes: Object.keys(sourceModes).length > 0 ? JSON.stringify(sourceModes) : null,
       signature: input.signature !== undefined ? (input.signature || null) : (existing?.signature ?? null),
       updated_at: new Date(),
     }

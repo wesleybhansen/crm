@@ -52,6 +52,9 @@ export async function POST(req: Request) {
       const hybridThreshold = settings.hybrid_confidence_threshold != null
         ? Number(settings.hybrid_confidence_threshold)
         : DEFAULT_HYBRID_THRESHOLD
+      // Per-source (per-mailbox) overrides, keyed by email_connection id. Falls
+      // back to the global mode/threshold for sources without an entry.
+      const sourceModes = parseSourceModes(settings.source_modes)
       let queued = 0
       let autoSent = 0
       let skipped = 0
@@ -75,13 +78,20 @@ export async function POST(req: Request) {
           ? settings.watched_connection_ids
           : (settings.watched_connection_ids ? safeParse(settings.watched_connection_ids) : null)
 
+        // {id, address} for each watched connection. Used both to filter
+        // conversations (by inbound to_address) and to resolve the per-source
+        // override for the matched connection. null = watching all mailboxes.
+        let watched: Array<{ id: string; address: string }> | null = null
         let watchedAddresses: string[] | null = null
         if (watchedIds && watchedIds.length > 0) {
           const conns = await knex('email_connections')
             .where('organization_id', orgId)
             .whereIn('id', watchedIds)
-            .select('email_address')
-          watchedAddresses = conns.map((c: any) => (c.email_address || '').toLowerCase()).filter(Boolean)
+            .select('id', 'email_address')
+          watched = conns
+            .map((c: any) => ({ id: c.id, address: (c.email_address || '').toLowerCase() }))
+            .filter((c: any) => c.address)
+          watchedAddresses = watched.map((c) => c.address)
           // Watching specific connections that no longer exist means nothing to do.
           if (watchedAddresses.length === 0) {
             results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0 })
@@ -124,10 +134,28 @@ export async function POST(req: Request) {
             // Watched-connection filter: the inbound message must have been
             // addressed to one of the watched connection addresses. (Conversations
             // are not tied to a connection, so we match on the inbound to_address.)
-            if (watchedAddresses) {
-              const toAddr = (inbound.to_address || '').toLowerCase()
-              const matched = watchedAddresses.some((a) => toAddr.includes(a))
-              if (!matched) { await markDrafted(knex, conv.id, orgId); skipped++; continue }
+            // Also capture WHICH watched connection it matched, so we can apply a
+            // per-source override below.
+            const toAddr = (inbound.to_address || '').toLowerCase()
+            let matchedConnId: string | null = null
+            if (watched) {
+              const hit = watched.find((c) => toAddr.includes(c.address))
+              if (!hit) { await markDrafted(knex, conv.id, orgId); skipped++; continue }
+              matchedConnId = hit.id
+            }
+
+            // Resolve the effective mode + threshold for this conversation:
+            // per-source override if the matched connection has one, else the
+            // org-wide default. If we couldn't match a specific connection
+            // (watching all, or no to_address match), use the global default.
+            let effMode = mode
+            let effThreshold = hybridThreshold
+            if (matchedConnId && sourceModes[matchedConnId]) {
+              const ov = sourceModes[matchedConnId]
+              if (VALID_MODES.has(ov.mode)) {
+                effMode = ov.mode
+                effThreshold = Number.isFinite(ov.threshold) ? ov.threshold : hybridThreshold
+              }
             }
 
             // Resolve recipient + contact.
@@ -181,10 +209,10 @@ export async function POST(req: Request) {
             //             flagged the reply auto-send-safe; otherwise queue.
             // Default to NOT sending whenever the signal is ambiguous.
             let shouldAutoSend = false
-            if (mode === 'auto') {
+            if (effMode === 'auto') {
               shouldAutoSend = true
-            } else if (mode === 'hybrid') {
-              shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
+            } else if (effMode === 'hybrid') {
+              shouldAutoSend = result.autoSendSafe === true && result.confidence >= effThreshold
             }
 
             if (shouldAutoSend) {
@@ -279,6 +307,25 @@ export async function POST(req: Request) {
 
 function safeParse(s: any) {
   try { return JSON.parse(s) } catch { return null }
+}
+
+// Per-source override map keyed by email_connection id. jsonb may arrive parsed
+// or as a string depending on the driver path; coerce + validate either way.
+function parseSourceModes(raw: any): Record<string, { mode: string; threshold: number }> {
+  let obj: any = raw
+  if (typeof obj === 'string') {
+    try { obj = JSON.parse(obj) } catch { return {} }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {}
+  const out: Record<string, { mode: string; threshold: number }> = {}
+  for (const [k, v] of Object.entries(obj)) {
+    if (!v || typeof v !== 'object') continue
+    const mode = (v as any).mode
+    if (!VALID_MODES.has(mode)) continue
+    const t = Number((v as any).threshold)
+    out[k] = { mode, threshold: Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : DEFAULT_HYBRID_THRESHOLD }
+  }
+  return out
 }
 
 async function markDrafted(knex: any, conversationId: string, orgId: string) {

@@ -1333,6 +1333,7 @@ export class CustomerServiceSettings {
     | 'replyMode'
     | 'hybridConfidenceThreshold'
     | 'watchedConnectionIds'
+    | 'sourceModes'
     | 'signature'
     | 'createdAt'
     | 'updatedAt'
@@ -1360,6 +1361,13 @@ export class CustomerServiceSettings {
   // is >= this value AND it is flagged auto-send-safe. Range [0, 1].
   @Property({ name: 'hybrid_confidence_threshold', type: 'numeric', default: 0.8 })
   hybridConfidenceThreshold: number = 0.8
+
+  // Per-source (per-mailbox) overrides. Map keyed by email_connection id:
+  //   { "<connectionId>": { "mode": "draft"|"auto"|"hybrid", "threshold": 0..1 } }
+  // Overrides the global replyMode / hybridConfidenceThreshold for that mailbox.
+  // null/missing entry = fall back to the global default.
+  @Property({ name: 'source_modes', type: 'json', nullable: true })
+  sourceModes?: Record<string, { mode: string; threshold: number }> | null
 
   @Property({ name: 'signature', type: 'text', nullable: true })
   signature?: string | null

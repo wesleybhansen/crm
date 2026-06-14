@@ -20,9 +20,45 @@ function normalizeThreshold(v: unknown, fallback: number): number {
   return Math.min(1, Math.max(0, n))
 }
 
+// jsonb can come back from pg as a parsed object or (depending on driver/path) a
+// string. Coerce to a plain object map keyed by connection id.
+function parseSourceModes(raw: any): Record<string, { mode: string; threshold: number }> {
+  let obj: any = raw
+  if (typeof obj === 'string') {
+    try { obj = JSON.parse(obj) } catch { return {} }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {}
+  const out: Record<string, { mode: string; threshold: number }> = {}
+  for (const [k, v] of Object.entries(obj)) {
+    if (!v || typeof v !== 'object') continue
+    const mode = (v as any).mode
+    if (!VALID_MODES.has(mode)) continue
+    out[k] = { mode, threshold: normalizeThreshold((v as any).threshold, 0.8) }
+  }
+  return out
+}
+
+// Build the stored source_modes map from client input, keeping only entries for
+// connections that are actually in the watched list and with valid mode/threshold.
+function normalizeSourceModesInput(input: any, watched: string[] | null): Record<string, { mode: string; threshold: number }> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
+  // watched === null means "watch all"; we can't constrain to ids, so accept any.
+  const allowed = watched && watched.length > 0 ? new Set(watched) : null
+  const out: Record<string, { mode: string; threshold: number }> = {}
+  for (const [k, v] of Object.entries(input)) {
+    if (typeof k !== 'string' || !k) continue
+    if (allowed && !allowed.has(k)) continue
+    if (!v || typeof v !== 'object') continue
+    const mode = (v as any).mode
+    if (!VALID_MODES.has(mode)) continue
+    out[k] = { mode, threshold: normalizeThreshold((v as any).threshold, 0.8) }
+  }
+  return out
+}
+
 function serialize(row: any) {
   if (!row) {
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, signature: null }
+    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null }
   }
   return {
     id: row.id,
@@ -30,6 +66,7 @@ function serialize(row: any) {
     watchedConnectionIds: row.watched_connection_ids ?? null,
     replyMode: row.reply_mode || 'draft',
     hybridConfidenceThreshold: row.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
+    sourceModes: parseSourceModes(row.source_modes),
     signature: row.signature ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -87,11 +124,27 @@ export async function PUT(req: Request) {
       ? normalizeThreshold(body.hybridConfidenceThreshold, existingThreshold)
       : existingThreshold
 
+    // source_modes: per-mailbox overrides keyed by connection id. Only keep
+    // entries for connections in the (resolved) watched list and with a valid
+    // mode/threshold. Omitted in the body = keep existing.
+    let sourceModes: Record<string, { mode: string; threshold: number }>
+    if (body.sourceModes !== undefined) {
+      sourceModes = normalizeSourceModesInput(body.sourceModes, watched)
+    } else {
+      sourceModes = parseSourceModes(existing?.source_modes)
+      // Drop overrides for any connection no longer watched.
+      if (watched && watched.length > 0) {
+        const allowed = new Set(watched)
+        sourceModes = Object.fromEntries(Object.entries(sourceModes).filter(([k]) => allowed.has(k)))
+      }
+    }
+
     const fields = {
       enabled: typeof body.enabled === 'boolean' ? body.enabled : (existing?.enabled ?? false),
       watched_connection_ids: watched ? JSON.stringify(watched) : null,
       reply_mode: replyMode,
       hybrid_confidence_threshold: hybridConfidenceThreshold,
+      source_modes: Object.keys(sourceModes).length > 0 ? JSON.stringify(sourceModes) : null,
       signature: body.signature !== undefined ? (body.signature || null) : (existing?.signature ?? null),
       updated_at: new Date(),
     }
