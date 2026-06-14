@@ -6,14 +6,54 @@
 interface CallAIOptions {
   jsonMode?: boolean
   maxTokens?: number
+  /*
+   * Over-allowance BYOK fall-through. When set, this key is preferred over the
+   * matching env key for whichever provider it belongs to (resolved from the
+   * allowance gate's chosen provider). Pass `gate.byoApiKey` here and use
+   * `result.byoKey` when metering. See landing_pages/api/ai/generate/route.ts.
+   */
+  apiKey?: string
+  provider?: 'google' | 'anthropic' | 'openai'
 }
 
+export interface AIUsage {
+  tokensIn: number
+  tokensOut: number
+}
+
+export interface CallAIResult {
+  text: string
+  model: string
+  usage: AIUsage
+  provider: 'google' | 'anthropic' | 'openai'
+}
+
+/*
+ * Backwards-compatible string return. Prefer `callAIWithUsage` in new code so
+ * the caller can meter the result (see GAP-1 fix).
+ */
 export async function callAI(
   systemPrompt: string,
   userPrompt: string,
   options: CallAIOptions = {}
 ): Promise<string> {
-  const { jsonMode = false, maxTokens = 8192 } = options
+  return (await callAIWithUsage(systemPrompt, userPrompt, options)).text
+}
+
+export async function callAIWithUsage(
+  systemPrompt: string,
+  userPrompt: string,
+  options: CallAIOptions = {}
+): Promise<CallAIResult> {
+  const { jsonMode = false, maxTokens = 8192, apiKey: byoKey, provider: byoProvider } = options
+
+  // When a BYO key is supplied, run ONLY its provider (no fallback) so we never
+  // silently bill the platform key after the gate routed us to the customer's key.
+  if (byoKey && byoProvider) {
+    if (byoProvider === 'google') return callGemini(systemPrompt, userPrompt, byoKey, { jsonMode, maxTokens })
+    if (byoProvider === 'anthropic') return callAnthropic(systemPrompt, userPrompt, byoKey, { maxTokens })
+    return callOpenAI(systemPrompt, userPrompt, byoKey, { jsonMode, maxTokens })
+  }
 
   const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
   const anthropicKey = process.env.ANTHROPIC_API_KEY
@@ -79,7 +119,7 @@ async function callGemini(
   apiKey: string,
   opts: { jsonMode: boolean; maxTokens: number },
   retries = 2
-): Promise<string> {
+): Promise<CallAIResult> {
   const model = process.env.AI_MODEL || 'gemini-3.5-flash'
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -126,7 +166,15 @@ async function callGemini(
       throw new Error(msg || 'Gemini error')
     }
 
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    return {
+      text: data.candidates?.[0]?.content?.parts?.[0]?.text || '',
+      model,
+      provider: 'google',
+      usage: {
+        tokensIn: data?.usageMetadata?.promptTokenCount || 0,
+        tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+      },
+    }
   }
 
   throw new Error('Gemini rate limit exceeded after retries')
@@ -137,7 +185,8 @@ async function callAnthropic(
   userPrompt: string,
   apiKey: string,
   opts: { maxTokens: number }
-): Promise<string> {
+): Promise<CallAIResult> {
+  const model = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001'
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 90000)
 
@@ -149,7 +198,7 @@ async function callAnthropic(
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+      model,
       max_tokens: opts.maxTokens,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
@@ -163,7 +212,15 @@ async function callAnthropic(
     throw new Error(data.error.message || 'Anthropic error')
   }
 
-  return data.content?.[0]?.text || ''
+  return {
+    text: data.content?.[0]?.text || '',
+    model,
+    provider: 'anthropic',
+    usage: {
+      tokensIn: data?.usage?.input_tokens || 0,
+      tokensOut: data?.usage?.output_tokens || 0,
+    },
+  }
 }
 
 async function callOpenAI(
@@ -171,12 +228,13 @@ async function callOpenAI(
   userPrompt: string,
   apiKey: string,
   opts: { jsonMode: boolean; maxTokens: number }
-): Promise<string> {
+): Promise<CallAIResult> {
+  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini'
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 90000)
 
   const body: Record<string, unknown> = {
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -204,5 +262,13 @@ async function callOpenAI(
     throw new Error(data.error.message || 'OpenAI error')
   }
 
-  return data.choices?.[0]?.message?.content || ''
+  return {
+    text: data.choices?.[0]?.message?.content || '',
+    model,
+    provider: 'openai',
+    usage: {
+      tokensIn: data?.usage?.prompt_tokens || 0,
+      tokensOut: data?.usage?.completion_tokens || 0,
+    },
+  }
 }

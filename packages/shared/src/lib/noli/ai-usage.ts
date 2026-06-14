@@ -40,6 +40,11 @@ const PRICING: Record<string, { in: number; out: number; cached: number }> = {
   'gpt-4o-realtime': { in: 40, out: 80, cached: 2.5 },
   'gpt-realtime': { in: 40, out: 80, cached: 2.5 },
   'gpt-4o': { in: 2.5, out: 10, cached: 1.25 },
+  // Text-to-speech is priced per CHARACTER, not per token: tts-1 = $15 / 1M
+  // chars, tts-1-hd = $30 / 1M chars. Callers pass the input character count as
+  // `tokensIn` (tokensOut = 0) so cost = (chars / 1M) * rate.in lands exactly.
+  'tts-1-hd': { in: 30, out: 0, cached: 30 },
+  'tts-1': { in: 15, out: 0, cached: 15 },
   // Google
   'gemini-3.5-flash': { in: 1.5, out: 9, cached: 0.15 },
   'gemini-3-flash': { in: 0.5, out: 3, cached: 0.05 },

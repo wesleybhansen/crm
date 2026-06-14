@@ -1,7 +1,10 @@
 export const metadata = { POST: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { callAI, parseAIJsonResponse } from '@/lib/landing-page-wizard/ai-client'
+import { callAIWithUsage, parseAIJsonResponse } from '@/lib/landing-page-wizard/ai-client'
+import { meterCustomersAi } from '@/lib/usage/meter'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { SECTION_DEFINITIONS, OFFER_QUESTIONS, BASE_CRAFT_RULES, COPY_EXEMPLARS } from '@/lib/landing-page-wizard/constants'
 import type {
   PageType,
@@ -199,6 +202,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
     }
 
+    // callAI runs Gemini first (the live path), so gate on google. Over the
+    // pool, the org's google BYO key is threaded into the call (no fallback).
+    const gate = await checkCustomersAiAllowance(auth, 'google')
+    if (!gate.allowed) {
+      return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+    }
+
     const body: GenerateCopyRequestBody = await req.json()
     const { pageType, subType, framework, sections, businessContext } = body
 
@@ -293,8 +303,20 @@ Return a JSON object with this exact structure:
 
 No markdown, no explanation, just valid JSON.`
 
-    const raw = await callAI(systemPrompt, userPrompt, { jsonMode: true, maxTokens: 8192 })
-    const result = parseAIJsonResponse<GenerateCopyResult>(raw)
+    const ai = await callAIWithUsage(systemPrompt, userPrompt, {
+      jsonMode: true,
+      maxTokens: 8192,
+      apiKey: gate.byoApiKey,
+      provider: gate.byoApiKey ? 'google' : undefined,
+    })
+    void meterCustomersAi(auth, {
+      model: ai.model,
+      tokensIn: ai.usage.tokensIn,
+      tokensOut: ai.usage.tokensOut,
+      feature: 'lp-generate-copy',
+      byoKey: !!gate.byoApiKey,
+    })
+    const result = parseAIJsonResponse<GenerateCopyResult>(ai.text)
 
     // Validate structure
     if (!result.sections || !Array.isArray(result.sections)) {

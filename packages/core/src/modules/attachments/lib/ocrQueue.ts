@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
+import { checkOrgAiAllowance } from '@open-mercato/shared/lib/noli/allowance'
 import { OcrService } from './ocrService'
 
 export type OcrRequestedEvent = {
@@ -26,7 +27,20 @@ export async function processAttachmentOcr(
     const partition = await em.findOne(AttachmentPartition, { code: partitionCode })
     const resolvedModel = partition?.ocrModel ?? process.env.OCR_MODEL ?? 'gpt-5-mini'
 
-    const ocrService = new OcrService()
+    // P-3 allowance gate + unified BYOK fall-through (GAP-4). OCR runs on OpenAI.
+    // Background worker → no 402: when the org is over its pooled allowance and
+    // has no OpenAI BYO key, SKIP (leaves the attachment uncrawled rather than
+    // billing the platform pool). Resolve the org once for both the gate + meter.
+    const org = payload.organizationId
+      ? await em.findOne(Organization, { id: payload.organizationId })
+      : null
+    const gate = await checkOrgAiAllowance(org?.noliOrgId, 'openai')
+    if (!gate.allowed) {
+      console.warn(`[attachments.ocr] Org over AI allowance, skipping OCR for: ${attachmentId}`)
+      return
+    }
+
+    const ocrService = new OcrService(gate.byoApiKey ? { apiKey: gate.byoApiKey } : {})
 
     if (!ocrService.available) {
       console.warn(`[attachments.ocr] OPENAI_API_KEY not configured, skipping OCR for: ${attachmentId}`)
@@ -55,17 +69,15 @@ export async function processAttachmentOcr(
 
     // Cross-product usage metering (fire-and-forget; never breaks OCR).
     try {
-      if (payload.organizationId && ((result.tokensIn ?? 0) > 0 || (result.tokensOut ?? 0) > 0)) {
-        const org = await em.findOne(Organization, { id: payload.organizationId })
-        if (org?.noliOrgId) {
-          void logCrmAiUsage({
-            noliOrgId: org.noliOrgId,
-            model: result.model ?? resolvedModel,
-            tokensIn: result.tokensIn ?? 0,
-            tokensOut: result.tokensOut ?? 0,
-            feature: 'attachment-ocr',
-          }).catch(() => {})
-        }
+      if (org?.noliOrgId && ((result.tokensIn ?? 0) > 0 || (result.tokensOut ?? 0) > 0)) {
+        void logCrmAiUsage({
+          noliOrgId: org.noliOrgId,
+          model: result.model ?? resolvedModel,
+          tokensIn: result.tokensIn ?? 0,
+          tokensOut: result.tokensOut ?? 0,
+          feature: 'attachment-ocr',
+          byoKey: !!gate.byoApiKey,
+        }).catch(() => {})
       }
     } catch {
       /* ignore — metering is best-effort */

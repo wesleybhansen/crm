@@ -6,6 +6,8 @@ import type { ProposalTranslationEntry } from '../../../../data/entities'
 import { translateProposalSchema } from '../../../../data/validators'
 import { translateProposalContent } from '../../../../lib/translationProvider'
 import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
+import { checkOrgAiAllowance } from '@open-mercato/shared/lib/noli/allowance'
+import { resolveExtractionProviderId } from '../../../../lib/llmProvider'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import {
   resolveRequestContext,
@@ -62,16 +64,29 @@ export async function POST(req: Request) {
       actionDescriptions[action.id] = action.description
     }
 
+    // P-3 allowance gate + unified BYOK fall-through (GAP-4). Resolve the noli
+    // org, check the pooled allowance for the configured provider; over the pool
+    // with no BYO key → 402; with a BYO key → run on it and meter byoKey: true.
+    const org = await ctx.em.findOne(Organization, { id: ctx.organizationId })
+    const provider = resolveExtractionProviderId()
+    const gate = await checkOrgAiAllowance(org?.noliOrgId, provider)
+    if (!gate.allowed) {
+      return NextResponse.json(
+        { error: "You've used your team's monthly AI allowance. Add your own provider API key or upgrade your plan to keep using AI." },
+        { status: 402 },
+      )
+    }
+
     const result = await translateProposalContent({
       summary: proposal.summary,
       actionDescriptions,
       sourceLanguage: proposalLanguage,
       targetLocale,
+      apiKeyOverride: gate.byoApiKey,
     })
 
     // Cross-product usage metering (fire-and-forget; never blocks the response).
     try {
-      const org = await ctx.em.findOne(Organization, { id: ctx.organizationId })
       if (org?.noliOrgId) {
         void logCrmAiUsage({
           noliOrgId: org.noliOrgId,
@@ -79,6 +94,7 @@ export async function POST(req: Request) {
           tokensIn: result.usage.tokensIn,
           tokensOut: result.usage.tokensOut,
           feature: 'proposal-translation',
+          byoKey: !!gate.byoApiKey,
         }).catch(() => {})
       }
     } catch {

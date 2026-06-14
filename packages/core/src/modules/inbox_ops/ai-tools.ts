@@ -14,6 +14,7 @@ import { resolveExtractionProviderId, createStructuredModel, withTimeout } from 
 import { resolveOptionalEventBus } from './lib/eventBus'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
+import { checkOrgAiAllowance } from '@open-mercato/shared/lib/noli/allowance'
 
 type ToolContext = {
   tenantId: string | null
@@ -392,7 +393,21 @@ Input text is limited to 10,000 characters for cost control.`,
     requireTenantContext(ctx)
 
     const providerId = resolveExtractionProviderId()
-    const apiKey = resolveOpenCodeProviderApiKey(providerId)
+
+    // P-3 allowance gate + unified BYOK fall-through (GAP-4). Resolve the noli
+    // org, check the pooled allowance; over the pool with no BYO key → throw
+    // (surfaces to the assistant as a tool error); with a BYO key → run on it
+    // and meter byoKey: true.
+    const meterEm = ctx.container.resolve<EntityManager>('em').fork()
+    const org = ctx.organizationId
+      ? await meterEm.findOne(Organization, { id: ctx.organizationId })
+      : null
+    const gate = await checkOrgAiAllowance(org?.noliOrgId, providerId)
+    if (!gate.allowed) {
+      throw new Error("You've used your team's monthly AI allowance. Add your own provider API key or upgrade your plan to keep using AI.")
+    }
+
+    const apiKey = gate.byoApiKey || resolveOpenCodeProviderApiKey(providerId)
     if (!apiKey) {
       throw new Error(`Missing API key for provider "${providerId}"`)
     }
@@ -429,17 +444,14 @@ Return a JSON object with:
 
     // Cross-product usage metering (fire-and-forget; never breaks the tool).
     try {
-      const meterEm = ctx.container.resolve<EntityManager>('em').fork()
-      const meterOrg = ctx.organizationId
-        ? await meterEm.findOne(Organization, { id: ctx.organizationId })
-        : null
-      if (meterOrg?.noliOrgId) {
+      if (org?.noliOrgId) {
         void logCrmAiUsage({
-          noliOrgId: meterOrg.noliOrgId,
+          noliOrgId: org.noliOrgId,
           model: modelConfig.modelId,
           tokensIn: Number(result.usage?.inputTokens ?? 0) || 0,
           tokensOut: Number(result.usage?.outputTokens ?? 0) || 0,
           feature: 'inbox-categorize',
+          byoKey: !!gate.byoApiKey,
         }).catch(() => {})
       }
     } catch {

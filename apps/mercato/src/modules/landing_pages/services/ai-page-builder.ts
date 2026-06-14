@@ -72,14 +72,34 @@ Return a JSON object with this exact structure:
 
 Match the field keys EXACTLY to the template schema provided. Every section in the schema should have a corresponding entry in your output.`
 
+export interface AIUsage {
+  tokensIn: number
+  tokensOut: number
+}
+
 export class AIPageBuilder {
   private provider: string
   private apiKey: string
   private model: string
+  /*
+   * Token usage from the most recent provider call. Callers meter this after
+   * chat()/generatePageContent()/reviseContent() (GAP-1 fix). Reset before each
+   * call so a failed/empty call doesn't carry stale numbers.
+   */
+  public lastUsage: AIUsage = { tokensIn: 0, tokensOut: 0 }
+  /* Whether this instance is running on a customer BYO key (over-allowance). */
+  public readonly byoKey: boolean
 
-  constructor() {
+  /*
+   * Optional `byoApiKey` threads the org's own provider key when over the
+   * pooled allowance (from checkCustomersAiAllowance). When set, it overrides
+   * the env key for the configured provider and `byoKey` is reported as true so
+   * the meter records it correctly.
+   */
+  constructor(byoApiKey?: string) {
     this.provider = process.env.AI_PROVIDER || 'google'
-    this.apiKey = this.resolveApiKey()
+    this.byoKey = !!byoApiKey
+    this.apiKey = byoApiKey || this.resolveApiKey()
     this.model = this.resolveModel()
   }
 
@@ -91,6 +111,11 @@ export class AIPageBuilder {
       case 'openai': return process.env.OPENAI_API_KEY || ''
       default: return ''
     }
+  }
+
+  /* The resolved model id, for metering. */
+  getModel(): string {
+    return this.model
   }
 
   private resolveModel(): string {
@@ -208,6 +233,7 @@ Apply the user's feedback and return the COMPLETE updated JSON content (same str
   }
 
   private async callAI(messages: Array<{ role: string; content: string }>): Promise<string> {
+    this.lastUsage = { tokensIn: 0, tokensOut: 0 }
     if (!this.apiKey) {
       // Dev fallback — return mock response
       console.log('[ai-page-builder] No API key configured, using mock response')
@@ -262,6 +288,10 @@ Apply the user's feedback and return the COMPLETE updated JSON content (same str
       throw new Error('Gemini returned empty response')
     }
 
+    this.lastUsage = {
+      tokensIn: data?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+    }
     return data.candidates[0].content.parts[0].text
   }
 
@@ -288,6 +318,10 @@ Apply the user's feedback and return the COMPLETE updated JSON content (same str
     })
 
     const data = await response.json()
+    this.lastUsage = {
+      tokensIn: data?.usage?.input_tokens || 0,
+      tokensOut: data?.usage?.output_tokens || 0,
+    }
     return data.content?.[0]?.text || ''
   }
 
@@ -307,6 +341,10 @@ Apply the user's feedback and return the COMPLETE updated JSON content (same str
     })
 
     const data = await response.json()
+    this.lastUsage = {
+      tokensIn: data?.usage?.prompt_tokens || 0,
+      tokensOut: data?.usage?.completion_tokens || 0,
+    }
     return data.choices?.[0]?.message?.content || ''
   }
 

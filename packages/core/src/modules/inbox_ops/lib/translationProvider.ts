@@ -18,13 +18,16 @@ export async function translateProposalContent(input: {
   actionDescriptions: Record<string, string>
   sourceLanguage: string
   targetLocale: string
+  // Over-allowance BYOK fall-through (GAP-4). When set, used instead of the env
+  // key for the configured provider.
+  apiKeyOverride?: string | null
 }): Promise<{
   summary: string
   actions: Record<string, string>
   usage: { model: string; tokensIn: number; tokensOut: number }
 }> {
   const providerId = resolveExtractionProviderId()
-  const apiKey = resolveOpenCodeProviderApiKey(providerId)
+  const apiKey = input.apiKeyOverride || resolveOpenCodeProviderApiKey(providerId)
   if (!apiKey) {
     throw new Error(`Missing API key for provider "${providerId}"`)
   }

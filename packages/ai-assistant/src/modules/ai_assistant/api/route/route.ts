@@ -20,6 +20,7 @@ import {
 } from '../../lib/chat-config'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
+import { checkOrgAiAllowance } from '@open-mercato/shared/lib/noli/allowance'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
@@ -32,11 +33,11 @@ const RouteResultSchema = z.object({
   reasoning: z.string(),
 })
 
-function createRoutingModel(providerId: ChatProviderId, configuredModel?: string) {
+function createRoutingModel(providerId: ChatProviderId, configuredModel?: string, apiKeyOverride?: string | null) {
   const { modelId, modelWithProvider } = resolveOpenCodeModel(providerId, {
     overrideModel: configuredModel,
   })
-  const apiKey = resolveOpenCodeProviderApiKey(providerId)
+  const apiKey = apiKeyOverride || resolveOpenCodeProviderApiKey(providerId)
   if (!apiKey) {
     throw new Error(`${providerId.toUpperCase()} API key not configured`)
   }
@@ -119,8 +120,21 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // P-3 allowance gate + unified BYOK fall-through (GAP-4). Resolve the noli
+    // org, check the pooled allowance for the configured provider; over the pool
+    // with no BYO key → 402; with a BYO key → route on it and meter byoKey: true.
+    const meterEm = (container.resolve('em') as { fork: () => { findOne: (e: unknown, w: unknown) => Promise<{ noliOrgId?: string | null } | null> } }).fork()
+    const meterOrg = auth.orgId ? await meterEm.findOne(Organization, { id: auth.orgId }) : null
+    const gate = await checkOrgAiAllowance(meterOrg?.noliOrgId, config.providerId)
+    if (!gate.allowed) {
+      return NextResponse.json(
+        { error: "You've used your team's monthly AI allowance. Add your own provider API key or upgrade your plan to keep using AI." },
+        { status: 402 },
+      )
+    }
+
     // Use fast model for the configured provider
-    const { model, modelWithProvider } = createRoutingModel(config.providerId, config.model)
+    const { model, modelWithProvider } = createRoutingModel(config.providerId, config.model, gate.byoApiKey)
 
     const toolList = availableTools
       .map((t) => `- ${t.name}: ${t.description}`)
@@ -149,8 +163,6 @@ Respond with:
 
     // Cross-product usage metering (fire-and-forget; never blocks the response).
     try {
-      const meterEm = (container.resolve('em') as { fork: () => { findOne: (e: unknown, w: unknown) => Promise<{ noliOrgId?: string | null } | null> } }).fork()
-      const meterOrg = auth.orgId ? await meterEm.findOne(Organization, { id: auth.orgId }) : null
       if (meterOrg?.noliOrgId) {
         const bareModel = modelWithProvider.includes('/') ? modelWithProvider.split('/').pop()! : modelWithProvider
         void logCrmAiUsage({
@@ -159,6 +171,7 @@ Respond with:
           tokensIn: Number(result.usage?.inputTokens ?? 0) || 0,
           tokensOut: Number(result.usage?.outputTokens ?? 0) || 0,
           feature: 'assistant-routing',
+          byoKey: !!gate.byoApiKey,
         }).catch(() => {})
       }
     } catch {

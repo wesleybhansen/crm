@@ -78,6 +78,9 @@ export async function runExtractionWithConfiguredProvider(input: {
   userPrompt: string
   modelOverride?: string | null
   timeoutMs: number
+  // Over-allowance BYOK fall-through (GAP-4). When set, used instead of the env
+  // key for the configured provider.
+  apiKeyOverride?: string | null
 }): Promise<{
   object: ReturnType<typeof extractionOutputSchema.parse>
   totalTokens: number
@@ -87,7 +90,7 @@ export async function runExtractionWithConfiguredProvider(input: {
   modelWithProvider: string
 }> {
   const providerId = resolveExtractionProviderId()
-  const apiKey = resolveOpenCodeProviderApiKey(providerId)
+  const apiKey = input.apiKeyOverride || resolveOpenCodeProviderApiKey(providerId)
   if (!apiKey) {
     throw new Error(`Missing API key for provider "${providerId}"`)
   }

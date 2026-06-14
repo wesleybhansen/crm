@@ -12,9 +12,10 @@ import { fetchCatalogProductsForExtraction } from '../lib/catalogLookup'
 import { enrichOrderPayload } from '../lib/payloadEnrichment'
 import { validatePrices } from '../lib/priceValidator'
 import { extractParticipantsFromThread } from '../lib/emailParser'
-import { runExtractionWithConfiguredProvider } from '../lib/llmProvider'
+import { runExtractionWithConfiguredProvider, resolveExtractionProviderId } from '../lib/llmProvider'
 import { safeParsePayloadJson } from '../lib/validation'
 import { logCrmAiUsage } from '@open-mercato/shared/lib/noli/ai-usage'
+import { checkOrgAiAllowance } from '@open-mercato/shared/lib/noli/allowance'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { htmlToPlainText } from '../lib/htmlToPlainText'
 import { runWithCacheTenant } from '@open-mercato/cache'
@@ -174,6 +175,21 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     let tokensUsed = 0
     let modelUsed = ''
 
+    // P-3 allowance gate + unified BYOK fall-through (GAP-4). This is a
+    // background worker with no client to receive a 402, so when the org is over
+    // its pooled allowance and has no BYO key we PAUSE: leave the email in
+    // 'received' (cleared from 'processing') so it is reprocessed once allowance
+    // resets or a key is added, rather than billing the platform pool.
+    const provider = resolveExtractionProviderId()
+    const org = await em.findOne(Organization, { id: email.organizationId })
+    const gate = await checkOrgAiAllowance(org?.noliOrgId, provider)
+    if (!gate.allowed) {
+      console.warn(`[inbox_ops:extraction-worker] Org over AI allowance, pausing email ${email.id}`)
+      email.status = 'received'
+      await em.flush()
+      return
+    }
+
     try {
       const timeoutMsRaw = Number.parseInt(process.env.INBOX_OPS_LLM_TIMEOUT_MS || '90000', 10)
       const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 90000
@@ -182,16 +198,16 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
         userPrompt,
         modelOverride: process.env.INBOX_OPS_LLM_MODEL,
         timeoutMs,
+        apiKeyOverride: gate.byoApiKey,
       })
       extractionResult = extraction.object
       tokensUsed = extraction.totalTokens
       modelUsed = extraction.modelWithProvider
 
       // Cross-product usage metering — count this AI call against the org's
-      // pooled allowance. Await the (indexed) org lookup for EM safety, but fire
-      // the noli-core insert async; metering must never break extraction.
+      // pooled allowance. Fire the noli-core insert async; metering must never
+      // break extraction. byoKey true only when running on the org's own key.
       try {
-        const org = await em.findOne(Organization, { id: email.organizationId })
         if (org?.noliOrgId) {
           void logCrmAiUsage({
             noliOrgId: org.noliOrgId,
@@ -199,6 +215,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
             tokensIn: extraction.inputTokens,
             tokensOut: extraction.outputTokens,
             feature: 'inbox-extraction',
+            byoKey: !!gate.byoApiKey,
           }).catch(() => {})
         }
       } catch {
