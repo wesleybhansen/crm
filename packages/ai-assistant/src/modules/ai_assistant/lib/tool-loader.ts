@@ -142,19 +142,21 @@ export async function loadAllModuleTools(): Promise<void> {
         const esbuild = await import('esbuild')
         const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
 
-        // Plugin to resolve @/ alias to app root
+        // Plugin to resolve @/ alias. tsconfig maps "@/*" -> "./src/*", so try
+        // <appRoot>/src/<rest> first; fall back to <appRoot>/<rest> for safety.
         const aliasPlugin: import('esbuild').Plugin = {
           name: 'alias-resolver',
           setup(build) {
             build.onResolve({ filter: /^@\// }, (args) => {
-              const resolved = path.join(appRoot, args.path.slice(2))
-              if (!fs.existsSync(resolved) && fs.existsSync(resolved + '.ts')) {
-                return { path: resolved + '.ts' }
+              const rest = args.path.slice(2)
+              for (const base of [path.join(appRoot, 'src', rest), path.join(appRoot, rest)]) {
+                if (fs.existsSync(base + '.ts')) return { path: base + '.ts' }
+                if (fs.existsSync(base) && fs.statSync(base).isDirectory() && fs.existsSync(path.join(base, 'index.ts'))) {
+                  return { path: path.join(base, 'index.ts') }
+                }
+                if (fs.existsSync(base)) return { path: base }
               }
-              if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.ts'))) {
-                return { path: path.join(resolved, 'index.ts') }
-              }
-              return { path: resolved }
+              return { path: path.join(appRoot, rest) }
             })
           },
         }
