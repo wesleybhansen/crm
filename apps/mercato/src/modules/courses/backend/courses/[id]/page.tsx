@@ -659,30 +659,36 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
                 <BookOpen className="size-5 text-primary" />
               </div>
               <div>
-                <h3 className="font-semibold text-sm">Personal Knowledge Base</h3>
-                <p className="text-xs text-muted-foreground">Connect your PKB to pull documents into AI course generation.</p>
+                <h3 className="font-semibold text-sm">Knowledge Base</h3>
+                <p className="text-xs text-muted-foreground">Connects automatically to pull your documents into AI course generation.</p>
               </div>
               {pkbStatus === 'connected' && <Badge variant="green" className="ml-auto">Connected</Badge>}
             </div>
             <div className="space-y-3">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">PKB API Key</label>
-                <Input value={pkbApiKey} onChange={e => setPkbApiKey(e.target.value)} placeholder="pkb_..." type="password" className="text-sm" />
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  To get your API key: log into your <a href="https://kb.noliai.com" target="_blank" className="text-accent underline">Knowledge Base</a> → Settings (gear icon) → API Keys → Create new key.
-                </p>
-              </div>
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer font-medium hover:text-foreground transition-colors">Use a specific Knowledge Base key (optional)</summary>
+                <div className="mt-2">
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">PKB API Key</label>
+                  <Input value={pkbApiKey} onChange={e => setPkbApiKey(e.target.value)} placeholder="pkb_..." type="password" className="text-sm" />
+                  <p className="text-[10px] text-muted-foreground mt-1.5">
+                    Auto-connect handles this for you. Only paste a key to override which Knowledge Base account this reads from.
+                  </p>
+                </div>
+              </details>
               <div className="flex gap-2">
-                <Button type="button" variant="outline" size="sm" disabled={pkbTesting || !pkbApiKey.trim()} onClick={async () => {
+                <Button type="button" variant="outline" size="sm" disabled={pkbTesting} onClick={async () => {
                   setPkbTesting(true)
-                  await fetch('/api/courses/pkb/config', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: pkbApiKey }) })
+                  // Only save a manual override when the user actually pasted a key.
+                  if (pkbApiKey.trim()) {
+                    await fetch('/api/courses/pkb/config', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: pkbApiKey }) })
+                  }
                   const res = await fetch('/api/courses/pkb/config', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' })
                   const d = await res.json()
                   if (d.ok) { setPkbStatus('connected'); alert(`Connected! Found ${d.data.documentCount} documents in your Knowledge Base.`) }
-                  else { setPkbStatus('error'); alert(d.error || 'Connection failed. Check your API key.') }
+                  else { setPkbStatus('error'); alert(d.error || 'Connection failed. Try again in a moment.') }
                   setPkbTesting(false)
                 }}>
-                  {pkbTesting ? <><Loader2 className="size-3 animate-spin mr-1" /> Testing...</> : 'Test & Save'}
+                  {pkbTesting ? <><Loader2 className="size-3 animate-spin mr-1" /> Testing...</> : pkbStatus === 'connected' ? 'Recheck' : 'Connect & Test'}
                 </Button>
               </div>
             </div>

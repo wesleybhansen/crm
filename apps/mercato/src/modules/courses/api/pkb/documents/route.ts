@@ -15,10 +15,18 @@ export async function GET(req: Request, ctx: any) {
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
-    const profile = await knex('business_profiles').where('organization_id', auth.orgId).first()
 
-    if (!profile?.pkb_api_key) {
-      return NextResponse.json({ ok: false, error: 'PKB not configured. Add your API key in Course Settings.' }, { status: 400 })
+    // Auto-connect: use the cached/pasted key if present, else mint one from KB.
+    const { ensureKbApiKey } = await import('@/modules/courses/lib/kb-connect')
+    const apiKey = await ensureKbApiKey(
+      knex,
+      auth.orgId as string,
+      (auth.noliUserId as string | undefined) ?? null,
+      (auth.tenantId as string | undefined) ?? null,
+    )
+
+    if (!apiKey) {
+      return NextResponse.json({ ok: false, error: 'Could not connect to your Knowledge Base. Try again in a moment.' }, { status: 502 })
     }
 
     const url = new URL(req.url)
@@ -29,7 +37,7 @@ export async function GET(req: Request, ctx: any) {
 
     // Fetch documents from PKB API
     const res = await fetch(`${PKB_URL}/api/documents/export`, {
-      headers: { 'Authorization': `Bearer ${profile.pkb_api_key}` },
+      headers: { 'Authorization': `Bearer ${apiKey}` },
       signal: controller.signal,
     })
     clearTimeout(timeout)

@@ -1800,26 +1800,23 @@ export default function SimpleSettingsPage() {
           {pkbConnected && <span className="text-[10px] font-medium text-[#047857] dark:text-[#34d399] ml-2">Connected</span>}
         </h2>
         <div className="bg-card rounded-lg border p-5">
-          <p className="text-xs text-muted-foreground mb-4">Connect your Personal Knowledge Base to pull documents into AI course generation and other AI features.</p>
+          <p className="text-xs text-muted-foreground mb-4">Your Knowledge Base connects automatically. CRM pulls your documents into AI course generation and other AI features with no setup. Click below to confirm the connection and see your document count.</p>
           <div className="space-y-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">PKB API Key</label>
-              <Input value={pkbApiKey} onChange={(ev: any) => setPkbApiKey(ev.target.value)} placeholder="pkb_..." type="password" className="text-sm max-w-md" />
-            </div>
             <details className="text-xs text-muted-foreground">
-              <summary className="cursor-pointer font-medium hover:text-foreground transition-colors">How to get your API key</summary>
-              <ol className="list-decimal list-inside space-y-1.5 mt-2 ml-1">
-                <li>Go to <a href="https://kb.noliai.com" target="_blank" className="text-accent underline">kb.noliai.com</a> and log in</li>
-                <li>Click the <strong>gear icon</strong> (Settings) in the bottom-left corner of the sidebar</li>
-                <li>Navigate to the <strong>"API Keys"</strong> section</li>
-                <li>Click <strong>"Create New API Key"</strong></li>
-                <li>Copy the generated key (starts with <code className="bg-muted px-1 rounded">pkb_</code>)</li>
-                <li>Paste it in the field above and click "Connect & Test"</li>
-              </ol>
+              <summary className="cursor-pointer font-medium hover:text-foreground transition-colors">Use a specific Knowledge Base key (optional)</summary>
+              <p className="mt-2 mb-2 ml-1">Auto-connect handles this for you. Only paste a key here if you want to override which Knowledge Base account CRM reads from.</p>
+              <div className="ml-1">
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">PKB API Key</label>
+                <Input value={pkbApiKey} onChange={(ev: any) => setPkbApiKey(ev.target.value)} placeholder="pkb_..." type="password" className="text-sm max-w-md" />
+              </div>
             </details>
-            <Button type="button" variant="outline" size="sm" disabled={pkbTesting || !pkbApiKey.trim()} onClick={async () => {
+            <Button type="button" variant="outline" size="sm" disabled={pkbTesting} onClick={async () => {
               setPkbTesting(true)
-              await fetch('/api/courses/pkb/config', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: pkbApiKey }) })
+              // Only save a manual override when the user actually pasted a key.
+              // Otherwise leave the auto-provisioned key untouched.
+              if (pkbApiKey.trim()) {
+                await fetch('/api/courses/pkb/config', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: pkbApiKey }) })
+              }
               const res = await fetch('/api/courses/pkb/config', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' })
               const d = await res.json()
               if (d.ok) { setPkbConnected(true); setPkbDocCount(d.data.documentCount); setPkbMessage({ type: 'success', text: `Connected! Found ${d.data.documentCount} documents.` }); setTimeout(() => setPkbMessage(null), 5000) }

@@ -11,17 +11,25 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['courses.manage'] },
 }
 
-// GET: Check if PKB is configured
+// GET: Check if PKB is configured. Auto-connect on the way: if there's no
+// cached/pasted key, try to mint one from KB so the Knowledge Base shows as
+// connected with no manual paste. Falls back to false if KB is unreachable.
 export async function GET(req: Request, ctx: any) {
   const auth = ctx?.auth
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
-    const profile = await knex('business_profiles').where('organization_id', auth.orgId).first()
+    const { ensureKbApiKey } = await import('@/modules/courses/lib/kb-connect')
+    const apiKey = await ensureKbApiKey(
+      knex,
+      auth.orgId as string,
+      (auth.noliUserId as string | undefined) ?? null,
+      (auth.tenantId as string | undefined) ?? null,
+    )
     return NextResponse.json({
       ok: true,
-      data: { configured: !!profile?.pkb_api_key },
+      data: { configured: !!apiKey },
     })
   } catch (error) {
     console.error('[pkb.config.get]', error)
@@ -57,17 +65,25 @@ export async function POST(req: Request, ctx: any) {
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
-    const profile = await knex('business_profiles').where('organization_id', auth.orgId).first()
 
-    if (!profile?.pkb_api_key) {
-      return NextResponse.json({ ok: false, error: 'PKB API key not configured' }, { status: 400 })
+    // Auto-connect: use the cached/pasted key if present, else mint one from KB.
+    const { ensureKbApiKey } = await import('@/modules/courses/lib/kb-connect')
+    const apiKey = await ensureKbApiKey(
+      knex,
+      auth.orgId as string,
+      (auth.noliUserId as string | undefined) ?? null,
+      (auth.tenantId as string | undefined) ?? null,
+    )
+
+    if (!apiKey) {
+      return NextResponse.json({ ok: false, error: 'Could not connect to your Knowledge Base. Try again in a moment.' }, { status: 502 })
     }
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 10000)
 
     const res = await fetch(`${PKB_URL}/api/documents/export`, {
-      headers: { 'Authorization': `Bearer ${profile.pkb_api_key}` },
+      headers: { 'Authorization': `Bearer ${apiKey}` },
       signal: controller.signal,
     })
     clearTimeout(timeout)
