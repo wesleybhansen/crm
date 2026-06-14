@@ -5,13 +5,10 @@ export const metadata = {
 }
 
 import { NextResponse } from 'next/server'
-import crypto from 'crypto'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { sendEmailForOrg } from '@/modules/email/lib/email-router'
-import { EmailSenderService } from '@/modules/email/services/email-sender'
-import { upsertInboxConversation } from '@/lib/inbox-conversation'
+import { sendReply } from '@/modules/customers/lib/send-reply'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 function safeParse(s: any) {
@@ -62,81 +59,22 @@ export async function POST(
       return NextResponse.json({ ok: false, error: 'Draft is missing a recipient or body' }, { status: 400 })
     }
 
-    // Resolve a sending user: the owner of the org's primary/first active email
-    // connection. Conversations are not tied to a user, and sendEmailForOrg
-    // routes through that user's provider.
-    const connection = await knex('email_connections')
-      .where('organization_id', auth.orgId)
-      .where('is_active', true)
-      .orderBy('is_primary', 'desc')
-      .first()
-
-    if (!connection) {
-      return NextResponse.json({ ok: false, error: 'No email account connected. Connect Gmail, Outlook, or an ESP in Settings.' }, { status: 400 })
-    }
-
-    const baseUrl = process.env.APP_URL || 'http://localhost:3000'
-    const sender = new EmailSenderService()
-    const trackingId = crypto.randomUUID()
-    const bodyHtml = bodyText.replace(/\n/g, '<br>')
-
-    let trackedHtml = sender.injectTrackingPixel(bodyHtml, trackingId, baseUrl)
-    trackedHtml = sender.wrapLinksForTracking(trackedHtml, trackingId, baseUrl)
-    if (contactId) trackedHtml = sender.injectUnsubscribeLink(trackedHtml, contactId, baseUrl)
-
-    const routerResult = await sendEmailForOrg(knex, auth.orgId, auth.tenantId, connection.user_id, {
+    // Shared send path (also used by the auto/hybrid Customer Service engine).
+    // Resolves the org's sending connection, sends via the router, records the
+    // outbound email_messages row, and updates the inbox + timeline.
+    const sendResult = await sendReply(knex, auth.orgId, auth.tenantId, {
       to,
       subject,
-      htmlBody: trackedHtml,
-      textBody: bodyText,
-      contactId: contactId || undefined,
+      body: bodyText,
+      contactId,
+      sentByUserId: auth.sub || null,
     })
 
-    if (!routerResult.ok) {
-      return NextResponse.json({ ok: false, error: routerResult.error || 'Failed to send email' }, { status: 502 })
+    if (!sendResult.ok) {
+      return NextResponse.json({ ok: false, error: sendResult.error || 'Failed to send email' }, { status: sendResult.status || 502 })
     }
 
     const now = new Date()
-    const messageId = crypto.randomUUID()
-    await knex('email_messages').insert({
-      id: messageId,
-      tenant_id: auth.tenantId,
-      organization_id: auth.orgId,
-      direction: 'outbound',
-      from_address: routerResult.fromAddress || '',
-      to_address: to,
-      subject,
-      body_html: bodyHtml,
-      body_text: bodyText,
-      contact_id: contactId || null,
-      status: 'sent',
-      tracking_id: trackingId,
-      metadata: JSON.stringify({ providerId: routerResult.messageId, provider: routerResult.sentVia, source: 'customer_service' }),
-      created_at: now,
-      sent_at: now,
-    })
-
-    // Keep the unified inbox current + log to the contact timeline.
-    if (contactId) {
-      await upsertInboxConversation(knex, auth.orgId, auth.tenantId, {
-        contactId,
-        channel: 'email',
-        preview: bodyText,
-        direction: 'outbound',
-        avatarEmail: to,
-      })
-      try {
-        const { logTimelineEvent } = await import('@/lib/timeline')
-        await logTimelineEvent(knex, {
-          tenantId: auth.tenantId,
-          organizationId: auth.orgId,
-          contactId,
-          eventType: 'email_sent',
-          title: `Email sent: ${subject}`,
-          metadata: { to, sentVia: routerResult.sentVia, source: 'customer_service' },
-        })
-      } catch {}
-    }
 
     // Mark the action sent + the parent proposal accepted.
     await knex('inbox_proposal_actions')
@@ -147,7 +85,7 @@ export async function POST(
       .where('organization_id', auth.orgId)
       .update({ status: 'accepted', reviewed_by_user_id: auth.sub || null, reviewed_at: now, updated_at: now })
 
-    return NextResponse.json({ ok: true, data: { id: action.id, status: 'sent', sentVia: routerResult.sentVia } })
+    return NextResponse.json({ ok: true, data: { id: action.id, status: 'sent', sentVia: sendResult.sentVia } })
   } catch (error) {
     console.error('[customer-service.approve]', error)
     return NextResponse.json({ ok: false, error: 'Failed to approve draft' }, { status: 500 })

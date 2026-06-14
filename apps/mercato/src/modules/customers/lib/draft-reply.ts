@@ -37,6 +37,15 @@ export type DraftReplyResult = {
   model: string
   tokensIn: number
   tokensOut: number
+  // Confidence (0..1) that the reply fully and correctly answers the inquiry
+  // from available information. Used by the Customer Service hybrid auto-send
+  // gate. Defaults to 0 when the model does not return a usable signal.
+  confidence: number
+  // True only when the reply is safe to send WITHOUT human review. The model is
+  // instructed to return false for anything sensitive (refunds, cancellations,
+  // complaints, legal, billing disputes, angry tone) or when it is guessing.
+  // Defaults to false (conservative) when the signal is missing.
+  autoSendSafe: boolean
 }
 
 const DRAFT_MODEL = 'gemini-2.5-flash'
@@ -181,7 +190,14 @@ CRITICAL RULES:
 - ${channel === 'email' ? 'Start with a greeting (Hi/Hello [name]) and end with a sign-off and your name' : 'No greeting or sign-off needed'}
 - Address every question the customer asked. Do not skip any
 - Sound natural and human, not robotic or generic
-- Output ONLY the message body text. No labels, no "Subject:", no meta-commentary`
+- The "body" field must contain ONLY the message body text. No labels, no "Subject:", no meta-commentary
+
+You also assess whether this reply could be sent to the customer WITHOUT a human reviewing it first. Return two extra signals:
+- "confidence": a number from 0 to 1 for how fully and correctly the reply answers the customer's inquiry using the information actually available to you. Use a low value when you are guessing, the knowledge base lacks the answer, or you are promising to follow up rather than answering.
+- "auto_send_safe": a boolean. Return false (NOT safe to auto-send) for ANYTHING sensitive: refunds, cancellations, returns, complaints, legal matters, billing or payment disputes, an angry or upset customer, anything that commits money or promises, or anywhere you are guessing or unsure. Only return true when the reply is a clear, correct, low-risk answer you would be comfortable sending unreviewed.
+
+Respond with ONLY a single JSON object, no markdown fences, no commentary, in exactly this shape:
+{"body": "the full reply body text", "confidence": 0.0, "auto_send_safe": false}`
 
   const aiRes = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${DRAFT_MODEL}:generateContent`,
@@ -194,20 +210,45 @@ CRITICAL RULES:
 Conversation:
 ${transcript}
 
-Write the complete reply body (no subject line):` }] }],
-        generationConfig: { maxOutputTokens: 10000, temperature: 0.7 },
+Return the JSON object now:` }] }],
+        generationConfig: { maxOutputTokens: 10000, temperature: 0.7, responseMimeType: 'application/json' },
       }),
     },
   )
 
   const aiData = await aiRes.json()
-  let draft: string | undefined = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+  const raw: string | undefined = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
 
   const tokensIn = aiData?.usageMetadata?.promptTokenCount || 0
   const tokensOut = aiData?.usageMetadata?.candidatesTokenCount || 0
 
+  if (!raw) {
+    return { ok: false, error: 'AI could not generate a draft', model: DRAFT_MODEL, tokensIn, tokensOut, confidence: 0, autoSendSafe: false }
+  }
+
+  // Parse the JSON envelope. The model is asked for strict JSON (responseMimeType
+  // = application/json), but be defensive: tolerate stray fences and fall back to
+  // treating the whole output as the body (with conservative signals) if parsing
+  // fails, so the draft is never lost.
+  let draft: string | undefined
+  let confidence = 0
+  let autoSendSafe = false
+  const parsed = tryParseEnvelope(raw)
+  if (parsed && typeof parsed.body === 'string' && parsed.body.trim()) {
+    draft = parsed.body.trim()
+    const c = Number(parsed.confidence)
+    confidence = Number.isFinite(c) ? Math.min(1, Math.max(0, c)) : 0
+    autoSendSafe = parsed.auto_send_safe === true
+  } else {
+    // Could not parse structured output: keep the text as the body but force the
+    // conservative path (no auto-send) since we have no trustworthy signal.
+    draft = raw
+    confidence = 0
+    autoSendSafe = false
+  }
+
   if (!draft) {
-    return { ok: false, error: 'AI could not generate a draft', model: DRAFT_MODEL, tokensIn, tokensOut }
+    return { ok: false, error: 'AI could not generate a draft', model: DRAFT_MODEL, tokensIn, tokensOut, confidence: 0, autoSendSafe: false }
   }
 
   // Strip any subject line the model may have included.
@@ -217,5 +258,22 @@ Write the complete reply body (no subject line):` }] }],
     draft = `${draft}\n\n${signature.trim()}`
   }
 
-  return { ok: true, draft, model: DRAFT_MODEL, tokensIn, tokensOut }
+  return { ok: true, draft, model: DRAFT_MODEL, tokensIn, tokensOut, confidence, autoSendSafe }
+}
+
+// Best-effort parse of the model's JSON envelope. Strips a ```json fence if the
+// model added one, and extracts the first {...} block as a last resort.
+function tryParseEnvelope(raw: string): { body?: unknown; confidence?: unknown; auto_send_safe?: unknown } | null {
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+  try {
+    return JSON.parse(cleaned)
+  } catch {}
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(cleaned.substring(start, end + 1))
+    } catch {}
+  }
+  return null
 }

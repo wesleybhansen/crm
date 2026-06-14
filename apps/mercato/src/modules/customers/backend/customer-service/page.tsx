@@ -4,13 +4,15 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Headphones, Mail, Check, FileEdit, Lock, ArrowRight, BookOpen, MessageSquareQuote, FileText, Trash2, Plus } from 'lucide-react'
+import { Headphones, Mail, Check, FileEdit, Send, Sparkles, ArrowRight, BookOpen, MessageSquareQuote, FileText, Trash2, Plus } from 'lucide-react'
 
+type ReplyMode = 'draft' | 'auto' | 'hybrid'
 type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean }
 type Settings = {
   enabled: boolean
   watchedConnectionIds: string[] | null
-  replyMode: 'draft'
+  replyMode: ReplyMode
+  hybridConfidenceThreshold: number
   signature: string | null
 }
 type KnowledgeEntry = {
@@ -31,6 +33,8 @@ export default function CustomerServiceSettingsPage() {
   const [enabled, setEnabled] = useState(false)
   // null = watch all connected mailboxes. An array = only those ids.
   const [watchedIds, setWatchedIds] = useState<string[] | null>(null)
+  const [replyMode, setReplyMode] = useState<ReplyMode>('draft')
+  const [hybridThreshold, setHybridThreshold] = useState(0.8)
   const [signature, setSignature] = useState('')
 
   const [connections, setConnections] = useState<EmailConnection[]>([])
@@ -62,6 +66,10 @@ export default function CustomerServiceSettingsPage() {
         const s: Settings = settingsRes.data
         setEnabled(!!s.enabled)
         setWatchedIds(Array.isArray(s.watchedConnectionIds) ? s.watchedConnectionIds : null)
+        setReplyMode(s.replyMode === 'auto' || s.replyMode === 'hybrid' ? s.replyMode : 'draft')
+        if (typeof s.hybridConfidenceThreshold === 'number' && Number.isFinite(s.hybridConfidenceThreshold)) {
+          setHybridThreshold(Math.min(1, Math.max(0, s.hybridConfidenceThreshold)))
+        }
         setSignature(s.signature || '')
       }
       if (connRes?.ok) setConnections(connRes.data || [])
@@ -164,7 +172,8 @@ export default function CustomerServiceSettingsPage() {
         body: JSON.stringify({
           enabled,
           watchedConnectionIds: watchedIds,
-          replyMode: 'draft',
+          replyMode,
+          hybridConfidenceThreshold: hybridThreshold,
           signature: signature.trim() || undefined,
         }),
       })
@@ -196,7 +205,7 @@ export default function CustomerServiceSettingsPage() {
         </Button>
       </div>
       <p className="text-sm text-muted-foreground mb-6">
-        Let Noli draft replies to incoming customer emails. Every reply waits for your approval before it sends.
+        Let Noli reply to incoming customer emails. Choose whether replies wait for your approval, send automatically, or send only when they are confident and safe.
       </p>
 
       {saved && (
@@ -222,9 +231,9 @@ export default function CustomerServiceSettingsPage() {
             <div className="rounded-lg border">
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="min-w-0 flex-1 pr-4">
-                  <p className="text-sm font-medium mb-0.5">Draft replies to customer emails</p>
+                  <p className="text-sm font-medium mb-0.5">Reply to customer emails</p>
                   <p className="text-xs text-muted-foreground">
-                    When on, incoming emails get a drafted reply added to your review queue. Nothing is sent automatically.
+                    When on, incoming emails get an AI reply. How it is handled depends on the reply mode you choose below.
                   </p>
                 </div>
                 <Switch checked={enabled} onCheckedChange={setEnabled} />
@@ -281,27 +290,75 @@ export default function CustomerServiceSettingsPage() {
               <FileEdit className="size-4 text-muted-foreground" /> Reply mode
             </h2>
             <div className="rounded-lg border divide-y">
-              <div className="flex items-center justify-between px-4 py-3 selected-card rounded-t-lg">
-                <div className="flex items-center gap-3 min-w-0">
-                  <FileEdit className="size-4 text-accent shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">Draft for approval</p>
-                    <p className="text-xs text-muted-foreground">Every reply is drafted and waits in your review queue until you approve it.</p>
-                  </div>
-                </div>
-                <Check className="size-4 text-accent shrink-0" />
-              </div>
-              <div className="flex items-center justify-between px-4 py-3 opacity-60">
-                <div className="flex items-center gap-3 min-w-0">
-                  <Lock className="size-4 text-muted-foreground shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">Auto-send</p>
-                    <p className="text-xs text-muted-foreground">Send approved-style replies automatically.</p>
-                  </div>
-                </div>
-                <Badge variant="secondary">Coming soon</Badge>
-              </div>
+              {([
+                {
+                  mode: 'draft' as ReplyMode,
+                  icon: FileEdit,
+                  title: 'Draft for approval',
+                  desc: 'Every reply is drafted and waits in your review queue until you approve it. Nothing sends on its own.',
+                  rounded: 'rounded-t-lg',
+                },
+                {
+                  mode: 'auto' as ReplyMode,
+                  icon: Send,
+                  title: 'Auto-send',
+                  desc: 'Every drafted reply is sent automatically as soon as it is written. Use this only when you trust replies to go out without review.',
+                  rounded: '',
+                },
+                {
+                  mode: 'hybrid' as ReplyMode,
+                  icon: Sparkles,
+                  title: 'Hybrid',
+                  desc: 'Auto-send only confident, safe replies. Anything sensitive or uncertain, such as refunds, complaints, or billing, waits in your review queue.',
+                  rounded: 'rounded-b-lg',
+                },
+              ]).map(({ mode, icon: Icon, title, desc, rounded }) => {
+                const selected = replyMode === mode
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setReplyMode(mode)}
+                    className={`w-full text-left flex items-center justify-between px-4 py-3 transition ${rounded} ${selected ? 'selected-card' : 'hover:bg-muted/30'}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Icon className={`size-4 shrink-0 ${selected ? 'text-accent' : 'text-muted-foreground'}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{title}</p>
+                        <p className="text-xs text-muted-foreground">{desc}</p>
+                      </div>
+                    </div>
+                    {selected && <Check className="size-4 text-accent shrink-0" />}
+                  </button>
+                )
+              })}
             </div>
+
+            {replyMode === 'hybrid' && (
+              <div className="mt-3 rounded-lg border px-4 py-3">
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">
+                  Confidence threshold
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={hybridThreshold}
+                    onChange={e => {
+                      const v = Number(e.target.value)
+                      if (Number.isFinite(v)) setHybridThreshold(Math.min(1, Math.max(0, v)))
+                    }}
+                    className="w-24 rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">0 to 1. Default 0.8.</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  A reply auto-sends only when Noli is at least this confident in its answer and judges it safe to send. Everything else waits for your approval. Higher values send fewer replies on their own.
+                </p>
+              </div>
+            )}
           </section>
 
           {/* Signature */}

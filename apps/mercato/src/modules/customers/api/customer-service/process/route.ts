@@ -12,16 +12,20 @@ import { requireProcessAuth } from '@/lib/cron-auth'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
+import { sendReply } from '@/modules/customers/lib/send-reply'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 // Hard cap on conversations processed per org per run.
 const BATCH_PER_ORG = 25
 
+const VALID_MODES = new Set(['draft', 'auto', 'hybrid'])
+const DEFAULT_HYBRID_THRESHOLD = 0.8
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Customer Service',
   summary: 'Customer Service recurring processor',
   methods: {
-    POST: { summary: 'Cron: draft replies for new inbound inquiries (draft mode only)', tags: ['Customer Service'] },
+    POST: { summary: 'Cron: draft/auto-send replies for new inbound inquiries (draft | auto | hybrid)', tags: ['Customer Service'] },
   },
 }
 
@@ -39,12 +43,17 @@ export async function POST(req: Request) {
     // Only orgs that have explicitly enabled the feature.
     const settingsRows = await knex('customer_service_settings').where('enabled', true)
 
-    const results: Array<{ orgId: string; candidates: number; drafted: number; skipped: number }> = []
+    const results: Array<{ orgId: string; mode: string; candidates: number; queued: number; autoSent: number; skipped: number }> = []
 
     for (const settings of settingsRows) {
       const orgId = settings.organization_id
       const tenantId = settings.tenant_id
-      let drafted = 0
+      const mode = VALID_MODES.has(settings.reply_mode) ? settings.reply_mode : 'draft'
+      const hybridThreshold = settings.hybrid_confidence_threshold != null
+        ? Number(settings.hybrid_confidence_threshold)
+        : DEFAULT_HYBRID_THRESHOLD
+      let queued = 0
+      let autoSent = 0
       let skipped = 0
 
       try {
@@ -52,12 +61,12 @@ export async function POST(req: Request) {
         // Over-allowance orgs with a BYO key run on that key.
         const gate = await checkCustomersAiAllowance({ orgId })
         if (!gate.allowed) {
-          results.push({ orgId, candidates: 0, drafted: 0, skipped: 0 })
+          results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0 })
           continue
         }
         const aiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
         if (!aiKey) {
-          results.push({ orgId, candidates: 0, drafted: 0, skipped: 0 })
+          results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0 })
           continue
         }
 
@@ -75,7 +84,7 @@ export async function POST(req: Request) {
           watchedAddresses = conns.map((c: any) => (c.email_address || '').toLowerCase()).filter(Boolean)
           // Watching specific connections that no longer exist means nothing to do.
           if (watchedAddresses.length === 0) {
-            results.push({ orgId, candidates: 0, drafted: 0, skipped: 0 })
+            results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0 })
             continue
           }
         }
@@ -92,7 +101,7 @@ export async function POST(req: Request) {
 
         for (const conv of conversations) {
           try {
-            // Only email conversations can be drafted+sent by this engine in Phase 1.
+            // Only email conversations can be drafted+sent by this engine.
             if (conv.last_message_channel && conv.last_message_channel !== 'email') {
               await markDrafted(knex, conv.id, orgId)
               skipped++
@@ -165,35 +174,99 @@ export async function POST(req: Request) {
               : 'Re: your message'
             const lastInboundPreview = (inbound.body_text || inbound.body_html || '').toString().substring(0, 200)
 
-            await createDraftProposal(knex, orgId, tenantId, {
-              displayName,
-              toEmail,
-              contactId,
-              conversationId: conv.id,
-              subject,
-              body: result.draft,
-              lastInboundPreview,
-            })
+            // Decide whether to auto-send based on the org's reply mode.
+            //   draft  -> never auto-send (always queue).
+            //   auto   -> always auto-send.
+            //   hybrid -> auto-send only when the drafter is confident AND
+            //             flagged the reply auto-send-safe; otherwise queue.
+            // Default to NOT sending whenever the signal is ambiguous.
+            let shouldAutoSend = false
+            if (mode === 'auto') {
+              shouldAutoSend = true
+            } else if (mode === 'hybrid') {
+              shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
+            }
 
-            await markDrafted(knex, conv.id, orgId)
-            drafted++
+            if (shouldAutoSend) {
+              const sendResult = await sendReply(knex, orgId, tenantId, {
+                to: toEmail,
+                toName: displayName,
+                subject,
+                body: result.draft,
+                contactId,
+              })
+
+              if (sendResult.ok) {
+                // Record an audit proposal already marked sent (same review-queue
+                // mechanism approve uses), so auto-sent replies are visible.
+                await createDraftProposal(knex, orgId, tenantId, {
+                  displayName,
+                  toEmail,
+                  contactId,
+                  conversationId: conv.id,
+                  subject,
+                  body: result.draft,
+                  lastInboundPreview,
+                  confidence: result.confidence,
+                  status: 'sent',
+                })
+                await markDrafted(knex, conv.id, orgId)
+                autoSent++
+              } else {
+                // Send failed (e.g. no connected mailbox): fall back to queuing
+                // the draft for manual review rather than dropping it.
+                console.error('[customer-service.process] auto-send failed, queuing instead', { orgId, convId: conv.id, err: sendResult.error })
+                await createDraftProposal(knex, orgId, tenantId, {
+                  displayName,
+                  toEmail,
+                  contactId,
+                  conversationId: conv.id,
+                  subject,
+                  body: result.draft,
+                  lastInboundPreview,
+                  confidence: result.confidence,
+                  status: 'pending',
+                })
+                await markDrafted(knex, conv.id, orgId)
+                queued++
+              }
+            } else {
+              await createDraftProposal(knex, orgId, tenantId, {
+                displayName,
+                toEmail,
+                contactId,
+                conversationId: conv.id,
+                subject,
+                body: result.draft,
+                lastInboundPreview,
+                confidence: result.confidence,
+                status: 'pending',
+              })
+              await markDrafted(knex, conv.id, orgId)
+              queued++
+            }
           } catch (convErr) {
             console.error('[customer-service.process] conversation error', { orgId, convId: conv?.id, err: convErr })
             skipped++
           }
         }
 
-        results.push({ orgId, candidates: conversations.length, drafted, skipped })
-        console.log('[customer-service.process] org done', { orgId, candidates: conversations.length, drafted, skipped })
+        results.push({ orgId, mode, candidates: conversations.length, queued, autoSent, skipped })
+        console.log('[customer-service.process] org done', { orgId, mode, candidates: conversations.length, queued, autoSent, skipped })
       } catch (orgErr) {
         console.error('[customer-service.process] org error', { orgId, err: orgErr })
-        results.push({ orgId, candidates: 0, drafted, skipped })
+        results.push({ orgId, mode, candidates: 0, queued, autoSent, skipped })
       }
     }
 
     const totals = results.reduce(
-      (acc, r) => ({ candidates: acc.candidates + r.candidates, drafted: acc.drafted + r.drafted, skipped: acc.skipped + r.skipped }),
-      { candidates: 0, drafted: 0, skipped: 0 },
+      (acc, r) => ({
+        candidates: acc.candidates + r.candidates,
+        queued: acc.queued + r.queued,
+        autoSent: acc.autoSent + r.autoSent,
+        skipped: acc.skipped + r.skipped,
+      }),
+      { candidates: 0, queued: 0, autoSent: 0, skipped: 0 },
     )
     console.log('[customer-service.process] run complete', { orgs: results.length, ...totals })
 
@@ -215,11 +288,13 @@ async function markDrafted(knex: any, conversationId: string, orgId: string) {
     .update({ cs_drafted_at: new Date() })
 }
 
-// Reuses the inbox-proposal review mechanism: a synthetic inbox_emails row, a
-// pending inbox_proposals row (shown in the review queue), and a draft_reply
+// Reuses the inbox-proposal review mechanism: a synthetic inbox_emails row, an
+// inbox_proposals row (shown in the review queue), and a draft_reply
 // inbox_proposal_actions row carrying the drafted body. Marked feature_source =
 // customer_service in metadata so the queue/approve/dismiss endpoints can find
-// it. Phase 1 NEVER auto-sends.
+// it. status: 'pending' = queued for approval; status: 'sent' = an audit record
+// for a reply already auto-sent (auto/hybrid modes), mirroring how approve marks
+// rows (action -> 'sent', proposal -> 'accepted').
 async function createDraftProposal(
   knex: any,
   orgId: string,
@@ -232,9 +307,18 @@ async function createDraftProposal(
     subject: string
     body: string
     lastInboundPreview: string
+    confidence?: number
+    status?: 'pending' | 'sent'
   },
 ) {
   const now = new Date()
+  const status = d.status || 'pending'
+  const isSent = status === 'sent'
+  // Confidence drives the queue display; clamp to a sane range and fall back to
+  // the prior fixed 0.7 when the drafter gave no signal.
+  const conf = typeof d.confidence === 'number' && Number.isFinite(d.confidence)
+    ? Math.min(1, Math.max(0, d.confidence))
+    : 0.7
   const emailId = crypto.randomUUID()
   await knex('inbox_emails').insert({
     id: emailId,
@@ -242,7 +326,7 @@ async function createDraftProposal(
     organization_id: orgId,
     forwarded_by_address: 'customer-service@noliai.com',
     to_address: d.toEmail,
-    subject: `Draft reply for ${d.displayName}`,
+    subject: isSent ? `Auto-sent reply to ${d.displayName}` : `Draft reply for ${d.displayName}`,
     status: 'processed',
     received_at: now,
     is_active: true,
@@ -256,11 +340,13 @@ async function createDraftProposal(
     inbox_email_id: emailId,
     tenant_id: tenantId,
     organization_id: orgId,
-    summary: `Draft reply for ${d.displayName}. Your team drafted a response to their latest message.`,
+    summary: isSent
+      ? `Auto-sent reply to ${d.displayName}. Noli sent a response to their latest message.`
+      : `Draft reply for ${d.displayName}. Your team drafted a response to their latest message.`,
     participants: JSON.stringify([{ name: d.displayName, email: d.toEmail }]),
-    confidence: 0.7,
+    confidence: conf,
     category: 'inquiry',
-    status: 'pending',
+    status: isSent ? 'accepted' : 'pending',
     is_active: true,
     created_at: now,
     updated_at: now,
@@ -273,7 +359,9 @@ async function createDraftProposal(
     organization_id: orgId,
     action_type: 'draft_reply',
     sort_order: 0,
-    description: `Send the drafted reply to ${d.displayName}`,
+    description: isSent
+      ? `Auto-sent the drafted reply to ${d.displayName}`
+      : `Send the drafted reply to ${d.displayName}`,
     payload: JSON.stringify({
       to: d.toEmail,
       toName: d.displayName,
@@ -283,9 +371,10 @@ async function createDraftProposal(
       body: d.body,
       lastInboundPreview: d.lastInboundPreview,
     }),
-    status: 'pending',
-    confidence: 0.7,
-    metadata: JSON.stringify({ feature_source: 'customer_service' }),
+    status: isSent ? 'sent' : 'pending',
+    executed_at: isSent ? now : null,
+    confidence: conf,
+    metadata: JSON.stringify({ feature_source: 'customer_service', auto_sent: isSent }),
     created_at: now,
     updated_at: now,
   })
