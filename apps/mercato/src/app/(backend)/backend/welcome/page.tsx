@@ -84,6 +84,7 @@ export default function WelcomePage() {
   const [websiteUrl, setWebsiteUrl] = useState('')
   const [scanning, setScanning] = useState(false)
   const [scanComplete, setScanComplete] = useState(false)
+  const [scanError, setScanError] = useState('')
 
   // Connections state
   const [emailConnected, setEmailConnected] = useState(false)
@@ -222,13 +223,14 @@ export default function WelcomePage() {
     if (!websiteUrl.trim()) return
     setScanning(true)
     setScanComplete(false)
+    setScanError('')
     try {
       const res = await fetch('/api/ai/scan-website', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ url: websiteUrl }),
       })
-      const data = await res.json()
-      if (data.ok && data.data) {
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.ok && data.data) {
         const d = data.data
         if (d.businessName && !businessName) setBusinessName(d.businessName)
         if (d.businessType) setBusinessType(d.businessType)
@@ -239,8 +241,12 @@ export default function WelcomePage() {
         if (d.suggestedPipelineMode) setPipelineMode(d.suggestedPipelineMode === 'journey' ? 'journey' : 'deals')
         if (d.suggestedPipelineStages?.length >= 2) setPipelineStages(d.suggestedPipelineStages.map((s: string) => ({ name: s })))
         setScanComplete(true)
+      } else {
+        setScanError(data?.error || "We couldn't read that website. Check the URL and try again, or fill in your details below.")
       }
-    } catch {}
+    } catch {
+      setScanError("We couldn't reach that website. Check your connection and the URL, then try again.")
+    }
     setScanning(false)
   }
 
@@ -315,33 +321,37 @@ export default function WelcomePage() {
       return
     }
 
-    // Create actual pipeline stages in the CRM
-    // First try to update existing default pipeline, then create stages
+    // Create actual pipeline stages in the CRM.
+    // Update the default pipeline's existing stages in place (so any existing deals
+    // keep a stage), then CREATE additional stages for everything the user/AI added
+    // beyond the defaults — never silently drop suggested stages.
     if (validStages.length >= 2) {
       try {
-        // Get existing pipeline
+        // Get existing pipeline (API returns { items, total })
         const pipelineRes = await fetch('/api/customers/pipelines', { credentials: 'include' })
         const pipelineData = await pipelineRes.json()
-        const pipelines = Array.isArray(pipelineData.data) ? pipelineData.data : pipelineData.data?.items || []
-        const defaultPipeline = pipelines.find((p: any) => p.is_default) || pipelines[0]
+        const pipelines = Array.isArray(pipelineData.items) ? pipelineData.items : pipelineData.data?.items || []
+        const defaultPipeline = pipelines.find((p: any) => p.isDefault) || pipelines[0]
 
         if (defaultPipeline) {
-          // Delete existing stages and recreate with user's custom stages
-          // Use the pipeline-stages reorder endpoint to update them
           const stagesRes = await fetch(`/api/customers/pipeline-stages?pipelineId=${defaultPipeline.id}`, { credentials: 'include' })
           const stagesData = await stagesRes.json()
-          const existingStages = Array.isArray(stagesData.data) ? stagesData.data : stagesData.data?.items || []
+          const existingStages = Array.isArray(stagesData.items) ? stagesData.items : stagesData.data?.items || []
 
-          // Update existing stages to match user's choices
           for (let i = 0; i < validStages.length; i++) {
             if (i < existingStages.length) {
-              // Update existing stage
+              // Rename an existing default stage to match the user's choice
               await fetch(`/api/customers/pipeline-stages`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-                body: JSON.stringify({ id: existingStages[i].id, name: validStages[i].name, order: i + 1 }),
+                body: JSON.stringify({ id: existingStages[i].id, label: validStages[i].name, order: i + 1 }),
+              }).catch(() => {})
+            } else {
+              // Create the additional suggested stages beyond the defaults
+              await fetch(`/api/customers/pipeline-stages`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                body: JSON.stringify({ pipelineId: defaultPipeline.id, label: validStages[i].name, order: i + 1 }),
               }).catch(() => {})
             }
-            // Note: creating new stages via API may need different approach depending on the API
           }
         }
       } catch (err) {
@@ -436,18 +446,21 @@ export default function WelcomePage() {
               <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1">Website URL (optional)</label>
               <p className="text-xs text-muted-foreground mb-2">We'll scan your website to auto-fill your business details, colors, and services.</p>
               <div className="flex gap-2">
-                <Input value={websiteUrl} onChange={e => { setWebsiteUrl(e.target.value); setScanComplete(false) }}
+                <Input value={websiteUrl} onChange={e => { setWebsiteUrl(e.target.value); setScanComplete(false); setScanError('') }}
                   placeholder="https://yourbusiness.com" className="h-9 text-sm flex-1" />
                 <Button type="button" size="sm" onClick={scanWebsite}
                   disabled={scanning || !websiteUrl.trim()} className="shrink-0 h-9">
                   {scanning ? <><Loader2 className="size-3.5 animate-spin mr-1.5" /> Scanning...</>
-                    : <><Search className="size-3.5 mr-1.5" /> Scan My Website</>}
+                    : <><Search className="size-3.5 mr-1.5" /> {scanError ? 'Try Again' : 'Scan My Website'}</>}
                 </Button>
               </div>
               {scanComplete && (
                 <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-center gap-1">
                   <Check className="size-3" /> Found your business info! Review and edit below.
                 </p>
+              )}
+              {scanError && !scanning && (
+                <p className="text-xs text-red-600 dark:text-red-400 mt-1.5">{scanError}</p>
               )}
             </div>
             <div>
@@ -745,7 +758,7 @@ export default function WelcomePage() {
                   <div className="space-y-1 pt-1">
                     <p className="text-[11px] text-muted-foreground font-medium">How to get an App Password:</p>
                     {[
-                      { id: 'gmail' as const, label: '📧 Gmail', steps: ['Go to myaccount.google.com → Security', 'Confirm 2-Step Verification is On', 'Search "App Passwords" in the search bar', 'Type "LaunchOS CRM" → click Create', 'Copy the 16-character password and paste above'] },
+                      { id: 'gmail' as const, label: '📧 Gmail', steps: ['Go to myaccount.google.com → Security', 'Confirm 2-Step Verification is On', 'Search "App Passwords" in the search bar', 'Type "Noli CRM" → click Create', 'Copy the 16-character password and paste above'] },
                       { id: 'outlook' as const, label: '📨 Outlook / Hotmail / M365', steps: ['Go to account.microsoft.com → Security', 'Click Advanced security options', 'Under Two-step verification, make sure it\'s on', 'Scroll to App passwords → Create a new app password', 'Copy the generated password and paste above'] },
                       { id: 'other' as const, label: '📬 Yahoo, iCloud, or other', steps: ['Yahoo: account.yahoo.com → Security → Generate app password', 'iCloud: appleid.apple.com → Sign-In & Security → App-Specific Passwords', 'Other: use your regular password if IMAP is enabled for your account'] },
                     ].map(guide => (
