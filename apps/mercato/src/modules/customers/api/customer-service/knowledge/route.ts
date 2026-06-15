@@ -57,11 +57,15 @@ function previewOf(content: string): string {
 }
 
 function serializeListRow(row: any) {
+  // KB-imported docs store their origin as "kb:<id>" in source_filename for
+  // dedupe. Surface a friendly label instead of the raw marker.
+  const raw = row.source_filename ?? null
+  const sourceFilename = typeof raw === 'string' && raw.startsWith('kb:') ? 'Knowledge Base' : raw
   return {
     id: row.id,
     kind: row.kind,
     title: row.title,
-    sourceFilename: row.source_filename ?? null,
+    sourceFilename,
     contentPreview: previewOf(row.content || ''),
     createdAt: row.created_at,
   }

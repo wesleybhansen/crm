@@ -6,6 +6,7 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Headphones, Mail, Check, FileEdit, Send, Sparkles, ArrowRight, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, X as XIcon } from 'lucide-react'
+import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
 
 type ReplyMode = 'draft' | 'auto' | 'hybrid'
 type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean; purpose?: string | null }
@@ -125,7 +126,19 @@ export default function CustomerServiceSettingsPage() {
   const [maContent, setMaContent] = useState('')
   const [docTitle, setDocTitle] = useState('')
   const [docContent, setDocContent] = useState('')
-  const [docFile, setDocFile] = useState<File | null>(null)
+  const [docFiles, setDocFiles] = useState<File[]>([])
+  // Per-file upload progress + a summary line shown after a multi-file upload.
+  const [docProgress, setDocProgress] = useState<{ name: string; status: 'pending' | 'done' | 'failed'; error?: string }[]>([])
+  const [docSummary, setDocSummary] = useState('')
+
+  // Add-from-Knowledge-Base picker.
+  type KbDoc = { id: string; title: string; alreadyImported: boolean }
+  const [kbPickerOpen, setKbPickerOpen] = useState(false)
+  const [kbDocs, setKbDocs] = useState<KbDoc[]>([])
+  const [kbConnected, setKbConnected] = useState(true)
+  const [kbDocsLoading, setKbDocsLoading] = useState(false)
+  const [kbSelectedIds, setKbSelectedIds] = useState<Set<string>>(new Set())
+  const [kbImporting, setKbImporting] = useState(false)
 
   async function loadKnowledge() {
     const res = await fetch('/api/customer-service/knowledge', { credentials: 'include' }).then(r => r.json()).catch(() => null)
@@ -186,36 +199,118 @@ export default function CustomerServiceSettingsPage() {
 
   async function addDocument() {
     setKbError('')
-    if (!docFile && !docContent.trim()) { setKbError('Upload a file or paste the document text.'); return }
+    setDocSummary('')
+    if (docFiles.length === 0 && !docContent.trim()) { setKbError('Upload one or more files or paste the document text.'); return }
     setKbSaving(true)
     try {
-      let res: Response
-      if (docFile) {
-        const form = new FormData()
-        form.append('kind', 'document')
-        if (docTitle.trim()) form.append('title', docTitle.trim())
-        form.append('file', docFile)
-        if (docContent.trim()) form.append('content', docContent.trim())
-        res = await fetch('/api/customer-service/knowledge', { method: 'POST', credentials: 'include', body: form })
+      if (docFiles.length > 0) {
+        // Upload each selected file as its own entry, tracking per-file progress.
+        // The optional title applies only when a single file is uploaded; with
+        // many files each falls back to its own filename server-side.
+        const single = docFiles.length === 1
+        setDocProgress(docFiles.map(f => ({ name: f.name, status: 'pending' as const })))
+        let added = 0
+        let skipped = 0
+        for (let i = 0; i < docFiles.length; i++) {
+          const file = docFiles[i]
+          try {
+            const form = new FormData()
+            form.append('kind', 'document')
+            if (single && docTitle.trim()) form.append('title', docTitle.trim())
+            form.append('file', file)
+            const res = await fetch('/api/customer-service/knowledge', { method: 'POST', credentials: 'include', body: form })
+            const data = await res.json().catch(() => ({}))
+            if (data.ok) {
+              added++
+              setDocProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'done' } : p))
+            } else {
+              skipped++
+              setDocProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'failed', error: data.error } : p))
+            }
+          } catch {
+            skipped++
+            setDocProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'failed', error: 'Upload failed' } : p))
+          }
+        }
+        setDocSummary(`${added} added${skipped ? `, ${skipped} skipped` : ''}.`)
+        setDocFiles([]); setDocTitle('')
+        await loadKnowledge()
       } else {
-        res = await fetch('/api/customer-service/knowledge', {
+        // Paste-single path (unchanged behavior).
+        const res = await fetch('/api/customer-service/knowledge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ kind: 'document', title: docTitle.trim() || undefined, content: docContent.trim() }),
         })
-      }
-      const data = await res.json()
-      if (data.ok) {
-        setDocTitle(''); setDocContent(''); setDocFile(null)
-        await loadKnowledge()
-      } else {
-        setKbError(data.error || 'Failed to add document.')
+        const data = await res.json()
+        if (data.ok) {
+          setDocTitle(''); setDocContent('')
+          await loadKnowledge()
+        } else {
+          setKbError(data.error || 'Failed to add document.')
+        }
       }
     } catch {
       setKbError('Failed to add document.')
     }
     setKbSaving(false)
+  }
+
+  async function openKbPicker() {
+    setKbError('')
+    setKbPickerOpen(true)
+    setKbDocsLoading(true)
+    setKbSelectedIds(new Set())
+    try {
+      const res = await fetch('/api/customer-service/kb-documents', { credentials: 'include' }).then(r => r.json()).catch(() => null)
+      if (res?.ok) {
+        setKbConnected(res.connected !== false)
+        setKbDocs(Array.isArray(res.data) ? res.data : [])
+      } else {
+        setKbConnected(false)
+        setKbDocs([])
+      }
+    } catch {
+      setKbConnected(false)
+      setKbDocs([])
+    }
+    setKbDocsLoading(false)
+  }
+
+  function toggleKbDoc(id: string) {
+    setKbSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  async function importSelectedKbDocs() {
+    setKbError('')
+    const ids = Array.from(kbSelectedIds)
+    if (ids.length === 0) { setKbError('Select at least one document.'); return }
+    setKbImporting(true)
+    try {
+      const res = await fetch('/api/customer-service/kb-documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ ids }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (data.ok) {
+        setDocSummary(`${data.added ?? 0} added${data.skipped ? `, ${data.skipped} skipped` : ''} from Knowledge Base.`)
+        setKbPickerOpen(false)
+        setKbSelectedIds(new Set())
+        await loadKnowledge()
+      } else {
+        setKbError(data.error || 'Failed to import documents.')
+      }
+    } catch {
+      setKbError('Failed to import documents.')
+    }
+    setKbImporting(false)
   }
 
   async function deleteKnowledge(id: string) {
@@ -444,9 +539,9 @@ export default function CustomerServiceSettingsPage() {
                   disabled={supportSaving || !supportEmail || !supportPassword}>
                   {supportSaving ? 'Testing connection...' : 'Connect support inbox'}
                 </Button>
-                <p className="text-[11px] text-muted-foreground">
-                  Need help getting an App Password? The Email section in Settings has step-by-step guides for Gmail, Outlook, Yahoo, and iCloud.
-                </p>
+                <div className="pt-1">
+                  <AppPasswordGuides />
+                </div>
               </div>
             </div>
           </section>
@@ -715,30 +810,109 @@ export default function CustomerServiceSettingsPage() {
             </div>
 
             {/* Add a reference document */}
-            <div className="rounded-lg border">
+            <div className="rounded-lg border mb-4">
               <div className="px-4 py-3 border-b">
                 <p className="text-sm font-medium flex items-center gap-2">
                   <FileText className="size-4 text-muted-foreground" /> Add a reference document
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Upload a PDF, Word (.docx), or text (.txt, .md, .csv) file, or paste text. The text is pulled out automatically.
+                  Upload one or more PDF, Word (.docx), or text (.txt, .md, .csv) files, or paste text. The text is pulled out automatically. Each file becomes its own entry.
                 </p>
               </div>
               <div className="px-4 py-3 space-y-3">
                 <input value={docTitle} onChange={e => setDocTitle(e.target.value)}
-                  placeholder="Title (optional), e.g. Shipping policy"
+                  placeholder="Title (optional, used only with a single file), e.g. Shipping policy"
                   className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
-                <input type="file" accept=".pdf,.docx,.txt,.md,.markdown,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv"
-                  onChange={e => setDocFile(e.target.files?.[0] || null)}
+                <input type="file" multiple accept=".pdf,.docx,.txt,.md,.markdown,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv"
+                  onChange={e => { setDocFiles(e.target.files ? Array.from(e.target.files) : []); setDocProgress([]); setDocSummary('') }}
                   className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:bg-card file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-muted/50" />
+                {docFiles.length > 1 && (
+                  <p className="text-[11px] text-muted-foreground">{docFiles.length} files selected. Each is added as a separate entry.</p>
+                )}
+                {docProgress.length > 0 && (
+                  <ul className="space-y-1">
+                    {docProgress.map((p, i) => (
+                      <li key={i} className="flex items-center gap-2 text-[11px]">
+                        {p.status === 'done' ? (
+                          <Check className="size-3 text-[#047857] dark:text-[#34d399]" />
+                        ) : p.status === 'failed' ? (
+                          <XIcon className="size-3 text-[#b91c1c] dark:text-[#f87171]" />
+                        ) : (
+                          <span className="inline-block size-3 rounded-full border border-muted-foreground/40 border-t-transparent animate-spin" />
+                        )}
+                        <span className="truncate text-muted-foreground">{p.name}</span>
+                        {p.status === 'failed' && p.error && (
+                          <span className="text-[#b91c1c] dark:text-[#f87171] truncate">{p.error}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {docSummary && (
+                  <p className="text-[11px] text-[#047857] dark:text-[#34d399]">{docSummary}</p>
+                )}
                 <p className="text-[11px] text-muted-foreground">Or paste the document text:</p>
                 <textarea value={docContent} onChange={e => setDocContent(e.target.value)}
                   placeholder="Paste reference text here..."
                   className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28" />
                 <Button type="button" size="sm" onClick={addDocument} disabled={kbSaving}>
-                  <Plus className="size-3.5 mr-1" /> Add document
+                  <Plus className="size-3.5 mr-1" /> {docFiles.length > 1 ? `Add ${docFiles.length} documents` : 'Add document'}
                 </Button>
               </div>
+            </div>
+
+            {/* Add from Knowledge Base */}
+            <div className="rounded-lg border">
+              <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    <BookOpen className="size-4 text-muted-foreground" /> Add from Knowledge Base
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Pull documents you have stored in your Knowledge Base straight into this library.
+                  </p>
+                </div>
+                {!kbPickerOpen && (
+                  <Button type="button" size="sm" variant="outline" onClick={openKbPicker} className="shrink-0">
+                    <BookOpen className="size-3.5 mr-1" /> Browse Knowledge Base
+                  </Button>
+                )}
+              </div>
+              {kbPickerOpen && (
+                <div className="px-4 py-3 space-y-3">
+                  {kbDocsLoading ? (
+                    <p className="text-xs text-muted-foreground py-4 text-center">Loading your Knowledge Base...</p>
+                  ) : !kbConnected ? (
+                    <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">
+                      Could not connect to your Knowledge Base right now. Make sure you have one set up, then try again.
+                    </div>
+                  ) : kbDocs.length === 0 ? (
+                    <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">
+                      No documents found in your Knowledge Base yet.
+                    </div>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
+                      {kbDocs.map(doc => (
+                        <label key={doc.id} className={`flex items-center gap-2 px-3 py-2 text-sm ${doc.alreadyImported ? 'opacity-60' : 'cursor-pointer hover:bg-muted/40'}`}>
+                          <input type="checkbox" disabled={doc.alreadyImported}
+                            checked={kbSelectedIds.has(doc.id)} onChange={() => toggleKbDoc(doc.id)}
+                            className="size-4 shrink-0" />
+                          <span className="truncate flex-1">{doc.title}</span>
+                          {doc.alreadyImported && <span className="text-[11px] text-muted-foreground shrink-0">Already added</span>}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Button type="button" size="sm" onClick={importSelectedKbDocs} disabled={kbImporting || kbSelectedIds.size === 0}>
+                      <Plus className="size-3.5 mr-1" /> {kbSelectedIds.size > 0 ? `Add selected (${kbSelectedIds.size})` : 'Add selected'}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => { setKbPickerOpen(false); setKbSelectedIds(new Set()) }} disabled={kbImporting}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         </>
