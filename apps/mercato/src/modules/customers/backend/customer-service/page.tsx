@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -20,6 +20,7 @@ type Settings = {
   hybridConfidenceThreshold: number
   sourceModes: SourceModes | null
   signature: string | null
+  defaultSignature?: string | null
 }
 type KnowledgeEntry = {
   id: string
@@ -46,6 +47,13 @@ export default function CustomerServiceSettingsPage() {
   const [replyMode, setReplyMode] = useState<ReplyMode>('draft')
   const [hybridThreshold, setHybridThreshold] = useState(0.8)
   const [signature, setSignature] = useState('')
+
+  // Autosave plumbing. `hydratedRef` stays false until the initial GET has
+  // populated the settings fields, so neither the first mount nor the
+  // hydration write (which would otherwise clobber server state with defaults)
+  // triggers a save. Only genuine user edits do.
+  const hydratedRef = useRef(false)
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [connections, setConnections] = useState<EmailConnection[]>([])
 
@@ -186,12 +194,20 @@ export default function CustomerServiceSettingsPage() {
         if (typeof s.hybridConfidenceThreshold === 'number' && Number.isFinite(s.hybridConfidenceThreshold)) {
           setHybridThreshold(Math.min(1, Math.max(0, s.hybridConfidenceThreshold)))
         }
-        setSignature(s.signature || '')
+        // Prepopulate with the server-computed default sign-off (built from the
+        // business name) when no signature has been saved yet. This runs before
+        // hydratedRef flips true on the next tick, so it does NOT trigger an
+        // autosave; only genuine user edits after hydration save. The user can
+        // still edit or clear the field.
+        setSignature(s.signature || s.defaultSignature || '')
       }
       if (connRes?.ok) setConnections(connRes.data || [])
       if (csConnRes?.ok) setCsInboxes(csConnRes.data || [])
       if (kbRes?.ok) setKnowledge(kbRes.data || [])
       setLoading(false)
+      // Mark hydration complete on the next tick so the state updates above do
+      // not trip the autosave effect. From here on, only user edits autosave.
+      setTimeout(() => { hydratedRef.current = true }, 0)
     })
     return () => { cancelled = true }
   }, [])
@@ -407,7 +423,7 @@ export default function CustomerServiceSettingsPage() {
     return res.json()
   }
 
-  async function save() {
+  async function autosave() {
     setSaving(true)
     setSaved(false)
     setError('')
@@ -415,7 +431,7 @@ export default function CustomerServiceSettingsPage() {
       const data = await persistSettings()
       if (data.ok) {
         setSaved(true)
-        setTimeout(() => setSaved(false), 3000)
+        setTimeout(() => setSaved(false), 2000)
       } else {
         setError(data.error || 'Failed to save')
       }
@@ -424,6 +440,18 @@ export default function CustomerServiceSettingsPage() {
     }
     setSaving(false)
   }
+
+  // Debounced autosave. Whenever a settings field the user controls changes, we
+  // wait ~700ms after the last change and then PUT once. The hydration guard
+  // keeps the initial load and the GET-driven state writes from saving. A
+  // failed save leaves the error visible and retries on the next edit.
+  useEffect(() => {
+    if (!hydratedRef.current) return
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = setTimeout(() => { void autosave() }, 700)
+    return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedIds, replyMode, hybridThreshold, signature])
 
   const watchingAll = watchedIds === null
   // Personal Inbox mailboxes are everything that is not a dedicated support inbox.
@@ -462,17 +490,6 @@ export default function CustomerServiceSettingsPage() {
         </TabsContent>
 
         <TabsContent value="settings">
-      {saved && (
-        <div className="mb-4 rounded-lg border border-[rgba(16,185,129,.26)] bg-[rgba(16,185,129,.10)] px-4 py-2 text-sm text-[#047857] dark:text-[#34d399] flex items-center gap-2">
-          <Check className="size-4" /> Settings saved.
-        </div>
-      )}
-      {error && (
-        <div className="mb-4 rounded-lg border border-[rgba(239,68,68,.26)] bg-[rgba(239,68,68,.10)] px-4 py-2 text-sm text-[#b91c1c] dark:text-[#f87171]">
-          {error}
-        </div>
-      )}
-
       {loading ? (
         <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">Loading...</div>
       ) : (
@@ -708,16 +725,25 @@ export default function CustomerServiceSettingsPage() {
                 <textarea value={signature} onChange={e => setSignature(e.target.value)}
                   placeholder={'e.g.\nThanks,\nThe Acme Team'}
                   className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
-                <p className="text-[11px] text-muted-foreground mt-1.5">Added to the end of drafted replies. You can still edit each draft before sending.</p>
+                <p className="text-[11px] text-muted-foreground mt-1.5">Added to the end of drafted replies. We prefilled a default from your business name. Edit or clear it anytime. You can still edit each draft before sending.</p>
               </div>
             </div>
           </section>
 
-          <div className="flex items-center gap-3 mb-10">
-            <Button type="button" onClick={save} disabled={saving}>
-              {saving ? 'Saving...' : 'Save settings'}
-            </Button>
-            {saved && <span className="text-xs text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> Saved</span>}
+          {/* Settings autosave as you change them. This row just reflects status. */}
+          <div className="flex items-center gap-2 mb-10 h-5 text-xs">
+            {saving ? (
+              <span className="text-muted-foreground flex items-center gap-1.5">
+                <span className="inline-block size-3 rounded-full border border-muted-foreground/40 border-t-transparent animate-spin" />
+                Saving...
+              </span>
+            ) : error ? (
+              <span className="text-[#b91c1c] dark:text-[#f87171]">{error} We will retry when you make another change.</span>
+            ) : saved ? (
+              <span className="text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> Saved</span>
+            ) : (
+              <span className="text-muted-foreground">Changes save automatically.</span>
+            )}
           </div>
 
           {/* Knowledge and model answers */}

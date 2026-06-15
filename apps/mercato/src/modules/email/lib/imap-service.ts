@@ -31,6 +31,27 @@ export interface FetchedEmail {
   rawMessageId: string    // The email's own Message-ID header
   references: string      // Full References header for thread reconstruction
   inReplyTo: string
+  // Selected raw headers (lower-cased keys) used for automated/bulk detection
+  // downstream (Precedence, Auto-Submitted, List-Unsubscribe, List-Id, ...).
+  headers: Record<string, string>
+}
+
+// Simple (single-string) headers we keep for automated/bulk-mail detection.
+// NOTE: mailparser collapses all List-* headers under one structured `list` key
+// (not list-unsubscribe / list-id), so those are handled separately below.
+const KEEP_HEADERS = ['precedence', 'auto-submitted', 'feedback-id', 'x-autoreply', 'x-autorespond']
+
+// Normalize mailparser's structured `list` header object into the flat
+// list-unsubscribe / list-id / list-post keys our automated-mail detector reads.
+function extractListHeaders(listVal: any, out: Record<string, string>) {
+  if (!listVal || typeof listVal !== 'object') return
+  for (const key of ['unsubscribe', 'id', 'post']) {
+    const v = listVal[key]
+    if (v == null) continue
+    // mailparser shapes each as { url } | { value } | string; stringify safely.
+    const s = typeof v === 'string' ? v : (v.url || v.value || JSON.stringify(v))
+    if (s) out[`list-${key}`] = String(s)
+  }
 }
 
 // Well-known IMAP/SMTP server presets keyed by domain suffix
@@ -164,6 +185,17 @@ async function fetchMessagesFromFolder(
       const refList = references.split(/\s+/).filter(Boolean)
       const threadRef = refList[0] || inReplyTo || rawMessageId
 
+      // Pull the small allow-list of headers used for automated-mail detection.
+      // mailparser exposes a case-insensitive headers Map.
+      const headers: Record<string, string> = {}
+      for (const h of KEEP_HEADERS) {
+        const v = parsed.headers?.get(h)
+        if (v == null) continue
+        headers[h] = Array.isArray(v) ? v.map(String).join(', ') : String(v)
+      }
+      // mailparser exposes List-* headers as one structured `list` object.
+      extractListHeaders(parsed.headers?.get('list'), headers)
+
       results.push({
         messageId: rawMessageId || String(msg.uid),
         uid: msg.uid,
@@ -180,6 +212,7 @@ async function fetchMessagesFromFolder(
         rawMessageId,
         references,
         inReplyTo,
+        headers,
       })
     } catch {
       // Skip malformed messages

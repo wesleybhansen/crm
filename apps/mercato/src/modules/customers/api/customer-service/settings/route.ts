@@ -11,6 +11,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { buildDefaultSignature } from '@/modules/customers/lib/draft-reply'
 
 const VALID_MODES = new Set(['draft', 'auto', 'hybrid'])
 
@@ -56,9 +57,9 @@ function normalizeSourceModesInput(input: any, watched: string[] | null): Record
   return out
 }
 
-function serialize(row: any) {
+function serialize(row: any, defaultSignature = '') {
   if (!row) {
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null }
+    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, defaultSignature }
   }
   return {
     id: row.id,
@@ -68,6 +69,9 @@ function serialize(row: any) {
     hybridConfidenceThreshold: row.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
     sourceModes: parseSourceModes(row.source_modes),
     signature: row.signature ?? null,
+    // Computed sign-off the UI uses to prepopulate the field when no signature
+    // is saved yet. Built from the org's business name; never client-supplied.
+    defaultSignature,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -81,7 +85,11 @@ export async function GET() {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
     const row = await knex('customer_service_settings').where('organization_id', auth.orgId).first()
-    return NextResponse.json({ ok: true, data: serialize(row) })
+    // Resolve the org's business name (same source brand voice uses) to build a
+    // default sign-off the UI can prepopulate when no signature is saved.
+    const bpRow = await knex('business_profiles').where('organization_id', auth.orgId).select('business_name').first()
+    const defaultSignature = buildDefaultSignature(bpRow?.business_name)
+    return NextResponse.json({ ok: true, data: serialize(row, defaultSignature) })
   } catch (error) {
     console.error('[customer-service.settings.get]', error)
     return NextResponse.json({ ok: false, error: 'Failed to load settings' }, { status: 500 })

@@ -50,6 +50,18 @@ export type DraftReplyResult = {
 
 const DRAFT_MODEL = 'gemini-2.5-flash'
 
+/**
+ * Build the default sign-off used when an org has not set its own Customer
+ * Service signature. With a business name we produce "Regards,\nThe <Name> team";
+ * without one we fall back to a bare "Regards," rather than emitting a literal
+ * placeholder. Returns '' only if asked to skip (no graceful sign-off possible).
+ */
+export function buildDefaultSignature(businessName?: string | null): string {
+  const name = (businessName || '').trim()
+  if (name) return `Regards,\nThe ${name} team`
+  return 'Regards,'
+}
+
 // Total budget for injected grounding-library content (model answers +
 // documents). If the org has more than this, we include the most recently
 // updated entries first and note that the rest were truncated.
@@ -144,9 +156,17 @@ export async function generateReplyDraft(
 
   const contactInfo = await buildContactInfo(knex, orgId, contactId)
 
+  // Generous per-message safety cap so the model sees the FULL inbound body, not
+  // a tiny preview. The old 500-char cap silently truncated real inquiries and
+  // the AI drafted against a cut-off message. 12k chars per message is plenty for
+  // a support email while still bounding the prompt.
+  const PER_MESSAGE_BODY_CAP = 12000
   const transcript = (recentMessages || [])
     .slice(-10)
-    .map((m) => `[${m.direction === 'inbound' ? 'Customer' : 'You'}] ${(m.bodyText || m.body || '')}`.substring(0, 500))
+    .map((m) => {
+      const body = (m.bodyText || m.body || '').toString().slice(0, PER_MESSAGE_BODY_CAP)
+      return `[${m.direction === 'inbound' ? 'Customer' : 'You'}] ${body}`
+    })
     .join('\n')
 
   const businessName = settings?.business_name || ''
@@ -155,9 +175,14 @@ export async function generateReplyDraft(
   const tone = settings?.tone || 'professional'
   const customInstructions = settings?.instructions || ''
 
-  // Load brand voice profile if available.
-  const bpRow = await knex('business_profiles').where('organization_id', orgId).select('brand_voice_profile').first()
+  // Load brand voice profile if available. Also pull the canonical business name
+  // from business_profiles so we can build a sensible default sign-off when the
+  // org has not set a Customer Service signature.
+  const bpRow = await knex('business_profiles').where('organization_id', orgId).select('brand_voice_profile', 'business_name').first()
   const voiceProfile = bpRow?.brand_voice_profile
+  // Prefer the business_profiles name (same source brand voice uses); fall back
+  // to the inbox AI settings name if the profile has none.
+  const resolvedBusinessName = ((bpRow?.business_name || businessName || '') as string).trim()
 
   let voiceSection = `Tone: ${tone}`
   if (voiceProfile?.style_summary) {
@@ -254,8 +279,13 @@ Return the JSON object now:` }] }],
   // Strip any subject line the model may have included.
   draft = draft.replace(/^Subject:\s*.+\n+/i, '').replace(/^Re:\s*.+\n+/i, '').trim()
 
-  if (signature && signature.trim()) {
-    draft = `${draft}\n\n${signature.trim()}`
+  // Append the org's signature when set; otherwise fall back to a sensible
+  // default sign-off built from the business name so every draft ends properly.
+  const signoff = (signature && signature.trim())
+    ? signature.trim()
+    : buildDefaultSignature(resolvedBusinessName)
+  if (signoff) {
+    draft = `${draft}\n\n${signoff}`
   }
 
   return { ok: true, draft, model: DRAFT_MODEL, tokensIn, tokensOut, confidence, autoSendSafe }

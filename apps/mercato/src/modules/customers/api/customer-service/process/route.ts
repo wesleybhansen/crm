@@ -14,6 +14,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { ingestImapConnection } from '@/modules/email/lib/inbox-ingest'
+import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 // Hard cap on conversations processed per org per run.
@@ -48,7 +49,7 @@ export async function POST(req: Request) {
     // Only orgs that have explicitly enabled the feature.
     const settingsRows = await knex('customer_service_settings').where('enabled', true)
 
-    const results: Array<{ orgId: string; mode: string; candidates: number; queued: number; autoSent: number; skipped: number }> = []
+    const results: Array<{ orgId: string; mode: string; candidates: number; queued: number; autoSent: number; skipped: number; skippedAutomated: number }> = []
 
     for (const settings of settingsRows) {
       const orgId = settings.organization_id
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
       let queued = 0
       let autoSent = 0
       let skipped = 0
+      let skippedAutomated = 0
 
       try {
         // ---- Dedicated support-mailbox fetch pass ----
@@ -125,12 +127,12 @@ export async function POST(req: Request) {
         // Over-allowance orgs with a BYO key run on that key.
         const gate = await checkCustomersAiAllowance({ orgId })
         if (!gate.allowed) {
-          results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0 })
+          results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0, skippedAutomated: 0 })
           continue
         }
         const aiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
         if (!aiKey) {
-          results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0 })
+          results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0, skippedAutomated: 0 })
           continue
         }
 
@@ -155,7 +157,7 @@ export async function POST(req: Request) {
           watchedAddresses = watched.map((c) => c.address)
           // Watching specific connections that no longer exist means nothing to do.
           if (watchedAddresses.length === 0) {
-            results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0 })
+            results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0, skippedAutomated: 0 })
             continue
           }
         }
@@ -191,6 +193,21 @@ export async function POST(req: Request) {
 
             const inbound = [...emailMessages].reverse().find((m: any) => m.direction === 'inbound')
             if (!inbound) { await markDrafted(knex, conv.id, orgId); skipped++; continue }
+
+            // Never draft a reply to no-reply / automated / bulk mail (noreply@,
+            // mailer-daemon, newsletters, notifications, list/bulk blasts). Mark
+            // drafted so it is not reprocessed every run, and do NOT create a
+            // proposal. Conservative: a normal human reply is never skipped here.
+            const inboundMeta = parseMetadata(inbound.metadata)
+            if (isAutomatedMail({
+              fromAddress: inbound.from_address,
+              subject: inbound.subject,
+              headers: inboundMeta?.headers,
+            })) {
+              await markDrafted(knex, conv.id, orgId)
+              skippedAutomated++
+              continue
+            }
 
             // Watched-connection filter: the inbound message must have been
             // addressed to one of the watched connection addresses. (Conversations
@@ -340,11 +357,11 @@ export async function POST(req: Request) {
           }
         }
 
-        results.push({ orgId, mode, candidates: conversations.length, queued, autoSent, skipped })
-        console.log('[customer-service.process] org done', { orgId, mode, candidates: conversations.length, queued, autoSent, skipped })
+        results.push({ orgId, mode, candidates: conversations.length, queued, autoSent, skipped, skippedAutomated })
+        console.log('[customer-service.process] org done', { orgId, mode, candidates: conversations.length, queued, autoSent, skipped, skippedAutomated })
       } catch (orgErr) {
         console.error('[customer-service.process] org error', { orgId, err: orgErr })
-        results.push({ orgId, mode, candidates: 0, queued, autoSent, skipped })
+        results.push({ orgId, mode, candidates: 0, queued, autoSent, skipped, skippedAutomated })
       }
     }
 
@@ -354,8 +371,9 @@ export async function POST(req: Request) {
         queued: acc.queued + r.queued,
         autoSent: acc.autoSent + r.autoSent,
         skipped: acc.skipped + r.skipped,
+        skippedAutomated: acc.skippedAutomated + r.skippedAutomated,
       }),
-      { candidates: 0, queued: 0, autoSent: 0, skipped: 0 },
+      { candidates: 0, queued: 0, autoSent: 0, skipped: 0, skippedAutomated: 0 },
     )
     console.log('[customer-service.process] run complete', { orgs: results.length, ...totals })
 
@@ -368,6 +386,17 @@ export async function POST(req: Request) {
 
 function safeParse(s: any) {
   try { return JSON.parse(s) } catch { return null }
+}
+
+// email_messages.metadata is jsonb; the driver may hand it back parsed or as a
+// string. Coerce to an object (with optional headers map) either way.
+function parseMetadata(raw: any): { headers?: Record<string, string> } | null {
+  let obj: any = raw
+  if (typeof obj === 'string') {
+    try { obj = JSON.parse(obj) } catch { return null }
+  }
+  if (!obj || typeof obj !== 'object') return null
+  return obj
 }
 
 // Per-source override map keyed by email_connection id. jsonb may arrive parsed

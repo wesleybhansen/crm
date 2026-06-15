@@ -185,7 +185,14 @@ export async function ingestImapConnection(
         thread_id: email.threadRef || null,
         contact_id: contactId,
         status: 'received',
-        metadata: JSON.stringify({ provider_message_id: String(email.messageId), source }),
+        metadata: JSON.stringify({
+          provider_message_id: String(email.messageId),
+          source,
+          // Keep the small header allow-list so downstream automated/bulk-mail
+          // detection (Customer Service skip) has Precedence/Auto-Submitted/
+          // List-Unsubscribe/List-Id without re-fetching from IMAP.
+          headers: email.headers && Object.keys(email.headers).length ? email.headers : undefined,
+        }),
         created_at: new Date(),
         sent_at: sentAt,
       })
