@@ -9,6 +9,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendReply } from '@/modules/customers/lib/send-reply'
+import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 function safeParse(s: any) {
@@ -45,6 +46,7 @@ export async function POST(
     if (action.status === 'dismissed') return NextResponse.json({ ok: false, error: 'Draft was dismissed' }, { status: 409 })
 
     const payload = safeParse(action.payload) || {}
+    const channel: string = payload.channel === 'sms' ? 'sms' : 'email'
     const to: string | undefined = payload.to
     const subject: string = payload.subject || 'Re: your message'
     // Allow the UI to send an edited body. Fall back to the stored draft.
@@ -60,18 +62,25 @@ export async function POST(
     }
 
     // Shared send path (also used by the auto/hybrid Customer Service engine).
-    // Resolves the org's sending connection, sends via the router, records the
-    // outbound email_messages row, and updates the inbox + timeline.
-    const sendResult = await sendReply(knex, auth.orgId, auth.tenantId, {
-      to,
-      subject,
-      body: bodyText,
-      contactId,
-      sentByUserId: auth.sub || null,
-    })
+    // SMS drafts go out over the org's BYO Twilio FROM the dedicated CS number;
+    // email drafts go via the email router. Both record the outbound message and
+    // keep the inbox + timeline current.
+    const sendResult = channel === 'sms'
+      ? await sendSmsReply(knex, auth.orgId, auth.tenantId, {
+          to,
+          body: bodyText,
+          contactId,
+        })
+      : await sendReply(knex, auth.orgId, auth.tenantId, {
+          to,
+          subject,
+          body: bodyText,
+          contactId,
+          sentByUserId: auth.sub || null,
+        })
 
     if (!sendResult.ok) {
-      return NextResponse.json({ ok: false, error: sendResult.error || 'Failed to send email' }, { status: sendResult.status || 502 })
+      return NextResponse.json({ ok: false, error: sendResult.error || (channel === 'sms' ? 'Failed to send SMS' : 'Failed to send email') }, { status: sendResult.status || 502 })
     }
 
     const now = new Date()
@@ -85,7 +94,8 @@ export async function POST(
       .where('organization_id', auth.orgId)
       .update({ status: 'accepted', reviewed_by_user_id: auth.sub || null, reviewed_at: now, updated_at: now })
 
-    return NextResponse.json({ ok: true, data: { id: action.id, status: 'sent', sentVia: sendResult.sentVia } })
+    const sentVia = channel === 'sms' ? 'sms' : (sendResult as { sentVia?: string }).sentVia
+    return NextResponse.json({ ok: true, data: { id: action.id, status: 'sent', channel, sentVia } })
   } catch (error) {
     console.error('[customer-service.approve]', error)
     return NextResponse.json({ ok: false, error: 'Failed to approve draft' }, { status: 500 })

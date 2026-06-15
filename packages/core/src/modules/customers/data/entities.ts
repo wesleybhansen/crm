@@ -1335,6 +1335,7 @@ export class CustomerServiceSettings {
     | 'watchedConnectionIds'
     | 'sourceModes'
     | 'signature'
+    | 'csSmsNumber'
     | 'createdAt'
     | 'updatedAt'
 
@@ -1371,6 +1372,12 @@ export class CustomerServiceSettings {
 
   @Property({ name: 'signature', type: 'text', nullable: true })
   signature?: string | null
+
+  // Dedicated customer-service Twilio number (E.164). Inbound SMS to this number
+  // is routed into the Customer Service drafting flow. Must be DISTINCT from any
+  // number used by the unified Inbox. null = SMS support disabled.
+  @Property({ name: 'cs_sms_number', type: 'text', nullable: true })
+  csSmsNumber?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

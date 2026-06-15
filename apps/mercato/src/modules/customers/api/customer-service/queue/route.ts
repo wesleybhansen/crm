@@ -37,6 +37,7 @@ export async function GET(req: Request) {
         'a.proposal_id',
         'a.payload',
         'a.created_at',
+        'a.metadata as action_metadata',
         'p.summary',
         'p.participants',
       )
@@ -50,20 +51,29 @@ export async function GET(req: Request) {
     const parsed = actions.map((row: any) => {
       const payload = typeof row.payload === 'string' ? safeParse(row.payload) : (row.payload || {})
       const participants = typeof row.participants === 'string' ? safeParse(row.participants) : (row.participants || [])
-      return { row, payload, participants }
+      const meta = typeof row.action_metadata === 'string' ? safeParse(row.action_metadata) : (row.action_metadata || {})
+      // Channel comes from the payload (set by the SMS proposal creator) and
+      // falls back to the action metadata; defaults to email for legacy rows.
+      const channel = payload?.channel || meta?.channel || 'email'
+      return { row, payload, participants, channel }
     })
 
-    const contactIds = Array.from(
-      new Set(parsed.map((p) => p.payload?.contactId).filter((id: any): id is string => !!id)),
+    // Contacts referenced by EMAIL drafts (for full-email expansion).
+    const emailContactIds = Array.from(
+      new Set(parsed.filter((p) => p.channel !== 'sms').map((p) => p.payload?.contactId).filter((id: any): id is string => !!id)),
+    )
+    // Contacts referenced by SMS drafts (for full-text expansion).
+    const smsContactIds = Array.from(
+      new Set(parsed.filter((p) => p.channel === 'sms').map((p) => p.payload?.contactId).filter((id: any): id is string => !!id)),
     )
 
     // Map of contactId -> full body text of that contact's latest inbound email.
     const fullBodyByContact: Record<string, string> = {}
-    if (contactIds.length > 0) {
+    if (emailContactIds.length > 0) {
       const inbound = await knex('email_messages')
         .where('organization_id', auth.orgId)
         .where('direction', 'inbound')
-        .whereIn('contact_id', contactIds)
+        .whereIn('contact_id', emailContactIds)
         .orderBy('created_at', 'desc')
         .select('contact_id', 'body_text', 'body_html')
       for (const m of inbound) {
@@ -76,23 +86,46 @@ export async function GET(req: Request) {
       }
     }
 
-    const data = parsed.map(({ row, payload, participants }) => {
+    // Map of contactId -> full text of that contact's latest inbound SMS.
+    const fullSmsByContact: Record<string, string> = {}
+    if (smsContactIds.length > 0) {
+      const inbound = await knex('sms_messages')
+        .where('organization_id', auth.orgId)
+        .where('direction', 'inbound')
+        .whereIn('contact_id', smsContactIds)
+        .orderBy('created_at', 'desc')
+        .select('contact_id', 'body')
+      for (const m of inbound) {
+        const cid = m.contact_id
+        if (!cid || fullSmsByContact[cid]) continue
+        fullSmsByContact[cid] = String(m.body || '')
+      }
+    }
+
+    const data = parsed.map(({ row, payload, participants, channel }) => {
       const first = Array.isArray(participants) ? participants[0] : null
       const contactId = payload?.contactId || null
+      const isSms = channel === 'sms'
       return {
         id: row.action_id,
         proposalId: row.proposal_id,
         createdAt: row.created_at,
+        channel,
         summary: row.summary,
         contact: {
           id: contactId,
           name: payload?.toName || first?.name || null,
-          email: payload?.to || first?.email || null,
+          // For SMS the "to" is a phone number; expose it as both email (legacy
+          // field the UI already reads) and phone for clarity.
+          email: isSms ? null : (payload?.to || first?.email || null),
+          phone: isSms ? (payload?.to || first?.phone || null) : null,
         },
         conversationId: payload?.conversationId || null,
         lastInboundPreview: payload?.lastInboundPreview || null,
-        lastInboundBody: (contactId && fullBodyByContact[contactId]) || null,
-        subject: payload?.subject || null,
+        lastInboundBody: contactId
+          ? (isSms ? (fullSmsByContact[contactId] || null) : (fullBodyByContact[contactId] || null))
+          : null,
+        subject: isSms ? null : (payload?.subject || null),
         body: payload?.body || null,
       }
     })

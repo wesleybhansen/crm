@@ -22,6 +22,19 @@ function validTwilioSignature(authToken: string, urls: string[], params: Record<
   return false
 }
 
+// Normalize a phone number to E.164-ish form (+<digits>) so we can compare the
+// Twilio "To" param against the stored dedicated CS number regardless of
+// formatting differences. Returns null for empty/invalid input.
+function normalizeE164(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  let n = v.replace(/[\s\-\(\)\.]/g, '')
+  if (!n) return null
+  if (n.match(/^\d{10}$/)) n = `+1${n}`
+  else if (n.match(/^1\d{10}$/)) n = `+${n}`
+  else if (!n.startsWith('+')) n = `+${n}`
+  return n
+}
+
 // Twilio webhook for incoming SMS
 // Routes inbound messages to the correct org by looking up the "To" phone number
 export async function POST(req: Request) {
@@ -99,10 +112,35 @@ export async function POST(req: Request) {
       created_at: new Date(),
     })
 
-    // Update unified inbox
+    // Is this inbound SMS addressed to the org's DEDICATED customer-service
+    // number? If so, it is routed into the Customer Service drafting flow (the
+    // recurring processor picks it up). Otherwise it stays inbox-only as before.
+    // The number is read from the org's own settings row (server-side), never
+    // from client input. We compare on a normalized form so formatting differences
+    // (e.g. spaces) between Twilio's "To" and the stored value don't break the match.
+    let isCustomerServiceSms = false
+    if (orgId) {
+      try {
+        const csSettings = await knex('customer_service_settings')
+          .where('organization_id', orgId)
+          .where('enabled', true)
+          .first()
+        const csNumber = normalizeE164(csSettings?.cs_sms_number)
+        if (csNumber && normalizeE164(to) === csNumber) {
+          isCustomerServiceSms = true
+        }
+      } catch {
+        // Table may not exist yet (pre-migration); fall back to inbox-only.
+      }
+    }
+
+    // Update unified inbox. For customer-service SMS we tag the conversation so
+    // the CS processor can find it: channel='sms', re-open it, and CLEAR the
+    // anti-reprocess marker (cs_drafted_at) so a fresh inbound gets a new draft
+    // even on a thread that was drafted before.
     if (orgId && tenantId) {
       const { upsertInboxConversation } = await import('@/lib/inbox-conversation')
-      upsertInboxConversation(knex, orgId, tenantId, {
+      await upsertInboxConversation(knex, orgId, tenantId, {
         contactId: contact?.id || null,
         channel: 'sms',
         preview: body,
@@ -110,9 +148,21 @@ export async function POST(req: Request) {
         displayName: contact?.display_name || from,
         avatarPhone: from,
       }).catch(() => {})
+
+      if (isCustomerServiceSms) {
+        // Reset cs_drafted_at on the (just-upserted) conversation for this contact
+        // / phone so the processor re-drafts for this new inbound message.
+        try {
+          const convQuery = knex('inbox_conversations')
+            .where('organization_id', orgId)
+          if (contact?.id) convQuery.where('contact_id', contact.id)
+          else convQuery.where('avatar_phone', from)
+          await convQuery.update({ cs_drafted_at: null })
+        } catch {}
+      }
     }
 
-    console.log(`[sms.webhook] Received from ${from} to ${to} (org: ${orgId || 'unknown'}): ${body}`)
+    console.log(`[sms.webhook] Received from ${from} to ${to} (org: ${orgId || 'unknown'}, cs: ${isCustomerServiceSms}): ${body}`)
 
     return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
   } catch (error) {

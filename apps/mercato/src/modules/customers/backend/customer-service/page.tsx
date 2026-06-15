@@ -5,8 +5,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
-import { Headphones, Mail, Check, FileEdit, Send, Sparkles, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, Globe, X as XIcon } from 'lucide-react'
+import { Headphones, Mail, Check, FileEdit, Send, Sparkles, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, Globe, X as XIcon, MessageSquare } from 'lucide-react'
 import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
+import TwilioSmsGuide from '@/modules/customers/backend/components/TwilioSmsGuide'
 import CustomerServiceQueue from './CustomerServiceQueue'
 
 type ReplyMode = 'draft' | 'auto' | 'hybrid'
@@ -20,6 +21,7 @@ type Settings = {
   hybridConfidenceThreshold: number
   sourceModes: SourceModes | null
   signature: string | null
+  csSmsNumber: string | null
   defaultSignature?: string | null
 }
 type KnowledgeEntry = {
@@ -47,6 +49,10 @@ export default function CustomerServiceSettingsPage() {
   const [replyMode, setReplyMode] = useState<ReplyMode>('draft')
   const [hybridThreshold, setHybridThreshold] = useState(0.8)
   const [signature, setSignature] = useState('')
+  // Dedicated customer-service SMS number (E.164). Empty = SMS support off.
+  const [csSmsNumber, setCsSmsNumber] = useState('')
+  // The org's connected Twilio number, if any, used as a "use this number" hint.
+  const [twilioNumber, setTwilioNumber] = useState<string | null>(null)
 
   // Autosave plumbing. `hydratedRef` stays false until the initial GET has
   // populated the settings fields, so neither the first mount nor the
@@ -185,7 +191,8 @@ export default function CustomerServiceSettingsPage() {
       fetch('/api/email/connections', { credentials: 'include' }).then(r => r.json()).catch(() => null),
       fetch('/api/customer-service/knowledge', { credentials: 'include' }).then(r => r.json()).catch(() => null),
       fetch('/api/email/connections?purpose=customer_service', { credentials: 'include' }).then(r => r.json()).catch(() => null),
-    ]).then(([settingsRes, connRes, kbRes, csConnRes]) => {
+      fetch('/api/twilio/connections', { credentials: 'include' }).then(r => r.json()).catch(() => null),
+    ]).then(([settingsRes, connRes, kbRes, csConnRes, twilioRes]) => {
       if (cancelled) return
       if (settingsRes?.ok && settingsRes.data) {
         const s: Settings = settingsRes.data
@@ -194,6 +201,7 @@ export default function CustomerServiceSettingsPage() {
         if (typeof s.hybridConfidenceThreshold === 'number' && Number.isFinite(s.hybridConfidenceThreshold)) {
           setHybridThreshold(Math.min(1, Math.max(0, s.hybridConfidenceThreshold)))
         }
+        setCsSmsNumber(s.csSmsNumber || '')
         // Prepopulate with the server-computed default sign-off (built from the
         // business name) when no signature has been saved yet. This runs before
         // hydratedRef flips true on the next tick, so it does NOT trigger an
@@ -203,6 +211,7 @@ export default function CustomerServiceSettingsPage() {
       }
       if (connRes?.ok) setConnections(connRes.data || [])
       if (csConnRes?.ok) setCsInboxes(csConnRes.data || [])
+      if (twilioRes?.ok && twilioRes.data?.phoneNumber) setTwilioNumber(twilioRes.data.phoneNumber)
       if (kbRes?.ok) setKnowledge(kbRes.data || [])
       setLoading(false)
       // Mark hydration complete on the next tick so the state updates above do
@@ -418,6 +427,8 @@ export default function CustomerServiceSettingsPage() {
         replyMode,
         hybridConfidenceThreshold: hybridThreshold,
         signature: signature.trim() || undefined,
+        // Empty string clears the dedicated CS number server-side.
+        csSmsNumber: csSmsNumber.trim(),
       }),
     })
     return res.json()
@@ -451,7 +462,7 @@ export default function CustomerServiceSettingsPage() {
     autosaveTimerRef.current = setTimeout(() => { void autosave() }, 700)
     return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedIds, replyMode, hybridThreshold, signature])
+  }, [watchedIds, replyMode, hybridThreshold, signature, csSmsNumber])
 
   const watchingAll = watchedIds === null
   // Personal Inbox mailboxes are everything that is not a dedicated support inbox.
@@ -461,8 +472,9 @@ export default function CustomerServiceSettingsPage() {
   const visibleMailboxes = showSharedMailboxes ? connections : csInboxes
 
   // The feature is considered set up once at least one dedicated support inbox is
-  // connected. Until then, the Queue shows a guided empty-state.
-  const needsSetup = csInboxes.length === 0
+  // connected OR a dedicated customer-service SMS number is configured. Until
+  // then, the Queue shows a guided empty-state.
+  const needsSetup = csInboxes.length === 0 && csSmsNumber.trim() === ''
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -726,6 +738,55 @@ export default function CustomerServiceSettingsPage() {
                   placeholder={'e.g.\nThanks,\nThe Acme Team'}
                   className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
                 <p className="text-[11px] text-muted-foreground mt-1.5">Added to the end of drafted replies. We prefilled a default from your business name. Edit or clear it anytime. You can still edit each draft before sending.</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Customer service SMS number */}
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <MessageSquare className="size-4 text-muted-foreground" /> Customer service SMS number
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Use a dedicated Twilio number for support texts. Texts to this number are drafted by Noli and follow the reply mode above. Connect your Twilio account in Settings first. Use a number that is different from the one your Inbox uses, so support texts and inbox texts stay separate.
+            </p>
+            <div className="rounded-lg border">
+              <div className="px-4 py-3 space-y-2">
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">
+                  Support SMS number <span className="normal-case font-normal">(optional)</span>
+                </label>
+                <Input
+                  value={csSmsNumber}
+                  onChange={e => setCsSmsNumber(e.target.value)}
+                  placeholder="+1 415 555 0123"
+                  className="h-9 text-sm"
+                  inputMode="tel"
+                />
+                {twilioNumber ? (
+                  csSmsNumber.trim() === '' ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Your connected Twilio number is {twilioNumber}. Enter a different number to dedicate to support, then set its inbound webhook below.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      Enter the Twilio number you want to use only for support. It must be different from your Inbox number ({twilioNumber}).
+                    </p>
+                  )
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    No Twilio account connected yet. Connect Twilio in Settings, then enter a dedicated support number here.
+                  </p>
+                )}
+                <div className="rounded-md bg-muted/40 border px-3 py-2 mt-1">
+                  <p className="text-[11px] font-medium text-muted-foreground mb-1">In Twilio, set this number&apos;s inbound message webhook to:</p>
+                  <code className="text-xs break-all">https://crm.noliai.com/api/sms/webhook</code>
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    Method POST. This is the same webhook your Inbox uses, so the number you choose here must be a separate number from your Inbox number.
+                  </p>
+                </div>
+                <div className="pt-1">
+                  <TwilioSmsGuide />
+                </div>
               </div>
             </div>
           </section>

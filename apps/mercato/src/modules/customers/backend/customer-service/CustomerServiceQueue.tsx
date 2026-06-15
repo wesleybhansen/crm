@@ -2,14 +2,91 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp } from 'lucide-react'
+import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp, Mail, MessageSquare, Clock, FileEdit } from 'lucide-react'
+
+type Bucket = { total: number; email: number; sms: number }
+type StatusMap = { drafted: Bucket; sent: Bucket; pending: Bucket; dismissed: Bucket }
+type Analytics = { periodDays: number; period: StatusMap; allTime: StatusMap }
+
+// Compact stat card with a channel breakdown line, matching the CRM card styling
+// (rounded border, muted labels). Used in the analytics row at the top of the Queue.
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  email,
+  sms,
+}: {
+  icon: typeof Inbox
+  label: string
+  value: number
+  email: number
+  sms: number
+}) {
+  return (
+    <div className="rounded-lg border px-4 py-3">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground uppercase tracking-wider font-medium mb-1">
+        <Icon className="size-3.5 shrink-0" />
+        <span className="truncate">{label}</span>
+      </div>
+      <p className="text-2xl font-semibold leading-none tabular-nums">{value}</p>
+      <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1"><Mail className="size-3" /> {email}</span>
+        <span className="flex items-center gap-1"><MessageSquare className="size-3" /> {sms}</span>
+      </div>
+    </div>
+  )
+}
+
+function CustomerServiceStats() {
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState<Analytics | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/customer-service/analytics', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return
+        if (d.ok && d.data) setStats(d.data)
+        setLoading(false)
+      })
+      .catch(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="rounded-lg border px-4 py-6 mb-4 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+        <Loader2 className="size-3.5 animate-spin" /> Loading stats...
+      </div>
+    )
+  }
+
+  if (!stats) return null
+
+  const days = stats.periodDays
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+      <StatCard icon={Clock} label="Awaiting approval"
+        value={stats.allTime.pending.total} email={stats.allTime.pending.email} sms={stats.allTime.pending.sms} />
+      <StatCard icon={Send} label={`Sent (${days}d)`}
+        value={stats.period.sent.total} email={stats.period.sent.email} sms={stats.period.sent.sms} />
+      <StatCard icon={FileEdit} label={`Drafted (${days}d)`}
+        value={stats.period.drafted.total} email={stats.period.drafted.email} sms={stats.period.drafted.sms} />
+      <StatCard icon={X} label={`Dismissed (${days}d)`}
+        value={stats.period.dismissed.total} email={stats.period.dismissed.email} sms={stats.period.dismissed.sms} />
+    </div>
+  )
+}
 
 type QueueItem = {
   id: string
   proposalId: string
   createdAt: string
+  channel?: 'email' | 'sms' | string | null
   summary: string | null
-  contact: { id: string | null; name: string | null; email: string | null }
+  contact: { id: string | null; name: string | null; email: string | null; phone?: string | null }
   conversationId: string | null
   lastInboundPreview: string | null
   lastInboundBody: string | null
@@ -127,38 +204,51 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
 
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border px-4 py-12 text-center">
-        <Inbox className="size-8 text-muted-foreground/50 mx-auto mb-3" />
-        <p className="text-sm font-medium mb-1">No drafts waiting</p>
-        <p className="text-xs text-muted-foreground">
-          New drafted replies will appear here when customers email you.
-        </p>
+      <div>
+        <CustomerServiceStats />
+        <div className="rounded-lg border px-4 py-12 text-center">
+          <Inbox className="size-8 text-muted-foreground/50 mx-auto mb-3" />
+          <p className="text-sm font-medium mb-1">No drafts waiting</p>
+          <p className="text-xs text-muted-foreground">
+            New drafted replies will appear here when customers email you.
+          </p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
+      <CustomerServiceStats />
       {items.map(item => {
         const itemBusy = busy[item.id]
+        const isSms = item.channel === 'sms'
+        const contactHandle = isSms ? item.contact.phone : item.contact.email
         return (
           <div key={item.id} className="rounded-lg border divide-y">
             {/* Contact header */}
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary shrink-0">
-                  {(item.contact.name || item.contact.email || '?')[0].toUpperCase()}
+                  {(item.contact.name || contactHandle || '?')[0].toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{item.contact.name || item.contact.email || 'Unknown contact'}</p>
-                  {item.contact.email && item.contact.name && (
-                    <p className="text-xs text-muted-foreground truncate">{item.contact.email}</p>
+                  <p className="text-sm font-medium truncate flex items-center gap-1.5">
+                    {isSms
+                      ? <MessageSquare className="size-3.5 text-muted-foreground shrink-0" aria-label="SMS" />
+                      : <Mail className="size-3.5 text-muted-foreground shrink-0" aria-label="Email" />}
+                    {item.contact.name || contactHandle || 'Unknown contact'}
+                  </p>
+                  {contactHandle && item.contact.name && (
+                    <p className="text-xs text-muted-foreground truncate">{contactHandle}</p>
                   )}
                 </div>
               </div>
-              {item.subject && (
-                <span className="text-xs text-muted-foreground truncate max-w-[40%] hidden sm:block">{item.subject}</span>
-              )}
+              {isSms
+                ? <span className="text-xs text-muted-foreground truncate hidden sm:block">SMS</span>
+                : (item.subject && (
+                    <span className="text-xs text-muted-foreground truncate max-w-[40%] hidden sm:block">{item.subject}</span>
+                  ))}
             </div>
 
             {/* Incoming message preview, with an optional full-email expansion. */}

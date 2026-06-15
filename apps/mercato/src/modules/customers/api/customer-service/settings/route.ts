@@ -57,9 +57,22 @@ function normalizeSourceModesInput(input: any, watched: string[] | null): Record
   return out
 }
 
+// Normalize a phone number to E.164-ish form (+<digits>). Mirrors the send
+// path's normalization so the stored cs_sms_number matches Twilio's "To" param.
+// Returns null for empty input.
+function normalizeE164(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  let n = v.replace(/[\s\-\(\)\.]/g, '')
+  if (!n) return null
+  if (n.match(/^\d{10}$/)) n = `+1${n}`
+  else if (n.match(/^1\d{10}$/)) n = `+${n}`
+  else if (!n.startsWith('+')) n = `+${n}`
+  return n
+}
+
 function serialize(row: any, defaultSignature = '') {
   if (!row) {
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, defaultSignature }
+    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, csSmsNumber: null, defaultSignature }
   }
   return {
     id: row.id,
@@ -69,6 +82,7 @@ function serialize(row: any, defaultSignature = '') {
     hybridConfidenceThreshold: row.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
     sourceModes: parseSourceModes(row.source_modes),
     signature: row.signature ?? null,
+    csSmsNumber: row.cs_sms_number ?? null,
     // Computed sign-off the UI uses to prepopulate the field when no signature
     // is saved yet. Built from the org's business name; never client-supplied.
     defaultSignature,
@@ -147,13 +161,39 @@ export async function PUT(req: Request) {
       }
     }
 
+    // Dedicated customer-service SMS number. Omitted in the body = keep existing;
+    // empty string = clear. When set, it must be a number owned by the org's own
+    // active Twilio connection (never trust an arbitrary client-supplied number),
+    // and it must NOT be the same number the unified Inbox already uses for that
+    // connection — CS needs a DISTINCT number so inbox SMS and support SMS don't
+    // collide. Reject with a clear error rather than silently storing a bad value.
+    let csSmsNumber: string | null = existing?.cs_sms_number ?? null
+    if (body.csSmsNumber !== undefined) {
+      const requested = normalizeE164(body.csSmsNumber)
+      if (!requested) {
+        csSmsNumber = null
+      } else {
+        const conn = await knex('twilio_connections')
+          .where('organization_id', auth.orgId)
+          .where('is_active', true)
+          .first()
+        if (!conn) {
+          return NextResponse.json({ ok: false, error: 'Connect your Twilio account before choosing a customer service SMS number.' }, { status: 400 })
+        }
+        const inboxNumber = normalizeE164(conn.phone_number)
+        if (inboxNumber && requested === inboxNumber) {
+          return NextResponse.json({ ok: false, error: 'Use a number that is different from your Inbox SMS number. Customer Service needs a dedicated support number.' }, { status: 400 })
+        }
+        csSmsNumber = requested
+      }
+    }
+
     // Auto-derive `enabled` instead of trusting a client toggle. The feature is
-    // active whenever at least one mailbox is being watched. watched === null
-    // means "watch all connected support inboxes", which also counts as active.
-    // We only flip enabled to false when there are explicitly zero watched ids.
-    // (If the client still sends a boolean, we ignore it on purpose.)
+    // active whenever at least one mailbox is being watched OR a dedicated
+    // customer-service SMS number is configured. watched === null means "watch
+    // all connected support inboxes", which also counts as active.
     const hasWatched = watched === null || (Array.isArray(watched) && watched.length > 0)
-    const enabled = hasWatched ? true : false
+    const enabled = (hasWatched || !!csSmsNumber) ? true : false
 
     const fields = {
       enabled,
@@ -162,6 +202,7 @@ export async function PUT(req: Request) {
       hybrid_confidence_threshold: hybridConfidenceThreshold,
       source_modes: Object.keys(sourceModes).length > 0 ? JSON.stringify(sourceModes) : null,
       signature: body.signature !== undefined ? (body.signature || null) : (existing?.signature ?? null),
+      cs_sms_number: csSmsNumber,
       updated_at: new Date(),
     }
 

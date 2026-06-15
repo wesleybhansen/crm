@@ -279,13 +279,22 @@ Return the JSON object now:` }] }],
   // Strip any subject line the model may have included.
   draft = draft.replace(/^Subject:\s*.+\n+/i, '').replace(/^Re:\s*.+\n+/i, '').trim()
 
-  // Append the org's signature when set; otherwise fall back to a sensible
-  // default sign-off built from the business name so every draft ends properly.
-  const signoff = (signature && signature.trim())
-    ? signature.trim()
-    : buildDefaultSignature(resolvedBusinessName)
-  if (signoff) {
-    draft = `${draft}\n\n${signoff}`
+  // Append a sign-off for email. SMS replies stay concise with no signature
+  // block (the channel prompt already tells the model to skip greetings and
+  // sign-offs), so we only append when an explicit signature was passed.
+  if (channel === 'sms') {
+    if (signature && signature.trim()) {
+      draft = `${draft}\n\n${signature.trim()}`
+    }
+  } else {
+    // Append the org's signature when set; otherwise fall back to a sensible
+    // default sign-off built from the business name so every draft ends properly.
+    const signoff = (signature && signature.trim())
+      ? signature.trim()
+      : buildDefaultSignature(resolvedBusinessName)
+    if (signoff) {
+      draft = `${draft}\n\n${signoff}`
+    }
   }
 
   return { ok: true, draft, model: DRAFT_MODEL, tokensIn, tokensOut, confidence, autoSendSafe }

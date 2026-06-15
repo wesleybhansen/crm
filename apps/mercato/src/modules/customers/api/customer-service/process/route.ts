@@ -13,6 +13,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import { sendReply } from '@/modules/customers/lib/send-reply'
+import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import { ingestImapConnection } from '@/modules/email/lib/inbox-ingest'
 import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -172,8 +173,32 @@ export async function POST(req: Request) {
           .orderBy('last_message_at', 'desc')
           .limit(BATCH_PER_ORG)
 
+        // Dedicated customer-service SMS number for this org (E.164-normalized).
+        // When set, inbound SMS conversations addressed to it are drafted too.
+        const csSmsNumber = normalizeE164(settings.cs_sms_number)
+
         for (const conv of conversations) {
           try {
+            // SMS conversations addressed to the dedicated CS number are handled
+            // by a separate concise-reply path; everything else that is not email
+            // is skipped (this engine only drafts email + dedicated-CS SMS).
+            if (conv.last_message_channel === 'sms') {
+              if (csSmsNumber) {
+                const handled = await handleSmsConversation(knex, aiKey, {
+                  conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber,
+                  signature: settings.signature || null,
+                  byoKey: !!gate.byoApiKey,
+                })
+                if (handled === 'queued') queued++
+                else if (handled === 'sent') autoSent++
+                else skipped++
+              } else {
+                // No CS SMS number configured: this SMS isn't ours to draft.
+                await markDrafted(knex, conv.id, orgId)
+                skipped++
+              }
+              continue
+            }
             // Only email conversations can be drafted+sent by this engine.
             if (conv.last_message_channel && conv.last_message_channel !== 'email') {
               await markDrafted(knex, conv.id, orgId)
@@ -388,6 +413,154 @@ function safeParse(s: any) {
   try { return JSON.parse(s) } catch { return null }
 }
 
+// Normalize a phone number to E.164-ish form (+<digits>). Returns null for
+// empty/invalid input. Used to match the dedicated CS number to inbound SMS.
+function normalizeE164(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  let n = v.replace(/[\s\-\(\)\.]/g, '')
+  if (!n) return null
+  if (n.match(/^\d{10}$/)) n = `+1${n}`
+  else if (n.match(/^1\d{10}$/)) n = `+${n}`
+  else if (!n.startsWith('+')) n = `+${n}`
+  return n
+}
+
+// Draft (and, per mode, send) a reply to a single inbound customer-service SMS
+// conversation. Mirrors the email per-conversation handling but pulls the
+// transcript from sms_messages, only proceeds when the latest inbound was sent
+// to the org's dedicated CS number, and sends via the org's BYO Twilio. Returns
+// 'queued' | 'sent' | 'skipped' so the caller can tally results. Always marks
+// the conversation drafted so it is not reprocessed until a new inbound arrives.
+async function handleSmsConversation(
+  knex: any,
+  aiKey: string,
+  args: {
+    conv: any
+    orgId: string
+    tenantId: string
+    mode: string
+    hybridThreshold: number
+    csSmsNumber: string
+    signature: string | null
+    byoKey: boolean
+  },
+): Promise<'queued' | 'sent' | 'skipped'> {
+  const { conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber, signature, byoKey } = args
+
+  // Resolve the customer's phone number: prefer the conversation avatar_phone,
+  // else the contact's primary_phone. We need it both to load the transcript and
+  // as the reply recipient.
+  let toPhone: string | null = normalizeE164(conv.avatar_phone)
+  const contactId: string | null = conv.contact_id || null
+  let contact: any = null
+  if (contactId) {
+    contact = await knex('customer_entities').where('id', contactId).where('organization_id', orgId).first()
+    if (!toPhone) toPhone = normalizeE164(contact?.primary_phone)
+  }
+  if (!toPhone) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
+
+  // Load the recent SMS transcript for context. Match on contact_id when present,
+  // otherwise on the customer phone (from_number for inbound, to_number for
+  // outbound). All scoped to this org + the dedicated CS number so we never mix
+  // in unrelated inbox SMS that used a different number.
+  let txQuery = knex('sms_messages')
+    .where('organization_id', orgId)
+    .where(function (this: any) {
+      this.where('from_number', toPhone).orWhere('to_number', toPhone)
+    })
+    .where(function (this: any) {
+      // inbound to the CS number, or outbound from the CS number
+      this.where('to_number', csSmsNumber).orWhere('from_number', csSmsNumber)
+    })
+    .orderBy('created_at', 'asc')
+    .limit(50)
+  if (contactId) {
+    txQuery = knex('sms_messages')
+      .where('organization_id', orgId)
+      .where('contact_id', contactId)
+      .where(function (this: any) {
+        this.where('to_number', csSmsNumber).orWhere('from_number', csSmsNumber)
+      })
+      .orderBy('created_at', 'asc')
+      .limit(50)
+  }
+  const smsMessages = await txQuery
+
+  const inbound = [...smsMessages].reverse().find((m: any) => m.direction === 'inbound')
+  if (!inbound) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
+
+  // Confirm the latest inbound really went to the dedicated CS number. The
+  // conversation marker was set by the webhook, but re-check defensively.
+  if (normalizeE164(inbound.to_number) !== csSmsNumber) {
+    await markDrafted(knex, conv.id, orgId)
+    return 'skipped'
+  }
+
+  const recentMessages = smsMessages.map((m: any) => ({
+    direction: m.direction,
+    bodyText: m.body,
+    body: m.body,
+  }))
+
+  const result = await generateReplyDraft(knex, aiKey, {
+    orgId,
+    // 'sms' hint => the drafter keeps it brief and emits no greeting/sign-off
+    // block. We pass NO signature so the SMS body stays short.
+    channel: 'sms',
+    recentMessages,
+    contactId,
+    signature: null,
+  })
+
+  void meterCustomersAi({ orgId }, {
+    model: result.model,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+    feature: 'customer-service-draft',
+    byoKey,
+  })
+
+  if (!result.ok || !result.draft) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
+
+  const displayName = contact?.display_name || conv.display_name || toPhone
+  const lastInboundPreview = (inbound.body || '').toString().substring(0, 200)
+
+  let shouldAutoSend = false
+  if (mode === 'auto') shouldAutoSend = true
+  else if (mode === 'hybrid') shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
+
+  if (shouldAutoSend) {
+    const sendResult = await sendSmsReply(knex, orgId, tenantId, {
+      to: toPhone,
+      body: result.draft,
+      contactId,
+    })
+    if (sendResult.ok) {
+      await createSmsDraftProposal(knex, orgId, tenantId, {
+        displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
+        body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'sent',
+      })
+      await markDrafted(knex, conv.id, orgId)
+      return 'sent'
+    }
+    // Send failed: fall back to queuing for manual review.
+    console.error('[customer-service.process] SMS auto-send failed, queuing instead', { orgId, convId: conv.id, err: sendResult.error })
+    await createSmsDraftProposal(knex, orgId, tenantId, {
+      displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
+      body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending',
+    })
+    await markDrafted(knex, conv.id, orgId)
+    return 'queued'
+  }
+
+  await createSmsDraftProposal(knex, orgId, tenantId, {
+    displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
+    body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending',
+  })
+  await markDrafted(knex, conv.id, orgId)
+  return 'queued'
+}
+
 // email_messages.metadata is jsonb; the driver may hand it back parsed or as a
 // string. Coerce to an object (with optional headers map) either way.
 function parseMetadata(raw: any): { headers?: Record<string, string> } | null {
@@ -511,7 +684,93 @@ async function createDraftProposal(
     status: isSent ? 'sent' : 'pending',
     executed_at: isSent ? now : null,
     confidence: conf,
-    metadata: JSON.stringify({ feature_source: 'customer_service', auto_sent: isSent }),
+    metadata: JSON.stringify({ feature_source: 'customer_service', auto_sent: isSent, channel: 'email' }),
+    created_at: now,
+    updated_at: now,
+  })
+}
+
+// SMS variant of createDraftProposal. Same review-queue mechanism, but the
+// payload carries channel='sms' + the phone number so the queue UI shows an SMS
+// indicator and the approve endpoint sends via Twilio instead of email.
+async function createSmsDraftProposal(
+  knex: any,
+  orgId: string,
+  tenantId: string,
+  d: {
+    displayName: string
+    toPhone: string
+    contactId: string
+    conversationId: string
+    body: string
+    lastInboundPreview: string
+    confidence?: number
+    status?: 'pending' | 'sent'
+  },
+) {
+  const now = new Date()
+  const status = d.status || 'pending'
+  const isSent = status === 'sent'
+  const conf = typeof d.confidence === 'number' && Number.isFinite(d.confidence)
+    ? Math.min(1, Math.max(0, d.confidence))
+    : 0.7
+  const emailId = crypto.randomUUID()
+  // Audit row reuses inbox_emails; to_address holds the phone for SMS.
+  await knex('inbox_emails').insert({
+    id: emailId,
+    tenant_id: tenantId,
+    organization_id: orgId,
+    forwarded_by_address: 'customer-service@noliai.com',
+    to_address: d.toPhone,
+    subject: isSent ? `Auto-sent SMS to ${d.displayName}` : `Draft SMS reply for ${d.displayName}`,
+    status: 'processed',
+    received_at: now,
+    is_active: true,
+    created_at: now,
+    updated_at: now,
+  })
+
+  const proposalId = crypto.randomUUID()
+  await knex('inbox_proposals').insert({
+    id: proposalId,
+    inbox_email_id: emailId,
+    tenant_id: tenantId,
+    organization_id: orgId,
+    summary: isSent
+      ? `Auto-sent SMS to ${d.displayName}. Noli texted a response to their latest message.`
+      : `Draft SMS reply for ${d.displayName}. Your team drafted a text response to their latest message.`,
+    participants: JSON.stringify([{ name: d.displayName, phone: d.toPhone }]),
+    confidence: conf,
+    category: 'inquiry',
+    status: isSent ? 'accepted' : 'pending',
+    is_active: true,
+    created_at: now,
+    updated_at: now,
+  })
+
+  await knex('inbox_proposal_actions').insert({
+    id: crypto.randomUUID(),
+    proposal_id: proposalId,
+    tenant_id: tenantId,
+    organization_id: orgId,
+    action_type: 'draft_reply',
+    sort_order: 0,
+    description: isSent
+      ? `Auto-sent the drafted SMS to ${d.displayName}`
+      : `Send the drafted SMS to ${d.displayName}`,
+    payload: JSON.stringify({
+      channel: 'sms',
+      to: d.toPhone,
+      toName: d.displayName,
+      contactId: d.contactId || null,
+      conversationId: d.conversationId,
+      body: d.body,
+      lastInboundPreview: d.lastInboundPreview,
+    }),
+    status: isSent ? 'sent' : 'pending',
+    executed_at: isSent ? now : null,
+    confidence: conf,
+    metadata: JSON.stringify({ feature_source: 'customer_service', auto_sent: isSent, channel: 'sms' }),
     created_at: now,
     updated_at: now,
   })
