@@ -450,10 +450,14 @@ async function runSync(
 
   // Fetch via IMAP (smtp provider connections — Gmail, Outlook, Yahoo, any provider)
   try {
+    // Inbox Intelligence syncs the user's PERSONAL inbox only. Mailboxes
+    // dedicated to Customer Service (purpose = 'customer_service') are excluded
+    // here so support mail does not flow into the personal Inbox; Customer
+    // Service reads those separately.
     const imapConn = await queryOne(
       `SELECT * FROM email_connections
        WHERE organization_id = $1 AND user_id = $2 AND provider = 'smtp' AND is_active = true
-       AND imap_host IS NOT NULL LIMIT 1`,
+       AND imap_host IS NOT NULL AND purpose IS DISTINCT FROM 'customer_service' LIMIT 1`,
       [orgId, userId]
     )
     if (imapConn) {

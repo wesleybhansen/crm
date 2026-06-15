@@ -422,7 +422,7 @@ export class EmailStyleTemplate {
 }
 
 @Entity({ tableName: 'email_connections' })
-@Index({ properties: ['organizationId', 'userId', 'provider'], name: 'email_conn_org_user_provider_idx' })
+@Index({ properties: ['organizationId', 'userId', 'provider', 'purpose'], name: 'email_conn_org_user_provider_purpose_idx' })
 export class EmailConnection {
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
@@ -474,6 +474,11 @@ export class EmailConnection {
 
   @Property({ name: 'imap_secure', type: 'boolean', nullable: true })
   imapSecure?: boolean | null
+
+  // What this mailbox is used for. null = the user's personal Inbox mailbox.
+  // 'customer_service' = a mailbox dedicated to the Customer Service tab.
+  @Property({ name: 'purpose', type: 'text', nullable: true })
+  purpose?: string | null
 
   @Property({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean = false

@@ -6,8 +6,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-// GET: Return the user's email connections
-export async function GET() {
+// GET: Return the user's email connections.
+//   ?purpose=customer_service  -> only dedicated support inboxes
+//   ?excludePurpose=customer_service -> only personal inbox mailboxes (purpose null)
+// With no filter, every active connection is returned (back-compat).
+export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
   if (!auth?.sub || !auth?.orgId) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
@@ -17,12 +20,28 @@ export async function GET() {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    const connections = await knex('email_connections')
+    const url = new URL(req.url)
+    const purposeFilter = url.searchParams.get('purpose')
+    const excludePurpose = url.searchParams.get('excludePurpose')
+
+    const query = knex('email_connections')
       .where('organization_id', auth.orgId)
       .where('user_id', auth.sub)
       .where('is_active', true)
-      .select('id', 'provider', 'email_address', 'is_primary', 'is_active', 'created_at')
+      .select('id', 'provider', 'email_address', 'is_primary', 'is_active', 'purpose', 'created_at')
       .orderBy('is_primary', 'desc')
+
+    if (purposeFilter) {
+      query.where('purpose', purposeFilter)
+    } else if (excludePurpose) {
+      // Treat NULL purpose as "personal inbox". Postgres: NULL != 'x' is NULL,
+      // so we must allow null explicitly.
+      query.where(function (this: any) {
+        this.whereNull('purpose').orWhere('purpose', '!=', excludePurpose)
+      })
+    }
+
+    const connections = await query
 
     return NextResponse.json({ ok: true, data: connections })
   } catch (error) {

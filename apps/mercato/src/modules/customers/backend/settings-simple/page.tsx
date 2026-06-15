@@ -1799,7 +1799,7 @@ export default function SimpleSettingsPage() {
           <BookOpen className="size-4 text-muted-foreground" /> Knowledge Base Connection
           {pkbConnected && <span className="text-[10px] font-medium text-[#047857] dark:text-[#34d399] ml-2">Connected</span>}
         </h2>
-        <div className="bg-card rounded-lg border p-5">
+        <div className="rounded-lg border p-5">
           <p className="text-xs text-muted-foreground mb-4">Your Knowledge Base connects automatically. CRM pulls your documents into AI course generation and other AI features with no setup. Click below to confirm the connection and see your document count.</p>
           <div className="space-y-3">
             <details className="text-xs text-muted-foreground">
@@ -1841,7 +1841,7 @@ export default function SimpleSettingsPage() {
           <Key className="size-4 text-muted-foreground" /> AMS Integration
           {amsKeyExists && !amsKeySecret && <span className="text-[10px] font-medium text-[#047857] dark:text-[#34d399] ml-2">Key Generated</span>}
         </h2>
-        <div className="bg-card rounded-lg border p-5 space-y-4">
+        <div className="rounded-lg border p-5 space-y-4">
           <p className="text-xs text-muted-foreground">Generate an API key that allows the Automatic Marketing System (AMS) to connect to your CRM and sync contacts, send emails, and publish landing pages.</p>
 
           {/* Generated key display */}

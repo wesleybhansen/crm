@@ -13,10 +13,15 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import { sendReply } from '@/modules/customers/lib/send-reply'
+import { ingestImapConnection } from '@/modules/email/lib/inbox-ingest'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 // Hard cap on conversations processed per org per run.
 const BATCH_PER_ORG = 25
+// Per-mailbox cap on inbound CS mail pulled per run.
+const CS_FETCH_PER_MAILBOX = 50
+// How far back to look on the first fetch (no prior watermark on the conn).
+const CS_FETCH_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000
 
 const VALID_MODES = new Set(['draft', 'auto', 'hybrid'])
 const DEFAULT_HYBRID_THRESHOLD = 0.8
@@ -60,6 +65,62 @@ export async function POST(req: Request) {
       let skipped = 0
 
       try {
+        // ---- Dedicated support-mailbox fetch pass ----
+        // Pull new inbound mail from this org's Customer Service mailboxes
+        // (provider='smtp', purpose='customer_service') into inbox_conversations
+        // BEFORE the draft loop, so the draft loop below can pick them up. This
+        // runs independent of the AI allowance gate: even an over-allowance org
+        // should still see support mail land in the queue for manual handling.
+        // Each mailbox fetch is isolated so one bad credential can't break the run.
+        try {
+          const csConns = await knex('email_connections')
+            .where('organization_id', orgId)
+            .where('provider', 'smtp')
+            .where('purpose', 'customer_service')
+            .where('is_active', true)
+            .whereNotNull('imap_host')
+            .select('id', 'email_address', 'imap_host', 'imap_port', 'imap_secure', 'smtp_user', 'smtp_pass', 'cs_last_fetch_at')
+
+          if (csConns.length > 0) {
+            // Skip self-sent: don't ingest mail from our own connected mailboxes.
+            const ownConns = await knex('email_connections')
+              .where('organization_id', orgId)
+              .where('is_active', true)
+              .select('email_address')
+            const ownEmails = new Set<string>(
+              ownConns.map((c: any) => (c.email_address || '').toLowerCase()).filter(Boolean),
+            )
+
+            for (const conn of csConns) {
+              try {
+                const sinceDate = conn.cs_last_fetch_at
+                  ? new Date(conn.cs_last_fetch_at)
+                  : new Date(Date.now() - CS_FETCH_LOOKBACK_MS)
+                const ingest = await ingestImapConnection(knex, orgId, tenantId, conn, {
+                  sinceDate,
+                  maxMessages: CS_FETCH_PER_MAILBOX,
+                  autoCreateContacts: true,
+                  source: 'customer_service',
+                  ownEmails,
+                })
+                // Advance the per-mailbox watermark only when the fetch itself
+                // succeeded (errors here are per-message, not connection-level).
+                await knex('email_connections')
+                  .where('id', conn.id)
+                  .where('organization_id', orgId)
+                  .update({ cs_last_fetch_at: new Date(), updated_at: new Date() })
+                if (ingest.errors.length > 0) {
+                  console.error('[customer-service.process] CS ingest partial errors', { orgId, connId: conn.id, errors: ingest.errors.slice(0, 5) })
+                }
+              } catch (connErr) {
+                console.error('[customer-service.process] CS mailbox fetch failed', { orgId, connId: conn.id, err: connErr })
+              }
+            }
+          }
+        } catch (fetchErr) {
+          console.error('[customer-service.process] CS fetch pass error', { orgId, err: fetchErr })
+        }
+
         // Skip orgs over their AI allowance (don't bill the platform for cron AI).
         // Over-allowance orgs with a BYO key run on that key.
         const gate = await checkCustomersAiAllowance({ orgId })

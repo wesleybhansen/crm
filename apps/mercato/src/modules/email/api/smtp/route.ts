@@ -18,6 +18,10 @@ export async function POST(req: Request) {
   try {
     const body = await req.json()
     const { emailAddress, password, imapHost, imapPort, imapSecure, smtpHost, smtpPort } = body
+    // Optional. 'customer_service' tags this mailbox as a dedicated support inbox
+    // that the Customer Service tab owns; anything else means the personal Inbox
+    // mailbox (stored as null).
+    const purpose: string | null = body.purpose === 'customer_service' ? 'customer_service' : null
 
     if (!emailAddress || !password) {
       return NextResponse.json(
@@ -79,11 +83,16 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    const existing = await knex('email_connections')
+    // Upsert is scoped to (provider, purpose) so a personal SMTP inbox
+    // (purpose null) and a dedicated support SMTP inbox (purpose 'customer_service')
+    // can coexist for the same user.
+    const existingQuery = knex('email_connections')
       .where('organization_id', auth.orgId)
       .where('user_id', auth.sub)
       .where('provider', 'smtp')
-      .first()
+    if (purpose) existingQuery.where('purpose', purpose)
+    else existingQuery.whereNull('purpose')
+    const existing = await existingQuery.first()
 
     const anyExisting = await knex('email_connections')
       .where('organization_id', auth.orgId)
@@ -113,13 +122,16 @@ export async function POST(req: Request) {
         organization_id: auth.orgId,
         user_id: normalizeAuthorUserId(null, auth),
         provider: 'smtp',
-        is_primary: !anyExisting,
+        purpose,
+        // A dedicated support inbox should never be the user's primary sending
+        // mailbox by default.
+        is_primary: purpose ? false : !anyExisting,
         created_at: new Date(),
         ...record,
       })
     }
 
-    return NextResponse.json({ ok: true, data: { emailAddress, imapHost: resolvedImapHost, smtpHost: resolvedSmtpHost } })
+    return NextResponse.json({ ok: true, data: { emailAddress, imapHost: resolvedImapHost, smtpHost: resolvedSmtpHost, purpose } })
   } catch (error) {
     console.error('[email.smtp.save]', error)
     return NextResponse.json({ ok: false, error: 'Failed to save email configuration' }, { status: 500 })
