@@ -1336,6 +1336,7 @@ export class CustomerServiceSettings {
     | 'sourceModes'
     | 'signature'
     | 'csSmsNumber'
+    | 'flagScenarios'
     | 'createdAt'
     | 'updatedAt'
 
@@ -1378,6 +1379,17 @@ export class CustomerServiceSettings {
   // number used by the unified Inbox. null = SMS support disabled.
   @Property({ name: 'cs_sms_number', type: 'text', nullable: true })
   csSmsNumber?: string | null
+
+  // Flag scenarios: situations in which an inbound message should be FLAGGED
+  // (e.g. upset customer, wants to cancel/refund, complaint, legal). Array of
+  //   { key, label, enabled, action: 'pause'|'auto_send', instructions }
+  // When an inbound message matches an enabled scenario, the drafter follows
+  // that scenario's instructions, the proposal is marked flagged, the configured
+  // action is applied (pause = queue for review even in auto mode; auto_send =
+  // send the draft), and the org user is emailed an alert. null/missing = the
+  // settings GET seeds the default scenario set so the UI can render the list.
+  @Property({ name: 'flag_scenarios', type: 'json', nullable: true })
+  flagScenarios?: Array<{ key: string; label: string; enabled: boolean; action: string; instructions: string }> | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

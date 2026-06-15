@@ -62,6 +62,56 @@ const VALID_MODES = new Set(['draft', 'auto', 'hybrid'])
 const VALID_KINDS = new Set(['model_answer', 'document'])
 const MAX_CONTENT_CHARS = 20000
 
+// ---------------------------------------------------------------------------
+// Flag scenarios. Mirrors customer-service/settings/route.ts exactly so the COS
+// reads/writes the same shape the settings UI does. flag_scenarios is a jsonb
+// array of { key, label, enabled, action: 'pause'|'auto_send', instructions }.
+// ---------------------------------------------------------------------------
+
+const VALID_FLAG_ACTIONS = new Set(['pause', 'auto_send'])
+const MAX_FLAG_INSTRUCTIONS_CHARS = 4000
+
+type FlagScenario = { key: string; label: string; enabled: boolean; action: 'pause' | 'auto_send'; instructions: string }
+
+// Canonical 6-key seed. Must match settings/route.ts DEFAULT_FLAG_SCENARIOS.
+const DEFAULT_FLAG_SCENARIOS: FlagScenario[] = [
+  { key: 'angry_or_upset', label: 'Upset or angry customer', enabled: false, action: 'pause', instructions: '' },
+  { key: 'incoherent', label: 'Incoherent or unclear message', enabled: false, action: 'pause', instructions: '' },
+  { key: 'cancel', label: 'Customer wants to cancel', enabled: false, action: 'pause', instructions: '' },
+  { key: 'refund', label: 'Customer wants a refund', enabled: false, action: 'pause', instructions: '' },
+  { key: 'complaint', label: 'Complaint about product or service', enabled: false, action: 'pause', instructions: '' },
+  { key: 'legal', label: 'Legal or compliance matter', enabled: false, action: 'pause', instructions: '' },
+]
+
+// Normalize a stored/incoming flag_scenarios value into a clean FlagScenario[].
+// jsonb may arrive parsed or as a string. Unknown keys are dropped; the canonical
+// default order/labels are kept and the user's enabled/action/instructions are
+// overlaid onto each known key. Returns null when nothing usable is present (so
+// the caller can decide whether to seed defaults). Mirrors settings/route.ts.
+function parseFlagScenarios(raw: any): FlagScenario[] | null {
+  let arr: any = raw
+  if (typeof arr === 'string') {
+    try { arr = JSON.parse(arr) } catch { return null }
+  }
+  if (!Array.isArray(arr)) return null
+  const byKey = new Map<string, any>()
+  for (const item of arr) {
+    if (item && typeof item === 'object' && typeof item.key === 'string') byKey.set(item.key, item)
+  }
+  return DEFAULT_FLAG_SCENARIOS.map((def) => {
+    const u = byKey.get(def.key)
+    if (!u) return { ...def }
+    const action = VALID_FLAG_ACTIONS.has(u.action) ? u.action : 'pause'
+    return {
+      key: def.key,
+      label: def.label,
+      enabled: u.enabled === true,
+      action: action as 'pause' | 'auto_send',
+      instructions: typeof u.instructions === 'string' ? u.instructions.slice(0, MAX_FLAG_INSTRUCTIONS_CHARS) : '',
+    }
+  })
+}
+
 function normalizeThreshold(v: unknown, fallback: number): number {
   const n = Number(v)
   if (!Number.isFinite(n)) return fallback
@@ -109,7 +159,8 @@ function previewOf(content: string): string {
 
 function serializeSettings(row: any) {
   if (!row) {
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null }
+    // No saved row: seed the full default flag-scenario list so the COS sees it.
+    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })) }
   }
   return {
     id: row.id,
@@ -119,6 +170,9 @@ function serializeSettings(row: any) {
     hybridConfidenceThreshold: row.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
     sourceModes: parseSourceModes(row.source_modes),
     signature: row.signature ?? null,
+    // Overlay the user's scenarios onto the canonical defaults; full default seed
+    // if nothing usable has been saved yet, so the COS always sees all 6 keys.
+    flagScenarios: parseFlagScenarios(row.flag_scenarios) || DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -142,7 +196,8 @@ function serializeKnowledgeRow(row: any) {
 const getSettingsTool: AiToolDefinition = {
   name: 'customer_service_get_settings',
   description: `Get the customer-service auto-reply configuration for the authenticated organization. Use this to see whether customer service is turned on, how replies are handled, and which email accounts are watched.
-Returns: { enabled, watchedConnectionIds (string[] or null = all active accounts), replyMode (draft|auto|hybrid), hybridConfidenceThreshold (0..1), sourceModes (per-mailbox overrides keyed by connection id), signature, createdAt, updatedAt }. Returns defaults if not yet set up.`,
+Returns: { enabled, watchedConnectionIds (string[] or null = all active accounts), replyMode (draft|auto|hybrid), hybridConfidenceThreshold (0..1), sourceModes (per-mailbox overrides keyed by connection id), signature, flagScenarios, createdAt, updatedAt }. Returns defaults if not yet set up.
+flagScenarios is the list of special situations the assistant watches for. Always all 6 canonical scenarios: [{ key, label, enabled, action ("pause" = hold the reply for a human, "auto_send" = let the assistant reply per its instructions), instructions (extra guidance for that scenario) }]. Keys: angry_or_upset, incoherent, cancel, refund, complaint, legal.`,
   inputSchema: z.object({}),
   requiredFeatures: ['email.view'],
   handler: async (_input: never, ctx) => {
@@ -163,6 +218,7 @@ const updateSettingsTool: AiToolDefinition = {
 replyMode: "draft" queues replies for human approval, "auto" sends automatically, "hybrid" auto-sends only when the model's confidence is at or above hybridConfidenceThreshold (clamped to 0..1). This is the account-wide default.
 watchedConnectionIds: list of email connection ids to watch, or omit / pass an empty list to watch all active accounts.
 sourceModes: optional per-mailbox overrides, keyed by email connection id, e.g. { "<connectionId>": { "mode": "auto", "threshold": 0.8 } }. Each overrides the account default for that specific mailbox. Only ids in the watched list are kept. Threshold is clamped to 0..1. Omit to leave per-mailbox overrides unchanged.
+flagScenarios: optional list to turn special situations on/off, choose pause-vs-auto, and set per-scenario instructions. Pass an array of { key, enabled?, action? ("pause"|"auto_send"), instructions? }. Only the 6 canonical keys are kept (angry_or_upset, incoherent, cancel, refund, complaint, legal); unknown keys are ignored and labels are fixed. A scenario you omit from the array resets to its default (disabled + pause). Omit the whole flagScenarios arg to leave scenarios unchanged.
 Returns the saved settings.`,
   inputSchema: z.object({
     enabled: z.boolean().optional().describe('Turn customer service on or off'),
@@ -173,6 +229,12 @@ Returns the saved settings.`,
       mode: z.enum(['draft', 'auto', 'hybrid']),
       threshold: z.number().optional(),
     })).optional().describe('Per-mailbox overrides keyed by email connection id; overrides the account default for that mailbox'),
+    flagScenarios: z.array(z.object({
+      key: z.string().describe('One of: angry_or_upset, incoherent, cancel, refund, complaint, legal'),
+      enabled: z.boolean().optional(),
+      action: z.enum(['pause', 'auto_send']).optional(),
+      instructions: z.string().optional(),
+    })).optional().describe('Turn special situations on/off and set their action + instructions; only the 6 canonical keys are kept, omitted scenarios reset to default'),
     signature: z.string().optional().describe('Signature appended to replies; pass empty string to clear'),
   }),
   requiredFeatures: ['email.send'],
@@ -219,6 +281,17 @@ Returns the saved settings.`,
       }
     }
 
+    // flag_scenarios: clamp/validate the client list onto the canonical default
+    // keys/labels. Omitted = keep existing. parseFlagScenarios always returns the
+    // full canonical set, so we store a complete, trusted array. Mirrors the
+    // settings PUT route.
+    let flagScenarios: FlagScenario[]
+    if (input.flagScenarios !== undefined) {
+      flagScenarios = parseFlagScenarios(input.flagScenarios) || DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s }))
+    } else {
+      flagScenarios = parseFlagScenarios(existing?.flag_scenarios) || DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s }))
+    }
+
     const fields = {
       enabled: typeof input.enabled === 'boolean' ? input.enabled : (existing?.enabled ?? false),
       watched_connection_ids: watched ? JSON.stringify(watched) : null,
@@ -226,6 +299,7 @@ Returns the saved settings.`,
       hybrid_confidence_threshold: hybridConfidenceThreshold,
       source_modes: Object.keys(sourceModes).length > 0 ? JSON.stringify(sourceModes) : null,
       signature: input.signature !== undefined ? (input.signature || null) : (existing?.signature ?? null),
+      flag_scenarios: JSON.stringify(flagScenarios),
       updated_at: new Date(),
     }
 
@@ -252,18 +326,20 @@ Returns the saved settings.`,
 
 const listQueueTool: AiToolDefinition = {
   name: 'customer_service_list_queue',
-  description: `List pending customer-service draft replies awaiting approval for the authenticated organization. Each item carries the linked contact, a preview of the last inbound message, and the drafted reply body so you can review before approving or dismissing.
-Returns: { total, drafts: [{ id (action id, pass to approve/dismiss), proposalId, createdAt, summary, contact: { id, name, email }, conversationId, lastInboundPreview, subject, body }] }`,
+  description: `List pending customer-service draft replies awaiting approval for the authenticated organization. Each item carries the linked contact, a preview of the last inbound message, and the drafted reply body so you can review before approving or dismissing. Items can be flagged when the inbound message matched a flag scenario (e.g. angry customer, refund, legal); use this to triage flagged messages first.
+Returns: { total, drafts: [{ id (action id, pass to approve/dismiss), proposalId, createdAt, summary, contact: { id, name, email }, conversationId, channel, lastInboundPreview, subject, body, flagged (bool), flagReasons (matched scenario keys/labels) }] }`,
   inputSchema: z.object({
     limit: z.number().int().min(1).max(100).optional().default(50),
+    flaggedOnly: z.boolean().optional().describe('If true, only return drafts that were flagged by a flag scenario'),
   }),
   requiredFeatures: ['email.view'],
   handler: async (input: any, ctx) => {
     const scope = requireScope(ctx)
     const knex = getKnex(ctx)
     const limit = Math.min(100, Math.max(1, Number(input.limit) || 50))
+    const flaggedOnly = input.flaggedOnly === true
 
-    const actions = await knex('inbox_proposal_actions as a')
+    const q = knex('inbox_proposal_actions as a')
       .join('inbox_proposals as p', 'p.id', 'a.proposal_id')
       .where('a.organization_id', scope.organizationId)
       .where('a.tenant_id', scope.tenantId)
@@ -271,10 +347,19 @@ Returns: { total, drafts: [{ id (action id, pass to approve/dismiss), proposalId
       .where('a.status', 'pending')
       .whereRaw(`a.metadata->>'feature_source' = ?`, ['customer_service'])
       .where('p.status', 'pending')
+
+    // Server-side filter to flagged items only when requested (never trust the
+    // client to filter; we scope + filter in SQL).
+    if (flaggedOnly) {
+      q.whereRaw(`a.metadata->>'flagged' = 'true'`)
+    }
+
+    const actions = await q
       .select(
         'a.id as action_id',
         'a.proposal_id',
         'a.payload',
+        'a.metadata',
         'a.created_at',
         'p.summary',
         'p.participants',
@@ -284,8 +369,11 @@ Returns: { total, drafts: [{ id (action id, pass to approve/dismiss), proposalId
 
     const drafts = actions.map((row: any) => {
       const payload = typeof row.payload === 'string' ? safeParse(row.payload) : (row.payload || {})
+      const metadata = typeof row.metadata === 'string' ? safeParse(row.metadata) : (row.metadata || {})
       const participants = typeof row.participants === 'string' ? safeParse(row.participants) : (row.participants || [])
       const first = Array.isArray(participants) ? participants[0] : null
+      const flagged = metadata?.flagged === true
+      const flagReasons = flagged && Array.isArray(metadata?.flagReasons) ? metadata.flagReasons : []
       return {
         id: row.action_id,
         proposalId: row.proposal_id,
@@ -297,9 +385,12 @@ Returns: { total, drafts: [{ id (action id, pass to approve/dismiss), proposalId
           email: payload?.to || first?.email || null,
         },
         conversationId: payload?.conversationId || null,
+        channel: metadata?.channel || null,
         lastInboundPreview: payload?.lastInboundPreview || null,
         subject: payload?.subject || null,
         body: payload?.body || null,
+        flagged,
+        flagReasons,
       }
     })
 

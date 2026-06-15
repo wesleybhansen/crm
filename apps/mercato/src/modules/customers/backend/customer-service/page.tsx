@@ -5,12 +5,14 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
-import { Headphones, Mail, Check, FileEdit, Send, Sparkles, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, Globe, X as XIcon, MessageSquare } from 'lucide-react'
+import { Headphones, Mail, Check, FileEdit, Send, Sparkles, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, Globe, X as XIcon, MessageSquare, Flag } from 'lucide-react'
 import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
 import TwilioSmsGuide from '@/modules/customers/backend/components/TwilioSmsGuide'
 import CustomerServiceQueue from './CustomerServiceQueue'
 
 type ReplyMode = 'draft' | 'auto' | 'hybrid'
+type FlagAction = 'pause' | 'auto_send'
+type FlagScenario = { key: string; label: string; enabled: boolean; action: FlagAction; instructions: string }
 type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean; purpose?: string | null }
 type SourceMode = { mode: ReplyMode; threshold: number }
 type SourceModes = Record<string, SourceMode>
@@ -22,6 +24,7 @@ type Settings = {
   sourceModes: SourceModes | null
   signature: string | null
   csSmsNumber: string | null
+  flagScenarios?: FlagScenario[] | null
   defaultSignature?: string | null
 }
 type KnowledgeEntry = {
@@ -53,6 +56,9 @@ export default function CustomerServiceSettingsPage() {
   const [csSmsNumber, setCsSmsNumber] = useState('')
   // The org's connected Twilio number, if any, used as a "use this number" hint.
   const [twilioNumber, setTwilioNumber] = useState<string | null>(null)
+  // Flag scenarios. The settings GET always returns the full default list, so
+  // this is populated on hydration; user edits autosave like the other fields.
+  const [flagScenarios, setFlagScenarios] = useState<FlagScenario[]>([])
 
   // Autosave plumbing. `hydratedRef` stays false until the initial GET has
   // populated the settings fields, so neither the first mount nor the
@@ -202,6 +208,7 @@ export default function CustomerServiceSettingsPage() {
           setHybridThreshold(Math.min(1, Math.max(0, s.hybridConfidenceThreshold)))
         }
         setCsSmsNumber(s.csSmsNumber || '')
+        if (Array.isArray(s.flagScenarios)) setFlagScenarios(s.flagScenarios)
         // Prepopulate with the server-computed default sign-off (built from the
         // business name) when no signature has been saved yet. This runs before
         // hydratedRef flips true on the next tick, so it does NOT trigger an
@@ -402,6 +409,12 @@ export default function CustomerServiceSettingsPage() {
     }
   }
 
+  // Update a single flag scenario by key (enabled / action / instructions).
+  // Changing any field triggers the debounced autosave like the other settings.
+  function updateFlagScenario(key: string, patch: Partial<FlagScenario>) {
+    setFlagScenarios(prev => prev.map(s => s.key === key ? { ...s, ...patch } : s))
+  }
+
   function toggleMailbox(id: string) {
     setWatchedIds(prev => {
       // Starting from "all": selecting one mailbox narrows to just that one.
@@ -429,6 +442,7 @@ export default function CustomerServiceSettingsPage() {
         signature: signature.trim() || undefined,
         // Empty string clears the dedicated CS number server-side.
         csSmsNumber: csSmsNumber.trim(),
+        flagScenarios,
       }),
     })
     return res.json()
@@ -462,7 +476,7 @@ export default function CustomerServiceSettingsPage() {
     autosaveTimerRef.current = setTimeout(() => { void autosave() }, 700)
     return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedIds, replyMode, hybridThreshold, signature, csSmsNumber])
+  }, [watchedIds, replyMode, hybridThreshold, signature, csSmsNumber, flagScenarios])
 
   const watchingAll = watchedIds === null
   // Personal Inbox mailboxes are everything that is not a dedicated support inbox.
@@ -722,6 +736,53 @@ export default function CustomerServiceSettingsPage() {
                 </p>
               </div>
             )}
+          </section>
+
+          {/* Flag scenarios */}
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold mb-1 flex items-center gap-2">
+              <Flag className="size-4 text-muted-foreground" /> Flag scenarios
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Tell Noli which situations to watch for. When an incoming message matches an enabled scenario, Noli flags it, drafts a reply using your instructions, and emails you an alert. Pause for review holds the reply in your queue, even in auto-send mode. Auto-send lets the reply go out on its own.
+            </p>
+            <div className="rounded-lg border divide-y">
+              {flagScenarios.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  No flag scenarios available.
+                </div>
+              ) : (
+                flagScenarios.map(s => (
+                  <div key={s.key} className="px-4 py-3 space-y-2.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="flex items-center gap-2.5 min-w-0 cursor-pointer">
+                        <input type="checkbox" checked={s.enabled}
+                          onChange={e => updateFlagScenario(s.key, { enabled: e.target.checked })}
+                          className="size-4 rounded border-input accent-[#2563eb] shrink-0" />
+                        <span className="text-sm font-medium truncate">{s.label}</span>
+                      </label>
+                      <select
+                        value={s.action}
+                        onChange={e => updateFlagScenario(s.key, { action: e.target.value as FlagAction })}
+                        disabled={!s.enabled}
+                        className="shrink-0 rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                      >
+                        <option value="pause">Pause for my review</option>
+                        <option value="auto_send">Auto-send the reply</option>
+                      </select>
+                    </div>
+                    {s.enabled && (
+                      <textarea
+                        value={s.instructions}
+                        onChange={e => updateFlagScenario(s.key, { instructions: e.target.value })}
+                        placeholder="How should the AI respond in this scenario? (optional)"
+                        className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20"
+                      />
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </section>
 
           {/* Signature */}

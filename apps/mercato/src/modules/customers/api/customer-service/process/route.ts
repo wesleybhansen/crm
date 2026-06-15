@@ -12,8 +12,10 @@ import { requireProcessAuth } from '@/lib/cron-auth'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
+import type { FlagScenarioInput } from '@/modules/customers/lib/draft-reply'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
+import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { ingestImapConnection } from '@/modules/email/lib/inbox-ingest'
 import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -62,6 +64,10 @@ export async function POST(req: Request) {
       // Per-source (per-mailbox) overrides, keyed by email_connection id. Falls
       // back to the global mode/threshold for sources without an entry.
       const sourceModes = parseSourceModes(settings.source_modes)
+      // Flag scenarios for this org (full validated list) + the enabled subset
+      // handed to the drafter. Empty = no flagging, existing behavior unchanged.
+      const flagScenarios = parseFlagScenarios(settings.flag_scenarios)
+      const drafterScenarios = toDrafterScenarios(flagScenarios)
       let queued = 0
       let autoSent = 0
       let skipped = 0
@@ -188,6 +194,8 @@ export async function POST(req: Request) {
                   conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber,
                   signature: settings.signature || null,
                   byoKey: !!gate.byoApiKey,
+                  flagScenarios,
+                  drafterScenarios,
                 })
                 if (handled === 'queued') queued++
                 else if (handled === 'sent') autoSent++
@@ -281,6 +289,7 @@ export async function POST(req: Request) {
               recentMessages,
               contactId,
               signature: settings.signature || null,
+              flagScenarios: drafterScenarios,
             })
 
             void meterCustomersAi({ orgId }, {
@@ -305,6 +314,16 @@ export async function POST(req: Request) {
               : 'Re: your message'
             const lastInboundPreview = (inbound.body_text || inbound.body_html || '').toString().substring(0, 200)
 
+            // Flag scenarios override the normal reply mode. If the drafter
+            // matched any enabled scenario, this message is FLAGGED: the user is
+            // emailed an alert, and the action depends on the matched scenarios.
+            //   any matched scenario action 'pause'  -> always QUEUE (even in
+            //     auto/hybrid; flag-pause beats reply_mode).
+            //   all matched scenarios 'auto_send'    -> send the draft.
+            const matched = result.matchedScenarios || []
+            const flagged = matched.length > 0
+            const flagOutcome = flagged ? resolveFlagOutcome(matched, flagScenarios) : null
+
             // Decide whether to auto-send based on the org's reply mode.
             //   draft  -> never auto-send (always queue).
             //   auto   -> always auto-send.
@@ -317,6 +336,16 @@ export async function POST(req: Request) {
             } else if (effMode === 'hybrid') {
               shouldAutoSend = result.autoSendSafe === true && result.confidence >= effThreshold
             }
+
+            // Flag override: pause wins over everything; all-auto_send forces send.
+            if (flagOutcome) {
+              shouldAutoSend = flagOutcome.shouldPause ? false : true
+            }
+
+            // Common flag metadata for the proposal/action rows.
+            const flagMeta = flagged
+              ? { flagged: true, flagReasons: flagOutcome?.reasons || [] }
+              : undefined
 
             if (shouldAutoSend) {
               const sendResult = await sendReply(knex, orgId, tenantId, {
@@ -340,6 +369,7 @@ export async function POST(req: Request) {
                   lastInboundPreview,
                   confidence: result.confidence,
                   status: 'sent',
+                  flag: flagMeta,
                 })
                 await markDrafted(knex, conv.id, orgId)
                 autoSent++
@@ -357,6 +387,7 @@ export async function POST(req: Request) {
                   lastInboundPreview,
                   confidence: result.confidence,
                   status: 'pending',
+                  flag: flagMeta,
                 })
                 await markDrafted(knex, conv.id, orgId)
                 queued++
@@ -372,9 +403,23 @@ export async function POST(req: Request) {
                 lastInboundPreview,
                 confidence: result.confidence,
                 status: 'pending',
+                flag: flagMeta,
               })
               await markDrafted(knex, conv.id, orgId)
               queued++
+            }
+
+            // Flag alert: when this message was flagged, email the org user. Done
+            // after the proposal is recorded so the queue link resolves to it.
+            if (flagged && flagOutcome) {
+              await sendFlagAlert(knex, orgId, tenantId, {
+                contactName: displayName,
+                contactHandle: toEmail,
+                channel: 'email',
+                reasons: flagOutcome.reasons,
+                paused: flagOutcome.shouldPause,
+                preview: lastInboundPreview,
+              })
             }
           } catch (convErr) {
             console.error('[customer-service.process] conversation error', { orgId, convId: conv?.id, err: convErr })
@@ -443,9 +488,11 @@ async function handleSmsConversation(
     csSmsNumber: string
     signature: string | null
     byoKey: boolean
+    flagScenarios: FlagScenario[]
+    drafterScenarios: FlagScenarioInput[]
   },
 ): Promise<'queued' | 'sent' | 'skipped'> {
-  const { conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber, signature, byoKey } = args
+  const { conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber, signature, byoKey, flagScenarios, drafterScenarios } = args
 
   // Resolve the customer's phone number: prefer the conversation avatar_phone,
   // else the contact's primary_phone. We need it both to load the transcript and
@@ -510,6 +557,7 @@ async function handleSmsConversation(
     recentMessages,
     contactId,
     signature: null,
+    flagScenarios: drafterScenarios,
   })
 
   void meterCustomersAi({ orgId }, {
@@ -525,9 +573,31 @@ async function handleSmsConversation(
   const displayName = contact?.display_name || conv.display_name || toPhone
   const lastInboundPreview = (inbound.body || '').toString().substring(0, 200)
 
+  // Flag scenarios override reply mode (same rule as email): pause beats
+  // auto/hybrid, all-auto_send forces a send. Email the org user on any flag.
+  const matched = result.matchedScenarios || []
+  const flagged = matched.length > 0
+  const flagOutcome = flagged ? resolveFlagOutcome(matched, flagScenarios) : null
+  const flagMeta = flagged ? { flagged: true, flagReasons: flagOutcome?.reasons || [] } : undefined
+
   let shouldAutoSend = false
   if (mode === 'auto') shouldAutoSend = true
   else if (mode === 'hybrid') shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
+  if (flagOutcome) shouldAutoSend = flagOutcome.shouldPause ? false : true
+
+  // Fire the flag alert once, regardless of which branch handles the draft.
+  const fireAlert = async (paused: boolean) => {
+    if (flagged && flagOutcome) {
+      await sendFlagAlert(knex, orgId, tenantId, {
+        contactName: displayName,
+        contactHandle: toPhone,
+        channel: 'sms',
+        reasons: flagOutcome.reasons,
+        paused,
+        preview: lastInboundPreview,
+      })
+    }
+  }
 
   if (shouldAutoSend) {
     const sendResult = await sendSmsReply(knex, orgId, tenantId, {
@@ -538,26 +608,29 @@ async function handleSmsConversation(
     if (sendResult.ok) {
       await createSmsDraftProposal(knex, orgId, tenantId, {
         displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
-        body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'sent',
+        body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'sent', flag: flagMeta,
       })
       await markDrafted(knex, conv.id, orgId)
+      await fireAlert(false)
       return 'sent'
     }
     // Send failed: fall back to queuing for manual review.
     console.error('[customer-service.process] SMS auto-send failed, queuing instead', { orgId, convId: conv.id, err: sendResult.error })
     await createSmsDraftProposal(knex, orgId, tenantId, {
       displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
-      body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending',
+      body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending', flag: flagMeta,
     })
     await markDrafted(knex, conv.id, orgId)
+    await fireAlert(true)
     return 'queued'
   }
 
   await createSmsDraftProposal(knex, orgId, tenantId, {
     displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
-    body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending',
+    body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending', flag: flagMeta,
   })
   await markDrafted(knex, conv.id, orgId)
+  await fireAlert(true)
   return 'queued'
 }
 
@@ -591,6 +664,114 @@ function parseSourceModes(raw: any): Record<string, { mode: string; threshold: n
   return out
 }
 
+type FlagScenario = { key: string; label: string; enabled: boolean; action: 'pause' | 'auto_send'; instructions: string }
+
+const VALID_FLAG_ACTIONS = new Set(['pause', 'auto_send'])
+
+// Parse the org's stored flag_scenarios jsonb (parsed object or string) into a
+// clean, validated array. Returns [] when nothing usable is present.
+function parseFlagScenarios(raw: any): FlagScenario[] {
+  let arr: any = raw
+  if (typeof arr === 'string') {
+    try { arr = JSON.parse(arr) } catch { return [] }
+  }
+  if (!Array.isArray(arr)) return []
+  const out: FlagScenario[] = []
+  for (const item of arr) {
+    if (!item || typeof item !== 'object') continue
+    const key = typeof item.key === 'string' ? item.key : ''
+    const label = typeof item.label === 'string' ? item.label : ''
+    if (!key) continue
+    const action = VALID_FLAG_ACTIONS.has(item.action) ? item.action : 'pause'
+    out.push({
+      key,
+      label,
+      enabled: item.enabled === true,
+      action: action as 'pause' | 'auto_send',
+      instructions: typeof item.instructions === 'string' ? item.instructions : '',
+    })
+  }
+  return out
+}
+
+// Map enabled scenarios to the shape the drafter consumes (key/label/instructions).
+function toDrafterScenarios(scenarios: FlagScenario[]): FlagScenarioInput[] {
+  return scenarios.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label, instructions: s.instructions }))
+}
+
+// Given the matched keys and the org's scenarios, decide the flag outcome:
+//  - reasons: the matched {key,label} for metadata + the alert email
+//  - shouldPause: true if ANY matched scenario is 'pause' (pause overrides
+//    auto_send AND the org's reply_mode). false only when ALL matched are
+//    'auto_send'.
+function resolveFlagOutcome(matchedKeys: string[], scenarios: FlagScenario[]): { reasons: Array<{ key: string; label: string }>; shouldPause: boolean } {
+  const byKey = new Map(scenarios.map((s) => [s.key, s]))
+  const reasons: Array<{ key: string; label: string }> = []
+  let anyPause = false
+  for (const k of matchedKeys) {
+    const s = byKey.get(k)
+    if (!s || !s.enabled) continue
+    reasons.push({ key: s.key, label: s.label })
+    if (s.action === 'pause') anyPause = true
+  }
+  return { reasons, shouldPause: anyPause }
+}
+
+// Email the org user a flag alert. Reuses sendEmailByPurpose('transactional')
+// (same user-notification path the AI digest cron uses) and sends to the org's
+// primary active email connection address (the org owner's mailbox). No new env
+// var: APP_URL is already set for link building. Best-effort: never throws.
+async function sendFlagAlert(
+  knex: any,
+  orgId: string,
+  tenantId: string,
+  d: {
+    contactName: string
+    contactHandle: string
+    channel: 'email' | 'sms'
+    reasons: Array<{ key: string; label: string }>
+    paused: boolean
+    preview: string
+  },
+) {
+  try {
+    const recipient = await knex('email_connections')
+      .where('organization_id', orgId)
+      .where('is_active', true)
+      .orderBy('is_primary', 'desc')
+      .first()
+    if (!recipient?.email_address) return
+
+    const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const queueUrl = `${appUrl.replace(/\/$/, '')}/backend/customer-service`
+    const labels = d.reasons.map((r) => r.label).filter(Boolean)
+    const scenarioLine = labels.length ? labels.join(', ') : 'a flagged scenario'
+    const channelLabel = d.channel === 'sms' ? 'text message' : 'email'
+    const actionLine = d.paused
+      ? 'The reply is waiting in your review queue. Nothing was sent automatically.'
+      : 'A reply was drafted and sent automatically for this scenario.'
+
+    const esc = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const subject = 'A customer message was flagged'
+    const htmlBody = `
+      <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; font-size: 14px; color: #1f2937; line-height: 1.6;">
+        <p>A customer ${channelLabel} from <strong>${esc(d.contactName)}</strong>${d.contactHandle ? ` (${esc(d.contactHandle)})` : ''} matched ${labels.length > 1 ? 'these flag scenarios' : 'a flag scenario'}: <strong>${esc(scenarioLine)}</strong>.</p>
+        <p>${actionLine}</p>
+        ${d.preview ? `<p style="color:#6b7280;"><em>They wrote:</em><br>${esc(d.preview)}</p>` : ''}
+        <p><a href="${queueUrl}" style="color:#2563eb;">Open your Customer Service queue</a></p>
+      </div>
+    `.trim()
+
+    await sendEmailByPurpose(knex, orgId, tenantId, 'transactional', {
+      to: recipient.email_address,
+      subject,
+      htmlBody,
+    })
+  } catch (err) {
+    console.error('[customer-service.process] flag alert email failed', { orgId, err })
+  }
+}
+
 async function markDrafted(knex: any, conversationId: string, orgId: string) {
   await knex('inbox_conversations')
     .where('id', conversationId)
@@ -619,6 +800,9 @@ async function createDraftProposal(
     lastInboundPreview: string
     confidence?: number
     status?: 'pending' | 'sent'
+    // Set when the message matched a flag scenario; stored in action metadata so
+    // the queue can render the flag badge + reasons.
+    flag?: { flagged: boolean; flagReasons: Array<{ key: string; label: string }> }
   },
 ) {
   const now = new Date()
@@ -684,7 +868,13 @@ async function createDraftProposal(
     status: isSent ? 'sent' : 'pending',
     executed_at: isSent ? now : null,
     confidence: conf,
-    metadata: JSON.stringify({ feature_source: 'customer_service', auto_sent: isSent, channel: 'email' }),
+    metadata: JSON.stringify({
+      feature_source: 'customer_service',
+      auto_sent: isSent,
+      channel: 'email',
+      flagged: d.flag?.flagged === true,
+      flagReasons: d.flag?.flagReasons || [],
+    }),
     created_at: now,
     updated_at: now,
   })
@@ -706,6 +896,7 @@ async function createSmsDraftProposal(
     lastInboundPreview: string
     confidence?: number
     status?: 'pending' | 'sent'
+    flag?: { flagged: boolean; flagReasons: Array<{ key: string; label: string }> }
   },
 ) {
   const now = new Date()
@@ -770,7 +961,13 @@ async function createSmsDraftProposal(
     status: isSent ? 'sent' : 'pending',
     executed_at: isSent ? now : null,
     confidence: conf,
-    metadata: JSON.stringify({ feature_source: 'customer_service', auto_sent: isSent, channel: 'sms' }),
+    metadata: JSON.stringify({
+      feature_source: 'customer_service',
+      auto_sent: isSent,
+      channel: 'sms',
+      flagged: d.flag?.flagged === true,
+      flagReasons: d.flag?.flagReasons || [],
+    }),
     created_at: now,
     updated_at: now,
   })

@@ -14,6 +14,54 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildDefaultSignature } from '@/modules/customers/lib/draft-reply'
 
 const VALID_MODES = new Set(['draft', 'auto', 'hybrid'])
+const VALID_FLAG_ACTIONS = new Set(['pause', 'auto_send'])
+
+export type FlagScenario = { key: string; label: string; enabled: boolean; action: 'pause' | 'auto_send'; instructions: string }
+
+// Default flag-scenario seed. Returned by GET when the org has saved none, so
+// the UI always shows the full list. All default to disabled + pause + no custom
+// instructions; the user opts in and tailors each one. The `key` is the stable
+// identifier persisted + matched by the drafter; the `label` is shown to the
+// user AND given to the model so it understands the scenario.
+export const DEFAULT_FLAG_SCENARIOS: FlagScenario[] = [
+  { key: 'angry_or_upset', label: 'Upset or angry customer', enabled: false, action: 'pause', instructions: '' },
+  { key: 'incoherent', label: 'Incoherent or unclear message', enabled: false, action: 'pause', instructions: '' },
+  { key: 'cancel', label: 'Customer wants to cancel', enabled: false, action: 'pause', instructions: '' },
+  { key: 'refund', label: 'Customer wants a refund', enabled: false, action: 'pause', instructions: '' },
+  { key: 'complaint', label: 'Complaint about product or service', enabled: false, action: 'pause', instructions: '' },
+  { key: 'legal', label: 'Legal or compliance matter', enabled: false, action: 'pause', instructions: '' },
+]
+
+// Normalize a stored/incoming flag_scenarios value into a clean FlagScenario[].
+// jsonb may arrive parsed or as a string. Unknown keys are dropped; we keep the
+// canonical default order/labels and overlay the user's enabled/action/
+// instructions onto each known key. Returns null when nothing usable is present
+// (so the caller can decide whether to seed defaults).
+function parseFlagScenarios(raw: any): FlagScenario[] | null {
+  let arr: any = raw
+  if (typeof arr === 'string') {
+    try { arr = JSON.parse(arr) } catch { return null }
+  }
+  if (!Array.isArray(arr)) return null
+  const byKey = new Map<string, any>()
+  for (const item of arr) {
+    if (item && typeof item === 'object' && typeof item.key === 'string') byKey.set(item.key, item)
+  }
+  // Build from the canonical defaults so labels/order stay stable and any
+  // removed/renamed keys are ignored. Only known scenario keys are persisted.
+  return DEFAULT_FLAG_SCENARIOS.map((def) => {
+    const u = byKey.get(def.key)
+    if (!u) return { ...def }
+    const action = VALID_FLAG_ACTIONS.has(u.action) ? u.action : 'pause'
+    return {
+      key: def.key,
+      label: def.label,
+      enabled: u.enabled === true,
+      action: action as 'pause' | 'auto_send',
+      instructions: typeof u.instructions === 'string' ? u.instructions.slice(0, 4000) : '',
+    }
+  })
+}
 
 function normalizeThreshold(v: unknown, fallback: number): number {
   const n = Number(v)
@@ -72,8 +120,12 @@ function normalizeE164(v: unknown): string | null {
 
 function serialize(row: any, defaultSignature = '') {
   if (!row) {
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, csSmsNumber: null, defaultSignature }
+    // No saved row: seed the default flag-scenario list so the UI shows it.
+    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, csSmsNumber: null, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })), defaultSignature }
   }
+  // Saved row: overlay the user's scenarios onto the canonical defaults. Falls
+  // back to the full default seed when nothing usable has been saved yet.
+  const flagScenarios = parseFlagScenarios(row.flag_scenarios) || DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s }))
   return {
     id: row.id,
     enabled: !!row.enabled,
@@ -83,6 +135,7 @@ function serialize(row: any, defaultSignature = '') {
     sourceModes: parseSourceModes(row.source_modes),
     signature: row.signature ?? null,
     csSmsNumber: row.cs_sms_number ?? null,
+    flagScenarios,
     // Computed sign-off the UI uses to prepopulate the field when no signature
     // is saved yet. Built from the org's business name; never client-supplied.
     defaultSignature,
@@ -195,6 +248,16 @@ export async function PUT(req: Request) {
     const hasWatched = watched === null || (Array.isArray(watched) && watched.length > 0)
     const enabled = (hasWatched || !!csSmsNumber) ? true : false
 
+    // flag_scenarios: clamp/validate the client list onto the canonical default
+    // keys/labels. Omitted in the body = keep existing. parseFlagScenarios always
+    // returns the full canonical set, so we store a complete, trusted array.
+    let flagScenarios: FlagScenario[]
+    if (body.flagScenarios !== undefined) {
+      flagScenarios = parseFlagScenarios(body.flagScenarios) || DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s }))
+    } else {
+      flagScenarios = parseFlagScenarios(existing?.flag_scenarios) || DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s }))
+    }
+
     const fields = {
       enabled,
       watched_connection_ids: watched ? JSON.stringify(watched) : null,
@@ -203,6 +266,7 @@ export async function PUT(req: Request) {
       source_modes: Object.keys(sourceModes).length > 0 ? JSON.stringify(sourceModes) : null,
       signature: body.signature !== undefined ? (body.signature || null) : (existing?.signature ?? null),
       cs_sms_number: csSmsNumber,
+      flag_scenarios: JSON.stringify(flagScenarios),
       updated_at: new Date(),
     }
 

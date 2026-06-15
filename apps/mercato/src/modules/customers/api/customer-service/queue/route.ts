@@ -55,7 +55,10 @@ export async function GET(req: Request) {
       // Channel comes from the payload (set by the SMS proposal creator) and
       // falls back to the action metadata; defaults to email for legacy rows.
       const channel = payload?.channel || meta?.channel || 'email'
-      return { row, payload, participants, channel }
+      // Flag info lives in the action metadata (set by the processor).
+      const flagged = meta?.flagged === true
+      const flagReasons = Array.isArray(meta?.flagReasons) ? meta.flagReasons : []
+      return { row, payload, participants, channel, flagged, flagReasons }
     })
 
     // Contacts referenced by EMAIL drafts (for full-email expansion).
@@ -102,7 +105,7 @@ export async function GET(req: Request) {
       }
     }
 
-    const data = parsed.map(({ row, payload, participants, channel }) => {
+    const data = parsed.map(({ row, payload, participants, channel, flagged, flagReasons }) => {
       const first = Array.isArray(participants) ? participants[0] : null
       const contactId = payload?.contactId || null
       const isSms = channel === 'sms'
@@ -111,6 +114,9 @@ export async function GET(req: Request) {
         proposalId: row.proposal_id,
         createdAt: row.created_at,
         channel,
+        flagged,
+        // [{ key, label }] of the scenarios this message matched. Empty unless flagged.
+        flagReasons,
         summary: row.summary,
         contact: {
           id: contactId,
@@ -129,6 +135,10 @@ export async function GET(req: Request) {
         body: payload?.body || null,
       }
     })
+
+    // Flagged items surface first; within each group keep the newest first
+    // (the DB query already returned rows in created_at desc order).
+    data.sort((a, b) => (a.flagged === b.flagged ? 0 : a.flagged ? -1 : 1))
 
     return NextResponse.json({ ok: true, data })
   } catch (error) {

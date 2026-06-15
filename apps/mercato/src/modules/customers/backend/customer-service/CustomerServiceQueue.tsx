@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp, Mail, MessageSquare, Clock, FileEdit } from 'lucide-react'
+import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp, Mail, MessageSquare, Clock, FileEdit, Flag } from 'lucide-react'
 
 type Bucket = { total: number; email: number; sms: number }
 type StatusMap = { drafted: Bucket; sent: Bucket; pending: Bucket; dismissed: Bucket }
@@ -80,11 +80,14 @@ function CustomerServiceStats() {
   )
 }
 
+type FlagReason = { key: string; label: string }
 type QueueItem = {
   id: string
   proposalId: string
   createdAt: string
   channel?: 'email' | 'sms' | string | null
+  flagged?: boolean
+  flagReasons?: FlagReason[]
   summary: string | null
   contact: { id: string | null; name: string | null; email: string | null; phone?: string | null }
   conversationId: string | null
@@ -224,8 +227,17 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
         const itemBusy = busy[item.id]
         const isSms = item.channel === 'sms'
         const contactHandle = isSms ? item.contact.phone : item.contact.email
+        const flagLabels = (item.flagReasons || []).map(r => r.label).filter(Boolean)
+        const isFlagged = !!item.flagged && flagLabels.length > 0
         return (
-          <div key={item.id} className="rounded-lg border divide-y">
+          <div key={item.id} className={`rounded-lg border divide-y ${isFlagged ? 'border-[#f59e0b] ring-1 ring-[#f59e0b]/40' : ''}`}>
+            {/* Flag banner: shows which scenario(s) this message matched. */}
+            {isFlagged && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-[#fffbeb] dark:bg-[#f59e0b]/10 text-[#b45309] dark:text-[#fbbf24] text-xs font-medium">
+                <Flag className="size-3.5 shrink-0" />
+                <span className="truncate">Flagged: {flagLabels.join(', ')}</span>
+              </div>
+            )}
             {/* Contact header */}
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">

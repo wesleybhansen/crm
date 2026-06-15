@@ -55,6 +55,30 @@ export async function GET(req: Request, ctx: any) {
       if (r) em2 = { sent: Number(r.sent), opened: Number(r.opened), clicked: Number(r.clicked) }
     } catch {}
 
+    // Customer-service stats for the ecosystem digest. Org-scoped (w) over the
+    // customer-service draft-reply actions. "Replies sent" = actions marked sent;
+    // "pending" = still awaiting review; "flagged" rows have metadata.flagged true.
+    let csStats = { repliesSentLast7: 0, repliesSentLast30: 0, pending: 0, flaggedPending: 0, flaggedLast30: 0 }
+    try {
+      const [r] = await knex('inbox_proposal_actions').where(w)
+        .where('action_type', 'draft_reply')
+        .whereRaw(`metadata->>'feature_source' = ?`, ['customer_service'])
+        .select(
+          knex.raw(`count(*) filter (where status = 'sent' and created_at >= ?) as replies_sent_7`, [sevenDaysAgo]),
+          knex.raw(`count(*) filter (where status = 'sent' and created_at >= ?) as replies_sent_30`, [thirtyDaysAgo]),
+          knex.raw(`count(*) filter (where status = 'pending') as pending`),
+          knex.raw(`count(*) filter (where status = 'pending' and metadata->>'flagged' = 'true') as flagged_pending`),
+          knex.raw(`count(*) filter (where metadata->>'flagged' = 'true' and created_at >= ?) as flagged_30`, [thirtyDaysAgo]),
+        )
+      if (r) csStats = {
+        repliesSentLast7: Number(r.replies_sent_7 || 0),
+        repliesSentLast30: Number(r.replies_sent_30 || 0),
+        pending: Number(r.pending || 0),
+        flaggedPending: Number(r.flagged_pending || 0),
+        flaggedLast30: Number(r.flagged_30 || 0),
+      }
+    } catch {}
+
     return NextResponse.json({
       ok: true,
       data: {
@@ -62,6 +86,7 @@ export async function GET(req: Request, ctx: any) {
         deals: { total: Number(ds?.total || 0), open: Number(ds?.open || 0), pipelineValue: Number(ds?.pipeline_value || 0), wonLast30: Number(ds?.won_30 || 0), revenueLast30: Number(ds?.revenue_30 || 0) },
         landingPages: lp,
         email: em2,
+        customerService: csStats,
       },
     })
   } catch (error) {

@@ -18,6 +18,15 @@ export type DraftReplyMessage = {
   body?: string | null
 }
 
+// A single enabled flag scenario the drafter should watch for. Only enabled
+// scenarios are passed in. `key` is matched back by the caller; `label` +
+// `instructions` steer the model.
+export type FlagScenarioInput = {
+  key: string
+  label: string
+  instructions?: string | null
+}
+
 export type DraftReplyInput = {
   orgId: string
   channel?: string | null
@@ -28,6 +37,10 @@ export type DraftReplyInput = {
   contactId?: string | null
   // Appended verbatim to the body when present (Customer Service signature).
   signature?: string | null
+  // Enabled flag scenarios for the org. When the inbound message matches one,
+  // the drafter returns its key(s) in matchedScenarios and drafts the reply
+  // following that scenario's instructions (first match wins on conflicts).
+  flagScenarios?: FlagScenarioInput[] | null
 }
 
 export type DraftReplyResult = {
@@ -46,6 +59,10 @@ export type DraftReplyResult = {
   // complaints, legal, billing disputes, angry tone) or when it is guessing.
   // Defaults to false (conservative) when the signal is missing.
   autoSendSafe: boolean
+  // Keys of the enabled flag scenarios the inbound message matched (empty when
+  // none matched or no scenarios were provided). The caller uses this to flag
+  // the proposal + apply the scenario's pause/auto_send action.
+  matchedScenarios: string[]
 }
 
 const DRAFT_MODEL = 'gemini-2.5-flash'
@@ -149,7 +166,23 @@ export async function generateReplyDraft(
   apiKey: string,
   input: DraftReplyInput,
 ): Promise<DraftReplyResult> {
-  const { orgId, channel, recentMessages, contactId, signature } = input
+  const { orgId, channel, recentMessages, contactId, signature, flagScenarios } = input
+
+  // Build the flag-scenario instruction block from the enabled scenarios. Keep
+  // the ordering the caller gave so "first match wins" stays deterministic.
+  const enabledScenarios = (flagScenarios || []).filter((s) => s && typeof s.key === 'string' && s.key)
+  let flagSection = ''
+  if (enabledScenarios.length > 0) {
+    const lines = enabledScenarios.map((s) => {
+      const instr = (s.instructions || '').toString().trim()
+      return `- key "${s.key}": ${s.label}${instr ? `. When this matches, follow these instructions for the reply: ${instr}` : ''}`
+    })
+    flagSection = `FLAG SCENARIOS:
+The business has defined situations to watch for. Decide which (if any) of these the CUSTOMER'S latest message matches. Be conservative: only include a scenario when the message clearly fits it.
+${lines.join('\n')}
+
+Return the matching scenario keys in "matched_scenarios" (an array of the key strings above, empty [] when none match). If a matched scenario has reply instructions, DRAFT the reply following those instructions. If multiple match, follow the instructions of the FIRST one listed above that has instructions.`
+  }
 
   // Load inbox AI settings for this org (knowledge base, tone, business info).
   const settings = await knex('inbox_ai_settings').where('organization_id', orgId).first()
@@ -205,7 +238,9 @@ ${contactInfo ? `
 ${contactInfo}` : ''}
 
 ${voiceSection}
-
+${flagSection ? `
+${flagSection}
+` : ''}
 CRITICAL RULES:
 - Write the COMPLETE reply from start to finish. Do NOT stop mid-sentence. Finish every thought.
 - Do NOT include a subject line. The subject is already handled separately
@@ -222,7 +257,7 @@ You also assess whether this reply could be sent to the customer WITHOUT a human
 - "auto_send_safe": a boolean. Return false (NOT safe to auto-send) for ANYTHING sensitive: refunds, cancellations, returns, complaints, legal matters, billing or payment disputes, an angry or upset customer, anything that commits money or promises, or anywhere you are guessing or unsure. Only return true when the reply is a clear, correct, low-risk answer you would be comfortable sending unreviewed.
 
 Respond with ONLY a single JSON object, no markdown fences, no commentary, in exactly this shape:
-{"body": "the full reply body text", "confidence": 0.0, "auto_send_safe": false}`
+{"body": "the full reply body text", "confidence": 0.0, "auto_send_safe": false, "matched_scenarios": []}`
 
   const aiRes = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${DRAFT_MODEL}:generateContent`,
@@ -248,7 +283,7 @@ Return the JSON object now:` }] }],
   const tokensOut = aiData?.usageMetadata?.candidatesTokenCount || 0
 
   if (!raw) {
-    return { ok: false, error: 'AI could not generate a draft', model: DRAFT_MODEL, tokensIn, tokensOut, confidence: 0, autoSendSafe: false }
+    return { ok: false, error: 'AI could not generate a draft', model: DRAFT_MODEL, tokensIn, tokensOut, confidence: 0, autoSendSafe: false, matchedScenarios: [] }
   }
 
   // Parse the JSON envelope. The model is asked for strict JSON (responseMimeType
@@ -258,12 +293,24 @@ Return the JSON object now:` }] }],
   let draft: string | undefined
   let confidence = 0
   let autoSendSafe = false
+  // Only keys we actually offered are valid; ignore anything the model invents.
+  const matchedScenarios: string[] = []
   const parsed = tryParseEnvelope(raw)
   if (parsed && typeof parsed.body === 'string' && parsed.body.trim()) {
     draft = parsed.body.trim()
     const c = Number(parsed.confidence)
     confidence = Number.isFinite(c) ? Math.min(1, Math.max(0, c)) : 0
     autoSendSafe = parsed.auto_send_safe === true
+    if (Array.isArray(parsed.matched_scenarios)) {
+      const seen = new Set<string>()
+      // Preserve the order the scenarios were given (first-match-wins downstream).
+      for (const s of enabledScenarios) {
+        if ((parsed.matched_scenarios as unknown[]).some((k) => k === s.key) && !seen.has(s.key)) {
+          seen.add(s.key)
+          matchedScenarios.push(s.key)
+        }
+      }
+    }
   } else {
     // Could not parse structured output: keep the text as the body but force the
     // conservative path (no auto-send) since we have no trustworthy signal.
@@ -273,7 +320,7 @@ Return the JSON object now:` }] }],
   }
 
   if (!draft) {
-    return { ok: false, error: 'AI could not generate a draft', model: DRAFT_MODEL, tokensIn, tokensOut, confidence: 0, autoSendSafe: false }
+    return { ok: false, error: 'AI could not generate a draft', model: DRAFT_MODEL, tokensIn, tokensOut, confidence: 0, autoSendSafe: false, matchedScenarios: [] }
   }
 
   // Strip any subject line the model may have included.
@@ -297,12 +344,12 @@ Return the JSON object now:` }] }],
     }
   }
 
-  return { ok: true, draft, model: DRAFT_MODEL, tokensIn, tokensOut, confidence, autoSendSafe }
+  return { ok: true, draft, model: DRAFT_MODEL, tokensIn, tokensOut, confidence, autoSendSafe, matchedScenarios }
 }
 
 // Best-effort parse of the model's JSON envelope. Strips a ```json fence if the
 // model added one, and extracts the first {...} block as a last resort.
-function tryParseEnvelope(raw: string): { body?: unknown; confidence?: unknown; auto_send_safe?: unknown } | null {
+function tryParseEnvelope(raw: string): { body?: unknown; confidence?: unknown; auto_send_safe?: unknown; matched_scenarios?: unknown } | null {
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
   try {
     return JSON.parse(cleaned)
