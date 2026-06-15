@@ -139,8 +139,16 @@ export async function PUT(req: Request) {
       }
     }
 
+    // Auto-derive `enabled` instead of trusting a client toggle. The feature is
+    // active whenever at least one mailbox is being watched. watched === null
+    // means "watch all connected support inboxes", which also counts as active.
+    // We only flip enabled to false when there are explicitly zero watched ids.
+    // (If the client still sends a boolean, we ignore it on purpose.)
+    const hasWatched = watched === null || (Array.isArray(watched) && watched.length > 0)
+    const enabled = hasWatched ? true : false
+
     const fields = {
-      enabled: typeof body.enabled === 'boolean' ? body.enabled : (existing?.enabled ?? false),
+      enabled,
       watched_connection_ids: watched ? JSON.stringify(watched) : null,
       reply_mode: replyMode,
       hybrid_confidence_threshold: hybridConfidenceThreshold,

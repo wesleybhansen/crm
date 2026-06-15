@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Headphones, Mail, Check, FileEdit, Send, Sparkles, ArrowRight, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, X as XIcon } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
+import { Headphones, Mail, Check, FileEdit, Send, Sparkles, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, Globe, X as XIcon } from 'lucide-react'
 import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
+import CustomerServiceQueue from './CustomerServiceQueue'
 
 type ReplyMode = 'draft' | 'auto' | 'hybrid'
 type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean; purpose?: string | null }
@@ -25,23 +26,25 @@ type KnowledgeEntry = {
   kind: 'model_answer' | 'document'
   title: string
   sourceFilename: string | null
+  sourceUrl?: string | null
+  isWebSource?: boolean
   contentPreview: string
   createdAt: string
 }
 
 export default function CustomerServiceSettingsPage() {
+  // Queue is the default view; Settings holds the configuration UI.
+  const [tab, setTab] = useState<'queue' | 'settings'>('queue')
+
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  const [enabled, setEnabled] = useState(false)
   // null = watch all connected mailboxes. An array = only those ids.
   const [watchedIds, setWatchedIds] = useState<string[] | null>(null)
   const [replyMode, setReplyMode] = useState<ReplyMode>('draft')
   const [hybridThreshold, setHybridThreshold] = useState(0.8)
-  // Per-mailbox overrides, keyed by connection id. Absent key = use account default.
-  const [sourceModes, setSourceModes] = useState<SourceModes>({})
   const [signature, setSignature] = useState('')
 
   const [connections, setConnections] = useState<EmailConnection[]>([])
@@ -68,8 +71,11 @@ export default function CustomerServiceSettingsPage() {
       fetch('/api/email/connections', { credentials: 'include' }).then(r => r.json()).catch(() => null),
       fetch('/api/email/connections?purpose=customer_service', { credentials: 'include' }).then(r => r.json()).catch(() => null),
     ])
-    if (allRes?.ok) setConnections(allRes.data || [])
-    if (csRes?.ok) setCsInboxes(csRes.data || [])
+    const all: EmailConnection[] = allRes?.ok ? (allRes.data || []) : []
+    const cs: EmailConnection[] = csRes?.ok ? (csRes.data || []) : []
+    if (allRes?.ok) setConnections(all)
+    if (csRes?.ok) setCsInboxes(cs)
+    return { all, cs }
   }
 
   async function connectSupportInbox() {
@@ -90,11 +96,23 @@ export default function CustomerServiceSettingsPage() {
       const data = await res.json()
       if (data.ok) {
         setSupportSuccess(true)
+        const connectedEmail = supportEmail
         setSupportEmail(''); setSupportPassword('')
         setSupportImapHost(''); setSupportImapPort('993')
         setSupportSmtpHost(''); setSupportSmtpPort('587')
         setSupportShowAdvanced(false)
-        await reloadConnections()
+        const fresh = await reloadConnections()
+        // Auto-watch the newly connected support inbox by default and persist it.
+        const newConn = (fresh?.cs || []).find((c: EmailConnection) => c.email_address === connectedEmail)
+          || (fresh?.cs || []).find((c: EmailConnection) => !csInboxes.some(x => x.id === c.id))
+        if (newConn) {
+          setWatchedIds(prev => {
+            const next = prev === null ? [newConn.id] : (prev.includes(newConn.id) ? prev : [...prev, newConn.id])
+            // Persist immediately so the inbox starts watching without a manual save.
+            void persistSettings({ watchedConnectionIds: next })
+            return next
+          })
+        }
         setTimeout(() => setSupportSuccess(false), 3000)
       } else {
         setSupportError(data.error || 'Failed to connect the support inbox.')
@@ -131,6 +149,13 @@ export default function CustomerServiceSettingsPage() {
   const [docProgress, setDocProgress] = useState<{ name: string; status: 'pending' | 'done' | 'failed'; error?: string }[]>([])
   const [docSummary, setDocSummary] = useState('')
 
+  // Add-a-web-page (FAQ / website URL) ingestion.
+  const [urlValue, setUrlValue] = useState('')
+  const [urlLabel, setUrlLabel] = useState('')
+  const [urlSaving, setUrlSaving] = useState(false)
+  const [urlError, setUrlError] = useState('')
+  const [urlSuccess, setUrlSuccess] = useState('')
+
   // Add-from-Knowledge-Base picker.
   type KbDoc = { id: string; title: string; alreadyImported: boolean }
   const [kbPickerOpen, setKbPickerOpen] = useState(false)
@@ -156,13 +181,11 @@ export default function CustomerServiceSettingsPage() {
       if (cancelled) return
       if (settingsRes?.ok && settingsRes.data) {
         const s: Settings = settingsRes.data
-        setEnabled(!!s.enabled)
         setWatchedIds(Array.isArray(s.watchedConnectionIds) ? s.watchedConnectionIds : null)
         setReplyMode(s.replyMode === 'auto' || s.replyMode === 'hybrid' ? s.replyMode : 'draft')
         if (typeof s.hybridConfidenceThreshold === 'number' && Number.isFinite(s.hybridConfidenceThreshold)) {
           setHybridThreshold(Math.min(1, Math.max(0, s.hybridConfidenceThreshold)))
         }
-        setSourceModes(s.sourceModes && typeof s.sourceModes === 'object' ? s.sourceModes : {})
         setSignature(s.signature || '')
       }
       if (connRes?.ok) setConnections(connRes.data || [])
@@ -257,6 +280,34 @@ export default function CustomerServiceSettingsPage() {
     setKbSaving(false)
   }
 
+  async function addWebPage() {
+    setUrlError('')
+    setUrlSuccess('')
+    const url = urlValue.trim()
+    if (!url) { setUrlError('Enter a web page URL.'); return }
+    setUrlSaving(true)
+    try {
+      const res = await fetch('/api/customer-service/ingest-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ url, label: urlLabel.trim() || undefined }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (data.ok) {
+        setUrlValue(''); setUrlLabel('')
+        setUrlSuccess('Page added. We pulled the text to help draft replies.')
+        await loadKnowledge()
+        setTimeout(() => setUrlSuccess(''), 4000)
+      } else {
+        setUrlError(data.error || 'Could not add that page.')
+      }
+    } catch {
+      setUrlError('Could not add that page.')
+    }
+    setUrlSaving(false)
+  }
+
   async function openKbPicker() {
     setKbError('')
     setKbPickerOpen(true)
@@ -334,37 +385,26 @@ export default function CustomerServiceSettingsPage() {
       // Empty selection means watch all again.
       return next.length === 0 ? null : next
     })
-    // Drop any per-source override when a mailbox is unchecked.
-    setSourceModes(prev => {
-      if (watchingAll) return prev
-      if (watchedIds?.includes(id)) {
-        const next = { ...prev }
-        delete next[id]
-        return next
-      }
-      return prev
-    })
   }
 
-  // "" = use the account default; otherwise an explicit per-mailbox mode.
-  function setSourceMode(id: string, value: '' | ReplyMode) {
-    setSourceModes(prev => {
-      const next = { ...prev }
-      if (value === '') {
-        delete next[id]
-      } else {
-        next[id] = { mode: value, threshold: prev[id]?.threshold ?? hybridThreshold }
-      }
-      return next
+  // Central PUT helper. The server derives `enabled` from the watched mailboxes,
+  // so the client never sends `enabled` and can never clobber it to false. We do
+  // NOT send sourceModes anymore (one global reply mode applies to all mailboxes).
+  // `overrides` lets callers persist a specific value (e.g. a just-added mailbox)
+  // without waiting for a React state flush.
+  async function persistSettings(overrides?: { watchedConnectionIds?: string[] | null }) {
+    const res = await fetch('/api/customer-service/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        watchedConnectionIds: overrides && 'watchedConnectionIds' in overrides ? overrides.watchedConnectionIds : watchedIds,
+        replyMode,
+        hybridConfidenceThreshold: hybridThreshold,
+        signature: signature.trim() || undefined,
+      }),
     })
-  }
-
-  function setSourceThreshold(id: string, threshold: number) {
-    setSourceModes(prev => {
-      const cur = prev[id]
-      if (!cur) return prev
-      return { ...prev, [id]: { ...cur, threshold: Math.min(1, Math.max(0, threshold)) } }
-    })
+    return res.json()
   }
 
   async function save() {
@@ -372,24 +412,7 @@ export default function CustomerServiceSettingsPage() {
     setSaved(false)
     setError('')
     try {
-      const res = await fetch('/api/customer-service/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          enabled,
-          watchedConnectionIds: watchedIds,
-          replyMode,
-          hybridConfidenceThreshold: hybridThreshold,
-          // Only send overrides for currently-watched mailboxes. When watching
-          // all, the server can't constrain to ids, so send what we have.
-          sourceModes: watchedIds === null
-            ? sourceModes
-            : Object.fromEntries(Object.entries(sourceModes).filter(([k]) => watchedIds.includes(k))),
-          signature: signature.trim() || undefined,
-        }),
-      })
-      const data = await res.json()
+      const data = await persistSettings()
       if (data.ok) {
         setSaved(true)
         setTimeout(() => setSaved(false), 3000)
@@ -409,22 +432,36 @@ export default function CustomerServiceSettingsPage() {
   // opt in to also watch their personal Inbox mailboxes.
   const visibleMailboxes = showSharedMailboxes ? connections : csInboxes
 
+  // The feature is considered set up once at least one dedicated support inbox is
+  // connected. Until then, the Queue shows a guided empty-state.
+  const needsSetup = csInboxes.length === 0
+
   return (
     <div className="p-6 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-1">
+      <div className="mb-1">
         <h1 className="text-lg font-semibold flex items-center gap-2">
           <Headphones className="size-5 text-muted-foreground" /> Customer Service
         </h1>
-        <Button type="button" variant="outline" size="sm"
-          onClick={() => window.location.href = '/backend/customer-service/queue'}>
-          Review queue
-          <ArrowRight className="size-3.5 ml-1" />
-        </Button>
       </div>
-      <p className="text-sm text-muted-foreground mb-6">
+      <p className="text-sm text-muted-foreground mb-4">
         Let Noli reply to incoming customer emails. Choose whether replies wait for your approval, send automatically, or send only when they are confident and safe.
       </p>
 
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'queue' | 'settings')}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="queue">Queue</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="queue">
+          {loading ? (
+            <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">Loading...</div>
+          ) : (
+            <CustomerServiceQueue needsSetup={needsSetup} onGoToSettings={() => setTab('settings')} />
+          )}
+        </TabsContent>
+
+        <TabsContent value="settings">
       {saved && (
         <div className="mb-4 rounded-lg border border-[rgba(16,185,129,.26)] bg-[rgba(16,185,129,.10)] px-4 py-2 text-sm text-[#047857] dark:text-[#34d399] flex items-center gap-2">
           <Check className="size-4" /> Settings saved.
@@ -440,24 +477,6 @@ export default function CustomerServiceSettingsPage() {
         <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">Loading...</div>
       ) : (
         <>
-          {/* Enable */}
-          <section className="mb-8">
-            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <Headphones className="size-4 text-muted-foreground" /> Status
-            </h2>
-            <div className="rounded-lg border">
-              <div className="flex items-center justify-between px-4 py-3">
-                <div className="min-w-0 flex-1 pr-4">
-                  <p className="text-sm font-medium mb-0.5">Reply to customer emails</p>
-                  <p className="text-xs text-muted-foreground">
-                    When on, incoming emails get an AI reply. How it is handled depends on the reply mode you choose below.
-                  </p>
-                </div>
-                <Switch checked={enabled} onCheckedChange={setEnabled} />
-              </div>
-            </div>
-          </section>
-
           {/* Dedicated support inbox */}
           <section className="mb-8">
             <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
@@ -572,58 +591,20 @@ export default function CustomerServiceSettingsPage() {
               ) : (
                 visibleMailboxes.map(conn => {
                   const checked = watchingAll ? false : (watchedIds?.includes(conn.id) ?? false)
-                  const override = sourceModes[conn.id]
-                  const selectValue = override?.mode ?? ''
                   return (
-                    <div key={conn.id}>
-                      <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <input type="checkbox" checked={checked} onChange={() => toggleMailbox(conn.id)}
-                            className="size-4 rounded border-input accent-[#2563eb]" />
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{conn.email_address}</p>
-                            <p className="text-xs text-muted-foreground capitalize">{conn.provider}</p>
-                          </div>
+                    <label key={conn.id} className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <input type="checkbox" checked={checked} onChange={() => toggleMailbox(conn.id)}
+                          className="size-4 rounded border-input accent-[#2563eb]" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{conn.email_address}</p>
+                          <p className="text-xs text-muted-foreground capitalize">{conn.provider}</p>
                         </div>
-                        {conn.purpose === 'customer_service'
-                          ? <Badge variant="violet">Support</Badge>
-                          : conn.is_primary && <Badge variant="secondary">Primary</Badge>}
-                      </label>
-                      {checked && (
-                        <div className="px-4 pb-3 pl-11 flex flex-wrap items-center gap-2">
-                          <span className="text-[11px] text-muted-foreground">Reply mode for this mailbox:</span>
-                          <select
-                            value={selectValue}
-                            onChange={e => setSourceMode(conn.id, e.target.value as '' | ReplyMode)}
-                            className="rounded-md border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                          >
-                            <option value="">
-                              Use account default ({replyMode === 'auto' ? 'Auto-send' : replyMode === 'hybrid' ? 'Hybrid' : 'Draft for approval'})
-                            </option>
-                            <option value="draft">Draft for approval</option>
-                            <option value="auto">Auto-send</option>
-                            <option value="hybrid">Hybrid</option>
-                          </select>
-                          {override?.mode === 'hybrid' && (
-                            <span className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-muted-foreground">Threshold</span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={1}
-                                step={0.05}
-                                value={override.threshold}
-                                onChange={e => {
-                                  const v = Number(e.target.value)
-                                  if (Number.isFinite(v)) setSourceThreshold(conn.id, v)
-                                }}
-                                className="w-20 rounded-md border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                              />
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                      {conn.purpose === 'customer_service'
+                        ? <Badge variant="violet">Support</Badge>
+                        : conn.is_primary && <Badge variant="secondary">Primary</Badge>}
+                    </label>
                   )
                 })
               )}
@@ -768,6 +749,8 @@ export default function CustomerServiceSettingsPage() {
                         <Badge variant="secondary" className="shrink-0">
                           {entry.kind === 'model_answer' ? (
                             <span className="flex items-center gap-1"><MessageSquareQuote className="size-3" /> Model answer</span>
+                          ) : entry.isWebSource ? (
+                            <span className="flex items-center gap-1"><Globe className="size-3" /> Web page</span>
                           ) : (
                             <span className="flex items-center gap-1"><FileText className="size-3" /> Document</span>
                           )}
@@ -776,7 +759,15 @@ export default function CustomerServiceSettingsPage() {
                       </div>
                       <p className="text-xs text-muted-foreground line-clamp-2">{entry.contentPreview}</p>
                       {entry.sourceFilename && (
-                        <p className="text-[11px] text-muted-foreground mt-0.5">From {entry.sourceFilename}</p>
+                        entry.isWebSource && entry.sourceUrl ? (
+                          <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1 min-w-0">
+                            <Globe className="size-3 shrink-0" />
+                            <a href={entry.sourceUrl} target="_blank" rel="noopener noreferrer"
+                              className="truncate underline hover:text-foreground">{entry.sourceFilename}</a>
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground mt-0.5">From {entry.sourceFilename}</p>
+                        )
                       )}
                     </div>
                     <button type="button" onClick={() => deleteKnowledge(entry.id)}
@@ -786,6 +777,89 @@ export default function CustomerServiceSettingsPage() {
                   </div>
                 ))
               )}
+            </div>
+
+            {/* Add from Knowledge Base */}
+            <div className="rounded-lg border mb-4">
+              <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    <BookOpen className="size-4 text-muted-foreground" /> Add from Knowledge Base
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Pull documents you have stored in your Knowledge Base straight into this library.
+                  </p>
+                </div>
+                {!kbPickerOpen && (
+                  <Button type="button" size="sm" variant="outline" onClick={openKbPicker} className="shrink-0">
+                    <BookOpen className="size-3.5 mr-1" /> Browse Knowledge Base
+                  </Button>
+                )}
+              </div>
+              {kbPickerOpen && (
+                <div className="px-4 py-3 space-y-3">
+                  {kbDocsLoading ? (
+                    <p className="text-xs text-muted-foreground py-4 text-center">Loading your Knowledge Base...</p>
+                  ) : !kbConnected ? (
+                    <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">
+                      Could not connect to your Knowledge Base right now. Make sure you have one set up, then try again.
+                    </div>
+                  ) : kbDocs.length === 0 ? (
+                    <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">
+                      No documents found in your Knowledge Base yet.
+                    </div>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
+                      {kbDocs.map(doc => (
+                        <label key={doc.id} className={`flex items-center gap-2 px-3 py-2 text-sm ${doc.alreadyImported ? 'opacity-60' : 'cursor-pointer hover:bg-muted/40'}`}>
+                          <input type="checkbox" disabled={doc.alreadyImported}
+                            checked={kbSelectedIds.has(doc.id)} onChange={() => toggleKbDoc(doc.id)}
+                            className="size-4 shrink-0" />
+                          <span className="truncate flex-1">{doc.title}</span>
+                          {doc.alreadyImported && <span className="text-[11px] text-muted-foreground shrink-0">Already added</span>}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Button type="button" size="sm" onClick={importSelectedKbDocs} disabled={kbImporting || kbSelectedIds.size === 0}>
+                      <Plus className="size-3.5 mr-1" /> {kbSelectedIds.size > 0 ? `Add selected (${kbSelectedIds.size})` : 'Add selected'}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => { setKbPickerOpen(false); setKbSelectedIds(new Set()) }} disabled={kbImporting}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Add a web page (FAQ / website URL) */}
+            <div className="rounded-lg border mb-4">
+              <div className="px-4 py-3 border-b">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <Globe className="size-4 text-muted-foreground" /> Add a web page
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Add your FAQ page or website URL. We pull the text to help draft accurate replies.
+                </p>
+              </div>
+              <div className="px-4 py-3 space-y-3">
+                {urlError && (
+                  <p className="text-xs text-[#b91c1c] dark:text-[#f87171]">{urlError}</p>
+                )}
+                {urlSuccess && (
+                  <p className="text-xs text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> {urlSuccess}</p>
+                )}
+                <input value={urlValue} onChange={e => setUrlValue(e.target.value)}
+                  placeholder="https://yourbusiness.com/faq" type="url"
+                  className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                <input value={urlLabel} onChange={e => setUrlLabel(e.target.value)}
+                  placeholder="Label (optional), e.g. FAQ page"
+                  className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                <Button type="button" size="sm" onClick={addWebPage} disabled={urlSaving || !urlValue.trim()}>
+                  {urlSaving ? 'Adding page...' : <><Plus className="size-3.5 mr-1" /> Add web page</>}
+                </Button>
+              </div>
             </div>
 
             {/* Add a model answer */}
@@ -861,62 +935,11 @@ export default function CustomerServiceSettingsPage() {
               </div>
             </div>
 
-            {/* Add from Knowledge Base */}
-            <div className="rounded-lg border">
-              <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium flex items-center gap-2">
-                    <BookOpen className="size-4 text-muted-foreground" /> Add from Knowledge Base
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Pull documents you have stored in your Knowledge Base straight into this library.
-                  </p>
-                </div>
-                {!kbPickerOpen && (
-                  <Button type="button" size="sm" variant="outline" onClick={openKbPicker} className="shrink-0">
-                    <BookOpen className="size-3.5 mr-1" /> Browse Knowledge Base
-                  </Button>
-                )}
-              </div>
-              {kbPickerOpen && (
-                <div className="px-4 py-3 space-y-3">
-                  {kbDocsLoading ? (
-                    <p className="text-xs text-muted-foreground py-4 text-center">Loading your Knowledge Base...</p>
-                  ) : !kbConnected ? (
-                    <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">
-                      Could not connect to your Knowledge Base right now. Make sure you have one set up, then try again.
-                    </div>
-                  ) : kbDocs.length === 0 ? (
-                    <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">
-                      No documents found in your Knowledge Base yet.
-                    </div>
-                  ) : (
-                    <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
-                      {kbDocs.map(doc => (
-                        <label key={doc.id} className={`flex items-center gap-2 px-3 py-2 text-sm ${doc.alreadyImported ? 'opacity-60' : 'cursor-pointer hover:bg-muted/40'}`}>
-                          <input type="checkbox" disabled={doc.alreadyImported}
-                            checked={kbSelectedIds.has(doc.id)} onChange={() => toggleKbDoc(doc.id)}
-                            className="size-4 shrink-0" />
-                          <span className="truncate flex-1">{doc.title}</span>
-                          {doc.alreadyImported && <span className="text-[11px] text-muted-foreground shrink-0">Already added</span>}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Button type="button" size="sm" onClick={importSelectedKbDocs} disabled={kbImporting || kbSelectedIds.size === 0}>
-                      <Plus className="size-3.5 mr-1" /> {kbSelectedIds.size > 0 ? `Add selected (${kbSelectedIds.size})` : 'Add selected'}
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => { setKbPickerOpen(false); setKbSelectedIds(new Set()) }} disabled={kbImporting}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
           </section>
         </>
       )}
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Mail, Inbox, AtSign } from 'lucide-react'
 
 /**
  * Shared, self-contained App Password setup guides.
@@ -23,7 +24,7 @@ export default function AppPasswordGuides() {
           onClick={() => setOpenGuide(g => g === 'gmail' ? null : 'gmail')}
         >
           <span className="flex items-center gap-2">
-            <span className="text-base">📧</span> Gmail
+            <Mail className="size-4 text-muted-foreground shrink-0" /> Gmail
           </span>
           <span className="text-muted-foreground">{openGuide === 'gmail' ? '▲' : '▼'}</span>
         </button>
@@ -36,7 +37,7 @@ export default function AppPasswordGuides() {
               <li><span className="font-medium text-foreground">3.</span> Under <strong>"How you sign in to Google"</strong>, confirm <strong>2-Step Verification</strong> shows as On. If it's off, click it and follow the steps to turn it on (you'll need your phone).</li>
               <li><span className="font-medium text-foreground">4.</span> Once 2-Step Verification is on, use the <strong>search bar at the top</strong> of myaccount.google.com and search <strong>"App Passwords"</strong> — it won't appear in the menu, search is the easiest way to find it</li>
               <li><span className="font-medium text-foreground">5.</span> You may be asked to re-enter your Google password</li>
-              <li><span className="font-medium text-foreground">6.</span> In the <strong>App name</strong> box, type <strong>LaunchOS CRM</strong></li>
+              <li><span className="font-medium text-foreground">6.</span> In the <strong>App name</strong> box, type <strong>Noli CRM</strong></li>
               <li><span className="font-medium text-foreground">7.</span> Click <strong>Create</strong></li>
               <li><span className="font-medium text-foreground">8.</span> Google shows a <strong>16-character password</strong> in a yellow box (looks like: <span className="font-mono bg-muted px-1 rounded">xxxx xxxx xxxx xxxx</span>)</li>
               <li><span className="font-medium text-foreground">9.</span> Copy that password — <strong>you only see it once</strong></li>
@@ -55,7 +56,7 @@ export default function AppPasswordGuides() {
           onClick={() => setOpenGuide(g => g === 'outlook' ? null : 'outlook')}
         >
           <span className="flex items-center gap-2">
-            <span className="text-base">📨</span> Outlook / Hotmail / Microsoft 365
+            <Inbox className="size-4 text-muted-foreground shrink-0" /> Outlook / Hotmail / Microsoft 365
           </span>
           <span className="text-muted-foreground">{openGuide === 'outlook' ? '▲' : '▼'}</span>
         </button>
@@ -84,7 +85,7 @@ export default function AppPasswordGuides() {
           onClick={() => setOpenGuide(g => g === 'other' ? null : 'other')}
         >
           <span className="flex items-center gap-2">
-            <span className="text-base">📬</span> Yahoo, iCloud, or other providers
+            <AtSign className="size-4 text-muted-foreground shrink-0" /> Yahoo, iCloud, or other providers
           </span>
           <span className="text-muted-foreground">{openGuide === 'other' ? '▲' : '▼'}</span>
         </button>
@@ -95,7 +96,7 @@ export default function AppPasswordGuides() {
               <ol className="space-y-1 list-none">
                 <li><span className="font-medium text-foreground">1.</span> Go to <span className="font-mono bg-muted px-1 rounded">login.yahoo.com</span> → click your name → <strong>Account Security</strong></li>
                 <li><span className="font-medium text-foreground">2.</span> Enable <strong>Two-step verification</strong> if not already on</li>
-                <li><span className="font-medium text-foreground">3.</span> Scroll to <strong>"Generate app password"</strong>, select <strong>Other App</strong>, type <strong>LaunchOS CRM</strong>, click <strong>Generate</strong></li>
+                <li><span className="font-medium text-foreground">3.</span> Scroll to <strong>"Generate app password"</strong>, select <strong>Other App</strong>, type <strong>Noli CRM</strong>, click <strong>Generate</strong></li>
                 <li><span className="font-medium text-foreground">4.</span> Copy the password shown and paste it above</li>
               </ol>
             </div>
@@ -105,7 +106,7 @@ export default function AppPasswordGuides() {
                 <li><span className="font-medium text-foreground">1.</span> Go to <span className="font-mono bg-muted px-1 rounded">appleid.apple.com</span></li>
                 <li><span className="font-medium text-foreground">2.</span> Sign in → click <strong>Sign-In and Security</strong></li>
                 <li><span className="font-medium text-foreground">3.</span> Click <strong>App-Specific Passwords</strong> → <strong>Generate an app-specific password</strong></li>
-                <li><span className="font-medium text-foreground">4.</span> Enter a label like <strong>LaunchOS CRM</strong> → click <strong>Create</strong></li>
+                <li><span className="font-medium text-foreground">4.</span> Enter a label like <strong>Noli CRM</strong> → click <strong>Create</strong></li>
                 <li><span className="font-medium text-foreground">5.</span> Copy the password and paste it above. Use your full iCloud email (e.g. you@icloud.com).</li>
               </ol>
             </div>

@@ -56,16 +56,34 @@ function previewOf(content: string): string {
   return flat.length > 200 ? `${flat.substring(0, 200)}...` : flat
 }
 
+// Turn a stored source marker into a friendly label. KB imports use "kb:<id>"
+// and web-page imports use "url:<the url>"; everything else (uploaded filenames)
+// is shown as-is.
+function friendlySource(raw: unknown): { label: string | null; url: string | null; isWeb: boolean } {
+  if (typeof raw !== 'string') return { label: null, url: null, isWeb: false }
+  if (raw.startsWith('kb:')) return { label: 'Knowledge Base', url: null, isWeb: false }
+  if (raw.startsWith('url:')) {
+    const url = raw.slice('url:'.length)
+    let label = url
+    try {
+      const u = new URL(url)
+      label = u.hostname.replace(/^www\./, '') + (u.pathname !== '/' ? u.pathname : '')
+    } catch {}
+    return { label, url, isWeb: true }
+  }
+  return { label: raw, url: null, isWeb: false }
+}
+
 function serializeListRow(row: any) {
-  // KB-imported docs store their origin as "kb:<id>" in source_filename for
-  // dedupe. Surface a friendly label instead of the raw marker.
-  const raw = row.source_filename ?? null
-  const sourceFilename = typeof raw === 'string' && raw.startsWith('kb:') ? 'Knowledge Base' : raw
+  const src = friendlySource(row.source_filename ?? null)
   return {
     id: row.id,
     kind: row.kind,
     title: row.title,
-    sourceFilename,
+    sourceFilename: src.label,
+    // Surfaced so the UI can render a globe indicator + link to the original page.
+    sourceUrl: src.url,
+    isWebSource: src.isWeb,
     contentPreview: previewOf(row.content || ''),
     createdAt: row.created_at,
   }
