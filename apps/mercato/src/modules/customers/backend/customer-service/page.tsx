@@ -56,8 +56,9 @@ type KnowledgeEntry = {
 }
 
 export default function CustomerServiceSettingsPage() {
-  // Queue is the default view; Settings holds the configuration UI.
-  const [tab, setTab] = useState<'queue' | 'settings'>('queue')
+  // Queue is the default view; Settings holds the configuration UI; Accounts
+  // holds the channel connections (support inbox, SMS number, website chat).
+  const [tab, setTab] = useState<'queue' | 'settings' | 'accounts'>('queue')
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -715,10 +716,11 @@ export default function CustomerServiceSettingsPage() {
         Let Noli reply to incoming customer emails. Choose whether replies wait for your approval, send automatically, or send only when they are confident and safe.
       </p>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'queue' | 'settings')}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'queue' | 'settings' | 'accounts')}>
         <TabsList className="mb-4">
           <TabsTrigger value="queue">Queue</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="accounts">Accounts</TabsTrigger>
         </TabsList>
 
         <TabsContent value="queue">
@@ -734,147 +736,6 @@ export default function CustomerServiceSettingsPage() {
         <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">Loading...</div>
       ) : (
         <>
-          {/* Dedicated support inbox */}
-          <section className="mb-8">
-            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <Mail className="size-4 text-muted-foreground" /> Dedicated support inbox
-            </h2>
-            <p className="text-xs text-muted-foreground mb-3">
-              Connect a mailbox used only for customer support, such as support@yourbusiness.com. It stays separate from your personal Inbox. Customer Service watches it on its own.
-            </p>
-
-            {/* Connected support inboxes */}
-            <div className="rounded-lg border divide-y mb-3">
-              {csInboxes.length === 0 ? (
-                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  No dedicated support inbox yet. Connect one below.
-                </div>
-              ) : (
-                csInboxes.map(conn => (
-                  <div key={conn.id} className="flex items-center justify-between px-4 py-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Mail className="size-4 text-muted-foreground shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate flex items-center gap-2">
-                          {conn.email_address}
-                          <Badge variant="violet">Support</Badge>
-                        </p>
-                        <p className="text-xs text-muted-foreground">Dedicated to Customer Service (IMAP/SMTP)</p>
-                      </div>
-                    </div>
-                    <Button type="button" variant="outline" size="sm"
-                      disabled={csDisconnecting === conn.id}
-                      onClick={() => disconnectSupportInbox(conn.id, conn.email_address)}>
-                      {csDisconnecting === conn.id ? 'Disconnecting...' : <><XIcon className="size-3 mr-1" /> Disconnect</>}
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Connect a new dedicated support inbox */}
-            <div className="rounded-lg border">
-              <div className="px-4 py-3 border-b">
-                <p className="text-sm font-medium flex items-center gap-2">
-                  <Server className="size-4 text-muted-foreground" /> Connect a dedicated support inbox
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Works with Gmail, Outlook, or any provider that supports IMAP/SMTP. Use an App Password, not your normal password.
-                </p>
-              </div>
-              <div className="px-4 py-3 space-y-2">
-                {supportError && (
-                  <p className="text-xs text-[#b91c1c] dark:text-[#f87171]">{supportError}</p>
-                )}
-                {supportSuccess && (
-                  <p className="text-xs text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> Support inbox connected.</p>
-                )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <Input value={supportEmail} onChange={e => setSupportEmail(e.target.value)}
-                    placeholder="support@yourbusiness.com" className="h-8 text-xs" type="email" />
-                  <Input value={supportPassword} onChange={e => setSupportPassword(e.target.value)}
-                    type="password" placeholder="App Password" className="h-8 text-xs" />
-                </div>
-                <button type="button" className="text-xs text-muted-foreground underline block"
-                  onClick={() => setSupportShowAdvanced(v => !v)}>
-                  {supportShowAdvanced ? 'Hide advanced settings' : 'Advanced: custom server settings'}
-                </button>
-                {supportShowAdvanced && (
-                  <div className="grid grid-cols-2 gap-2 p-3 rounded-md bg-muted/40 border">
-                    <Input value={supportImapHost} onChange={e => setSupportImapHost(e.target.value)}
-                      placeholder="IMAP host (auto-detected)" className="h-8 text-xs" />
-                    <Input value={supportImapPort} onChange={e => setSupportImapPort(e.target.value)}
-                      placeholder="IMAP port (993)" className="h-8 text-xs" />
-                    <Input value={supportSmtpHost} onChange={e => setSupportSmtpHost(e.target.value)}
-                      placeholder="SMTP host (auto-detected)" className="h-8 text-xs" />
-                    <Input value={supportSmtpPort} onChange={e => setSupportSmtpPort(e.target.value)}
-                      placeholder="SMTP port (587)" className="h-8 text-xs" />
-                  </div>
-                )}
-                <Button type="button" variant="outline" size="sm" onClick={connectSupportInbox}
-                  disabled={supportSaving || !supportEmail || !supportPassword}>
-                  {supportSaving ? 'Testing connection...' : 'Connect support inbox'}
-                </Button>
-                <div className="pt-1">
-                  <AppPasswordGuides />
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Source mailboxes */}
-          <section className="mb-8">
-            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <Mail className="size-4 text-muted-foreground" /> Mailboxes to watch
-            </h2>
-            <div className="rounded-lg border divide-y">
-              <div className="px-4 py-3 flex items-start justify-between gap-3">
-                <p className="text-xs text-muted-foreground">
-                  Your dedicated support inboxes are watched automatically. Leave everything unchecked to watch every support inbox, or check specific ones to narrow it down.
-                </p>
-                {personalMailboxes.length > 0 && (
-                  <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
-                    <input type="checkbox" checked={showSharedMailboxes}
-                      onChange={e => setShowSharedMailboxes(e.target.checked)}
-                      className="size-3.5 rounded border-input accent-[#2563eb]" />
-                    <span className="text-[11px] text-muted-foreground">Also watch personal Inbox mailboxes</span>
-                  </label>
-                )}
-              </div>
-              {visibleMailboxes.length === 0 ? (
-                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  No support inbox connected yet. Connect one above to get started.
-                </div>
-              ) : (
-                visibleMailboxes.map(conn => {
-                  const checked = watchingAll ? false : (watchedIds?.includes(conn.id) ?? false)
-                  return (
-                    <label key={conn.id} className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <input type="checkbox" checked={checked} onChange={() => toggleMailbox(conn.id)}
-                          className="size-4 rounded border-input accent-[#2563eb]" />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{conn.email_address}</p>
-                          <p className="text-xs text-muted-foreground capitalize">{conn.provider}</p>
-                        </div>
-                      </div>
-                      {conn.purpose === 'customer_service'
-                        ? <Badge variant="violet">Support</Badge>
-                        : conn.is_primary && <Badge variant="secondary">Primary</Badge>}
-                    </label>
-                  )
-                })
-              )}
-              {visibleMailboxes.length > 0 && (
-                <div className="px-4 py-2.5 bg-muted/30">
-                  <p className="text-[11px] text-muted-foreground">
-                    {watchingAll ? 'Watching all connected mailboxes.' : `Watching ${watchedIds?.length} selected mailbox${watchedIds?.length === 1 ? '' : 'es'}.`}
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
-
           {/* Reply mode */}
           <section className="mb-8">
             <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
@@ -1060,237 +921,6 @@ export default function CustomerServiceSettingsPage() {
                 <p className="text-[11px] text-muted-foreground mt-1.5">Added to the end of drafted replies. We prefilled a default from your business name. Edit or clear it anytime. You can still edit each draft before sending.</p>
               </div>
             </div>
-          </section>
-
-          {/* Customer service SMS number */}
-          <section className="mb-8">
-            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <MessageSquare className="size-4 text-muted-foreground" /> Customer service SMS number
-            </h2>
-            <p className="text-xs text-muted-foreground mb-3">
-              Use a dedicated Twilio number for support texts. Texts to this number are drafted by Noli and follow the reply mode above. Connect your Twilio account in Settings first. Use a number that is different from the one your Inbox uses, so support texts and inbox texts stay separate.
-            </p>
-            <div className="rounded-lg border">
-              <div className="px-4 py-3 space-y-2">
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">
-                  Support SMS number <span className="normal-case font-normal">(optional)</span>
-                </label>
-                <Input
-                  value={csSmsNumber}
-                  onChange={e => setCsSmsNumber(e.target.value)}
-                  placeholder="+1 415 555 0123"
-                  className="h-9 text-sm"
-                  inputMode="tel"
-                />
-                {twilioNumber ? (
-                  csSmsNumber.trim() === '' ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      Your connected Twilio number is {twilioNumber}. Enter a different number to dedicate to support, then set its inbound webhook below.
-                    </p>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground">
-                      Enter the Twilio number you want to use only for support. It must be different from your Inbox number ({twilioNumber}).
-                    </p>
-                  )
-                ) : (
-                  <p className="text-[11px] text-muted-foreground">
-                    No Twilio account connected yet. Connect Twilio in Settings, then enter a dedicated support number here.
-                  </p>
-                )}
-                <div className="rounded-md bg-muted/40 border px-3 py-2 mt-1">
-                  <p className="text-[11px] font-medium text-muted-foreground mb-1">In Twilio, set this number&apos;s inbound message webhook to:</p>
-                  <code className="text-xs break-all">https://crm.noliai.com/api/sms/webhook</code>
-                  <p className="text-[11px] text-muted-foreground mt-1.5">
-                    Method POST. This is the same webhook your Inbox uses, so the number you choose here must be a separate number from your Inbox number.
-                  </p>
-                </div>
-                <div className="pt-1">
-                  <TwilioSmsGuide />
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Website chat — Customer Service owns website chat. Set up the widget
-              here (appearance + deployment); answers and escalation come from the
-              rest of these Customer Service settings. */}
-          <section className="mb-8">
-            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <Globe className="size-4 text-muted-foreground" /> Website chat
-            </h2>
-            <p className="text-xs text-muted-foreground mb-3">
-              Add live chat to your website. Customer Service powers it: visitors get an instant answer grounded in your knowledge and model answers, each message is checked against your flag scenarios, and a flagged message that pauses for review is held for you while the visitor sees a brief note that someone will follow up. Set the look of your widget below, then copy the embed code or share the hosted page link.
-            </p>
-
-            {/* Master toggle */}
-            <div className="rounded-lg border mb-3">
-              <label className="flex items-start justify-between gap-3 px-4 py-3 cursor-pointer">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">Handle website chat</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Route incoming chat messages through Customer Service. Uses your reply mode, flag scenarios, and knowledge. Turning this off pauses automatic answers on your chat widgets.
-                  </p>
-                </div>
-                <input type="checkbox" checked={csChatEnabled}
-                  onChange={e => setCsChatEnabled(e.target.checked)}
-                  className="size-4 mt-0.5 rounded border-input accent-[#2563eb] shrink-0" />
-              </label>
-            </div>
-
-            {widgetError && (
-              <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{widgetError}</p>
-            )}
-
-            {/* Existing widgets */}
-            <div className="rounded-lg border divide-y mb-3">
-              {!widgetsLoaded ? (
-                <div className="px-4 py-6 text-center text-xs text-muted-foreground">Loading your chat widgets...</div>
-              ) : widgets.length === 0 ? (
-                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  No chat widget yet. Create one below to add chat to your website.
-                </div>
-              ) : (
-                widgets.map(w => {
-                  const hostedUrl = w.slug ? `${origin}/api/chat/page/${w.slug}` : ''
-                  const embed = w.embedCode || `<script src="${origin}/api/chat/widget/${w.id}" async></script>`
-                  const isEditing = editWidgetId === w.id
-                  return (
-                    <div key={w.id} className="px-4 py-3 space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="size-3 rounded-full shrink-0" style={{ backgroundColor: w.brand_color || '#6d28d9' }} />
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate flex items-center gap-2">
-                              {w.name}
-                              <Badge variant={w.is_active ? 'violet' : 'secondary'}>{w.is_active ? 'Active' : 'Inactive'}</Badge>
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {w.business_name || w.name}
-                              {typeof w.conversation_count === 'number' ? ` · ${w.conversation_count} conversations` : ''}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Button type="button" variant="outline" size="sm"
-                            disabled={widgetBusy === w.id}
-                            onClick={() => patchWidget(w.id, { isActive: !w.is_active })}>
-                            {w.is_active ? 'Disable' : 'Enable'}
-                          </Button>
-                          <Button type="button" variant="outline" size="sm"
-                            onClick={() => (isEditing ? setEditWidgetId(null) : beginEditWidget(w))}>
-                            {isEditing ? 'Close' : 'Edit'}
-                          </Button>
-                          <button type="button" onClick={() => deleteWidget(w.id)}
-                            disabled={widgetBusy === w.id}
-                            className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Delete widget">
-                            <Trash2 className="size-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {isEditing && (
-                        <div className="rounded-md border bg-muted/30 px-3 py-3 space-y-2.5">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <Input value={ewName} onChange={e => setEwName(e.target.value)} placeholder="Widget name" className="h-8 text-xs" />
-                            <Input value={ewBusinessName} onChange={e => setEwBusinessName(e.target.value)} placeholder="Business name (shown to visitors)" className="h-8 text-xs" />
-                          </div>
-                          <textarea value={ewWelcome} onChange={e => setEwWelcome(e.target.value)}
-                            placeholder="Welcome message"
-                            className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-16" />
-                          <div className="flex items-center gap-2">
-                            <input type="color" value={ewBrandColor} onChange={e => setEwBrandColor(e.target.value)}
-                              className="size-8 rounded-md border cursor-pointer p-0" />
-                            <Input value={ewBrandColor} onChange={e => setEwBrandColor(e.target.value)} placeholder="#6d28d9" className="h-8 text-xs font-mono w-28" />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button type="button" size="sm" onClick={saveEditWidget} disabled={widgetBusy === w.id || !ewName.trim()}>
-                              {widgetBusy === w.id ? 'Saving...' : 'Save changes'}
-                            </Button>
-                            <Button type="button" size="sm" variant="ghost" onClick={() => setEditWidgetId(null)}>Cancel</Button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Hosted public page */}
-                      <label className="flex items-center justify-between gap-3 cursor-pointer">
-                        <span className="text-xs text-muted-foreground">Hosted chat page (a shareable link to a full-page chat)</span>
-                        <input type="checkbox" checked={w.public_page_enabled}
-                          onChange={() => patchWidget(w.id, { publicPageEnabled: !w.public_page_enabled })}
-                          disabled={widgetBusy === w.id}
-                          className="size-4 rounded border-input accent-[#2563eb] shrink-0" />
-                      </label>
-
-                      {/* Embed code */}
-                      <div className="rounded-md bg-muted/40 border px-3 py-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5"><Code className="size-3" /> Embed code</span>
-                          <button type="button" onClick={() => copyText(`embed-${w.id}`, embed)}
-                            className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
-                            {copiedKey === `embed-${w.id}` ? <><Check className="size-3 text-[#047857] dark:text-[#34d399]" /> Copied</> : <>Copy</>}
-                          </button>
-                        </div>
-                        <code className="text-[11px] break-all block leading-relaxed text-muted-foreground">{embed}</code>
-                        <p className="text-[11px] text-muted-foreground mt-1.5">Paste this just before the closing &lt;/body&gt; tag on your site.</p>
-                      </div>
-
-                      {/* Hosted page link */}
-                      {w.public_page_enabled && w.slug && (
-                        <div className="rounded-md bg-muted/40 border px-3 py-2">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5"><LinkIcon className="size-3" /> Hosted page link</span>
-                            <div className="flex items-center gap-2">
-                              <button type="button" onClick={() => copyText(`link-${w.id}`, hostedUrl)}
-                                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
-                                {copiedKey === `link-${w.id}` ? <><Check className="size-3 text-[#047857] dark:text-[#34d399]" /> Copied</> : <>Copy</>}
-                              </button>
-                              <button type="button" onClick={() => window.open(hostedUrl, '_blank')}
-                                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
-                                <ExternalLink className="size-3" /> Open
-                              </button>
-                            </div>
-                          </div>
-                          <code className="text-[11px] break-all block leading-relaxed text-muted-foreground">{hostedUrl}</code>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
-              )}
-            </div>
-
-            {/* Create a new widget */}
-            {showWidgetForm ? (
-              <div className="rounded-lg border">
-                <div className="px-4 py-3 border-b">
-                  <p className="text-sm font-medium flex items-center gap-2"><Plus className="size-4 text-muted-foreground" /> New chat widget</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Set how the widget looks. Answers come from your Customer Service knowledge and flag scenarios above.</p>
-                </div>
-                <div className="px-4 py-3 space-y-2.5">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <Input value={nwName} onChange={e => setNwName(e.target.value)} placeholder="Widget name, e.g. Main Site Chat" className="h-8 text-xs" />
-                    <Input value={nwBusinessName} onChange={e => setNwBusinessName(e.target.value)} placeholder="Business name (shown to visitors)" className="h-8 text-xs" />
-                  </div>
-                  <textarea value={nwWelcome} onChange={e => setNwWelcome(e.target.value)}
-                    placeholder="Welcome message"
-                    className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-16" />
-                  <div className="flex items-center gap-2">
-                    <input type="color" value={nwBrandColor} onChange={e => setNwBrandColor(e.target.value)}
-                      className="size-8 rounded-md border cursor-pointer p-0" />
-                    <Input value={nwBrandColor} onChange={e => setNwBrandColor(e.target.value)} placeholder="#6d28d9" className="h-8 text-xs font-mono w-28" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button type="button" size="sm" onClick={createWidget} disabled={nwSaving || !nwName.trim()}>
-                      {nwSaving ? 'Creating...' : <><Plus className="size-3.5 mr-1" /> Create widget</>}
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => { setShowWidgetForm(false); setWidgetError('') }}>Cancel</Button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <Button type="button" variant="outline" size="sm" onClick={() => { setShowWidgetForm(true); setWidgetError('') }}>
-                <Plus className="size-3.5 mr-1" /> Create a chat widget
-              </Button>
-            )}
           </section>
 
           {/* Settings autosave as you change them. This row just reflects status. */}
@@ -1525,6 +1155,402 @@ export default function CustomerServiceSettingsPage() {
             </div>
 
           </section>
+        </>
+      )}
+        </TabsContent>
+
+        <TabsContent value="accounts">
+      {loading ? (
+        <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">Loading...</div>
+      ) : (
+        <>
+          {/* Dedicated support inbox */}
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <Mail className="size-4 text-muted-foreground" /> Dedicated support inbox
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Connect a mailbox used only for customer support, such as support@yourbusiness.com. It stays separate from your personal Inbox. Customer Service watches it on its own.
+            </p>
+
+            {/* Connected support inboxes */}
+            <div className="rounded-lg border divide-y mb-3">
+              {csInboxes.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  No dedicated support inbox yet. Connect one below.
+                </div>
+              ) : (
+                csInboxes.map(conn => (
+                  <div key={conn.id} className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Mail className="size-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate flex items-center gap-2">
+                          {conn.email_address}
+                          <Badge variant="violet">Support</Badge>
+                        </p>
+                        <p className="text-xs text-muted-foreground">Dedicated to Customer Service (IMAP/SMTP)</p>
+                      </div>
+                    </div>
+                    <Button type="button" variant="outline" size="sm"
+                      disabled={csDisconnecting === conn.id}
+                      onClick={() => disconnectSupportInbox(conn.id, conn.email_address)}>
+                      {csDisconnecting === conn.id ? 'Disconnecting...' : <><XIcon className="size-3 mr-1" /> Disconnect</>}
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Connect a new dedicated support inbox */}
+            <div className="rounded-lg border">
+              <div className="px-4 py-3 border-b">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <Server className="size-4 text-muted-foreground" /> Connect a dedicated support inbox
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Works with Gmail, Outlook, or any provider that supports IMAP/SMTP. Use an App Password, not your normal password.
+                </p>
+              </div>
+              <div className="px-4 py-3 space-y-2">
+                {supportError && (
+                  <p className="text-xs text-[#b91c1c] dark:text-[#f87171]">{supportError}</p>
+                )}
+                {supportSuccess && (
+                  <p className="text-xs text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> Support inbox connected.</p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <Input value={supportEmail} onChange={e => setSupportEmail(e.target.value)}
+                    placeholder="support@yourbusiness.com" className="h-8 text-xs" type="email" />
+                  <Input value={supportPassword} onChange={e => setSupportPassword(e.target.value)}
+                    type="password" placeholder="App Password" className="h-8 text-xs" />
+                </div>
+                <button type="button" className="text-xs text-muted-foreground underline block"
+                  onClick={() => setSupportShowAdvanced(v => !v)}>
+                  {supportShowAdvanced ? 'Hide advanced settings' : 'Advanced: custom server settings'}
+                </button>
+                {supportShowAdvanced && (
+                  <div className="grid grid-cols-2 gap-2 p-3 rounded-md bg-muted/40 border">
+                    <Input value={supportImapHost} onChange={e => setSupportImapHost(e.target.value)}
+                      placeholder="IMAP host (auto-detected)" className="h-8 text-xs" />
+                    <Input value={supportImapPort} onChange={e => setSupportImapPort(e.target.value)}
+                      placeholder="IMAP port (993)" className="h-8 text-xs" />
+                    <Input value={supportSmtpHost} onChange={e => setSupportSmtpHost(e.target.value)}
+                      placeholder="SMTP host (auto-detected)" className="h-8 text-xs" />
+                    <Input value={supportSmtpPort} onChange={e => setSupportSmtpPort(e.target.value)}
+                      placeholder="SMTP port (587)" className="h-8 text-xs" />
+                  </div>
+                )}
+                <Button type="button" variant="outline" size="sm" onClick={connectSupportInbox}
+                  disabled={supportSaving || !supportEmail || !supportPassword}>
+                  {supportSaving ? 'Testing connection...' : 'Connect support inbox'}
+                </Button>
+                <div className="pt-1">
+                  <AppPasswordGuides />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Source mailboxes */}
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <Mail className="size-4 text-muted-foreground" /> Mailboxes to watch
+            </h2>
+            <div className="rounded-lg border divide-y">
+              <div className="px-4 py-3 flex items-start justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Your dedicated support inboxes are watched automatically. Leave everything unchecked to watch every support inbox, or check specific ones to narrow it down.
+                </p>
+                {personalMailboxes.length > 0 && (
+                  <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
+                    <input type="checkbox" checked={showSharedMailboxes}
+                      onChange={e => setShowSharedMailboxes(e.target.checked)}
+                      className="size-3.5 rounded border-input accent-[#2563eb]" />
+                    <span className="text-[11px] text-muted-foreground">Also watch personal Inbox mailboxes</span>
+                  </label>
+                )}
+              </div>
+              {visibleMailboxes.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  No support inbox connected yet. Connect one above to get started.
+                </div>
+              ) : (
+                visibleMailboxes.map(conn => {
+                  const checked = watchingAll ? false : (watchedIds?.includes(conn.id) ?? false)
+                  return (
+                    <label key={conn.id} className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <input type="checkbox" checked={checked} onChange={() => toggleMailbox(conn.id)}
+                          className="size-4 rounded border-input accent-[#2563eb]" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{conn.email_address}</p>
+                          <p className="text-xs text-muted-foreground capitalize">{conn.provider}</p>
+                        </div>
+                      </div>
+                      {conn.purpose === 'customer_service'
+                        ? <Badge variant="violet">Support</Badge>
+                        : conn.is_primary && <Badge variant="secondary">Primary</Badge>}
+                    </label>
+                  )
+                })
+              )}
+              {visibleMailboxes.length > 0 && (
+                <div className="px-4 py-2.5 bg-muted/30">
+                  <p className="text-[11px] text-muted-foreground">
+                    {watchingAll ? 'Watching all connected mailboxes.' : `Watching ${watchedIds?.length} selected mailbox${watchedIds?.length === 1 ? '' : 'es'}.`}
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Customer service SMS number */}
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <MessageSquare className="size-4 text-muted-foreground" /> Customer service SMS number
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Use a dedicated Twilio number for support texts. Texts to this number are drafted by Noli and follow the reply mode in Settings. Connect your Twilio account in Settings first. Use a number that is different from the one your Inbox uses, so support texts and inbox texts stay separate.
+            </p>
+            <div className="rounded-lg border">
+              <div className="px-4 py-3 space-y-2">
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">
+                  Support SMS number <span className="normal-case font-normal">(optional)</span>
+                </label>
+                <Input
+                  value={csSmsNumber}
+                  onChange={e => setCsSmsNumber(e.target.value)}
+                  placeholder="+1 415 555 0123"
+                  className="h-9 text-sm"
+                  inputMode="tel"
+                />
+                {twilioNumber ? (
+                  csSmsNumber.trim() === '' ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Your connected Twilio number is {twilioNumber}. Enter a different number to dedicate to support, then set its inbound webhook below.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      Enter the Twilio number you want to use only for support. It must be different from your Inbox number ({twilioNumber}).
+                    </p>
+                  )
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    No Twilio account connected yet. Connect Twilio in Settings, then enter a dedicated support number here.
+                  </p>
+                )}
+                <div className="rounded-md bg-muted/40 border px-3 py-2 mt-1">
+                  <p className="text-[11px] font-medium text-muted-foreground mb-1">In Twilio, set this number&apos;s inbound message webhook to:</p>
+                  <code className="text-xs break-all">https://crm.noliai.com/api/sms/webhook</code>
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    Method POST. This is the same webhook your Inbox uses, so the number you choose here must be a separate number from your Inbox number.
+                  </p>
+                </div>
+                <div className="pt-1">
+                  <TwilioSmsGuide />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Website chat — Customer Service owns website chat. Set up the widget
+              here (appearance + deployment); answers and escalation come from the
+              Customer Service settings in the Settings tab. */}
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <Globe className="size-4 text-muted-foreground" /> Website chat
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Add live chat to your website. Customer Service powers it: visitors get an instant answer grounded in your knowledge and model answers, each message is checked against your flag scenarios, and a flagged message that pauses for review is held for you while the visitor sees a brief note that someone will follow up. Set the look of your widget below, then copy the embed code or share the hosted page link.
+            </p>
+
+            {/* Master toggle */}
+            <div className="rounded-lg border mb-3">
+              <label className="flex items-start justify-between gap-3 px-4 py-3 cursor-pointer">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Handle website chat</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Route incoming chat messages through Customer Service. Uses your reply mode, flag scenarios, and knowledge. Turning this off pauses automatic answers on your chat widgets.
+                  </p>
+                </div>
+                <input type="checkbox" checked={csChatEnabled}
+                  onChange={e => setCsChatEnabled(e.target.checked)}
+                  className="size-4 mt-0.5 rounded border-input accent-[#2563eb] shrink-0" />
+              </label>
+            </div>
+
+            {widgetError && (
+              <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{widgetError}</p>
+            )}
+
+            {/* Existing widgets */}
+            <div className="rounded-lg border divide-y mb-3">
+              {!widgetsLoaded ? (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">Loading your chat widgets...</div>
+              ) : widgets.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  No chat widget yet. Create one below to add chat to your website.
+                </div>
+              ) : (
+                widgets.map(w => {
+                  const hostedUrl = w.slug ? `${origin}/api/chat/page/${w.slug}` : ''
+                  const embed = w.embedCode || `<script src="${origin}/api/chat/widget/${w.id}" async></script>`
+                  const isEditing = editWidgetId === w.id
+                  return (
+                    <div key={w.id} className="px-4 py-3 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="size-3 rounded-full shrink-0" style={{ backgroundColor: w.brand_color || '#6d28d9' }} />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate flex items-center gap-2">
+                              {w.name}
+                              <Badge variant={w.is_active ? 'violet' : 'secondary'}>{w.is_active ? 'Active' : 'Inactive'}</Badge>
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {w.business_name || w.name}
+                              {typeof w.conversation_count === 'number' ? ` · ${w.conversation_count} conversations` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button type="button" variant="outline" size="sm"
+                            disabled={widgetBusy === w.id}
+                            onClick={() => patchWidget(w.id, { isActive: !w.is_active })}>
+                            {w.is_active ? 'Disable' : 'Enable'}
+                          </Button>
+                          <Button type="button" variant="outline" size="sm"
+                            onClick={() => (isEditing ? setEditWidgetId(null) : beginEditWidget(w))}>
+                            {isEditing ? 'Close' : 'Edit'}
+                          </Button>
+                          <button type="button" onClick={() => deleteWidget(w.id)}
+                            disabled={widgetBusy === w.id}
+                            className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Delete widget">
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditing && (
+                        <div className="rounded-md border bg-muted/30 px-3 py-3 space-y-2.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Input value={ewName} onChange={e => setEwName(e.target.value)} placeholder="Widget name" className="h-8 text-xs" />
+                            <Input value={ewBusinessName} onChange={e => setEwBusinessName(e.target.value)} placeholder="Business name (shown to visitors)" className="h-8 text-xs" />
+                          </div>
+                          <textarea value={ewWelcome} onChange={e => setEwWelcome(e.target.value)}
+                            placeholder="Welcome message"
+                            className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-16" />
+                          <div className="flex items-center gap-2">
+                            <input type="color" value={ewBrandColor} onChange={e => setEwBrandColor(e.target.value)}
+                              className="size-8 rounded-md border cursor-pointer p-0" />
+                            <Input value={ewBrandColor} onChange={e => setEwBrandColor(e.target.value)} placeholder="#6d28d9" className="h-8 text-xs font-mono w-28" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button type="button" size="sm" onClick={saveEditWidget} disabled={widgetBusy === w.id || !ewName.trim()}>
+                              {widgetBusy === w.id ? 'Saving...' : 'Save changes'}
+                            </Button>
+                            <Button type="button" size="sm" variant="ghost" onClick={() => setEditWidgetId(null)}>Cancel</Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Hosted public page */}
+                      <label className="flex items-center justify-between gap-3 cursor-pointer">
+                        <span className="text-xs text-muted-foreground">Hosted chat page (a shareable link to a full-page chat)</span>
+                        <input type="checkbox" checked={w.public_page_enabled}
+                          onChange={() => patchWidget(w.id, { publicPageEnabled: !w.public_page_enabled })}
+                          disabled={widgetBusy === w.id}
+                          className="size-4 rounded border-input accent-[#2563eb] shrink-0" />
+                      </label>
+
+                      {/* Embed code */}
+                      <div className="rounded-md bg-muted/40 border px-3 py-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5"><Code className="size-3" /> Embed code</span>
+                          <button type="button" onClick={() => copyText(`embed-${w.id}`, embed)}
+                            className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                            {copiedKey === `embed-${w.id}` ? <><Check className="size-3 text-[#047857] dark:text-[#34d399]" /> Copied</> : <>Copy</>}
+                          </button>
+                        </div>
+                        <code className="text-[11px] break-all block leading-relaxed text-muted-foreground">{embed}</code>
+                        <p className="text-[11px] text-muted-foreground mt-1.5">Paste this just before the closing &lt;/body&gt; tag on your site.</p>
+                      </div>
+
+                      {/* Hosted page link */}
+                      {w.public_page_enabled && w.slug && (
+                        <div className="rounded-md bg-muted/40 border px-3 py-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5"><LinkIcon className="size-3" /> Hosted page link</span>
+                            <div className="flex items-center gap-2">
+                              <button type="button" onClick={() => copyText(`link-${w.id}`, hostedUrl)}
+                                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                                {copiedKey === `link-${w.id}` ? <><Check className="size-3 text-[#047857] dark:text-[#34d399]" /> Copied</> : <>Copy</>}
+                              </button>
+                              <button type="button" onClick={() => window.open(hostedUrl, '_blank')}
+                                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                                <ExternalLink className="size-3" /> Open
+                              </button>
+                            </div>
+                          </div>
+                          <code className="text-[11px] break-all block leading-relaxed text-muted-foreground">{hostedUrl}</code>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Create a new widget */}
+            {showWidgetForm ? (
+              <div className="rounded-lg border">
+                <div className="px-4 py-3 border-b">
+                  <p className="text-sm font-medium flex items-center gap-2"><Plus className="size-4 text-muted-foreground" /> New chat widget</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Set how the widget looks. Answers come from your Customer Service knowledge and flag scenarios in Settings.</p>
+                </div>
+                <div className="px-4 py-3 space-y-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input value={nwName} onChange={e => setNwName(e.target.value)} placeholder="Widget name, e.g. Main Site Chat" className="h-8 text-xs" />
+                    <Input value={nwBusinessName} onChange={e => setNwBusinessName(e.target.value)} placeholder="Business name (shown to visitors)" className="h-8 text-xs" />
+                  </div>
+                  <textarea value={nwWelcome} onChange={e => setNwWelcome(e.target.value)}
+                    placeholder="Welcome message"
+                    className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-16" />
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={nwBrandColor} onChange={e => setNwBrandColor(e.target.value)}
+                      className="size-8 rounded-md border cursor-pointer p-0" />
+                    <Input value={nwBrandColor} onChange={e => setNwBrandColor(e.target.value)} placeholder="#6d28d9" className="h-8 text-xs font-mono w-28" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" size="sm" onClick={createWidget} disabled={nwSaving || !nwName.trim()}>
+                      {nwSaving ? 'Creating...' : <><Plus className="size-3.5 mr-1" /> Create widget</>}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => { setShowWidgetForm(false); setWidgetError('') }}>Cancel</Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" size="sm" onClick={() => { setShowWidgetForm(true); setWidgetError('') }}>
+                <Plus className="size-3.5 mr-1" /> Create a chat widget
+              </Button>
+            )}
+          </section>
+
+          {/* Settings autosave as you change them. This row just reflects status. */}
+          <div className="flex items-center gap-2 mb-10 h-5 text-xs">
+            {saving ? (
+              <span className="text-muted-foreground flex items-center gap-1.5">
+                <span className="inline-block size-3 rounded-full border border-muted-foreground/40 border-t-transparent animate-spin" />
+                Saving...
+              </span>
+            ) : error ? (
+              <span className="text-[#b91c1c] dark:text-[#f87171]">{error} We will retry when you make another change.</span>
+            ) : saved ? (
+              <span className="text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> Saved</span>
+            ) : (
+              <span className="text-muted-foreground">Changes save automatically.</span>
+            )}
+          </div>
         </>
       )}
         </TabsContent>
