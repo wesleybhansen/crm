@@ -913,7 +913,7 @@ export default function CustomerServiceSettingsPage() {
             <div className="rounded-lg border mb-4">
               <div className="px-4 py-3 border-b">
                 <p className="text-sm font-medium flex items-center gap-2">
-                  <FileText className="size-4 text-muted-foreground" /> Add a reference document
+                  <FileText className="size-4 text-muted-foreground" /> Upload a reference document
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Upload one or more PDF, Word (.docx), or text (.txt, .md, .csv) files, or paste text. The text is pulled out automatically. Each file becomes its own entry.

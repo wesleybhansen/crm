@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Inbox, Send, X, Loader2, Settings } from 'lucide-react'
+import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp } from 'lucide-react'
 
 type QueueItem = {
   id: string
@@ -12,6 +12,7 @@ type QueueItem = {
   contact: { id: string | null; name: string | null; email: string | null }
   conversationId: string | null
   lastInboundPreview: string | null
+  lastInboundBody: string | null
   subject: string | null
   body: string | null
 }
@@ -31,6 +32,8 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<Record<string, 'approve' | 'dismiss' | undefined>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // Which items have the full incoming email expanded, keyed by item id.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -158,13 +161,31 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
               )}
             </div>
 
-            {/* Incoming message preview */}
-            {item.lastInboundPreview && (
-              <div className="px-4 py-3 bg-muted/30">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-1.5">They wrote</p>
-                <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{item.lastInboundPreview}</p>
-              </div>
-            )}
+            {/* Incoming message preview, with an optional full-email expansion. */}
+            {item.lastInboundPreview && (() => {
+              const isExpanded = !!expanded[item.id]
+              const fullBody = item.lastInboundBody || ''
+              // Only offer the toggle when the full body adds something beyond the snippet.
+              const canExpand = !!fullBody && fullBody.trim().length > (item.lastInboundPreview || '').trim().length
+              return (
+                <div className="px-4 py-3 bg-muted/30">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-1.5">They wrote</p>
+                  <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                    {isExpanded && canExpand ? fullBody : item.lastInboundPreview}
+                  </p>
+                  {canExpand && (
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                      className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition"
+                    >
+                      {isExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                      {isExpanded ? 'Show less' : 'Show full email'}
+                    </button>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Editable drafted reply */}
             <div className="px-4 py-3">

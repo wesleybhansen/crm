@@ -43,22 +43,55 @@ export async function GET(req: Request) {
       .orderBy('a.created_at', 'desc')
       .limit(limit)
 
-    const data = actions.map((row: any) => {
+    // Pre-parse payloads so we can collect the contact ids the queue references,
+    // then fetch the FULL latest inbound email body for each in a single pass.
+    // The stored lastInboundPreview is only the first ~200 chars; this lets the
+    // UI offer a "show full email" expansion without an extra round-trip.
+    const parsed = actions.map((row: any) => {
       const payload = typeof row.payload === 'string' ? safeParse(row.payload) : (row.payload || {})
       const participants = typeof row.participants === 'string' ? safeParse(row.participants) : (row.participants || [])
+      return { row, payload, participants }
+    })
+
+    const contactIds = Array.from(
+      new Set(parsed.map((p) => p.payload?.contactId).filter((id: any): id is string => !!id)),
+    )
+
+    // Map of contactId -> full body text of that contact's latest inbound email.
+    const fullBodyByContact: Record<string, string> = {}
+    if (contactIds.length > 0) {
+      const inbound = await knex('email_messages')
+        .where('organization_id', auth.orgId)
+        .where('direction', 'inbound')
+        .whereIn('contact_id', contactIds)
+        .orderBy('created_at', 'desc')
+        .select('contact_id', 'body_text', 'body_html')
+      for (const m of inbound) {
+        const cid = m.contact_id
+        if (!cid || fullBodyByContact[cid]) continue // first seen = latest (desc order)
+        const text = (m.body_text && String(m.body_text).trim())
+          ? String(m.body_text)
+          : stripHtml(m.body_html || '')
+        fullBodyByContact[cid] = text
+      }
+    }
+
+    const data = parsed.map(({ row, payload, participants }) => {
       const first = Array.isArray(participants) ? participants[0] : null
+      const contactId = payload?.contactId || null
       return {
         id: row.action_id,
         proposalId: row.proposal_id,
         createdAt: row.created_at,
         summary: row.summary,
         contact: {
-          id: payload?.contactId || null,
+          id: contactId,
           name: payload?.toName || first?.name || null,
           email: payload?.to || first?.email || null,
         },
         conversationId: payload?.conversationId || null,
         lastInboundPreview: payload?.lastInboundPreview || null,
+        lastInboundBody: (contactId && fullBodyByContact[contactId]) || null,
         subject: payload?.subject || null,
         body: payload?.body || null,
       }
@@ -73,6 +106,24 @@ export async function GET(req: Request) {
 
 function safeParse(s: string) {
   try { return JSON.parse(s) } catch { return null }
+}
+
+// Best-effort plain-text fallback when an inbound email has no body_text: strip
+// tags + collapse common block elements to line breaks. The value is rendered
+// as plain text in the UI (never via dangerouslySetInnerHTML).
+function stripHtml(html: string): string {
+  if (!html) return ''
+  return String(html)
+    .replace(/<\s*(br|\/p|\/div|\/li|\/tr|\/h[1-6])\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 export const openApi: OpenApiRouteDoc = {
