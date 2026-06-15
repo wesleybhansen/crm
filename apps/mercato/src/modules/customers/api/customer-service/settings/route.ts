@@ -32,11 +32,43 @@ export const DEFAULT_FLAG_SCENARIOS: FlagScenario[] = [
   { key: 'legal', label: 'Legal or compliance matter', enabled: false, action: 'pause', instructions: '' },
 ]
 
+// Prefix marking a user-defined (custom) flag scenario. Anything that is not a
+// canonical key and starts with this prefix is treated as a custom scenario and
+// passes through (with its user-supplied label preserved) instead of being
+// dropped. Keys are generated client/COS-side; we just validate the shape.
+const CUSTOM_KEY_PREFIX = 'custom_'
+const CANONICAL_KEYS = new Set(DEFAULT_FLAG_SCENARIOS.map((s) => s.key))
+const MAX_FLAG_INSTRUCTIONS_CHARS = 4000
+
+function isCustomKey(key: unknown): key is string {
+  return typeof key === 'string' && key.startsWith(CUSTOM_KEY_PREFIX) && key.length > CUSTOM_KEY_PREFIX.length && !CANONICAL_KEYS.has(key)
+}
+
+// Validate + normalize a single incoming custom-scenario entry. Returns null
+// when the entry is not a usable custom scenario (so the caller can skip it).
+// A valid custom needs: a custom key, a non-empty label, a valid action.
+function normalizeCustomScenario(u: any): FlagScenario | null {
+  if (!u || typeof u !== 'object') return null
+  if (!isCustomKey(u.key)) return null
+  const label = typeof u.label === 'string' ? u.label.trim().slice(0, 200) : ''
+  if (!label) return null
+  const action = VALID_FLAG_ACTIONS.has(u.action) ? u.action : 'pause'
+  return {
+    key: u.key,
+    label,
+    enabled: u.enabled === true,
+    action: action as 'pause' | 'auto_send',
+    instructions: typeof u.instructions === 'string' ? u.instructions.slice(0, MAX_FLAG_INSTRUCTIONS_CHARS) : '',
+  }
+}
+
 // Normalize a stored/incoming flag_scenarios value into a clean FlagScenario[].
-// jsonb may arrive parsed or as a string. Unknown keys are dropped; we keep the
-// canonical default order/labels and overlay the user's enabled/action/
-// instructions onto each known key. Returns null when nothing usable is present
-// (so the caller can decide whether to seed defaults).
+// jsonb may arrive parsed or as a string. The canonical 6 keep their fixed
+// labels/order and we overlay the user's enabled/action/instructions onto each.
+// Any valid CUSTOM entries (custom_ prefix + non-empty label) pass through and
+// are appended AFTER the canonical set, with their user labels preserved.
+// Unknown non-custom keys are still dropped. Returns null when nothing usable is
+// present (so the caller can decide whether to seed defaults).
 function parseFlagScenarios(raw: any): FlagScenario[] | null {
   let arr: any = raw
   if (typeof arr === 'string') {
@@ -48,8 +80,8 @@ function parseFlagScenarios(raw: any): FlagScenario[] | null {
     if (item && typeof item === 'object' && typeof item.key === 'string') byKey.set(item.key, item)
   }
   // Build from the canonical defaults so labels/order stay stable and any
-  // removed/renamed keys are ignored. Only known scenario keys are persisted.
-  return DEFAULT_FLAG_SCENARIOS.map((def) => {
+  // removed/renamed canonical keys are ignored.
+  const canonical = DEFAULT_FLAG_SCENARIOS.map((def) => {
     const u = byKey.get(def.key)
     if (!u) return { ...def }
     const action = VALID_FLAG_ACTIONS.has(u.action) ? u.action : 'pause'
@@ -58,9 +90,18 @@ function parseFlagScenarios(raw: any): FlagScenario[] | null {
       label: def.label,
       enabled: u.enabled === true,
       action: action as 'pause' | 'auto_send',
-      instructions: typeof u.instructions === 'string' ? u.instructions.slice(0, 4000) : '',
+      instructions: typeof u.instructions === 'string' ? u.instructions.slice(0, MAX_FLAG_INSTRUCTIONS_CHARS) : '',
     }
   })
+  // Append valid custom scenarios after the canonical set, de-duped by key and
+  // preserving the order they appeared in the input.
+  const customs: FlagScenario[] = []
+  const seen = new Set<string>()
+  for (const item of arr) {
+    const c = normalizeCustomScenario(item)
+    if (c && !seen.has(c.key)) { seen.add(c.key); customs.push(c) }
+  }
+  return [...canonical, ...customs]
 }
 
 function normalizeThreshold(v: unknown, fallback: number): number {

@@ -56,9 +56,14 @@ export default function CustomerServiceSettingsPage() {
   const [csSmsNumber, setCsSmsNumber] = useState('')
   // The org's connected Twilio number, if any, used as a "use this number" hint.
   const [twilioNumber, setTwilioNumber] = useState<string | null>(null)
-  // Flag scenarios. The settings GET always returns the full default list, so
-  // this is populated on hydration; user edits autosave like the other fields.
+  // Flag scenarios. The settings GET always returns the full default list (the 6
+  // canonical scenarios plus any saved custom ones), so this is populated on
+  // hydration; user edits autosave like the other fields.
   const [flagScenarios, setFlagScenarios] = useState<FlagScenario[]>([])
+  // Draft inputs for the "Add a custom scenario" control.
+  const [newScenarioLabel, setNewScenarioLabel] = useState('')
+  const [newScenarioInstructions, setNewScenarioInstructions] = useState('')
+  const [newScenarioAction, setNewScenarioAction] = useState<FlagAction>('pause')
 
   // Autosave plumbing. `hydratedRef` stays false until the initial GET has
   // populated the settings fields, so neither the first mount nor the
@@ -415,6 +420,52 @@ export default function CustomerServiceSettingsPage() {
     setFlagScenarios(prev => prev.map(s => s.key === key ? { ...s, ...patch } : s))
   }
 
+  // A scenario is custom (user-defined, removable) when its key carries the
+  // custom_ prefix. The 6 canonical scenarios are fixed and not removable.
+  function isCustomScenario(key: string) {
+    return key.startsWith('custom_')
+  }
+
+  // Generate a stable, unique key for a new custom scenario. We slugify the
+  // label so the key is human-readable, then append a short random suffix to
+  // keep it unique even if two customs share a label. The server validates the
+  // custom_ prefix; the suffix guarantees we never collide with an existing key.
+  function generateCustomKey(label: string): string {
+    const slug = label.toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 32)
+    const rand = Math.random().toString(36).slice(2, 8)
+    const base = slug ? `custom_${slug}_${rand}` : `custom_${rand}`
+    // Extremely unlikely, but guard against a collision with an existing key.
+    return flagScenarios.some(s => s.key === base) ? `${base}_${Math.random().toString(36).slice(2, 6)}` : base
+  }
+
+  // Append a new custom scenario from the draft inputs, then clear the inputs.
+  // The new scenario starts enabled so it takes effect immediately; autosave
+  // persists it via the existing flagScenarios effect.
+  function addCustomScenario() {
+    const label = newScenarioLabel.trim()
+    if (!label) return
+    const scenario: FlagScenario = {
+      key: generateCustomKey(label),
+      label,
+      enabled: true,
+      action: newScenarioAction,
+      instructions: newScenarioInstructions.trim(),
+    }
+    setFlagScenarios(prev => [...prev, scenario])
+    setNewScenarioLabel('')
+    setNewScenarioInstructions('')
+    setNewScenarioAction('pause')
+  }
+
+  // Remove a custom scenario (canonical scenarios cannot be removed).
+  function removeCustomScenario(key: string) {
+    if (!isCustomScenario(key)) return
+    setFlagScenarios(prev => prev.filter(s => s.key !== key))
+  }
+
   function toggleMailbox(id: string) {
     setWatchedIds(prev => {
       // Starting from "all": selecting one mailbox narrows to just that one.
@@ -752,7 +803,9 @@ export default function CustomerServiceSettingsPage() {
                   No flag scenarios available.
                 </div>
               ) : (
-                flagScenarios.map(s => (
+                flagScenarios.map(s => {
+                  const custom = isCustomScenario(s.key)
+                  return (
                   <div key={s.key} className="px-4 py-3 space-y-2.5">
                     <div className="flex items-center justify-between gap-3">
                       <label className="flex items-center gap-2.5 min-w-0 cursor-pointer">
@@ -760,16 +813,25 @@ export default function CustomerServiceSettingsPage() {
                           onChange={e => updateFlagScenario(s.key, { enabled: e.target.checked })}
                           className="size-4 rounded border-input accent-[#2563eb] shrink-0" />
                         <span className="text-sm font-medium truncate">{s.label}</span>
+                        {custom && <Badge variant="secondary" className="shrink-0">Custom</Badge>}
                       </label>
-                      <select
-                        value={s.action}
-                        onChange={e => updateFlagScenario(s.key, { action: e.target.value as FlagAction })}
-                        disabled={!s.enabled}
-                        className="shrink-0 rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                      >
-                        <option value="pause">Pause for my review</option>
-                        <option value="auto_send">Auto-send the reply</option>
-                      </select>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <select
+                          value={s.action}
+                          onChange={e => updateFlagScenario(s.key, { action: e.target.value as FlagAction })}
+                          disabled={!s.enabled}
+                          className="shrink-0 rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                        >
+                          <option value="pause">Pause for my review</option>
+                          <option value="auto_send">Auto-send the reply</option>
+                        </select>
+                        {custom && (
+                          <button type="button" onClick={() => removeCustomScenario(s.key)}
+                            className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Remove scenario">
+                            <Trash2 className="size-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {s.enabled && (
                       <textarea
@@ -780,8 +842,42 @@ export default function CustomerServiceSettingsPage() {
                       />
                     )}
                   </div>
-                ))
+                  )
+                })
               )}
+            </div>
+
+            {/* Add a custom scenario */}
+            <div className="rounded-lg border mt-3">
+              <div className="px-4 py-3 border-b">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <Plus className="size-4 text-muted-foreground" /> Add a custom scenario
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Define your own situation to watch for, such as a wholesale inquiry or a press request. Noli flags matching messages and follows your instructions.
+                </p>
+              </div>
+              <div className="px-4 py-3 space-y-3">
+                <input value={newScenarioLabel} onChange={e => setNewScenarioLabel(e.target.value)}
+                  placeholder="Scenario name, e.g. Wholesale inquiry"
+                  className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                <textarea value={newScenarioInstructions} onChange={e => setNewScenarioInstructions(e.target.value)}
+                  placeholder="How should Noli respond in this scenario? (optional)"
+                  className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20" />
+                <div className="flex items-center justify-between gap-3">
+                  <select
+                    value={newScenarioAction}
+                    onChange={e => setNewScenarioAction(e.target.value as FlagAction)}
+                    className="rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="pause">Pause for my review</option>
+                    <option value="auto_send">Auto-send the reply</option>
+                  </select>
+                  <Button type="button" size="sm" onClick={addCustomScenario} disabled={!newScenarioLabel.trim()}>
+                    <Plus className="size-3.5 mr-1" /> Add scenario
+                  </Button>
+                </div>
+              </div>
             </div>
           </section>
 

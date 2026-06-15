@@ -83,11 +83,41 @@ const DEFAULT_FLAG_SCENARIOS: FlagScenario[] = [
   { key: 'legal', label: 'Legal or compliance matter', enabled: false, action: 'pause', instructions: '' },
 ]
 
+// Prefix marking a user-defined (custom) flag scenario. Must match the settings
+// route exactly. Customs pass through (label preserved) instead of being dropped.
+const CUSTOM_KEY_PREFIX = 'custom_'
+const CANONICAL_KEYS = new Set(DEFAULT_FLAG_SCENARIOS.map((s) => s.key))
+
+function isCustomKey(key: unknown): key is string {
+  return typeof key === 'string' && key.startsWith(CUSTOM_KEY_PREFIX) && key.length > CUSTOM_KEY_PREFIX.length && !CANONICAL_KEYS.has(key)
+}
+
+// Validate + normalize a single incoming custom-scenario entry. Returns null
+// when the entry is not a usable custom scenario. A valid custom needs: a custom
+// key, a non-empty label, a valid action. Mirrors settings/route.ts.
+function normalizeCustomScenario(u: any): FlagScenario | null {
+  if (!u || typeof u !== 'object') return null
+  if (!isCustomKey(u.key)) return null
+  const label = typeof u.label === 'string' ? u.label.trim().slice(0, 200) : ''
+  if (!label) return null
+  const action = VALID_FLAG_ACTIONS.has(u.action) ? u.action : 'pause'
+  return {
+    key: u.key,
+    label,
+    enabled: u.enabled === true,
+    action: action as 'pause' | 'auto_send',
+    instructions: typeof u.instructions === 'string' ? u.instructions.slice(0, MAX_FLAG_INSTRUCTIONS_CHARS) : '',
+  }
+}
+
 // Normalize a stored/incoming flag_scenarios value into a clean FlagScenario[].
-// jsonb may arrive parsed or as a string. Unknown keys are dropped; the canonical
-// default order/labels are kept and the user's enabled/action/instructions are
-// overlaid onto each known key. Returns null when nothing usable is present (so
-// the caller can decide whether to seed defaults). Mirrors settings/route.ts.
+// jsonb may arrive parsed or as a string. The canonical 6 keep their fixed
+// labels/order and the user's enabled/action/instructions are overlaid onto
+// each. Any valid CUSTOM entries (custom_ prefix + non-empty label) pass through
+// and are appended AFTER the canonical set, with their user labels preserved.
+// Unknown non-custom keys are still dropped. Returns null when nothing usable is
+// present (so the caller can decide whether to seed defaults). Mirrors
+// settings/route.ts exactly.
 function parseFlagScenarios(raw: any): FlagScenario[] | null {
   let arr: any = raw
   if (typeof arr === 'string') {
@@ -98,7 +128,7 @@ function parseFlagScenarios(raw: any): FlagScenario[] | null {
   for (const item of arr) {
     if (item && typeof item === 'object' && typeof item.key === 'string') byKey.set(item.key, item)
   }
-  return DEFAULT_FLAG_SCENARIOS.map((def) => {
+  const canonical = DEFAULT_FLAG_SCENARIOS.map((def) => {
     const u = byKey.get(def.key)
     if (!u) return { ...def }
     const action = VALID_FLAG_ACTIONS.has(u.action) ? u.action : 'pause'
@@ -110,6 +140,13 @@ function parseFlagScenarios(raw: any): FlagScenario[] | null {
       instructions: typeof u.instructions === 'string' ? u.instructions.slice(0, MAX_FLAG_INSTRUCTIONS_CHARS) : '',
     }
   })
+  const customs: FlagScenario[] = []
+  const seen = new Set<string>()
+  for (const item of arr) {
+    const c = normalizeCustomScenario(item)
+    if (c && !seen.has(c.key)) { seen.add(c.key); customs.push(c) }
+  }
+  return [...canonical, ...customs]
 }
 
 function normalizeThreshold(v: unknown, fallback: number): number {
@@ -197,7 +234,7 @@ const getSettingsTool: AiToolDefinition = {
   name: 'customer_service_get_settings',
   description: `Get the customer-service auto-reply configuration for the authenticated organization. Use this to see whether customer service is turned on, how replies are handled, and which email accounts are watched.
 Returns: { enabled, watchedConnectionIds (string[] or null = all active accounts), replyMode (draft|auto|hybrid), hybridConfidenceThreshold (0..1), sourceModes (per-mailbox overrides keyed by connection id), signature, flagScenarios, createdAt, updatedAt }. Returns defaults if not yet set up.
-flagScenarios is the list of special situations the assistant watches for. Always all 6 canonical scenarios: [{ key, label, enabled, action ("pause" = hold the reply for a human, "auto_send" = let the assistant reply per its instructions), instructions (extra guidance for that scenario) }]. Keys: angry_or_upset, incoherent, cancel, refund, complaint, legal.`,
+flagScenarios is the list of special situations the assistant watches for. Always includes the 6 canonical scenarios, plus any user-defined custom scenarios the org has added (their keys start with "custom_"): [{ key, label, enabled, action ("pause" = hold the reply for a human, "auto_send" = let the assistant reply per its instructions), instructions (extra guidance for that scenario) }]. Canonical keys: angry_or_upset, incoherent, cancel, refund, complaint, legal.`,
   inputSchema: z.object({}),
   requiredFeatures: ['email.view'],
   handler: async (_input: never, ctx) => {
@@ -218,7 +255,7 @@ const updateSettingsTool: AiToolDefinition = {
 replyMode: "draft" queues replies for human approval, "auto" sends automatically, "hybrid" auto-sends only when the model's confidence is at or above hybridConfidenceThreshold (clamped to 0..1). This is the account-wide default.
 watchedConnectionIds: list of email connection ids to watch, or omit / pass an empty list to watch all active accounts.
 sourceModes: optional per-mailbox overrides, keyed by email connection id, e.g. { "<connectionId>": { "mode": "auto", "threshold": 0.8 } }. Each overrides the account default for that specific mailbox. Only ids in the watched list are kept. Threshold is clamped to 0..1. Omit to leave per-mailbox overrides unchanged.
-flagScenarios: optional list to turn special situations on/off, choose pause-vs-auto, and set per-scenario instructions. Pass an array of { key, enabled?, action? ("pause"|"auto_send"), instructions? }. Only the 6 canonical keys are kept (angry_or_upset, incoherent, cancel, refund, complaint, legal); unknown keys are ignored and labels are fixed. A scenario you omit from the array resets to its default (disabled + pause). Omit the whole flagScenarios arg to leave scenarios unchanged.
+flagScenarios: optional list to turn special situations on/off, choose pause-vs-auto, and set per-scenario instructions. Pass an array of { key, label?, enabled?, action? ("pause"|"auto_send"), instructions? }. The 6 canonical keys (angry_or_upset, incoherent, cancel, refund, complaint, legal) always exist with fixed labels; a canonical scenario you omit from the array resets to its default (disabled + pause). You can ALSO add custom scenarios: give a key that starts with "custom_" (e.g. "custom_wholesale") AND a non-empty label; valid customs are kept and appended after the canonical set. Include an existing custom in the array to keep it; omit it to remove it. Unknown non-custom keys and customs missing a label are ignored. Omit the whole flagScenarios arg to leave scenarios unchanged.
 Returns the saved settings.`,
   inputSchema: z.object({
     enabled: z.boolean().optional().describe('Turn customer service on or off'),
@@ -230,11 +267,12 @@ Returns the saved settings.`,
       threshold: z.number().optional(),
     })).optional().describe('Per-mailbox overrides keyed by email connection id; overrides the account default for that mailbox'),
     flagScenarios: z.array(z.object({
-      key: z.string().describe('One of: angry_or_upset, incoherent, cancel, refund, complaint, legal'),
+      key: z.string().describe('A canonical key (angry_or_upset, incoherent, cancel, refund, complaint, legal) OR a custom key starting with "custom_" for a user-defined scenario'),
+      label: z.string().optional().describe('Required for custom scenarios (key starting with "custom_"); ignored for canonical keys, which keep their fixed labels'),
       enabled: z.boolean().optional(),
       action: z.enum(['pause', 'auto_send']).optional(),
       instructions: z.string().optional(),
-    })).optional().describe('Turn special situations on/off and set their action + instructions; only the 6 canonical keys are kept, omitted scenarios reset to default'),
+    })).optional().describe('Turn special situations on/off and set their action + instructions. The 6 canonical keys are always kept (omitted ones reset to default); custom scenarios (custom_ prefix + label) are kept when present and removed when omitted'),
     signature: z.string().optional().describe('Signature appended to replies; pass empty string to clear'),
   }),
   requiredFeatures: ['email.send'],
