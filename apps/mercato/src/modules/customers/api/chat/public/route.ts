@@ -29,6 +29,39 @@ function corsJson(data: any, init?: ResponseInit) {
   return new NextResponse(JSON.stringify(data), { ...init, headers: { ...init?.headers, ...headers } })
 }
 
+// Per-conversation possession secret. A conversation id is a high-entropy UUID
+// but it is NOT a secret: it travels in query strings, referrers, browser
+// history, and proxies. Binding read/append to a separate token issued only to
+// the visitor who started the thread closes the IDOR (read or post to any
+// conversation by id). Stored in chat_conversations.visitor_token; the column is
+// created idempotently below so no separate migration is needed.
+let visitorTokenColumnReady = false
+async function ensureVisitorTokenColumn(knex: Knex): Promise<void> {
+  if (visitorTokenColumnReady) return
+  await knex.raw('ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS visitor_token TEXT')
+  visitorTokenColumnReady = true
+}
+
+// Constant-time compare that never throws on length/encoding mismatch.
+function tokensMatch(a: unknown, b: unknown): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false
+  const ba = Buffer.from(a)
+  const bb = Buffer.from(b)
+  if (ba.length !== bb.length) return false
+  return crypto.timingSafeEqual(ba, bb)
+}
+
+// Authorize a visitor against a conversation row.
+// - If the conversation has a token, the caller MUST present the matching one.
+// - Legacy conversations created before this change have no token; we allow them
+//   so already-open chats degrade safely (they predate the protection and hold
+//   no token to send). New conversations always carry a token, so this is a
+//   bounded, shrinking legacy window, not an open door for new threads.
+function visitorAuthorized(conversation: { visitor_token?: string | null }, token: unknown): boolean {
+  if (!conversation.visitor_token) return true
+  return tokensMatch(conversation.visitor_token, token)
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS })
 }
@@ -40,8 +73,13 @@ export async function POST(req: Request) {
     const body = await req.json()
 
     if (body.conversationId && body.message) {
+      await ensureVisitorTokenColumn(knex)
       const conversation = await knex('chat_conversations').where('id', body.conversationId).first()
       if (!conversation) return corsJson({ ok: false, error: 'Conversation not found' }, { status: 404 })
+      // Possession check: the conversation id alone is not enough to post to it.
+      if (!visitorAuthorized(conversation, body.visitorToken)) {
+        return corsJson({ ok: false, error: 'Not found' }, { status: 404 })
+      }
 
       const msgId = crypto.randomUUID()
       await knex('chat_messages').insert({
@@ -128,7 +166,11 @@ export async function POST(req: Request) {
       })
     }
 
+    await ensureVisitorTokenColumn(knex)
     const conversationId = crypto.randomUUID()
+    // High-entropy possession token, returned once to the widget and required on
+    // every later poll/append for this conversation.
+    const visitorToken = crypto.randomBytes(32).toString('base64url')
     await knex('chat_conversations').insert({
       id: conversationId,
       tenant_id: widget.tenant_id,
@@ -137,6 +179,7 @@ export async function POST(req: Request) {
       contact_id: contactId,
       visitor_name: visitorName?.trim() || null,
       visitor_email: visitorEmail?.trim()?.toLowerCase() || null,
+      visitor_token: visitorToken,
       status: 'open',
       created_at: new Date(),
       updated_at: new Date(),
@@ -172,6 +215,7 @@ export async function POST(req: Request) {
       ok: true,
       data: {
         conversationId,
+        visitorToken,
         greeting: widget.greeting_message || 'Hi there! How can we help you today?',
       },
     }, { status: 201 })
@@ -188,9 +232,15 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const conversationId = url.searchParams.get('conversationId')
     if (!conversationId) return corsJson({ ok: false, error: 'conversationId required' }, { status: 400 })
+    const visitorToken = url.searchParams.get('visitorToken')
 
+    await ensureVisitorTokenColumn(knex)
     const conversation = await knex('chat_conversations').where('id', conversationId).first()
     if (!conversation) return corsJson({ ok: false, error: 'Not found' }, { status: 404 })
+    // Possession check: reading a transcript by id alone is no longer allowed.
+    if (!visitorAuthorized(conversation, visitorToken)) {
+      return corsJson({ ok: false, error: 'Not found' }, { status: 404 })
+    }
 
     const messages = await knex('chat_messages')
       .where('conversation_id', conversationId)

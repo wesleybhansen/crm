@@ -13,6 +13,7 @@ import dns from 'node:dns/promises'
 import net from 'node:net'
 import crypto from 'crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { safeFetch, SsrfError } from '@/lib/safe-fetch'
 
 // Matches the per-entry cap used by the knowledge POST route so a single web
 // page can never store an unbounded blob.
@@ -139,26 +140,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: msg }, { status: 400 })
     }
 
-    // Server-side fetch with a timeout. Redirects are followed by fetch; we
-    // re-validated only the initial host, which is the standard tradeoff here
-    // (a fully redirect-safe fetch would re-check every hop). Local/private
-    // initial hosts are already blocked above.
+    // Server-side fetch with a timeout. Use safeFetch so EVERY redirect hop is
+    // re-resolved and re-checked against private/loopback/link-local/CGNAT ranges
+    // (redirect: 'manual' under the hood). A public URL that 30x-redirects to
+    // 169.254.169.254 / 127.0.0.1 / an RFC-1918 host is blocked at the hop, not
+    // followed. The initial-host pre-check above only drives the friendly errors.
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
     let res: Response
     try {
-      res = await fetch(parsedUrl.toString(), {
+      res = await safeFetch(parsedUrl.toString(), {
         method: 'GET',
-        redirect: 'follow',
         signal: controller.signal,
         headers: {
           'User-Agent': USER_AGENT,
           Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
         },
-      })
+      }, 3)
     } catch (fetchErr) {
       clearTimeout(timer)
       const aborted = fetchErr instanceof Error && fetchErr.name === 'AbortError'
+      // An SSRF rejection (private/blocked redirect target) is surfaced as a
+      // generic "not allowed" so the response never reveals internal topology.
+      if (fetchErr instanceof SsrfError) {
+        return NextResponse.json({ ok: false, error: 'That address is not allowed.' }, { status: 400 })
+      }
       return NextResponse.json(
         {
           ok: false,

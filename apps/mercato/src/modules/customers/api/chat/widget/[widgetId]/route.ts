@@ -24,7 +24,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ widgetI
     }
 
     const config = typeof widget.config === 'string' ? JSON.parse(widget.config) : widget.config || {}
-    const primaryColor = config.primaryColor || '#3B82F6'
+    // Strict hex validation: primaryColor is interpolated raw into the <style>
+    // block and JS below, so a non-color value (e.g. "red;}</style><script>...")
+    // would break out of those contexts. Reject anything that is not a hex color
+    // and fall back to the default.
+    const primaryColor = /^#[0-9a-fA-F]{3,8}$/.test(String(config.primaryColor || ''))
+      ? config.primaryColor
+      : '#3B82F6'
     const position = config.position || 'bottom-right'
     const greeting = (widget.greeting_message || 'Hi there! How can we help you today?').replace(/'/g, "\\'").replace(/\n/g, '\\n')
 
@@ -43,6 +49,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ widgetI
   var GREETING='${greeting}';
   var API='${apiBase}';
   var convId=sessionStorage.getItem('om_chat_conv_'+WIDGET_ID)||null;
+  var convToken=sessionStorage.getItem('om_chat_tok_'+WIDGET_ID)||null;
   var pollTimer=null;
   var isOpen=false;
   var hasIdentified=false;
@@ -195,11 +202,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ widgetI
       fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({widgetId:WIDGET_ID,visitorName:name,visitorEmail:email,message:text})})
         .then(function(r){return r.json()})
         .then(function(d){
-          if(d.ok){convId=d.data.conversationId;sessionStorage.setItem('om_chat_conv_'+WIDGET_ID,convId);startPoll()}
+          if(d.ok){convId=d.data.conversationId;convToken=d.data.visitorToken||null;sessionStorage.setItem('om_chat_conv_'+WIDGET_ID,convId);if(convToken)sessionStorage.setItem('om_chat_tok_'+WIDGET_ID,convToken);startPoll()}
           else addMsg('Failed to start conversation. Please try again.','system');
         }).catch(function(){addMsg('Connection error. Please try again.','system')});
     }else{
-      fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversationId:convId,message:text})})
+      fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversationId:convId,visitorToken:convToken,message:text})})
         .then(function(r){return r.json()})
         .then(function(d){if(!d.ok)addMsg('Failed to send. Please try again.','system')})
         .catch(function(){addMsg('Connection error. Please try again.','system')});
@@ -209,7 +216,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ widgetI
   var lastMsgCount=0;
   function poll(){
     if(!convId)return;
-    fetch(API+'?conversationId='+convId)
+    fetch(API+'?conversationId='+encodeURIComponent(convId)+(convToken?'&visitorToken='+encodeURIComponent(convToken):''))
       .then(function(r){return r.json()})
       .then(function(d){
         if(!d.ok||!d.data||!d.data.messages)return;

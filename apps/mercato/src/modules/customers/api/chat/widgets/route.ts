@@ -161,7 +161,11 @@ export async function PUT(req: Request) {
     // Customer Service (set up answers, knowledge, and escalation in CS settings).
 
     await knex('chat_widgets').where('id', id).andWhere('organization_id', auth.orgId).update(updates)
-    const widget = await knex('chat_widgets').where('id', id).first()
+    // Org-scope the read-back too: an id from another tenant produces a 0-row
+    // update (good) but an unscoped read would still return that tenant's widget
+    // config (cross-tenant disclosure). Scoping returns null instead.
+    const widget = await knex('chat_widgets').where('id', id).andWhere('organization_id', auth.orgId).first()
+    if (!widget) return NextResponse.json({ ok: false, error: 'Widget not found' }, { status: 404 })
     return NextResponse.json({ ok: true, data: widget })
   } catch (error) {
     console.error('[chat.widgets.update]', error)
@@ -179,8 +183,22 @@ export async function DELETE(req: Request) {
     const id = url.searchParams.get('id')
     if (!id) return NextResponse.json({ ok: false, error: 'id query param required' }, { status: 400 })
 
-    // Delete related data before deleting widget
-    const convIds = await knex('chat_conversations').where('widget_id', id).pluck('id')
+    // Verify the widget belongs to the caller's org BEFORE cascading. Without
+    // this, a widget id from another tenant would 0-row the final widget delete
+    // (good) but the cascade above would still wipe that tenant's conversations
+    // and messages for the widget (cross-tenant data destruction).
+    const owned = await knex('chat_widgets')
+      .where('id', id)
+      .andWhere('organization_id', auth.orgId)
+      .first()
+    if (!owned) return NextResponse.json({ ok: false, error: 'Widget not found' }, { status: 404 })
+
+    // Delete related data before deleting widget. The cascade is also org-scoped
+    // for defense in depth.
+    const convIds = await knex('chat_conversations')
+      .where('widget_id', id)
+      .andWhere('organization_id', auth.orgId)
+      .pluck('id')
     if (convIds.length > 0) {
       await knex('chat_messages').whereIn('conversation_id', convIds).delete()
       await knex('chat_conversations').whereIn('id', convIds).delete()

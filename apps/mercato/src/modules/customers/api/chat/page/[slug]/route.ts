@@ -29,7 +29,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
 
     const origin = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
     const businessName = widget.business_name || widget.name || 'Chat'
-    const brandColor = widget.brand_color || '#3B82F6'
+    // Strict hex validation: brandColor is interpolated raw into the <style>
+    // block / CSS custom properties below. A non-color value would let a crafted
+    // brand_color break out of the CSS context (stored XSS). Reject anything that
+    // is not a hex color and fall back to the default.
+    const brandColor = /^#[0-9a-fA-F]{3,8}$/.test(String(widget.brand_color || ''))
+      ? widget.brand_color
+      : '#3B82F6'
     const welcomeMessage = (widget.welcome_message || widget.greeting_message || 'Hi there! How can we help you today?')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -542,6 +548,7 @@ function buildChatPageHtml({
       var API = '${origin}/api/chat/public';
       var WIDGET_ID = '${widgetId}';
       var conversationId = null;
+      var visitorToken = null;
       var pollTimer = null;
       var lastMessageCount = 0;
 
@@ -600,6 +607,7 @@ function buildChatPageHtml({
         .then(function(data) {
           if (data.ok) {
             conversationId = data.data.conversationId;
+            visitorToken = data.data.visitorToken || null;
             identifyForm.classList.add('hidden');
             composerEl.classList.remove('hidden');
             welcomeEl.classList.add('hidden');
@@ -634,6 +642,7 @@ function buildChatPageHtml({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             conversationId: conversationId,
+            visitorToken: visitorToken,
             message: text,
           }),
         })
@@ -723,7 +732,7 @@ function buildChatPageHtml({
 
       function pollMessages() {
         if (!conversationId) return;
-        fetch(API + '?conversationId=' + conversationId)
+        fetch(API + '?conversationId=' + encodeURIComponent(conversationId) + (visitorToken ? '&visitorToken=' + encodeURIComponent(visitorToken) : ''))
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (!data.ok) return;
@@ -765,13 +774,14 @@ function buildChatPageHtml({
         if (stored) {
           var session = JSON.parse(stored);
           conversationId = session.conversationId;
+          visitorToken = session.visitorToken || null;
           if (conversationId) {
             identifyForm.classList.add('hidden');
             composerEl.classList.remove('hidden');
             welcomeEl.classList.add('hidden');
 
             // Load existing messages
-            fetch(API + '?conversationId=' + conversationId)
+            fetch(API + '?conversationId=' + encodeURIComponent(conversationId) + (visitorToken ? '&visitorToken=' + encodeURIComponent(visitorToken) : ''))
               .then(function(r) { return r.json(); })
               .then(function(data) {
                 if (data.ok) {
@@ -816,7 +826,7 @@ function buildChatPageHtml({
       setInterval(function() {
         if (conversationId) {
           try {
-            sessionStorage.setItem('chat_session_' + WIDGET_ID, JSON.stringify({ conversationId: conversationId }));
+            sessionStorage.setItem('chat_session_' + WIDGET_ID, JSON.stringify({ conversationId: conversationId, visitorToken: visitorToken }));
           } catch(e) {}
         }
       }, 1000);
