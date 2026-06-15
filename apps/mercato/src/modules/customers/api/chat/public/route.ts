@@ -215,18 +215,17 @@ async function tryBotResponse(knex: Knex, conversationId: string, widgetId: stri
   try {
     const widget = await knex('chat_widgets').where('id', widgetId).first()
     if (!widget) return
-    // Customer Service can handle website chat independent of the widget's own
-    // bot toggle. If the widget bot is off, we still proceed when the org has
-    // cs_chat_enabled (the CS branch below answers); otherwise behave as before.
-    let csChatEnabled = false
-    if (!widget.bot_enabled) {
-      const csRow = await knex('customer_service_settings')
-        .where('organization_id', widget.organization_id)
-        .select('cs_chat_enabled')
-        .first()
-      csChatEnabled = !!csRow?.cs_chat_enabled
-      if (!csChatEnabled) return
-    }
+    // Customer Service is the single owner of website chat. When the org has
+    // cs_chat_enabled, the CS drafter (grounded answers + flag-escalate) is the
+    // sole brain (handled in the CS branch below). The legacy widget bot only
+    // runs as a fallback: when CS is off and the widget's own bot toggle is on.
+    // If neither CS chat nor the legacy widget bot is on, do nothing.
+    const csRow = await knex('customer_service_settings')
+      .where('organization_id', widget.organization_id)
+      .select('cs_chat_enabled')
+      .first()
+    const csChatEnabled = !!csRow?.cs_chat_enabled
+    if (!csChatEnabled && !widget.bot_enabled) return
 
     const allMessages = await knex('chat_messages')
       .where('conversation_id', conversationId)

@@ -5,7 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
-import { Headphones, Mail, Check, FileEdit, Send, Sparkles, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, Globe, X as XIcon, MessageSquare, Flag } from 'lucide-react'
+import { Headphones, Mail, Check, FileEdit, Send, Sparkles, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, Globe, X as XIcon, MessageSquare, Flag, Code, Link as LinkIcon, ExternalLink } from 'lucide-react'
 import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
 import TwilioSmsGuide from '@/modules/customers/backend/components/TwilioSmsGuide'
 import CustomerServiceQueue from './CustomerServiceQueue'
@@ -27,6 +27,22 @@ type Settings = {
   csChatEnabled?: boolean
   flagScenarios?: FlagScenario[] | null
   defaultSignature?: string | null
+}
+// A website chat widget. Customer Service owns website chat: this panel manages
+// the widget's APPEARANCE and deployment only. Answers, knowledge, and escalation
+// are configured in the rest of these Customer Service settings.
+type ChatWidget = {
+  id: string
+  name: string
+  slug: string | null
+  business_name: string | null
+  brand_color: string | null
+  welcome_message: string | null
+  greeting_message: string | null
+  is_active: boolean
+  public_page_enabled: boolean
+  embedCode: string
+  conversation_count?: number
 }
 type KnowledgeEntry = {
   id: string
@@ -59,6 +75,30 @@ export default function CustomerServiceSettingsPage() {
   // through the Customer Service drafter (flag scenarios + grounding) instead of
   // the standalone widget bot. Off = existing widget-bot behavior, unchanged.
   const [csChatEnabled, setCsChatEnabled] = useState(false)
+
+  // Website chat widgets owned by Customer Service. This panel creates/edits the
+  // APPEARANCE only (name, business name, brand color, welcome message), toggles
+  // active + the hosted public page, and surfaces the embed code and hosted page
+  // link. Answers/knowledge/escalation are handled by the CS settings on this page.
+  const [widgets, setWidgets] = useState<ChatWidget[]>([])
+  const [widgetsLoaded, setWidgetsLoaded] = useState(false)
+  const [widgetBusy, setWidgetBusy] = useState<string | null>(null)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  // New-widget form.
+  const [showWidgetForm, setShowWidgetForm] = useState(false)
+  const [nwName, setNwName] = useState('')
+  const [nwBusinessName, setNwBusinessName] = useState('')
+  const [nwBrandColor, setNwBrandColor] = useState('#6d28d9')
+  const [nwWelcome, setNwWelcome] = useState('Hi there! How can we help you today?')
+  const [nwSaving, setNwSaving] = useState(false)
+  const [widgetError, setWidgetError] = useState('')
+  // Inline edit of an existing widget's appearance.
+  const [editWidgetId, setEditWidgetId] = useState<string | null>(null)
+  const [ewName, setEwName] = useState('')
+  const [ewBusinessName, setEwBusinessName] = useState('')
+  const [ewBrandColor, setEwBrandColor] = useState('#6d28d9')
+  const [ewWelcome, setEwWelcome] = useState('')
+
   // The org's connected Twilio number, if any, used as a "use this number" hint.
   const [twilioNumber, setTwilioNumber] = useState<string | null>(null)
   // Flag scenarios. The settings GET always returns the full default list (the 6
@@ -106,6 +146,120 @@ export default function CustomerServiceSettingsPage() {
     if (allRes?.ok) setConnections(all)
     if (csRes?.ok) setCsInboxes(cs)
     return { all, cs }
+  }
+
+  // ---- Website chat widgets (appearance + deployment only) ----
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+
+  async function loadWidgets() {
+    const res = await fetch('/api/chat/widgets', { credentials: 'include' }).then(r => r.json()).catch(() => null)
+    if (res?.ok) setWidgets(res.data || [])
+    setWidgetsLoaded(true)
+  }
+
+  function copyText(key: string, text: string) {
+    navigator.clipboard.writeText(text)
+    setCopiedKey(key)
+    setTimeout(() => setCopiedKey(k => (k === key ? null : k)), 2000)
+  }
+
+  async function createWidget() {
+    setWidgetError('')
+    if (!nwName.trim()) { setWidgetError('Give your chat widget a name.'); return }
+    setNwSaving(true)
+    try {
+      const res = await fetch('/api/chat/widgets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: nwName.trim(),
+          businessName: nwBusinessName.trim() || nwName.trim(),
+          brandColor: nwBrandColor,
+          welcomeMessage: nwWelcome.trim(),
+          greetingMessage: nwWelcome.trim(),
+          publicPageEnabled: true,
+          config: { primaryColor: nwBrandColor, position: 'bottom-right' },
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (data.ok) {
+        // Creating a widget here means Customer Service should own this chat, so
+        // reflect cs_chat_enabled = true (the API also enforces this server-side).
+        setCsChatEnabled(true)
+        setShowWidgetForm(false)
+        setNwName(''); setNwBusinessName(''); setNwBrandColor('#6d28d9')
+        setNwWelcome('Hi there! How can we help you today?')
+        await loadWidgets()
+      } else {
+        setWidgetError(data.error || 'Could not create the chat widget.')
+      }
+    } catch {
+      setWidgetError('Could not create the chat widget.')
+    }
+    setNwSaving(false)
+  }
+
+  function beginEditWidget(w: ChatWidget) {
+    setEditWidgetId(w.id)
+    setEwName(w.name || '')
+    setEwBusinessName(w.business_name || '')
+    setEwBrandColor(w.brand_color || '#6d28d9')
+    setEwWelcome(w.welcome_message || w.greeting_message || '')
+    setWidgetError('')
+  }
+
+  async function saveEditWidget() {
+    if (!editWidgetId) return
+    setWidgetError('')
+    if (!ewName.trim()) { setWidgetError('Give your chat widget a name.'); return }
+    setWidgetBusy(editWidgetId)
+    try {
+      const res = await fetch(`/api/chat/widgets?id=${editWidgetId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: ewName.trim(),
+          businessName: ewBusinessName.trim() || ewName.trim(),
+          brandColor: ewBrandColor,
+          welcomeMessage: ewWelcome.trim(),
+          greetingMessage: ewWelcome.trim(),
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (data.ok) { setEditWidgetId(null); await loadWidgets() }
+      else setWidgetError(data.error || 'Could not save changes.')
+    } catch {
+      setWidgetError('Could not save changes.')
+    }
+    setWidgetBusy(null)
+  }
+
+  async function patchWidget(id: string, body: Record<string, unknown>) {
+    setWidgetBusy(id)
+    try {
+      const res = await fetch(`/api/chat/widgets?id=${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (data.ok) await loadWidgets()
+    } catch {}
+    setWidgetBusy(null)
+  }
+
+  async function deleteWidget(id: string) {
+    if (!confirm('Delete this chat widget? Any embed using it will stop working. This cannot be undone.')) return
+    setWidgetBusy(id)
+    try {
+      await fetch(`/api/chat/widgets?id=${id}`, { method: 'DELETE', credentials: 'include' })
+      if (editWidgetId === id) setEditWidgetId(null)
+      await loadWidgets()
+    } catch {}
+    setWidgetBusy(null)
   }
 
   async function connectSupportInbox() {
@@ -231,6 +385,8 @@ export default function CustomerServiceSettingsPage() {
       if (csConnRes?.ok) setCsInboxes(csConnRes.data || [])
       if (twilioRes?.ok && twilioRes.data?.phoneNumber) setTwilioNumber(twilioRes.data.phoneNumber)
       if (kbRes?.ok) setKnowledge(kbRes.data || [])
+      // Load website chat widgets for the CS-owned Website Chat panel.
+      void loadWidgets()
       setLoading(false)
       // Mark hydration complete on the next tick so the state updates above do
       // not trip the autosave effect. From here on, only user edits autosave.
@@ -955,20 +1111,24 @@ export default function CustomerServiceSettingsPage() {
             </div>
           </section>
 
-          {/* Website chat channel */}
+          {/* Website chat — Customer Service owns website chat. Set up the widget
+              here (appearance + deployment); answers and escalation come from the
+              rest of these Customer Service settings. */}
           <section className="mb-8">
             <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
               <Globe className="size-4 text-muted-foreground" /> Website chat
             </h2>
             <p className="text-xs text-muted-foreground mb-3">
-              Let Customer Service handle your website chat widget. Visitors still get an instant answer, but each message is checked against your flag scenarios and answered using your knowledge and model answers. A flagged message that pauses for review is held for you instead of replying, and the visitor sees a brief note that someone will follow up. When this is off, your chat widget keeps using its own bot exactly as before.
+              Add live chat to your website. Customer Service powers it: visitors get an instant answer grounded in your knowledge and model answers, each message is checked against your flag scenarios, and a flagged message that pauses for review is held for you while the visitor sees a brief note that someone will follow up. Set the look of your widget below, then copy the embed code or share the hosted page link.
             </p>
-            <div className="rounded-lg border">
+
+            {/* Master toggle */}
+            <div className="rounded-lg border mb-3">
               <label className="flex items-start justify-between gap-3 px-4 py-3 cursor-pointer">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Handle website chat</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Route incoming chat messages through Customer Service. Uses your reply mode, flag scenarios, and knowledge.
+                    Route incoming chat messages through Customer Service. Uses your reply mode, flag scenarios, and knowledge. Turning this off pauses automatic answers on your chat widgets.
                   </p>
                 </div>
                 <input type="checkbox" checked={csChatEnabled}
@@ -976,6 +1136,161 @@ export default function CustomerServiceSettingsPage() {
                   className="size-4 mt-0.5 rounded border-input accent-[#2563eb] shrink-0" />
               </label>
             </div>
+
+            {widgetError && (
+              <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{widgetError}</p>
+            )}
+
+            {/* Existing widgets */}
+            <div className="rounded-lg border divide-y mb-3">
+              {!widgetsLoaded ? (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">Loading your chat widgets...</div>
+              ) : widgets.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  No chat widget yet. Create one below to add chat to your website.
+                </div>
+              ) : (
+                widgets.map(w => {
+                  const hostedUrl = w.slug ? `${origin}/api/chat/page/${w.slug}` : ''
+                  const embed = w.embedCode || `<script src="${origin}/api/chat/widget/${w.id}" async></script>`
+                  const isEditing = editWidgetId === w.id
+                  return (
+                    <div key={w.id} className="px-4 py-3 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="size-3 rounded-full shrink-0" style={{ backgroundColor: w.brand_color || '#6d28d9' }} />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate flex items-center gap-2">
+                              {w.name}
+                              <Badge variant={w.is_active ? 'violet' : 'secondary'}>{w.is_active ? 'Active' : 'Inactive'}</Badge>
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {w.business_name || w.name}
+                              {typeof w.conversation_count === 'number' ? ` · ${w.conversation_count} conversations` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button type="button" variant="outline" size="sm"
+                            disabled={widgetBusy === w.id}
+                            onClick={() => patchWidget(w.id, { isActive: !w.is_active })}>
+                            {w.is_active ? 'Disable' : 'Enable'}
+                          </Button>
+                          <Button type="button" variant="outline" size="sm"
+                            onClick={() => (isEditing ? setEditWidgetId(null) : beginEditWidget(w))}>
+                            {isEditing ? 'Close' : 'Edit'}
+                          </Button>
+                          <button type="button" onClick={() => deleteWidget(w.id)}
+                            disabled={widgetBusy === w.id}
+                            className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Delete widget">
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditing && (
+                        <div className="rounded-md border bg-muted/30 px-3 py-3 space-y-2.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Input value={ewName} onChange={e => setEwName(e.target.value)} placeholder="Widget name" className="h-8 text-xs" />
+                            <Input value={ewBusinessName} onChange={e => setEwBusinessName(e.target.value)} placeholder="Business name (shown to visitors)" className="h-8 text-xs" />
+                          </div>
+                          <textarea value={ewWelcome} onChange={e => setEwWelcome(e.target.value)}
+                            placeholder="Welcome message"
+                            className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-16" />
+                          <div className="flex items-center gap-2">
+                            <input type="color" value={ewBrandColor} onChange={e => setEwBrandColor(e.target.value)}
+                              className="size-8 rounded-md border cursor-pointer p-0" />
+                            <Input value={ewBrandColor} onChange={e => setEwBrandColor(e.target.value)} placeholder="#6d28d9" className="h-8 text-xs font-mono w-28" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button type="button" size="sm" onClick={saveEditWidget} disabled={widgetBusy === w.id || !ewName.trim()}>
+                              {widgetBusy === w.id ? 'Saving...' : 'Save changes'}
+                            </Button>
+                            <Button type="button" size="sm" variant="ghost" onClick={() => setEditWidgetId(null)}>Cancel</Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Hosted public page */}
+                      <label className="flex items-center justify-between gap-3 cursor-pointer">
+                        <span className="text-xs text-muted-foreground">Hosted chat page (a shareable link to a full-page chat)</span>
+                        <input type="checkbox" checked={w.public_page_enabled}
+                          onChange={() => patchWidget(w.id, { publicPageEnabled: !w.public_page_enabled })}
+                          disabled={widgetBusy === w.id}
+                          className="size-4 rounded border-input accent-[#2563eb] shrink-0" />
+                      </label>
+
+                      {/* Embed code */}
+                      <div className="rounded-md bg-muted/40 border px-3 py-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5"><Code className="size-3" /> Embed code</span>
+                          <button type="button" onClick={() => copyText(`embed-${w.id}`, embed)}
+                            className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                            {copiedKey === `embed-${w.id}` ? <><Check className="size-3 text-[#047857] dark:text-[#34d399]" /> Copied</> : <>Copy</>}
+                          </button>
+                        </div>
+                        <code className="text-[11px] break-all block leading-relaxed text-muted-foreground">{embed}</code>
+                        <p className="text-[11px] text-muted-foreground mt-1.5">Paste this just before the closing &lt;/body&gt; tag on your site.</p>
+                      </div>
+
+                      {/* Hosted page link */}
+                      {w.public_page_enabled && w.slug && (
+                        <div className="rounded-md bg-muted/40 border px-3 py-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5"><LinkIcon className="size-3" /> Hosted page link</span>
+                            <div className="flex items-center gap-2">
+                              <button type="button" onClick={() => copyText(`link-${w.id}`, hostedUrl)}
+                                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                                {copiedKey === `link-${w.id}` ? <><Check className="size-3 text-[#047857] dark:text-[#34d399]" /> Copied</> : <>Copy</>}
+                              </button>
+                              <button type="button" onClick={() => window.open(hostedUrl, '_blank')}
+                                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                                <ExternalLink className="size-3" /> Open
+                              </button>
+                            </div>
+                          </div>
+                          <code className="text-[11px] break-all block leading-relaxed text-muted-foreground">{hostedUrl}</code>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Create a new widget */}
+            {showWidgetForm ? (
+              <div className="rounded-lg border">
+                <div className="px-4 py-3 border-b">
+                  <p className="text-sm font-medium flex items-center gap-2"><Plus className="size-4 text-muted-foreground" /> New chat widget</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Set how the widget looks. Answers come from your Customer Service knowledge and flag scenarios above.</p>
+                </div>
+                <div className="px-4 py-3 space-y-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input value={nwName} onChange={e => setNwName(e.target.value)} placeholder="Widget name, e.g. Main Site Chat" className="h-8 text-xs" />
+                    <Input value={nwBusinessName} onChange={e => setNwBusinessName(e.target.value)} placeholder="Business name (shown to visitors)" className="h-8 text-xs" />
+                  </div>
+                  <textarea value={nwWelcome} onChange={e => setNwWelcome(e.target.value)}
+                    placeholder="Welcome message"
+                    className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-16" />
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={nwBrandColor} onChange={e => setNwBrandColor(e.target.value)}
+                      className="size-8 rounded-md border cursor-pointer p-0" />
+                    <Input value={nwBrandColor} onChange={e => setNwBrandColor(e.target.value)} placeholder="#6d28d9" className="h-8 text-xs font-mono w-28" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" size="sm" onClick={createWidget} disabled={nwSaving || !nwName.trim()}>
+                      {nwSaving ? 'Creating...' : <><Plus className="size-3.5 mr-1" /> Create widget</>}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => { setShowWidgetForm(false); setWidgetError('') }}>Cancel</Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" size="sm" onClick={() => { setShowWidgetForm(true); setWidgetError('') }}>
+                <Plus className="size-3.5 mr-1" /> Create a chat widget
+              </Button>
+            )}
           </section>
 
           {/* Settings autosave as you change them. This row just reflects status. */}

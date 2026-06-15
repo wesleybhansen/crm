@@ -60,8 +60,10 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
     const body = await req.json()
-    const { name, greetingMessage, config, slug, description, brandColor, welcomeMessage, businessName, publicPageEnabled,
-      botEnabled, botKnowledgeBase, botPersonality, botInstructions, botGuardrails, botHandoffMessage, botMaxResponses } = body
+    // Appearance-only fields. The standalone widget bot has been retired: chat is
+    // now powered by Customer Service (grounded auto-answer + flag-escalate), so
+    // any legacy bot_* fields in the body are intentionally ignored here.
+    const { name, greetingMessage, config, slug, description, brandColor, welcomeMessage, businessName, publicPageEnabled } = body
     if (!name?.trim()) return NextResponse.json({ ok: false, error: 'name is required' }, { status: 400 })
 
     // Generate slug from name if not provided
@@ -93,15 +95,38 @@ export async function POST(req: Request) {
     if (brandColor !== undefined) row.brand_color = brandColor
     if (businessName !== undefined) row.business_name = businessName
     if (publicPageEnabled !== undefined) row.public_page_enabled = publicPageEnabled
-    if (botEnabled !== undefined) row.bot_enabled = botEnabled
-    if (botKnowledgeBase !== undefined) row.bot_knowledge_base = botKnowledgeBase
-    if (botPersonality !== undefined) row.bot_personality = botPersonality
-    if (botInstructions !== undefined) row.bot_instructions = botInstructions
-    if (botGuardrails !== undefined) row.bot_guardrails = botGuardrails
-    if (botHandoffMessage !== undefined) row.bot_handoff_message = botHandoffMessage
-    if (botMaxResponses !== undefined) row.bot_max_responses = botMaxResponses
 
     await knex('chat_widgets').insert(row)
+
+    // Setting up website chat means the org wants chat handled. Ensure the org's
+    // Customer Service drafter owns it: turn on cs_chat_enabled so this widget
+    // routes through the CS brain (grounded answers + flag-escalate) out of the
+    // box. Self-scoped by auth.orgId; never trust a client org. Best-effort so a
+    // CS-settings hiccup never blocks widget creation.
+    try {
+      const existingCs = await knex('customer_service_settings').where('organization_id', auth.orgId).first()
+      if (existingCs) {
+        if (!existingCs.cs_chat_enabled) {
+          await knex('customer_service_settings')
+            .where('id', existingCs.id)
+            .update({ cs_chat_enabled: true, enabled: true, updated_at: new Date() })
+        }
+      } else {
+        await knex('customer_service_settings').insert({
+          id: crypto.randomUUID(),
+          tenant_id: auth.tenantId,
+          organization_id: auth.orgId,
+          enabled: true,
+          cs_chat_enabled: true,
+          reply_mode: 'draft',
+          created_at: new Date(),
+          updated_at: new Date(),
+        })
+      }
+    } catch (csErr) {
+      console.error('[chat.widgets.create.cs-enable]', csErr)
+    }
+
     const widget = await knex('chat_widgets').where('id', id).first()
     return NextResponse.json({ ok: true, data: widget }, { status: 201 })
   } catch (error) {
@@ -132,13 +157,8 @@ export async function PUT(req: Request) {
     if (body.welcomeMessage !== undefined) updates.welcome_message = body.welcomeMessage
     if (body.businessName !== undefined) updates.business_name = body.businessName
     if (body.publicPageEnabled !== undefined) updates.public_page_enabled = body.publicPageEnabled
-    if (body.botEnabled !== undefined) updates.bot_enabled = body.botEnabled
-    if (body.botKnowledgeBase !== undefined) updates.bot_knowledge_base = body.botKnowledgeBase
-    if (body.botPersonality !== undefined) updates.bot_personality = body.botPersonality
-    if (body.botInstructions !== undefined) updates.bot_instructions = body.botInstructions
-    if (body.botGuardrails !== undefined) updates.bot_guardrails = body.botGuardrails
-    if (body.botHandoffMessage !== undefined) updates.bot_handoff_message = body.botHandoffMessage
-    if (body.botMaxResponses !== undefined) updates.bot_max_responses = body.botMaxResponses
+    // Legacy bot_* fields are intentionally ignored: website chat is now powered by
+    // Customer Service (set up answers, knowledge, and escalation in CS settings).
 
     await knex('chat_widgets').where('id', id).andWhere('organization_id', auth.orgId).update(updates)
     const widget = await knex('chat_widgets').where('id', id).first()

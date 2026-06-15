@@ -12,7 +12,7 @@ import {
   Calendar, Tag, Zap, Bell, BellOff, Trash2,
   ChevronDown, Slash, Bot, ArrowLeft, ArrowRight,
   Globe, Code, Link, Plug, ExternalLink, ChevronLeft,
-  ChevronRight, Inbox, Upload, FileText,
+  ChevronRight, Inbox, Upload, FileText, Headphones,
 } from 'lucide-react'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -397,11 +397,6 @@ function LandingPage({
                       <Badge variant={widget.is_active ? 'default' : 'secondary'} className="text-[10px] h-5">
                         {widget.is_active ? 'Active' : 'Inactive'}
                       </Badge>
-                      {widget.bot_enabled && (
-                        <Badge variant="violet" className="gap-1">
-                          <Bot className="size-3" /> AI
-                        </Badge>
-                      )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
                       {widget.business_name || widget.name}
@@ -497,13 +492,6 @@ type WizardData = {
   businessName: string
   welcomeMessage: string
   brandColor: string
-  botEnabled: boolean
-  botKnowledgeBase: string
-  botPersonality: string
-  botGuardrails: string
-  botHandoffMessage: string
-  botMaxResponses: number
-  botHandoffEnabled: boolean
 }
 
 function CreationWizard({
@@ -526,44 +514,10 @@ function CreationWizard({
   const [welcomeMessage, setWelcomeMessage] = useState('Hi there! How can we help you today?')
   const [brandColor, setBrandColor] = useState('#3B82F6')
 
-  const [botEnabled, setBotEnabled] = useState(false)
-  const [botKnowledgeBase, setBotKnowledgeBase] = useState('')
-  const [botPersonalityPreset, setBotPersonalityPreset] = useState<string>('friendly')
-  const [botPersonalityCustom, setBotPersonalityCustom] = useState('')
-  const [botGuardrails, setBotGuardrails] = useState('')
-  const [botHandoffMessage, setBotHandoffMessage] = useState('Let me connect you with a team member who can help with that!')
-  const [botMaxResponses, setBotMaxResponses] = useState(10)
-  const [botHandoffEnabled, setBotHandoffEnabled] = useState(true)
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const botPersonality = botPersonalityPreset === 'custom'
-    ? botPersonalityCustom
-    : PERSONALITY_PRESETS.find(p => p.id === botPersonalityPreset)?.value || ''
-
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const slug = slugify(name)
 
   const canProceedStep1 = name.trim().length > 0
-  const canProceedStep2 = !botEnabled || botKnowledgeBase.trim().length > 0
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const text = event.target?.result as string
-      if (text) {
-        setBotKnowledgeBase(prev => prev ? `${prev}\n\n--- Content from ${file.name} ---\n${text}` : text)
-        setUploadedFileName(file.name)
-      }
-    }
-    reader.onerror = () => {
-      showToast('Failed to read file')
-    }
-    reader.readAsText(file)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
 
   const handleCreate = async () => {
     setCreating(true)
@@ -573,13 +527,6 @@ function CreationWizard({
         businessName: businessName.trim() || name.trim(),
         welcomeMessage: welcomeMessage.trim(),
         brandColor,
-        botEnabled,
-        botKnowledgeBase: botKnowledgeBase.trim(),
-        botPersonality: botPersonality.trim(),
-        botGuardrails: botGuardrails.trim(),
-        botHandoffMessage: botHandoffMessage.trim(),
-        botMaxResponses,
-        botHandoffEnabled,
       })
       if (result) {
         setCreatedWidget(result)
@@ -714,257 +661,28 @@ function CreationWizard({
           </div>
         )}
 
-        {/* Step 2: AI Chat Bot */}
+        {/* Step 2: Answers (powered by Customer Service) */}
         {step === 2 && (
           <div>
-            <h2 className="text-xl font-bold text-foreground mb-1">AI Chat Bot</h2>
+            <h2 className="text-xl font-bold text-foreground mb-1">Answers and escalation</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              Optionally enable an AI-powered bot to automatically respond to visitors.
+              Chat is now powered by Customer Service.
             </p>
 
-            <div className="flex items-center justify-between bg-muted/50 rounded-xl px-5 py-4 mb-6">
-              <div className="flex items-center gap-3">
-                <Bot className="size-5 text-[#6d28d9] dark:text-[#c4b5fd]" />
-                <div>
-                  <Label htmlFor="wizard-bot-toggle" className="text-sm font-medium cursor-pointer">
-                    Enable AI Chat Bot
-                  </Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    The bot answers visitor questions using your knowledge base
+            <div className="rounded-xl border border-border bg-muted/40 px-5 py-5">
+              <div className="flex items-start gap-3">
+                <Headphones className="size-5 text-[#6d28d9] dark:text-[#c4b5fd] mt-0.5 shrink-0" />
+                <div className="text-sm text-muted-foreground space-y-2">
+                  <p className="text-foreground font-medium">Set up answers, knowledge, and escalation in Customer Service settings.</p>
+                  <p>
+                    Your chat widget gets instant, grounded answers from your Customer Service knowledge and model answers, with your flag scenarios deciding what is answered automatically and what is held for your review.
                   </p>
+                  <a href="/backend/customer-service" className="inline-flex items-center gap-1.5 text-accent font-medium hover:underline">
+                    Open Customer Service settings <ArrowRight className="size-4" />
+                  </a>
                 </div>
               </div>
-              <Switch
-                id="wizard-bot-toggle"
-                checked={botEnabled}
-                onCheckedChange={(checked: boolean) => {
-                  setBotEnabled(checked)
-                  if (checked && !botGuardrails.trim()) {
-                    setBotGuardrails(DEFAULT_GUARDRAILS)
-                  }
-                }}
-              />
             </div>
-
-            {botEnabled && (
-              <div className="space-y-7">
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">
-                    Knowledge Base <span className="text-destructive">*</span>
-                  </label>
-                  {/* Import from website */}
-                  <div className="flex items-center gap-2 mb-3">
-                    <Input
-                      placeholder="Enter your website URL to import content..."
-                      className="flex-1 h-9 text-sm"
-                      id="wizard-website-url"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          const input = e.target as HTMLInputElement
-                          const url = input.value.trim()
-                          if (!url) return
-                          const btn = document.getElementById('wizard-scrape-btn') as HTMLButtonElement
-                          if (btn) btn.click()
-                        }
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      id="wizard-scrape-btn"
-                      className="h-9 shrink-0"
-                      onClick={async () => {
-                        const input = document.getElementById('wizard-website-url') as HTMLInputElement
-                        const url = input?.value?.trim()
-                        if (!url) return
-                        const btn = document.getElementById('wizard-scrape-btn') as HTMLButtonElement
-                        if (btn) { btn.disabled = true; btn.textContent = 'Importing...' }
-                        try {
-                          const res = await fetch('/api/chat/scrape-website', {
-                            method: 'POST', credentials: 'include',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url }),
-                          })
-                          const data = await res.json()
-                          if (data.ok && data.data?.content) {
-                            setBotKnowledgeBase(prev => prev ? `${prev}\n\n--- Imported from ${data.data.url} ---\n${data.data.content}` : data.data.content)
-                            const pages = data.data.pagesScraped || 1
-                            showToast(`Imported content from ${pages} page${pages > 1 ? 's' : ''}!`, 'success')
-                            input.value = ''
-                          } else {
-                            showToast(data.error || 'Failed to import', 'error')
-                          }
-                        } catch { showToast('Failed to fetch website', 'error') }
-                        if (btn) { btn.disabled = false; btn.textContent = 'Import' }
-                      }}
-                    >
-                      Import
-                    </Button>
-                  </div>
-
-                  {/* File upload area */}
-                  <div
-                    className="border-border rounded-lg p-4 mb-3 text-center hover:border-accent/40 transition-colors cursor-pointer"
-                    onClick={() => fileInputRef.current?.click()}
-                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      const file = e.dataTransfer.files?.[0]
-                      if (file) {
-                        const reader = new FileReader()
-                        reader.onload = (event) => {
-                          const text = event.target?.result as string
-                          if (text) {
-                            setBotKnowledgeBase(prev => prev ? `${prev}\n\n--- Content from ${file.name} ---\n${text}` : text)
-                            setUploadedFileName(file.name)
-                          }
-                        }
-                        reader.readAsText(file)
-                      }
-                    }}
-                  >
-                    <Upload className="size-5 text-muted-foreground mx-auto mb-1.5" />
-                    <p className="text-sm font-medium text-foreground">Upload a document</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">PDF, TXT, DOCX</p>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".txt,.pdf,.docx,.doc,.md,.csv"
-                      className="hidden"
-                      onChange={handleFileUpload}
-                    />
-                  </div>
-                  {uploadedFileName && (
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="secondary" className="text-xs">
-                        <FileText className="size-3 mr-1" /> {uploadedFileName}
-                      </Badge>
-                      <button
-                        type="button"
-                        onClick={() => setUploadedFileName(null)}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="h-px flex-1 bg-border" />
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">or type / paste below</span>
-                    <div className="h-px flex-1 bg-border" />
-                  </div>
-                  <Textarea
-                    value={botKnowledgeBase}
-                    onChange={(e) => setBotKnowledgeBase(e.target.value)}
-                    placeholder="Paste your FAQ, product descriptions, pricing, business hours, policies, etc. The bot uses this to answer questions accurately."
-                    className="text-sm"
-                    rows={6}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    The more detailed your knowledge base, the better the bot can answer questions.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">
-                    Bot Personality
-                  </label>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {PERSONALITY_PRESETS.map((preset) => (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => setBotPersonalityPreset(preset.id)}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
-                          botPersonalityPreset === preset.id
-                            ? 'bg-accent text-accent-foreground border-accent'
-                            : 'bg-card text-foreground border-border hover:border-accent/40'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                  {botPersonalityPreset === 'custom' && (
-                    <Input
-                      value={botPersonalityCustom}
-                      onChange={(e) => setBotPersonalityCustom(e.target.value)}
-                      placeholder="Describe the bot's personality and tone..."
-                      className="text-sm"
-                    />
-                  )}
-                  {botPersonalityPreset !== 'custom' && (
-                    <p className="text-xs text-muted-foreground">
-                      {PERSONALITY_PRESETS.find(p => p.id === botPersonalityPreset)?.value}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-sm font-medium text-foreground block">
-                      Guardrails / Off-limits Topics
-                    </label>
-                    {!botGuardrails.trim() && (
-                      <button
-                        type="button"
-                        onClick={() => setBotGuardrails(DEFAULT_GUARDRAILS)}
-                        className="text-xs text-accent hover:text-accent/80 font-medium"
-                      >
-                        Use defaults
-                      </button>
-                    )}
-                  </div>
-                  <Textarea
-                    value={botGuardrails}
-                    onChange={(e) => setBotGuardrails(e.target.value)}
-                    placeholder="Topics the bot should NOT discuss (e.g., competitor pricing, legal advice)"
-                    className="text-sm"
-                    rows={3}
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">
-                    Handoff Message
-                  </label>
-                  <Input
-                    value={botHandoffMessage}
-                    onChange={(e) => setBotHandoffMessage(e.target.value)}
-                    placeholder="What the bot says when handing off to a human agent"
-                    className="text-sm"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <input
-                      type="checkbox"
-                      id="wizard-handoff-check"
-                      checked={botHandoffEnabled}
-                      onChange={(e) => setBotHandoffEnabled(e.target.checked)}
-                      className="rounded border-border"
-                    />
-                    <label htmlFor="wizard-handoff-check" className="text-sm font-medium text-foreground cursor-pointer">
-                      Auto-handoff after max responses
-                    </label>
-                  </div>
-                  {botHandoffEnabled && (
-                    <Input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={botMaxResponses}
-                      onChange={(e) => setBotMaxResponses(parseInt(e.target.value, 10) || 10)}
-                      className="text-sm w-24"
-                    />
-                  )}
-                </div>
-              </div>
-            )}
 
             <div className="flex justify-between mt-8">
               <Button variant="outline" type="button" onClick={() => setStep(1)}>
@@ -973,7 +691,6 @@ function CreationWizard({
               <Button
                 type="button"
                 onClick={() => setStep(3)}
-                disabled={!canProceedStep2}
               >
                 Next <ChevronRight className="size-4 ml-1" />
               </Button>
@@ -998,8 +715,7 @@ function CreationWizard({
               <div className="text-xs text-muted-foreground space-y-1">
                 <p>Business name: {businessName || name}</p>
                 <p>Welcome message: {welcomeMessage}</p>
-                <p>AI assistant: {botEnabled ? 'Enabled' : 'Disabled'}</p>
-                {botEnabled && <p>Max responses: {botMaxResponses}</p>}
+                <p>Answers: powered by Customer Service</p>
               </div>
             </div>
 
@@ -1400,12 +1116,6 @@ export default function ChatPage() {
         slug: slugify(data.name),
         publicPageEnabled: true,
         config: { primaryColor: data.brandColor, position: 'bottom-right' },
-        botEnabled: data.botEnabled,
-        botKnowledgeBase: data.botKnowledgeBase || null,
-        botPersonality: data.botPersonality || null,
-        botGuardrails: data.botGuardrails || null,
-        botHandoffMessage: data.botHandoffMessage || null,
-        botMaxResponses: data.botHandoffEnabled ? data.botMaxResponses : null,
       }),
     })
     if (!res.ok) {
@@ -2255,59 +1965,9 @@ function WidgetCard({
   onDelete: (id: string) => void
   onUpdate: (id: string, updates: Record<string, unknown>) => Promise<void>
 }) {
-  const [showBotSettings, setShowBotSettings] = useState(false)
-  const [botEnabled, setBotEnabled] = useState(widget.bot_enabled)
-  const [botKnowledgeBase, setBotKnowledgeBase] = useState(widget.bot_knowledge_base || '')
-  const [botInstructions, setBotInstructions] = useState(widget.bot_instructions || '')
-  const [botGuardrails, setBotGuardrails] = useState(widget.bot_guardrails || '')
-  const [botHandoffMessage, setBotHandoffMessage] = useState(widget.bot_handoff_message || 'Let me connect you with a team member who can help with that!')
-  const [botMaxResponses, setBotMaxResponses] = useState(widget.bot_max_responses ?? 10)
-  const [botHandoffEnabled, setBotHandoffEnabled] = useState(widget.bot_max_responses !== null && widget.bot_max_responses !== undefined)
-  const [saving, setSaving] = useState(false)
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
-  const widgetFileInputRef = useRef<HTMLInputElement>(null)
-
-  // Determine personality preset from saved value
-  const matchedPreset = PERSONALITY_PRESETS.find(p => p.id !== 'custom' && p.value === (widget.bot_personality || ''))
-  const [botPersonalityPreset, setBotPersonalityPreset] = useState<string>(matchedPreset ? matchedPreset.id : (widget.bot_personality ? 'custom' : 'friendly'))
-  const [botPersonalityCustom, setBotPersonalityCustom] = useState(matchedPreset ? '' : (widget.bot_personality || ''))
-
-  const botPersonality = botPersonalityPreset === 'custom'
-    ? botPersonalityCustom
-    : PERSONALITY_PRESETS.find(p => p.id === botPersonalityPreset)?.value || ''
-
-  const handleWidgetFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const text = event.target?.result as string
-      if (text) {
-        setBotKnowledgeBase(prev => prev ? `${prev}\n\n--- Content from ${file.name} ---\n${text}` : text)
-        setUploadedFileName(file.name)
-      }
-    }
-    reader.readAsText(file)
-    if (widgetFileInputRef.current) widgetFileInputRef.current.value = ''
-  }
-
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const [copiedLink, setCopiedLink] = useState(false)
   const [copiedEmbed, setCopiedEmbed] = useState(false)
-
-  const saveBotSettings = async () => {
-    setSaving(true)
-    await onUpdate(widget.id, {
-      botEnabled,
-      botKnowledgeBase: botKnowledgeBase || null,
-      botPersonality: botPersonality || null,
-      botInstructions: botInstructions || null,
-      botGuardrails: botGuardrails || null,
-      botHandoffMessage: botHandoffMessage || null,
-      botMaxResponses: botHandoffEnabled ? botMaxResponses : null,
-    })
-    setSaving(false)
-  }
 
   return (
     <div className="bg-card rounded-lg border border-border p-5">
@@ -2392,242 +2052,20 @@ function WidgetCard({
         </div>
       </div>
 
-      {/* AI Bot Toggle — always visible on card */}
-      <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3 mb-3">
-        <div className="flex items-center gap-2.5">
-          <Bot className="size-4 text-[#6d28d9] dark:text-[#c4b5fd]" />
-          <div>
-            <Label htmlFor={`bot-toggle-${widget.id}`} className="text-sm font-medium cursor-pointer">
-              Enable AI Chat Bot
-            </Label>
-            {botEnabled && (
-              <Badge variant="green" className="ml-2">AI Active</Badge>
-            )}
+      {/* Website chat is powered by Customer Service. Answers, knowledge, and
+          escalation are configured there, not on the widget. */}
+      <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+        <div className="flex items-start gap-2.5">
+          <Headphones className="size-4 text-[#6d28d9] dark:text-[#c4b5fd] mt-0.5 shrink-0" />
+          <div className="text-sm text-muted-foreground">
+            <p className="text-foreground font-medium">Chat is now powered by Customer Service.</p>
+            <p className="mt-0.5">
+              Set up answers, knowledge, and escalation in{' '}
+              <a href="/backend/customer-service" className="text-accent font-medium hover:underline">Customer Service settings</a>.
+            </p>
           </div>
         </div>
-        <Switch
-          id={`bot-toggle-${widget.id}`}
-          checked={botEnabled}
-          onCheckedChange={(checked: boolean) => {
-            setBotEnabled(checked)
-            if (checked && !showBotSettings) setShowBotSettings(true)
-            if (checked && !botGuardrails.trim()) setBotGuardrails(DEFAULT_GUARDRAILS)
-          }}
-        />
       </div>
-
-      {/* Expandable bot configuration */}
-      {botEnabled && (
-        <Button
-          variant="ghost"
-          size="sm"
-          type="button"
-          className="text-xs w-full mb-1 text-muted-foreground"
-          onClick={() => setShowBotSettings(!showBotSettings)}
-        >
-          <ChevronDown className={`size-3.5 mr-1.5 transition-transform ${showBotSettings ? 'rotate-180' : ''}`} />
-          {showBotSettings ? 'Hide Bot Configuration' : 'Show Bot Configuration'}
-        </Button>
-      )}
-
-      {showBotSettings && botEnabled && (
-        <div className="space-y-3 border border-border rounded-lg p-4">
-          <div>
-            <label className="text-xs font-medium text-foreground mb-1 block">
-              Knowledge Base <span className="text-destructive">*</span>
-            </label>
-            {/* File upload area */}
-            <div
-              className="border-border rounded-lg p-3 mb-2 text-center hover:border-accent/40 transition-colors cursor-pointer"
-              onClick={() => widgetFileInputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
-              onDrop={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                const file = e.dataTransfer.files?.[0]
-                if (file) {
-                  const reader = new FileReader()
-                  reader.onload = (event) => {
-                    const text = event.target?.result as string
-                    if (text) {
-                      setBotKnowledgeBase(prev => prev ? `${prev}\n\n--- Content from ${file.name} ---\n${text}` : text)
-                      setUploadedFileName(file.name)
-                    }
-                  }
-                  reader.readAsText(file)
-                }
-              }}
-            >
-              <Upload className="size-4 text-muted-foreground mx-auto mb-1" />
-              <p className="text-xs font-medium text-foreground">Upload a document</p>
-              <p className="text-[10px] text-muted-foreground">PDF, TXT, DOCX</p>
-              <input
-                ref={widgetFileInputRef}
-                type="file"
-                accept=".txt,.pdf,.docx,.doc,.md,.csv"
-                className="hidden"
-                onChange={handleWidgetFileUpload}
-              />
-            </div>
-            {uploadedFileName && (
-              <div className="flex items-center gap-2 mb-2">
-                <Badge variant="secondary" className="text-[10px]">
-                  <FileText className="size-3 mr-1" /> {uploadedFileName}
-                </Badge>
-                <button
-                  type="button"
-                  onClick={() => setUploadedFileName(null)}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            )}
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-[9px] text-muted-foreground uppercase tracking-wider">or type / paste below</span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
-            <Textarea
-              value={botKnowledgeBase}
-              onChange={(e) => setBotKnowledgeBase(e.target.value)}
-              placeholder="Paste your FAQ, product descriptions, pricing, business hours, etc."
-              className="text-sm"
-              rows={4}
-            />
-            <p className="text-[10px] text-muted-foreground mt-1">Required. The bot uses this to answer visitor questions accurately.</p>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-foreground block">
-                Guardrails / Off-limits Topics
-              </label>
-              {!botGuardrails.trim() && (
-                <button
-                  type="button"
-                  onClick={() => setBotGuardrails(DEFAULT_GUARDRAILS)}
-                  className="text-[10px] text-accent hover:text-accent/80 font-medium"
-                >
-                  Use defaults
-                </button>
-              )}
-            </div>
-            <Textarea
-              value={botGuardrails}
-              onChange={(e) => setBotGuardrails(e.target.value)}
-              placeholder="Topics the bot should NOT discuss (e.g., competitor pricing, legal advice, refund policy exceptions)"
-              className="text-sm"
-              rows={3}
-            />
-            <p className="text-[10px] text-muted-foreground mt-1">The bot will refuse to answer questions on these topics and hand off to a human.</p>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-foreground mb-1 block">
-              Handoff Message
-            </label>
-            <Input
-              value={botHandoffMessage}
-              onChange={(e) => setBotHandoffMessage(e.target.value)}
-              placeholder="I'll connect you with a team member who can help!"
-              className="text-sm"
-            />
-            <p className="text-[10px] text-muted-foreground mt-1">What the bot says when it cannot answer or hands off to a human.</p>
-          </div>
-
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <input
-                type="checkbox"
-                id={`handoff-check-${widget.id}`}
-                checked={botHandoffEnabled}
-                onChange={(e) => setBotHandoffEnabled(e.target.checked)}
-                className="rounded border-border"
-              />
-              <label htmlFor={`handoff-check-${widget.id}`} className="text-xs font-medium text-foreground cursor-pointer">
-                Auto-handoff after max responses
-              </label>
-            </div>
-            {botHandoffEnabled && (
-              <>
-                <Input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={botMaxResponses}
-                  onChange={(e) => setBotMaxResponses(parseInt(e.target.value, 10) || 10)}
-                  className="text-sm w-24"
-                />
-                <p className="text-[10px] text-muted-foreground mt-1">After this many bot messages, the bot will automatically hand off to a human agent.</p>
-              </>
-            )}
-          </div>
-
-          <div className="border-t border-border pt-3 space-y-3">
-            <div>
-              <label className="text-xs font-medium text-foreground mb-1 block">
-                Bot Personality
-              </label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {PERSONALITY_PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => setBotPersonalityPreset(preset.id)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
-                      botPersonalityPreset === preset.id
-                        ? 'bg-accent text-accent-foreground border-accent'
-                        : 'bg-card text-foreground border-border hover:border-accent/40'
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-              {botPersonalityPreset === 'custom' && (
-                <Input
-                  value={botPersonalityCustom}
-                  onChange={(e) => setBotPersonalityCustom(e.target.value)}
-                  placeholder="Describe the bot's personality and tone..."
-                  className="text-sm"
-                />
-              )}
-              {botPersonalityPreset !== 'custom' && (
-                <p className="text-[10px] text-muted-foreground">
-                  {PERSONALITY_PRESETS.find(p => p.id === botPersonalityPreset)?.value}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-foreground mb-1 block">
-                Additional Instructions
-              </label>
-              <Textarea
-                value={botInstructions}
-                onChange={(e) => setBotInstructions(e.target.value)}
-                placeholder="e.g. Always mention our 30-day guarantee"
-                className="text-sm"
-                rows={2}
-              />
-            </div>
-          </div>
-
-          <Button
-            type="button"
-            size="sm"
-            onClick={saveBotSettings}
-            disabled={saving || (!botKnowledgeBase.trim() && botEnabled)}
-            className="w-full"
-          >
-            {saving ? 'Saving...' : 'Save Bot Settings'}
-          </Button>
-          {!botKnowledgeBase.trim() && (
-            <p className="text-[11px] text-destructive text-center">Knowledge base is required when the bot is enabled.</p>
-          )}
-        </div>
-      )}
     </div>
   )
 }
