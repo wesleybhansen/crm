@@ -6,7 +6,16 @@ import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp, Mail, Messag
 
 type Bucket = { total: number; email: number; sms: number; chat?: number }
 type StatusMap = { drafted: Bucket; sent: Bucket; pending: Bucket; dismissed: Bucket }
-type Analytics = { periodDays: number; period: StatusMap; allTime: StatusMap }
+type FlaggedStats = { period: number; allTime: number; reasons: Record<string, number> }
+type TrendPoint = { weekStart: string; drafted: number; sent: number }
+type Analytics = {
+  periodDays: number
+  period: StatusMap
+  allTime: StatusMap
+  flagged?: FlaggedStats
+  trend?: TrendPoint[]
+  avgTimeToFirstDraftMins?: number
+}
 
 // Compact stat card with a channel breakdown line, matching the CRM card styling
 // (rounded border, muted labels). Used in the analytics row at the top of the Queue.
@@ -69,16 +78,106 @@ function CustomerServiceStats() {
   if (!stats) return null
 
   const days = stats.periodDays
+  const drafted = stats.period.drafted.total
+  const flaggedPeriod = stats.flagged?.period ?? 0
+  // Flag rate over the period: flagged drafts as a share of all drafts.
+  const flagRate = drafted > 0 ? Math.round((flaggedPeriod / drafted) * 100) : 0
+  // Top flag reasons for the period, highest first.
+  const topReasons = Object.entries(stats.flagged?.reasons || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+  const avgFirstDraft = typeof stats.avgTimeToFirstDraftMins === 'number' ? stats.avgTimeToFirstDraftMins : null
+  const trend = stats.trend || []
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-      <StatCard icon={Clock} label="Awaiting approval"
-        value={stats.allTime.pending.total} email={stats.allTime.pending.email} sms={stats.allTime.pending.sms} chat={stats.allTime.pending.chat} />
-      <StatCard icon={Send} label={`Sent (${days}d)`}
-        value={stats.period.sent.total} email={stats.period.sent.email} sms={stats.period.sent.sms} chat={stats.period.sent.chat} />
-      <StatCard icon={FileEdit} label={`Drafted (${days}d)`}
-        value={stats.period.drafted.total} email={stats.period.drafted.email} sms={stats.period.drafted.sms} chat={stats.period.drafted.chat} />
-      <StatCard icon={X} label={`Dismissed (${days}d)`}
-        value={stats.period.dismissed.total} email={stats.period.dismissed.email} sms={stats.period.dismissed.sms} chat={stats.period.dismissed.chat} />
+    <div className="space-y-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard icon={FileEdit} label={`Drafted (${days}d)`}
+          value={stats.period.drafted.total} email={stats.period.drafted.email} sms={stats.period.drafted.sms} chat={stats.period.drafted.chat} />
+        <StatCard icon={Send} label={`Sent (${days}d)`}
+          value={stats.period.sent.total} email={stats.period.sent.email} sms={stats.period.sent.sms} chat={stats.period.sent.chat} />
+        <StatCard icon={Clock} label="Awaiting approval"
+          value={stats.allTime.pending.total} email={stats.allTime.pending.email} sms={stats.allTime.pending.sms} chat={stats.allTime.pending.chat} />
+        <StatCard icon={X} label={`Dismissed (${days}d)`}
+          value={stats.period.dismissed.total} email={stats.period.dismissed.email} sms={stats.period.dismissed.sms} chat={stats.period.dismissed.chat} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* Flag rate + top reasons */}
+        <div className="rounded-lg border px-4 py-3">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground uppercase tracking-wider font-medium mb-1">
+            <Flag className="size-3.5 shrink-0" />
+            <span className="truncate">Flag rate ({days}d)</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-semibold leading-none tabular-nums">{flagRate}%</p>
+            <span className="text-[11px] text-muted-foreground">{flaggedPeriod} of {drafted} drafted</span>
+          </div>
+          {topReasons.length > 0 ? (
+            <div className="mt-2.5 space-y-1.5">
+              {topReasons.map(([label, count]) => (
+                <div key={label} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate text-foreground/80">{label}</span>
+                  <span className="tabular-nums text-muted-foreground shrink-0">{count}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2.5 text-[11px] text-muted-foreground">No flagged messages in this period.</p>
+          )}
+          {avgFirstDraft !== null && (
+            <div className="mt-3 pt-3 border-t flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="size-3.5 shrink-0" />
+              <span>Avg time to first draft: <span className="text-foreground/80 tabular-nums">{avgFirstDraft} min</span></span>
+            </div>
+          )}
+        </div>
+
+        {/* Week-over-week trend: drafted vs sent, last 8 weeks. */}
+        <div className="rounded-lg border px-4 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Last 8 weeks</span>
+            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-sm bg-primary/40" /> Drafted</span>
+              <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-sm bg-primary" /> Sent</span>
+            </div>
+          </div>
+          <WeeklyTrend trend={trend} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Lightweight inline bar chart (no chart dependency): one column per week with a
+// pair of bars (drafted vs sent), scaled to the busiest week in the window.
+function WeeklyTrend({ trend }: { trend: TrendPoint[] }) {
+  if (!trend.length) {
+    return <p className="text-[11px] text-muted-foreground">No activity yet.</p>
+  }
+  const max = Math.max(1, ...trend.map(t => t.drafted), ...trend.map(t => t.sent))
+  return (
+    <div className="flex items-end justify-between gap-1.5 h-20">
+      {trend.map((t) => {
+        const draftedH = Math.round((t.drafted / max) * 100)
+        const sentH = Math.round((t.sent / max) * 100)
+        // Label: month/day of the week start (e.g. "6/9").
+        const d = new Date(`${t.weekStart}T00:00:00Z`)
+        const label = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
+        return (
+          <div key={t.weekStart} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+            <div
+              className="w-full flex items-end justify-center gap-0.5"
+              style={{ height: '100%' }}
+              title={`Week of ${label}: ${t.drafted} drafted, ${t.sent} sent`}
+            >
+              <div className="w-1.5 rounded-sm bg-primary/40" style={{ height: `${draftedH}%`, minHeight: t.drafted > 0 ? '2px' : '0' }} />
+              <div className="w-1.5 rounded-sm bg-primary" style={{ height: `${sentH}%`, minHeight: t.sent > 0 ? '2px' : '0' }} />
+            </div>
+            <span className="text-[9px] text-muted-foreground tabular-nums truncate w-full text-center">{label}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }
