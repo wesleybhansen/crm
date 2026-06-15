@@ -214,7 +214,19 @@ export async function GET(req: Request) {
 async function tryBotResponse(knex: Knex, conversationId: string, widgetId: string) {
   try {
     const widget = await knex('chat_widgets').where('id', widgetId).first()
-    if (!widget?.bot_enabled) return
+    if (!widget) return
+    // Customer Service can handle website chat independent of the widget's own
+    // bot toggle. If the widget bot is off, we still proceed when the org has
+    // cs_chat_enabled (the CS branch below answers); otherwise behave as before.
+    let csChatEnabled = false
+    if (!widget.bot_enabled) {
+      const csRow = await knex('customer_service_settings')
+        .where('organization_id', widget.organization_id)
+        .select('cs_chat_enabled')
+        .first()
+      csChatEnabled = !!csRow?.cs_chat_enabled
+      if (!csChatEnabled) return
+    }
 
     const allMessages = await knex('chat_messages')
       .where('conversation_id', conversationId)
@@ -313,6 +325,56 @@ RULES:
       agent_typing: true,
       agent_typing_at: new Date(),
     }).catch(() => {})
+
+    // Customer Service handling of website chat. When the widget's org has
+    // cs_chat_enabled, route the inbound visitor message through the CS drafter
+    // (flag scenarios + grounding) instead of the standalone widget bot. The
+    // allowance gate, max-bot-responses, and handoff guards above still apply.
+    // A non-flagged message auto-answers instantly; a flagged scenario whose
+    // action is auto_send sends the scenario-instructed reply; any pause scenario
+    // escalates (queues a flagged proposal + alerts the org + posts a holding
+    // message). On a drafting failure we fall through to the widget bot below so
+    // chat is never left silent.
+    try {
+      const csSettings = await knex('customer_service_settings')
+        .where('organization_id', widget.organization_id)
+        .first()
+      if (csSettings?.cs_chat_enabled) {
+        const conversation = await knex('chat_conversations').where('id', conversationId).first()
+        if (conversation) {
+          // Build the chat transcript oldest-to-newest from the recent messages.
+          const recentMessages = messagesForContext.map((m: { sender_type: string; message: string }) => ({
+            direction: m.sender_type === 'visitor' ? 'inbound' : 'outbound',
+            bodyText: m.message,
+            body: m.message,
+          }))
+          const lastInbound = [...messagesForContext]
+            .reverse()
+            .find((m: { sender_type: string; message: string }) => m.sender_type === 'visitor')
+          const { handleCsChatMessage } = await import('@/modules/customers/lib/cs-chat')
+          const handled = await handleCsChatMessage(knex, {
+            aiKey: gate.byoApiKey || apiKey,
+            byoKey: !!gate.byoApiKey,
+            orgId: conversation.organization_id,
+            tenantId: conversation.tenant_id,
+            conversation,
+            settings: { flag_scenarios: csSettings.flag_scenarios, signature: csSettings.signature },
+            recentMessages,
+            lastInboundText: lastInbound?.message || '',
+          })
+          if (handled) {
+            await knex('chat_conversations')
+              .where('id', conversationId)
+              .update({ updated_at: new Date(), agent_typing: false, agent_typing_at: null })
+              .catch(() => {})
+            return
+          }
+        }
+      }
+    } catch (csErr) {
+      console.error('[chat.bot.cs]', csErr)
+      // Fall through to the widget bot below so the visitor still gets a reply.
+    }
 
     const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
     const { generateText } = await import('ai')

@@ -24,6 +24,7 @@ type Settings = {
   sourceModes: SourceModes | null
   signature: string | null
   csSmsNumber: string | null
+  csChatEnabled?: boolean
   flagScenarios?: FlagScenario[] | null
   defaultSignature?: string | null
 }
@@ -54,6 +55,10 @@ export default function CustomerServiceSettingsPage() {
   const [signature, setSignature] = useState('')
   // Dedicated customer-service SMS number (E.164). Empty = SMS support off.
   const [csSmsNumber, setCsSmsNumber] = useState('')
+  // When true, the public website chat widget routes inbound visitor messages
+  // through the Customer Service drafter (flag scenarios + grounding) instead of
+  // the standalone widget bot. Off = existing widget-bot behavior, unchanged.
+  const [csChatEnabled, setCsChatEnabled] = useState(false)
   // The org's connected Twilio number, if any, used as a "use this number" hint.
   const [twilioNumber, setTwilioNumber] = useState<string | null>(null)
   // Flag scenarios. The settings GET always returns the full default list (the 6
@@ -213,6 +218,7 @@ export default function CustomerServiceSettingsPage() {
           setHybridThreshold(Math.min(1, Math.max(0, s.hybridConfidenceThreshold)))
         }
         setCsSmsNumber(s.csSmsNumber || '')
+        setCsChatEnabled(s.csChatEnabled === true)
         if (Array.isArray(s.flagScenarios)) setFlagScenarios(s.flagScenarios)
         // Prepopulate with the server-computed default sign-off (built from the
         // business name) when no signature has been saved yet. This runs before
@@ -493,6 +499,7 @@ export default function CustomerServiceSettingsPage() {
         signature: signature.trim() || undefined,
         // Empty string clears the dedicated CS number server-side.
         csSmsNumber: csSmsNumber.trim(),
+        csChatEnabled,
         flagScenarios,
       }),
     })
@@ -527,7 +534,7 @@ export default function CustomerServiceSettingsPage() {
     autosaveTimerRef.current = setTimeout(() => { void autosave() }, 700)
     return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedIds, replyMode, hybridThreshold, signature, csSmsNumber, flagScenarios])
+  }, [watchedIds, replyMode, hybridThreshold, signature, csSmsNumber, csChatEnabled, flagScenarios])
 
   const watchingAll = watchedIds === null
   // Personal Inbox mailboxes are everything that is not a dedicated support inbox.
@@ -945,6 +952,29 @@ export default function CustomerServiceSettingsPage() {
                   <TwilioSmsGuide />
                 </div>
               </div>
+            </div>
+          </section>
+
+          {/* Website chat channel */}
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <Globe className="size-4 text-muted-foreground" /> Website chat
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Let Customer Service handle your website chat widget. Visitors still get an instant answer, but each message is checked against your flag scenarios and answered using your knowledge and model answers. A flagged message that pauses for review is held for you instead of replying, and the visitor sees a brief note that someone will follow up. When this is off, your chat widget keeps using its own bot exactly as before.
+            </p>
+            <div className="rounded-lg border">
+              <label className="flex items-start justify-between gap-3 px-4 py-3 cursor-pointer">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Handle website chat</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Route incoming chat messages through Customer Service. Uses your reply mode, flag scenarios, and knowledge.
+                  </p>
+                </div>
+                <input type="checkbox" checked={csChatEnabled}
+                  onChange={e => setCsChatEnabled(e.target.checked)}
+                  className="size-4 mt-0.5 rounded border-input accent-[#2563eb] shrink-0" />
+              </label>
             </div>
           </section>
 

@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp, Mail, MessageSquare, Clock, FileEdit, Flag } from 'lucide-react'
+import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp, Mail, MessageSquare, Globe, Clock, FileEdit, Flag } from 'lucide-react'
 
-type Bucket = { total: number; email: number; sms: number }
+type Bucket = { total: number; email: number; sms: number; chat?: number }
 type StatusMap = { drafted: Bucket; sent: Bucket; pending: Bucket; dismissed: Bucket }
 type Analytics = { periodDays: number; period: StatusMap; allTime: StatusMap }
 
@@ -16,12 +16,14 @@ function StatCard({
   value,
   email,
   sms,
+  chat,
 }: {
   icon: typeof Inbox
   label: string
   value: number
   email: number
   sms: number
+  chat?: number
 }) {
   return (
     <div className="rounded-lg border px-4 py-3">
@@ -33,6 +35,7 @@ function StatCard({
       <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1"><Mail className="size-3" /> {email}</span>
         <span className="flex items-center gap-1"><MessageSquare className="size-3" /> {sms}</span>
+        <span className="flex items-center gap-1"><Globe className="size-3" /> {chat ?? 0}</span>
       </div>
     </div>
   )
@@ -69,13 +72,13 @@ function CustomerServiceStats() {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
       <StatCard icon={Clock} label="Awaiting approval"
-        value={stats.allTime.pending.total} email={stats.allTime.pending.email} sms={stats.allTime.pending.sms} />
+        value={stats.allTime.pending.total} email={stats.allTime.pending.email} sms={stats.allTime.pending.sms} chat={stats.allTime.pending.chat} />
       <StatCard icon={Send} label={`Sent (${days}d)`}
-        value={stats.period.sent.total} email={stats.period.sent.email} sms={stats.period.sent.sms} />
+        value={stats.period.sent.total} email={stats.period.sent.email} sms={stats.period.sent.sms} chat={stats.period.sent.chat} />
       <StatCard icon={FileEdit} label={`Drafted (${days}d)`}
-        value={stats.period.drafted.total} email={stats.period.drafted.email} sms={stats.period.drafted.sms} />
+        value={stats.period.drafted.total} email={stats.period.drafted.email} sms={stats.period.drafted.sms} chat={stats.period.drafted.chat} />
       <StatCard icon={X} label={`Dismissed (${days}d)`}
-        value={stats.period.dismissed.total} email={stats.period.dismissed.email} sms={stats.period.dismissed.sms} />
+        value={stats.period.dismissed.total} email={stats.period.dismissed.email} sms={stats.period.dismissed.sms} chat={stats.period.dismissed.chat} />
     </div>
   )
 }
@@ -226,6 +229,7 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
       {items.map(item => {
         const itemBusy = busy[item.id]
         const isSms = item.channel === 'sms'
+        const isChat = item.channel === 'chat'
         const contactHandle = isSms ? item.contact.phone : item.contact.email
         const flagLabels = (item.flagReasons || []).map(r => r.label).filter(Boolean)
         const isFlagged = !!item.flagged && flagLabels.length > 0
@@ -246,17 +250,21 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate flex items-center gap-1.5">
-                    {isSms
-                      ? <MessageSquare className="size-3.5 text-muted-foreground shrink-0" aria-label="SMS" />
-                      : <Mail className="size-3.5 text-muted-foreground shrink-0" aria-label="Email" />}
-                    {item.contact.name || contactHandle || 'Unknown contact'}
+                    {isChat
+                      ? <Globe className="size-3.5 text-muted-foreground shrink-0" aria-label="Website chat" />
+                      : isSms
+                        ? <MessageSquare className="size-3.5 text-muted-foreground shrink-0" aria-label="SMS" />
+                        : <Mail className="size-3.5 text-muted-foreground shrink-0" aria-label="Email" />}
+                    {item.contact.name || contactHandle || (isChat ? 'Website visitor' : 'Unknown contact')}
                   </p>
                   {contactHandle && item.contact.name && (
                     <p className="text-xs text-muted-foreground truncate">{contactHandle}</p>
                   )}
                 </div>
               </div>
-              {isSms
+              {isChat
+                ? <span className="text-xs text-muted-foreground truncate hidden sm:block">Website chat</span>
+                : isSms
                 ? <span className="text-xs text-muted-foreground truncate hidden sm:block">SMS</span>
                 : (item.subject && (
                     <span className="text-xs text-muted-foreground truncate max-w-[40%] hidden sm:block">{item.subject}</span>
@@ -282,7 +290,7 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
                       className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition"
                     >
                       {isExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-                      {isExpanded ? 'Show less' : 'Show full email'}
+                      {isExpanded ? 'Show less' : (isChat ? 'Show full message' : isSms ? 'Show full text' : 'Show full email')}
                     </button>
                   )}
                 </div>

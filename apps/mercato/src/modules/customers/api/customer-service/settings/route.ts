@@ -162,7 +162,7 @@ function normalizeE164(v: unknown): string | null {
 function serialize(row: any, defaultSignature = '') {
   if (!row) {
     // No saved row: seed the default flag-scenario list so the UI shows it.
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, csSmsNumber: null, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })), defaultSignature }
+    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, csSmsNumber: null, csChatEnabled: false, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })), defaultSignature }
   }
   // Saved row: overlay the user's scenarios onto the canonical defaults. Falls
   // back to the full default seed when nothing usable has been saved yet.
@@ -176,6 +176,10 @@ function serialize(row: any, defaultSignature = '') {
     sourceModes: parseSourceModes(row.source_modes),
     signature: row.signature ?? null,
     csSmsNumber: row.cs_sms_number ?? null,
+    // When true, the public website chat widget routes inbound visitor messages
+    // through the Customer Service drafter (flag scenarios + grounding) instead of
+    // the standalone widget bot. Default false = existing widget-bot behavior.
+    csChatEnabled: !!row.cs_chat_enabled,
     flagScenarios,
     // Computed sign-off the UI uses to prepopulate the field when no signature
     // is saved yet. Built from the org's business name; never client-supplied.
@@ -282,12 +286,19 @@ export async function PUT(req: Request) {
       }
     }
 
+    // cs_chat_enabled: route the public website chat widget through the Customer
+    // Service drafter. Omitted in the body = keep existing. Defaults to false.
+    const csChatEnabled = body.csChatEnabled !== undefined
+      ? body.csChatEnabled === true
+      : !!existing?.cs_chat_enabled
+
     // Auto-derive `enabled` instead of trusting a client toggle. The feature is
     // active whenever at least one mailbox is being watched OR a dedicated
-    // customer-service SMS number is configured. watched === null means "watch
-    // all connected support inboxes", which also counts as active.
+    // customer-service SMS number is configured OR the website chat is handled by
+    // Customer Service. watched === null means "watch all connected support
+    // inboxes", which also counts as active.
     const hasWatched = watched === null || (Array.isArray(watched) && watched.length > 0)
-    const enabled = (hasWatched || !!csSmsNumber) ? true : false
+    const enabled = (hasWatched || !!csSmsNumber || csChatEnabled) ? true : false
 
     // flag_scenarios: clamp/validate the client list onto the canonical default
     // keys/labels. Omitted in the body = keep existing. parseFlagScenarios always
@@ -307,6 +318,7 @@ export async function PUT(req: Request) {
       source_modes: Object.keys(sourceModes).length > 0 ? JSON.stringify(sourceModes) : null,
       signature: body.signature !== undefined ? (body.signature || null) : (existing?.signature ?? null),
       cs_sms_number: csSmsNumber,
+      cs_chat_enabled: csChatEnabled,
       flag_scenarios: JSON.stringify(flagScenarios),
       updated_at: new Date(),
     }

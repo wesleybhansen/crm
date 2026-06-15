@@ -5,7 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import crypto from 'crypto'
+import { sendChatReply } from '@/modules/customers/lib/send-chat-reply'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -25,30 +25,16 @@ export async function POST(req: Request) {
       .first()
     if (!conversation) return NextResponse.json({ ok: false, error: 'Conversation not found' }, { status: 404 })
 
-    const id = crypto.randomUUID()
-    await knex('chat_messages').insert({
-      id,
-      conversation_id: conversationId,
-      sender_type: 'business',
-      message: message.trim(),
-      created_at: new Date(),
-    })
-
-    await knex('chat_conversations')
-      .where('id', conversationId)
-      .update({ updated_at: new Date() })
-
-    // Update unified inbox
-    const { upsertInboxConversation } = await import('@/lib/inbox-conversation')
-    upsertInboxConversation(knex, auth.orgId, auth.tenantId, {
-      contactId: conversation.contact_id || null,
-      chatConversationId: conversationId,
-      channel: 'chat',
-      preview: message.trim(),
-      direction: 'outbound',
-      displayName: conversation.visitor_name || conversation.visitor_email || 'Visitor',
-      avatarEmail: conversation.visitor_email,
-    }).catch(() => {})
+    // Shared outbound-chat insert (also used by the public CS chat flow). Posts
+    // the business message + keeps the unified inbox current.
+    const id = await sendChatReply(knex, {
+      id: conversationId,
+      organization_id: auth.orgId,
+      tenant_id: auth.tenantId,
+      contact_id: conversation.contact_id || null,
+      visitor_name: conversation.visitor_name,
+      visitor_email: conversation.visitor_email,
+    }, { body: message.trim(), isBot: false })
 
     const msg = await knex('chat_messages').where('id', id).first()
     return NextResponse.json({ ok: true, data: msg }, { status: 201 })

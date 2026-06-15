@@ -1336,6 +1336,7 @@ export class CustomerServiceSettings {
     | 'sourceModes'
     | 'signature'
     | 'csSmsNumber'
+    | 'csChatEnabled'
     | 'flagScenarios'
     | 'createdAt'
     | 'updatedAt'
@@ -1379,6 +1380,16 @@ export class CustomerServiceSettings {
   // number used by the unified Inbox. null = SMS support disabled.
   @Property({ name: 'cs_sms_number', type: 'text', nullable: true })
   csSmsNumber?: string | null
+
+  // When true, the public website chat widget routes each inbound visitor
+  // message through the Customer Service drafter (flag scenarios + grounding)
+  // instead of the standalone widget bot. A non-flagged message auto-answers
+  // instantly; a flagged 'auto_send' scenario sends the scenario-instructed
+  // reply; any 'pause' scenario escalates (queues a flagged proposal + alerts the
+  // org user + posts a brief holding message to the visitor). false (default) =
+  // the chat widget keeps using its own bot, unchanged.
+  @Property({ name: 'cs_chat_enabled', type: 'boolean', default: false })
+  csChatEnabled: boolean = false
 
   // Flag scenarios: situations in which an inbound message should be FLAGGED
   // (e.g. upset customer, wants to cancel/refund, complaint, legal). Array of

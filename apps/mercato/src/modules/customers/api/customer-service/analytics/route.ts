@@ -10,11 +10,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
-type ChannelSplit = { email: number; sms: number }
+type ChannelSplit = { email: number; sms: number; chat: number }
 type Bucket = { total: number } & ChannelSplit
 
 function emptyBucket(): Bucket {
-  return { total: 0, email: 0, sms: 0 }
+  return { total: 0, email: 0, sms: 0, chat: 0 }
 }
 
 // GET: customer-service analytics for the org. Returns counts of draft_reply
@@ -60,7 +60,7 @@ export async function GET(req: Request) {
     for (const r of rows as any[]) {
       const count = Number(r.cnt) || 0
       if (count === 0) continue
-      const channel: 'email' | 'sms' = r.channel === 'sms' ? 'sms' : 'email'
+      const channel: 'email' | 'sms' | 'chat' = r.channel === 'sms' ? 'sms' : r.channel === 'chat' ? 'chat' : 'email'
       // pg returns booleans as true/false (or 't'/'f' on some drivers).
       const inPeriod = r.in_period === true || r.in_period === 't' || r.in_period === 1
 

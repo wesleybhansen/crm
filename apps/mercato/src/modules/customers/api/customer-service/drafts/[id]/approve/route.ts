@@ -10,6 +10,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
+import { sendChatReply } from '@/modules/customers/lib/send-chat-reply'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 function safeParse(s: any) {
@@ -46,7 +47,7 @@ export async function POST(
     if (action.status === 'dismissed') return NextResponse.json({ ok: false, error: 'Draft was dismissed' }, { status: 409 })
 
     const payload = safeParse(action.payload) || {}
-    const channel: string = payload.channel === 'sms' ? 'sms' : 'email'
+    const channel: string = payload.channel === 'sms' ? 'sms' : payload.channel === 'chat' ? 'chat' : 'email'
     const to: string | undefined = payload.to
     const subject: string = payload.subject || 'Re: your message'
     // Allow the UI to send an edited body. Fall back to the stored draft.
@@ -57,30 +58,69 @@ export async function POST(
       : (payload.body || '')
     const contactId: string | null = payload.contactId || null
 
-    if (!to || !bodyText) {
+    // Chat drafts deliver into the chat conversation (no email/phone recipient),
+    // so only require a body + a conversation. Email/SMS still require a recipient.
+    if (channel === 'chat') {
+      if (!bodyText) {
+        return NextResponse.json({ ok: false, error: 'Draft is missing a body' }, { status: 400 })
+      }
+    } else if (!to || !bodyText) {
       return NextResponse.json({ ok: false, error: 'Draft is missing a recipient or body' }, { status: 400 })
     }
 
     // Shared send path (also used by the auto/hybrid Customer Service engine).
-    // SMS drafts go out over the org's BYO Twilio FROM the dedicated CS number;
-    // email drafts go via the email router. Both record the outbound message and
-    // keep the inbox + timeline current.
-    const sendResult = channel === 'sms'
-      ? await sendSmsReply(knex, auth.orgId, auth.tenantId, {
-          to,
-          body: bodyText,
-          contactId,
-        })
-      : await sendReply(knex, auth.orgId, auth.tenantId, {
-          to,
-          subject,
-          body: bodyText,
-          contactId,
-          sentByUserId: auth.sub || null,
-        })
+    //  chat  -> post a business message into the chat conversation (the website
+    //           visitor sees it on their next poll) via sendChatReply.
+    //  sms   -> the org's BYO Twilio FROM the dedicated CS number.
+    //  email -> the email router.
+    // All record the outbound message and keep the inbox current.
+    let sendResult: { ok: boolean; error?: string; status?: number; sentVia?: string }
+    if (channel === 'chat') {
+      const conversationId: string | undefined = payload.conversationId
+      if (!conversationId) {
+        return NextResponse.json({ ok: false, error: 'Draft is missing the chat conversation' }, { status: 400 })
+      }
+      // Org-scoped: the conversation must belong to the caller's org.
+      const conversation = await knex('chat_conversations')
+        .where('id', conversationId)
+        .where('organization_id', auth.orgId)
+        .first()
+      if (!conversation) {
+        return NextResponse.json({ ok: false, error: 'Chat conversation not found' }, { status: 404 })
+      }
+      try {
+        await sendChatReply(knex, {
+          id: conversation.id,
+          organization_id: auth.orgId,
+          tenant_id: auth.tenantId,
+          contact_id: conversation.contact_id || null,
+          visitor_name: conversation.visitor_name,
+          visitor_email: conversation.visitor_email,
+        }, { body: bodyText, isBot: false })
+        sendResult = { ok: true, sentVia: 'chat' }
+      } catch (chatErr) {
+        console.error('[customer-service.approve] chat send failed', chatErr)
+        sendResult = { ok: false, error: 'Failed to deliver the chat reply', status: 502 }
+      }
+    } else if (channel === 'sms') {
+      sendResult = await sendSmsReply(knex, auth.orgId, auth.tenantId, {
+        to: to!,
+        body: bodyText,
+        contactId,
+      })
+    } else {
+      sendResult = await sendReply(knex, auth.orgId, auth.tenantId, {
+        to: to!,
+        subject,
+        body: bodyText,
+        contactId,
+        sentByUserId: auth.sub || null,
+      })
+    }
 
     if (!sendResult.ok) {
-      return NextResponse.json({ ok: false, error: sendResult.error || (channel === 'sms' ? 'Failed to send SMS' : 'Failed to send email') }, { status: sendResult.status || 502 })
+      const failMsg = channel === 'chat' ? 'Failed to deliver the chat reply' : channel === 'sms' ? 'Failed to send SMS' : 'Failed to send email'
+      return NextResponse.json({ ok: false, error: sendResult.error || failMsg }, { status: sendResult.status || 502 })
     }
 
     const now = new Date()
@@ -94,7 +134,7 @@ export async function POST(
       .where('organization_id', auth.orgId)
       .update({ status: 'accepted', reviewed_by_user_id: auth.sub || null, reviewed_at: now, updated_at: now })
 
-    const sentVia = channel === 'sms' ? 'sms' : (sendResult as { sentVia?: string }).sentVia
+    const sentVia = channel === 'sms' ? 'sms' : channel === 'chat' ? 'chat' : (sendResult as { sentVia?: string }).sentVia
     return NextResponse.json({ ok: true, data: { id: action.id, status: 'sent', channel, sentVia } })
   } catch (error) {
     console.error('[customer-service.approve]', error)

@@ -69,6 +69,12 @@ export async function GET(req: Request) {
     const smsContactIds = Array.from(
       new Set(parsed.filter((p) => p.channel === 'sms').map((p) => p.payload?.contactId).filter((id: any): id is string => !!id)),
     )
+    // Chat conversations referenced by CHAT drafts (for full-text expansion). Chat
+    // items aren't keyed by contact; pull the latest inbound visitor message from
+    // chat_messages by conversation id.
+    const chatConversationIds = Array.from(
+      new Set(parsed.filter((p) => p.channel === 'chat').map((p) => p.payload?.conversationId).filter((id: any): id is string => !!id)),
+    )
 
     // Map of contactId -> full body text of that contact's latest inbound email.
     const fullBodyByContact: Record<string, string> = {}
@@ -105,10 +111,29 @@ export async function GET(req: Request) {
       }
     }
 
+    // Map of conversationId -> latest inbound visitor message text. Scoped to the
+    // org via a join on chat_conversations (chat_messages has no org column).
+    const fullChatByConversation: Record<string, string> = {}
+    if (chatConversationIds.length > 0) {
+      const inbound = await knex('chat_messages as m')
+        .join('chat_conversations as c', 'c.id', 'm.conversation_id')
+        .where('c.organization_id', auth.orgId)
+        .where('m.sender_type', 'visitor')
+        .whereIn('m.conversation_id', chatConversationIds)
+        .orderBy('m.created_at', 'desc')
+        .select('m.conversation_id as conversation_id', 'm.message as message')
+      for (const m of inbound) {
+        const cid = m.conversation_id
+        if (!cid || fullChatByConversation[cid]) continue
+        fullChatByConversation[cid] = String(m.message || '')
+      }
+    }
+
     const data = parsed.map(({ row, payload, participants, channel, flagged, flagReasons }) => {
       const first = Array.isArray(participants) ? participants[0] : null
       const contactId = payload?.contactId || null
       const isSms = channel === 'sms'
+      const isChat = channel === 'chat'
       return {
         id: row.action_id,
         proposalId: row.proposal_id,
@@ -128,10 +153,12 @@ export async function GET(req: Request) {
         },
         conversationId: payload?.conversationId || null,
         lastInboundPreview: payload?.lastInboundPreview || null,
-        lastInboundBody: contactId
-          ? (isSms ? (fullSmsByContact[contactId] || null) : (fullBodyByContact[contactId] || null))
-          : null,
-        subject: isSms ? null : (payload?.subject || null),
+        lastInboundBody: isChat
+          ? (payload?.conversationId ? (fullChatByConversation[payload.conversationId] || null) : null)
+          : (contactId
+              ? (isSms ? (fullSmsByContact[contactId] || null) : (fullBodyByContact[contactId] || null))
+              : null),
+        subject: (isSms || isChat) ? null : (payload?.subject || null),
         body: payload?.body || null,
       }
     })
