@@ -14,17 +14,19 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import type { FlagScenarioInput } from '@/modules/customers/lib/draft-reply'
 import { sendReply } from '@/modules/customers/lib/send-reply'
+import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 // Recurring personal-Inbox drafting engine. Mirrors the Customer Service
-// processor (customer-service/process) but is scoped to inbound EMAIL in the
-// PERSONAL inbox (source_mailbox_purpose IS NULL). It reads the org's
+// processor (customer-service/process) but is scoped to inbound EMAIL + SMS in
+// the PERSONAL inbox (source_mailbox_purpose IS NULL). It reads the org's
 // inbox_ai_settings (reply_mode / hybrid threshold / flag scenarios / tone /
 // signature) + the inbox_knowledge grounding library, drafts a reply through the
 // SHARED generateReplyDraft helper, then drafts / auto-sends / holds per the
-// org's reply mode and any matched flag scenario. SMS is a later follow-on.
+// org's reply mode and any matched flag scenario. Email replies send via the
+// shared sendReply path; SMS replies (channel 'sms') send via sendSmsReply.
 
 // Hard cap on conversations processed per org per run.
 const BATCH_PER_ORG = 25
@@ -101,8 +103,25 @@ export async function POST(req: Request) {
 
         for (const conv of conversations) {
           try {
-            // Personal inbox engine drafts EMAIL only. Anything else (sms/chat)
-            // is marked drafted so it is not reprocessed every run.
+            // SMS personal-inbox conversations are drafted by a separate
+            // concise-reply path (mirrors the Customer Service SMS handling):
+            // pull the transcript from sms_messages, draft with channel 'sms',
+            // then hold / auto-send / hold-on-flag per the same reply-mode rules.
+            if (conv.last_message_channel === 'sms') {
+              const handled = await handleSmsConversation(knex, aiKey, {
+                conv, orgId, tenantId, mode, hybridThreshold,
+                signature: settings.signature || null,
+                byoKey: !!gate.byoApiKey,
+                flagScenarios,
+                drafterScenarios,
+              })
+              if (handled === 'queued') queued++
+              else if (handled === 'sent') autoSent++
+              else skipped++
+              continue
+            }
+            // Anything else that is not email (e.g. chat) is marked drafted so it
+            // is not reprocessed every run.
             if (conv.last_message_channel && conv.last_message_channel !== 'email') {
               await markDrafted(knex, conv.id, orgId)
               skipped++
@@ -280,6 +299,7 @@ export async function POST(req: Request) {
               await sendFlagAlert(knex, orgId, tenantId, {
                 contactName: displayName,
                 contactHandle: toEmail,
+                channel: 'email',
                 reasons: flagOutcome.reasons,
                 paused: flagOutcome.shouldPause,
                 preview: lastInboundPreview,
@@ -316,6 +336,172 @@ export async function POST(req: Request) {
     console.error('[inbox.process]', error)
     return NextResponse.json({ ok: false, error: 'Failed to process inbox queue' }, { status: 500 })
   }
+}
+
+// Normalize a phone number to E.164-ish form (+<digits>). Returns null for
+// empty/invalid input. Used for the SMS reply recipient + transcript matching.
+function normalizeE164(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  let n = v.replace(/[\s\-\(\)\.]/g, '')
+  if (!n) return null
+  if (n.match(/^\d{10}$/)) n = `+1${n}`
+  else if (n.match(/^1\d{10}$/)) n = `+${n}`
+  else if (!n.startsWith('+')) n = `+${n}`
+  return n
+}
+
+// Draft (and, per mode, send) a reply to a single inbound personal-inbox SMS
+// conversation. Mirrors the Customer Service SMS handler: it pulls the transcript
+// from sms_messages, drafts with channel 'sms' (concise, no signature) through
+// the SHARED generateReplyDraft helper, meters the call, then holds / auto-sends
+// / holds-on-flag per the org's reply mode + matched flag scenarios. Auto-send
+// goes through sendSmsReply (the org's connected Twilio); a missing SMS sender
+// makes sendSmsReply return ok:false, and we fall back to HOLD rather than crash.
+// Returns 'queued' | 'sent' | 'skipped' so the caller can tally. Always marks the
+// conversation drafted so it is not reprocessed until a new inbound arrives.
+async function handleSmsConversation(
+  knex: any,
+  aiKey: string,
+  args: {
+    conv: any
+    orgId: string
+    tenantId: string
+    mode: string
+    hybridThreshold: number
+    signature: string | null
+    byoKey: boolean
+    flagScenarios: FlagScenario[]
+    drafterScenarios: FlagScenarioInput[]
+  },
+): Promise<'queued' | 'sent' | 'skipped'> {
+  const { conv, orgId, tenantId, mode, hybridThreshold, byoKey, flagScenarios, drafterScenarios } = args
+
+  // Resolve the customer's phone number: prefer the conversation avatar_phone,
+  // else the contact's primary_phone. Needed both to load the transcript and as
+  // the reply recipient.
+  let toPhone: string | null = normalizeE164(conv.avatar_phone)
+  const contactId: string | null = conv.contact_id || null
+  let contact: any = null
+  if (contactId) {
+    contact = await knex('customer_entities').where('id', contactId).where('organization_id', orgId).first()
+    if (!toPhone) toPhone = normalizeE164(contact?.primary_phone)
+  }
+  if (!toPhone) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
+
+  // Load the recent SMS transcript for context, org-scoped. Match on contact_id
+  // when present, otherwise on the customer phone (from_number for inbound,
+  // to_number for outbound).
+  let txQuery = knex('sms_messages')
+    .where('organization_id', orgId)
+    .where(function (this: any) {
+      this.where('from_number', toPhone).orWhere('to_number', toPhone)
+    })
+    .orderBy('created_at', 'asc')
+    .limit(50)
+  if (contactId) {
+    txQuery = knex('sms_messages')
+      .where('organization_id', orgId)
+      .where('contact_id', contactId)
+      .orderBy('created_at', 'asc')
+      .limit(50)
+  }
+  const smsMessages = await txQuery
+
+  const inbound = [...smsMessages].reverse().find((m: any) => m.direction === 'inbound')
+  if (!inbound) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
+
+  const recentMessages = smsMessages.map((m: any) => ({
+    direction: m.direction,
+    bodyText: m.body,
+    body: m.body,
+  }))
+
+  // Shared drafting helper. channel 'sms' keeps it brief and emits no
+  // greeting/sign-off block; we pass NO signature so the body stays short.
+  // knowledgeTable: 'inbox_knowledge' grounds on the personal Inbox library.
+  const result = await generateReplyDraft(knex, aiKey, {
+    orgId,
+    channel: 'sms',
+    recentMessages,
+    contactId,
+    signature: null,
+    flagScenarios: drafterScenarios,
+    knowledgeTable: 'inbox_knowledge',
+  })
+
+  void meterCustomersAi({ orgId }, {
+    model: result.model,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+    feature: 'inbox-draft',
+    byoKey,
+  })
+
+  if (!result.ok || !result.draft) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
+
+  const displayName = contact?.display_name || conv.display_name || toPhone
+  const lastInboundPreview = (inbound.body || '').toString().substring(0, 200)
+
+  // Flag scenarios override reply mode (same rule as email): pause beats
+  // auto/hybrid, all-auto_send forces a send. Email the org user on any flag.
+  const matched = result.matchedScenarios || []
+  const flagged = matched.length > 0
+  const flagOutcome = flagged ? resolveFlagOutcome(matched, flagScenarios) : null
+  const flagMeta = flagged ? { flagged: true, flagReasons: flagOutcome?.reasons || [] } : undefined
+
+  let shouldAutoSend = false
+  if (mode === 'auto') shouldAutoSend = true
+  else if (mode === 'hybrid') shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
+  if (flagOutcome) shouldAutoSend = flagOutcome.shouldPause ? false : true
+
+  // Fire the flag alert once, regardless of which branch handles the draft.
+  const fireAlert = async (paused: boolean) => {
+    if (flagged && flagOutcome) {
+      await sendFlagAlert(knex, orgId, tenantId, {
+        contactName: displayName,
+        contactHandle: toPhone || '',
+        channel: 'sms',
+        reasons: flagOutcome.reasons,
+        paused,
+        preview: lastInboundPreview,
+      })
+    }
+  }
+
+  if (shouldAutoSend) {
+    const sendResult = await sendSmsReply(knex, orgId, tenantId, {
+      to: toPhone,
+      body: result.draft,
+      contactId,
+    })
+    if (sendResult.ok) {
+      await createSmsDraftProposal(knex, orgId, tenantId, {
+        displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
+        body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'sent', flag: flagMeta,
+      })
+      await markDrafted(knex, conv.id, orgId)
+      await fireAlert(false)
+      return 'sent'
+    }
+    // Send failed (e.g. no connected Twilio / no SMS number configured): fall
+    // back to holding the draft for manual review rather than dropping it.
+    console.error('[inbox.process] SMS auto-send failed, holding instead', { orgId, convId: conv.id, err: sendResult.error })
+    await createSmsDraftProposal(knex, orgId, tenantId, {
+      displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
+      body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending', flag: flagMeta,
+    })
+    await markDrafted(knex, conv.id, orgId)
+    await fireAlert(true)
+    return 'queued'
+  }
+
+  await createSmsDraftProposal(knex, orgId, tenantId, {
+    displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
+    body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending', flag: flagMeta,
+  })
+  await markDrafted(knex, conv.id, orgId)
+  await fireAlert(true)
+  return 'queued'
 }
 
 // email_messages.metadata is jsonb; the driver may hand it back parsed or as a
@@ -391,6 +577,7 @@ async function sendFlagAlert(
   d: {
     contactName: string
     contactHandle: string
+    channel?: 'email' | 'sms'
     reasons: Array<{ key: string; label: string }>
     paused: boolean
     preview: string
@@ -408,6 +595,7 @@ async function sendFlagAlert(
     const queueUrl = `${appUrl.replace(/\/$/, '')}/backend/inbox`
     const labels = d.reasons.map((r) => r.label).filter(Boolean)
     const scenarioLine = labels.length ? labels.join(', ') : 'a flagged scenario'
+    const channelLabel = d.channel === 'sms' ? 'text message' : 'email'
     const actionLine = d.paused
       ? 'The reply is waiting in your inbox for review. Nothing was sent automatically.'
       : 'A reply was drafted and sent automatically for this scenario.'
@@ -416,7 +604,7 @@ async function sendFlagAlert(
     const subject = 'An inbox message was flagged'
     const htmlBody = `
       <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; font-size: 14px; color: #1f2937; line-height: 1.6;">
-        <p>An email from <strong>${esc(d.contactName)}</strong>${d.contactHandle ? ` (${esc(d.contactHandle)})` : ''} matched ${labels.length > 1 ? 'these flag scenarios' : 'a flag scenario'}: <strong>${esc(scenarioLine)}</strong>.</p>
+        <p>An ${channelLabel} from <strong>${esc(d.contactName)}</strong>${d.contactHandle ? ` (${esc(d.contactHandle)})` : ''} matched ${labels.length > 1 ? 'these flag scenarios' : 'a flag scenario'}: <strong>${esc(scenarioLine)}</strong>.</p>
         <p>${actionLine}</p>
         ${d.preview ? `<p style="color:#6b7280;"><em>They wrote:</em><br>${esc(d.preview)}</p>` : ''}
         <p><a href="${queueUrl}" style="color:#2563eb;">Open your inbox</a></p>
@@ -529,6 +717,101 @@ async function createDraftProposal(
       feature_source: 'inbox',
       auto_sent: isSent,
       channel: 'email',
+      flagged: d.flag?.flagged === true,
+      flagReasons: d.flag?.flagReasons || [],
+    }),
+    created_at: now,
+    updated_at: now,
+  })
+}
+
+// SMS variant of createDraftProposal. Same inbox review-queue mechanism, but the
+// payload carries channel='sms' + the phone number so the queue UI shows an SMS
+// indicator and the inbox approve endpoint sends via Twilio (sendSmsReply)
+// instead of email. Marked feature_source='inbox' so the inbox read/approve/
+// dismiss endpoints find it.
+async function createSmsDraftProposal(
+  knex: any,
+  orgId: string,
+  tenantId: string,
+  d: {
+    displayName: string
+    toPhone: string
+    contactId: string
+    conversationId: string
+    body: string
+    lastInboundPreview: string
+    confidence?: number
+    status?: 'pending' | 'sent'
+    flag?: { flagged: boolean; flagReasons: Array<{ key: string; label: string }> }
+  },
+) {
+  const now = new Date()
+  const status = d.status || 'pending'
+  const isSent = status === 'sent'
+  const conf = typeof d.confidence === 'number' && Number.isFinite(d.confidence)
+    ? Math.min(1, Math.max(0, d.confidence))
+    : 0.7
+  const emailId = crypto.randomUUID()
+  // Audit row reuses inbox_emails; to_address holds the phone for SMS.
+  await knex('inbox_emails').insert({
+    id: emailId,
+    tenant_id: tenantId,
+    organization_id: orgId,
+    forwarded_by_address: 'inbox@noliai.com',
+    to_address: d.toPhone,
+    subject: isSent ? `Auto-sent SMS to ${d.displayName}` : `Draft SMS reply for ${d.displayName}`,
+    status: 'processed',
+    received_at: now,
+    is_active: true,
+    created_at: now,
+    updated_at: now,
+  })
+
+  const proposalId = crypto.randomUUID()
+  await knex('inbox_proposals').insert({
+    id: proposalId,
+    inbox_email_id: emailId,
+    tenant_id: tenantId,
+    organization_id: orgId,
+    summary: isSent
+      ? `Auto-sent SMS to ${d.displayName}. A text response was sent to their latest message.`
+      : `Draft SMS reply for ${d.displayName}. A text response was drafted for their latest message.`,
+    participants: JSON.stringify([{ name: d.displayName, phone: d.toPhone }]),
+    confidence: conf,
+    category: 'inquiry',
+    status: isSent ? 'accepted' : 'pending',
+    is_active: true,
+    created_at: now,
+    updated_at: now,
+  })
+
+  await knex('inbox_proposal_actions').insert({
+    id: crypto.randomUUID(),
+    proposal_id: proposalId,
+    tenant_id: tenantId,
+    organization_id: orgId,
+    action_type: 'draft_reply',
+    sort_order: 0,
+    description: isSent
+      ? `Auto-sent the drafted SMS to ${d.displayName}`
+      : `Send the drafted SMS to ${d.displayName}`,
+    payload: JSON.stringify({
+      channel: 'sms',
+      to: d.toPhone,
+      toName: d.displayName,
+      contactId: d.contactId || null,
+      conversationId: d.conversationId,
+      body: d.body,
+      lastInboundPreview: d.lastInboundPreview,
+    }),
+    status: isSent ? 'sent' : 'pending',
+    executed_at: isSent ? now : null,
+    confidence: conf,
+    metadata: JSON.stringify({
+      feature_source: 'inbox',
+      auto_sent: isSent,
+      channel: 'sms',
       flagged: d.flag?.flagged === true,
       flagReasons: d.flag?.flagReasons || [],
     }),

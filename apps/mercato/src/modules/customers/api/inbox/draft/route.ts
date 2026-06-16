@@ -10,6 +10,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendReply } from '@/modules/customers/lib/send-reply'
+import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 function safeParse(s: any) {
@@ -125,21 +126,21 @@ export async function POST(req: Request) {
       ? editedBody
       : (payload.body || '')
     const contactId: string | null = payload.contactId || null
+    // channel is stored on the draft payload ('email' | 'sms'); approve sends via
+    // the matching path (Twilio for SMS, the shared email send otherwise).
+    const channel: string = payload.channel === 'sms' ? 'sms' : 'email'
 
     if (!to || !bodyText) {
       return NextResponse.json({ ok: false, error: 'Draft is missing a recipient or body' }, { status: 400 })
     }
 
-    const sendResult = await sendReply(knex, auth.orgId, auth.tenantId, {
-      to,
-      subject,
-      body: bodyText,
-      contactId,
-      sentByUserId: auth.sub || null,
-    })
+    const sendResult = channel === 'sms'
+      ? await sendSmsReply(knex, auth.orgId, auth.tenantId, { to, body: bodyText, contactId })
+      : await sendReply(knex, auth.orgId, auth.tenantId, { to, subject, body: bodyText, contactId, sentByUserId: auth.sub || null })
 
     if (!sendResult.ok) {
-      return NextResponse.json({ ok: false, error: sendResult.error || 'Failed to send email' }, { status: sendResult.status || 502 })
+      const fallbackErr = channel === 'sms' ? 'Failed to send the text message' : 'Failed to send email'
+      return NextResponse.json({ ok: false, error: (sendResult as { error?: string }).error || fallbackErr }, { status: (sendResult as { status?: number }).status || 502 })
     }
 
     await knex('inbox_proposal_actions')
@@ -150,7 +151,7 @@ export async function POST(req: Request) {
       .where('organization_id', auth.orgId)
       .update({ status: 'accepted', reviewed_by_user_id: auth.sub || null, reviewed_at: now, updated_at: now })
 
-    return NextResponse.json({ ok: true, data: { id: dbAction.id, status: 'sent', sentVia: sendResult.sentVia } })
+    return NextResponse.json({ ok: true, data: { id: dbAction.id, status: 'sent', sentVia: (sendResult as { sentVia?: string }).sentVia ?? channel } })
   } catch (error) {
     console.error('[inbox.draft.post]', error)
     return NextResponse.json({ ok: false, error: 'Failed to act on draft' }, { status: 500 })
