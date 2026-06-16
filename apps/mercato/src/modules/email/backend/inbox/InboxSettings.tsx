@@ -526,11 +526,6 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
 
   return (
     <div className="max-w-[760px] mx-auto p-4 sm:p-6">
-      {/* Callout */}
-      <div className="mb-5 rounded-xl border border-[rgba(124,58,237,.22)] bg-[rgba(124,58,237,.06)] dark:border-[rgba(139,92,246,.28)] dark:bg-[rgba(139,92,246,.10)] px-4 py-3 text-sm text-[#5b3fb0] dark:text-[#c4b5fd]">
-        Everything to set up your Inbox lives here. Connect the mailbox and number this Inbox uses, choose what routes in, train the reply assistant, and set your signature. Changes save automatically.
-      </div>
-
       {/* ── Connected mailboxes (multiple personal mailboxes supported) ── */}
       <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
         <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">

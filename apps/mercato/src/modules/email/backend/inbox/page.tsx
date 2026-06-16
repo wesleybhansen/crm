@@ -872,7 +872,7 @@ export default function UnifiedInboxPage() {
               <div className="p-3">
                 {/* Toolbar */}
                 <div className="flex items-center gap-1 mb-2">
-                  {(['email', 'sms', 'chat'] as const).map(ch => (
+                  {(['email', 'sms'] as const).map(ch => (
                     <button key={ch} type="button" disabled={!detail.availableChannels[ch]} onClick={() => setActiveChannel(ch)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeChannel === ch ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'} ${!detail.availableChannels[ch] ? 'opacity-30 cursor-not-allowed' : ''}`}>
                       {chIcon(ch, 'size-3')} {chLabel(ch)}
@@ -904,12 +904,10 @@ export default function UnifiedInboxPage() {
                 )}
                 <div className="flex items-end gap-2">
                   <Textarea value={replyBody} onChange={e => setReplyBody(e.target.value)}
-                    onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); handleSend() } }}
+                    onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); aiDraft ? approveDraft() : handleSend() } }}
                     placeholder={`Reply via ${chLabel(activeChannel)}...`}
                     disabled={sending || detail.status === 'closed'}
-                    className="min-h-[44px] max-h-[300px] resize-none text-sm flex-1 transition-all" rows={1}
-                    onFocus={e => { e.target.style.minHeight = '160px' }}
-                    onBlur={e => { if (!e.target.value.trim()) e.target.style.minHeight = '44px' }} />
+                    className={`${aiDraft ? 'min-h-[180px]' : 'min-h-[120px]'} max-h-[360px] resize-y text-sm flex-1`} />
                   <Button type="button" onClick={() => aiDraft ? approveDraft() : handleSend()}
                     title={aiDraft ? 'Approve and send' : 'Send'}
                     disabled={!replyBody.trim() || sending || (activeChannel === 'email' && !replySubject.trim()) || detail.status === 'closed'}
@@ -934,7 +932,10 @@ export default function UnifiedInboxPage() {
       {/* ═══ RIGHT: Contact Sidebar ═══ */}
       {sidebarOpen && selectedId && detail && (
         <div className="w-[300px] rounded-xl border bg-card overflow-y-auto shrink-0">
-          <div className="p-5">
+          <div className="p-5 relative">
+            <button type="button" onClick={toggleSidebar} aria-label="Hide contact panel" title="Hide contact panel" className="absolute right-3 top-3 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted">
+              <X className="size-4" />
+            </button>
             <div className="text-center mb-5 pb-5 border-b">
               <div className="size-14 rounded-full bg-muted flex items-center justify-center text-lg font-bold text-muted-foreground mx-auto mb-3">
                 {ini(detail.contact?.displayName || selectedConv?.displayName || null)}
