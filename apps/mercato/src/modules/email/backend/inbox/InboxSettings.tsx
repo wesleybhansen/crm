@@ -9,6 +9,17 @@
 // settings page and the old ai-setup wizard used). Nothing here invents a new
 // data model; it only relocates the inbox-specific setup into the Inbox page so
 // it lives next to the conversations it configures.
+//
+// EVERYTHING AUTOSAVES. There are no per-section Save buttons. Text fields save
+// on blur (and debounced as you type); toggles, selects, and tone chips save
+// immediately. A single shared status line at the bottom reflects Saving / Saved,
+// mirroring the Customer Service Settings tab. The hydratedRef guard keeps the
+// initial GET-driven state writes from triggering a save on mount.
+//
+// IMPORTANT: the personal Inbox NEVER lists the dedicated Customer Service support
+// inbox. Mailbox connections are always fetched with ?excludePurpose=customer_service,
+// and a mailbox connected here is posted with NO purpose (personal = purpose null),
+// so it stays distinct from the CS support inbox (which posts purpose='customer_service').
 
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -16,28 +27,33 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
   Mail, Server, X as XIcon, Check, Phone, Send, Sparkles, Globe, Upload,
-  FileText, BookOpen, Loader2,
+  FileText, BookOpen, Loader2, Plus,
 } from 'lucide-react'
 import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
 
-type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean; is_active?: boolean }
+type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean; is_active?: boolean; purpose?: string | null }
 type TwilioConnection = { id: string; accountSid: string; phoneNumber: string; isActive: boolean }
 type RoutingAddress = { id: string; type: string; provider: string; email_address: string; display_label: string; can_receive: boolean }
 type RoutingConfig = { purpose: string; provider_type: string; provider_id: string; from_name: string | null; from_address: string | null }
 type KbDoc = { id: string; title: string }
 
 const TONES = [
-  { id: 'professional', label: 'Professional', desc: 'Business-appropriate, clear and direct' },
-  { id: 'friendly', label: 'Friendly', desc: 'Warm, approachable, uses natural language' },
-  { id: 'casual', label: 'Casual', desc: 'Relaxed, conversational' },
-  { id: 'formal', label: 'Formal', desc: 'Polished, structured' },
-  { id: 'custom', label: 'Custom', desc: 'Define your own tone and style' },
+  { id: 'professional', label: 'Professional' },
+  { id: 'friendly', label: 'Friendly' },
+  { id: 'casual', label: 'Casual' },
+  { id: 'formal', label: 'Formal' },
+  { id: 'custom', label: 'Custom' },
 ]
 
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
 export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved?: () => void }) {
-  // ── Connected mailbox (IMAP/SMTP) ──
+  // ── Connected mailboxes (IMAP/SMTP). Personal inbox supports MULTIPLE. ──
   const [emailConnections, setEmailConnections] = useState<EmailConnection[]>([])
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
+  // The connect form is always available, even when one mailbox is already
+  // connected, so the user can add another personal mailbox.
+  const [showConnectForm, setShowConnectForm] = useState(false)
   const [emailAddr, setEmailAddr] = useState('')
   const [emailPassword, setEmailPassword] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -65,7 +81,7 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
   const [routingSaving, setRoutingSaving] = useState<string | null>(null)
   const [routingFeedback, setRoutingFeedback] = useState<{ purpose: string; type: 'success' | 'error'; text: string } | null>(null)
 
-  // ── AI reply assistant ──
+  // ── AI reply assistant (autosaved) ──
   const [aiEnabled, setAiEnabled] = useState(false)
   const [businessName, setBusinessName] = useState('')
   const [businessDescription, setBusinessDescription] = useState('')
@@ -73,8 +89,6 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
   const [tone, setTone] = useState('professional')
   const [customTone, setCustomTone] = useState('')
   const [instructions, setInstructions] = useState('')
-  const [savingAi, setSavingAi] = useState(false)
-  const [aiSaved, setAiSaved] = useState(false)
   const [aiError, setAiError] = useState('')
   const [importing, setImporting] = useState(false)
   const [websiteUrl, setWebsiteUrl] = useState('')
@@ -90,25 +104,33 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
   const [kbImporting, setKbImporting] = useState(false)
   const [kbSummary, setKbSummary] = useState('')
 
-  // ── Email intelligence ──
+  // ── Email intelligence (autosaved immediately on toggle) ──
   const [eiEnabled, setEiEnabled] = useState(false)
   const [eiAutoCreate, setEiAutoCreate] = useState(true)
   const [eiAutoTimeline, setEiAutoTimeline] = useState(true)
   const [eiAutoEngagement, setEiAutoEngagement] = useState(true)
   const [eiAutoStage, setEiAutoStage] = useState(false)
-  const [eiSaving, setEiSaving] = useState(false)
 
-  // ── Signature ──
+  // ── Signature (autosaved, part of the AI settings record) ──
   const [signature, setSignature] = useState('')
-  const [savingSignature, setSavingSignature] = useState(false)
-  const [signatureSaved, setSignatureSaved] = useState(false)
 
   const [loading, setLoading] = useState(true)
+
+  // ── Autosave plumbing. hydratedRef stays false until the initial GET has
+  // populated the fields, so neither the first mount nor the hydration writes
+  // trigger a save. A single shared status line reflects the latest save. ──
+  const hydratedRef = useRef(false)
+  const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [status, setStatus] = useState<SaveStatus>('idle')
+
+  // Personal mailboxes only: NEVER show the dedicated Customer Service support
+  // inbox in the personal Inbox.
+  const CONNECTIONS_URL = '/api/email/connections?excludePurpose=customer_service'
 
   useEffect(() => {
     let cancelled = false
     Promise.all([
-      fetch('/api/email/connections', { credentials: 'include' }).then(r => r.json()).catch(() => null),
+      fetch(CONNECTIONS_URL, { credentials: 'include' }).then(r => r.json()).catch(() => null),
       fetch('/api/twilio/connections', { credentials: 'include' }).then(r => r.json()).catch(() => null),
       fetch('/api/email/routing', { credentials: 'include' }).then(r => r.json()).catch(() => null),
       fetch('/api/inbox/ai-settings', { credentials: 'include' }).then(r => r.json()).catch(() => null),
@@ -140,13 +162,71 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
         setEiAutoStage(ei.data.auto_advance_stage ?? false)
       }
       setLoading(false)
+      // Open the connect form by default only when there is no mailbox yet.
+      if (!(conn?.ok && (conn.data || []).length > 0)) setShowConnectForm(true)
+      // Mark hydration complete on the next tick so the state writes above do not
+      // trip the autosave effect. From here on, only genuine user edits save.
+      setTimeout(() => { hydratedRef.current = true }, 0)
     })
     return () => { cancelled = true }
   }, [])
 
+  // ── AI assistant + signature autosave. The ai-settings PUT merges with the
+  // existing record (server uses `?? existing`), so sending only these fields is
+  // safe and does not clobber anything else. Debounced for text typing; callers
+  // for immediate changes (toggles, tone, KB import) flush via saveAiNow(). ──
+  async function persistAi(): Promise<boolean> {
+    const res = await fetch('/api/inbox/ai-settings', {
+      method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: aiEnabled,
+        businessName,
+        businessDescription,
+        knowledgeBase,
+        tone: tone === 'custom' ? customTone : tone,
+        instructions,
+        signature,
+      }),
+    })
+    const data = await res.json().catch(() => ({ ok: false }))
+    if (data.ok) onAiSettingsSaved?.()
+    return !!data.ok
+  }
+
+  async function runSave(fn: () => Promise<boolean>) {
+    setStatus('saving')
+    try {
+      const ok = await fn()
+      setStatus(ok ? 'saved' : 'error')
+      if (ok) setTimeout(() => setStatus(s => (s === 'saved' ? 'idle' : s)), 2000)
+    } catch {
+      setStatus('error')
+    }
+  }
+
+  // Debounced AI autosave: fires when any AI / signature field changes. The
+  // hydration guard keeps load-time writes from saving.
+  useEffect(() => {
+    if (!hydratedRef.current) return
+    if (aiTimerRef.current) clearTimeout(aiTimerRef.current)
+    aiTimerRef.current = setTimeout(() => { void runSave(persistAi) }, 600)
+    return () => { if (aiTimerRef.current) clearTimeout(aiTimerRef.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiEnabled, businessName, businessDescription, knowledgeBase, tone, customTone, instructions, signature])
+
+  // Immediate AI save (used by KB import so the appended knowledge persists now).
+  const saveAiNow = () => { if (aiTimerRef.current) clearTimeout(aiTimerRef.current); void runSave(persistAi) }
+
   const hasSmtpConnection = emailConnections.some(c => c.provider === 'smtp')
 
-  // ── Mailbox actions ──
+  async function reloadConnections() {
+    const connRes = await fetch(CONNECTIONS_URL, { credentials: 'include' })
+    const connData = await connRes.json().catch(() => null)
+    if (connData?.ok) setEmailConnections(connData.data || [])
+  }
+
+  // ── Mailbox actions. Personal mailbox is posted with NO purpose, so it stays
+  // distinct from the Customer Service support inbox. ──
   async function saveSmtp() {
     setSavingSmtp(true); setSmtpError(''); setSmtpSuccess(false)
     try {
@@ -160,9 +240,8 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
       if (data.ok) {
         setSmtpSuccess(true)
         setEmailAddr(''); setEmailPassword(''); setSmtpHost(''); setSmtpPort('587'); setImapHost(''); setImapPort('993'); setShowAdvanced(false)
-        const connRes = await fetch('/api/email/connections', { credentials: 'include' })
-        const connData = await connRes.json()
-        if (connData.ok) setEmailConnections(connData.data || [])
+        await reloadConnections()
+        setShowConnectForm(false)
         setTimeout(() => setSmtpSuccess(false), 3000)
       } else { setSmtpError(data.error || 'Failed to save') }
     } catch { setSmtpError('Failed to save email configuration') }
@@ -241,29 +320,6 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
     e.target.value = ''
   }
 
-  async function saveAi() {
-    setSavingAi(true); setAiError(''); setAiSaved(false)
-    try {
-      const res = await fetch('/api/inbox/ai-settings', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: aiEnabled,
-          businessName,
-          businessDescription,
-          knowledgeBase,
-          tone: tone === 'custom' ? customTone : tone,
-          instructions,
-          signature,
-        }) })
-      const data = await res.json()
-      if (data.ok) {
-        setAiSaved(true)
-        onAiSettingsSaved?.()
-        setTimeout(() => setAiSaved(false), 3000)
-      } else { setAiError(data.error || 'Failed to save') }
-    } catch { setAiError('Failed to save AI assistant settings') }
-    setSavingAi(false)
-  }
-
   // ── KB picker actions ──
   async function openKbPicker() {
     setAiError(''); setKbSummary('')
@@ -298,148 +354,171 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
           const appended = docs.map(d => `--- From Knowledge Base: ${d.title} ---\n${d.content}`).join('\n\n')
           setKnowledgeBase(prev => prev ? `${prev}\n\n${appended}` : appended)
         }
-        setKbSummary(`${data.added ?? docs.length} added${data.skipped ? `, ${data.skipped} skipped` : ''} from Knowledge Base. Save below to keep them.`)
+        setKbSummary(`${data.added ?? docs.length} added${data.skipped ? `, ${data.skipped} skipped` : ''} from Knowledge Base.`)
         setKbPickerOpen(false)
         setKbSelectedIds(new Set())
+        // Persist the appended knowledge immediately (autosave fires on next render too).
+        setTimeout(saveAiNow, 50)
       } else { setAiError(data.error || 'Failed to import documents.') }
     } catch { setAiError('Failed to import documents.') }
     setKbImporting(false)
   }
 
-  // ── Email intelligence ──
-  async function saveEiSettings(patch: Record<string, unknown>) {
-    setEiSaving(true)
-    try {
-      await fetch('/api/email/intelligence-settings', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
-    } catch {}
-    setEiSaving(false)
-  }
-
-  // ── Signature ──
-  async function saveSignature() {
-    setSavingSignature(true); setSignatureSaved(false)
-    try {
-      const res = await fetch('/api/inbox/ai-settings', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signature }) })
-      const data = await res.json()
-      if (data.ok) { setSignatureSaved(true); setTimeout(() => setSignatureSaved(false), 3000) }
-    } catch {}
-    setSavingSignature(false)
+  // ── Email intelligence: each toggle saves immediately. ──
+  async function persistEi(patch: Record<string, unknown>): Promise<boolean> {
+    const res = await fetch('/api/email/intelligence-settings', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+    const data = await res.json().catch(() => ({ ok: false }))
+    return !!data.ok
   }
 
   if (loading) {
-    return <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">Loading...</div>
+    return <div className="max-w-2xl mx-auto p-6"><div className="rounded-[14px] border bg-card px-4 py-10 text-center text-sm text-muted-foreground">Loading...</div></div>
   }
 
-  return (
-    <div className="max-w-2xl mx-auto p-6">
-      {/* Connected mailbox */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <Mail className="size-4 text-muted-foreground" /> Connected mailbox
-        </h2>
-        <p className="text-xs text-muted-foreground mb-3">
-          Connect the mailbox your Inbox sends from and syncs replies into. Works with Gmail, Outlook, Yahoo, iCloud, or any provider that supports IMAP and SMTP. Use an App Password, not your normal password.
-        </p>
-        <div className="rounded-lg border divide-y">
-          {emailConnections.map(conn => (
-            <div key={conn.id} className="flex items-center justify-between px-4 py-3">
-              <div>
-                <p className="text-sm font-medium flex items-center gap-2">
-                  {conn.email_address}
-                  {conn.is_primary && <Badge variant="violet">Primary</Badge>}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Connected via {conn.provider === 'gmail' ? 'Gmail (OAuth)' : conn.provider === 'microsoft' ? 'Outlook (OAuth)' : conn.provider === 'smtp' ? 'Email (IMAP/SMTP)' : conn.provider}
-                </p>
-              </div>
-              <Button type="button" variant="outline" size="sm" disabled={disconnecting === conn.id}
-                onClick={() => disconnectMailbox(conn.id, conn.email_address)}>
-                {disconnecting === conn.id ? 'Disconnecting...' : <><XIcon className="size-3 mr-1" /> Disconnect</>}
-              </Button>
-            </div>
-          ))}
-          {!hasSmtpConnection && (
-            <div className="px-4 py-3">
-              <div className="flex items-center gap-2 mb-1">
-                <Server className="size-3.5 text-muted-foreground" />
-                <p className="text-sm font-medium">Connect a mailbox</p>
-              </div>
-              <p className="text-xs text-muted-foreground mb-3">Enables sending and inbox sync, so replies appear here in your Inbox.</p>
-              {smtpError && <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{smtpError}</p>}
-              {smtpSuccess && <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Mailbox connected.</p>}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-                <Input value={emailAddr} onChange={e => setEmailAddr(e.target.value)} placeholder="your@email.com" className="h-8 text-xs" type="email" />
-                <Input value={emailPassword} onChange={e => setEmailPassword(e.target.value)} type="password" placeholder="App Password" className="h-8 text-xs" />
-              </div>
-              <div className="mb-3"><AppPasswordGuides /></div>
-              <button type="button" className="text-xs text-muted-foreground underline mb-2 block" onClick={() => setShowAdvanced(v => !v)}>
-                {showAdvanced ? 'Hide advanced settings' : 'Advanced: custom server settings'}
-              </button>
-              {showAdvanced && (
-                <div className="grid grid-cols-2 gap-2 mb-2 p-3 rounded-md bg-muted/40 border">
-                  <Input value={imapHost} onChange={e => setImapHost(e.target.value)} placeholder="IMAP host (auto-detected)" className="h-8 text-xs" />
-                  <Input value={imapPort} onChange={e => setImapPort(e.target.value)} placeholder="IMAP port (993)" className="h-8 text-xs" />
-                  <Input value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="SMTP host (auto-detected)" className="h-8 text-xs" />
-                  <Input value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="SMTP port (587)" className="h-8 text-xs" />
-                </div>
-              )}
-              <Button type="button" variant="outline" size="sm" onClick={saveSmtp} disabled={savingSmtp || !emailAddr || !emailPassword}>
-                {savingSmtp ? 'Testing connection...' : 'Connect mailbox'}
-              </Button>
-            </div>
-          )}
-        </div>
-      </section>
+  // Small toggle component matching the mockup treatment.
+  const Toggle = ({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) => (
+    <button type="button" onClick={onClick} disabled={disabled}
+      className={`relative w-10 h-[23px] rounded-full transition-colors shrink-0 ${on ? 'bg-accent' : 'bg-zinc-300 dark:bg-zinc-600'} ${disabled ? 'opacity-50' : ''}`}>
+      <span className={`absolute top-[2.5px] left-[2.5px] size-[18px] bg-white rounded-full transition-transform shadow-sm ${on ? 'translate-x-[17px]' : ''}`} />
+    </button>
+  )
 
-      {/* Text messages (SMS) */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <Phone className="size-4 text-muted-foreground" /> Text messages (SMS)
-        </h2>
-        <p className="text-xs text-muted-foreground mb-3">
-          Send and receive texts in your Inbox using your own Twilio account.
+  const sectionLabel = 'text-[11px] font-medium text-muted-foreground mb-1'
+
+  return (
+    <div className="max-w-[760px] mx-auto p-4 sm:p-6">
+      {/* Callout */}
+      <div className="mb-5 rounded-xl border border-[rgba(124,58,237,.22)] bg-[rgba(124,58,237,.06)] dark:border-[rgba(139,92,246,.28)] dark:bg-[rgba(139,92,246,.10)] px-4 py-3 text-sm text-[#5b3fb0] dark:text-[#c4b5fd]">
+        Everything to set up your Inbox lives here. Connect the mailbox and number this Inbox uses, choose what routes in, train the reply assistant, and set your signature. Changes save automatically.
+      </div>
+
+      {/* ── Connected mailboxes (multiple personal mailboxes supported) ── */}
+      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
+        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
+          <Mail className="size-4 text-muted-foreground" /> Connected mailboxes
+          {emailConnections.length > 0 && <Badge variant="green">Connected</Badge>}
+        </h3>
+        <p className="text-[12.5px] text-muted-foreground mb-3">
+          The email accounts this Inbox sends and receives from. Works with Gmail, Outlook, or any IMAP/SMTP provider. Use an App Password, not your normal password. The dedicated Customer Service support inbox is kept separate and never appears here.
         </p>
-        <div className="rounded-lg border divide-y">
-          {twilioConnection ? (
-            <div className="flex items-center justify-between px-4 py-3">
-              <div>
-                <p className="text-sm font-medium flex items-center gap-2">{twilioConnection.phoneNumber}<Badge variant="green">Connected</Badge></p>
-                <p className="text-xs text-muted-foreground">Account: {twilioConnection.accountSid}</p>
-              </div>
-              <Button type="button" variant="outline" size="sm" onClick={disconnectTwilio} disabled={disconnectingTwilio}>
-                {disconnectingTwilio ? 'Disconnecting...' : <><XIcon className="size-3 mr-1" /> Disconnect</>}
-              </Button>
-            </div>
-          ) : (
-            <div className="px-4 py-3">
-              <p className="text-sm font-medium mb-1">Connect Twilio account</p>
-              <p className="text-xs text-muted-foreground mb-3">Bring your own Twilio SID, auth token, and number.</p>
-              {twilioError && <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{twilioError}</p>}
-              {twilioSuccess && <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Twilio connected.</p>}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-                <Input value={twilioSid} onChange={e => setTwilioSid(e.target.value)} placeholder="Account SID" className="h-8 text-xs" />
-                <Input value={twilioToken} onChange={e => setTwilioToken(e.target.value)} type="password" placeholder="Auth Token" className="h-8 text-xs" />
-              </div>
-              <div className="flex gap-2">
-                <Input value={twilioPhone} onChange={e => setTwilioPhone(e.target.value)} placeholder="Phone Number (+1234567890)" className="h-8 text-xs flex-1" />
-                <Button type="button" variant="outline" size="sm" onClick={saveTwilio} disabled={savingTwilio || !twilioSid || !twilioToken || !twilioPhone}>
-                  {savingTwilio ? 'Testing...' : 'Save & Test'}
+
+        {emailConnections.length > 0 && (
+          <div className="space-y-2.5 mb-3">
+            {emailConnections.map(conn => (
+              <div key={conn.id} className="flex items-center justify-between gap-3 rounded-xl border bg-muted/30 px-3.5 py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="size-9 rounded-[11px] bg-accent flex items-center justify-center text-xs font-bold text-accent-foreground shrink-0">
+                    {(conn.email_address[0] || '?').toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[13.5px] font-semibold truncate flex items-center gap-2">
+                      {conn.email_address}
+                      {conn.is_primary && <Badge variant="violet">Primary</Badge>}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {conn.provider === 'gmail' ? 'Gmail (OAuth)' : conn.provider === 'microsoft' ? 'Outlook (OAuth)' : conn.provider === 'smtp' ? 'IMAP/SMTP' : conn.provider}
+                    </p>
+                  </div>
+                </div>
+                <Button type="button" variant="outline" size="sm" className="shrink-0" disabled={disconnecting === conn.id}
+                  onClick={() => disconnectMailbox(conn.id, conn.email_address)}>
+                  {disconnecting === conn.id ? 'Disconnecting...' : <><XIcon className="size-3 mr-1" /> Disconnect</>}
                 </Button>
               </div>
+            ))}
+          </div>
+        )}
+
+        {/* Connect-another form is always available. */}
+        {emailConnections.length > 0 && !showConnectForm && (
+          <Button type="button" variant="outline" size="sm" onClick={() => setShowConnectForm(true)}>
+            <Plus className="size-3.5 mr-1" /> Add another mailbox
+          </Button>
+        )}
+
+        {showConnectForm && (
+          <div className="rounded-xl border bg-muted/20 p-3.5">
+            <div className="flex items-center gap-2 mb-1">
+              <Server className="size-3.5 text-muted-foreground" />
+              <p className="text-sm font-medium">Connect a mailbox</p>
             </div>
-          )}
-        </div>
+            <p className="text-xs text-muted-foreground mb-3">Enables sending and inbox sync, so replies appear here in your Inbox.</p>
+            {smtpError && <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{smtpError}</p>}
+            {smtpSuccess && <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Mailbox connected.</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+              <div><p className={sectionLabel}>Email address</p><Input value={emailAddr} onChange={e => setEmailAddr(e.target.value)} placeholder="you@yourbusiness.com" className="h-9 text-sm" type="email" /></div>
+              <div><p className={sectionLabel}>App Password</p><Input value={emailPassword} onChange={e => setEmailPassword(e.target.value)} type="password" placeholder="••••••••••••" className="h-9 text-sm" /></div>
+            </div>
+            <div className="mb-3"><AppPasswordGuides /></div>
+            <button type="button" className="text-xs text-muted-foreground underline mb-2 block" onClick={() => setShowAdvanced(v => !v)}>
+              {showAdvanced ? 'Hide advanced settings' : 'Advanced: custom server settings'}
+            </button>
+            {showAdvanced && (
+              <div className="grid grid-cols-2 gap-2 mb-2 p-3 rounded-md bg-muted/40 border">
+                <Input value={imapHost} onChange={e => setImapHost(e.target.value)} placeholder="IMAP host (auto-detected)" className="h-8 text-xs" />
+                <Input value={imapPort} onChange={e => setImapPort(e.target.value)} placeholder="IMAP port (993)" className="h-8 text-xs" />
+                <Input value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="SMTP host (auto-detected)" className="h-8 text-xs" />
+                <Input value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="SMTP port (587)" className="h-8 text-xs" />
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" onClick={saveSmtp} disabled={savingSmtp || !emailAddr || !emailPassword}>
+                {savingSmtp ? 'Testing connection...' : 'Connect mailbox'}
+              </Button>
+              {emailConnections.length > 0 && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => { setShowConnectForm(false); setSmtpError('') }}>Cancel</Button>
+              )}
+            </div>
+          </div>
+        )}
+        {!hasSmtpConnection && emailConnections.length === 0 && !showConnectForm && (
+          <Button type="button" size="sm" onClick={() => setShowConnectForm(true)}>Connect mailbox</Button>
+        )}
       </section>
 
-      {/* Routing addresses */}
+      {/* ── Text messages (SMS) ── */}
+      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
+        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
+          <Phone className="size-4 text-muted-foreground" /> Text messages (SMS)
+          {twilioConnection ? <Badge variant="green">Connected</Badge> : <Badge variant="secondary">Not connected</Badge>}
+        </h3>
+        <p className="text-[12.5px] text-muted-foreground mb-3">
+          Bring your own Twilio number so texts land in this Inbox. This is the Inbox's main number; Customer Service uses its own separate support number.
+        </p>
+        {twilioConnection ? (
+          <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/30 px-3.5 py-3">
+            <div>
+              <p className="text-[13.5px] font-semibold">{twilioConnection.phoneNumber}</p>
+              <p className="text-[11px] text-muted-foreground">Account: {twilioConnection.accountSid}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={disconnectTwilio} disabled={disconnectingTwilio}>
+              {disconnectingTwilio ? 'Disconnecting...' : <><XIcon className="size-3 mr-1" /> Disconnect</>}
+            </Button>
+          </div>
+        ) : (
+          <div>
+            {twilioError && <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{twilioError}</p>}
+            {twilioSuccess && <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Twilio connected.</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+              <div><p className={sectionLabel}>Twilio Account SID</p><Input value={twilioSid} onChange={e => setTwilioSid(e.target.value)} placeholder="AC…" className="h-9 text-sm" /></div>
+              <div><p className={sectionLabel}>Auth Token</p><Input value={twilioToken} onChange={e => setTwilioToken(e.target.value)} type="password" placeholder="••••••••" className="h-9 text-sm" /></div>
+            </div>
+            <div className="mb-3"><p className={sectionLabel}>Phone number</p><Input value={twilioPhone} onChange={e => setTwilioPhone(e.target.value)} placeholder="+1 415 555 0123" className="h-9 text-sm" /></div>
+            <Button type="button" size="sm" onClick={saveTwilio} disabled={savingTwilio || !twilioSid || !twilioToken || !twilioPhone}>
+              {savingTwilio ? 'Testing...' : 'Connect Twilio'}
+            </Button>
+          </div>
+        )}
+      </section>
+
+      {/* ── Routing addresses (each select autosaves on change already) ── */}
       {routingAddresses.length > 1 && (
-        <section className="mb-8">
-          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+        <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
+          <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
             <Send className="size-4 text-muted-foreground" /> Routing addresses
-          </h2>
-          <p className="text-xs text-muted-foreground mb-3">Choose which email address sends each type of email. Leave blank to use defaults.</p>
-          <div className="rounded-lg border divide-y">
+          </h3>
+          <p className="text-[12.5px] text-muted-foreground mb-3">Choose which email address sends each type of email. Leave blank to use defaults.</p>
+          <div className="rounded-xl border divide-y">
             {([
               { purpose: 'inbox' as const, label: 'Inbox / Personal', desc: 'Inbox replies, manual compose' },
               { purpose: 'invoices' as const, label: 'Invoices & Payments', desc: 'Invoice sends, payment receipts' },
@@ -488,7 +567,7 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
                           setRoutingSaving(null)
                         }}
                         disabled={routingSaving === purpose}
-                        className="h-8 text-xs rounded-md border border-input bg-background px-3 w-[320px]"
+                        className="h-8 text-xs rounded-md border border-input bg-background px-3 w-full sm:w-[320px]"
                       >
                         <option value="">Default (auto)</option>
                         {filteredAddresses.map(a => (
@@ -509,21 +588,16 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
         </section>
       )}
 
-      {/* AI reply assistant */}
-      <section className="mb-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold flex items-center gap-2">
+      {/* ── AI reply assistant (autosaved) ── */}
+      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2">
             <Sparkles className="size-4 text-muted-foreground" /> AI reply assistant
-          </h2>
-          <label className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Enabled</span>
-            <button type="button" onClick={() => setAiEnabled(v => !v)}
-              className={`relative w-10 h-5 rounded-full transition-colors ${aiEnabled ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}>
-              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${aiEnabled ? 'translate-x-5' : ''}`} />
-            </button>
-          </label>
+            {aiEnabled && <Badge variant="green">On</Badge>}
+          </h3>
+          <Toggle on={aiEnabled} onClick={() => setAiEnabled(v => !v)} />
         </div>
-        <p className="text-xs text-muted-foreground mb-3">
+        <p className="text-[12.5px] text-muted-foreground mb-3">
           Teach the assistant about your business so it can suggest draft replies when you ask for one. You stay in control: nothing sends on its own.
         </p>
 
@@ -532,224 +606,177 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
         )}
 
         {/* Business context */}
-        <div className="rounded-lg border divide-y mb-4">
-          <div className="px-4 py-3">
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Business name</label>
+        <div className="space-y-3 mb-4">
+          <div>
+            <p className={sectionLabel}>Business name</p>
             <Input value={businessName} onChange={e => setBusinessName(e.target.value)} placeholder="Your Business Name" className="h-9 text-sm" />
           </div>
-          <div className="px-4 py-3">
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">About your business</label>
+          <div>
+            <p className={sectionLabel}>About your business</p>
             <textarea value={businessDescription} onChange={e => setBusinessDescription(e.target.value)}
               placeholder="What does your business do? Who are your customers?"
               className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
           </div>
         </div>
 
-        {/* Tone */}
-        <div className="rounded-lg border mb-4">
-          <div className="px-4 py-3 border-b">
-            <p className="text-sm font-medium">Reply tone</p>
-            <p className="text-xs text-muted-foreground mt-0.5">How should suggested drafts sound?</p>
+        {/* Tone — chips that save on click */}
+        <p className={sectionLabel}>Tone</p>
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {TONES.map(t => (
+            <button key={t.id} type="button" onClick={() => setTone(t.id)}
+              className={`text-xs rounded-full border px-3 py-1 transition-colors ${tone === t.id ? 'bg-accent text-accent-foreground border-accent' : 'bg-card text-muted-foreground border-input hover:text-foreground'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {tone === 'custom' && (
+          <textarea value={customTone} onChange={e => setCustomTone(e.target.value)}
+            placeholder="Describe your preferred tone..."
+            className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20 mb-4" />
+        )}
+
+        {/* Rules / instructions */}
+        <p className={sectionLabel}>Rules &amp; instructions</p>
+        <textarea value={instructions} onChange={e => setInstructions(e.target.value)}
+          placeholder={'e.g. "Always mention our guarantee" or "Never discuss competitor pricing"'}
+          className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20 mb-4" />
+
+        {/* Knowledge */}
+        <p className={`${sectionLabel} flex items-center gap-1.5`}><BookOpen className="size-3.5" /> Knowledge the assistant can draw on</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+          <button type="button" onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 rounded-lg border p-3 hover:bg-muted/50 transition-colors text-left">
+            <Upload className="size-4 text-muted-foreground shrink-0" />
+            <div><p className="text-xs font-medium">Upload a document</p><p className="text-[10px] text-muted-foreground">TXT, MD, CSV</p></div>
+          </button>
+          <button type="button" onClick={openKbPicker}
+            className="flex items-center gap-2 rounded-lg border p-3 hover:bg-muted/50 transition-colors text-left">
+            <BookOpen className="size-4 text-muted-foreground shrink-0" />
+            <div><p className="text-xs font-medium">From Knowledge Base</p><p className="text-[10px] text-muted-foreground">Pick a stored document</p></div>
+          </button>
+          <div className="flex items-center gap-2 rounded-lg border p-3">
+            <Globe className="size-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1"><p className="text-xs font-medium">Scan a website</p><p className="text-[10px] text-muted-foreground">Pull your site text</p></div>
           </div>
-          <div className="px-4 py-3 space-y-2">
-            {TONES.map(t => (
-              <button key={t.id} type="button" onClick={() => setTone(t.id)}
-                className={`w-full flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${tone === t.id ? 'selected-card' : 'hover:bg-muted/50'}`}>
-                <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 ${tone === t.id ? 'border-accent' : 'border-muted-foreground/30'}`}>
-                  {tone === t.id && <div className="size-2 rounded-full bg-accent" />}
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{t.label}</p>
-                  <p className="text-[11px] text-muted-foreground">{t.desc}</p>
-                </div>
-              </button>
-            ))}
-            {tone === 'custom' && (
-              <textarea value={customTone} onChange={e => setCustomTone(e.target.value)}
-                placeholder="Describe your preferred tone..."
-                className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20 mt-2" />
-            )}
-          </div>
+          <input ref={fileInputRef} type="file" accept=".txt,.md,.csv" className="hidden" onChange={handleFileUpload} />
         </div>
 
-        {/* Instructions / rules */}
-        <div className="rounded-lg border mb-4">
-          <div className="px-4 py-3 border-b">
-            <p className="text-sm font-medium">Instructions and rules</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Specific rules for the assistant to follow when drafting replies.</p>
-          </div>
-          <div className="px-4 py-3">
-            <textarea value={instructions} onChange={e => setInstructions(e.target.value)}
-              placeholder={'e.g. "Always mention our guarantee" or "Never discuss competitor pricing"'}
-              className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20" />
-          </div>
-        </div>
-
-        {/* Knowledge base */}
-        <div className="rounded-lg border mb-4">
-          <div className="px-4 py-3 border-b">
-            <p className="text-sm font-medium flex items-center gap-2"><BookOpen className="size-4 text-muted-foreground" /> Knowledge base</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Information the assistant should reference: pricing, policies, FAQs, product details.</p>
-          </div>
-          <div className="px-4 py-3 space-y-3">
-            {/* Import controls */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <button type="button" onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-2 rounded-lg border p-3 hover:bg-muted/50 transition-colors text-left">
-                <Upload className="size-4 text-muted-foreground shrink-0" />
-                <div>
-                  <p className="text-xs font-medium">Upload a document</p>
-                  <p className="text-[10px] text-muted-foreground">TXT, MD, CSV</p>
-                </div>
-              </button>
-              <button type="button" onClick={openKbPicker}
-                className="flex items-center gap-2 rounded-lg border p-3 hover:bg-muted/50 transition-colors text-left">
-                <BookOpen className="size-4 text-muted-foreground shrink-0" />
-                <div>
-                  <p className="text-xs font-medium">From Knowledge Base</p>
-                  <p className="text-[10px] text-muted-foreground">Pick a stored document</p>
-                </div>
-              </button>
-              <div className="flex items-center gap-2 rounded-lg border p-3">
-                <Globe className="size-4 text-muted-foreground shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium">Scan a website</p>
-                  <p className="text-[10px] text-muted-foreground">Pull your site text</p>
-                </div>
-              </div>
-              <input ref={fileInputRef} type="file" accept=".txt,.md,.csv" className="hidden" onChange={handleFileUpload} />
-            </div>
-
-            {/* Website scan input */}
-            <div className="flex items-center gap-2">
-              <Input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="https://yourbusiness.com"
-                className="flex-1 h-8 text-sm" onKeyDown={e => { if (e.key === 'Enter') handleImportWebsite() }} />
-              <Button type="button" variant="outline" size="sm" onClick={handleImportWebsite} disabled={importing || !websiteUrl.trim()}>
-                {importing ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Globe className="size-3.5 mr-1.5" />}
-                {importing ? 'Scanning...' : 'Scan'}
-              </Button>
-            </div>
-
-            {uploadedFile && (
-              <div className="flex items-center gap-2">
-                <FileText className="size-4 text-muted-foreground" />
-                <span className="text-xs">{uploadedFile}</span>
-                <button type="button" onClick={() => setUploadedFile(null)} className="text-muted-foreground hover:text-foreground"><XIcon className="size-3" /></button>
-              </div>
-            )}
-
-            {/* KB picker */}
-            {kbPickerOpen && (
-              <div className="rounded-md border px-3 py-3 space-y-3 bg-muted/20">
-                <p className="text-xs font-medium flex items-center gap-2"><BookOpen className="size-3.5 text-muted-foreground" /> Select a reference document from your Knowledge Base</p>
-                {kbDocsLoading ? (
-                  <p className="text-xs text-muted-foreground py-4 text-center">Loading your Knowledge Base...</p>
-                ) : !kbConnected ? (
-                  <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">
-                    Could not connect to your Knowledge Base right now. Make sure you have one set up, then try again.
-                  </div>
-                ) : kbDocs.length === 0 ? (
-                  <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">No documents found in your Knowledge Base yet.</div>
-                ) : (
-                  <div className="max-h-64 overflow-y-auto rounded-md border divide-y bg-card">
-                    {kbDocs.map(doc => (
-                      <label key={doc.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted/40">
-                        <input type="checkbox" checked={kbSelectedIds.has(doc.id)} onChange={() => toggleKbDoc(doc.id)} className="size-4 shrink-0" />
-                        <span className="truncate flex-1">{doc.title}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <Button type="button" size="sm" onClick={importSelectedKbDocs} disabled={kbImporting || kbSelectedIds.size === 0}>
-                    {kbImporting ? 'Adding...' : kbSelectedIds.size > 0 ? `Add selected (${kbSelectedIds.size})` : 'Add selected'}
-                  </Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => { setKbPickerOpen(false); setKbSelectedIds(new Set()) }} disabled={kbImporting}>Cancel</Button>
-                </div>
-              </div>
-            )}
-            {kbSummary && <p className="text-[11px] text-[#047857] dark:text-[#34d399]">{kbSummary}</p>}
-
-            <textarea value={knowledgeBase} onChange={e => setKnowledgeBase(e.target.value)}
-              placeholder="Paste or type your business information here..."
-              className="w-full rounded-md border bg-card px-3 py-2.5 text-sm font-mono resize-none focus:outline-none focus:ring-1 focus:ring-ring h-48" />
-          </div>
-        </div>
-
-        {/* Save AI assistant */}
-        <div className="flex items-center gap-3">
-          <Button type="button" onClick={saveAi} disabled={savingAi}>
-            {savingAi ? <Loader2 className="size-4 mr-2 animate-spin" /> : aiSaved ? <Check className="size-4 mr-2" /> : null}
-            {savingAi ? 'Saving...' : aiSaved ? 'Saved' : 'Save AI assistant'}
+        <div className="flex items-center gap-2 mb-2">
+          <Input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="https://yourbusiness.com"
+            className="flex-1 h-8 text-sm" onKeyDown={e => { if (e.key === 'Enter') handleImportWebsite() }} />
+          <Button type="button" variant="outline" size="sm" onClick={handleImportWebsite} disabled={importing || !websiteUrl.trim()}>
+            {importing ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Globe className="size-3.5 mr-1.5" />}
+            {importing ? 'Scanning...' : 'Scan'}
           </Button>
-          {aiSaved && <span className="text-xs text-[#047857] dark:text-[#34d399]">Settings saved.</span>}
         </div>
+
+        {uploadedFile && (
+          <div className="flex items-center gap-2 mb-2">
+            <FileText className="size-4 text-muted-foreground" />
+            <span className="text-xs">{uploadedFile}</span>
+            <button type="button" onClick={() => setUploadedFile(null)} className="text-muted-foreground hover:text-foreground"><XIcon className="size-3" /></button>
+          </div>
+        )}
+
+        {kbPickerOpen && (
+          <div className="rounded-md border px-3 py-3 space-y-3 bg-muted/20 mb-2">
+            <p className="text-xs font-medium flex items-center gap-2"><BookOpen className="size-3.5 text-muted-foreground" /> Select a reference document from your Knowledge Base</p>
+            {kbDocsLoading ? (
+              <p className="text-xs text-muted-foreground py-4 text-center">Loading your Knowledge Base...</p>
+            ) : !kbConnected ? (
+              <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">
+                Could not connect to your Knowledge Base right now. Make sure you have one set up, then try again.
+              </div>
+            ) : kbDocs.length === 0 ? (
+              <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">No documents found in your Knowledge Base yet.</div>
+            ) : (
+              <div className="max-h-64 overflow-y-auto rounded-md border divide-y bg-card">
+                {kbDocs.map(doc => (
+                  <label key={doc.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted/40">
+                    <input type="checkbox" checked={kbSelectedIds.has(doc.id)} onChange={() => toggleKbDoc(doc.id)} className="size-4 shrink-0" />
+                    <span className="truncate flex-1">{doc.title}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" onClick={importSelectedKbDocs} disabled={kbImporting || kbSelectedIds.size === 0}>
+                {kbImporting ? 'Adding...' : kbSelectedIds.size > 0 ? `Add selected (${kbSelectedIds.size})` : 'Add selected'}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => { setKbPickerOpen(false); setKbSelectedIds(new Set()) }} disabled={kbImporting}>Cancel</Button>
+            </div>
+          </div>
+        )}
+        {kbSummary && <p className="text-[11px] text-[#047857] dark:text-[#34d399] mb-2">{kbSummary}</p>}
+
+        <textarea value={knowledgeBase} onChange={e => setKnowledgeBase(e.target.value)}
+          placeholder="Paste FAQs, policies, service details… or import from a URL / upload a document."
+          className="w-full rounded-md border bg-card px-3 py-2.5 text-sm font-mono resize-none focus:outline-none focus:ring-1 focus:ring-ring h-40" />
       </section>
 
-      {/* Email intelligence */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+      {/* ── Email intelligence (each toggle saves immediately) ── */}
+      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
+        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
           <Mail className="size-4 text-muted-foreground" /> Email intelligence
-        </h2>
-        <p className="text-xs text-muted-foreground mb-3">
-          Automatically scan your connected mailbox to create contacts, log emails, and track engagement.
+        </h3>
+        <p className="text-[12.5px] text-muted-foreground mb-3">
+          Automatically read incoming mail to keep your CRM current. Read-only: it never replies for you.
         </p>
-        <div className="rounded-lg border divide-y">
+        <div className="rounded-xl border divide-y">
           <div className="flex items-center justify-between px-4 py-3">
             <div>
               <p className="text-sm font-medium">Enable inbox scanning</p>
               <p className="text-xs text-muted-foreground">Scan your inbox on a schedule to keep your CRM up to date</p>
             </div>
-            <button type="button" onClick={() => { const next = !eiEnabled; setEiEnabled(next); saveEiSettings({ is_enabled: next }) }}
-              disabled={eiSaving}
-              className={`relative w-10 h-5 rounded-full transition-colors ${eiEnabled ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}>
-              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${eiEnabled ? 'translate-x-5' : ''}`} />
-            </button>
+            <Toggle on={eiEnabled} onClick={() => { const next = !eiEnabled; setEiEnabled(next); void runSave(() => persistEi({ is_enabled: next })) }} />
           </div>
           {eiEnabled && [
-            { label: 'Auto-create contacts', desc: 'Create new contacts from unknown senders', value: eiAutoCreate, key: 'auto_create_contacts', set: setEiAutoCreate },
-            { label: 'Update timeline', desc: 'Log inbound emails to contact timeline', value: eiAutoTimeline, key: 'auto_update_timeline', set: setEiAutoTimeline },
-            { label: 'Update engagement', desc: 'Track email engagement scores', value: eiAutoEngagement, key: 'auto_update_engagement', set: setEiAutoEngagement },
-            { label: 'Auto-advance stage', desc: 'Move prospects to leads when engagement is high', value: eiAutoStage, key: 'auto_advance_stage', set: setEiAutoStage },
+            { label: 'Create contacts from new senders', desc: 'Create new contacts from unknown senders', value: eiAutoCreate, key: 'auto_create_contacts', set: setEiAutoCreate },
+            { label: 'Log messages to the contact timeline', desc: 'Log inbound emails to contact timeline', value: eiAutoTimeline, key: 'auto_update_timeline', set: setEiAutoTimeline },
+            { label: 'Update engagement scores', desc: 'Track email engagement scores', value: eiAutoEngagement, key: 'auto_update_engagement', set: setEiAutoEngagement },
+            { label: 'Advance pipeline stage automatically', desc: 'Move prospects to leads when engagement is high (off by default)', value: eiAutoStage, key: 'auto_advance_stage', set: setEiAutoStage },
           ].map(item => (
             <div key={item.key} className="flex items-center justify-between px-4 py-2.5">
               <div>
                 <p className="text-sm">{item.label}</p>
                 <p className="text-xs text-muted-foreground">{item.desc}</p>
               </div>
-              <button type="button" onClick={() => { const next = !item.value; item.set(next); saveEiSettings({ [item.key]: next }) }}
-                disabled={eiSaving}
-                className={`relative w-9 h-[18px] rounded-full transition-colors ${item.value ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}>
-                <span className={`absolute top-[1px] left-[1px] w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${item.value ? 'translate-x-[18px]' : ''}`} />
-              </button>
+              <Toggle on={item.value} onClick={() => { const next = !item.value; item.set(next); void runSave(() => persistEi({ [item.key]: next })) }} />
             </div>
           ))}
         </div>
       </section>
 
-      {/* Signature */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+      {/* ── Signature (autosaved as part of AI settings) ── */}
+      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
+        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
           <Mail className="size-4 text-muted-foreground" /> Signature
-        </h2>
-        <div className="rounded-lg border">
-          <div className="px-4 py-3">
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">
-              Signature <span className="normal-case font-normal">(optional)</span>
-            </label>
-            <textarea value={signature} onChange={e => setSignature(e.target.value)}
-              placeholder={'e.g.\nThanks,\nThe Acme Team'}
-              className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
-            <p className="text-[11px] text-muted-foreground mt-1.5">Added to the end of suggested drafts. You can still edit each draft before sending.</p>
-            <div className="mt-2 flex items-center gap-3">
-              <Button type="button" variant="outline" size="sm" onClick={saveSignature} disabled={savingSignature}>
-                {savingSignature ? 'Saving...' : 'Save signature'}
-              </Button>
-              {signatureSaved && <span className="text-xs text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> Saved</span>}
-            </div>
-          </div>
-        </div>
+        </h3>
+        <p className="text-[12.5px] text-muted-foreground mb-3">Appended to the end of your suggested drafts. You can still edit each draft before sending.</p>
+        <textarea value={signature} onChange={e => setSignature(e.target.value)}
+          placeholder={'e.g.\nThanks,\nThe Acme Team'}
+          className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
       </section>
+
+      {/* ── Shared autosave status line (mirrors Customer Service Settings) ── */}
+      <div className="flex items-center gap-2 h-5 text-xs mb-6">
+        {status === 'saving' ? (
+          <span className="text-muted-foreground flex items-center gap-1.5">
+            <span className="inline-block size-3 rounded-full border border-muted-foreground/40 border-t-transparent animate-spin" />
+            Saving...
+          </span>
+        ) : status === 'error' ? (
+          <span className="text-[#b91c1c] dark:text-[#f87171]">Could not save. We will retry when you make another change.</span>
+        ) : status === 'saved' ? (
+          <span className="text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> Saved</span>
+        ) : (
+          <span className="text-muted-foreground">Changes save automatically.</span>
+        )}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground">
+        Marketing sender, payments, team members, and the Knowledge Base connection stay on the general Settings page; they are not inbox-specific.
+      </p>
     </div>
   )
 }
