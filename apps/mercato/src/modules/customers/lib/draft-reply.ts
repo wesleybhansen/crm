@@ -41,7 +41,18 @@ export type DraftReplyInput = {
   // the drafter returns its key(s) in matchedScenarios and drafts the reply
   // following that scenario's instructions (first match wins on conflicts).
   flagScenarios?: FlagScenarioInput[] | null
+  // Which grounding-library table to load model answers / documents / web pages
+  // from. Defaults to the Customer Service library so existing CS callers keep
+  // their behavior; the personal Inbox engine passes 'inbox_knowledge' so it
+  // grounds on the inbox library instead. Allow-listed below.
+  knowledgeTable?: string | null
 }
+
+// Grounding-library tables the drafter is allowed to read. Both share the same
+// shape (organization_id, is_active, updated_at, kind, title, content). The
+// value is validated against this set before it is ever interpolated, so the
+// caller-provided table name can never reach knex as arbitrary input.
+const ALLOWED_KNOWLEDGE_TABLES = new Set(['customer_service_knowledge', 'inbox_knowledge'])
 
 export type DraftReplyResult = {
   ok: boolean
@@ -89,10 +100,15 @@ const KNOWLEDGE_BUDGET_CHARS = 8000
  * reference documents) and render it into prompt sections. Newest entries are
  * preferred when over the budget. Returns '' when the org has no entries.
  */
-async function buildKnowledgeSection(knex: Knex, orgId: string): Promise<string> {
+async function buildKnowledgeSection(knex: Knex, orgId: string, knowledgeTable?: string | null): Promise<string> {
+  // Validate against the allow-list; fall back to the CS library for any
+  // unrecognized value so a bad caller can never read an unintended table.
+  const table = knowledgeTable && ALLOWED_KNOWLEDGE_TABLES.has(knowledgeTable)
+    ? knowledgeTable
+    : 'customer_service_knowledge'
   let rows: any[] = []
   try {
-    rows = await knex('customer_service_knowledge')
+    rows = await knex(table)
       .where('organization_id', orgId)
       .where('is_active', true)
       .orderBy('updated_at', 'desc')
@@ -166,7 +182,7 @@ export async function generateReplyDraft(
   apiKey: string,
   input: DraftReplyInput,
 ): Promise<DraftReplyResult> {
-  const { orgId, channel, recentMessages, contactId, signature, flagScenarios } = input
+  const { orgId, channel, recentMessages, contactId, signature, flagScenarios, knowledgeTable } = input
 
   // Build the flag-scenario instruction block from the enabled scenarios. Keep
   // the ordering the caller gave so "first match wins" stays deterministic.
@@ -223,8 +239,9 @@ Return the matching scenario keys in "matched_scenarios" (an array of the key st
     voiceSection = buildVoicePromptSection(voiceProfile)
   }
 
-  // Load the org's Customer Service grounding library (model answers + docs).
-  const knowledgeSection = await buildKnowledgeSection(knex, orgId)
+  // Load the org's grounding library (model answers + docs). Defaults to the
+  // Customer Service library; the personal Inbox engine passes 'inbox_knowledge'.
+  const knowledgeSection = await buildKnowledgeSection(knex, orgId, knowledgeTable)
 
   const systemPrompt = `You are a helpful AI assistant drafting a reply for a ${channel || 'message'} conversation on behalf of ${businessName || 'a business'}.
 
