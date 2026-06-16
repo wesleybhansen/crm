@@ -191,21 +191,23 @@ export default function ConversationsView({
   const readBodyRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // ── Collapse the CRM app sidebar to an icon rail while the inbox is open, then
-  // RELEASE it on leave so the user's normal sidebar returns on every other page
-  // (the collapse is ephemeral, never persisted). The AppShell listens for
-  // 'om:appnav:set'. IMPORTANT: child effects run BEFORE the parent attaches its
-  // listener, so the mount dispatch is deferred with setTimeout(0).
-  const [appNavCollapsed, setAppNavCollapsed] = useState(true)
+  // ── App sidebar: keep the FULL menu while browsing the list, then collapse it to
+  // an icon rail when a conversation (or compose) is open so the reader gets the
+  // room. The collapse is ephemeral (AppShell's forcedCollapsed) and is RELEASED
+  // back to the user's preference when leaving the inbox. IMPORTANT: child effects
+  // run before the parent attaches its listener, so dispatches are deferred.
+  const reading = !!selectedId || composing
+  const [appNavCollapsed, setAppNavCollapsed] = useState(false)
   useEffect(() => {
+    setAppNavCollapsed(reading)
     const id = setTimeout(() => {
-      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { collapsed: true } })) } catch {}
+      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { collapsed: reading } })) } catch {}
     }, 0)
-    return () => {
-      clearTimeout(id)
-      // Release back to the user's preference (null), so the full menu returns.
-      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { collapsed: null } })) } catch {}
-    }
+    return () => clearTimeout(id)
+  }, [reading])
+  useEffect(() => {
+    // Release the override when the inbox unmounts (the full menu returns elsewhere).
+    return () => { try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { collapsed: null } })) } catch {} }
   }, [])
   const toggleAppNav = useCallback(() => {
     setAppNavCollapsed((c) => {
@@ -291,8 +293,7 @@ export default function ConversationsView({
       }
     } catch { /* silent */ }
     setDetailLoading(false)
-    // Email reader: start at the TOP.
-    setTimeout(() => { if (readBodyRef.current) readBodyRef.current.scrollTop = 0 }, 0)
+    // Scroll-to-most-recent is handled inside ReadingPane once the thread renders.
   }, [])
 
   // Deselect → back to list-only.
@@ -605,7 +606,7 @@ export default function ConversationsView({
             )}
           </div>
         ) : (
-          <div className={listMode === 'full' ? 'mx-auto max-w-3xl' : ''}>
+          <div>
             {visibleConvs.map(conv => (
               <div key={conv.id} className={`flex items-start gap-2 px-3 md:px-4 py-3 border-b transition-colors cursor-pointer relative ${selectedId === conv.id ? 'bg-accent/[.06] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:bg-accent' : 'hover:bg-muted/40'}`}>
                 {selectMode && (
@@ -644,20 +645,21 @@ export default function ConversationsView({
   // ── Render ──
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Inbox top bar: expand/collapse the app sidebar */}
-      <div className="flex items-center gap-3 px-4 py-1.5 border-b bg-card shrink-0">
-        <button type="button" onClick={toggleAppNav}
-          aria-label={appNavCollapsed ? 'Expand navigation menu' : 'Collapse navigation menu'}
-          className="flex items-center gap-2 rounded-[9px] border border-input bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-accent/40 hover:text-foreground transition-colors">
-          <Menu className="size-4" /> {appNavCollapsed ? 'Expand menu' : 'Collapse menu'}
-        </button>
-        {(selectedId || composing) && (
+      {/* Top bar only while reading/composing: Back (mobile) + a button to bring the
+          collapsed app menu back. In list view the full sidebar is already shown. */}
+      {reading && (
+        <div className="flex items-center gap-3 px-3 md:px-4 py-1.5 border-b bg-card shrink-0">
           <button type="button" onClick={() => composing ? setComposing(false) : closeDetail()}
             className="md:hidden flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
             <ArrowLeft className="size-4" /> Back
           </button>
-        )}
-      </div>
+          <button type="button" onClick={toggleAppNav}
+            aria-label={appNavCollapsed ? 'Expand navigation menu' : 'Collapse navigation menu'}
+            className="hidden md:flex items-center gap-2 rounded-[9px] border border-input bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-accent/40 hover:text-foreground transition-colors">
+            <Menu className="size-4" /> {appNavCollapsed ? 'Expand menu' : 'Collapse menu'}
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* LEFT: list — full width until a message is opened, then a 340px column */}
@@ -781,6 +783,16 @@ function ReadingPane(props: {
   const lastMsgId = messageCount ? detail.messages[messageCount - 1].id : null
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(() => new Set(lastMsgId ? [lastMsgId] : []))
   useEffect(() => { setExpandedMsgs(new Set(lastMsgId ? [lastMsgId] : [])) }, [detail.inboxConversationId, lastMsgId])
+  // Open a thread at its MOST RECENT message (the expanded one at the bottom);
+  // older messages collapse above it. Wait a frame so the DOM has laid out.
+  const lastMsgRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      if (lastMsgRef.current) lastMsgRef.current.scrollIntoView({ block: 'start' })
+      else if (readBodyRef.current) readBodyRef.current.scrollTop = readBodyRef.current.scrollHeight
+    })
+    return () => cancelAnimationFrame(id)
+  }, [detail.inboxConversationId])
   const toggleMsg = (id: string) => setExpandedMsgs(prev => {
     const n = new Set(prev)
     if (n.has(id)) n.delete(id); else n.add(id)
@@ -833,7 +845,7 @@ function ReadingPane(props: {
           ].sort((a, b) => a.ts - b.ts)
 
           return (
-            <div className="max-w-3xl mx-auto space-y-4">
+            <div className="max-w-4xl mx-auto space-y-4">
               {timeline.map((item) => {
                 if (item.type === 'note') {
                   return (
@@ -867,7 +879,7 @@ function ReadingPane(props: {
                   )
                 }
                 return (
-                  <div key={`msg-${msg.id}`} className={`rounded-2xl border ${out ? 'bg-accent text-accent-foreground border-transparent' : 'bg-card border-border'} px-5 py-4`}>
+                  <div key={`msg-${msg.id}`} ref={msg.id === lastMsgId ? lastMsgRef : undefined} className={`rounded-2xl border ${out ? 'bg-accent text-accent-foreground border-transparent' : 'bg-card border-border'} px-5 py-4`}>
                     <div onClick={() => collapsible && toggleMsg(msg.id)}
                       className={`flex items-center gap-1.5 mb-2 text-[10px] font-medium uppercase tracking-wide ${out ? 'opacity-80' : 'text-muted-foreground'} ${collapsible ? 'cursor-pointer' : ''}`}>
                       <span className={out ? '' : chColor(msg.channel)}>{chIcon(msg.channel, 'size-3')}</span>
@@ -917,7 +929,7 @@ function ReadingPane(props: {
           </div>
         )}
 
-        <div className="p-3 md:p-4 max-w-3xl mx-auto w-full">
+        <div className="p-3 md:p-4 max-w-4xl mx-auto w-full">
           <ReplyArea
             detail={detail}
             aiState={aiState}
@@ -1011,17 +1023,20 @@ function ReplyArea(props: {
 
   // ── Draft pending (not flagged) ──
   if (aiState === 'draft' && aiDraft) {
-    // Collapsed: a compact one-line bar (mockup behaviour). Expands on review.
+    // Collapsed: a compact card with a 2-line preview. Expands on review.
     if (!replyOpen) {
       return (
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-            <Sparkles className="size-4 text-[#5b3fd6] dark:text-[#c4b5fd]" /> A reply was drafted for you.
-          </span>
-          <div className="ml-auto flex items-center gap-3">
-            <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground">Dismiss</button>
-            <Button type="button" size="sm" onClick={() => { setReplyBody(aiDraft.body); setReplyOpen(true) }}>Review &amp; send</Button>
+        <div className="rounded-xl border border-[rgba(109,74,255,.30)] bg-[rgba(109,74,255,.06)] px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#5b3fd6] dark:text-[#c4b5fd]">
+              <Sparkles className="size-4" /> A reply was drafted for you
+            </span>
+            <div className="ml-auto flex items-center gap-3">
+              <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground">Dismiss</button>
+              <Button type="button" size="sm" onClick={() => { setReplyBody(aiDraft.body); setReplyOpen(true) }}>Review &amp; send</Button>
+            </div>
           </div>
+          <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground line-clamp-2">{aiDraft.body}</p>
         </div>
       )
     }
@@ -1047,17 +1062,23 @@ function ReplyArea(props: {
 
   // ── Flagged (held for review) ──
   if (aiState === 'flagged' && aiDraft) {
-    // Collapsed: compact flagged bar. Expands to review + edit.
+    // Collapsed: compact flagged card. Expands to review + edit.
     if (!replyOpen) {
       return (
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#8a5a10] dark:text-[#fbbf24]">
-            <span className="text-base leading-none">⚑</span> Flagged — held for your review
-          </span>
-          <div className="ml-auto flex items-center gap-3">
-            <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground">Dismiss</button>
-            <Button type="button" size="sm" onClick={() => { setReplyBody(aiDraft.body); setReplyOpen(true) }}>Review &amp; send</Button>
+        <div className="rounded-xl border border-[#e6cf9a] bg-[rgba(183,121,31,.10)] dark:bg-[rgba(245,158,11,.08)] px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#8a5a10] dark:text-[#fbbf24]">
+              <span className="text-base leading-none">⚑</span> Flagged — held for your review
+            </span>
+            <div className="ml-auto flex items-center gap-3">
+              <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground">Dismiss</button>
+              <Button type="button" size="sm" onClick={() => { setReplyBody(aiDraft.body); setReplyOpen(true) }}>Review &amp; send</Button>
+            </div>
           </div>
+          <p className="mt-1 text-[12px] text-[#8a5a10]/90 dark:text-[#fbbf24]/90">
+            {aiDraft.flagReasons && aiDraft.flagReasons.length > 0 ? `Reason: ${aiDraft.flagReasons.join(', ')}. ` : ''}
+            Drafted but not sent, even in auto mode.
+          </p>
         </div>
       )
     }
@@ -1108,14 +1129,13 @@ function ReplyArea(props: {
     return (
       <div>
         {!replyOpen ? (
-          <>
-            <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-[12px] text-muted-foreground">
-              No reply suggested — looks like a newsletter, so your Chief of Staff skipped it. You can still reply yourself.
+          <div className="rounded-xl border border-border bg-muted/40 px-4 py-3.5">
+            <div className="flex items-center gap-2">
+              <p className="text-[13px] font-medium text-foreground">This looks like an automated message, so no reply was drafted.</p>
+              <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={() => { setReplyBody(''); setReplyOpen(true) }}>Reply anyway</Button>
             </div>
-            <div className="flex justify-end mt-3">
-              <Button type="button" variant="outline" size="sm" onClick={() => { setReplyBody(''); setReplyOpen(true) }}>Reply anyway</Button>
-            </div>
-          </>
+            <p className="mt-1 text-[12px] text-muted-foreground">You can still reply yourself if you need to.</p>
+          </div>
         ) : composer(handleSend)}
       </div>
     )
