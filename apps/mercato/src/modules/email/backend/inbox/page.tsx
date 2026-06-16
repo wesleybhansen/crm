@@ -137,6 +137,9 @@ export default function UnifiedInboxPage() {
   // AI desk: a pending AI-drafted reply for the open conversation (held in draft
   // / hybrid mode, or a flagged one paused for review). Pre-fills the composer.
   const [aiDraft, setAiDraft] = useState<{ id: string; body: string; flagged?: boolean; flagReasons?: string[] } | null>(null)
+  // Why no draft (e.g. 'automated' = the engine skipped a newsletter/no-reply),
+  // so we can show a short explanation instead of a silent empty composer.
+  const [aiSkipReason, setAiSkipReason] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [showNoteInput, setShowNoteInput] = useState(false)
   const [noteText, setNoteText] = useState('')
@@ -205,6 +208,12 @@ export default function UnifiedInboxPage() {
       if (localStorage.getItem('noli-inbox-right-collapsed') === '0') setSidebarOpen(true)
     } catch {}
   }, [])
+  // Email-client focus: opening a conversation collapses the list to a slim rail
+  // so the message + reply get the full width. Reopen the list from the rail to
+  // browse. Transient (not persisted) so it never overrides the saved preference.
+  useEffect(() => {
+    if (selectedId) setLeftCollapsed(true)
+  }, [selectedId])
   const toggleLeftCollapsed = useCallback(() => {
     setLeftCollapsed(prev => {
       const next = !prev
@@ -238,7 +247,7 @@ export default function UnifiedInboxPage() {
   // ── Load detail ──
   const loadDetail = useCallback(async (id: string) => {
     setComposing(false)
-    setSelectedId(id); setDetailLoading(true); setDetail(null); setSidebarData(null); setNotes([]); setShowNoteInput(false); setAiDraft(null)
+    setSelectedId(id); setDetailLoading(true); setDetail(null); setSidebarData(null); setNotes([]); setShowNoteInput(false); setAiDraft(null); setAiSkipReason(null)
     try {
       const [convRes, notesRes] = await Promise.all([
         fetch(`/api/inbox/${id}`, { credentials: 'include' }),
@@ -265,6 +274,8 @@ export default function UnifiedInboxPage() {
           if (dj.ok && dj.data) {
             setAiDraft({ id: dj.data.id, body: dj.data.body || '', flagged: dj.data.flagged, flagReasons: dj.data.flagReasons })
             if (dj.data.body) setReplyBody(dj.data.body)
+          } else if (dj.ok && dj.skipReason) {
+            setAiSkipReason(dj.skipReason)
           }
         } catch { /* no pending draft */ }
         // Mark read
@@ -897,6 +908,11 @@ export default function UnifiedInboxPage() {
                       <p className="mt-1 text-[11px] text-muted-foreground">Flagged: {aiDraft.flagReasons.join(', ')}</p>
                     )}
                     <p className="mt-1 text-[11px] text-muted-foreground">Edit below, then Approve &amp; send.</p>
+                  </div>
+                )}
+                {!aiDraft && aiSkipReason === 'automated' && (
+                  <div className="mb-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
+                    <p className="text-[12px] text-muted-foreground">No reply suggested. This looks like an automated or newsletter message, so the assistant skipped it. You can still reply yourself below.</p>
                   </div>
                 )}
                 {activeChannel === 'email' && (

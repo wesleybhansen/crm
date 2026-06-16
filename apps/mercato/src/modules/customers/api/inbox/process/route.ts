@@ -149,7 +149,7 @@ export async function POST(req: Request) {
               subject: inbound.subject,
               headers: inboundMeta?.headers,
             })) {
-              await markDrafted(knex, conv.id, orgId)
+              await markDrafted(knex, conv.id, orgId, 'automated')
               skippedAutomated++
               continue
             }
@@ -621,11 +621,13 @@ async function sendFlagAlert(
   }
 }
 
-async function markDrafted(knex: any, conversationId: string, orgId: string) {
+async function markDrafted(knex: any, conversationId: string, orgId: string, skipReason?: string) {
+  const update: Record<string, unknown> = { inbox_drafted_at: new Date() }
+  if (skipReason) update.inbox_draft_skip_reason = skipReason
   await knex('inbox_conversations')
     .where('id', conversationId)
     .where('organization_id', orgId)
-    .update({ inbox_drafted_at: new Date() })
+    .update(update)
 }
 
 // Reuses the inbox-proposal review mechanism (same as the Customer Service

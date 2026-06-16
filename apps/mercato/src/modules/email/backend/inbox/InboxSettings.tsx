@@ -955,6 +955,35 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
             </div>
           </div>
         </div>
+
+        {/* ── Sub-block (c): Automatic CRM updates (formerly the separate Email intelligence section) ── */}
+        <div className="mt-6 pt-5 border-t">
+          <p className={subhead}>Automatic CRM updates</p>
+          <p className={`${helpText} mt-0.5 mb-4`}>Reads incoming mail to keep your CRM current. Read-only, and it runs on its own even when drafting is off.</p>
+          <div className="rounded-xl border divide-y">
+            <div className="flex items-center justify-between px-4 py-3.5">
+              <div>
+                <p className="text-[13.5px] font-medium">Enable inbox scanning</p>
+                <p className="text-[12.5px] text-muted-foreground">Scan your inbox on a schedule to keep your CRM up to date</p>
+              </div>
+              <Toggle on={eiEnabled} onClick={() => { const next = !eiEnabled; setEiEnabled(next); void runSave(() => persistEi({ is_enabled: next })) }} />
+            </div>
+            {eiEnabled && [
+              { label: 'Create contacts from new senders', desc: 'Create new contacts from unknown senders', value: eiAutoCreate, key: 'auto_create_contacts', set: setEiAutoCreate },
+              { label: 'Log messages to the contact timeline', desc: 'Log inbound emails to contact timeline', value: eiAutoTimeline, key: 'auto_update_timeline', set: setEiAutoTimeline },
+              { label: 'Update engagement scores', desc: 'Track email engagement scores', value: eiAutoEngagement, key: 'auto_update_engagement', set: setEiAutoEngagement },
+              { label: 'Advance pipeline stage automatically', desc: 'Move prospects to leads when engagement is high (off by default)', value: eiAutoStage, key: 'auto_advance_stage', set: setEiAutoStage },
+            ].map(item => (
+              <div key={item.key} className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-[13.5px]">{item.label}</p>
+                  <p className="text-[12.5px] text-muted-foreground">{item.desc}</p>
+                </div>
+                <Toggle on={item.value} onClick={() => { const next = !item.value; item.set(next); void runSave(() => persistEi({ [item.key]: next })) }} />
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* ── Reply mode ── */}
@@ -1084,38 +1113,6 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
         </div>
       </section>
 
-      {/* ── Email intelligence (each toggle saves immediately) ── */}
-      <section className="mb-5 rounded-[14px] border bg-card p-5">
-        <h3 className={`${cardTitle} mb-1.5`}>
-          <Mail className="size-[18px] text-muted-foreground" /> Email intelligence
-        </h3>
-        <p className={`${helpText} mb-4`}>
-          Automatically read incoming mail to keep your CRM current. Read-only: it never replies for you.
-        </p>
-        <div className="rounded-xl border divide-y">
-          <div className="flex items-center justify-between px-4 py-3.5">
-            <div>
-              <p className="text-[13.5px] font-medium">Enable inbox scanning</p>
-              <p className="text-[12.5px] text-muted-foreground">Scan your inbox on a schedule to keep your CRM up to date</p>
-            </div>
-            <Toggle on={eiEnabled} onClick={() => { const next = !eiEnabled; setEiEnabled(next); void runSave(() => persistEi({ is_enabled: next })) }} />
-          </div>
-          {eiEnabled && [
-            { label: 'Create contacts from new senders', desc: 'Create new contacts from unknown senders', value: eiAutoCreate, key: 'auto_create_contacts', set: setEiAutoCreate },
-            { label: 'Log messages to the contact timeline', desc: 'Log inbound emails to contact timeline', value: eiAutoTimeline, key: 'auto_update_timeline', set: setEiAutoTimeline },
-            { label: 'Update engagement scores', desc: 'Track email engagement scores', value: eiAutoEngagement, key: 'auto_update_engagement', set: setEiAutoEngagement },
-            { label: 'Advance pipeline stage automatically', desc: 'Move prospects to leads when engagement is high (off by default)', value: eiAutoStage, key: 'auto_advance_stage', set: setEiAutoStage },
-          ].map(item => (
-            <div key={item.key} className="flex items-center justify-between px-4 py-3">
-              <div>
-                <p className="text-[13.5px]">{item.label}</p>
-                <p className="text-[12.5px] text-muted-foreground">{item.desc}</p>
-              </div>
-              <Toggle on={item.value} onClick={() => { const next = !item.value; item.set(next); void runSave(() => persistEi({ [item.key]: next })) }} />
-            </div>
-          ))}
-        </div>
-      </section>
 
       {/* ── Signature (autosaved as part of AI settings) ── */}
       <section className="mb-5 rounded-[14px] border bg-card p-5">

@@ -47,7 +47,18 @@ export async function GET(req: Request) {
       .limit(1)
 
     const row = actions[0]
-    if (!row) return NextResponse.json({ ok: true, data: null })
+    if (!row) {
+      // No pending draft. Surface WHY when the engine deliberately skipped this
+      // message (e.g. automated / newsletter mail), so the UI can explain it
+      // instead of looking like the assistant is broken.
+      const conv = await knex('inbox_conversations')
+        .where('id', conversationId)
+        .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
+        .select('inbox_draft_skip_reason')
+        .first()
+      return NextResponse.json({ ok: true, data: null, skipReason: conv?.inbox_draft_skip_reason || null })
+    }
 
     const payload = safeParse(row.payload) || {}
     const meta = safeParse(row.metadata) || {}
