@@ -18,9 +18,13 @@ export default function UnifiedInboxPage() {
   const onAiSettingsSaved = useCallback(() => {}, [])
 
   return (
-    <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
+    // Cancel the AppShell main padding (p-4 / lg:p-6) with negative margins so the
+    // inbox fills the content area edge-to-edge — this removes the dead space above
+    // the tabs and keeps the pinned reply bar above the fold. Height = viewport
+    // minus the app header (~58px), using dvh so the mobile toolbar is accounted for.
+    <div className="-m-4 lg:-m-6 flex flex-col h-[calc(100dvh-58px)] overflow-hidden">
       <Tabs value={tab} onValueChange={(v) => setTab(v as 'conversations' | 'settings')} className="flex flex-col flex-1 min-h-0">
-        <div className="px-4 pt-3 border-b shrink-0">
+        <div className="px-4 pt-2 border-b shrink-0">
           <TabsList>
             <TabsTrigger value="conversations">Conversations</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>

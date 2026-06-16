@@ -370,18 +370,21 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
-  // Let a page collapse the main sidebar to an icon rail via window events (e.g.
-  // the Inbox collapses it on open and offers its own button to expand it back
-  // to the full menu). 'om:appnav:toggle' flips it; 'om:appnav:set' {collapsed}
-  // sets it (a {hidden} field is accepted as an alias).
+  // A page can EPHEMERALLY force the sidebar to the icon rail without touching the
+  // user's persisted preference (e.g. the Inbox collapses it while open, then
+  // restores it on leave). forcedCollapsed overrides `collapsed` only when
+  // non-null; it is NOT persisted, so it never leaks to other pages.
+  // 'om:appnav:toggle' flips it; 'om:appnav:set' {collapsed} sets it (boolean to
+  // force, null to release back to the user's preference; {hidden} is an alias).
+  const [forcedCollapsed, setForcedCollapsed] = React.useState<boolean | null>(null)
   React.useEffect(() => {
-    const onToggle = () => setCollapsed((c) => !c)
+    const onToggle = () => setForcedCollapsed((v) => !(v ?? false))
     const onSet = (e: Event) => {
-      const detail = (e as CustomEvent<{ collapsed?: boolean; hidden?: boolean }>).detail
+      const detail = (e as CustomEvent<{ collapsed?: boolean | null; hidden?: boolean | null }>).detail
       if (!detail) return
-      const v = typeof detail.collapsed === 'boolean' ? detail.collapsed
-        : typeof detail.hidden === 'boolean' ? detail.hidden : undefined
-      if (typeof v === 'boolean') setCollapsed(v)
+      const raw = 'collapsed' in detail ? detail.collapsed : ('hidden' in detail ? detail.hidden : undefined)
+      if (raw === undefined) return
+      setForcedCollapsed(raw === null ? null : !!raw)
     }
     window.addEventListener('om:appnav:toggle', onToggle)
     window.addEventListener('om:appnav:set', onSet as EventListener)
@@ -406,7 +409,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const originalNavRef = React.useRef<SidebarGroup[] | null>(null)
   const [headerTitle, setHeaderTitle] = React.useState<string | undefined>(currentTitle)
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
-  const effectiveCollapsed = customizing ? false : collapsed
+  const effectiveCollapsed = customizing ? false : (forcedCollapsed !== null ? forcedCollapsed : collapsed)
   const expandedSidebarWidth = customizing ? '320px' : '240px'
   const injectionContext = React.useMemo(
     () => ({

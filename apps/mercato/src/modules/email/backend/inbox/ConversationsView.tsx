@@ -191,25 +191,26 @@ export default function ConversationsView({
   const readBodyRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // ── Fully hide the CRM app sidebar while the inbox is open (full-screen email
-  // app; mockup-approved behaviour). The AppShell listens for 'om:appnav:set'.
-  // IMPORTANT: child effects run BEFORE the parent (AppShell) attaches its
-  // listener, so a direct dispatch on mount is missed. Defer with setTimeout(0)
-  // so the event fires after AppShell is listening. Restore the nav on unmount.
-  const [appNavHidden, setAppNavHidden] = useState(true)
+  // ── Collapse the CRM app sidebar to an icon rail while the inbox is open, then
+  // RELEASE it on leave so the user's normal sidebar returns on every other page
+  // (the collapse is ephemeral, never persisted). The AppShell listens for
+  // 'om:appnav:set'. IMPORTANT: child effects run BEFORE the parent attaches its
+  // listener, so the mount dispatch is deferred with setTimeout(0).
+  const [appNavCollapsed, setAppNavCollapsed] = useState(true)
   useEffect(() => {
     const id = setTimeout(() => {
-      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { hidden: true } })) } catch {}
+      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { collapsed: true } })) } catch {}
     }, 0)
     return () => {
       clearTimeout(id)
-      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { hidden: false } })) } catch {}
+      // Release back to the user's preference (null), so the full menu returns.
+      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { collapsed: null } })) } catch {}
     }
   }, [])
   const toggleAppNav = useCallback(() => {
-    setAppNavHidden((h) => {
-      const next = !h
-      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { hidden: next } })) } catch {}
+    setAppNavCollapsed((c) => {
+      const next = !c
+      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { collapsed: next } })) } catch {}
       return next
     })
   }, [])
@@ -517,22 +518,23 @@ export default function ConversationsView({
         </div>
       </div>
 
-      {/* Filter chips: All / Needs review / Unread + channel + status */}
-      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b">
+      {/* Filter chips: All / Needs review / Unread + channel + status. Single
+          horizontally-scrollable row so it never wraps to multiple lines on mobile. */}
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b overflow-x-auto no-scrollbar">
         {([['all', 'All'], ['review', reviewCount > 0 ? `Needs review · ${reviewCount}` : 'Needs review'], ['unread', 'Unread']] as const).map(([k, l]) => (
           <button key={k} type="button" onClick={() => setListFilter(k as ListFilter)}
-            className={`px-2.5 py-1 rounded-full border text-[11px] font-medium whitespace-nowrap transition-colors ${listFilter === k ? 'bg-foreground text-background border-foreground' : 'bg-card text-muted-foreground border-input hover:text-foreground'}`}>
+            className={`shrink-0 px-2.5 py-1 rounded-full border text-[11px] font-medium whitespace-nowrap transition-colors ${listFilter === k ? 'bg-foreground text-background border-foreground' : 'bg-card text-muted-foreground border-input hover:text-foreground'}`}>
             {l}
           </button>
         ))}
-        <span className="w-px h-4 bg-border mx-0.5" />
+        <span className="shrink-0 w-px h-4 bg-border mx-0.5" />
         {(['all', 'email', 'sms'] as const).map(ch => (
           <button key={ch} type="button" onClick={() => setChannelFilter(ch)}
-            className={`px-2.5 py-1 rounded-full border text-[11px] font-medium whitespace-nowrap transition-colors ${channelFilter === ch ? 'bg-foreground text-background border-foreground' : 'bg-card text-muted-foreground border-input hover:text-foreground'}`}>
+            className={`shrink-0 px-2.5 py-1 rounded-full border text-[11px] font-medium whitespace-nowrap transition-colors ${channelFilter === ch ? 'bg-foreground text-background border-foreground' : 'bg-card text-muted-foreground border-input hover:text-foreground'}`}>
             {ch === 'all' ? 'Any' : chLabel(ch)}
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto shrink-0 flex items-center gap-1.5">
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-6 rounded border border-input bg-background pl-1.5 pr-5 text-[10px]">
             <option value="open">Open</option>
             <option value="closed">Closed</option>
@@ -642,12 +644,12 @@ export default function ConversationsView({
   // ── Render ──
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Inbox top bar: Menu (toggles app sidebar) */}
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b bg-card shrink-0">
+      {/* Inbox top bar: expand/collapse the app sidebar */}
+      <div className="flex items-center gap-3 px-4 py-1.5 border-b bg-card shrink-0">
         <button type="button" onClick={toggleAppNav}
-          aria-label={appNavHidden ? 'Show navigation menu' : 'Hide navigation menu'}
+          aria-label={appNavCollapsed ? 'Expand navigation menu' : 'Collapse navigation menu'}
           className="flex items-center gap-2 rounded-[9px] border border-input bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-accent/40 hover:text-foreground transition-colors">
-          <Menu className="size-4" /> {appNavHidden ? 'Menu' : 'Hide menu'}
+          <Menu className="size-4" /> {appNavCollapsed ? 'Expand menu' : 'Collapse menu'}
         </button>
         {(selectedId || composing) && (
           <button type="button" onClick={() => composing ? setComposing(false) : closeDetail()}
@@ -1123,10 +1125,9 @@ function ReplyArea(props: {
   return (
     <div>
       {!replyOpen ? (
-        <div className="flex items-center gap-3">
-          <span className="text-[12px] text-muted-foreground">No draft needed. Reply when you like.</span>
-          <Button type="button" size="sm" className="ml-auto" onClick={() => { setReplyBody(''); setReplyOpen(true) }}>Reply</Button>
-        </div>
+        <Button type="button" size="sm" variant="outline" className="w-full justify-center" onClick={() => { setReplyBody(''); setReplyOpen(true) }}>
+          <Send className="size-3.5 mr-1.5" /> Reply
+        </Button>
       ) : composer(handleSend)}
     </div>
   )

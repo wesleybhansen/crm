@@ -432,6 +432,10 @@ TODO: Fix that latter to have reference by the package names
   display: none !important;
 }
 
+/* Hide scrollbars on horizontally-scrollable chip rows (e.g. inbox filters). */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 /* Noli v7 aurora — fixed radial glow at the viewport top (unlayered so it
    wins over the @layer base body background) */
 body {
