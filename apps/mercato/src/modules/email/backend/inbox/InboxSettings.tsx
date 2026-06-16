@@ -511,7 +511,7 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
   }
 
   if (loading) {
-    return <div className="max-w-2xl mx-auto p-6"><div className="rounded-[14px] border bg-card px-4 py-10 text-center text-sm text-muted-foreground">Loading...</div></div>
+    return <div className="max-w-2xl mx-auto p-6"><div className="rounded-[14px] border bg-card px-4 py-10 text-center text-[13px] text-muted-foreground">Loading...</div></div>
   }
 
   // Small toggle component matching the mockup treatment.
@@ -522,22 +522,29 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
     </button>
   )
 
-  const sectionLabel = 'text-[11px] font-medium text-muted-foreground mb-1'
+  // ── Consistent type scale (mirrored onto Customer Service settings next). ──
+  // fieldLabel: form field labels (was the faint 10-11px muted token).
+  // subhead: sub-block headings inside a section card.
+  const fieldLabel = 'text-[12.5px] font-medium text-foreground/80 mb-1.5'
+  const sectionLabel = fieldLabel
+  const subhead = 'text-[13px] font-semibold text-foreground'
+  const helpText = 'text-[13px] text-muted-foreground'
+  const cardTitle = 'text-[15px] font-semibold tracking-[-.01em] text-foreground flex items-center gap-2'
 
   return (
     <div className="max-w-[760px] mx-auto p-4 sm:p-6">
       {/* ── Connected mailboxes (multiple personal mailboxes supported) ── */}
-      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
-        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
-          <Mail className="size-4 text-muted-foreground" /> Connected mailboxes
+      <section className="mb-5 rounded-[14px] border bg-card p-5">
+        <h3 className={`${cardTitle} mb-1.5`}>
+          <Mail className="size-[18px] text-muted-foreground" /> Connected mailboxes
           {emailConnections.length > 0 && <Badge variant="green">Connected</Badge>}
         </h3>
-        <p className="text-[12.5px] text-muted-foreground mb-3">
+        <p className={`${helpText} mb-4`}>
           The email accounts this Inbox sends and receives from. Works with Gmail, Outlook, or any IMAP/SMTP provider. Use an App Password, not your normal password. The dedicated Customer Service support inbox is kept separate and never appears here.
         </p>
 
         {emailConnections.length > 0 && (
-          <div className="space-y-2.5 mb-3">
+          <div className="space-y-2.5 mb-4">
             {emailConnections.map(conn => (
               <div key={conn.id} className="flex items-center justify-between gap-3 rounded-xl border bg-muted/30 px-3.5 py-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -549,7 +556,7 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
                       {conn.email_address}
                       {conn.is_primary && <Badge variant="violet">Primary</Badge>}
                     </p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[12.5px] text-muted-foreground">
                       {conn.provider === 'gmail' ? 'Gmail (OAuth)' : conn.provider === 'microsoft' ? 'Outlook (OAuth)' : conn.provider === 'smtp' ? 'IMAP/SMTP' : conn.provider}
                     </p>
                   </div>
@@ -571,28 +578,28 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
         )}
 
         {showConnectForm && (
-          <div className="rounded-xl border bg-muted/20 p-3.5">
+          <div className="rounded-xl border bg-muted/20 p-4">
             <div className="flex items-center gap-2 mb-1">
-              <Server className="size-3.5 text-muted-foreground" />
-              <p className="text-sm font-medium">Connect a mailbox</p>
+              <Server className="size-4 text-muted-foreground" />
+              <p className={subhead}>Connect a mailbox</p>
             </div>
-            <p className="text-xs text-muted-foreground mb-3">Enables sending and inbox sync, so replies appear here in your Inbox.</p>
-            {smtpError && <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{smtpError}</p>}
-            {smtpSuccess && <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Mailbox connected.</p>}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-              <div><p className={sectionLabel}>Email address</p><Input value={emailAddr} onChange={e => setEmailAddr(e.target.value)} placeholder="you@yourbusiness.com" className="h-9 text-sm" type="email" /></div>
-              <div><p className={sectionLabel}>App Password</p><Input value={emailPassword} onChange={e => setEmailPassword(e.target.value)} type="password" placeholder="••••••••••••" className="h-9 text-sm" /></div>
+            <p className={`${helpText} mb-3.5`}>Enables sending and inbox sync, so replies appear here in your Inbox.</p>
+            {smtpError && <p className="text-[12.5px] text-[#b91c1c] dark:text-[#f87171] mb-2">{smtpError}</p>}
+            {smtpSuccess && <p className="text-[12.5px] text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3.5" /> Mailbox connected.</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <div><p className={fieldLabel}>Email address</p><Input value={emailAddr} onChange={e => setEmailAddr(e.target.value)} placeholder="you@yourbusiness.com" className="h-10 text-[13.5px]" type="email" /></div>
+              <div><p className={fieldLabel}>App Password</p><Input value={emailPassword} onChange={e => setEmailPassword(e.target.value)} type="password" placeholder="••••••••••••" className="h-10 text-[13.5px]" /></div>
             </div>
             <div className="mb-3"><AppPasswordGuides /></div>
-            <button type="button" className="text-xs text-muted-foreground underline mb-2 block" onClick={() => setShowAdvanced(v => !v)}>
+            <button type="button" className="text-[12.5px] text-muted-foreground underline mb-2.5 block" onClick={() => setShowAdvanced(v => !v)}>
               {showAdvanced ? 'Hide advanced settings' : 'Advanced: custom server settings'}
             </button>
             {showAdvanced && (
-              <div className="grid grid-cols-2 gap-2 mb-2 p-3 rounded-md bg-muted/40 border">
-                <Input value={imapHost} onChange={e => setImapHost(e.target.value)} placeholder="IMAP host (auto-detected)" className="h-8 text-xs" />
-                <Input value={imapPort} onChange={e => setImapPort(e.target.value)} placeholder="IMAP port (993)" className="h-8 text-xs" />
-                <Input value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="SMTP host (auto-detected)" className="h-8 text-xs" />
-                <Input value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="SMTP port (587)" className="h-8 text-xs" />
+              <div className="grid grid-cols-2 gap-2.5 mb-3 p-3.5 rounded-md bg-muted/40 border">
+                <Input value={imapHost} onChange={e => setImapHost(e.target.value)} placeholder="IMAP host (auto-detected)" className="h-10 text-[13.5px]" />
+                <Input value={imapPort} onChange={e => setImapPort(e.target.value)} placeholder="IMAP port (993)" className="h-10 text-[13.5px]" />
+                <Input value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="SMTP host (auto-detected)" className="h-10 text-[13.5px]" />
+                <Input value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="SMTP port (587)" className="h-10 text-[13.5px]" />
               </div>
             )}
             <div className="flex items-center gap-2">
@@ -611,19 +618,19 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
       </section>
 
       {/* ── Text messages (SMS) ── */}
-      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
-        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
-          <Phone className="size-4 text-muted-foreground" /> Text messages (SMS)
+      <section className="mb-5 rounded-[14px] border bg-card p-5">
+        <h3 className={`${cardTitle} mb-1.5`}>
+          <Phone className="size-[18px] text-muted-foreground" /> Text messages (SMS)
           {twilioConnection ? <Badge variant="green">Connected</Badge> : <Badge variant="secondary">Not connected</Badge>}
         </h3>
-        <p className="text-[12.5px] text-muted-foreground mb-3">
+        <p className={`${helpText} mb-4`}>
           Bring your own Twilio number so texts land in this Inbox. This is the Inbox's main number; Customer Service uses its own separate support number.
         </p>
         {twilioConnection ? (
           <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/30 px-3.5 py-3">
             <div>
               <p className="text-[13.5px] font-semibold">{twilioConnection.phoneNumber}</p>
-              <p className="text-[11px] text-muted-foreground">Account: {twilioConnection.accountSid}</p>
+              <p className="text-[12.5px] text-muted-foreground">Account: {twilioConnection.accountSid}</p>
             </div>
             <Button type="button" variant="outline" size="sm" onClick={disconnectTwilio} disabled={disconnectingTwilio}>
               {disconnectingTwilio ? 'Disconnecting...' : <><XIcon className="size-3 mr-1" /> Disconnect</>}
@@ -631,13 +638,13 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
           </div>
         ) : (
           <div>
-            {twilioError && <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{twilioError}</p>}
-            {twilioSuccess && <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Twilio connected.</p>}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-              <div><p className={sectionLabel}>Twilio Account SID</p><Input value={twilioSid} onChange={e => setTwilioSid(e.target.value)} placeholder="AC…" className="h-9 text-sm" /></div>
-              <div><p className={sectionLabel}>Auth Token</p><Input value={twilioToken} onChange={e => setTwilioToken(e.target.value)} type="password" placeholder="••••••••" className="h-9 text-sm" /></div>
+            {twilioError && <p className="text-[12.5px] text-[#b91c1c] dark:text-[#f87171] mb-2">{twilioError}</p>}
+            {twilioSuccess && <p className="text-[12.5px] text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3.5" /> Twilio connected.</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <div><p className={fieldLabel}>Twilio Account SID</p><Input value={twilioSid} onChange={e => setTwilioSid(e.target.value)} placeholder="AC…" className="h-10 text-[13.5px]" /></div>
+              <div><p className={fieldLabel}>Auth Token</p><Input value={twilioToken} onChange={e => setTwilioToken(e.target.value)} type="password" placeholder="••••••••" className="h-10 text-[13.5px]" /></div>
             </div>
-            <div className="mb-3"><p className={sectionLabel}>Phone number</p><Input value={twilioPhone} onChange={e => setTwilioPhone(e.target.value)} placeholder="+1 415 555 0123" className="h-9 text-sm" /></div>
+            <div className="mb-3.5"><p className={fieldLabel}>Phone number</p><Input value={twilioPhone} onChange={e => setTwilioPhone(e.target.value)} placeholder="+1 415 555 0123" className="h-10 text-[13.5px]" /></div>
             <Button type="button" size="sm" onClick={saveTwilio} disabled={savingTwilio || !twilioSid || !twilioToken || !twilioPhone}>
               {savingTwilio ? 'Testing...' : 'Connect Twilio'}
             </Button>
@@ -647,11 +654,11 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
 
       {/* ── Routing addresses (each select autosaves on change already) ── */}
       {routingAddresses.length > 1 && (
-        <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
-          <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
-            <Send className="size-4 text-muted-foreground" /> Routing addresses
+        <section className="mb-5 rounded-[14px] border bg-card p-5">
+          <h3 className={`${cardTitle} mb-1.5`}>
+            <Send className="size-[18px] text-muted-foreground" /> Routing addresses
           </h3>
-          <p className="text-[12.5px] text-muted-foreground mb-3">Choose which email address sends each type of email. Leave blank to use defaults.</p>
+          <p className={`${helpText} mb-4`}>Choose which email address sends each type of email. Leave blank to use defaults.</p>
           <div className="rounded-xl border divide-y">
             {([
               { purpose: 'inbox' as const, label: 'Inbox / Personal', desc: 'Inbox replies, manual compose' },
@@ -663,11 +670,11 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
               const current = routingConfig.find(r => r.purpose === purpose)
               const filteredAddresses = purpose === 'inbox' ? routingAddresses.filter(a => a.can_receive) : routingAddresses
               return (
-                <div key={purpose} className="px-4 py-3">
+                <div key={purpose} className="px-4 py-3.5">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{label}</p>
-                      <p className="text-[11px] text-muted-foreground">{desc}</p>
+                      <p className="text-[13.5px] font-medium">{label}</p>
+                      <p className="text-[12.5px] text-muted-foreground">{desc}</p>
                     </div>
                     <div className="shrink-0 text-right">
                       <select
@@ -701,7 +708,7 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
                           setRoutingSaving(null)
                         }}
                         disabled={routingSaving === purpose}
-                        className="h-8 text-xs rounded-md border border-input bg-background px-3 w-full sm:w-[320px]"
+                        className="h-10 text-[13.5px] rounded-md border border-input bg-background px-3 w-full sm:w-[320px]"
                       >
                         <option value="">Default (auto)</option>
                         {filteredAddresses.map(a => (
@@ -711,7 +718,7 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
                     </div>
                   </div>
                   {routingFeedback?.purpose === purpose && (
-                    <p className={`text-[11px] mt-1 ${routingFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
+                    <p className={`text-[12.5px] mt-1.5 ${routingFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                       {routingFeedback.text}
                     </p>
                   )}
@@ -722,66 +729,240 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
         </section>
       )}
 
-      {/* ── AI reply assistant (autosaved) ── */}
-      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2">
-            <Sparkles className="size-4 text-muted-foreground" /> AI reply assistant
+      {/* ── AI reply assistant (autosaved). MERGED card: the enable toggle + intro,
+          then two sub-blocks — (a) Voice and rules, (b) Knowledge it draws on. Both
+          configure the same assistant, so they live together in one card. ── */}
+      <section className="mb-5 rounded-[14px] border bg-card p-5">
+        <div className="flex items-center justify-between mb-1.5">
+          <h3 className={cardTitle}>
+            <Sparkles className="size-[18px] text-muted-foreground" /> AI reply assistant
             {aiEnabled && <Badge variant="green">On</Badge>}
           </h3>
           <Toggle on={aiEnabled} onClick={() => setAiEnabled(v => !v)} />
         </div>
-        <p className="text-[12.5px] text-muted-foreground mb-3">
+        <p className={helpText}>
           Teach the assistant about your work so it can suggest draft replies to the people who email you. You stay in control: nothing sends on its own.
         </p>
 
         {aiError && (
-          <div className="mb-3 rounded-lg border border-[rgba(239,68,68,.26)] bg-[rgba(239,68,68,.10)] px-4 py-2 text-sm text-[#b91c1c] dark:text-[#f87171]">{aiError}</div>
+          <div className="mt-4 rounded-lg border border-[rgba(239,68,68,.26)] bg-[rgba(239,68,68,.10)] px-4 py-2 text-[13px] text-[#b91c1c] dark:text-[#f87171]">{aiError}</div>
         )}
 
-        {/* Business context */}
-        <div className="space-y-3 mb-4">
-          <div>
-            <p className={sectionLabel}>Your name or business name</p>
-            <Input value={businessName} onChange={e => setBusinessName(e.target.value)} placeholder="Your name or business" className="h-9 text-sm" />
+        {/* ── Sub-block (a): Voice and rules ── */}
+        <div className="mt-5 pt-5 border-t">
+          <p className={subhead}>Voice and rules</p>
+          <p className={`${helpText} mt-0.5 mb-4`}>Who the assistant is writing as, and how it should sound.</p>
+
+          {/* Business context */}
+          <div className="space-y-4 mb-5">
+            <div>
+              <p className={fieldLabel}>Your name or business name</p>
+              <Input value={businessName} onChange={e => setBusinessName(e.target.value)} placeholder="Your name or business" className="h-10 text-[13.5px]" />
+            </div>
+            <div>
+              <p className={fieldLabel}>About you</p>
+              <textarea value={businessDescription} onChange={e => setBusinessDescription(e.target.value)}
+                placeholder="What do you do? Who tends to email you?"
+                className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
+            </div>
           </div>
-          <div>
-            <p className={sectionLabel}>About you</p>
-            <textarea value={businessDescription} onChange={e => setBusinessDescription(e.target.value)}
-              placeholder="What do you do? Who tends to email you?"
-              className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
+
+          {/* Tone — chips that save on click */}
+          <p className={fieldLabel}>Tone</p>
+          <div className="flex flex-wrap gap-1.5 mb-5">
+            {TONES.map(t => (
+              <button key={t.id} type="button" onClick={() => setTone(t.id)}
+                className={`text-[12.5px] rounded-full border px-3 py-1.5 transition-colors ${tone === t.id ? 'bg-accent text-accent-foreground border-accent' : 'bg-card text-muted-foreground border-input hover:text-foreground'}`}>
+                {t.label}
+              </button>
+            ))}
           </div>
+          {tone === 'custom' && (
+            <textarea value={customTone} onChange={e => setCustomTone(e.target.value)}
+              placeholder="Describe your preferred tone..."
+              className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20 mb-5" />
+          )}
+
+          {/* Rules / instructions */}
+          <p className={fieldLabel}>Rules and instructions</p>
+          <textarea value={instructions} onChange={e => setInstructions(e.target.value)}
+            placeholder={'e.g. "Always offer a call" or "Never commit to a deadline"'}
+            className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20" />
         </div>
 
-        {/* Tone — chips that save on click */}
-        <p className={sectionLabel}>Tone</p>
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          {TONES.map(t => (
-            <button key={t.id} type="button" onClick={() => setTone(t.id)}
-              className={`text-xs rounded-full border px-3 py-1 transition-colors ${tone === t.id ? 'bg-accent text-accent-foreground border-accent' : 'bg-card text-muted-foreground border-input hover:text-foreground'}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        {tone === 'custom' && (
-          <textarea value={customTone} onChange={e => setCustomTone(e.target.value)}
-            placeholder="Describe your preferred tone..."
-            className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20 mb-4" />
-        )}
+        {/* ── Sub-block (b): Knowledge it draws on ── */}
+        <div className="mt-6 pt-5 border-t">
+          <p className={subhead}>Knowledge it draws on</p>
+          <p className={`${helpText} mt-0.5 mb-4`}>
+            Give the assistant example answers and reference documents to draw from. Drafted replies will reuse and adapt them when relevant.
+          </p>
 
-        {/* Rules / instructions */}
-        <p className={sectionLabel}>Rules &amp; instructions</p>
-        <textarea value={instructions} onChange={e => setInstructions(e.target.value)}
-          placeholder={'e.g. "Always offer a call" or "Never commit to a deadline"'}
-          className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20" />
+          {kbError && (
+            <div className="mb-4 rounded-lg border border-[rgba(239,68,68,.26)] bg-[rgba(239,68,68,.10)] px-4 py-2 text-[13px] text-[#b91c1c] dark:text-[#f87171]">{kbError}</div>
+          )}
+
+          {/* Existing entries */}
+          <div className="rounded-xl border divide-y mb-4">
+            {knowledge.length === 0 ? (
+              <div className="px-4 py-6 text-center text-[12.5px] text-muted-foreground">No entries yet. Add a model answer or a reference document below.</div>
+            ) : (
+              knowledge.map(entry => (
+                <div key={entry.id} className="flex items-start justify-between px-4 py-3 gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <Badge variant="secondary" className="shrink-0">
+                        {entry.kind === 'model_answer' ? (
+                          <span className="flex items-center gap-1"><MessageSquareQuote className="size-3" /> Model answer</span>
+                        ) : entry.kind === 'web_page' ? (
+                          <span className="flex items-center gap-1"><Globe className="size-3" /> Web page</span>
+                        ) : (
+                          <span className="flex items-center gap-1"><FileText className="size-3" /> Document</span>
+                        )}
+                      </Badge>
+                      <p className="text-[13.5px] font-medium truncate">{entry.title}</p>
+                    </div>
+                    <p className="text-[12.5px] text-muted-foreground line-clamp-2">{entry.contentPreview}</p>
+                    {entry.isWebSource && entry.sourceUrl && (
+                      <p className="text-[12.5px] text-muted-foreground mt-0.5 flex items-center gap-1 min-w-0">
+                        <Globe className="size-3 shrink-0" />
+                        <a href={entry.sourceUrl} target="_blank" rel="noopener noreferrer"
+                          className="truncate underline hover:text-foreground">{entry.sourceLabel || entry.sourceUrl}</a>
+                      </p>
+                    )}
+                  </div>
+                  <button type="button" onClick={() => deleteKnowledge(entry.id)}
+                    className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Delete entry">
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Add from Knowledge Base */}
+          <div className="rounded-xl border mb-4">
+            <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[13.5px] font-medium flex items-center gap-2"><BookOpen className="size-4 text-muted-foreground" /> Add from Knowledge Base</p>
+                <p className="text-[12.5px] text-muted-foreground mt-0.5">Pull documents you have stored in your Knowledge Base straight into this library.</p>
+              </div>
+              {!kbPickerOpen && (
+                <Button type="button" size="sm" variant="outline" onClick={openKbPicker} className="shrink-0">
+                  <BookOpen className="size-3.5 mr-1" /> Browse Knowledge Base
+                </Button>
+              )}
+            </div>
+            {kbPickerOpen && (
+              <div className="px-4 py-3 space-y-3">
+                {kbDocsLoading ? (
+                  <p className="text-[12.5px] text-muted-foreground py-4 text-center">Loading your Knowledge Base...</p>
+                ) : !kbConnected ? (
+                  <div className="rounded-md border px-4 py-6 text-center text-[12.5px] text-muted-foreground">Could not connect to your Knowledge Base right now. Make sure you have one set up, then try again.</div>
+                ) : kbDocs.length === 0 ? (
+                  <div className="rounded-md border px-4 py-6 text-center text-[12.5px] text-muted-foreground">No documents found in your Knowledge Base yet.</div>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
+                    {kbDocs.map(doc => (
+                      <label key={doc.id} className="flex items-center gap-2 px-3 py-2 text-[13.5px] cursor-pointer hover:bg-muted/40">
+                        <input type="checkbox" checked={kbSelectedIds.has(doc.id)} onChange={() => toggleKbDoc(doc.id)} className="size-4 shrink-0" />
+                        <span className="truncate flex-1">{doc.title}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Button type="button" size="sm" onClick={importSelectedKbDocs} disabled={kbImporting || kbSelectedIds.size === 0}>
+                    <Plus className="size-3.5 mr-1" /> {kbSelectedIds.size > 0 ? `Add selected (${kbSelectedIds.size})` : 'Add selected'}
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => { setKbPickerOpen(false); setKbSelectedIds(new Set()) }} disabled={kbImporting}>Cancel</Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Add a web page */}
+          <div className="rounded-xl border mb-4">
+            <div className="px-4 py-3 border-b">
+              <p className="text-[13.5px] font-medium flex items-center gap-2"><Globe className="size-4 text-muted-foreground" /> Add a web page</p>
+              <p className="text-[12.5px] text-muted-foreground mt-0.5">Add your FAQ page or website URL. We pull the text to help draft accurate replies.</p>
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              {urlError && <p className="text-[12.5px] text-[#b91c1c] dark:text-[#f87171]">{urlError}</p>}
+              {urlSuccess && <p className="text-[12.5px] text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3.5" /> {urlSuccess}</p>}
+              <input value={urlValue} onChange={e => setUrlValue(e.target.value)} placeholder="https://yourbusiness.com/faq" type="url"
+                className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] focus:outline-none focus:ring-1 focus:ring-ring" />
+              <input value={urlLabel} onChange={e => setUrlLabel(e.target.value)} placeholder="Label (optional), e.g. FAQ page"
+                className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] focus:outline-none focus:ring-1 focus:ring-ring" />
+              <Button type="button" size="sm" onClick={addWebPage} disabled={urlSaving || !urlValue.trim()}>
+                {urlSaving ? 'Adding page...' : <><Plus className="size-3.5 mr-1" /> Add web page</>}
+              </Button>
+            </div>
+          </div>
+
+          {/* Add a model answer */}
+          <div className="rounded-xl border mb-4">
+            <div className="px-4 py-3 border-b">
+              <p className="text-[13.5px] font-medium flex items-center gap-2"><MessageSquareQuote className="size-4 text-muted-foreground" /> Add a model answer</p>
+              <p className="text-[12.5px] text-muted-foreground mt-0.5">An example reply the assistant can reuse or adapt for similar questions.</p>
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              <input value={maTitle} onChange={e => setMaTitle(e.target.value)} placeholder="Title (optional), e.g. Scheduling a call"
+                className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] focus:outline-none focus:ring-1 focus:ring-ring" />
+              <textarea value={maContent} onChange={e => setMaContent(e.target.value)} placeholder="Write the model answer here..."
+                className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28" />
+              <Button type="button" size="sm" onClick={addModelAnswer} disabled={kbSaving}>
+                <Plus className="size-3.5 mr-1" /> Add model answer
+              </Button>
+            </div>
+          </div>
+
+          {/* Upload a reference document */}
+          <div className="rounded-xl border">
+            <div className="px-4 py-3 border-b">
+              <p className="text-[13.5px] font-medium flex items-center gap-2"><FileText className="size-4 text-muted-foreground" /> Upload a reference document</p>
+              <p className="text-[12.5px] text-muted-foreground mt-0.5">Upload one or more PDF, Word (.docx), or text (.txt, .md, .csv) files, or paste text. The text is pulled out automatically. Each file becomes its own entry.</p>
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              <input value={docTitle} onChange={e => setDocTitle(e.target.value)}
+                placeholder="Title (optional, used only with a single file), e.g. Service overview"
+                className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] focus:outline-none focus:ring-1 focus:ring-ring" />
+              <input type="file" multiple accept=".pdf,.docx,.txt,.md,.markdown,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv"
+                onChange={e => { setDocFiles(e.target.files ? Array.from(e.target.files) : []); setDocProgress([]); setDocSummary('') }}
+                className="block w-full text-[13.5px] text-muted-foreground file:mr-3 file:rounded-md file:border file:bg-card file:px-3 file:py-1.5 file:text-[13px] file:font-medium hover:file:bg-muted/50" />
+              {docFiles.length > 1 && (
+                <p className="text-[12.5px] text-muted-foreground">{docFiles.length} files selected. Each is added as a separate entry.</p>
+              )}
+              {docProgress.length > 0 && (
+                <ul className="space-y-1">
+                  {docProgress.map((p, i) => (
+                    <li key={i} className="flex items-center gap-2 text-[12.5px]">
+                      {p.status === 'done' ? <Check className="size-3 text-[#047857] dark:text-[#34d399]" />
+                        : p.status === 'failed' ? <XIcon className="size-3 text-[#b91c1c] dark:text-[#f87171]" />
+                        : <span className="inline-block size-3 rounded-full border border-muted-foreground/40 border-t-transparent animate-spin" />}
+                      <span className="truncate text-muted-foreground">{p.name}</span>
+                      {p.status === 'failed' && p.error && <span className="text-[#b91c1c] dark:text-[#f87171] truncate">{p.error}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {docSummary && <p className="text-[12.5px] text-[#047857] dark:text-[#34d399]">{docSummary}</p>}
+              <p className="text-[12.5px] text-muted-foreground">Or paste the document text:</p>
+              <textarea value={docContent} onChange={e => setDocContent(e.target.value)} placeholder="Paste reference text here..."
+                className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28" />
+              <Button type="button" size="sm" onClick={addDocument} disabled={kbSaving}>
+                <Plus className="size-3.5 mr-1" /> {docFiles.length > 1 ? `Add ${docFiles.length} documents` : 'Add document'}
+              </Button>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* ── Reply mode ── */}
-      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
-        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
-          <FileEdit className="size-4 text-muted-foreground" /> Reply mode
+      <section className="mb-5 rounded-[14px] border bg-card p-5">
+        <h3 className={`${cardTitle} mb-1.5`}>
+          <FileEdit className="size-[18px] text-muted-foreground" /> Reply mode
         </h3>
-        <p className="text-[12.5px] text-muted-foreground mb-3">
+        <p className={`${helpText} mb-4`}>
           Choose whether replies to the people who email you wait for your approval, send automatically, or send only when they are confident and safe.
         </p>
         <div className="rounded-xl border divide-y">
@@ -796,12 +977,12 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
             const selected = replyMode === mode
             return (
               <button key={mode} type="button" onClick={() => setReplyMode(mode)}
-                className={`w-full text-left flex items-center justify-between px-4 py-3 transition ${rounded} ${selected ? 'selected-card' : 'hover:bg-muted/30'}`}>
+                className={`w-full text-left flex items-center justify-between px-4 py-3.5 transition ${rounded} ${selected ? 'selected-card' : 'hover:bg-muted/30'}`}>
                 <div className="flex items-center gap-3 min-w-0">
                   <Icon className={`size-4 shrink-0 ${selected ? 'text-accent' : 'text-muted-foreground'}`} />
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">{title}</p>
-                    <p className="text-xs text-muted-foreground">{desc}</p>
+                    <p className="text-[13.5px] font-medium">{title}</p>
+                    <p className="text-[12.5px] text-muted-foreground">{desc}</p>
                   </div>
                 </div>
                 {selected && <Check className="size-4 text-accent shrink-0" />}
@@ -810,15 +991,15 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
           })}
         </div>
         {replyMode === 'hybrid' && (
-          <div className="mt-3 rounded-xl border px-4 py-3">
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Confidence threshold</label>
+          <div className="mt-3.5 rounded-xl border px-4 py-3.5">
+            <label className={`${fieldLabel} block`}>Confidence threshold</label>
             <div className="flex items-center gap-3">
               <input type="number" min={0} max={1} step={0.05} value={hybridThreshold}
                 onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v)) setHybridThreshold(Math.min(1, Math.max(0, v))) }}
-                className="w-24 rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
-              <span className="text-xs text-muted-foreground">0 to 1. Default 0.85.</span>
+                className="w-24 rounded-md border bg-card px-3 py-2 text-[13.5px] focus:outline-none focus:ring-1 focus:ring-ring" />
+              <span className="text-[12.5px] text-muted-foreground">0 to 1. Default 0.85.</span>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-2">
+            <p className="text-[12.5px] text-muted-foreground mt-2">
               A reply auto-sends only when the assistant is at least this confident in its answer and judges it safe to send. Everything else waits for your approval. Higher values send fewer replies on their own.
             </p>
           </div>
@@ -826,33 +1007,33 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
       </section>
 
       {/* ── Flag scenarios ── */}
-      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
-        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
-          <Flag className="size-4 text-muted-foreground" /> Flag scenarios
+      <section className="mb-5 rounded-[14px] border bg-card p-5">
+        <h3 className={`${cardTitle} mb-1.5`}>
+          <Flag className="size-[18px] text-muted-foreground" /> Flag scenarios
         </h3>
-        <p className="text-[12.5px] text-muted-foreground mb-3">
+        <p className={`${helpText} mb-4`}>
           Tell the assistant which situations to watch for. When an incoming message matches an enabled scenario, it flags the message and drafts a reply using your instructions. Pause for review holds the reply in your Inbox, even in auto-send mode. Auto-send lets the reply go out on its own.
         </p>
         <div className="rounded-xl border divide-y">
           {flagScenarios.length === 0 ? (
-            <div className="px-4 py-6 text-center text-xs text-muted-foreground">No flag scenarios available.</div>
+            <div className="px-4 py-6 text-center text-[12.5px] text-muted-foreground">No flag scenarios available.</div>
           ) : (
             flagScenarios.map(s => {
               const custom = isCustomScenario(s.key)
               return (
-                <div key={s.key} className="px-4 py-3 space-y-2.5">
+                <div key={s.key} className="px-4 py-3.5 space-y-2.5">
                   <div className="flex items-center justify-between gap-3">
                     <label className="flex items-center gap-2.5 min-w-0 cursor-pointer">
                       <input type="checkbox" checked={s.enabled}
                         onChange={e => updateFlagScenario(s.key, { enabled: e.target.checked })}
                         className="size-4 rounded border-input accent-[#2563eb] shrink-0" />
-                      <span className="text-sm font-medium truncate">{s.label}</span>
+                      <span className="text-[13.5px] font-medium truncate">{s.label}</span>
                       {custom && <Badge variant="secondary" className="shrink-0">Custom</Badge>}
                     </label>
                     <div className="flex items-center gap-2 shrink-0">
                       <select value={s.action} onChange={e => updateFlagScenario(s.key, { action: e.target.value as FlagAction })}
                         disabled={!s.enabled}
-                        className="shrink-0 rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50">
+                        className="shrink-0 rounded-md border bg-card px-2.5 py-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50">
                         <option value="pause">Pause for my review</option>
                         <option value="auto_send">Auto-send the reply</option>
                       </select>
@@ -868,7 +1049,7 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
                     <textarea value={s.instructions}
                       onChange={e => updateFlagScenario(s.key, { instructions: e.target.value })}
                       placeholder="How should the assistant respond in this scenario? (optional)"
-                      className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20" />
+                      className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20" />
                   )}
                 </div>
               )
@@ -877,21 +1058,21 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
         </div>
 
         {/* Add a custom scenario */}
-        <div className="rounded-xl border mt-3">
+        <div className="rounded-xl border mt-3.5">
           <div className="px-4 py-3 border-b">
-            <p className="text-sm font-medium flex items-center gap-2"><Plus className="size-4 text-muted-foreground" /> Add a custom scenario</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Define your own situation to watch for, such as a meeting request or an introduction. The assistant flags matching messages and follows your instructions.</p>
+            <p className="text-[13.5px] font-medium flex items-center gap-2"><Plus className="size-4 text-muted-foreground" /> Add a custom scenario</p>
+            <p className="text-[12.5px] text-muted-foreground mt-0.5">Define your own situation to watch for, such as a meeting request or an introduction. The assistant flags matching messages and follows your instructions.</p>
           </div>
           <div className="px-4 py-3 space-y-3">
             <input value={newScenarioLabel} onChange={e => setNewScenarioLabel(e.target.value)}
               placeholder="Scenario name, e.g. Meeting request"
-              className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+              className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] focus:outline-none focus:ring-1 focus:ring-ring" />
             <textarea value={newScenarioInstructions} onChange={e => setNewScenarioInstructions(e.target.value)}
               placeholder="How should the assistant respond in this scenario? (optional)"
-              className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20" />
+              className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20" />
             <div className="flex items-center justify-between gap-3">
               <select value={newScenarioAction} onChange={e => setNewScenarioAction(e.target.value as FlagAction)}
-                className="rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring">
+                className="rounded-md border bg-card px-2.5 py-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring">
                 <option value="pause">Pause for my review</option>
                 <option value="auto_send">Auto-send the reply</option>
               </select>
@@ -903,187 +1084,19 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
         </div>
       </section>
 
-      {/* ── Knowledge and model answers ── */}
-      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
-        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
-          <BookOpen className="size-4 text-muted-foreground" /> Knowledge and model answers
-        </h3>
-        <p className="text-[12.5px] text-muted-foreground mb-3">
-          Give the assistant example answers and reference documents to draw from. Drafted replies will reuse and adapt them when relevant.
-        </p>
-
-        {kbError && (
-          <div className="mb-3 rounded-lg border border-[rgba(239,68,68,.26)] bg-[rgba(239,68,68,.10)] px-4 py-2 text-sm text-[#b91c1c] dark:text-[#f87171]">{kbError}</div>
-        )}
-
-        {/* Existing entries */}
-        <div className="rounded-xl border divide-y mb-4">
-          {knowledge.length === 0 ? (
-            <div className="px-4 py-6 text-center text-xs text-muted-foreground">No entries yet. Add a model answer or a reference document below.</div>
-          ) : (
-            knowledge.map(entry => (
-              <div key={entry.id} className="flex items-start justify-between px-4 py-3 gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <Badge variant="secondary" className="shrink-0">
-                      {entry.kind === 'model_answer' ? (
-                        <span className="flex items-center gap-1"><MessageSquareQuote className="size-3" /> Model answer</span>
-                      ) : entry.kind === 'web_page' ? (
-                        <span className="flex items-center gap-1"><Globe className="size-3" /> Web page</span>
-                      ) : (
-                        <span className="flex items-center gap-1"><FileText className="size-3" /> Document</span>
-                      )}
-                    </Badge>
-                    <p className="text-sm font-medium truncate">{entry.title}</p>
-                  </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2">{entry.contentPreview}</p>
-                  {entry.isWebSource && entry.sourceUrl && (
-                    <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1 min-w-0">
-                      <Globe className="size-3 shrink-0" />
-                      <a href={entry.sourceUrl} target="_blank" rel="noopener noreferrer"
-                        className="truncate underline hover:text-foreground">{entry.sourceLabel || entry.sourceUrl}</a>
-                    </p>
-                  )}
-                </div>
-                <button type="button" onClick={() => deleteKnowledge(entry.id)}
-                  className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Delete entry">
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Add from Knowledge Base */}
-        <div className="rounded-xl border mb-4">
-          <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium flex items-center gap-2"><BookOpen className="size-4 text-muted-foreground" /> Add from Knowledge Base</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Pull documents you have stored in your Knowledge Base straight into this library.</p>
-            </div>
-            {!kbPickerOpen && (
-              <Button type="button" size="sm" variant="outline" onClick={openKbPicker} className="shrink-0">
-                <BookOpen className="size-3.5 mr-1" /> Browse Knowledge Base
-              </Button>
-            )}
-          </div>
-          {kbPickerOpen && (
-            <div className="px-4 py-3 space-y-3">
-              {kbDocsLoading ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">Loading your Knowledge Base...</p>
-              ) : !kbConnected ? (
-                <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">Could not connect to your Knowledge Base right now. Make sure you have one set up, then try again.</div>
-              ) : kbDocs.length === 0 ? (
-                <div className="rounded-md border px-4 py-6 text-center text-xs text-muted-foreground">No documents found in your Knowledge Base yet.</div>
-              ) : (
-                <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
-                  {kbDocs.map(doc => (
-                    <label key={doc.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted/40">
-                      <input type="checkbox" checked={kbSelectedIds.has(doc.id)} onChange={() => toggleKbDoc(doc.id)} className="size-4 shrink-0" />
-                      <span className="truncate flex-1">{doc.title}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Button type="button" size="sm" onClick={importSelectedKbDocs} disabled={kbImporting || kbSelectedIds.size === 0}>
-                  <Plus className="size-3.5 mr-1" /> {kbSelectedIds.size > 0 ? `Add selected (${kbSelectedIds.size})` : 'Add selected'}
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { setKbPickerOpen(false); setKbSelectedIds(new Set()) }} disabled={kbImporting}>Cancel</Button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Add a web page */}
-        <div className="rounded-xl border mb-4">
-          <div className="px-4 py-3 border-b">
-            <p className="text-sm font-medium flex items-center gap-2"><Globe className="size-4 text-muted-foreground" /> Add a web page</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Add your FAQ page or website URL. We pull the text to help draft accurate replies.</p>
-          </div>
-          <div className="px-4 py-3 space-y-3">
-            {urlError && <p className="text-xs text-[#b91c1c] dark:text-[#f87171]">{urlError}</p>}
-            {urlSuccess && <p className="text-xs text-[#047857] dark:text-[#34d399] flex items-center gap-1"><Check className="size-3" /> {urlSuccess}</p>}
-            <input value={urlValue} onChange={e => setUrlValue(e.target.value)} placeholder="https://yourbusiness.com/faq" type="url"
-              className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
-            <input value={urlLabel} onChange={e => setUrlLabel(e.target.value)} placeholder="Label (optional), e.g. FAQ page"
-              className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
-            <Button type="button" size="sm" onClick={addWebPage} disabled={urlSaving || !urlValue.trim()}>
-              {urlSaving ? 'Adding page...' : <><Plus className="size-3.5 mr-1" /> Add web page</>}
-            </Button>
-          </div>
-        </div>
-
-        {/* Add a model answer */}
-        <div className="rounded-xl border mb-4">
-          <div className="px-4 py-3 border-b">
-            <p className="text-sm font-medium flex items-center gap-2"><MessageSquareQuote className="size-4 text-muted-foreground" /> Add a model answer</p>
-            <p className="text-xs text-muted-foreground mt-0.5">An example reply the assistant can reuse or adapt for similar questions.</p>
-          </div>
-          <div className="px-4 py-3 space-y-3">
-            <input value={maTitle} onChange={e => setMaTitle(e.target.value)} placeholder="Title (optional), e.g. Scheduling a call"
-              className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
-            <textarea value={maContent} onChange={e => setMaContent(e.target.value)} placeholder="Write the model answer here..."
-              className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28" />
-            <Button type="button" size="sm" onClick={addModelAnswer} disabled={kbSaving}>
-              <Plus className="size-3.5 mr-1" /> Add model answer
-            </Button>
-          </div>
-        </div>
-
-        {/* Upload a reference document */}
-        <div className="rounded-xl border">
-          <div className="px-4 py-3 border-b">
-            <p className="text-sm font-medium flex items-center gap-2"><FileText className="size-4 text-muted-foreground" /> Upload a reference document</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Upload one or more PDF, Word (.docx), or text (.txt, .md, .csv) files, or paste text. The text is pulled out automatically. Each file becomes its own entry.</p>
-          </div>
-          <div className="px-4 py-3 space-y-3">
-            <input value={docTitle} onChange={e => setDocTitle(e.target.value)}
-              placeholder="Title (optional, used only with a single file), e.g. Service overview"
-              className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
-            <input type="file" multiple accept=".pdf,.docx,.txt,.md,.markdown,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv"
-              onChange={e => { setDocFiles(e.target.files ? Array.from(e.target.files) : []); setDocProgress([]); setDocSummary('') }}
-              className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:bg-card file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-muted/50" />
-            {docFiles.length > 1 && (
-              <p className="text-[11px] text-muted-foreground">{docFiles.length} files selected. Each is added as a separate entry.</p>
-            )}
-            {docProgress.length > 0 && (
-              <ul className="space-y-1">
-                {docProgress.map((p, i) => (
-                  <li key={i} className="flex items-center gap-2 text-[11px]">
-                    {p.status === 'done' ? <Check className="size-3 text-[#047857] dark:text-[#34d399]" />
-                      : p.status === 'failed' ? <XIcon className="size-3 text-[#b91c1c] dark:text-[#f87171]" />
-                      : <span className="inline-block size-3 rounded-full border border-muted-foreground/40 border-t-transparent animate-spin" />}
-                    <span className="truncate text-muted-foreground">{p.name}</span>
-                    {p.status === 'failed' && p.error && <span className="text-[#b91c1c] dark:text-[#f87171] truncate">{p.error}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {docSummary && <p className="text-[11px] text-[#047857] dark:text-[#34d399]">{docSummary}</p>}
-            <p className="text-[11px] text-muted-foreground">Or paste the document text:</p>
-            <textarea value={docContent} onChange={e => setDocContent(e.target.value)} placeholder="Paste reference text here..."
-              className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28" />
-            <Button type="button" size="sm" onClick={addDocument} disabled={kbSaving}>
-              <Plus className="size-3.5 mr-1" /> {docFiles.length > 1 ? `Add ${docFiles.length} documents` : 'Add document'}
-            </Button>
-          </div>
-        </div>
-      </section>
-
       {/* ── Email intelligence (each toggle saves immediately) ── */}
-      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
-        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
-          <Mail className="size-4 text-muted-foreground" /> Email intelligence
+      <section className="mb-5 rounded-[14px] border bg-card p-5">
+        <h3 className={`${cardTitle} mb-1.5`}>
+          <Mail className="size-[18px] text-muted-foreground" /> Email intelligence
         </h3>
-        <p className="text-[12.5px] text-muted-foreground mb-3">
+        <p className={`${helpText} mb-4`}>
           Automatically read incoming mail to keep your CRM current. Read-only: it never replies for you.
         </p>
         <div className="rounded-xl border divide-y">
-          <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center justify-between px-4 py-3.5">
             <div>
-              <p className="text-sm font-medium">Enable inbox scanning</p>
-              <p className="text-xs text-muted-foreground">Scan your inbox on a schedule to keep your CRM up to date</p>
+              <p className="text-[13.5px] font-medium">Enable inbox scanning</p>
+              <p className="text-[12.5px] text-muted-foreground">Scan your inbox on a schedule to keep your CRM up to date</p>
             </div>
             <Toggle on={eiEnabled} onClick={() => { const next = !eiEnabled; setEiEnabled(next); void runSave(() => persistEi({ is_enabled: next })) }} />
           </div>
@@ -1093,10 +1106,10 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
             { label: 'Update engagement scores', desc: 'Track email engagement scores', value: eiAutoEngagement, key: 'auto_update_engagement', set: setEiAutoEngagement },
             { label: 'Advance pipeline stage automatically', desc: 'Move prospects to leads when engagement is high (off by default)', value: eiAutoStage, key: 'auto_advance_stage', set: setEiAutoStage },
           ].map(item => (
-            <div key={item.key} className="flex items-center justify-between px-4 py-2.5">
+            <div key={item.key} className="flex items-center justify-between px-4 py-3">
               <div>
-                <p className="text-sm">{item.label}</p>
-                <p className="text-xs text-muted-foreground">{item.desc}</p>
+                <p className="text-[13.5px]">{item.label}</p>
+                <p className="text-[12.5px] text-muted-foreground">{item.desc}</p>
               </div>
               <Toggle on={item.value} onClick={() => { const next = !item.value; item.set(next); void runSave(() => persistEi({ [item.key]: next })) }} />
             </div>
@@ -1105,18 +1118,18 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
       </section>
 
       {/* ── Signature (autosaved as part of AI settings) ── */}
-      <section className="mb-4 rounded-[14px] border bg-card p-[18px]">
-        <h3 className="text-[15px] font-bold tracking-[-.01em] flex items-center gap-2 mb-1">
-          <Mail className="size-4 text-muted-foreground" /> Signature
+      <section className="mb-5 rounded-[14px] border bg-card p-5">
+        <h3 className={`${cardTitle} mb-1.5`}>
+          <Mail className="size-[18px] text-muted-foreground" /> Signature
         </h3>
-        <p className="text-[12.5px] text-muted-foreground mb-3">Appended to the end of your suggested drafts. You can still edit each draft before sending.</p>
+        <p className={`${helpText} mb-4`}>Appended to the end of your suggested drafts. You can still edit each draft before sending.</p>
         <textarea value={signature} onChange={e => setSignature(e.target.value)}
           placeholder={'e.g.\nThanks,\nThe Acme Team'}
-          className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
+          className="w-full rounded-md border bg-card px-3 py-2.5 text-[13.5px] resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
       </section>
 
       {/* ── Shared autosave status line (mirrors Customer Service Settings) ── */}
-      <div className="flex items-center gap-2 h-5 text-xs mb-6">
+      <div className="flex items-center gap-2 h-5 text-[12.5px] mb-6">
         {status === 'saving' ? (
           <span className="text-muted-foreground flex items-center gap-1.5">
             <span className="inline-block size-3 rounded-full border border-muted-foreground/40 border-t-transparent animate-spin" />
@@ -1131,7 +1144,7 @@ export default function InboxSettings({ onAiSettingsSaved }: { onAiSettingsSaved
         )}
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[12.5px] text-muted-foreground">
         Marketing sender, payments, team members, and the Knowledge Base connection stay on the general Settings page; they are not inbox-specific.
       </p>
     </div>
