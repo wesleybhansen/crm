@@ -24,6 +24,15 @@ export async function GET(req: Request) {
     let query = knex('inbox_conversations')
       .where('inbox_conversations.organization_id', auth.orgId)
       .where('inbox_conversations.tenant_id', auth.tenantId)
+      // Chat lives in Customer Service now — keep it out of the personal inbox.
+      .whereNot('inbox_conversations.last_message_channel', 'chat')
+      // Exclude the Customer Service support mailbox so its mail does not leak
+      // into the personal inbox. Rows tagged customer_service belong to the CS
+      // queue; untagged (NULL) rows are the personal inbox.
+      .where(function (this: import('knex').Knex.QueryBuilder) {
+        this.whereNull('inbox_conversations.source_mailbox_purpose')
+          .orWhere('inbox_conversations.source_mailbox_purpose', '!=', 'customer_service')
+      })
 
     if (status && status !== 'all') {
       query = query.where('inbox_conversations.status', status)

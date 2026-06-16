@@ -18,9 +18,15 @@ export async function upsertInboxConversation(
     displayName?: string
     avatarEmail?: string | null
     avatarPhone?: string | null
+    /**
+     * Which mailbox this message came in on: 'customer_service' for the CS
+     * support inbox, null for the personal inbox. Used to keep CS support mail
+     * out of the personal inbox list.
+     */
+    sourceMailboxPurpose?: string | null
   },
 ) {
-  const { contactId, chatConversationId, channel, preview, direction, displayName, avatarEmail, avatarPhone } = params
+  const { contactId, chatConversationId, channel, preview, direction, displayName, avatarEmail, avatarPhone, sourceMailboxPurpose } = params
   const now = new Date()
 
   try {
@@ -79,6 +85,12 @@ export async function upsertInboxConversation(
       if (avatarEmail && !existing.avatar_email) updates.avatar_email = avatarEmail
       if (avatarPhone && !existing.avatar_phone) updates.avatar_phone = avatarPhone
 
+      // Tag the source mailbox only if not already set, so re-ingest of an
+      // existing conversation does not clobber its original mailbox tag.
+      if (sourceMailboxPurpose != null && existing.source_mailbox_purpose == null) {
+        updates.source_mailbox_purpose = sourceMailboxPurpose
+      }
+
       await knex('inbox_conversations').where('id', existing.id).update(updates)
     } else {
       // Create new conversation
@@ -98,6 +110,7 @@ export async function upsertInboxConversation(
           display_name: displayName || 'Unknown',
           avatar_email: avatarEmail || null,
           avatar_phone: avatarPhone || null,
+          source_mailbox_purpose: sourceMailboxPurpose ?? null,
           created_at: now,
           updated_at: now,
         })

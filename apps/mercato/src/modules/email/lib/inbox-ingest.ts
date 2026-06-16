@@ -27,6 +27,8 @@ export interface ImapConnectionRow {
   imap_secure: boolean | null
   smtp_user: string | null
   smtp_pass: string | null
+  /** Mailbox role: 'customer_service' for the CS support inbox, null for personal. */
+  purpose?: string | null
 }
 
 export interface IngestOptions {
@@ -204,6 +206,9 @@ export async function ingestImapConnection(
         direction: 'inbound',
         displayName: email.fromName || email.fromEmail,
         avatarEmail: safeFrom,
+        // Tag the originating mailbox so CS support mail stays out of the
+        // personal inbox list. CS connections carry purpose='customer_service'.
+        sourceMailboxPurpose: conn.purpose ?? null,
       })
 
       emailsProcessed++

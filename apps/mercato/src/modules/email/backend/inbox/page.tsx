@@ -425,6 +425,13 @@ export default function UnifiedInboxPage() {
     })
   }
 
+  // Select-all toggles between selecting every conversation currently in the
+  // list and clearing the selection.
+  const allSelected = conversations.length > 0 && selectedIds.size === conversations.length
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(conversations.map(c => c.id)))
+  }
+
   const selectedConv = conversations.find(c => c.id === selectedId)
 
   // ── Render ──
@@ -475,7 +482,7 @@ export default function UnifiedInboxPage() {
 
         {/* Filters row */}
         <div className="flex items-center gap-1 px-3 py-2 border-b">
-          {(['all', 'email', 'sms', 'chat'] as const).map(ch => (
+          {(['all', 'email', 'sms'] as const).map(ch => (
             <button key={ch} type="button" onClick={() => setChannelFilter(ch)}
               className={`px-2.5 py-1 rounded-full border text-[11px] font-medium whitespace-nowrap transition-colors ${channelFilter === ch ? 'bg-foreground text-background border-foreground' : 'bg-card text-muted-foreground border-input hover:text-foreground'}`}>
               {ch === 'all' ? 'All' : chLabel(ch)}
@@ -497,7 +504,13 @@ export default function UnifiedInboxPage() {
 
         {/* Bulk actions bar — only when selecting */}
         {selectMode && (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-accent/5 border-b">
+          <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 bg-accent/5 border-b">
+            <button type="button" onClick={toggleSelectAll} disabled={conversations.length === 0}
+              className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-40"
+              title={allSelected ? 'Clear selection' : 'Select all conversations'}>
+              {allSelected ? <CheckCircle className="size-3 text-accent" /> : <Square className="size-3 text-muted-foreground/50" />}
+              {allSelected ? 'Clear' : 'Select all'}
+            </button>
             <span className="text-[10px] font-medium text-muted-foreground">{selectedIds.size} selected</span>
             {selectedIds.size > 0 && (
               <>
@@ -505,7 +518,7 @@ export default function UnifiedInboxPage() {
                   <CheckCheck className="size-2.5 mr-1" /> Mark read
                 </Button>
                 <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={() => handleBulkAction('close')}>
-                  <Archive className="size-2.5 mr-1" /> Close
+                  <Archive className="size-2.5 mr-1" /> Archive
                 </Button>
                 <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={() => handleBulkAction('reopen')}>
                   <RotateCcw className="size-2.5 mr-1" /> Reopen
@@ -530,16 +543,11 @@ export default function UnifiedInboxPage() {
                 <Inbox className="size-7" />
               </div>
               <h3 className="text-sm font-semibold mb-1">Your inbox is empty</h3>
-              <p className="text-xs text-muted-foreground mb-6">When you send emails, receive SMS messages, or get chat conversations, they'll all appear here in one place.</p>
-              <div className="space-y-2">
+              <p className="text-xs text-muted-foreground mb-8">When you send emails or receive SMS messages, they'll appear here in one place.</p>
+              <div className="space-y-2 mt-2">
                 <a href="/backend/payments" className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors">
                   <Mail className="size-5 text-[#1d4ed8] dark:text-[#93c5fd] shrink-0" />
                   <div><p className="text-xs font-medium">Send an email</p><p className="text-[10px] text-muted-foreground">Invoice a client or reach out to a contact</p></div>
-                  <ChevronRight className="size-4 text-muted-foreground ml-auto shrink-0" />
-                </a>
-                <a href="/backend/chat" className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors">
-                  <MessageCircle className="size-5 text-[#6d28d9] dark:text-[#c4b5fd] shrink-0" />
-                  <div><p className="text-xs font-medium">Set up live chat</p><p className="text-[10px] text-muted-foreground">Add a chat widget to your website</p></div>
                   <ChevronRight className="size-4 text-muted-foreground ml-auto shrink-0" />
                 </a>
                 <button type="button" onClick={() => setTab('settings')} className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors w-full">

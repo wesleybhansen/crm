@@ -88,7 +88,7 @@ export async function POST(req: Request) {
             .where('purpose', 'customer_service')
             .where('is_active', true)
             .whereNotNull('imap_host')
-            .select('id', 'email_address', 'imap_host', 'imap_port', 'imap_secure', 'smtp_user', 'smtp_pass', 'cs_last_fetch_at')
+            .select('id', 'email_address', 'imap_host', 'imap_port', 'imap_secure', 'smtp_user', 'smtp_pass', 'cs_last_fetch_at', 'purpose')
 
           if (csConns.length > 0) {
             // Skip self-sent: don't ingest mail from our own connected mailboxes.
