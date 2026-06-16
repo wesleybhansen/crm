@@ -6,16 +6,17 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Switch } from '@open-mercato/ui/primitives/switch'
-import { Label } from '@open-mercato/ui/primitives/label'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
 import {
   Search, Mail, MessageCircle, Smartphone, Send, X,
-  PanelRightClose, PanelRightOpen, Check, CheckCheck,
+  PanelRightClose, PanelRightOpen, PanelLeftClose, PanelLeftOpen,
+  Check, CheckCheck,
   Eye, Loader2, Inbox, Archive, Bot, ExternalLink,
-  StickyNote, Sparkles, Settings, Plus, SquareCheck,
-  Square, CheckCircle, RotateCcw, Pencil, Tag, Save,
-  Zap, BookOpen, MessageSquare, ChevronRight, Trash2,
+  StickyNote, Sparkles, Plus, SquareCheck,
+  Square, CheckCircle, RotateCcw, Pencil, Save,
+  BookOpen, ChevronRight, Trash2,
 } from 'lucide-react'
+import InboxSettings from './InboxSettings'
 
 // ── Types ──
 type InboxConv = {
@@ -74,15 +75,12 @@ function sanitizeHtml(html: string): string {
 }
 
 const STAGES = ['lead', 'prospect', 'opportunity', 'customer', 'partner', 'churned']
-const TONES = [
-  { id: 'professional', label: 'Professional' },
-  { id: 'friendly', label: 'Friendly' },
-  { id: 'casual', label: 'Casual' },
-  { id: 'formal', label: 'Formal' },
-]
 
 // ── Main ──
 export default function UnifiedInboxPage() {
+  // Tabs: Conversations (default) + Settings, mirroring the Customer Service page.
+  const [tab, setTab] = useState<'conversations' | 'settings'>('conversations')
+
   // List
   const [conversations, setConversations] = useState<InboxConv[]>([])
   const [listLoading, setListLoading] = useState(true)
@@ -101,8 +99,11 @@ export default function UnifiedInboxPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [notes, setNotes] = useState<Note[]>([])
 
-  // Sidebar
+  // Collapsible panes. The right contact pane reuses the existing sidebarOpen
+  // flag; the left conversation-list pane gets its own. Each pane's collapsed
+  // state persists in localStorage so it survives reloads.
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [sidebarData, setSidebarData] = useState<any>(null)
   const [editingStage, setEditingStage] = useState(false)
   const [stageValue, setStageValue] = useState('')
@@ -133,14 +134,10 @@ export default function UnifiedInboxPage() {
   const [composeSending, setComposeSending] = useState(false)
   const [composeNeedsManualAddress, setComposeNeedsManualAddress] = useState(false)
 
-  // AI Draft
-  const [aiDraft, setAiDraft] = useState<string | null>(null)
-  const [aiDrafting, setAiDrafting] = useState(false)
-  const [showAiSetup, setShowAiSetup] = useState(false)
+  // AI reply assistant status. The inbox no longer drafts replies inline (it is a
+  // human personal inbox); this only powers the setup banner copy and is managed
+  // in the Settings tab via InboxSettings.
   const [aiSettings, setAiSettings] = useState<any>(null)
-  const [aiSetupStep, setAiSetupStep] = useState(0)
-  const [aiForm, setAiForm] = useState({ enabled: false, businessName: '', businessDescription: '', knowledgeBase: '', tone: 'professional', instructions: '' })
-  const [savingAi, setSavingAi] = useState(false)
 
   // Toast
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -175,11 +172,36 @@ export default function UnifiedInboxPage() {
     return () => clearInterval(interval)
   }, [loadConversations])
 
-  // Load AI settings on mount and when window regains focus
+  // Hydrate collapsed-pane state from localStorage on mount. The right contact
+  // pane reuses sidebarOpen (persisted under noli-inbox-right-collapsed: '1'
+  // means collapsed/closed). The left list pane uses leftCollapsed.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('noli-inbox-left-collapsed') === '1') setLeftCollapsed(true)
+      if (localStorage.getItem('noli-inbox-right-collapsed') === '0') setSidebarOpen(true)
+    } catch {}
+  }, [])
+  const toggleLeftCollapsed = useCallback(() => {
+    setLeftCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem('noli-inbox-left-collapsed', next ? '1' : '0') } catch {}
+      return next
+    })
+  }, [])
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen(prev => {
+      const next = !prev
+      // Persist as a collapsed flag: '1' = collapsed (closed), '0' = open.
+      try { localStorage.setItem('noli-inbox-right-collapsed', next ? '0' : '1') } catch {}
+      return next
+    })
+  }, [])
+
+  // Load AI settings on mount and when window regains focus (for the setup banner)
   const loadAiSettings = useCallback(() => {
     fetch('/api/inbox/ai-settings', { credentials: 'include' })
       .then(r => r.json())
-      .then(d => { if (d.ok && d.data) { setAiSettings(d.data); setAiForm({ enabled: d.data.enabled, businessName: d.data.business_name || '', businessDescription: d.data.business_description || '', knowledgeBase: d.data.knowledge_base || '', tone: d.data.tone || 'professional', instructions: d.data.instructions || '' }) } })
+      .then(d => { if (d.ok && d.data) { setAiSettings(d.data) } })
       .catch(() => {})
   }, [])
   useEffect(() => { loadAiSettings() }, [loadAiSettings])
@@ -192,7 +214,7 @@ export default function UnifiedInboxPage() {
   // ── Load detail ──
   const loadDetail = useCallback(async (id: string) => {
     setComposing(false)
-    setSelectedId(id); setDetailLoading(true); setDetail(null); setSidebarData(null); setNotes([]); setAiDraft(null); setShowNoteInput(false)
+    setSelectedId(id); setDetailLoading(true); setDetail(null); setSidebarData(null); setNotes([]); setShowNoteInput(false)
     try {
       const [convRes, notesRes] = await Promise.all([
         fetch(`/api/inbox/${id}`, { credentials: 'include' }),
@@ -251,7 +273,7 @@ export default function UnifiedInboxPage() {
           body: JSON.stringify({ conversationId: detail.chatConversationId, message: replyBody }) })
         ok = (await r.json()).ok
       }
-      if (ok) { setReplyBody(''); setAiDraft(null); showToast('Message sent'); if (selectedId) loadDetail(selectedId); loadConversations() }
+      if (ok) { setReplyBody(''); showToast('Message sent'); if (selectedId) loadDetail(selectedId); loadConversations() }
       else { showToast('Failed to send message', 'error') }
     } catch { showToast('Failed to send message', 'error') }
     setSending(false)
@@ -278,18 +300,6 @@ export default function UnifiedInboxPage() {
       else { showToast('Failed to save note', 'error') }
     } catch { showToast('Failed to save note', 'error') }
     setAddingNote(false)
-  }
-
-  const generateAiDraft = async () => {
-    if (!detail || !selectedId) return
-    setAiDrafting(true); setAiDraft(null)
-    try {
-      const res = await fetch('/api/inbox/ai-draft', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId: selectedId, channel: activeChannel, recentMessages: detail.messages.slice(-10) }) })
-      const d = await res.json()
-      if (d.ok) setAiDraft(d.data.draft)
-    } catch { /* silent */ }
-    setAiDrafting(false)
   }
 
   const handleBulkAction = async (action: 'close' | 'reopen' | 'markRead' | 'delete') => {
@@ -333,13 +343,6 @@ export default function UnifiedInboxPage() {
         if (d.ok) setSidebarData((prev: any) => prev ? { ...prev, tags: d.data || [] } : prev)
       }).catch(() => {})
     }
-  }
-
-  const saveAiSettings = async () => {
-    setSavingAi(true)
-    await fetch('/api/inbox/ai-settings', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(aiForm) })
-    setAiSettings({ ...aiSettings, ...aiForm })
-    setSavingAi(false); setShowAiSetup(false)
   }
 
   // ── Compose ──
@@ -405,12 +408,36 @@ export default function UnifiedInboxPage() {
 
   // ── Render ──
   return (
-    <div className="flex h-[calc(100vh-56px)] overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
+      {/* Tab switcher: Conversations (default) + Settings */}
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'conversations' | 'settings')} className="flex flex-col flex-1 min-h-0">
+        <div className="px-4 pt-3 border-b shrink-0">
+          <TabsList>
+            <TabsTrigger value="conversations">Conversations</TabsTrigger>
+            <TabsTrigger value="settings">Settings</TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="conversations" className="flex-1 min-h-0">
+    <div className="flex h-full overflow-hidden">
       {/* ═══ LEFT: Conversation List ═══ */}
+      {leftCollapsed ? (
+        <div className="w-10 border-r flex flex-col items-center shrink-0 bg-background py-2 gap-2">
+          <IconButton variant="ghost" size="sm" type="button" aria-label="Expand conversation list" title="Expand conversation list" onClick={toggleLeftCollapsed}>
+            <PanelLeftOpen className="size-4" />
+          </IconButton>
+          <IconButton variant="ghost" size="sm" type="button" aria-label="New message" title="Compose new message" onClick={startCompose}>
+            <Pencil className="size-4" />
+          </IconButton>
+        </div>
+      ) : (
       <div className="w-[340px] border-r flex flex-col shrink-0 bg-background">
         {/* Search + New Message */}
         <div className="p-3 pb-0">
           <div className="flex items-center gap-2">
+            <IconButton variant="ghost" size="sm" type="button" aria-label="Collapse conversation list" title="Collapse conversation list" onClick={toggleLeftCollapsed}>
+              <PanelLeftClose className="size-4" />
+            </IconButton>
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input value={search} onChange={e => setSearch(e.target.value)} placeholder={deepSearch ? 'Search message content...' : 'Search contacts...'} className="pl-9 pr-9 h-9 text-sm" />
@@ -471,16 +498,16 @@ export default function UnifiedInboxPage() {
           </div>
         )}
 
-        {/* AI Assistant banner */}
+        {/* AI Assistant banner — opens the Settings tab */}
         {!selectMode && (
-          <a href="/backend/inbox/ai-setup" className="flex items-center gap-2.5 mx-3 mt-2 mb-1 px-3 py-2 rounded-lg bg-[rgba(124,58,237,.06)] dark:bg-[rgba(139,92,246,.10)] border border-[rgba(124,58,237,.22)] dark:border-[rgba(139,92,246,.28)] hover:border-[rgba(124,58,237,.34)] dark:hover:border-[rgba(139,92,246,.40)] transition-colors">
+          <button type="button" onClick={() => setTab('settings')} className="flex items-center gap-2.5 mx-3 mt-2 mb-1 px-3 py-2 rounded-lg bg-[rgba(124,58,237,.06)] dark:bg-[rgba(139,92,246,.10)] border border-[rgba(124,58,237,.22)] dark:border-[rgba(139,92,246,.28)] hover:border-[rgba(124,58,237,.34)] dark:hover:border-[rgba(139,92,246,.40)] transition-colors text-left w-[calc(100%-1.5rem)]">
             <Sparkles className="size-4 text-[#6d28d9] dark:text-[#c4b5fd] shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold text-[#6d28d9] dark:text-[#c4b5fd]">{aiSettings?.enabled ? 'AI Reply Assistant' : 'Set up AI Reply Assistant'}</p>
-              <p className="text-[10px] text-[#6d28d9]/70 dark:text-[#c4b5fd]/70">{aiSettings?.enabled ? 'Drafts replies using your knowledge base' : 'Auto-draft replies based on your business context'}</p>
+              <p className="text-[11px] font-semibold text-[#6d28d9] dark:text-[#c4b5fd]">{aiSettings?.enabled ? 'AI reply assistant' : 'Set up the AI reply assistant'}</p>
+              <p className="text-[10px] text-[#6d28d9]/70 dark:text-[#c4b5fd]/70">{aiSettings?.enabled ? 'Configure tone, rules, and knowledge in Settings' : 'Suggest draft replies based on your business context'}</p>
             </div>
             <ChevronRight className="size-3.5 text-[#6d28d9]/60 dark:text-[#c4b5fd]/60 shrink-0" />
-          </a>
+          </button>
         )}
 
         {/* Conversation list */}
@@ -506,11 +533,11 @@ export default function UnifiedInboxPage() {
                   <div><p className="text-xs font-medium">Set up live chat</p><p className="text-[10px] text-muted-foreground">Add a chat widget to your website</p></div>
                   <ChevronRight className="size-4 text-muted-foreground ml-auto shrink-0" />
                 </a>
-                <a href="/backend/settings-simple" className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors">
+                <button type="button" onClick={() => setTab('settings')} className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors w-full">
                   <Smartphone className="size-5 text-[#047857] dark:text-[#34d399] shrink-0" />
                   <div><p className="text-xs font-medium">Connect SMS</p><p className="text-[10px] text-muted-foreground">Set up Twilio to send and receive texts</p></div>
                   <ChevronRight className="size-4 text-muted-foreground ml-auto shrink-0" />
-                </a>
+                </button>
               </div>
             </div>
           ) : conversations.map(conv => (
@@ -543,6 +570,7 @@ export default function UnifiedInboxPage() {
           ))}
         </div>
       </div>
+      )}
 
       {/* ═══ CENTER: Message Thread ═══ */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -691,7 +719,7 @@ export default function UnifiedInboxPage() {
                   {detail.status === 'open' ? <Archive className="size-3 mr-1" /> : <RotateCcw className="size-3 mr-1" />}
                   {detail.status === 'open' ? 'Close' : 'Reopen'}
                 </Button>
-                <IconButton variant="ghost" size="sm" type="button" aria-label="Toggle sidebar" onClick={() => setSidebarOpen(!sidebarOpen)}>
+                <IconButton variant="ghost" size="sm" type="button" aria-label={sidebarOpen ? 'Collapse contact panel' : 'Expand contact panel'} title={sidebarOpen ? 'Collapse contact panel' : 'Expand contact panel'} onClick={toggleSidebar}>
                   {sidebarOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
                 </IconButton>
               </div>
@@ -774,26 +802,6 @@ export default function UnifiedInboxPage() {
 
             {/* Composer area */}
             <div className="border-t bg-card shrink-0">
-              {/* AI Draft suggestion */}
-              {aiDraft && (
-                <div className="px-3 pt-3">
-                  <div className="bg-[rgba(124,58,237,.06)] dark:bg-[rgba(139,92,246,.10)] border border-[rgba(124,58,237,.22)] dark:border-[rgba(139,92,246,.28)] rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="flex items-center gap-1.5 text-[10px] font-medium text-[#6d28d9] dark:text-[#c4b5fd]"><Sparkles className="size-3" /> AI Draft Suggestion</span>
-                      <div className="flex items-center gap-1">
-                        <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] px-2" onClick={() => { setReplyBody(aiDraft); setAiDraft(null) }}>
-                          <Check className="size-2.5 mr-1" /> Use
-                        </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] px-2" onClick={() => setAiDraft(null)}>
-                          <X className="size-2.5" />
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="text-xs text-[#6d28d9] dark:text-[#c4b5fd] whitespace-pre-wrap">{aiDraft}</p>
-                  </div>
-                </div>
-              )}
-
               {/* Note input */}
               {showNoteInput && (
                 <div className="px-3 pt-3">
@@ -827,11 +835,6 @@ export default function UnifiedInboxPage() {
                     <IconButton variant="ghost" size="xs" type="button" title="Add internal note" aria-label="Add note" onClick={() => setShowNoteInput(!showNoteInput)}>
                       <StickyNote className="size-3.5 text-[#b45309] dark:text-[#fbbf24]" />
                     </IconButton>
-                    {aiSettings?.enabled && (
-                      <IconButton variant="ghost" size="xs" type="button" title="AI draft reply" aria-label="AI draft" onClick={generateAiDraft} disabled={aiDrafting}>
-                        {aiDrafting ? <Loader2 className="size-3.5 animate-spin text-[#6d28d9] dark:text-[#c4b5fd]" /> : <Sparkles className="size-3.5 text-[#6d28d9] dark:text-[#c4b5fd]" />}
-                      </IconButton>
-                    )}
                   </div>
                 </div>
 
@@ -964,6 +967,22 @@ export default function UnifiedInboxPage() {
           </div>
         </div>
       )}
+
+      {/* ═══ RIGHT: thin rail to reopen the contact panel when collapsed ═══ */}
+      {!sidebarOpen && selectedId && detail && (
+        <div className="w-10 border-l bg-card flex flex-col items-center shrink-0 py-2">
+          <IconButton variant="ghost" size="sm" type="button" aria-label="Expand contact panel" title="Expand contact panel" onClick={toggleSidebar}>
+            <PanelRightOpen className="size-4" />
+          </IconButton>
+        </div>
+      )}
+    </div>
+        </TabsContent>
+
+        <TabsContent value="settings" className="flex-1 min-h-0 overflow-y-auto">
+          <InboxSettings onAiSettingsSaved={loadAiSettings} />
+        </TabsContent>
+      </Tabs>
 
       {/* Toast notification */}
       {toast && (

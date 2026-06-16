@@ -40,6 +40,7 @@ export async function PUT(req: Request) {
       instructions: body.instructions ?? existing?.instructions ?? '',
       business_name: body.businessName ?? existing?.business_name ?? '',
       business_description: body.businessDescription ?? existing?.business_description ?? '',
+      signature: body.signature ?? existing?.signature ?? '',
       updated_at: new Date(),
     }
 
