@@ -70,6 +70,27 @@ function ini(name: string | null): string {
   return p.length >= 2 ? (p[0][0] + p[1][0]).toUpperCase() : (p[0][0]?.toUpperCase() || '?')
 }
 
+// Deterministic colored avatar (matches the mockup's colored initials), drawn
+// from the app palette (house violet, green, cyan, amber, plum).
+const AV_COLORS = ['#6D4AFF', '#1E9E6A', '#0E7C93', '#B7791F', '#8E5BD0', '#C2557A', '#3E7BD0']
+function avColor(name: string | null): string {
+  const s = name || '?'
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return AV_COLORS[h % AV_COLORS.length]
+}
+
+// Channel badge: a soft-tinted mono micro-label (Email / SMS / Chat).
+function ChannelBadge({ ch }: { ch: string | null }) {
+  const styles: Record<string, string> = {
+    email: 'bg-[rgba(109,74,255,.10)] text-[#5b3fd6] dark:text-[#c4b5fd]',
+    sms: 'bg-[rgba(30,158,106,.12)] text-[#1e7a52] dark:text-[#34d399]',
+    chat: 'bg-[rgba(14,124,147,.12)] text-[#0e7c93] dark:text-[#67e8f9]',
+  }
+  const key = ch === 'sms' ? 'sms' : ch === 'chat' ? 'chat' : 'email'
+  return <span className={`font-mono text-[9px] font-bold uppercase tracking-[.05em] rounded px-1.5 py-0.5 ${styles[key]}`}>{chLabel(ch)}</span>
+}
+
 function sanitizeHtml(html: string): string {
   return html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '').replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '').replace(/javascript\s*:/gi, '')
 }
@@ -419,10 +440,10 @@ export default function UnifiedInboxPage() {
         </div>
 
         <TabsContent value="conversations" className="flex-1 min-h-0">
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden gap-3 p-3 bg-muted/30">
       {/* ═══ LEFT: Conversation List ═══ */}
       {leftCollapsed ? (
-        <div className="w-10 border-r flex flex-col items-center shrink-0 bg-background py-2 gap-2">
+        <div className="w-10 rounded-xl border flex flex-col items-center shrink-0 bg-card py-2 gap-2">
           <IconButton variant="ghost" size="sm" type="button" aria-label="Expand conversation list" title="Expand conversation list" onClick={toggleLeftCollapsed}>
             <PanelLeftOpen className="size-4" />
           </IconButton>
@@ -431,7 +452,7 @@ export default function UnifiedInboxPage() {
           </IconButton>
         </div>
       ) : (
-      <div className="w-[340px] border-r flex flex-col shrink-0 bg-background">
+      <div className="w-[340px] rounded-xl border flex flex-col shrink-0 bg-card overflow-hidden">
         {/* Search + New Message */}
         <div className="p-3 pb-0">
           <div className="flex items-center gap-2">
@@ -456,8 +477,8 @@ export default function UnifiedInboxPage() {
         <div className="flex items-center gap-1 px-3 py-2 border-b">
           {(['all', 'email', 'sms', 'chat'] as const).map(ch => (
             <button key={ch} type="button" onClick={() => setChannelFilter(ch)}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors ${channelFilter === ch ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}>
-              {ch === 'all' ? <Inbox className="size-3" /> : chIcon(ch, 'size-3')} {ch === 'all' ? 'All' : chLabel(ch)}
+              className={`px-2.5 py-1 rounded-full border text-[11px] font-medium whitespace-nowrap transition-colors ${channelFilter === ch ? 'bg-foreground text-background border-foreground' : 'bg-card text-muted-foreground border-input hover:text-foreground'}`}>
+              {ch === 'all' ? 'All' : chLabel(ch)}
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1.5">
@@ -498,18 +519,6 @@ export default function UnifiedInboxPage() {
           </div>
         )}
 
-        {/* AI Assistant banner — opens the Settings tab */}
-        {!selectMode && (
-          <button type="button" onClick={() => setTab('settings')} className="flex items-center gap-2.5 mx-3 mt-2 mb-1 px-3 py-2 rounded-lg bg-[rgba(124,58,237,.06)] dark:bg-[rgba(139,92,246,.10)] border border-[rgba(124,58,237,.22)] dark:border-[rgba(139,92,246,.28)] hover:border-[rgba(124,58,237,.34)] dark:hover:border-[rgba(139,92,246,.40)] transition-colors text-left w-[calc(100%-1.5rem)]">
-            <Sparkles className="size-4 text-[#6d28d9] dark:text-[#c4b5fd] shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold text-[#6d28d9] dark:text-[#c4b5fd]">{aiSettings?.enabled ? 'AI reply assistant' : 'Set up the AI reply assistant'}</p>
-              <p className="text-[10px] text-[#6d28d9]/70 dark:text-[#c4b5fd]/70">{aiSettings?.enabled ? 'Configure tone, rules, and knowledge in Settings' : 'Suggest draft replies based on your business context'}</p>
-            </div>
-            <ChevronRight className="size-3.5 text-[#6d28d9]/60 dark:text-[#c4b5fd]/60 shrink-0" />
-          </button>
-        )}
-
         {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
           {listLoading ? (
@@ -548,22 +557,20 @@ export default function UnifiedInboxPage() {
                 </button>
               )}
               <button type="button" onClick={() => { if (!selectMode) loadDetail(conv.id) }} className="flex items-start gap-3 flex-1 text-left min-w-0">
-                <div className="size-9 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground shrink-0 relative">
+                <div className="size-9 rounded-[11px] flex items-center justify-center text-xs font-bold text-white shrink-0 relative" style={{ backgroundColor: avColor(conv.displayName) }}>
                   {ini(conv.displayName)}
-                  {conv.unreadCount > 0 && <span className="absolute -top-0.5 -right-0.5 size-2.5 bg-blue-500 rounded-full border-2 border-background" />}
+                  {conv.unreadCount > 0 && <span className="absolute -top-0.5 -right-0.5 size-2.5 bg-[#6D4AFF] rounded-full border-2 border-card" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
                     <span className={`text-sm truncate ${conv.unreadCount > 0 ? 'font-semibold' : 'font-medium'}`}>{conv.displayName || 'Unknown'}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0 ml-2">{relTime(conv.lastMessageAt)}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{relTime(conv.lastMessageAt)}</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className={chColor(conv.lastMessageChannel)}>{chIcon(conv.lastMessageChannel, 'size-3')}</span>
-                    <p className={`text-xs truncate ${conv.unreadCount > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
-                      {conv.lastMessageDirection === 'outbound' && <span className="text-muted-foreground/60">You: </span>}
-                      {conv.lastMessagePreview || 'No messages'}
-                    </p>
-                  </div>
+                  <p className={`text-xs truncate ${conv.unreadCount > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    {conv.lastMessageDirection === 'outbound' && <span className="text-muted-foreground/60">You: </span>}
+                    {conv.lastMessagePreview || 'No messages'}
+                  </p>
+                  <div className="mt-1.5"><ChannelBadge ch={conv.lastMessageChannel} /></div>
                 </div>
               </button>
             </div>
@@ -573,7 +580,7 @@ export default function UnifiedInboxPage() {
       )}
 
       {/* ═══ CENTER: Message Thread ═══ */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 rounded-xl border bg-card overflow-hidden">
         {composing ? (
           /* ═══ COMPOSE NEW MESSAGE ═══ */
           <div className="flex-1 flex flex-col">
@@ -871,7 +878,7 @@ export default function UnifiedInboxPage() {
 
       {/* ═══ RIGHT: Contact Sidebar ═══ */}
       {sidebarOpen && selectedId && detail && (
-        <div className="w-[300px] border-l bg-card overflow-y-auto shrink-0">
+        <div className="w-[300px] rounded-xl border bg-card overflow-y-auto shrink-0">
           <div className="p-5">
             <div className="text-center mb-5 pb-5 border-b">
               <div className="size-14 rounded-full bg-muted flex items-center justify-center text-lg font-bold text-muted-foreground mx-auto mb-3">
