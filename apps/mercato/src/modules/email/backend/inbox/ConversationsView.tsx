@@ -773,6 +773,19 @@ function ReadingPane(props: {
   const senderEmail = detail.contact?.email || selectedConv?.avatarEmail || detail.contact?.phone || ''
   const lastInbound = [...detail.messages].reverse().find(m => m.direction === 'inbound') || detail.messages[detail.messages.length - 1]
 
+  // Collapsible thread: in a multi-message conversation, only the most recent
+  // message is expanded by default; older ones collapse to a clickable one-liner.
+  const messageCount = detail.messages.length
+  const lastMsgId = messageCount ? detail.messages[messageCount - 1].id : null
+  const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(() => new Set(lastMsgId ? [lastMsgId] : []))
+  useEffect(() => { setExpandedMsgs(new Set(lastMsgId ? [lastMsgId] : [])) }, [detail.inboxConversationId, lastMsgId])
+  const toggleMsg = (id: string) => setExpandedMsgs(prev => {
+    const n = new Set(prev)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    return n
+  })
+  const snippetOf = (m: UnifiedMsg) => (m.bodyText || m.body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
+
   return (
     <>
       {/* Header */}
@@ -836,9 +849,25 @@ function ReadingPane(props: {
                 }
                 const msg = item.data
                 const out = msg.direction === 'outbound'
+                const collapsible = messageCount > 1
+                const isExpanded = !collapsible || expandedMsgs.has(msg.id)
+                // Collapsed: a clickable one-line summary (sender · snippet · time).
+                if (!isExpanded) {
+                  return (
+                    <button key={`msg-${msg.id}`} type="button" onClick={() => toggleMsg(msg.id)}
+                      className="w-full text-left rounded-xl border border-border bg-card px-4 py-2.5 hover:bg-muted/40 transition-colors flex items-center gap-2">
+                      <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
+                      <span className={out ? 'text-muted-foreground' : chColor(msg.channel)}>{chIcon(msg.channel, 'size-3')}</span>
+                      <span className="text-[12px] font-semibold shrink-0">{out ? 'You' : name}</span>
+                      <span className="text-[12px] text-muted-foreground truncate flex-1">{snippetOf(msg)}</span>
+                      <span className="text-[11px] text-muted-foreground/70 shrink-0">{fmtTime(msg.createdAt)}</span>
+                    </button>
+                  )
+                }
                 return (
                   <div key={`msg-${msg.id}`} className={`rounded-2xl border ${out ? 'bg-accent text-accent-foreground border-transparent' : 'bg-card border-border'} px-5 py-4`}>
-                    <div className={`flex items-center gap-1.5 mb-2 text-[10px] font-medium uppercase tracking-wide ${out ? 'opacity-80' : 'text-muted-foreground'}`}>
+                    <div onClick={() => collapsible && toggleMsg(msg.id)}
+                      className={`flex items-center gap-1.5 mb-2 text-[10px] font-medium uppercase tracking-wide ${out ? 'opacity-80' : 'text-muted-foreground'} ${collapsible ? 'cursor-pointer' : ''}`}>
                       <span className={out ? '' : chColor(msg.channel)}>{chIcon(msg.channel, 'size-3')}</span>
                       <span>{chLabel(msg.channel)}</span>
                       {out && <span>· You</span>}
@@ -980,26 +1009,32 @@ function ReplyArea(props: {
 
   // ── Draft pending (not flagged) ──
   if (aiState === 'draft' && aiDraft) {
+    // Collapsed: a compact one-line bar (mockup behaviour). Expands on review.
+    if (!replyOpen) {
+      return (
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <Sparkles className="size-4 text-[#5b3fd6] dark:text-[#c4b5fd]" /> A reply was drafted for you.
+          </span>
+          <div className="ml-auto flex items-center gap-3">
+            <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground">Dismiss</button>
+            <Button type="button" size="sm" onClick={() => { setReplyBody(aiDraft.body); setReplyOpen(true) }}>Review &amp; send</Button>
+          </div>
+        </div>
+      )
+    }
+    // Expanded: editable draft + approve.
     return (
       <div>
-        <div className="rounded-xl border border-[rgba(109,74,255,.30)] bg-[rgba(109,74,255,.06)] px-4 py-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#5b3fd6] dark:text-[#c4b5fd]">
-              <Sparkles className="size-4" /> {replyOpen ? 'Edit suggested reply' : 'Suggested reply ready'}
-            </span>
-            <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground">Dismiss</button>
-          </div>
-          {!replyOpen && <pre className="mt-2 font-sans whitespace-pre-wrap text-[13px] text-muted-foreground leading-relaxed">{aiDraft.body}</pre>}
+        <div className="flex items-center gap-1.5 text-[13px] font-semibold text-[#5b3fd6] dark:text-[#c4b5fd] mb-2">
+          <Sparkles className="size-4" /> Review suggested reply
         </div>
-        {replyOpen && (
-          <Textarea value={replyBody} onChange={e => setReplyBody(e.target.value)}
-            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); approveDraft() } }}
-            className="mt-2 min-h-[140px] max-h-[360px] resize-y text-sm" />
-        )}
+        <Textarea value={replyBody} onChange={e => setReplyBody(e.target.value)}
+          onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); approveDraft() } }}
+          className="min-h-[140px] max-h-[360px] resize-y text-sm" />
         <div className="flex justify-end gap-2 mt-3">
-          {replyOpen
-            ? <Button type="button" variant="outline" size="sm" onClick={() => setReplyOpen(false)}>Cancel</Button>
-            : <Button type="button" variant="outline" size="sm" onClick={() => setReplyOpen(true)}><Pencil className="size-3.5 mr-1.5" /> Edit</Button>}
+          <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground self-center mr-auto">Dismiss</button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setReplyOpen(false)}>Cancel</Button>
           <Button type="button" size="sm" onClick={approveDraft} disabled={!replyBody.trim() || sending}>
             {sending ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Send className="size-3.5 mr-1.5" />} Approve &amp; send
           </Button>
@@ -1010,28 +1045,38 @@ function ReplyArea(props: {
 
   // ── Flagged (held for review) ──
   if (aiState === 'flagged' && aiDraft) {
-    return (
-      <div>
-        <div className="rounded-xl border border-[#e6cf9a] bg-[rgba(183,121,31,.10)] dark:bg-[rgba(245,158,11,.08)] px-4 py-3">
+    // Collapsed: compact flagged bar. Expands to review + edit.
+    if (!replyOpen) {
+      return (
+        <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#8a5a10] dark:text-[#fbbf24]">
             <span className="text-base leading-none">⚑</span> Flagged — held for your review
           </span>
-          <p className="mt-1.5 text-[12px] text-[#8a5a10]/90 dark:text-[#fbbf24]/90">
+          <div className="ml-auto flex items-center gap-3">
+            <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground">Dismiss</button>
+            <Button type="button" size="sm" onClick={() => { setReplyBody(aiDraft.body); setReplyOpen(true) }}>Review &amp; send</Button>
+          </div>
+        </div>
+      )
+    }
+    // Expanded.
+    return (
+      <div>
+        <div className="rounded-xl border border-[#e6cf9a] bg-[rgba(183,121,31,.10)] dark:bg-[rgba(245,158,11,.08)] px-4 py-2.5 mb-2">
+          <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#8a5a10] dark:text-[#fbbf24]">
+            <span className="text-base leading-none">⚑</span> Flagged — held for your review
+          </span>
+          <p className="mt-1 text-[12px] text-[#8a5a10]/90 dark:text-[#fbbf24]/90">
             {aiDraft.flagReasons && aiDraft.flagReasons.length > 0 ? `Reason: ${aiDraft.flagReasons.join(', ')}. ` : ''}
             Drafted but not sent, even in auto mode.
           </p>
-          {!replyOpen && <pre className="mt-2 font-sans whitespace-pre-wrap text-[13px] text-muted-foreground leading-relaxed">{aiDraft.body}</pre>}
         </div>
-        {replyOpen && (
-          <Textarea value={replyBody} onChange={e => setReplyBody(e.target.value)}
-            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); approveDraft() } }}
-            className="mt-2 min-h-[140px] max-h-[360px] resize-y text-sm" />
-        )}
+        <Textarea value={replyBody} onChange={e => setReplyBody(e.target.value)}
+          onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); approveDraft() } }}
+          className="min-h-[140px] max-h-[360px] resize-y text-sm" />
         <div className="flex justify-end gap-2 mt-3">
           <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground self-center mr-auto">Dismiss</button>
-          {replyOpen
-            ? <Button type="button" variant="outline" size="sm" onClick={() => setReplyOpen(false)}>Cancel</Button>
-            : <Button type="button" variant="outline" size="sm" onClick={() => setReplyOpen(true)}><Pencil className="size-3.5 mr-1.5" /> Edit</Button>}
+          <Button type="button" variant="outline" size="sm" onClick={() => setReplyOpen(false)}>Cancel</Button>
           <Button type="button" size="sm" onClick={approveDraft} disabled={!replyBody.trim() || sending}>
             {sending ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Send className="size-3.5 mr-1.5" />} Approve &amp; send
           </Button>
