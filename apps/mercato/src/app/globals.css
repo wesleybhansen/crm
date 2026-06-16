@@ -183,6 +183,62 @@ TODO: Fix that latter to have reference by the package names
   select:not([multiple]):not([size]):not(.appearance-none)::-ms-expand {
     display: none;
   }
+
+  /* Preflight fallback. Tailwind v4's bundled preflight (layer base) is not
+     emitted by the production build in this environment (theme + utilities +
+     this custom base layer all ship, but box-sizing and the element resets do
+     not), so anchors fall back to the browser default (blue, underlined) and
+     the box model drifts. These restore the essential preflight resets without
+     touching icon/border rendering that already works. */
+  *,
+  ::before,
+  ::after {
+    box-sizing: border-box;
+  }
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+  body {
+    margin: 0;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-size: inherit;
+    font-weight: inherit;
+    margin: 0;
+  }
+  p,
+  figure,
+  blockquote,
+  dl,
+  dd {
+    margin: 0;
+  }
+  ol,
+  ul,
+  menu {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  button,
+  [type='button'],
+  [type='reset'],
+  [type='submit'] {
+    appearance: button;
+    cursor: pointer;
+  }
+  :disabled {
+    cursor: default;
+  }
+  table {
+    border-collapse: collapse;
+  }
 }
 
 .rbc-calendar {
