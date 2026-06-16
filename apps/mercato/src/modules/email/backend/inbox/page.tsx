@@ -18,11 +18,12 @@ export default function UnifiedInboxPage() {
   const onAiSettingsSaved = useCallback(() => {}, [])
 
   return (
-    // Deterministic full-height surface (same pattern as the assistant/chat pages:
-    // h-[calc(100dvh-Xpx)] + overflow-hidden). The inbox owns its own internal
-    // scroll so there's no dead space below the list/reader. dvh keeps the mobile
-    // toolbar accounted for.
-    <div className="flex flex-col h-[calc(100dvh-64px)] min-h-0 overflow-hidden">
+    // Full-height surface that fills the AppShell content area exactly: height =
+    // viewport minus header(~58) + footer(~45) + main padding(48), and a negative
+    // top margin trims the gap above the tabs (kept consistent so the bottom still
+    // meets the footer — no outer page scroll, no dead space). svh = smallest
+    // viewport so the mobile toolbar can't push it past the fold.
+    <div className="-mt-3 lg:-mt-5 flex flex-col h-[calc(100svh-115px)] lg:h-[calc(100svh-131px)] min-h-0 overflow-hidden">
       <Tabs value={tab} onValueChange={(v) => setTab(v as 'conversations' | 'settings')} className="flex flex-col flex-1 min-h-0">
         <div className="px-4 pt-2 border-b shrink-0">
           <TabsList>
@@ -31,7 +32,7 @@ export default function UnifiedInboxPage() {
           </TabsList>
         </div>
 
-        <TabsContent value="conversations" className="flex-1 min-h-0">
+        <TabsContent value="conversations" className="flex-1 min-h-0 flex flex-col">
           <ConversationsView
             onAiSettingsSaved={onAiSettingsSaved}
             onGoToSettings={() => setTab('settings')}

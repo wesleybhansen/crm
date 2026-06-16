@@ -644,7 +644,7 @@ export default function ConversationsView({
 
   // ── Render ──
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col flex-1 min-h-0 h-full">
       {/* Top bar only while reading/composing: Back (mobile) + a button to bring the
           collapsed app menu back. In list view the full sidebar is already shown. */}
       {reading && (
@@ -784,12 +784,19 @@ function ReadingPane(props: {
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(() => new Set(lastMsgId ? [lastMsgId] : []))
   useEffect(() => { setExpandedMsgs(new Set(lastMsgId ? [lastMsgId] : [])) }, [detail.inboxConversationId, lastMsgId])
   // Open a thread at its MOST RECENT message (the expanded one at the bottom);
-  // older messages collapse above it. Wait a frame so the DOM has laid out.
+  // older messages collapse above it. Scroll ONLY the reader container — never use
+  // scrollIntoView, which bubbles up and scrolls the whole window/page.
   const lastMsgRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const id = requestAnimationFrame(() => {
-      if (lastMsgRef.current) lastMsgRef.current.scrollIntoView({ block: 'start' })
-      else if (readBodyRef.current) readBodyRef.current.scrollTop = readBodyRef.current.scrollHeight
+      const body = readBodyRef.current
+      if (!body) return
+      if (lastMsgRef.current) {
+        const top = lastMsgRef.current.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop
+        body.scrollTop = Math.max(0, top - 8)
+      } else {
+        body.scrollTop = body.scrollHeight
+      }
     })
     return () => cancelAnimationFrame(id)
   }, [detail.inboxConversationId])
@@ -1023,20 +1030,17 @@ function ReplyArea(props: {
 
   // ── Draft pending (not flagged) ──
   if (aiState === 'draft' && aiDraft) {
-    // Collapsed: a compact card with a 2-line preview. Expands on review.
+    // Collapsed: a compact card (no preview — they see the draft on Review).
     if (!replyOpen) {
       return (
-        <div className="rounded-xl border border-[rgba(109,74,255,.30)] bg-[rgba(109,74,255,.06)] px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[#5b3fd6] dark:text-[#c4b5fd]">
-              <Sparkles className="size-4" /> A reply was drafted for you
-            </span>
-            <div className="ml-auto flex items-center gap-3">
-              <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground">Dismiss</button>
-              <Button type="button" size="sm" onClick={() => { setReplyBody(aiDraft.body); setReplyOpen(true) }}>Review &amp; send</Button>
-            </div>
+        <div className="rounded-xl border border-[rgba(109,74,255,.30)] bg-[rgba(109,74,255,.06)] px-4 py-4 flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-[13.5px] font-semibold text-[#5b3fd6] dark:text-[#c4b5fd]">
+            <Sparkles className="size-4" /> A reply was drafted for you
+          </span>
+          <div className="ml-auto flex items-center gap-3">
+            <button type="button" onClick={dismissDraft} className="text-[12px] text-muted-foreground hover:text-foreground">Dismiss</button>
+            <Button type="button" size="sm" onClick={() => { setReplyBody(aiDraft.body); setReplyOpen(true) }}>Review &amp; send</Button>
           </div>
-          <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground line-clamp-2">{aiDraft.body}</p>
         </div>
       )
     }
@@ -1124,33 +1128,27 @@ function ReplyArea(props: {
     )
   }
 
-  // ── Skipped (newsletter / automated) ──
-  if (aiState === 'skipped' || (!aiDraft && aiSkipReason === 'automated')) {
+  // No draft was produced. Detect a no-reply / automated sender from the last
+  // inbound address so we can explain WHY (even when the engine didn't tag it).
+  const lastInbound = [...detail.messages].reverse().find(m => m.direction === 'inbound')
+  const noReplySender = /(^|[._+-])(no-?reply|do-?not-?reply|donotreply|mailer-daemon|postmaster|bounce|notifications?|newsletter|mailer)([._+-]|@|$)/i.test(lastInbound?.fromAddress || '')
+  const automated = aiState === 'skipped' || aiSkipReason === 'automated' || noReplySender
+
+  // ── No reply drafted (automated/no-reply OR plain manual) — a card matching the
+  // draft card, in a neutral colour to visually distinguish it. ──
+  if (!replyOpen) {
     return (
-      <div>
-        {!replyOpen ? (
-          <div className="rounded-xl border border-border bg-muted/40 px-4 py-3.5">
-            <div className="flex items-center gap-2">
-              <p className="text-[13px] font-medium text-foreground">This looks like an automated message, so no reply was drafted.</p>
-              <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={() => { setReplyBody(''); setReplyOpen(true) }}>Reply anyway</Button>
-            </div>
-            <p className="mt-1 text-[12px] text-muted-foreground">You can still reply yourself if you need to.</p>
-          </div>
-        ) : composer(handleSend)}
+      <div className="rounded-xl border border-border bg-muted/50 px-4 py-4 flex items-center gap-3">
+        <span className="text-[13.5px] font-semibold text-foreground">
+          {automated ? 'This message is from a no-reply sender. No reply drafted.' : 'No reply was drafted for this one.'}
+        </span>
+        <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={() => { setReplyBody(''); setReplyOpen(true) }}>
+          <Send className="size-3.5 mr-1.5" /> Reply
+        </Button>
       </div>
     )
   }
-
-  // ── Manual (no draft, no skip) ──
-  return (
-    <div>
-      {!replyOpen ? (
-        <Button type="button" size="sm" variant="outline" className="w-full justify-center" onClick={() => { setReplyBody(''); setReplyOpen(true) }}>
-          <Send className="size-3.5 mr-1.5" /> Reply
-        </Button>
-      ) : composer(handleSend)}
-    </div>
-  )
+  return <div>{composer(handleSend)}</div>
 }
 
 // ══════════════════════════════ Contact pane ══════════════════════════════
