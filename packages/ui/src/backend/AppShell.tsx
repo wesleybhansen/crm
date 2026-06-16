@@ -370,6 +370,22 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
+  // Let a page collapse/expand the main sidebar via window events (e.g. the
+  // Inbox hides the nav for room and offers its own Menu button to bring it
+  // back). 'om:appnav:toggle' flips it; 'om:appnav:set' {collapsed} sets it.
+  React.useEffect(() => {
+    const onToggle = () => setCollapsed((c) => !c)
+    const onSet = (e: Event) => {
+      const detail = (e as CustomEvent<{ collapsed?: boolean }>).detail
+      if (detail && typeof detail.collapsed === 'boolean') setCollapsed(detail.collapsed)
+    }
+    window.addEventListener('om:appnav:toggle', onToggle)
+    window.addEventListener('om:appnav:set', onSet as EventListener)
+    return () => {
+      window.removeEventListener('om:appnav:toggle', onToggle)
+      window.removeEventListener('om:appnav:set', onSet as EventListener)
+    }
+  }, [])
   // Maintain internal nav state so we can augment it client-side
   const [navGroups, setNavGroups] = React.useState(AppShell.cloneGroups(groups))
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() =>

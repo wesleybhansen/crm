@@ -84,6 +84,47 @@ export async function GET(req: Request) {
       .orderBy('inbox_conversations.last_message_at', 'desc')
       .limit(50)
 
+    // Per-conversation AI state for the list badges + the "Needs review" filter.
+    // Derive from:
+    //   - inbox_conversations.inbox_draft_skip_reason = 'automated' -> 'skipped'
+    //   - inbox_proposal_actions (feature_source='inbox', action_type='draft_reply')
+    //     for this conversation: pending+not-flagged -> 'draft',
+    //     pending+flagged -> 'flagged', sent -> 'autosent'.
+    // One extra grouped query (not N+1): pick the newest relevant action per
+    // conversation id, scoped to the conversation ids in this page of results.
+    const convIds: string[] = conversations.map((c: any) => c.id).filter(Boolean)
+    const actionByConv = new Map<string, { status: string; flagged: boolean }>()
+    if (convIds.length > 0) {
+      // DISTINCT ON the conversation id, newest first, so each conversation maps
+      // to its most recent inbox draft action in a single org-scoped query.
+      const actions = await knex('inbox_proposal_actions')
+        .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
+        .where('action_type', 'draft_reply')
+        .whereRaw(`metadata->>'feature_source' = ?`, ['inbox'])
+        .whereRaw(`payload->>'conversationId' = ANY(?)`, [convIds])
+        .select(
+          knex.raw(`DISTINCT ON (payload->>'conversationId') payload->>'conversationId' AS conversation_id`),
+          'status',
+          knex.raw(`(metadata->>'flagged' = 'true') AS flagged`),
+        )
+        .orderByRaw(`payload->>'conversationId', created_at DESC`)
+      for (const a of actions) {
+        if (a.conversation_id) actionByConv.set(a.conversation_id, { status: a.status, flagged: a.flagged === true || a.flagged === 't' })
+      }
+    }
+
+    const aiStateFor = (c: any): 'draft' | 'flagged' | 'autosent' | 'skipped' | 'manual' | null => {
+      const act = actionByConv.get(c.id)
+      if (act) {
+        if (act.status === 'pending') return act.flagged ? 'flagged' : 'draft'
+        if (act.status === 'sent') return 'autosent'
+        // dismissed / rejected actions fall through to the skip/manual checks.
+      }
+      if (c.inbox_draft_skip_reason === 'automated') return 'skipped'
+      return null
+    }
+
     return NextResponse.json({
       ok: true,
       data: conversations.map((c: any) => ({
@@ -99,6 +140,7 @@ export async function GET(req: Request) {
         displayName: c.display_name,
         avatarEmail: c.avatar_email,
         avatarPhone: c.avatar_phone,
+        aiState: aiStateFor(c),
       })),
     })
   } catch (error) {
