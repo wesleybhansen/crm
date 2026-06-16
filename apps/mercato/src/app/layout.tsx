@@ -73,6 +73,31 @@ export default async function RootLayout({
               `,
             }}
           />
+          {/* Preflight base resets, shipped verbatim in the document head. The
+              production CSS minifier (lightningcss) strips Tailwind v4's bundled
+              preflight (and any box-sizing / color:inherit rules authored in
+              globals.css), which left anchors rendering as default blue/
+              underlined links app-wide. An inline <style> bypasses the CSS
+              pipeline, so these always apply. Element selectors stay lower
+              specificity than utility classes, so they only restore base
+              defaults and never override component styling. */}
+          <style
+            key="om-preflight"
+            dangerouslySetInnerHTML={{
+              __html:
+                '*,::before,::after{box-sizing:border-box}' +
+                'a{color:inherit;text-decoration:inherit}' +
+                'body{margin:0;line-height:inherit}' +
+                'h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit;margin:0}' +
+                'p,figure,blockquote,dl,dd{margin:0}' +
+                'ol,ul,menu{list-style:none;margin:0;padding:0}' +
+                'button,[type=button],[type=reset],[type=submit]{cursor:pointer}' +
+                ':disabled{cursor:default}' +
+                'table{border-collapse:collapse}' +
+                'img,svg,video,canvas,audio,iframe,embed,object{display:block;vertical-align:middle}' +
+                'img,video{max-width:100%;height:auto}',
+            }}
+          />
         </head>
         <body className={`${jetbrainsMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
           <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled} posthogKey={posthogKey} posthogHost={posthogHost}>
