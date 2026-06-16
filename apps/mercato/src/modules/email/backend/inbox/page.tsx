@@ -134,6 +134,9 @@ export default function UnifiedInboxPage() {
   const [activeChannel, setActiveChannel] = useState<'email' | 'sms' | 'chat'>('email')
   const [replySubject, setReplySubject] = useState('')
   const [replyBody, setReplyBody] = useState('')
+  // AI desk: a pending AI-drafted reply for the open conversation (held in draft
+  // / hybrid mode, or a flagged one paused for review). Pre-fills the composer.
+  const [aiDraft, setAiDraft] = useState<{ id: string; body: string; flagged?: boolean; flagReasons?: string[] } | null>(null)
   const [sending, setSending] = useState(false)
   const [showNoteInput, setShowNoteInput] = useState(false)
   const [noteText, setNoteText] = useState('')
@@ -235,7 +238,7 @@ export default function UnifiedInboxPage() {
   // ── Load detail ──
   const loadDetail = useCallback(async (id: string) => {
     setComposing(false)
-    setSelectedId(id); setDetailLoading(true); setDetail(null); setSidebarData(null); setNotes([]); setShowNoteInput(false)
+    setSelectedId(id); setDetailLoading(true); setDetail(null); setSidebarData(null); setNotes([]); setShowNoteInput(false); setAiDraft(null)
     try {
       const [convRes, notesRes] = await Promise.all([
         fetch(`/api/inbox/${id}`, { credentials: 'include' }),
@@ -255,6 +258,15 @@ export default function UnifiedInboxPage() {
         const lastEmail = [...msgs].reverse().find(m => m.channel === 'email')
         setReplySubject(lastEmail?.subject ? (lastEmail.subject.startsWith('Re:') ? lastEmail.subject : `Re: ${lastEmail.subject}`) : '')
         setReplyBody('')
+        // AI desk: surface a pending drafted reply for this conversation, if any.
+        try {
+          const dr = await fetch(`/api/inbox/draft?conversationId=${id}`, { credentials: 'include' })
+          const dj = await dr.json()
+          if (dj.ok && dj.data) {
+            setAiDraft({ id: dj.data.id, body: dj.data.body || '', flagged: dj.data.flagged, flagReasons: dj.data.flagReasons })
+            if (dj.data.body) setReplyBody(dj.data.body)
+          }
+        } catch { /* no pending draft */ }
         // Mark read
         fetch(`/api/inbox/${id}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markRead: true }) }).catch(() => {})
         setConversations(prev => prev.map(c => c.id === id ? { ...c, unreadCount: 0 } : c))
@@ -298,6 +310,26 @@ export default function UnifiedInboxPage() {
       else { showToast('Failed to send message', 'error') }
     } catch { showToast('Failed to send message', 'error') }
     setSending(false)
+  }
+
+  // Approve & send a pending AI draft (sends the edited body + marks the draft sent).
+  const approveDraft = async () => {
+    if (!aiDraft || !replyBody.trim() || sending) return
+    setSending(true)
+    try {
+      const r = await fetch('/api/inbox/draft', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: aiDraft.id, action: 'approve', body: replyBody }) })
+      const j = await r.json()
+      if (j.ok) { setAiDraft(null); setReplyBody(''); showToast('Sent'); if (selectedId) loadDetail(selectedId); loadConversations() }
+      else showToast(j.error || 'Failed to send', 'error')
+    } catch { showToast('Failed to send', 'error') }
+    setSending(false)
+  }
+  const dismissDraft = async () => {
+    if (!aiDraft) return
+    const id = aiDraft.id
+    setAiDraft(null); setReplyBody('')
+    try { await fetch('/api/inbox/draft', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action: 'dismiss' }) }) } catch { /* ignore */ }
   }
 
   const toggleStatus = async () => {
@@ -853,6 +885,20 @@ export default function UnifiedInboxPage() {
                   </div>
                 </div>
 
+                {aiDraft && (
+                  <div className="mb-2 rounded-lg border border-[rgba(109,74,255,.30)] bg-[rgba(109,74,255,.06)] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 text-[12px] font-semibold text-[#5b3fd6] dark:text-[#c4b5fd]">
+                        <Sparkles className="size-3.5" /> Suggested reply{aiDraft.flagged ? ' — flagged for your review' : ''}
+                      </span>
+                      <button type="button" onClick={dismissDraft} className="text-[11px] text-muted-foreground hover:text-foreground">Dismiss</button>
+                    </div>
+                    {aiDraft.flagged && aiDraft.flagReasons && aiDraft.flagReasons.length > 0 && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">Flagged: {aiDraft.flagReasons.join(', ')}</p>
+                    )}
+                    <p className="mt-1 text-[11px] text-muted-foreground">Edit below, then Approve &amp; send.</p>
+                  </div>
+                )}
                 {activeChannel === 'email' && (
                   <Input value={replySubject} onChange={e => setReplySubject(e.target.value)} placeholder="Subject" className="h-8 text-sm mb-2" />
                 )}
@@ -864,7 +910,8 @@ export default function UnifiedInboxPage() {
                     className="min-h-[44px] max-h-[300px] resize-none text-sm flex-1 transition-all" rows={1}
                     onFocus={e => { e.target.style.minHeight = '160px' }}
                     onBlur={e => { if (!e.target.value.trim()) e.target.style.minHeight = '44px' }} />
-                  <Button type="button" onClick={handleSend}
+                  <Button type="button" onClick={() => aiDraft ? approveDraft() : handleSend()}
+                    title={aiDraft ? 'Approve and send' : 'Send'}
                     disabled={!replyBody.trim() || sending || (activeChannel === 'email' && !replySubject.trim()) || detail.status === 'closed'}
                     className="h-10 px-4">
                     {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
