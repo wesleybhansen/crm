@@ -191,14 +191,27 @@ export default function ConversationsView({
   const readBodyRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // ── Hide the CRM app sidebar while the inbox is open (mockup behaviour). ──
-  // Dispatch once on mount so the inbox opens with the app nav collapsed; the
-  // AppShell listener is wired separately.
+  // ── Fully hide the CRM app sidebar while the inbox is open (full-screen email
+  // app; mockup-approved behaviour). The AppShell listens for 'om:appnav:set'.
+  // IMPORTANT: child effects run BEFORE the parent (AppShell) attaches its
+  // listener, so a direct dispatch on mount is missed. Defer with setTimeout(0)
+  // so the event fires after AppShell is listening. Restore the nav on unmount.
+  const [appNavHidden, setAppNavHidden] = useState(true)
   useEffect(() => {
-    try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { collapsed: true } })) } catch {}
+    const id = setTimeout(() => {
+      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { hidden: true } })) } catch {}
+    }, 0)
+    return () => {
+      clearTimeout(id)
+      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { hidden: false } })) } catch {}
+    }
   }, [])
   const toggleAppNav = useCallback(() => {
-    try { window.dispatchEvent(new CustomEvent('om:appnav:toggle')) } catch {}
+    setAppNavHidden((h) => {
+      const next = !h
+      try { window.dispatchEvent(new CustomEvent('om:appnav:set', { detail: { hidden: next } })) } catch {}
+      return next
+    })
   }, [])
 
   // ── Load conversations ──
@@ -632,8 +645,9 @@ export default function ConversationsView({
       {/* Inbox top bar: Menu (toggles app sidebar) */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b bg-card shrink-0">
         <button type="button" onClick={toggleAppNav}
+          aria-label={appNavHidden ? 'Show navigation menu' : 'Hide navigation menu'}
           className="flex items-center gap-2 rounded-[9px] border border-input bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-accent/40 hover:text-foreground transition-colors">
-          <Menu className="size-4" /> Menu
+          <Menu className="size-4" /> {appNavHidden ? 'Menu' : 'Hide menu'}
         </button>
         {(selectedId || composing) && (
           <button type="button" onClick={() => composing ? setComposing(false) : closeDetail()}

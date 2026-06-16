@@ -370,14 +370,18 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
-  // Let a page collapse/expand the main sidebar via window events (e.g. the
-  // Inbox hides the nav for room and offers its own Menu button to bring it
-  // back). 'om:appnav:toggle' flips it; 'om:appnav:set' {collapsed} sets it.
+  // Let a page FULLY HIDE the main sidebar via window events so it can go
+  // full-screen (e.g. the Inbox, which offers its own Menu button to bring the
+  // nav back). 'om:appnav:toggle' flips hidden; 'om:appnav:set' {hidden} sets it.
+  // (A legacy {collapsed} field is accepted as an alias for {hidden}.)
+  const [navHidden, setNavHidden] = React.useState(false)
   React.useEffect(() => {
-    const onToggle = () => setCollapsed((c) => !c)
+    const onToggle = () => setNavHidden((h) => !h)
     const onSet = (e: Event) => {
-      const detail = (e as CustomEvent<{ collapsed?: boolean }>).detail
-      if (detail && typeof detail.collapsed === 'boolean') setCollapsed(detail.collapsed)
+      const detail = (e as CustomEvent<{ hidden?: boolean; collapsed?: boolean }>).detail
+      if (!detail) return
+      if (typeof detail.hidden === 'boolean') setNavHidden(detail.hidden)
+      else if (typeof detail.collapsed === 'boolean') setNavHidden(detail.collapsed)
     }
     window.addEventListener('om:appnav:toggle', onToggle)
     window.addEventListener('om:appnav:set', onSet as EventListener)
@@ -1459,7 +1463,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     )
   }
 
-  const gridColsClass = customizing
+  const gridColsClass = navHidden
+    ? ''
+    : customizing
     ? 'lg:grid-cols-[320px_1fr]'
     : (effectiveCollapsed ? 'lg:grid-cols-[72px_1fr]' : 'lg:grid-cols-[240px_1fr]')
   const headerCtxValue = React.useMemo(() => ({
@@ -1502,8 +1508,10 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   return (
     <HeaderContext.Provider value={headerCtxValue}>
     <div className={`min-h-svh lg:grid ${gridColsClass}`}>
-      {/* Desktop sidebar */}
-      <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
+      {/* Desktop sidebar — fully removed when a page requests full-screen (navHidden) */}
+      {!navHidden && (
+        <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
+      )}
 
       <div className="flex min-h-svh flex-col min-w-0">
         <header className="border-b border-border bg-background/60 backdrop-blur px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
