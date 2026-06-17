@@ -788,7 +788,7 @@ export default function CustomerServiceSettingsPage() {
 
             {replyMode === 'hybrid' && (
               <div className="mt-3 rounded-lg border px-4 py-3">
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">
+                <label className="text-[12.5px] font-medium text-foreground/80 block mb-1.5">
                   Confidence threshold
                 </label>
                 <div className="flex items-center gap-3">
@@ -806,7 +806,7 @@ export default function CustomerServiceSettingsPage() {
                   />
                   <span className="text-xs text-muted-foreground">0 to 1. Default 0.8.</span>
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-2">
+                <p className="text-[12.5px] text-muted-foreground mt-2">
                   A reply auto-sends only when Noli is at least this confident in its answer and judges it safe to send. Everything else waits for your approval. Higher values send fewer replies on their own.
                 </p>
               </div>
@@ -912,13 +912,13 @@ export default function CustomerServiceSettingsPage() {
             </h2>
             <div className="rounded-lg border">
               <div className="px-4 py-3">
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">
+                <label className="text-[12.5px] font-medium text-foreground/80 block mb-1.5">
                   Signature <span className="normal-case font-normal">(optional)</span>
                 </label>
                 <textarea value={signature} onChange={e => setSignature(e.target.value)}
                   placeholder={'e.g.\nThanks,\nThe Acme Team'}
                   className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-24" />
-                <p className="text-[11px] text-muted-foreground mt-1.5">Added to the end of drafted replies. We prefilled a default from your business name. Edit or clear it anytime. You can still edit each draft before sending.</p>
+                <p className="text-[12.5px] text-muted-foreground mt-1.5">Added to the end of drafted replies. We prefilled a default from your business name. Edit or clear it anytime. You can still edit each draft before sending.</p>
               </div>
             </div>
           </section>
@@ -979,13 +979,13 @@ export default function CustomerServiceSettingsPage() {
                       <p className="text-xs text-muted-foreground line-clamp-2">{entry.contentPreview}</p>
                       {entry.sourceFilename && (
                         entry.isWebSource && entry.sourceUrl ? (
-                          <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1 min-w-0">
+                          <p className="text-[12.5px] text-muted-foreground mt-0.5 flex items-center gap-1 min-w-0">
                             <Globe className="size-3 shrink-0" />
                             <a href={entry.sourceUrl} target="_blank" rel="noopener noreferrer"
                               className="truncate underline hover:text-foreground">{entry.sourceFilename}</a>
                           </p>
                         ) : (
-                          <p className="text-[11px] text-muted-foreground mt-0.5">From {entry.sourceFilename}</p>
+                          <p className="text-[12.5px] text-muted-foreground mt-0.5">From {entry.sourceFilename}</p>
                         )
                       )}
                     </div>
@@ -1035,7 +1035,7 @@ export default function CustomerServiceSettingsPage() {
                             checked={kbSelectedIds.has(doc.id)} onChange={() => toggleKbDoc(doc.id)}
                             className="size-4 shrink-0" />
                           <span className="truncate flex-1">{doc.title}</span>
-                          {doc.alreadyImported && <span className="text-[11px] text-muted-foreground shrink-0">Already added</span>}
+                          {doc.alreadyImported && <span className="text-[12.5px] text-muted-foreground shrink-0">Already added</span>}
                         </label>
                       ))}
                     </div>
@@ -1120,12 +1120,12 @@ export default function CustomerServiceSettingsPage() {
                   onChange={e => { setDocFiles(e.target.files ? Array.from(e.target.files) : []); setDocProgress([]); setDocSummary('') }}
                   className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:bg-card file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-muted/50" />
                 {docFiles.length > 1 && (
-                  <p className="text-[11px] text-muted-foreground">{docFiles.length} files selected. Each is added as a separate entry.</p>
+                  <p className="text-[12.5px] text-muted-foreground">{docFiles.length} files selected. Each is added as a separate entry.</p>
                 )}
                 {docProgress.length > 0 && (
                   <ul className="space-y-1">
                     {docProgress.map((p, i) => (
-                      <li key={i} className="flex items-center gap-2 text-[11px]">
+                      <li key={i} className="flex items-center gap-2 text-[12.5px]">
                         {p.status === 'done' ? (
                           <Check className="size-3 text-[#047857] dark:text-[#34d399]" />
                         ) : p.status === 'failed' ? (
@@ -1142,9 +1142,9 @@ export default function CustomerServiceSettingsPage() {
                   </ul>
                 )}
                 {docSummary && (
-                  <p className="text-[11px] text-[#047857] dark:text-[#34d399]">{docSummary}</p>
+                  <p className="text-[12.5px] text-[#047857] dark:text-[#34d399]">{docSummary}</p>
                 )}
-                <p className="text-[11px] text-muted-foreground">Or paste the document text:</p>
+                <p className="text-[12.5px] text-muted-foreground">Or paste the document text:</p>
                 <textarea value={docContent} onChange={e => setDocContent(e.target.value)}
                   placeholder="Paste reference text here..."
                   className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28" />
@@ -1267,7 +1267,7 @@ export default function CustomerServiceSettingsPage() {
                     <input type="checkbox" checked={showSharedMailboxes}
                       onChange={e => setShowSharedMailboxes(e.target.checked)}
                       className="size-3.5 rounded border-input accent-[#2563eb]" />
-                    <span className="text-[11px] text-muted-foreground">Also watch personal Inbox mailboxes</span>
+                    <span className="text-[12.5px] text-muted-foreground">Also watch personal Inbox mailboxes</span>
                   </label>
                 )}
               </div>
@@ -1297,7 +1297,7 @@ export default function CustomerServiceSettingsPage() {
               )}
               {visibleMailboxes.length > 0 && (
                 <div className="px-4 py-2.5 bg-muted/30">
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[12.5px] text-muted-foreground">
                     {watchingAll ? 'Watching all connected mailboxes.' : `Watching ${watchedIds?.length} selected mailbox${watchedIds?.length === 1 ? '' : 'es'}.`}
                   </p>
                 </div>
@@ -1315,7 +1315,7 @@ export default function CustomerServiceSettingsPage() {
             </p>
             <div className="rounded-lg border">
               <div className="px-4 py-3 space-y-2">
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">
+                <label className="text-[12.5px] font-medium text-foreground/80 block">
                   Support SMS number <span className="normal-case font-normal">(optional)</span>
                 </label>
                 <Input
@@ -1327,23 +1327,23 @@ export default function CustomerServiceSettingsPage() {
                 />
                 {twilioNumber ? (
                   csSmsNumber.trim() === '' ? (
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[12.5px] text-muted-foreground">
                       Your connected Twilio number is {twilioNumber}. Enter a different number to dedicate to support, then set its inbound webhook below.
                     </p>
                   ) : (
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[12.5px] text-muted-foreground">
                       Enter the Twilio number you want to use only for support. It must be different from your Inbox number ({twilioNumber}).
                     </p>
                   )
                 ) : (
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[12.5px] text-muted-foreground">
                     No Twilio account connected yet. Connect Twilio in Settings, then enter a dedicated support number here.
                   </p>
                 )}
                 <div className="rounded-md bg-muted/40 border px-3 py-2 mt-1">
-                  <p className="text-[11px] font-medium text-muted-foreground mb-1">In Twilio, set this number&apos;s inbound message webhook to:</p>
+                  <p className="text-[12.5px] font-medium text-muted-foreground mb-1">In Twilio, set this number&apos;s inbound message webhook to:</p>
                   <code className="text-xs break-all">https://crm.noliai.com/api/sms/webhook</code>
-                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                  <p className="text-[12.5px] text-muted-foreground mt-1.5">
                     Method POST. This is the same webhook your Inbox uses, so the number you choose here must be a separate number from your Inbox number.
                   </p>
                 </div>
@@ -1466,33 +1466,33 @@ export default function CustomerServiceSettingsPage() {
                       {/* Embed code */}
                       <div className="rounded-md bg-muted/40 border px-3 py-2">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5"><Code className="size-3" /> Embed code</span>
+                          <span className="text-[12.5px] font-medium text-muted-foreground flex items-center gap-1.5"><Code className="size-3" /> Embed code</span>
                           <button type="button" onClick={() => copyText(`embed-${w.id}`, embed)}
-                            className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                            className="text-[12.5px] text-muted-foreground hover:text-foreground flex items-center gap-1">
                             {copiedKey === `embed-${w.id}` ? <><Check className="size-3 text-[#047857] dark:text-[#34d399]" /> Copied</> : <>Copy</>}
                           </button>
                         </div>
-                        <code className="text-[11px] break-all block leading-relaxed text-muted-foreground">{embed}</code>
-                        <p className="text-[11px] text-muted-foreground mt-1.5">Paste this just before the closing &lt;/body&gt; tag on your site.</p>
+                        <code className="text-[12.5px] break-all block leading-relaxed text-muted-foreground">{embed}</code>
+                        <p className="text-[12.5px] text-muted-foreground mt-1.5">Paste this just before the closing &lt;/body&gt; tag on your site.</p>
                       </div>
 
                       {/* Hosted page link */}
                       {w.public_page_enabled && w.slug && (
                         <div className="rounded-md bg-muted/40 border px-3 py-2">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5"><LinkIcon className="size-3" /> Hosted page link</span>
+                            <span className="text-[12.5px] font-medium text-muted-foreground flex items-center gap-1.5"><LinkIcon className="size-3" /> Hosted page link</span>
                             <div className="flex items-center gap-2">
                               <button type="button" onClick={() => copyText(`link-${w.id}`, hostedUrl)}
-                                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                                className="text-[12.5px] text-muted-foreground hover:text-foreground flex items-center gap-1">
                                 {copiedKey === `link-${w.id}` ? <><Check className="size-3 text-[#047857] dark:text-[#34d399]" /> Copied</> : <>Copy</>}
                               </button>
                               <button type="button" onClick={() => window.open(hostedUrl, '_blank')}
-                                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                                className="text-[12.5px] text-muted-foreground hover:text-foreground flex items-center gap-1">
                                 <ExternalLink className="size-3" /> Open
                               </button>
                             </div>
                           </div>
-                          <code className="text-[11px] break-all block leading-relaxed text-muted-foreground">{hostedUrl}</code>
+                          <code className="text-[12.5px] break-all block leading-relaxed text-muted-foreground">{hostedUrl}</code>
                         </div>
                       )}
                     </div>

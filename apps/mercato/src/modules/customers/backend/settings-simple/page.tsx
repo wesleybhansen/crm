@@ -719,7 +719,7 @@ export default function SimpleSettingsPage() {
             <div key={invite.id} className="flex items-center justify-between px-4 py-3 bg-muted/30">
               <div className="min-w-0">
                 <p className="text-sm text-muted-foreground truncate">{invite.email}</p>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[12px] text-muted-foreground">
                   Invited as {invite.role} · expires {new Date(invite.expires_at).toLocaleDateString()}
                 </p>
               </div>
@@ -748,12 +748,12 @@ export default function SimpleSettingsPage() {
         </h2>
         <div className="rounded-lg border divide-y">
           <div className="px-4 py-3">
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Assistant Name</label>
+            <label className="text-[12.5px] font-medium text-foreground/80 block mb-1.5">Assistant Name</label>
             <Input value={aiPersonaName} onChange={e => setAiPersonaName(e.target.value)}
               placeholder="e.g. Scout, Atlas, Sage" className="h-9 text-sm" />
           </div>
           <div className="px-4 py-3">
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-2">Communication Style</label>
+            <label className="text-[12.5px] font-medium text-foreground/80 block mb-2">Communication Style</label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {[
                 { id: 'professional', label: 'Professional & Direct', icon: Briefcase, desc: 'Sharp, efficient, data-driven' },
@@ -765,21 +765,21 @@ export default function SimpleSettingsPage() {
                     aiPersonaStyle === ps.id ? 'selected-card' : 'hover:bg-muted/50 text-foreground/70 hover:text-foreground'
                   }`}>
                   <ps.icon className={`size-4 ${aiPersonaStyle === ps.id ? 'text-accent' : 'text-muted-foreground/60'}`} />
-                  <span className={`text-[11px] font-medium leading-tight ${aiPersonaStyle === ps.id ? 'text-foreground' : ''}`}>{ps.label}</span>
-                  <span className="text-[10px] text-muted-foreground leading-tight">{ps.desc}</span>
+                  <span className={`text-[12.5px] font-medium leading-tight ${aiPersonaStyle === ps.id ? 'text-foreground' : ''}`}>{ps.label}</span>
+                  <span className="text-[12px] text-muted-foreground leading-tight">{ps.desc}</span>
                 </button>
               ))}
             </div>
           </div>
           <div className="px-4 py-3">
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Custom Instructions <span className="normal-case font-normal">(optional)</span></label>
+            <label className="text-[12.5px] font-medium text-foreground/80 block mb-1.5">Custom Instructions <span className="normal-case font-normal">(optional)</span></label>
             <textarea value={aiCustomInstructions} onChange={e => setAiCustomInstructions(e.target.value)}
               placeholder='e.g. "Never use exclamation marks", "Always mention our money-back guarantee"'
               className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20 mb-2" />
           </div>
           {/* Preview */}
           <div className="px-4 py-3 bg-muted/30">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-2">Preview</p>
+            <p className="text-[12px] text-foreground/80 font-medium mb-2">Preview</p>
             <div className="flex items-start gap-2">
               <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center shrink-0 mt-0.5">
                 <Sparkles className="size-3 text-accent" />
@@ -829,7 +829,7 @@ export default function SimpleSettingsPage() {
                 <Kanban className={`size-4 shrink-0 ${pipelineMode === 'deals' ? 'text-accent' : 'text-muted-foreground/60'}`} />
                 <div>
                   <span className={`text-xs font-medium ${pipelineMode === 'deals' ? 'text-foreground' : ''}`}>Deals (B2B)</span>
-                  <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">Track deals through stages</p>
+                  <p className="text-[12px] text-muted-foreground leading-tight mt-0.5">Track deals through stages</p>
                 </div>
               </button>
               <button type="button" onClick={() => savePipelineMode('journey')}
@@ -840,11 +840,11 @@ export default function SimpleSettingsPage() {
                 <UsersIcon className={`size-4 shrink-0 ${pipelineMode === 'journey' ? 'text-accent' : 'text-muted-foreground/60'}`} />
                 <div>
                   <span className={`text-xs font-medium ${pipelineMode === 'journey' ? 'text-foreground' : ''}`}>Journey (B2C)</span>
-                  <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">Track contacts by lifecycle</p>
+                  <p className="text-[12px] text-muted-foreground leading-tight mt-0.5">Track contacts by lifecycle</p>
                 </div>
               </button>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-2">Switching modes does not delete any data. Your existing deals will be hidden in journey mode and vice versa.</p>
+            <p className="text-[12px] text-muted-foreground mt-2">Switching modes does not delete any data. Your existing deals will be hidden in journey mode and vice versa.</p>
           </div>
           {/* Pipeline Stages Editor */}
           <div className="px-4 py-3">
@@ -858,7 +858,7 @@ export default function SimpleSettingsPage() {
             <div className="space-y-1.5 mb-3">
               {pipelineStages.map((stage, index) => (
                 <div key={index} className="flex items-center gap-1.5 group">
-                  <span className="text-[10px] text-muted-foreground w-4 text-right shrink-0">{index + 1}</span>
+                  <span className="text-[12px] text-muted-foreground w-4 text-right shrink-0">{index + 1}</span>
                   {editingStageIndex === index ? (
                     <div className="flex items-center gap-1.5 flex-1 min-w-0">
                       <Input
@@ -1090,7 +1090,7 @@ export default function SimpleSettingsPage() {
                 </div>
                 {espProvider === 'mailgun' && (
                   <div>
-                    <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1">Sending Domain</label>
+                    <label className="text-[12.5px] font-medium text-foreground/80 block mb-1">Sending Domain</label>
                     <Input value={espDomain} onChange={e => setEspDomain(e.target.value)}
                       placeholder="e.g. mail.example.com" className="h-8 text-xs max-w-md" />
                   </div>
@@ -1162,12 +1162,12 @@ export default function SimpleSettingsPage() {
               ))}
               <div className="flex gap-2 items-end mt-2">
                 <div className="flex-1">
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-0.5">Display Name</label>
+                  <label className="text-[12px] font-medium text-muted-foreground block mb-0.5">Display Name</label>
                   <Input value={newSenderName} onChange={e => setNewSenderName(e.target.value)}
                     placeholder="e.g. Your Business" className="h-8 text-xs" />
                 </div>
                 <div className="flex-1">
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-0.5">Email Address</label>
+                  <label className="text-[12px] font-medium text-muted-foreground block mb-0.5">Email Address</label>
                   <Input value={newSenderEmail} onChange={e => setNewSenderEmail(e.target.value)}
                     type="email" placeholder={`e.g. hello@${espConnection.sending_domain || 'yourdomain.com'}`}
                     className="h-8 text-xs" />
@@ -1201,7 +1201,7 @@ export default function SimpleSettingsPage() {
                 </Button>
               </div>
               {senderFeedback && (
-                <p className={`text-[11px] mt-1.5 ${senderFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
+                <p className={`text-[12.5px] mt-1.5 ${senderFeedback.type === 'success' ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
                   {senderFeedback.text}
                 </p>
               )}
@@ -1270,7 +1270,7 @@ export default function SimpleSettingsPage() {
           )}
           {/* Terms & Conditions URL */}
           <div className="px-4 py-3">
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Terms & Conditions URL</label>
+            <label className="text-[12.5px] font-medium text-foreground/80 block mb-1.5">Terms & Conditions URL</label>
             <p className="text-xs text-muted-foreground mb-2">If set, customers must agree to your terms before completing payment</p>
             <div className="flex gap-2">
               <Input value={termsUrl} onChange={e => setTermsUrl(e.target.value)}
@@ -1323,7 +1323,7 @@ export default function SimpleSettingsPage() {
               <p className="text-xs text-muted-foreground">Add your own API keys. These are used as fallback when the platform AI cap is reached, and for voice assistant TTS.</p>
             </div>
             <div>
-              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1">Google Gemini API Key</label>
+              <label className="text-[12.5px] font-medium text-foreground/80 block mb-1">Google Gemini API Key</label>
               <div className="flex gap-2">
                 <Input value={byokKey} onChange={e => setByokKey(e.target.value)}
                   type="password" placeholder={aiUsage?.hasUserKey ? '••••••••••••••••' : 'AIza...'}
@@ -1344,10 +1344,10 @@ export default function SimpleSettingsPage() {
                   {savingKey ? 'Saving...' : 'Save'}
                 </Button>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1">Used for AI assistant, email drafts, landing page generation. Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="underline">aistudio.google.com</a></p>
+              <p className="text-[12px] text-muted-foreground mt-1">Used for AI assistant, email drafts, landing page generation. Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="underline">aistudio.google.com</a></p>
             </div>
             <div>
-              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1">OpenAI API Key</label>
+              <label className="text-[12.5px] font-medium text-foreground/80 block mb-1">OpenAI API Key</label>
               <div className="flex gap-2">
                 <Input id="openai-key-input" type="password" placeholder="sk-..."
                   className="h-8 text-sm flex-1" />
@@ -1367,7 +1367,7 @@ export default function SimpleSettingsPage() {
                   {savingKey ? 'Saving...' : 'Save'}
                 </Button>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1">Used for voice assistant TTS. Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" className="underline">platform.openai.com</a></p>
+              <p className="text-[12px] text-muted-foreground mt-1">Used for voice assistant TTS. Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" className="underline">platform.openai.com</a></p>
             </div>
           </div>
         </div>
@@ -1377,7 +1377,7 @@ export default function SimpleSettingsPage() {
       <section className="mb-8">
         <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
           <BookOpen className="size-4 text-muted-foreground" /> Knowledge Base Connection
-          {pkbConnected && <span className="text-[10px] font-medium text-[#047857] dark:text-[#34d399] ml-2">Connected</span>}
+          {pkbConnected && <span className="text-[12px] font-medium text-[#047857] dark:text-[#34d399] ml-2">Connected</span>}
         </h2>
         <div className="rounded-lg border p-5">
           <p className="text-xs text-muted-foreground mb-4">Your Knowledge Base connects automatically. CRM pulls your documents into AI course generation and other AI features with no setup. Click below to confirm the connection and see your document count.</p>
@@ -1419,7 +1419,7 @@ export default function SimpleSettingsPage() {
       <section className="mb-8">
         <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
           <Key className="size-4 text-muted-foreground" /> AMS Integration
-          {amsKeyExists && !amsKeySecret && <span className="text-[10px] font-medium text-[#047857] dark:text-[#34d399] ml-2">Key Generated</span>}
+          {amsKeyExists && !amsKeySecret && <span className="text-[12px] font-medium text-[#047857] dark:text-[#34d399] ml-2">Key Generated</span>}
         </h2>
         <div className="rounded-lg border p-5 space-y-4">
           <p className="text-xs text-muted-foreground">Generate an API key that allows the Automatic Marketing System (AMS) to connect to your CRM and sync contacts, send emails, and publish landing pages.</p>
@@ -1428,7 +1428,7 @@ export default function SimpleSettingsPage() {
           {amsKeySecret && (
             <div className="rounded-md border bg-muted/40 p-4 space-y-3">
               <p className="text-xs font-medium text-foreground">Your AMS API Key — copy this now</p>
-              <p className="text-[11px] text-[#b45309] dark:text-[#fbbf24]">This key will only be shown once. Copy it before leaving this page.</p>
+              <p className="text-[12.5px] text-[#b45309] dark:text-[#fbbf24]">This key will only be shown once. Copy it before leaving this page.</p>
               <div className="flex items-center gap-2">
                 <code className="text-xs font-mono break-all flex-1 bg-background border rounded px-2 py-1.5">{amsKeySecret}</code>
                 <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => {
@@ -1481,7 +1481,7 @@ export default function SimpleSettingsPage() {
             {amsKeyGenerating ? 'Generating...' : amsKeyExists ? 'Regenerate Key' : 'Generate API Key'}
           </Button>
           {amsKeyExists && !amsKeySecret && (
-            <p className="text-[11px] text-muted-foreground">A key has already been generated. Regenerating will invalidate the previous key — you will need to update it in AMS.</p>
+            <p className="text-[12.5px] text-muted-foreground">A key has already been generated. Regenerating will invalidate the previous key — you will need to update it in AMS.</p>
           )}
 
           {/* Step-by-step instructions */}

@@ -36,12 +36,12 @@ function StatCard({
 }) {
   return (
     <div className="rounded-lg border px-4 py-3">
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground uppercase tracking-wider font-medium mb-1">
+      <div className="flex items-center gap-1.5 text-[12.5px] text-foreground/80 font-medium mb-1">
         <Icon className="size-3.5 shrink-0" />
         <span className="truncate">{label}</span>
       </div>
       <p className="text-2xl font-semibold leading-none tabular-nums">{value}</p>
-      <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-3 mt-2 text-[12.5px] text-muted-foreground">
         <span className="flex items-center gap-1"><Mail className="size-3" /> {email}</span>
         <span className="flex items-center gap-1"><MessageSquare className="size-3" /> {sms}</span>
         <span className="flex items-center gap-1"><Globe className="size-3" /> {chat ?? 0}</span>
@@ -105,13 +105,13 @@ function CustomerServiceStats() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* Flag rate + top reasons */}
         <div className="rounded-lg border px-4 py-3">
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground uppercase tracking-wider font-medium mb-1">
+          <div className="flex items-center gap-1.5 text-[12.5px] text-foreground/80 font-medium mb-1">
             <Flag className="size-3.5 shrink-0" />
             <span className="truncate">Flag rate ({days}d)</span>
           </div>
           <div className="flex items-baseline gap-2">
             <p className="text-2xl font-semibold leading-none tabular-nums">{flagRate}%</p>
-            <span className="text-[11px] text-muted-foreground">{flaggedPeriod} of {drafted} drafted</span>
+            <span className="text-[12.5px] text-muted-foreground">{flaggedPeriod} of {drafted} drafted</span>
           </div>
           {topReasons.length > 0 ? (
             <div className="mt-2.5 space-y-1.5">
@@ -123,7 +123,7 @@ function CustomerServiceStats() {
               ))}
             </div>
           ) : (
-            <p className="mt-2.5 text-[11px] text-muted-foreground">No flagged messages in this period.</p>
+            <p className="mt-2.5 text-[12.5px] text-muted-foreground">No flagged messages in this period.</p>
           )}
           {avgFirstDraft !== null && (
             <div className="mt-3 pt-3 border-t flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -136,8 +136,8 @@ function CustomerServiceStats() {
         {/* Week-over-week trend: drafted vs sent, last 8 weeks. */}
         <div className="rounded-lg border px-4 py-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Last 8 weeks</span>
-            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="text-[12.5px] text-foreground/80 font-medium">Last 8 weeks</span>
+            <div className="flex items-center gap-3 text-[12.5px] text-muted-foreground">
               <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-sm bg-primary/40" /> Drafted</span>
               <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-sm bg-primary" /> Sent</span>
             </div>
@@ -153,7 +153,7 @@ function CustomerServiceStats() {
 // pair of bars (drafted vs sent), scaled to the busiest week in the window.
 function WeeklyTrend({ trend }: { trend: TrendPoint[] }) {
   if (!trend.length) {
-    return <p className="text-[11px] text-muted-foreground">No activity yet.</p>
+    return <p className="text-[12.5px] text-muted-foreground">No activity yet.</p>
   }
   const max = Math.max(1, ...trend.map(t => t.drafted), ...trend.map(t => t.sent))
   return (
@@ -174,7 +174,7 @@ function WeeklyTrend({ trend }: { trend: TrendPoint[] }) {
               <div className="w-1.5 rounded-sm bg-primary/40" style={{ height: `${draftedH}%`, minHeight: t.drafted > 0 ? '2px' : '0' }} />
               <div className="w-1.5 rounded-sm bg-primary" style={{ height: `${sentH}%`, minHeight: t.sent > 0 ? '2px' : '0' }} />
             </div>
-            <span className="text-[9px] text-muted-foreground tabular-nums truncate w-full text-center">{label}</span>
+            <span className="text-[11px] text-muted-foreground tabular-nums truncate w-full text-center">{label}</span>
           </div>
         )
       })}
@@ -378,7 +378,7 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
               const canExpand = !!fullBody && fullBody.trim().length > (item.lastInboundPreview || '').trim().length
               return (
                 <div className="px-4 py-3 bg-muted/30">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-1.5">They wrote</p>
+                  <p className="text-[12px] text-foreground/80 font-medium mb-1.5">They wrote</p>
                   <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">
                     {isExpanded && canExpand ? fullBody : item.lastInboundPreview}
                   </p>
@@ -398,7 +398,7 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
 
             {/* Editable drafted reply */}
             <div className="px-4 py-3">
-              <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium block mb-1.5">Drafted reply</label>
+              <label className="text-[12px] text-foreground/80 font-medium block mb-1.5">Drafted reply</label>
               <textarea
                 value={drafts[item.id] ?? ''}
                 onChange={e => setDrafts(prev => ({ ...prev, [item.id]: e.target.value }))}
