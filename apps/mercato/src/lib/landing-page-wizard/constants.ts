@@ -634,6 +634,9 @@ export const BASE_CRAFT_RULES = `- No generic filler. Every sentence must be spe
 - CTAs must name the specific thing the reader gets (e.g., "Get the 12-point checklist", "Book my 30-minute audit"). Never use generic CTAs like "Get started", "Learn more", or "Submit".
 - Headlines must be benefit-driven — lead with what the reader gains.
 - CTAs must be action-oriented. First-person preferred ("Get my..." not "Get your...").
+- Never use em dashes anywhere. Use periods, commas, or restructure.
+- Read-aloud test: if a line would sound off spoken to a customer's face, rewrite it.
+- Vary sentence length. A short sentence after two long ones lands harder.
 - Match the requested tone throughout all copy.`
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { BASE_CRAFT_RULES } from '@/lib/landing-page-wizard/constants'
+import { loadPageWithHistory, historyPromptBlock, appendRevision } from '@/lib/landing-page-wizard/revision-history'
 import type {
   GeneratedSection,
   BusinessContext,
@@ -15,6 +16,9 @@ interface RefineSectionRequestBody {
   section: GeneratedSection
   instruction: string
   businessContext: BusinessContext
+  /* When provided, prior feedback is injected into the prompt and this
+   * instruction is persisted to the page's revision history. */
+  pageId?: string
 }
 
 export async function POST(req: Request) {
@@ -32,7 +36,7 @@ export async function POST(req: Request) {
     }
 
     const body: RefineSectionRequestBody = await req.json()
-    const { section, instruction, businessContext } = body
+    const { section, instruction, businessContext, pageId } = body
 
     if (!section || !instruction || !businessContext) {
       return NextResponse.json(
@@ -50,7 +54,9 @@ export async function POST(req: Request) {
 Apply these copywriting rules to anything you change:
 ${BASE_CRAFT_RULES}`
 
-    const userPrompt = `Here is the current section:
+    const withHistory = pageId ? await loadPageWithHistory(pageId, auth.orgId!) : null
+
+    const userPrompt = `${withHistory ? historyPromptBlock(withHistory.history) : ''}Here is the current section:
 
 ${JSON.stringify(section, null, 2)}
 
@@ -75,6 +81,15 @@ Return the updated section as JSON with the same field structure. Only change wh
 
     // Preserve the section type
     refined.type = section.type
+
+    // Persist the feedback so future revisions know what was already asked.
+    if (withHistory) {
+      await appendRevision(pageId!, auth.orgId!, withHistory.config, {
+        at: new Date().toISOString(),
+        scope: section.type || 'section',
+        instruction: instruction.slice(0, 500),
+      }).catch(() => {})
+    }
 
     return NextResponse.json({
       ok: true,

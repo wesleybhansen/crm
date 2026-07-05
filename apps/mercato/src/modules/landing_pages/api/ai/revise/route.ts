@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { loadPageWithHistory, historyPromptBlock, appendRevision } from '@/lib/landing-page-wizard/revision-history'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json()
-    const { currentHtml, feedback } = body
+    const { currentHtml, feedback, pageId } = body
 
     if (!currentHtml || !feedback) {
       return NextResponse.json({ ok: false, error: 'currentHtml and feedback required' }, { status: 400 })
@@ -37,8 +38,10 @@ export async function POST(req: Request) {
     const bodyContent = bodyMatch ? bodyMatch[1] : currentHtml
     const headSection = headMatch ? headMatch[1] : ''
 
-    const prompt = `You are an expert direct response landing page copywriter. The user wants to revise their page. Make the requested changes thoroughly and completely.
+    const withHistory = pageId ? await loadPageWithHistory(pageId, auth.orgId!) : null
 
+    const prompt = `You are an expert direct response landing page copywriter. The user wants to revise their page. Make the requested changes thoroughly and completely.
+${withHistory ? historyPromptBlock(withHistory.history) : ''}
 USER'S REQUEST: "${feedback}"
 
 COPYWRITING RULES (apply to every line you rewrite — never let an edit drift the page back toward generic copy):
@@ -103,6 +106,14 @@ ${bodyContent}`
     const scriptMatch = currentHtml.match(/<script[\s\S]*<\/script>/gi)
     if (scriptMatch && !html.includes('<script')) {
       html = html.replace('</body>', scriptMatch.join('\n') + '\n</body>')
+    }
+
+    if (withHistory) {
+      await appendRevision(pageId, auth.orgId!, withHistory.config, {
+        at: new Date().toISOString(),
+        scope: 'page',
+        instruction: String(feedback).slice(0, 500),
+      }).catch(() => {})
     }
 
     return NextResponse.json({ ok: true, html })

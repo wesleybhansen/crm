@@ -317,6 +317,60 @@ function baseCSS(): string {
       .lp-nav-inner { height: 56px; }
     }
 
+    /* ============ DESIGN PASS v2 — editorial scale + rhythm ============ */
+    body { font-size: 16.5px; line-height: 1.65; }
+    body::before { display: none; } /* the dotted texture read as noise */
+    ::selection { background: color-mix(in srgb, var(--lp-accent) 22%, transparent); }
+
+    .lp-hero { padding: 72px 0 84px; }
+    .lp-hero h1 { font-size: clamp(38px, 6vw, 58px); line-height: 1.06; letter-spacing: -0.03em; margin-bottom: 20px; }
+    .lp-hero-sub { font-size: 18px; line-height: 1.7; max-width: 540px; }
+    .lp-eyebrow { font-size: 12.5px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+    .lp-section { padding: 92px 0; }
+    .lp-section + .lp-section { border-top: none; } /* rhythm comes from alternating surfaces, not rules */
+    .lp-section-header { margin-bottom: 52px; }
+    .lp-section-header h2 { font-size: clamp(30px, 4.6vw, 42px); letter-spacing: -0.025em; line-height: 1.12; max-width: 640px; margin-left: auto; margin-right: auto; }
+    .lp-section-header p { font-size: 17px; max-width: 520px; margin: 10px auto 0; }
+
+    .lp-btn, .lp-fs { font-size: 16px; padding: 17px 34px; letter-spacing: 0.01em; }
+    .lp-btn:hover, .lp-fs:hover { transform: translateY(-2px); box-shadow: 0 10px 28px color-mix(in srgb, var(--lp-cta) 30%, transparent); }
+
+    .lp-pp-card, .lp-feat-card, .lp-wif-col, .lp-tfc-path, .lp-ba-card { padding: 32px 28px; border-color: color-mix(in srgb, var(--lp-border) 70%, transparent); box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 8px 24px rgba(0,0,0,0.03); }
+    .lp-pp-card h3, .lp-feat-card h3, .lp-step h3 { font-size: 18.5px; letter-spacing: -0.01em; }
+    .lp-pp-card p, .lp-feat-card p, .lp-step p { font-size: 15px; line-height: 1.65; }
+    .lp-feat-num { font-size: 44px; opacity: 0.14; }
+
+    .lp-testi-quote { font-size: clamp(20px, 3vw, 26px); line-height: 1.55; letter-spacing: -0.01em; }
+    .lp-story-body p { font-size: 17.5px; line-height: 1.85; }
+    .lp-offer-list strong { font-size: 16.5px; }
+    .lp-offer-list p { font-size: 15px; }
+    .lp-offer-list li { padding: 20px 0; }
+    .lp-faq-item summary { font-size: 16.5px; padding: 22px 0; }
+    .lp-faq-a { font-size: 15.5px; line-height: 1.75; }
+    .lp-wif-list li { font-size: 15px; padding: 8px 0; }
+    .lp-tfc-path-a p, .lp-tfc-path-b p { font-size: 15px; line-height: 1.75; }
+    .lp-vs-item-name { font-size: 16px; }
+    .lp-vs-item-desc { font-size: 14px; }
+    .lp-vs-price-amount { font-size: clamp(42px, 6vw, 56px); }
+    .lp-price-amount { font-size: clamp(42px, 6vw, 56px); }
+
+    .lp-cta-card { padding: 60px 44px; }
+    .lp-cta-card h2 { font-size: clamp(28px, 4.2vw, 38px); margin-bottom: 12px; }
+    .lp-cta-sub { font-size: 16.5px; }
+    .lp-form-title { font-size: 24px; letter-spacing: -0.015em; }
+    .lp-form-wrap { padding: 38px 34px; }
+    .lp-fi { font-size: 16px; padding: 15px 16px; }
+    .lp-footer { padding: 32px 24px; }
+
+    @media (max-width: 768px) {
+      .lp-hero { padding: 44px 0 56px; }
+      .lp-hero h1 { font-size: clamp(32px, 8.5vw, 40px); }
+      .lp-section { padding: 60px 0; }
+      .lp-section-header { margin-bottom: 34px; }
+      .lp-cta-card { padding: 42px 26px; }
+    }
+
     /* ============ RESPONSIVE — SMALL MOBILE (≤480px) ============ */
     @media (max-width: 480px) {
       .lp-container, .lp-wide { padding: 0 16px; }
@@ -851,8 +905,18 @@ export function assemblePage(options: AssembleOptions): string {
   const heroFormContent = formInHero ? heroFormCard(formFields) : ''
   const heroHtml = buildHero(heroSection, options, heroFormContent)
 
-  // Render remaining sections (skip hero — we built it above)
-  const otherSections = sections.filter(s => s.type !== 'hero')
+  // Render remaining sections (skip hero — we built it above). Sections whose
+  // item lists came back empty (e.g. testimonials when the user gave no social
+  // proof) are dropped instead of rendering hollow shells.
+  const otherSections = sections.filter(s => s.type !== 'hero').filter(s => {
+    const anyS = s as Record<string, any>
+    const lists = [anyS.items, anyS.faqItems, anyS.valueItems, anyS.forItems]
+    const declaredEmpty = lists.some(l => Array.isArray(l) && l.length === 0)
+    const hasAnyContent = lists.some(l => Array.isArray(l) && l.length > 0)
+      || [anyS.body, anyS.subtitle, anyS.inactionText, anyS.actionText, anyS.price]
+        .some(v => typeof v === 'string' && v.trim().length > 0)
+    return hasAnyContent || !declaredEmpty
+  })
   const sectionsHtml = otherSections.map((s, i) => renderSection(s, i + 1)).join('\n')
 
   // Extract CTA text from hero for the bottom form button

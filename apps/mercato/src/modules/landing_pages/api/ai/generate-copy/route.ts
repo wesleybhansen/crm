@@ -192,7 +192,9 @@ The user's price is ${price}. Match the copy tone to this price point: $47 = cas
 ${offerRules}
 - Every headline should pass the "so what?" test — if the reader can say "so what?" after reading it, rewrite it.
 - Lead with transformation, not features. Features go in the body sections, not headlines.
-- Use power words: "unlock", "eliminate", "transform", "proven", "guaranteed" — but only where they are earned.${priceContext}`
+- No hype vocabulary: never write "unlock", "game-changer", "supercharge", "skyrocket", "revolutionary", or "cutting-edge". Specificity IS the persuasion — a concrete number, timeframe, or named outcome beats any power word.
+- Never use em dashes anywhere in the copy. Use periods, commas, or restructure the sentence.
+- Read-aloud test: every headline and CTA must sound like something a confident human would actually say to a customer.${priceContext}`
 }
 
 export async function POST(req: Request) {

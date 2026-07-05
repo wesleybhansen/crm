@@ -198,6 +198,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
           section: { type: section.type, ...section.fields },
           instruction,
           businessContext: { businessName: title, targetAudience: '', tone: 'professional' },
+          pageId,
         }),
       })
       const data = await res.json()
