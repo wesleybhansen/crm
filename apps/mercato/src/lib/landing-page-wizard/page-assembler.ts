@@ -908,7 +908,7 @@ export function assemblePage(options: AssembleOptions): string {
   // Render remaining sections (skip hero — we built it above). Sections whose
   // item lists came back empty (e.g. testimonials when the user gave no social
   // proof) are dropped instead of rendering hollow shells.
-  const otherSections = sections.filter(s => s.type !== 'hero').filter(s => {
+  const otherSections = sections.filter(s => s && typeof s.type === 'string' && s.type !== 'hero').filter(s => {
     const anyS = s as Record<string, any>
     const lists = [anyS.items, anyS.faqItems, anyS.valueItems, anyS.forItems]
     const declaredEmpty = lists.some(l => Array.isArray(l) && l.length === 0)
