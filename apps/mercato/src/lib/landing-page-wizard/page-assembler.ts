@@ -413,6 +413,7 @@ function formHTML(fields: AssembleOptions['formFields'], title?: string, subtitl
       <p class="lp-form-sub">${esc(formSub)}</p>
       <form id="lp-form">
       ${inputs}
+      <div style="position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden" aria-hidden="true"><label>Company website<input type="text" name="company_website" tabindex="-1" autocomplete="off" /></label></div>
       <button type="submit" class="lp-fs">${esc(btnText)}</button>
       </form>
       <p class="lp-ft"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>Your information is secure.</p>

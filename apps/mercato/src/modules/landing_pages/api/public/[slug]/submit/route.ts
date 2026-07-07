@@ -12,6 +12,25 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+// Per-IP+slug rate limit for this public, unauthenticated endpoint. In-memory
+// (per instance) — the pragmatic guard against form-spam / automation-trigger
+// amplification. Trims opportunistically so the map can't grow unbounded.
+const submitHits = new Map<string, number[]>()
+const WINDOW_MS = 60 * 60 * 1000
+const MAX_PER_WINDOW = 20
+function rateLimited(key: string): boolean {
+  const now = Date.now()
+  const hits = (submitHits.get(key) ?? []).filter((t) => now - t < WINDOW_MS)
+  hits.push(now)
+  submitHits.set(key, hits)
+  if (submitHits.size > 5000) {
+    for (const [k, v] of submitHits) {
+      if (v.every((t) => now - t >= WINDOW_MS)) submitHits.delete(k)
+    }
+  }
+  return hits.length > MAX_PER_WINDOW
+}
+
 export async function POST(req: Request, { params }: { params: { slug: string } }) {
   try {
     const container = await createRequestContainer()
@@ -28,8 +47,32 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
 
     if (!page) return NextResponse.json({ ok: false, error: 'Page not found' }, { status: 404 })
 
+    // Rate limit per IP + slug (public, unauthenticated spam-relay surface).
+    const ip = (req.headers.get('x-forwarded-for') ?? 'unknown').split(',')[0].trim()
+    if (rateLimited(`${ip}:${params.slug}`)) {
+      return NextResponse.json({ ok: false, error: 'Too many submissions. Please try again shortly.' }, { status: 429 })
+    }
+
     const body = await req.json()
     const data = body.data || body
+
+    // Honeypot: forms render a hidden field bots fill in; a value here is a bot.
+    // Return 200 so the bot can't distinguish rejection.
+    if (data._hp || data.company_website || data.honeypot) {
+      return NextResponse.json({ ok: true })
+    }
+
+    // Cap payload shape so a single request can't dump an oversized/huge-field body.
+    if (data && typeof data === 'object') {
+      if (Object.keys(data).length > 40) {
+        return NextResponse.json({ ok: false, error: 'Too many fields.' }, { status: 400 })
+      }
+      for (const v of Object.values(data)) {
+        if (typeof v === 'string' && v.length > 5000) {
+          return NextResponse.json({ ok: false, error: 'A field is too long.' }, { status: 400 })
+        }
+      }
+    }
 
     const form = await knex('landing_page_forms').where('landing_page_id', page.id).first()
     if (!form) return NextResponse.json({ ok: false, error: 'No form configured' }, { status: 400 })
