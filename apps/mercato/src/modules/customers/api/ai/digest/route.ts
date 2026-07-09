@@ -99,7 +99,27 @@ async function gatherDigestData(knex: ReturnType<EntityManager['getKnex']>, orgI
   const lostValue = dealsLost.reduce((sum, d) => sum + Number(d.value_amount || 0), 0)
   const openRate = emailsSent > 0 ? Math.round((emailsOpened / emailsSent) * 100) : 0
 
+  // Weighted forecast for THIS month (T3): open deals expected to close before
+  // month-end, value x probability (unset probability = 50%). Answers "will I
+  // hit my month?" right inside the digest.
+  let forecastThisMonth = { deals: 0, weighted: 0 }
+  try {
+    const [row] = await knex('customer_deals')
+      .where('organization_id', orgId)
+      .where('tenant_id', tenantId)
+      .whereNull('deleted_at')
+      .where('status', 'open')
+      .whereNotNull('expected_close_at')
+      .whereRaw(`expected_close_at < (date_trunc('month', now()) + interval '1 month')`)
+      .select(
+        knex.raw('count(*)::int as deals'),
+        knex.raw('coalesce(sum(value_amount * coalesce(probability, 50) / 100.0), 0)::numeric as weighted'),
+      )
+    if (row) forecastThisMonth = { deals: Number((row as Record<string, unknown>).deals || 0), weighted: Math.round(Number((row as Record<string, unknown>).weighted || 0)) }
+  } catch {}
+
   return {
+    forecastThisMonth,
     periodDays: days,
     newContacts,
     newContactCount: newContacts.length,
@@ -137,6 +157,7 @@ ${data.dealsLost.length > 0 ? data.dealsLost.map(d => `- "${d.title}" — $${d.v
 EMAILS SENT: ${data.emailsSent} | Open Rate: ${data.openRate}%
 LANDING PAGE SUBMISSIONS: ${data.submissionCount}
 REVENUE (Invoices Paid): $${data.revenue.toLocaleString()}
+FORECAST FOR THIS MONTH: ${data.forecastThisMonth.deals > 0 ? `${data.forecastThisMonth.deals} open deal${data.forecastThisMonth.deals !== 1 ? 's' : ''} expected to close, weighted value ~$${data.forecastThisMonth.weighted.toLocaleString()} (deal value x win probability)` : 'No open deals with a close date this month — worth scheduling expected close dates on active deals'}
 
 CONTACTS GOING COLD:
 ${data.coldContacts.length > 0 ? data.coldContacts.map(c => `- ${c.display_name} (score: ${c.score})`).join('\n') : 'None — all contacts are engaged'}

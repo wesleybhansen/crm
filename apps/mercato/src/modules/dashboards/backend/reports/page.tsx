@@ -11,6 +11,17 @@ interface ReportData {
   landingPagePerf: Array<{ title: string; view_count: number; submission_count: number }>
   paymentRevenue: { total: number; thisMonth: number; lastMonth: number }
   bookingStats: { upcoming: number; thisMonth: number }
+  forecast?: Array<{ bucket: string; deals: number; totalValue: number; weightedValue: number }>
+  winLossBySource?: Array<{ source: string; won: number; lost: number; winRate: number; wonValue: number }>
+  salesVelocity?: { avgDaysToWin: number | null; sampled: number }
+}
+
+function forecastLabel(bucket: string): string {
+  if (bucket === 'unscheduled') return 'No close date'
+  if (bucket === 'overdue') return 'Past due'
+  const [y, m] = bucket.split('-').map(Number)
+  if (!y || !m) return bucket
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
 export default function ReportsPage() {
@@ -65,6 +76,39 @@ export default function ReportsPage() {
         <KpiCard icon={Calendar} label="Bookings" value={String(data.bookingStats.thisMonth)}
           sub={`${data.bookingStats.upcoming} upcoming`} accent="purple" />
       </div>
+
+      {/* Revenue Forecast — weighted pipeline by expected-close month */}
+      {(data.forecast?.length || 0) > 0 && (
+        <div className="rounded-xl border p-5 bg-card mb-6">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <BarChart3 className="size-4 text-muted-foreground" /> Revenue Forecast
+            </h2>
+            {data.salesVelocity?.avgDaysToWin != null && (
+              <span className="text-xs text-muted-foreground">
+                Avg time to win: <span className="font-medium text-foreground">{data.salesVelocity.avgDaysToWin} days</span> (last {data.salesVelocity.sampled} won)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">
+            <span>Expected close</span>
+            <div className="flex gap-6"><span>Deals</span><span className="w-20 text-right">Pipeline</span><span className="w-20 text-right">Weighted</span></div>
+          </div>
+          <div className="space-y-1">
+            {data.forecast!.map((f, i) => (
+              <div key={i} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-muted/30 transition">
+                <span className={`text-xs font-medium ${f.bucket === 'overdue' ? 'text-[#b45309] dark:text-[#fbbf24]' : ''}`}>{forecastLabel(f.bucket)}</span>
+                <div className="flex gap-6 text-xs tabular-nums shrink-0">
+                  <span className="text-muted-foreground w-10 text-right">{f.deals}</span>
+                  <span className="text-muted-foreground w-20 text-right">${Math.round(f.totalValue).toLocaleString()}</span>
+                  <span className="font-semibold w-20 text-right">${Math.round(f.weightedValue).toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground/70 mt-3">Weighted = deal value x win probability (deals without a probability count at 50%). Set close dates and probabilities on deals to sharpen this.</p>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Pipeline by Stage */}
@@ -135,6 +179,32 @@ export default function ReportsPage() {
             </div>
           </div>
         </div>
+
+        {/* Win/Loss by Source — where good deals actually come from */}
+        {(data.winLossBySource?.length || 0) > 0 && (
+          <div className="rounded-xl border p-5 bg-card">
+            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
+              <ArrowUpRight className="size-4 text-muted-foreground" /> Win Rate by Source <span className="font-normal text-muted-foreground">(90 days)</span>
+            </h2>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">
+              <span>Source</span>
+              <div className="flex gap-5"><span>W</span><span>L</span><span className="w-12 text-right">Rate</span><span className="w-16 text-right">Won $</span></div>
+            </div>
+            <div className="space-y-1">
+              {data.winLossBySource!.map((s, i) => (
+                <div key={i} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-muted/30 transition">
+                  <span className="text-xs font-medium capitalize truncate flex-1 mr-3">{s.source.replace(/_/g, ' ')}</span>
+                  <div className="flex gap-5 text-xs tabular-nums shrink-0">
+                    <span className="text-[#047857] dark:text-[#34d399] w-4 text-right">{s.won}</span>
+                    <span className="text-[#b91c1c] dark:text-[#f87171] w-4 text-right">{s.lost}</span>
+                    <span className="font-semibold w-12 text-right">{s.winRate}%</span>
+                    <span className="text-muted-foreground w-16 text-right">${Math.round(s.wonValue).toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Landing Page Performance */}
         <div className="rounded-xl border p-5 bg-card">
