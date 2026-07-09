@@ -290,6 +290,7 @@ export async function POST(req: Request) {
               contactId,
               signature: settings.signature || null,
               flagScenarios: drafterScenarios,
+              criticGate: true,
             })
 
             void meterCustomersAi({ orgId }, {
@@ -558,6 +559,7 @@ async function handleSmsConversation(
     contactId,
     signature: null,
     flagScenarios: drafterScenarios,
+    criticGate: true,
   })
 
   void meterCustomersAi({ orgId }, {

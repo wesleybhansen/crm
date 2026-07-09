@@ -242,6 +242,7 @@ export async function handleCsChatMessage(
     // greeting/sign-off block, so pass NO signature.
     signature: null,
     flagScenarios: drafterScenarios,
+    criticGate: true,
   })
 
   void meterCustomersAi({ orgId }, {

@@ -134,6 +134,58 @@ export async function POST(
       .where('organization_id', auth.orgId)
       .update({ status: 'accepted', reviewed_by_user_id: auth.sub || null, reviewed_at: now, updated_at: now })
 
+    // Learning loop: a human EDITING a draft before sending is the strongest
+    // correction signal we get. Capture the corrected reply as a model answer
+    // so the drafter's grounding improves — approved-as-is drafts are skipped
+    // (the AI was already right; storing them would only bloat the library).
+    // Best-effort: never let this fail the send response.
+    try {
+      const originalBody = (payload.body || '').toString()
+      const changed = editedBody !== undefined
+        && editedBody.trim().length > 0
+        && originalBody.trim().length > 0
+        && editedBody.replace(/\s+/g, ' ').trim() !== originalBody.replace(/\s+/g, ' ').trim()
+      if (changed) {
+        const title = `Approved reply: ${(subject || 'customer inquiry').replace(/^re:\s*/i, '').slice(0, 120)}`
+        const content = bodyText.slice(0, 6000)
+        const duplicate = await knex('customer_service_knowledge')
+          .where('organization_id', auth.orgId)
+          .where('kind', 'model_answer')
+          .where('content', content)
+          .first()
+        if (!duplicate) {
+          await knex('customer_service_knowledge').insert({
+            id: require('crypto').randomUUID(),
+            tenant_id: auth.tenantId,
+            organization_id: auth.orgId,
+            kind: 'model_answer',
+            title,
+            content,
+            is_active: true,
+            created_at: now,
+            updated_at: now,
+          })
+          // Cap the auto-captured set so corrections can't grow unbounded:
+          // keep the newest 50 "Approved reply:" entries, deactivate the rest.
+          const excess = await knex('customer_service_knowledge')
+            .where('organization_id', auth.orgId)
+            .where('kind', 'model_answer')
+            .where('title', 'like', 'Approved reply:%')
+            .where('is_active', true)
+            .orderBy('updated_at', 'desc')
+            .offset(50)
+            .select('id')
+          if (excess.length > 0) {
+            await knex('customer_service_knowledge')
+              .whereIn('id', excess.map((r: { id: string }) => r.id))
+              .update({ is_active: false, updated_at: now })
+          }
+        }
+      }
+    } catch (learnErr) {
+      console.error('[customer-service.approve] learning capture failed (non-fatal):', learnErr)
+    }
+
     const sentVia = channel === 'sms' ? 'sms' : channel === 'chat' ? 'chat' : (sendResult as { sentVia?: string }).sentVia
     return NextResponse.json({ ok: true, data: { id: action.id, status: 'sent', channel, sentVia } })
   } catch (error) {

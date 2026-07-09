@@ -46,6 +46,13 @@ export type DraftReplyInput = {
   // their behavior; the personal Inbox engine passes 'inbox_knowledge' so it
   // grounds on the inbox library instead. Allow-listed below.
   knowledgeTable?: string | null
+  // When true, a draft that self-reports auto_send_safe gets a SECOND,
+  // independent critic call before that signal is trusted. The critic can only
+  // downgrade (never upgrade) the signals, so callers keep reading
+  // confidence/autoSendSafe exactly as before. Auto-sending callers (CS
+  // process, inbox process, chat auto-answer) should pass true; the
+  // interactive "Draft reply" button (human reviews anyway) should not.
+  criticGate?: boolean
 }
 
 // Grounding-library tables the drafter is allowed to read. Both share the same
@@ -95,12 +102,28 @@ export function buildDefaultSignature(businessName?: string | null): string {
 // updated entries first and note that the rest were truncated.
 const KNOWLEDGE_BUDGET_CHARS = 8000
 
+// Minimal stopword set for relevance scoring — enough to stop "the/and/for"
+// dominating overlap counts without pulling in a dependency.
+const STOPWORDS = new Set(['the', 'and', 'for', 'you', 'your', 'our', 'are', 'was', 'were', 'has', 'have', 'had', 'this', 'that', 'with', 'from', 'they', 'them', 'their', 'will', 'would', 'could', 'should', 'can', 'not', 'but', 'all', 'any', 'get', 'got', 'about', 'what', 'when', 'where', 'how', 'why', 'who', 'does', 'did', 'been', 'being', 'its', "it's", 'into', 'out', 'just', 'than', 'then', 'there', 'here', 'please', 'thanks', 'thank', 'hello', 'regards'])
+
+function relevanceTokens(text: string): string[] {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t))
+}
+
 /**
  * Load the org's active Customer Service grounding library (model answers +
- * reference documents) and render it into prompt sections. Newest entries are
- * preferred when over the budget. Returns '' when the org has no entries.
+ * reference documents) and render it into prompt sections. Entries are
+ * RELEVANCE-RANKED against the inbound message (title hits weigh 3x content
+ * hits; recency breaks ties), then the budget is filled by rank — replacing
+ * the old newest-first-and-truncate behavior, which silently dropped the
+ * relevant entry once a library grew past the budget. Returns '' when the org
+ * has no entries.
  */
-async function buildKnowledgeSection(knex: Knex, orgId: string, knowledgeTable?: string | null): Promise<string> {
+async function buildKnowledgeSection(knex: Knex, orgId: string, knowledgeTable?: string | null, inboundText?: string | null): Promise<string> {
   // Validate against the allow-list; fall back to the CS library for any
   // unrecognized value so a bad caller can never read an unintended table.
   const table = knowledgeTable && ALLOWED_KNOWLEDGE_TABLES.has(knowledgeTable)
@@ -118,6 +141,27 @@ async function buildKnowledgeSection(knex: Knex, orgId: string, knowledgeTable?:
     return ''
   }
   if (!rows.length) return ''
+
+  // Rank by lexical relevance to the inbound message when we have one. The
+  // rows arrive newest-first, so a stable sort keeps recency as the tiebreak.
+  const queryTokens = new Set(relevanceTokens(inboundText || ''))
+  if (queryTokens.size > 0) {
+    const scored = rows.map((row, idx) => {
+      const titleTokens = relevanceTokens((row.title || '').toString())
+      const contentTokens = relevanceTokens((row.content || '').toString().slice(0, 4000))
+      let score = 0
+      const seen = new Set<string>()
+      for (const t of titleTokens) {
+        if (queryTokens.has(t) && !seen.has(`t:${t}`)) { score += 3; seen.add(`t:${t}`) }
+      }
+      for (const t of contentTokens) {
+        if (queryTokens.has(t) && !seen.has(`c:${t}`)) { score += 1; seen.add(`c:${t}`) }
+      }
+      return { row, score, idx }
+    })
+    scored.sort((a, b) => (b.score - a.score) || (a.idx - b.idx))
+    rows = scored.map((s) => s.row)
+  }
 
   const modelAnswers: string[] = []
   const documents: string[] = []
@@ -154,7 +198,7 @@ async function buildKnowledgeSection(knex: Knex, orgId: string, knowledgeTable?:
   }
   if (!parts.length) return ''
   if (truncated) {
-    parts.push('(Some grounding entries were omitted to stay within the prompt budget. The most recently updated entries are shown.)')
+    parts.push('(Some grounding entries were omitted to stay within the prompt budget. The entries most relevant to this inquiry are shown.)')
   }
   return parts.join('\n\n')
 }
@@ -177,12 +221,66 @@ async function buildContactInfo(knex: Knex, orgId: string, contactId?: string | 
  * Generate a reply draft grounded in the org's inbox AI settings + brand voice.
  * Returns the draft body (no subject line) plus token usage for metering.
  */
+/**
+ * Independent critic pass for the auto-send gate. Reviews the draft against
+ * the inbound message and grounding with fresh eyes — the drafter grading its
+ * own work was the only auto-send gate before this. Returns approve=false on
+ * ANY doubt (fails closed, including on API errors) plus token usage so the
+ * caller's metering stays accurate.
+ */
+async function criticReviewDraft(
+  apiKey: string,
+  args: { channel: string; inbound: string; draft: string; knowledgeSection: string },
+): Promise<{ approve: boolean; tokensIn: number; tokensOut: number }> {
+  try {
+    const prompt = `You are a strict quality reviewer for a business's automated ${args.channel} replies. A draft reply is about to be sent to a real customer WITHOUT human review. Your job is to catch anything wrong before it ships. You did not write this draft; judge it fresh.
+
+CUSTOMER'S MESSAGE:
+${args.inbound.slice(0, 6000)}
+
+DRAFT REPLY:
+${args.draft.slice(0, 6000)}
+
+${args.knowledgeSection ? `BUSINESS KNOWLEDGE THE REPLY SHOULD BE GROUNDED IN:\n${args.knowledgeSection.slice(0, 4000)}\n` : ''}
+Reject (approve=false) if ANY of these hold:
+- The draft answers a different question than the customer asked, or skips one of their questions
+- The draft states a fact, price, policy, date, or commitment NOT supported by the knowledge above
+- The topic is sensitive: refund, cancellation, complaint, legal, billing dispute, an upset customer
+- The draft makes a promise on the business's behalf (callbacks, discounts, exceptions)
+- The tone is off, robotic, or could embarrass the business
+- You have any other doubt — when unsure, reject; a human will review it instead
+
+Respond with ONLY JSON: {"approve": true|false, "reason": "one short sentence"}`
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${DRAFT_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 200, temperature: 0, responseMimeType: 'application/json' },
+        }),
+      },
+    )
+    const data = await res.json()
+    const tokensIn = data?.usageMetadata?.promptTokenCount || 0
+    const tokensOut = data?.usageMetadata?.candidatesTokenCount || 0
+    const raw: string | undefined = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    if (!raw) return { approve: false, tokensIn, tokensOut }
+    const parsed = tryParseEnvelope(raw) as { approve?: unknown } | null
+    return { approve: parsed?.approve === true, tokensIn, tokensOut }
+  } catch {
+    return { approve: false, tokensIn: 0, tokensOut: 0 }
+  }
+}
+
 export async function generateReplyDraft(
   knex: Knex,
   apiKey: string,
   input: DraftReplyInput,
 ): Promise<DraftReplyResult> {
-  const { orgId, channel, recentMessages, contactId, signature, flagScenarios, knowledgeTable } = input
+  const { orgId, channel, recentMessages, contactId, signature, flagScenarios, knowledgeTable, criticGate } = input
 
   // Build the flag-scenario instruction block from the enabled scenarios. Keep
   // the ordering the caller gave so "first match wins" stays deterministic.
@@ -239,9 +337,12 @@ Return the matching scenario keys in "matched_scenarios" (an array of the key st
     voiceSection = buildVoicePromptSection(voiceProfile)
   }
 
-  // Load the org's grounding library (model answers + docs). Defaults to the
-  // Customer Service library; the personal Inbox engine passes 'inbox_knowledge'.
-  const knowledgeSection = await buildKnowledgeSection(knex, orgId, knowledgeTable)
+  // Load the org's grounding library (model answers + docs), relevance-ranked
+  // against the latest inbound message. Defaults to the Customer Service
+  // library; the personal Inbox engine passes 'inbox_knowledge'.
+  const latestInbound = [...(recentMessages || [])].reverse().find((m) => m.direction === 'inbound')
+  const latestInboundText = (latestInbound?.bodyText || latestInbound?.body || '').toString().slice(0, 6000)
+  const knowledgeSection = await buildKnowledgeSection(knex, orgId, knowledgeTable, latestInboundText)
 
   const systemPrompt = `You are a helpful AI assistant drafting a reply for a ${channel || 'message'} conversation on behalf of ${businessName || 'a business'}.
 
@@ -361,7 +462,32 @@ Return the JSON object now:` }] }],
     }
   }
 
-  return { ok: true, draft, model: DRAFT_MODEL, tokensIn, tokensOut, confidence, autoSendSafe, matchedScenarios }
+  // Independent critic gate (opt-in, auto-sending callers only): a draft may
+  // only keep its auto_send_safe=true claim if a second reviewer call agrees.
+  // Runs ONLY on the risky path (self-reported safe), can only downgrade, and
+  // fails closed. Critic tokens are folded into the returned usage so caller
+  // metering stays accurate.
+  let totalTokensIn = tokensIn
+  let totalTokensOut = tokensOut
+  if (criticGate && autoSendSafe && draft) {
+    const inbound = [...(recentMessages || [])].reverse().find((m) => m.direction === 'inbound')
+    const critic = await criticReviewDraft(apiKey, {
+      channel: channel || 'message',
+      inbound: (inbound?.bodyText || inbound?.body || '').toString(),
+      draft,
+      knowledgeSection,
+    })
+    totalTokensIn += critic.tokensIn
+    totalTokensOut += critic.tokensOut
+    if (!critic.approve) {
+      autoSendSafe = false
+      // Cap confidence below common hybrid thresholds so borderline configs
+      // also fall back to human review when the critic rejects.
+      confidence = Math.min(confidence, 0.5)
+    }
+  }
+
+  return { ok: true, draft, model: DRAFT_MODEL, tokensIn: totalTokensIn, tokensOut: totalTokensOut, confidence, autoSendSafe, matchedScenarios }
 }
 
 // Best-effort parse of the model's JSON envelope. Strips a ```json fence if the

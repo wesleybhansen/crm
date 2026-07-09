@@ -180,6 +180,7 @@ export async function POST(req: Request) {
               signature: settings.signature || null,
               flagScenarios: drafterScenarios,
               knowledgeTable: 'inbox_knowledge',
+              criticGate: true,
             })
 
             void meterCustomersAi({ orgId }, {
@@ -427,6 +428,7 @@ async function handleSmsConversation(
     signature: null,
     flagScenarios: drafterScenarios,
     knowledgeTable: 'inbox_knowledge',
+    criticGate: true,
   })
 
   void meterCustomersAi({ orgId }, {
