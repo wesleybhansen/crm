@@ -15,6 +15,10 @@ type PaymentCapturedPayload = {
   providerKey?: string | null
   organizationId: string
   tenantId: string
+  // Live Stripe webhook sends these inline (payload-first path)
+  amount?: number | string | null
+  currency?: string | null
+  contactId?: string | null
 }
 
 type ResolverContext = {
@@ -39,19 +43,29 @@ export default async function handle(payload: PaymentCapturedPayload, ctx: Resol
     const em = ctx.resolve<EntityManager>('em')
     const knex = em.getKnex()
 
-    const tx = await knex('gateway_transactions')
-      .where('id', payload.transactionId)
-      .where('organization_id', payload.organizationId)
-      .first()
-    if (!tx) return
+    // Payload-first (live Stripe webhook sends amount/currency inline);
+    // legacy gateway_transactions lookup kept for the old gateway module.
+    let amount: string | number | null | undefined = payload.amount
+    let currency: string | null | undefined = payload.currency
+    let providerFromTx: string | null = null
+    if (amount == null) {
+      const tx = await knex('gateway_transactions')
+        .where('id', payload.transactionId)
+        .where('organization_id', payload.organizationId)
+        .first()
+      if (!tx) return
+      amount = tx.amount
+      currency = tx.currency_code
+      providerFromTx = tx.provider_key ?? null
+    }
 
     const org = await knex('organizations').where('id', payload.organizationId).first()
     const recipientUserId = org?.owner_user_id
       ?? (await knex('users').where('organization_id', payload.organizationId).whereNull('deleted_at').orderBy('created_at', 'asc').first())?.id
     if (!recipientUserId) return
 
-    const amountLabel = formatAmount(tx.amount, tx.currency_code)
-    const providerLabel = payload.providerKey || tx.provider_key || 'Payment gateway'
+    const amountLabel = formatAmount(amount, currency)
+    const providerLabel = payload.providerKey || providerFromTx || 'Payment gateway'
 
     const notificationService = resolveNotificationService(ctx)
     const typeDef = notificationTypes.find((t) => t.type === 'payments.payment.received')

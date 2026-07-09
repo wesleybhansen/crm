@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { X, Send, Sparkles, Loader2, FileText, Mail, AlertTriangle } from 'lucide-react'
+import { X, Send, Sparkles, Loader2, FileText, Mail, AlertTriangle, Clock } from 'lucide-react'
 
 interface EmailConnection {
   id: string
@@ -40,6 +40,45 @@ export function EmailComposeModal({ contactName, contactEmail, contactId, initia
   const [showTemplates, setShowTemplates] = useState(false)
   const [emailConnection, setEmailConnection] = useState<EmailConnection | null>(null)
   const [connectionLoaded, setConnectionLoaded] = useState(false)
+  // Best-send-time (computed from contact_open_times; surfaced here for the
+  // first time — the endpoint previously had zero consumers).
+  const [sendTimeHint, setSendTimeHint] = useState<string | null>(null)
+  // AI subject optimizer (existing endpoint, previously no UI).
+  const [optimizing, setOptimizing] = useState(false)
+  const [subjectAlternatives, setSubjectAlternatives] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!contactId) return
+    fetch(`/api/email/send-time?contactId=${encodeURIComponent(contactId)}`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => {
+        const rec = d?.data?.recommendation
+        if (d?.ok && typeof rec === 'string' && rec && !rec.startsWith('No open data')) setSendTimeHint(rec)
+      })
+      .catch(() => {})
+  }, [contactId])
+
+  const optimizeSubject = async () => {
+    if (!subject.trim() || optimizing) return
+    setOptimizing(true)
+    setSubjectAlternatives([])
+    try {
+      const res = await fetch('/api/ai/optimize-subject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ subject }),
+      })
+      const d = await res.json()
+      if (d?.ok && Array.isArray(d.alternatives) && d.alternatives.length > 0) {
+        setSubjectAlternatives(d.alternatives.filter((a: unknown) => typeof a === 'string').slice(0, 3))
+      }
+    } catch {
+      // best-effort — never block composing
+    } finally {
+      setOptimizing(false)
+    }
+  }
 
   useEffect(() => {
     fetch('/api/response-templates', { credentials: 'include' })
@@ -200,9 +239,40 @@ export function EmailComposeModal({ contactName, contactEmail, contactId, initia
                 <Input value={to} onChange={e => setTo(e.target.value)} className="h-9 text-sm" />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1">Subject</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Subject</label>
+                  <button
+                    type="button"
+                    onClick={optimizeSubject}
+                    disabled={!subject.trim() || optimizing}
+                    className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-40 disabled:no-underline"
+                    title="AI-optimize this subject line"
+                  >
+                    {optimizing ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                    Optimize
+                  </button>
+                </div>
                 <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Email subject..." className="h-9 text-sm" />
+                {subjectAlternatives.length > 0 && (
+                  <div className="mt-1.5 space-y-1">
+                    {subjectAlternatives.map((alt, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => { setSubject(alt); setSubjectAlternatives([]) }}
+                        className="block w-full text-left text-xs px-2 py-1.5 rounded border bg-muted/40 hover:bg-muted transition-colors"
+                      >
+                        {alt}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+              {sendTimeHint && (
+                <p className="text-[11px] text-muted-foreground -mt-2 inline-flex items-center gap-1">
+                  <Clock className="size-3 shrink-0" /> {sendTimeHint}
+                </p>
+              )}
               <div>
                 <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1">Body</label>
                 <textarea value={body} onChange={e => setBody(e.target.value)}

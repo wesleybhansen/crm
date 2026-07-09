@@ -669,6 +669,15 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
         icon: createElement(Mail, { className: iconClass }),
       },
       {
+        // Sequences were a complete drip product reachable only by direct
+        // URL — unburied as part of the T1 wiring pass.
+        href: '/backend/sequences',
+        title: translate('nav.sequences', 'Sequences'),
+        defaultTitle: 'Sequences',
+        enabled: true,
+        icon: createElement(GitMerge, { className: iconClass }),
+      },
+      {
         href: '/backend/courses',
         title: translate('nav.courses', 'Courses'),
         defaultTitle: 'Courses',

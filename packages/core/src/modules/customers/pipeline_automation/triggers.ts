@@ -113,23 +113,32 @@ export const TRIGGERS: TriggerDefinition[] = [
         return false
       }
       if (f.amountMin !== undefined || f.amountMax !== undefined) {
-        const tx = await knex('gateway_transactions').where('id', payload.transactionId).first('amount')
-        const amount = Number(tx?.amount ?? 0)
+        // Payload-first: the live Stripe webhook sends the amount inline.
+        // Legacy gateway_transactions lookup kept for the old emitter.
+        let amount = Number(payload.amount)
+        if (!Number.isFinite(amount)) {
+          const tx = await knex('gateway_transactions').where('id', payload.transactionId).first('amount')
+          amount = Number(tx?.amount ?? 0)
+        }
         if (f.amountMin !== undefined && amount < f.amountMin) return false
         if (f.amountMax !== undefined && amount > f.amountMax) return false
       }
       return true
     },
     async resolveTargets(payload, targetEntity, { knex, organizationId, tenantId }) {
-      const tx = await knex('gateway_transactions').where('id', payload.transactionId).first('payment_id')
-      if (!tx?.payment_id) return null
-      // Resolve via payments → invoice → contact (best-effort across two payment table shapes)
-      const payment = await knex('payments').where('id', tx.payment_id).first('contact_id', 'invoice_id')
-        .catch(() => null)
-      const contactId = payment?.contact_id
-        ?? (payment?.invoice_id
-          ? (await knex('invoices').where('id', payment.invoice_id).first('contact_id'))?.contact_id
-          : null)
+      // Payload-first: the live Stripe webhook resolves the contact itself.
+      let contactId: string | null = payload.contactId ?? null
+      if (!contactId) {
+        // Legacy path: gateway_transactions → payments → invoice → contact.
+        const tx = await knex('gateway_transactions').where('id', payload.transactionId).first('payment_id')
+        if (!tx?.payment_id) return null
+        const payment = await knex('payments').where('id', tx.payment_id).first('contact_id', 'invoice_id')
+          .catch(() => null)
+        contactId = payment?.contact_id
+          ?? (payment?.invoice_id
+            ? (await knex('invoices').where('id', payment.invoice_id).first('contact_id'))?.contact_id
+            : null)
+      }
       if (!contactId) return null
       if (targetEntity === 'person') return contactId
       return findActiveDealForContact(knex, contactId, organizationId, tenantId)

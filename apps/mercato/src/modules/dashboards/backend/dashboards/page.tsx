@@ -135,6 +135,7 @@ export default function SimpleDashboard() {
 
       {/* Needs Attention */}
       <NeedsAttention />
+      <MeetingPrep />
 
       {/* Action Items */}
       {data?.actionItems && data.actionItems.filter(item => !dismissedItems.has(`${item.type}:${item.title}`)).length > 0 && (
@@ -263,6 +264,66 @@ function StatCard({ icon: Icon, label, value, change, trend, href, color = 'viol
       </div>
       {change && <p className="text-[11px] text-muted-foreground/70 mt-0.5">{change}</p>}
     </a>
+  )
+}
+
+function MeetingPrep() {
+  // Meeting-prep briefs existed only as a cron email — this surfaces them on
+  // the dashboard for meetings in the next 2 hours (day-cached server-side).
+  const [briefs, setBriefs] = useState<Array<{
+    contact: { id: string; displayName: string; email: string; engagementScore?: number }
+    brief: string
+    upcomingEvent: { summary?: string; startTime?: string } | null
+  }>>([])
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/ai/meeting-prep', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.ok && Array.isArray(d.data) && d.data.length) setBriefs(d.data) })
+      .catch(() => {})
+  }, [])
+
+  if (briefs.length === 0) return null
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <Clock className="size-3.5 text-accent" /> Meeting Prep
+      </h2>
+      <div className="space-y-2">
+        {briefs.map(b => {
+          const isOpen = expanded === b.contact.id
+          const startLabel = b.upcomingEvent?.startTime
+            ? new Date(b.upcomingEvent.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+            : null
+          return (
+            <div key={b.contact.id} className="rounded-xl border bg-card px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setExpanded(isOpen ? null : b.contact.id)}
+                className="w-full flex items-center gap-3 text-left"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {b.upcomingEvent?.summary || 'Upcoming meeting'} — {b.contact.displayName}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {startLabel ? `${startLabel} · ` : ''}{b.contact.email}
+                  </p>
+                </div>
+                <span className="text-xs text-accent font-medium shrink-0">{isOpen ? 'Hide brief' : 'View brief'}</span>
+              </button>
+              {isOpen && (
+                <div className="mt-3 pt-3 border-t text-sm text-muted-foreground whitespace-pre-wrap">
+                  {b.brief}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 

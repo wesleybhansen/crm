@@ -79,8 +79,9 @@ export async function POST(req: Request) {
       }
 
       // Record the payment
+      const paymentRecordId = require('crypto').randomUUID()
       await knex('payment_records').insert({
-        id: require('crypto').randomUUID(),
+        id: paymentRecordId,
         tenant_id: tenantId,
         organization_id: orgId,
         invoice_id: meta.invoiceId || null,
@@ -119,6 +120,7 @@ export async function POST(req: Request) {
       }
 
       // Auto-create contact from customer email and link to payment record
+      let resolvedContactId: string | null = null
       if (customerEmail && orgId) {
         let contactEntity = await knex('customer_entities')
           .where('primary_email', customerEmail)
@@ -152,6 +154,7 @@ export async function POST(req: Request) {
 
         // Link the payment record to the contact
         if (contactEntity?.id) {
+          resolvedContactId = contactEntity.id
           await knex('payment_records')
             .where('stripe_checkout_session_id', session.id)
             .where('organization_id', orgId)
@@ -189,6 +192,33 @@ export async function POST(req: Request) {
             }
           } catch {}
         }
+      }
+
+      // SPEC-064 money wire: emit the payment-captured event from the LIVE
+      // Stripe path. The pipeline-automation trigger ("Payment received" →
+      // e.g. move deal to Won) and the payment notification both subscribe to
+      // this event but historically only the idle legacy payment_gateways
+      // module emitted it — so real payments never fired them. Payload is
+      // payload-first (amount/contactId inline) with the legacy transactionId
+      // key kept for consumer compatibility. Non-fatal: a bus failure must
+      // never make Stripe retry a recorded payment.
+      try {
+        const bus = container.resolve('eventBus') as { emitEvent?: (name: string, payload: unknown) => Promise<void> }
+        if (bus?.emitEvent) {
+          await bus.emitEvent('payment_gateways.payment.captured', {
+            transactionId: paymentRecordId,
+            paymentRecordId,
+            providerKey: 'stripe',
+            invoiceId: meta.invoiceId || null,
+            contactId: resolvedContactId,
+            amount: (session.amount_total || 0) / 100,
+            currency: session.currency || 'usd',
+            organizationId: orgId,
+            tenantId,
+          })
+        }
+      } catch (busErr) {
+        console.error('[stripe.webhook] payment.captured emit failed (non-fatal):', busErr)
       }
 
       // Auto-send payment receipt email

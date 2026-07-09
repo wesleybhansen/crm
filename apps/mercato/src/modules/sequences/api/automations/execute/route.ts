@@ -38,10 +38,23 @@ export async function POST(req: Request) {
       try {
         switch (auto.action_type) {
           case 'send_email': {
-            // Send an email to the deal's contact
+            // Send an email to the deal's contact via the org's configured
+            // provider (ESP/Gmail/etc.) — the same router every other send
+            // path uses. Previously this only inserted a 'queued' row that
+            // nothing ever sent.
             if (contactId) {
-              const contact = await knex('customer_entities').where('id', contactId).first()
+              const contact = await knex('customer_entities').where('id', contactId)
+                .where('organization_id', auth.orgId).first()
               if (contact?.primary_email) {
+                const subject = config.subject || `Update on your ${newStage}`
+                const htmlBody = config.body || `<p>Hi ${(contact.display_name || '').split(' ')[0] || 'there'},</p><p>Just wanted to let you know your status has been updated.</p>`
+                const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')
+                const sendResult = await sendEmailByPurpose(knex, auth.orgId, auth.tenantId!, 'marketing', {
+                  to: contact.primary_email,
+                  subject,
+                  htmlBody,
+                  contactId,
+                })
                 await knex('email_messages').insert({
                   id: require('crypto').randomUUID(),
                   tenant_id: auth.tenantId,
@@ -49,16 +62,19 @@ export async function POST(req: Request) {
                   direction: 'outbound',
                   from_address: process.env.EMAIL_FROM || 'noreply@localhost',
                   to_address: contact.primary_email,
-                  subject: config.subject || `Update on your ${newStage}`,
-                  body_html: config.body || `<p>Hi ${(contact.display_name || '').split(' ')[0] || 'there'},</p><p>Just wanted to let you know your status has been updated.</p>`,
+                  subject,
+                  body_html: htmlBody,
                   contact_id: contactId,
-                  status: 'queued',
+                  status: sendResult.ok ? 'sent' : 'failed',
                   tracking_id: require('crypto').randomUUID(),
                   created_at: new Date(),
+                }).catch(() => {})
+                results.push({
+                  automationId: auto.id,
+                  action: 'send_email',
+                  success: sendResult.ok,
+                  ...(sendResult.ok ? {} : { error: sendResult.error || 'Send failed' }),
                 })
-
-                // TODO: Actually send via Resend when configured
-                results.push({ automationId: auto.id, action: 'send_email', success: true })
               }
             }
             break
