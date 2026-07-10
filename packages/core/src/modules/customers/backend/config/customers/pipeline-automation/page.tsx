@@ -542,9 +542,42 @@ function FilterInput(props: { field: FilterField; value: any; onChange: (v: any)
       </div>
     )
   }
-  // multi-select-* — Phase 1 ships as comma-separated UUIDs textarea; the
-  // dedicated pickers (forms / gateways / sequences) come in a follow-up
-  // pass. See SPEC-064 Phase 2.
+  // Gateway filter (L10): the value matched at trigger time is the webhook's
+  // providerKey, not a UUID — free text here meant users had to know to type
+  // 'stripe' exactly. Render the known providers as checkboxes instead.
+  // Only the CRM-native Stripe integration emits payment.captured today; add
+  // entries here when new gateway webhooks come online.
+  if (field.type === 'multi-select-gateway') {
+    const GATEWAY_OPTIONS: Array<{ key: string; label: string }> = [
+      { key: 'stripe', label: 'Stripe' },
+    ]
+    const selected: string[] = Array.isArray(value) ? value : []
+    return (
+      <div>
+        <label className="block text-xs text-slate-500">{field.label}</label>
+        <div className="mt-1 space-y-1">
+          {GATEWAY_OPTIONS.map((opt) => (
+            <label key={opt.key} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={selected.includes(opt.key)}
+                onChange={(e) => {
+                  const next = e.target.checked
+                    ? [...selected, opt.key]
+                    : selected.filter((k) => k !== opt.key)
+                  onChange(next.length > 0 ? next : undefined)
+                }}
+              />
+              <span>{opt.label}</span>
+            </label>
+          ))}
+          <p className="text-xs text-slate-400">Leave all unchecked to match any gateway.</p>
+        </div>
+      </div>
+    )
+  }
+  // multi-select-form / multi-select-sequence — still comma-separated UUIDs;
+  // dedicated pickers come in a follow-up pass. See SPEC-064 Phase 2.
   return (
     <div>
       <label className="block text-xs text-slate-500">{field.label}</label>

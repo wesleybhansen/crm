@@ -38,6 +38,7 @@ export async function POST(req: Request) {
       channel,
       recentMessages: recentMessages || [],
       contactId: conv.contact_id || null,
+      conversationId: conv.id,
     })
 
     if (!result.ok || !result.draft) {

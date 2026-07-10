@@ -10,6 +10,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { renderToolCatalogForPrompt } from '@/modules/customers/lib/crm-tool-catalog'
 
 // Decrypt display_name + primary_email on a list of customer_entities rows.
 // Raw knex reads ciphertext when tenant encryption is on; without this the
@@ -168,34 +169,16 @@ When the user asks you to do something, respond with a JSON action block:
 {"type": "action_type", "data": {...}}
 \`\`\`
 
-Available action types:
-- create_contact: { name, email, phone?, source? }
-- create_task: { title, contactId?, dueDate? }
-- add_note: { contactId, content }
-- add_tag: { contactId, tagName }
-- remove_tag: { contactId, tagName }
-- create_deal: { title, contactId?, value? }
-- send_email: { to, subject, body }
-- move_deal_stage: { dealId, stage } — ONLY for deals (pipeline mode "deals"). DO NOT use for contacts.
+Available action types (params ending in ? are optional; enum values shown after =):
+${renderToolCatalogForPrompt()}
 - move_contact_stage: { contactId, stage } — Journey mode ONLY. Moves a CONTACT to a new lifecycle stage. Use this when the user says "move Sarah to Prospect", "move him up one level", etc. The stage name MUST be one of the STAGES listed in the PIPELINE MODE block above.
-- remove_contact_from_pipeline: { contactName or contactId } — Journey mode ONLY. Clears a contact's lifecycle stage so they no longer appear on the pipeline board, WITHOUT deleting the contact itself. Use this when the user says "remove X from my pipeline", "take X off the pipeline", or "hide X from the pipeline view". This is NOT the same as delete_contact (which removes them entirely) and NOT the same as move_contact_stage (which just changes stage). If the request is ambiguous ("remove X"), ask the user whether they want to remove from pipeline only or delete entirely.
-- create_invoice: { contactName?, items: [{name, price, quantity}], dueDate?, notes? }
-- create_product: { name, description?, price, billingType?, trialDays? }
-- set_reminder: { message, remindAt?, delayMinutes? } — Use for "remind me", "set a reminder", "follow up in X"
-- create_booking_page: { title, duration }
-- create_event: { title, date, duration, location?, eventType? }
-- create_email_list: { name, description? }
-- create_email_campaign: { name, subject, body }
-- search_contacts: { query }
-- delete_contact: { contactId }
+- remove_contact_from_pipeline: { contactName or contactId } — Journey mode ONLY. Clears a contact's lifecycle stage so they no longer appear on the pipeline board, WITHOUT deleting the contact itself. This is NOT the same as delete_contact (which removes them entirely) and NOT the same as move_contact_stage (which just changes stage). If the request is ambiguous ("remove X"), ask the user whether they want to remove from pipeline only or delete entirely.
 - delete_company: { companyId }
-- delete_deal: { dealId }
-- delete_product: { productId }
-- delete_event: { eventId }
-- delete_task: { taskId }
-- edit_event: { eventId, title?, duration?, date? }
-- edit_task: { taskId, title?, dueDate?, markComplete? }
-- complete_task: { taskId }
+
+BEHAVIORAL NOTES ON ACTIONS:
+- move_deal_stage is ONLY for deals (pipeline mode "deals"). DO NOT use it for contacts — Journey mode uses move_contact_stage.
+- Read-only lookups (find_entity, search_contacts, get_*, list_*, generate_report) run automatically WITHOUT a confirm prompt, and their results are sent back to you in a follow-up turn labeled [TOOL RESULT]. Use them when the data snapshot below does not answer the question, then answer the user from the result. Do not re-emit the same lookup twice in a row.
+- Before editing or deleting anything the user referenced BY NAME, emit find_entity first to resolve the id, wait for the [TOOL RESULT], then emit the destructive action with the confirmed id.
 
 CRITICAL: ACTION EMISSION RULES
 - Every action you plan to take MUST be a \`\`\`crm-action\`\`\` fenced code block. NEVER say "proceeding with the actions now" or "I'll do this" without emitting the actual fenced block(s).
@@ -320,7 +303,7 @@ async function buildDataContext(knex: any, orgId: string, tenantId: string, em: 
     // Pipeline/deals — titles are encrypted, decrypt before exposing to Scout
     const rawDeals = await knex('customer_deals')
       .where('organization_id', orgId).whereNull('deleted_at')
-      .select('id', 'title', 'description', 'status', 'value_amount', 'pipeline_stage', 'created_at')
+      .select('id', 'title', 'description', 'status', 'value_amount', 'pipeline_stage', 'created_at', 'ai_summary')
       .orderBy('created_at', 'desc').limit(10)
     const deals = await decryptDealRows(em, rawDeals, tenantId, orgId)
     if (deals.length > 0) {
@@ -328,7 +311,7 @@ async function buildDataContext(knex: any, orgId: string, tenantId: string, em: 
       const openDeals = deals.filter((d: any) => d.status === 'open' || !d.status)
       sections.push(`PIPELINE: ${deals.length} deals (${openDeals.length} open), total value $${totalValue.toFixed(0)}`)
       sections.push('Deals: ' + deals.slice(0, 5).map((d: any) =>
-        `"${d.title}" — ${d.pipeline_stage || d.status || 'open'}${d.value_amount ? ` ($${Number(d.value_amount).toFixed(0)})` : ''} id=${d.id}`
+        `"${d.title}" — ${d.pipeline_stage || d.status || 'open'}${d.value_amount ? ` ($${Number(d.value_amount).toFixed(0)})` : ''} id=${d.id}${d.ai_summary ? ` — status summary: ${String(d.ai_summary).slice(0, 300)}` : ''}`
       ).join('; '))
     } else {
       sections.push('PIPELINE: No deals yet')

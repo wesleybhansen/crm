@@ -560,3 +560,49 @@ export const CRM_TOOLS = [
     parameters: { type: 'object', properties: { action: { type: 'string', enum: ['update_profile', 'update_pipeline', 'update_persona', 'invite_team'] }, businessName: { type: 'string' }, businessType: { type: 'string' }, pipelineMode: { type: 'string', enum: ['deals', 'journey'] }, pipelineStages: { type: 'array', items: { type: 'string' } }, personaName: { type: 'string' }, personaStyle: { type: 'string', enum: ['professional', 'casual', 'minimal'] }, teamEmail: { type: 'string' }, teamRole: { type: 'string', enum: ['admin', 'member'] } }, required: ['action'] },
   },
 ]
+
+// Read-only tools: non-mutating lookups whose whole value is the returned data.
+// The text Scout UI auto-executes these WITHOUT a confirm prompt and feeds the
+// result back to the model so it can answer from real data (voice already gets
+// this via function_call_output). Everything not listed here mutates data and
+// keeps the Confirm/Cancel gate.
+export const READ_ONLY_TOOLS = new Set([
+  'find_entity',
+  'search_contacts',
+  'get_engagement_score',
+  'get_pipeline_summary',
+  'get_contact_details',
+  'get_today_tasks',
+  'get_upcoming_events',
+  'get_inbox_summary',
+  'get_revenue_summary',
+  'generate_report',
+  'list_sequences',
+  'list_landing_pages',
+  'list_email_lists',
+  'list_products',
+  'list_recent_activity',
+])
+
+/**
+ * Render the catalog as a compact text block for the TEXT Scout system prompt,
+ * so the crm-action surface is generated from this single source of truth
+ * instead of a hand-maintained list that drifts (the old hand list documented
+ * ~30 of these tools; the UI executor supports all of them).
+ */
+export function renderToolCatalogForPrompt(): string {
+  const lines: string[] = []
+  for (const tool of CRM_TOOLS) {
+    const props = (tool.parameters?.properties ?? {}) as Record<string, any>
+    const required = new Set<string>((tool.parameters as any)?.required ?? [])
+    const params = Object.entries(props).map(([key, spec]) => {
+      const enumHint = Array.isArray(spec?.enum) ? `=${spec.enum.join('|')}` : ''
+      return `${key}${required.has(key) ? '' : '?'}${enumHint}`
+    }).join(', ')
+    // First sentence of the description keeps the block compact; the model
+    // gets the full behavioral rules from the surrounding prompt sections.
+    const desc = String(tool.description || '').split(/(?<=\.)\s/)[0].slice(0, 220)
+    lines.push(`- ${tool.name}: { ${params} } — ${desc}`)
+  }
+  return lines.join('\n')
+}

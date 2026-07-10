@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Mic, MicOff, Send, Trash2, Volume2, Loader2, Check, X, AlertCircle, Sparkles, Plus, Archive, MessageSquare, BarChart3, CalendarDays, CheckSquare, Flame, Pencil } from 'lucide-react'
+import { READ_ONLY_TOOLS } from '@/modules/customers/lib/crm-tool-catalog'
 
 // Types
 interface Message {
@@ -24,6 +25,12 @@ interface Message {
    * Gemini is unavailable.
    */
   provider?: 'gemini' | 'openai' | null
+  /**
+   * True on the synthetic [TOOL RESULT] user turns that feed a read-tool's
+   * output back to the model. Included in the API payload (the model needs
+   * them) but never rendered in the chat.
+   */
+  hidden?: boolean
 }
 
 // Verbs that suggest a state-changing action happened. If the model's audio
@@ -139,11 +146,9 @@ interface CrmAction {
 }
 
 // ---- Action parsing ----
-function parseCrmAction(text: string): CrmAction | null {
-  const match = text.match(/```crm-action\s*\n?([\s\S]*?)\n?```/)
-  if (!match) return null
+function normalizeCrmAction(json: string): CrmAction | null {
   try {
-    const parsed = JSON.parse(match[1])
+    const parsed = JSON.parse(json)
     if (!parsed?.type) return null
     // Normalize: if data is missing, treat all non-type fields as data
     if (!parsed.data) {
@@ -152,6 +157,28 @@ function parseCrmAction(text: string): CrmAction | null {
     }
     return parsed
   } catch { return null }
+}
+
+/**
+ * Split an assistant reply into segments, one per crm-action block (the block
+ * plus the narration text before it), so a multi-step reply renders as one
+ * message PER action, each with its own Confirm/Cancel. The old single-parse
+ * silently dropped blocks 2..N even though the prompt promises N confirms.
+ */
+function splitReplyIntoActionSegments(text: string): Array<{ content: string; action: CrmAction | null }> {
+  const re = /```crm-action\s*\n?([\s\S]*?)\n?```/g
+  const segments: Array<{ content: string; action: CrmAction | null }> = []
+  let cursor = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const action = normalizeCrmAction(m[1])
+    segments.push({ content: text.slice(cursor, m.index + m[0].length), action })
+    cursor = m.index + m[0].length
+  }
+  const tail = text.slice(cursor).trim()
+  if (segments.length === 0) return [{ content: text, action: null }]
+  if (tail) segments.push({ content: tail, action: null })
+  return segments
 }
 
 // Cache orgId to avoid fetching it on every tool call
@@ -1450,8 +1477,11 @@ export default function VoiceAssistantPage() {
   }
 
   function saveConversation(allMsgs: Message[]) {
-    const title = allMsgs.find(m => m.role === 'user')?.content?.slice(0, 50) || 'New conversation'
-    const payload = allMsgs.map(m => ({ role: m.role, content: m.content }))
+    const title = allMsgs.find(m => m.role === 'user' && !m.hidden)?.content?.slice(0, 50) || 'New conversation'
+    // Hidden [TOOL RESULT] turns are session-scoped model context — persisting
+    // them would render as visible user bubbles on reload (the saved shape has
+    // no hidden flag).
+    const payload = allMsgs.filter(m => !m.hidden).map(m => ({ role: m.role, content: m.content }))
     const currentId = activeConversationIdRef.current
     // Skip if a creation is already in progress
     if (currentId === 'creating') return
@@ -1859,49 +1889,97 @@ export default function VoiceAssistantPage() {
   }, [])
 
   // ---- Send Message ----
+  // Read-tool loop cap per user message: a lookup's [TOOL RESULT] triggers one
+  // follow-up model turn, which may emit another lookup, and so on. Three
+  // rounds is plenty for resolve->inspect->answer; the cap prevents loops.
+  const MAX_TOOL_ROUNDS = 3
+
+  const requestAssistantTurn = useCallback(async (history: Message[]): Promise<{ reply: string; provider: 'gemini' | 'openai' | null }> => {
+    const res = await fetch('/api/ai/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        messages: history.slice(-12).map(m => ({ role: m.role, content: m.content })),
+        currentPage: 'Voice Assistant',
+        pageContext: derivePageContext(),
+      }),
+    })
+    const data = await res.json()
+    return { reply: data.message || data.error || 'Sorry, something went wrong.', provider: data.provider ?? null }
+  }, [])
+
+  /**
+   * Turn one raw model reply into chat messages. Splits multi-action replies
+   * into one message per crm-action block (each with its own Confirm/Cancel).
+   * Read-only tools (find_entity, get_*, list_* ...) execute IMMEDIATELY with
+   * no confirm prompt, and their output is fed back to the model as a hidden
+   * [TOOL RESULT] turn so it can answer from real data or continue a chain.
+   * Returns the full updated history.
+   */
+  const handleAssistantReply = useCallback(async (history: Message[], reply: string, provider: 'gemini' | 'openai' | null, round: number): Promise<Message[]> => {
+    const segments = splitReplyIntoActionSegments(reply)
+    let updated = [...history]
+    const pendingToolResults: string[] = []
+
+    for (const seg of segments) {
+      if (seg.action && READ_ONLY_TOOLS.has(seg.action.type)) {
+        // Auto-execute the lookup — no confirm gate for non-mutating reads.
+        const msg: Message = { role: 'assistant', content: seg.content, action: seg.action, actionStatus: 'executing', provider }
+        updated = [...updated, msg]
+        setMessages(updated)
+        const result = await executeCrmAction(seg.action)
+        updated = updated.map((m, i) => i === updated.length - 1
+          ? { ...m, actionStatus: result.ok ? 'success' as const : 'error' as const, actionResult: result.message }
+          : m)
+        setMessages(updated)
+        pendingToolResults.push(`[TOOL RESULT] ${seg.action.type}: ${result.message}`)
+      } else {
+        const msg: Message = {
+          role: 'assistant',
+          content: seg.content,
+          action: seg.action,
+          actionStatus: seg.action ? 'pending' : undefined,
+          provider,
+        }
+        updated = [...updated, msg]
+        setMessages(updated)
+      }
+    }
+
+    // Feed lookup results back so the model can answer / continue the chain.
+    if (pendingToolResults.length > 0 && round < MAX_TOOL_ROUNDS) {
+      const toolMsg: Message = { role: 'user', content: pendingToolResults.join('\n'), hidden: true }
+      updated = [...updated, toolMsg]
+      setMessages(updated)
+      try {
+        const next = await requestAssistantTurn(updated)
+        updated = await handleAssistantReply(updated, next.reply, next.provider, round + 1)
+      } catch { /* lookup feedback is best-effort; the raw result is visible */ }
+    }
+
+    return updated
+  }, [requestAssistantTurn])
+
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || loading) return
     setInput('')
     setLoading(true)
 
     const userMsg: Message = { role: 'user', content: text }
-    setMessages(prev => [...prev, userMsg])
+    const base = [...messages, userMsg]
+    setMessages(base)
 
     try {
-      const allMessages = [...messages, userMsg]
-      const res = await fetch('/api/ai/assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          messages: allMessages.slice(-12).map(m => ({ role: m.role, content: m.content })),
-          currentPage: 'Voice Assistant',
-          pageContext: derivePageContext(),
-        }),
-      })
-      const data = await res.json()
-      const reply = data.message || data.error || 'Sorry, something went wrong.'
-      const action = parseCrmAction(reply)
-
-      const assistantMsg: Message = {
-        role: 'assistant',
-        content: reply,
-        action,
-        actionStatus: action ? 'pending' : undefined,
-        provider: data.provider ?? null,
-      }
-
-      setMessages(p => {
-        const updated = [...p, assistantMsg]
-        saveConversation(updated)
-        return updated
-      })
+      const { reply, provider } = await requestAssistantTurn(base)
+      const updated = await handleAssistantReply(base, reply, provider, 1)
+      saveConversation(updated)
     } catch {
       setMessages(p => [...p, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }])
     } finally {
       setLoading(false)
     }
-  }, [loading, messages])
+  }, [loading, messages, requestAssistantTurn, handleAssistantReply])
 
   // Keep the ref in sync for the speech recognition callback
   useEffect(() => {
@@ -2076,7 +2154,7 @@ export default function VoiceAssistantPage() {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 min-h-0">
           <div className="space-y-4">
-          {messages.map((msg, i) => (
+          {messages.map((msg, i) => msg.hidden ? null : (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${
                 msg.role === 'user'

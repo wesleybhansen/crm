@@ -53,6 +53,12 @@ export type DraftReplyInput = {
   // process, inbox process, chat auto-answer) should pass true; the
   // interactive "Draft reply" button (human reviews anyway) should not.
   criticGate?: boolean
+  // When set, long conversations get an incrementally-maintained summary of the
+  // messages OLDER than the recent window injected into the prompt (cached on
+  // inbox_conversations.ai_summary, refreshed only when new messages arrived).
+  // Summary-call tokens are folded into the returned tokensIn/tokensOut so
+  // existing caller metering covers them.
+  conversationId?: string | null
 }
 
 // Grounding-library tables the drafter is allowed to read. Both share the same
@@ -280,7 +286,7 @@ export async function generateReplyDraft(
   apiKey: string,
   input: DraftReplyInput,
 ): Promise<DraftReplyResult> {
-  const { orgId, channel, recentMessages, contactId, signature, flagScenarios, knowledgeTable, criticGate } = input
+  const { orgId, channel, recentMessages, contactId, signature, flagScenarios, knowledgeTable, criticGate, conversationId } = input
 
   // Build the flag-scenario instruction block from the enabled scenarios. Keep
   // the ordering the caller gave so "first match wins" stays deterministic.
@@ -344,6 +350,22 @@ Return the matching scenario keys in "matched_scenarios" (an array of the key st
   const latestInboundText = (latestInbound?.bodyText || latestInbound?.body || '').toString().slice(0, 6000)
   const knowledgeSection = await buildKnowledgeSection(knex, orgId, knowledgeTable, latestInboundText)
 
+  // Thread memory: on long conversations, a cached summary of the messages
+  // older than the transcript window below. Fails soft to no section.
+  let threadSummaryTokensIn = 0
+  let threadSummaryTokensOut = 0
+  let threadSummarySection = ''
+  if (conversationId) {
+    const { maybeRefreshThreadSummary } = await import('./ai-summaries')
+    const ts = await maybeRefreshThreadSummary(knex, apiKey, orgId, conversationId)
+    threadSummaryTokensIn = ts.tokensIn
+    threadSummaryTokensOut = ts.tokensOut
+    if (ts.summary) {
+      threadSummarySection = `CONVERSATION HISTORY SUMMARY (earlier messages not shown in the transcript below — treat commitments and facts here as established):
+${ts.summary}`
+    }
+  }
+
   const systemPrompt = `You are a helpful AI assistant drafting a reply for a ${channel || 'message'} conversation on behalf of ${businessName || 'a business'}.
 
 ${businessDesc ? `About the business: ${businessDesc}` : ''}
@@ -354,6 +376,8 @@ ${knowledgeSection}` : ''}
 ${customInstructions ? `Special instructions: ${customInstructions}` : ''}
 ${contactInfo ? `
 ${contactInfo}` : ''}
+${threadSummarySection ? `
+${threadSummarySection}` : ''}
 
 ${voiceSection}
 ${flagSection ? `
@@ -397,8 +421,8 @@ Return the JSON object now:` }] }],
   const aiData = await aiRes.json()
   const raw: string | undefined = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
 
-  const tokensIn = aiData?.usageMetadata?.promptTokenCount || 0
-  const tokensOut = aiData?.usageMetadata?.candidatesTokenCount || 0
+  const tokensIn = (aiData?.usageMetadata?.promptTokenCount || 0) + threadSummaryTokensIn
+  const tokensOut = (aiData?.usageMetadata?.candidatesTokenCount || 0) + threadSummaryTokensOut
 
   if (!raw) {
     return { ok: false, error: 'AI could not generate a draft', model: DRAFT_MODEL, tokensIn, tokensOut, confidence: 0, autoSendSafe: false, matchedScenarios: [] }

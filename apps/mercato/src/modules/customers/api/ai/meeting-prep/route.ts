@@ -169,21 +169,26 @@ async function loadContactData(knex: ReturnType<EntityManager['getKnex']>, orgId
   interactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   interactions.splice(5)
 
-  // Load active deals
-  let deals: Array<{ title: string; value: number; status: string; stage: string | null }> = []
+  // Load active deals. NOTE: deals link to contacts through customer_deal_people
+  // (person_entity_id) — customer_deals has no contact_id column, and the stage
+  // column is pipeline_stage. The old direct query threw on both and silently
+  // returned [] via the catch, so briefs never saw deals.
+  let deals: Array<{ title: string; value: number; status: string; stage: string | null; aiSummary?: string | null }> = []
   try {
-    deals = await knex('customer_deals')
-      .where('organization_id', orgId)
-      .where('contact_id', contactId)
-      .where('status', 'open')
-      .whereNull('deleted_at')
-      .select('title', 'value_amount', 'status', 'stage')
+    const rows = await knex('customer_deal_people as cdp')
+      .join('customer_deals as cd', 'cd.id', 'cdp.deal_id')
+      .where('cdp.person_entity_id', contactId)
+      .where('cd.organization_id', orgId)
+      .where('cd.status', 'open')
+      .whereNull('cd.deleted_at')
+      .select('cd.title', 'cd.value_amount', 'cd.status', 'cd.pipeline_stage', 'cd.ai_summary')
       .limit(5)
-    deals = deals.map(d => ({
+    deals = rows.map((d: any) => ({
       title: d.title,
       value: Number(d.value_amount || 0),
       status: d.status,
-      stage: d.stage,
+      stage: d.pipeline_stage,
+      aiSummary: d.ai_summary || null,
     }))
   } catch {}
 
@@ -218,7 +223,7 @@ RECENT INTERACTIONS (last 5):
 ${interactions.length > 0 ? interactions.map(i => `- [${i.type}] ${new Date(i.date).toLocaleDateString()}: ${i.content}`).join('\n') : 'No recent interactions'}
 
 ACTIVE DEALS:
-${deals.length > 0 ? deals.map(d => `- "${d.title}" — $${d.value.toLocaleString()}${d.stage ? ` (${d.stage})` : ''}`).join('\n') : 'No active deals'}
+${deals.length > 0 ? deals.map(d => `- "${d.title}" — $${d.value.toLocaleString()}${d.stage ? ` (${d.stage})` : ''}${d.aiSummary ? `\n  Status: ${String(d.aiSummary).slice(0, 300)}` : ''}`).join('\n') : 'No active deals'}
 `
 
   const prompt = `${personaPrompt}

@@ -182,6 +182,7 @@ export async function POST(req: Request) {
               knowledgeTable: 'inbox_knowledge',
               // Critic only gates hybrid auto-send; skip the extra call otherwise.
               criticGate: mode === 'hybrid',
+              conversationId: conv.id,
             })
 
             void meterCustomersAi({ orgId }, {
@@ -430,6 +431,7 @@ async function handleSmsConversation(
     flagScenarios: drafterScenarios,
     knowledgeTable: 'inbox_knowledge',
     criticGate: mode === 'hybrid',
+    conversationId: conv.id,
   })
 
   void meterCustomersAi({ orgId }, {

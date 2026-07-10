@@ -293,6 +293,7 @@ export async function POST(req: Request) {
               // The critic verdict only gates hybrid auto-send; auto mode sends
               // regardless and draft mode queues everything, so skip the extra call.
               criticGate: effMode === 'hybrid',
+              conversationId: conv.id,
             })
 
             void meterCustomersAi({ orgId }, {
@@ -562,6 +563,7 @@ async function handleSmsConversation(
     signature: null,
     flagScenarios: drafterScenarios,
     criticGate: mode === 'hybrid',
+    conversationId: conv.id,
   })
 
   void meterCustomersAi({ orgId }, {
