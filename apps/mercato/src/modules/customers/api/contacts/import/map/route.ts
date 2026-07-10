@@ -11,7 +11,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
  * its columns onto the CRM's contact fields from the headers plus a few sample
  * rows, so nobody has to rename spreadsheet columns to import their business. */
 
-const TARGET_FIELDS = ['name', 'first_name', 'last_name', 'email', 'phone', 'company', 'source', 'tags', 'notes'] as const
+// Only fields the import endpoint actually persists — claiming more (tags,
+// notes, company) would silently drop the user's data after promising a map.
+const TARGET_FIELDS = ['name', 'first_name', 'last_name', 'email', 'phone', 'source'] as const
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -60,7 +62,7 @@ no column fits. Rules:
 - "confidence" is 0-1 for the overall mapping quality.
 
 Return ONLY valid JSON, no markdown:
-{"mapping": {"name": <index|null>, "first_name": <index|null>, "last_name": <index|null>, "email": <index|null>, "phone": <index|null>, "company": <index|null>, "source": <index|null>, "tags": <index|null>, "notes": <index|null>}, "confidence": 0.0}`
+{"mapping": {"name": <index|null>, "first_name": <index|null>, "last_name": <index|null>, "email": <index|null>, "phone": <index|null>, "source": <index|null>}, "confidence": 0.0}`
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,

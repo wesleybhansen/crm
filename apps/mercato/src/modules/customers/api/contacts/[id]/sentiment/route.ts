@@ -24,16 +24,18 @@ export async function GET(
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    // Org-scoped contact check first — never leak cross-tenant sentiment.
+    // Org+tenant-scoped contact check first — never leak cross-tenant sentiment.
     const contact = await knex('customer_entities')
       .where('id', id)
       .where('organization_id', auth.orgId)
+      .where('tenant_id', auth.tenantId)
       .whereNull('deleted_at')
       .first('id')
     if (!contact) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
     const rows = await knex('email_messages')
       .where('organization_id', auth.orgId)
+      .where('tenant_id', auth.tenantId)
       .where('contact_id', id)
       .where('direction', 'inbound')
       .whereNotNull('sentiment')

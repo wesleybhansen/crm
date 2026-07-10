@@ -148,11 +148,18 @@ export async function POST(
       if (changed) {
         const title = `Approved reply: ${(subject || 'customer inquiry').replace(/^re:\s*/i, '').slice(0, 120)}`
         const content = bodyText.slice(0, 6000)
+        // Match regardless of is_active so a correction that aged out of the
+        // cap can be re-captured (reactivated) rather than blocked forever.
         const duplicate = await knex('customer_service_knowledge')
           .where('organization_id', auth.orgId)
           .where('kind', 'model_answer')
           .where('content', content)
           .first()
+        if (duplicate && duplicate.is_active === false) {
+          await knex('customer_service_knowledge')
+            .where('id', duplicate.id)
+            .update({ is_active: true, updated_at: now })
+        }
         if (!duplicate) {
           await knex('customer_service_knowledge').insert({
             id: require('crypto').randomUUID(),

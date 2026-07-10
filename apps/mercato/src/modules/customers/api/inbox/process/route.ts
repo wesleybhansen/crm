@@ -180,7 +180,8 @@ export async function POST(req: Request) {
               signature: settings.signature || null,
               flagScenarios: drafterScenarios,
               knowledgeTable: 'inbox_knowledge',
-              criticGate: true,
+              // Critic only gates hybrid auto-send; skip the extra call otherwise.
+              criticGate: mode === 'hybrid',
             })
 
             void meterCustomersAi({ orgId }, {
@@ -428,7 +429,7 @@ async function handleSmsConversation(
     signature: null,
     flagScenarios: drafterScenarios,
     knowledgeTable: 'inbox_knowledge',
-    criticGate: true,
+    criticGate: mode === 'hybrid',
   })
 
   void meterCustomersAi({ orgId }, {

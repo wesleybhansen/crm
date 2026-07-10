@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { splitCsvLine } from '@/lib/csv'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -267,13 +268,13 @@ export default function ContactsPage() {
     setImportResult(null)
     try {
       const lines = importData.trim().split('\n').filter(l => l.trim())
-      const rows = lines.map(line => line.split(/[,\t]/).map(p => p.trim().replace(/^"|"$/g, '')))
+      const rows = lines.map(line => splitCsvLine(line))
 
       // Migration assistant (T4): when this looks like a real spreadsheet
       // export (a header row + multiple columns), let the AI map the columns
       // onto CRM fields — a HubSpot/GHL/Sheets export imports as-is, no
       // column renaming. Falls back to the simple heuristic on any failure.
-      let contacts: Array<{ name?: string; email?: string; phone?: string; company?: string; source?: string; tags?: string; notes?: string }> = []
+      let contacts: Array<{ name?: string; email?: string; phone?: string; source?: string }> = []
       const looksTabular = rows.length >= 2 && rows[0].length >= 2 && !rows[0].some(h => h.includes('@'))
       if (looksTabular) {
         try {
@@ -295,10 +296,7 @@ export default function ContactsPage() {
                 name: name || undefined,
                 email: cell(row, mapping.email) || undefined,
                 phone: cell(row, mapping.phone) || undefined,
-                company: cell(row, mapping.company) || undefined,
                 source: cell(row, mapping.source) || undefined,
-                tags: cell(row, mapping.tags) || undefined,
-                notes: cell(row, mapping.notes) || undefined,
               }
             }).filter(c => c.name || c.email)
           }
@@ -306,12 +304,15 @@ export default function ContactsPage() {
       }
 
       if (contacts.length === 0) {
-        // Simple heuristic (per-line name/email/phone detection)
-        contacts = lines.map(line => {
-          const parts = line.split(/[,\t]+/).map(p => p.trim())
+        // Simple heuristic (per-line name/email/phone detection). Skip the
+        // header row when the data looked tabular, so "Name" never becomes
+        // a contact.
+        const dataLines = looksTabular ? lines.slice(1) : lines
+        contacts = dataLines.map(line => {
+          const parts = splitCsvLine(line)
           const email = parts.find(p => p.includes('@'))
           const phone = parts.find(p => /^\+?\d[\d\s()-]{6,}$/.test(p))
-          const name = parts.find(p => p !== email && p !== phone) || email
+          const name = parts.find(p => p && p !== email && p !== phone) || email
           return { name, email, phone }
         }).filter(c => c.name || c.email)
       }
@@ -1724,7 +1725,7 @@ export default function ContactsPage() {
                       {sentimentInfo.recent.slice(0, 5).map((s, i) => (
                         <span key={i} title={s.sentiment} className={`size-2 rounded-full ${
                           s.sentiment === 'positive' ? 'bg-[#10b981]' :
-                          s.sentiment === 'negative' ? 'bg-[#ef4444]' :
+                          (s.sentiment === 'negative' || s.sentiment === 'urgent') ? 'bg-[#ef4444]' :
                           'bg-muted-foreground/30'
                         }`} />
                       ))}

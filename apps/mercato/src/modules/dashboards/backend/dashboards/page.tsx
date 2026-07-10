@@ -316,7 +316,17 @@ function MeetingPrep() {
               </button>
               {isOpen && (
                 <div className="mt-3 pt-3 border-t text-sm text-muted-foreground whitespace-pre-wrap">
-                  {b.brief}
+                  {/* Briefs are generated as HTML (for the email variant) —
+                      strip to text here rather than injecting LLM HTML. */}
+                  {b.brief
+                    .replace(/<style[\s\S]*?<\/style>/gi, '')
+                    .replace(/<br\s*\/?>/gi, '\n')
+                    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/&nbsp;/g, ' ')
+                    .replace(/&amp;/g, '&')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .trim()}
                 </div>
               )}
             </div>

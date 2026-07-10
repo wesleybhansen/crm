@@ -18,10 +18,29 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
     const body = await req.json()
-    const { dealId, newStage, contactId } = body
+    const { dealId, newStage } = body
+    let contactId: string | null = body.contactId || null
 
     if (!dealId || !newStage) {
       return NextResponse.json({ ok: false, error: 'dealId and newStage required' }, { status: 400 })
+    }
+
+    // Verify the caller-supplied ids belong to the caller's org BEFORE any
+    // action runs. Without this, a crafted contactId could update or attach
+    // tasks to another org's contact (cross-tenant write).
+    const deal = await knex('customer_deals')
+      .where('id', dealId)
+      .where('organization_id', auth.orgId)
+      .whereNull('deleted_at')
+      .first('id')
+    if (!deal) return NextResponse.json({ ok: false, error: 'Deal not found' }, { status: 404 })
+    if (contactId) {
+      const ownContact = await knex('customer_entities')
+        .where('id', contactId)
+        .where('organization_id', auth.orgId)
+        .whereNull('deleted_at')
+        .first('id')
+      if (!ownContact) contactId = null
     }
 
     // Find matching automations
@@ -103,7 +122,8 @@ export async function POST(req: Request) {
               const update: Record<string, any> = { updated_at: new Date() }
               if (config.field === 'lifecycle_stage') update.lifecycle_stage = config.value
               if (config.field === 'status') update.status = config.value
-              await knex('customer_entities').where('id', contactId).update(update)
+              // Org-scoped (contactId is pre-verified above; belt and braces).
+              await knex('customer_entities').where('id', contactId).where('organization_id', auth.orgId).update(update)
               results.push({ automationId: auto.id, action: 'update_contact', success: true })
             }
             break

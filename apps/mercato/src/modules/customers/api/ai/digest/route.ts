@@ -110,6 +110,9 @@ async function gatherDigestData(knex: ReturnType<EntityManager['getKnex']>, orgI
       .whereNull('deleted_at')
       .where('status', 'open')
       .whereNotNull('expected_close_at')
+      // Only THIS month's window — without the lower bound, every stale
+      // overdue deal from months past inflated the forecast.
+      .whereRaw(`expected_close_at >= date_trunc('month', now())`)
       .whereRaw(`expected_close_at < (date_trunc('month', now()) + interval '1 month')`)
       .select(
         knex.raw('count(*)::int as deals'),

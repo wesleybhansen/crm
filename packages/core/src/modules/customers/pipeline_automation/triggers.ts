@@ -57,17 +57,20 @@ async function findActiveDealForContact(
   organizationId: string,
   tenantId: string,
 ): Promise<string | null> {
+  // The deal<->person link table is customer_deal_people (deal_id +
+  // person_entity_id, no org column — the outer query is org+tenant scoped).
+  // This previously queried a nonexistent customer_deal_person_links table,
+  // so every deal-targeted rule silently failed at resolve time.
   const deal = await knex('customer_deals')
     .where('organization_id', organizationId)
     .where('tenant_id', tenantId)
     .whereNull('deleted_at')
     .whereIn('id', function () {
       this.select('deal_id')
-        .from('customer_deal_person_links')
-        .where('person_id', contactId)
-        .where('organization_id', organizationId)
+        .from('customer_deal_people')
+        .where('person_entity_id', contactId)
     })
-    .whereNotIn('status', ['won', 'win', 'loose', 'lost'])
+    .whereNotIn('status', ['won', 'win', 'lose', 'loose', 'lost'])
     .orderBy('updated_at', 'desc')
     .first('id')
   return deal?.id ?? null

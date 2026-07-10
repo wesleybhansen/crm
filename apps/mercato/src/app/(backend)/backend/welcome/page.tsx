@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { splitCsvLine } from '@/lib/csv'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -101,14 +102,16 @@ export default function WelcomePage() {
   const [wizardImportData, setWizardImportData] = useState('')
   const [wizardImporting, setWizardImporting] = useState(false)
   const [wizardImportResult, setWizardImportResult] = useState<{ imported: number; skipped: number } | null>(null)
+  const [wizardImportError, setWizardImportError] = useState<string | null>(null)
 
   async function runWizardImport() {
     if (!wizardImportData.trim() || wizardImporting) return
     setWizardImporting(true)
+    setWizardImportError(null)
     try {
       const lines = wizardImportData.trim().split('\n').filter(l => l.trim())
-      const rows = lines.map(line => line.split(/[,\t]/).map(p => p.trim().replace(/^"|"$/g, '')))
-      let contacts: Array<{ name?: string; email?: string; phone?: string; company?: string }> = []
+      const rows = lines.map(line => splitCsvLine(line))
+      let contacts: Array<{ name?: string; email?: string; phone?: string }> = []
       const looksTabular = rows.length >= 2 && rows[0].length >= 2 && !rows[0].some(h => h.includes('@'))
       if (looksTabular) {
         try {
@@ -123,28 +126,45 @@ export default function WelcomePage() {
               (idx !== null && idx !== undefined && row[idx] !== undefined) ? row[idx].trim() : ''
             contacts = rows.slice(1).map(row => {
               const name = cell(row, mapping.name) || [cell(row, mapping.first_name), cell(row, mapping.last_name)].filter(Boolean).join(' ')
-              return { name: name || undefined, email: cell(row, mapping.email) || undefined, phone: cell(row, mapping.phone) || undefined, company: cell(row, mapping.company) || undefined }
+              return { name: name || undefined, email: cell(row, mapping.email) || undefined, phone: cell(row, mapping.phone) || undefined }
             }).filter(c => c.name || c.email)
           }
         } catch { /* heuristic fallback below */ }
       }
       if (contacts.length === 0) {
-        contacts = lines.map(line => {
-          const parts = line.split(/[,\t]+/).map(p => p.trim())
+        // Skip the header row when the paste looked tabular so "Name" never
+        // becomes a contact.
+        const dataLines = looksTabular ? lines.slice(1) : lines
+        contacts = dataLines.map(line => {
+          const parts = splitCsvLine(line)
           const email = parts.find(p => p.includes('@'))
           const phone = parts.find(p => /^\+?\d[\d\s()-]{6,}$/.test(p))
-          const name = parts.find(p => p !== email && p !== phone) || email
+          const name = parts.find(p => p && p !== email && p !== phone) || email
           return { name, email, phone }
         }).filter(c => c.name || c.email)
+      }
+      if (contacts.length === 0) {
+        setWizardImportError('Could not find any names or emails in that data. Check the format and try again.')
+        return
       }
       const res = await fetch('/api/contacts/import', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ contacts, filename: 'onboarding' }),
       })
       const data = await res.json()
-      if (data.ok) setWizardImportResult({ imported: data.data.imported, skipped: data.data.skipped })
-    } catch { /* leave the box editable for retry */ }
-    setWizardImporting(false)
+      if (data.ok) {
+        setWizardImportResult({ imported: data.data.imported, skipped: data.data.skipped })
+        if (data.data.imported === 0 && data.data.skipped > 0) {
+          setWizardImportError(`All ${data.data.skipped} rows were skipped (already in your CRM or missing name and email).`)
+        }
+      } else {
+        setWizardImportError(data.error || 'Import failed. You can also import later from Contacts.')
+      }
+    } catch {
+      setWizardImportError('Import failed. You can also import later from Contacts.')
+    } finally {
+      setWizardImporting(false)
+    }
   }
   const [emailPassword, setEmailPassword] = useState('')
   const [emailConnecting, setEmailConnecting] = useState(false)
@@ -1081,6 +1101,7 @@ export default function WelcomePage() {
                     placeholder={'Name, Email, Phone\nJane Cooper, jane@example.com, 555-0100\n...'}
                     className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-none h-24 focus:outline-none focus:ring-1 focus:ring-ring"
                   />
+                  {wizardImportError && <p className="text-xs text-red-500">{wizardImportError}</p>}
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] text-muted-foreground">Include a header row for the best mapping. Duplicates are skipped by email.</p>
                     <Button type="button" size="sm" disabled={wizardImporting || !wizardImportData.trim()} onClick={runWizardImport}>

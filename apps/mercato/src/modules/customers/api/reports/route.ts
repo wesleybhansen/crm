@@ -116,6 +116,10 @@ export async function GET(req: Request) {
         totalValue: Number(r.total_value || 0),
         weightedValue: Number(r.weighted_value || 0),
       }))
+      // Text ORDER BY puts 'overdue' between months — present overdue first,
+      // then months ascending, unscheduled last.
+      const bucketRank = (b: string) => (b === 'overdue' ? 0 : b === 'unscheduled' ? 2 : 1)
+      forecast.sort((a, b) => (bucketRank(a.bucket) - bucketRank(b.bucket)) || a.bucket.localeCompare(b.bucket))
     } catch {}
 
     // Win/loss by lead source (last 90 days; updated_at approximates close
