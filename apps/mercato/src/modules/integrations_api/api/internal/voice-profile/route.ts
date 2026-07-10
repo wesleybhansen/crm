@@ -20,13 +20,11 @@ export const metadata = {
 
 export async function POST(req: Request) {
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret ||
-    authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-  ) {
+  const authBuf = Buffer.from((req.headers.get('authorization') || '').trim())
+  const expectedBuf = Buffer.from(secret ? `Bearer ${secret}` : '')
+  // Compare BYTE lengths (a multibyte char with matching string length would
+  // make timingSafeEqual throw -> unhandled 500 instead of 401).
+  if (!secret || authBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(authBuf, expectedBuf)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -41,6 +39,7 @@ export async function POST(req: Request) {
       greetingStyle?: string
       closingStyle?: string
       vocabularyNotes?: string
+      toneDescriptors?: string[]
     }
   }
   const noliUserId = typeof body.noliUserId === 'string' ? body.noliUserId.trim().slice(0, 80) : ''
@@ -83,7 +82,14 @@ export async function POST(req: Request) {
       uses_emoji: Boolean(vp.usesEmoji),
       greeting_style: String(vp.greetingStyle ?? '').slice(0, 120),
       closing_style: String(vp.closingStyle ?? '').slice(0, 120),
-      vocabulary_notes: String(vp.vocabularyNotes ?? '').slice(0, 400),
+      // buildVoicePromptSection has no tone slot — fold tone into vocab notes.
+      vocabulary_notes: [
+        String(vp.vocabularyNotes ?? '').slice(0, 340),
+        (vp.toneDescriptors ?? []).length ? `Tone: ${(vp.toneDescriptors ?? []).map(String).join(', ')}` : '',
+      ]
+        .filter(Boolean)
+        .join('. ')
+        .slice(0, 400),
     }
     await em.persistAndFlush(profile)
 
