@@ -96,6 +96,56 @@ export default function WelcomePage() {
 
   // IMAP/SMTP email connect state
   const [emailAddr, setEmailAddr] = useState('')
+  // Inline contact import on the Connect step (T4: the CRM should end
+  // onboarding with the user's business IN it, not empty).
+  const [wizardImportData, setWizardImportData] = useState('')
+  const [wizardImporting, setWizardImporting] = useState(false)
+  const [wizardImportResult, setWizardImportResult] = useState<{ imported: number; skipped: number } | null>(null)
+
+  async function runWizardImport() {
+    if (!wizardImportData.trim() || wizardImporting) return
+    setWizardImporting(true)
+    try {
+      const lines = wizardImportData.trim().split('\n').filter(l => l.trim())
+      const rows = lines.map(line => line.split(/[,\t]/).map(p => p.trim().replace(/^"|"$/g, '')))
+      let contacts: Array<{ name?: string; email?: string; phone?: string; company?: string }> = []
+      const looksTabular = rows.length >= 2 && rows[0].length >= 2 && !rows[0].some(h => h.includes('@'))
+      if (looksTabular) {
+        try {
+          const mapRes = await fetch('/api/contacts/import/map', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ headers: rows[0], sampleRows: rows.slice(1, 6) }),
+          })
+          const mapData = await mapRes.json()
+          const mapping: Record<string, number | null> | undefined = mapData?.data?.mapping
+          if (mapData?.ok && mapping && (mapping.email !== null || mapping.name !== null || mapping.first_name !== null)) {
+            const cell = (row: string[], idx: number | null | undefined) =>
+              (idx !== null && idx !== undefined && row[idx] !== undefined) ? row[idx].trim() : ''
+            contacts = rows.slice(1).map(row => {
+              const name = cell(row, mapping.name) || [cell(row, mapping.first_name), cell(row, mapping.last_name)].filter(Boolean).join(' ')
+              return { name: name || undefined, email: cell(row, mapping.email) || undefined, phone: cell(row, mapping.phone) || undefined, company: cell(row, mapping.company) || undefined }
+            }).filter(c => c.name || c.email)
+          }
+        } catch { /* heuristic fallback below */ }
+      }
+      if (contacts.length === 0) {
+        contacts = lines.map(line => {
+          const parts = line.split(/[,\t]+/).map(p => p.trim())
+          const email = parts.find(p => p.includes('@'))
+          const phone = parts.find(p => /^\+?\d[\d\s()-]{6,}$/.test(p))
+          const name = parts.find(p => p !== email && p !== phone) || email
+          return { name, email, phone }
+        }).filter(c => c.name || c.email)
+      }
+      const res = await fetch('/api/contacts/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ contacts, filename: 'onboarding' }),
+      })
+      const data = await res.json()
+      if (data.ok) setWizardImportResult({ imported: data.data.imported, skipped: data.data.skipped })
+    } catch { /* leave the box editable for retry */ }
+    setWizardImporting(false)
+  }
   const [emailPassword, setEmailPassword] = useState('')
   const [emailConnecting, setEmailConnecting] = useState(false)
   const [emailConnectError, setEmailConnectError] = useState('')
@@ -369,7 +419,7 @@ export default function WelcomePage() {
     { title: 'How You Get Clients', subtitle: 'This helps us suggest the right tools and workflows.' },
     { title: pipelineMode === 'journey' ? 'Customer Journey' : 'Your Sales Pipeline', subtitle: 'AI will suggest stages to track your progress.' },
     { title: 'Noli CRM is Ready!', subtitle: `${aiPersonaName || 'Scout'} is set up and ready to help you grow.` },
-    { title: 'Connect Your Accounts', subtitle: 'Optional but recommended for the best experience.' },
+    { title: 'Connect Your Accounts', subtitle: `This is what lets ${aiPersonaName || 'Scout'} actually work for you. Email and contacts matter most.` },
     { title: 'Invite Your Team', subtitle: 'Add team members to your workspace.' },
     { title: 'Get Started', subtitle: 'Take your first actions.' },
   ]
@@ -1006,6 +1056,41 @@ export default function WelcomePage() {
               )}
             </div>
 
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider pt-2">Your contacts</p>
+            {/* Bring the business in NOW (T4): an empty CRM gives the AI
+                nothing to work with. Paste any spreadsheet export and the AI
+                maps the columns automatically. */}
+            <div className="rounded-lg border p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${wizardImportResult && wizardImportResult.imported > 0 ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-muted'}`}>
+                  <Users className={`size-4 ${wizardImportResult && wizardImportResult.imported > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Import your contacts <span className="text-[10px] font-normal text-muted-foreground">30 seconds</span></p>
+                  <p className="text-xs text-muted-foreground">Paste rows from any spreadsheet or CRM export. AI maps the columns for you.</p>
+                </div>
+                {wizardImportResult && wizardImportResult.imported > 0 && (
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0"><CheckCircle2 className="size-3" /> {wizardImportResult.imported} imported</span>
+                )}
+              </div>
+              {(!wizardImportResult || wizardImportResult.imported === 0) && (
+                <div className="space-y-2">
+                  <textarea
+                    value={wizardImportData}
+                    onChange={e => setWizardImportData(e.target.value)}
+                    placeholder={'Name, Email, Phone\nJane Cooper, jane@example.com, 555-0100\n...'}
+                    className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-none h-24 focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-muted-foreground">Include a header row for the best mapping. Duplicates are skipped by email.</p>
+                    <Button type="button" size="sm" disabled={wizardImporting || !wizardImportData.trim()} onClick={runWizardImport}>
+                      {wizardImporting ? <><Loader2 className="size-3 animate-spin mr-1.5" /> Importing...</> : 'Import'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <p className="text-xs text-muted-foreground text-center">
               All connections can be managed in Settings at any time.
             </p>
@@ -1064,6 +1149,29 @@ export default function WelcomePage() {
               <p className="text-base font-medium">What would you like to do first?</p>
               <p className="text-sm text-muted-foreground mt-1">Pick any of these to get started, or go straight to your dashboard.</p>
             </div>
+
+            {/* Live setup status (T4): show what the AI can and cannot do yet,
+                based on what actually got connected, with a path back. */}
+            <div className="max-w-sm mx-auto rounded-lg border bg-muted/30 p-3 space-y-1.5">
+              {[
+                { ok: emailConnected, label: emailConnected ? 'Email connected. Replies and follow-ups can be drafted for you.' : `Email not connected. ${aiPersonaName || 'Scout'} cannot draft replies yet.` },
+                { ok: !!(wizardImportResult && wizardImportResult.imported > 0), label: wizardImportResult && wizardImportResult.imported > 0 ? `${wizardImportResult.imported} contacts imported. Your business is in the CRM.` : 'No contacts imported yet. The CRM is starting empty.' },
+                { ok: stripeConnected, label: stripeConnected ? 'Stripe connected. You can send invoices and get paid.' : 'Stripe not connected. Invoicing is off until you connect it.' },
+              ].map((item, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  {item.ok
+                    ? <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                    : <Minus className="size-3.5 text-muted-foreground/50 shrink-0 mt-0.5" />}
+                  <span className={item.ok ? '' : 'text-muted-foreground'}>{item.label}</span>
+                </div>
+              ))}
+              {(!emailConnected || !(wizardImportResult && wizardImportResult.imported > 0)) && (
+                <button type="button" onClick={() => setStep(6)} className="text-xs text-primary hover:underline pt-1">
+                  Go back and finish connecting
+                </button>
+              )}
+            </div>
+
             <div className="grid gap-2 max-w-sm mx-auto">
               {[
                 { href: '/backend/contacts', icon: Users, title: 'Add your first contact', desc: 'Or import from a spreadsheet' },

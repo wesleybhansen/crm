@@ -20,6 +20,8 @@ const actionTypes = [
 ]
 
 export default function AutomationsPage() {
+  // Superseded by the consolidated Automations home (T4) — redirect.
+  useEffect(() => { window.location.replace('/backend/automations-v2') }, [])
   const [automations, setAutomations] = useState<Automation[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)

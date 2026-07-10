@@ -104,6 +104,9 @@ export default function ContactsPage() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editingTaskTitle, setEditingTaskTitle] = useState('')
   const [engagementScore, setEngagementScore] = useState<number>(0)
+  const [engagementEvents, setEngagementEvents] = useState<Array<{ id: string; event_type: string; points: number; created_at: string }>>([])
+  const [showScoreWhy, setShowScoreWhy] = useState(false)
+  const [sentimentInfo, setSentimentInfo] = useState<{ recent: Array<{ sentiment: string; created_at: string }>; negativeStreak: number } | null>(null)
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
   const [timelineLoading, setTimelineLoading] = useState(false)
   const [showRemindForm, setShowRemindForm] = useState(false)
@@ -179,7 +182,15 @@ export default function ContactsPage() {
     fetch(`/api/crm-contact-tags?contactId=${contact.id}`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setContactTags(d.data || []) }).catch(() => {})
     fetch(`/api/customers/engagement?contactId=${contact.id}`, { credentials: 'include' })
-      .then(r => r.json()).then(d => { if (d.ok) setEngagementScore(d.data?.score || 0) }).catch(() => setEngagementScore(0))
+      .then(r => r.json()).then(d => {
+        if (d.ok) {
+          setEngagementScore(d.data?.score || 0)
+          // The API always returned the WHY (recent scored events); render it.
+          setEngagementEvents(Array.isArray(d.data?.events) ? d.data.events : [])
+        }
+      }).catch(() => { setEngagementScore(0); setEngagementEvents([]) })
+    fetch(`/api/contacts/${contact.id}/sentiment`, { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.ok) setSentimentInfo(d.data || null) }).catch(() => setSentimentInfo(null))
     fetch(`/api/contacts/${contact.id}/attachments`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setAttachments(d.data || []) }).catch(() => setAttachments([]))
     // Reset AI summary — user must click button to generate
@@ -219,6 +230,9 @@ export default function ContactsPage() {
     setCompanyColleagues([])
     setContactSummary(null)
     setSummaryIsAi(false)
+    setEngagementEvents([])
+    setShowScoreWhy(false)
+    setSentimentInfo(null)
   }
 
   async function addTag() {
@@ -252,16 +266,55 @@ export default function ContactsPage() {
     setImporting(true)
     setImportResult(null)
     try {
-      // Parse CSV-like data (name, email per line)
       const lines = importData.trim().split('\n').filter(l => l.trim())
-      const contacts = lines.map(line => {
-        const parts = line.split(/[,\t]+/).map(p => p.trim())
-        // Try to detect: name, email, phone
-        const email = parts.find(p => p.includes('@'))
-        const phone = parts.find(p => /^\+?\d[\d\s()-]{6,}$/.test(p))
-        const name = parts.find(p => p !== email && p !== phone) || email
-        return { name, email, phone }
-      }).filter(c => c.name || c.email)
+      const rows = lines.map(line => line.split(/[,\t]/).map(p => p.trim().replace(/^"|"$/g, '')))
+
+      // Migration assistant (T4): when this looks like a real spreadsheet
+      // export (a header row + multiple columns), let the AI map the columns
+      // onto CRM fields — a HubSpot/GHL/Sheets export imports as-is, no
+      // column renaming. Falls back to the simple heuristic on any failure.
+      let contacts: Array<{ name?: string; email?: string; phone?: string; company?: string; source?: string; tags?: string; notes?: string }> = []
+      const looksTabular = rows.length >= 2 && rows[0].length >= 2 && !rows[0].some(h => h.includes('@'))
+      if (looksTabular) {
+        try {
+          const mapRes = await fetch('/api/contacts/import/map', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ headers: rows[0], sampleRows: rows.slice(1, 6) }),
+          })
+          const mapData = await mapRes.json()
+          const mapping: Record<string, number | null> | undefined = mapData?.data?.mapping
+          const mapped = mapping && (mapping.email !== null || mapping.name !== null || mapping.first_name !== null)
+          if (mapData?.ok && mapped) {
+            const cell = (row: string[], idx: number | null | undefined) =>
+              (idx !== null && idx !== undefined && row[idx] !== undefined) ? row[idx].trim() : ''
+            contacts = rows.slice(1).map(row => {
+              const first = cell(row, mapping.first_name)
+              const last = cell(row, mapping.last_name)
+              const name = cell(row, mapping.name) || [first, last].filter(Boolean).join(' ')
+              return {
+                name: name || undefined,
+                email: cell(row, mapping.email) || undefined,
+                phone: cell(row, mapping.phone) || undefined,
+                company: cell(row, mapping.company) || undefined,
+                source: cell(row, mapping.source) || undefined,
+                tags: cell(row, mapping.tags) || undefined,
+                notes: cell(row, mapping.notes) || undefined,
+              }
+            }).filter(c => c.name || c.email)
+          }
+        } catch { /* fall through to heuristic */ }
+      }
+
+      if (contacts.length === 0) {
+        // Simple heuristic (per-line name/email/phone detection)
+        contacts = lines.map(line => {
+          const parts = line.split(/[,\t]+/).map(p => p.trim())
+          const email = parts.find(p => p.includes('@'))
+          const phone = parts.find(p => /^\+?\d[\d\s()-]{6,}$/.test(p))
+          const name = parts.find(p => p !== email && p !== phone) || email
+          return { name, email, phone }
+        }).filter(c => c.name || c.email)
+      }
 
       const res = await fetch('/api/contacts/import', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -1638,9 +1691,51 @@ export default function ContactsPage() {
                       <span className="text-[10px] text-muted-foreground">
                         {engagementScore >= 20 ? 'Hot' : engagementScore >= 5 ? 'Warm' : 'Cold'}
                       </span>
+                      {engagementEvents.length > 0 && (
+                        <button type="button" onClick={() => setShowScoreWhy(v => !v)}
+                          className="text-[10px] text-accent hover:underline ml-auto">
+                          {showScoreWhy ? 'Hide' : 'Why?'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
+
+                {/* Why this score: the scored events behind the number (T3b) */}
+                {showScoreWhy && engagementEvents.length > 0 && (
+                  <div className="rounded-lg border bg-muted/30 p-2.5 space-y-1 max-h-40 overflow-y-auto">
+                    {engagementEvents.slice(0, 12).map(ev => (
+                      <div key={ev.id} className="flex items-center gap-2 text-[11px]">
+                        <span className={`font-mono tabular-nums w-7 text-right shrink-0 ${ev.points >= 0 ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>
+                          {ev.points >= 0 ? `+${ev.points}` : ev.points}
+                        </span>
+                        <span className="capitalize flex-1 truncate">{ev.event_type.replace(/_/g, ' ')}</span>
+                        <span className="text-muted-foreground shrink-0">{new Date(ev.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Recent tone / at-risk (T3b): from AI email sentiment */}
+                {sentimentInfo && sentimentInfo.recent.length > 0 && (
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="text-muted-foreground">Recent tone:</span>
+                    <div className="flex items-center gap-1">
+                      {sentimentInfo.recent.slice(0, 5).map((s, i) => (
+                        <span key={i} title={s.sentiment} className={`size-2 rounded-full ${
+                          s.sentiment === 'positive' ? 'bg-[#10b981]' :
+                          s.sentiment === 'negative' ? 'bg-[#ef4444]' :
+                          'bg-muted-foreground/30'
+                        }`} />
+                      ))}
+                    </div>
+                    {sentimentInfo.negativeStreak >= 2 && (
+                      <span className="ml-auto px-1.5 py-0.5 rounded-full border font-mono text-[9px] font-semibold uppercase tracking-wider bg-[rgba(239,68,68,.10)] text-[#b91c1c] border-[rgba(239,68,68,.24)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)]">
+                        At risk
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Remind Me */}
                 <div className="pt-3 border-t">

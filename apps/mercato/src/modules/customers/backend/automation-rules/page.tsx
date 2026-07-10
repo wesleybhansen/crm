@@ -56,6 +56,8 @@ const ACTION_TYPES = [
 ]
 
 export default function AutomationRulesPage() {
+  // Superseded by the consolidated Automations home (T4) — redirect.
+  useEffect(() => { window.location.replace('/backend/automations-v2') }, [])
   const [rules, setRules] = useState<Rule[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)

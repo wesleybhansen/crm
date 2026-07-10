@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import SequencesPage from '@/modules/sequences/backend/sequences/page'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -1960,6 +1961,10 @@ function InlineMiniChat({
 // ---------------------------------------------------------------------------
 
 export default function AutomationsV2Page() {
+  // Automation consolidation (T4): one home for both automation surfaces.
+  // "Workflows" = the trigger-based rules below; "Sequences" = the drip
+  // engine, rendered via its embedded mode.
+  const [surface, setSurface] = useState<'workflows' | 'sequences'>('workflows')
   const [rules, setRules] = useState<AutomationRule[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -2478,29 +2483,50 @@ export default function AutomationsV2Page() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-lg font-semibold">Automations</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Automate repetitive tasks with trigger-based rules
+            {surface === 'workflows' ? 'Automate repetitive tasks with trigger-based rules' : 'Multi-step email and SMS drips that nurture contacts over time'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setShowHelpChat(true)}>
-            <MessageCircle className="size-3.5 mr-1.5" /> Need Help?
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => setShowAiWizard(true)}>
-            <Wand2 className="size-3.5 mr-1.5" /> AI Create
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={openTemplateGallery}>
-            <LayoutGrid className="size-3.5 mr-1.5" /> Templates
-          </Button>
-          <Button type="button" size="sm" onClick={openCreate}>
-            <Plus className="size-3.5 mr-1.5" /> New Automation
-          </Button>
-        </div>
+        {surface === 'workflows' && (
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowHelpChat(true)}>
+              <MessageCircle className="size-3.5 mr-1.5" /> Need Help?
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowAiWizard(true)}>
+              <Wand2 className="size-3.5 mr-1.5" /> AI Create
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={openTemplateGallery}>
+              <LayoutGrid className="size-3.5 mr-1.5" /> Templates
+            </Button>
+            <Button type="button" size="sm" onClick={openCreate}>
+              <Plus className="size-3.5 mr-1.5" /> New Automation
+            </Button>
+          </div>
+        )}
       </div>
 
+      {/* Surface switch: the one home for both automation systems */}
+      <div className="inline-flex items-center gap-1 mb-5 rounded-lg border bg-muted/40 p-1">
+        {([['workflows', 'Workflows'], ['sequences', 'Sequences']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setSurface(key)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
+              surface === key ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {surface === 'sequences' && <SequencesPage embedded />}
+
+      {surface === 'workflows' && (<>
       {/* Status tabs */}
       <div className="flex items-center gap-1 mb-4 border-b">
         {statusTabs.map(tab => (
@@ -2588,6 +2614,7 @@ export default function AutomationsV2Page() {
           ))}
         </div>
       )}
+      </>)}
 
       {/* Delete confirmation dialog */}
       {deletingId && (
