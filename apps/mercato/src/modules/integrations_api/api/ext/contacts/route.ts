@@ -60,7 +60,7 @@ export async function POST(req: Request, ctx: any) {
     const knex = em.getKnex()
     const body = await req.json()
 
-    const { displayName, email, phone, source } = body
+    const { displayName, email, phone, source, attribution, channel } = body
     if (!displayName && !email) {
       return NextResponse.json({ ok: false, error: 'displayName or email required' }, { status: 400 })
     }
@@ -74,6 +74,23 @@ export async function POST(req: Request, ctx: any) {
       if (existing) return NextResponse.json({ ok: true, data: existing, existed: true })
     }
 
+    // Marketing attribution (pushed by the Noli AMS): keep the human channel
+    // line + utm specifics on the contact description so origin survives on a
+    // schema without utm columns.
+    let description: string | null = null
+    if (channel && typeof channel === 'string') {
+      description = `Came from: ${channel.slice(0, 160)}`
+    }
+    if (attribution && typeof attribution === 'object') {
+      const parts = Object.entries(attribution as Record<string, unknown>)
+        .filter(([, v]) => typeof v === 'string' && v)
+        .slice(0, 10)
+        .map(([k, v]) => `${k}=${String(v).slice(0, 160)}`)
+      if (parts.length > 0) {
+        description = `${description ? description + '\n' : ''}Attribution: ${parts.join(' · ')}`
+      }
+    }
+
     const id = require('crypto').randomUUID()
     const extName = displayName || email
     await knex('customer_entities').insert({
@@ -85,6 +102,7 @@ export async function POST(req: Request, ctx: any) {
       primary_email: email || null,
       primary_phone: phone || null,
       source: source || 'api',
+      description,
       status: 'active',
       lifecycle_stage: 'prospect',
       created_at: new Date(),
