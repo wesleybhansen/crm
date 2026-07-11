@@ -100,7 +100,12 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     noliUserId?: unknown
     email?: unknown
+    soleMember?: unknown
   }
+  // Hub-authoritative sole-member status (from noli-core, which sees every org
+  // member regardless of which apps they opened). Whole-org purge needs BOTH
+  // this and the local check.
+  const hubSoleMember = body.soleMember !== false
   const noliUserId = typeof body.noliUserId === 'string' ? body.noliUserId.trim() : ''
   let email = typeof body.email === 'string' ? body.email.trim() : ''
   if (!noliUserId) {
@@ -190,7 +195,7 @@ export async function POST(req: Request) {
       .where('organization_id', orgId)
       .whereNull('deleted_at')) as Array<{ id: string }>
     const others = activeUsers.filter((u) => u.id !== userRow.id)
-    if (others.length > 0) {
+    if (others.length > 0 || !hubSoleMember) {
       await scrubOwnUser()
       return NextResponse.json({ ok: true, skipped: 'multi-user org', deleted })
     }
