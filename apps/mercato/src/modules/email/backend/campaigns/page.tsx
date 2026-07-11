@@ -30,8 +30,61 @@ const STYLE_LABELS: Record<string, string> = {
   general: 'Simple',
 }
 
+// House palette for tinted-icon stat tiles (matches the CRM dashboard).
+const STAT_COLORS = {
+  violet: { icon: 'text-[#7c3aed] dark:text-[#a78bfa]', tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]' },
+  blue: { icon: 'text-[#1d4ed8] dark:text-[#60a5fa]', tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]' },
+  green: { icon: 'text-[#047857] dark:text-[#34d399]', tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]' },
+  amber: { icon: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]' },
+} as const
+
+// AMS-style compact sparkline with a soft colored area fill (color via currentColor).
+function Sparkline({ data, className = '' }: { data: number[]; className?: string }) {
+  const w = 84, h = 26, max = Math.max(...data, 1), n = Math.max(data.length - 1, 1)
+  const pts = data.map((v, i) => `${(2 + (i * (w - 4)) / n).toFixed(1)},${(h - 4 - (v * (h - 8)) / max).toFixed(1)}`).join(' ')
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className={`shrink-0 ${className}`}>
+      <polygon points={`${pts} ${w - 2},${h} 2,${h}`} className="fill-current opacity-[.12]" />
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+// Weekly counts (oldest -> newest) derived client-side from rows already in memory.
+function weeklyCounts(dates: Array<string | null | undefined>, weeks = 8): number[] {
+  const now = Date.now()
+  const out = new Array(weeks).fill(0)
+  for (const d of dates) {
+    if (!d) continue
+    const t = new Date(d).getTime()
+    if (Number.isNaN(t)) continue
+    const diff = Math.floor((now - t) / (7 * 24 * 60 * 60 * 1000))
+    if (diff >= 0 && diff < weeks) out[weeks - 1 - diff]++
+  }
+  return out
+}
+
+function StatTile({ icon: Icon, label, value, color, series }: {
+  icon: any; label: string; value: number; color: keyof typeof STAT_COLORS; series?: number[]
+}) {
+  const c = STAT_COLORS[color]
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className={`size-9 rounded-lg flex items-center justify-center ${c.tile}`}>
+          <Icon className={`size-4 ${c.icon}`} />
+        </div>
+        {series && series.length > 0 && <Sparkline data={series} className={`${c.icon} opacity-90`} />}
+      </div>
+      <p className="text-2xl font-bold tabular-nums tracking-tight">{value.toLocaleString()}</p>
+      <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+    </div>
+  )
+}
+
 export default function CampaignsPage({ embedded }: { embedded?: boolean } = {}) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [campaignsTotal, setCampaignsTotal] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
@@ -68,7 +121,13 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
       .then(r => r.json()).then(d => { if (d.ok) setTemplates(d.data || []) }).catch(() => {})
 
     fetch('/api/email/campaigns', { credentials: 'include' })
-      .then(r => r.json()).then(d => { if (d.ok) setCampaigns(d.data || []); setLoading(false) }).catch(() => setLoading(false))
+      .then(r => r.json()).then(d => {
+        if (d.ok) {
+          setCampaigns(d.data || [])
+          if (typeof d.total === 'number') setCampaignsTotal(d.total)
+        }
+        setLoading(false)
+      }).catch(() => setLoading(false))
   }
 
   function loadTemplates() {
@@ -549,6 +608,27 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
           </div>
         </div>
       )}
+
+      {/* Stat tiles (real data from the loaded blasts; spark only when all rows are loaded) */}
+      {!loading && campaigns.length > 0 && (() => {
+        const sentBlasts = campaigns.filter(c => c.status === 'sent')
+        const sums = campaigns.reduce((acc, c) => {
+          const st = typeof c.stats === 'string' ? (() => { try { return JSON.parse(c.stats) } catch { return {} } })() : (c.stats || {})
+          acc.sent += Number((st as any).sent) || 0
+          acc.opened += Number((st as any).opened) || 0
+          return acc
+        }, { sent: 0, opened: 0 })
+        const haveAll = campaignsTotal !== null && campaignsTotal <= campaigns.length
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            <StatTile icon={Mail} label="Blasts" value={campaignsTotal ?? campaigns.length} color="violet"
+              series={haveAll ? weeklyCounts(campaigns.map(c => c.created_at)) : undefined} />
+            <StatTile icon={Send} label="Sent blasts" value={sentBlasts.length} color="green" />
+            <StatTile icon={Users} label="Emails sent" value={sums.sent} color="blue" />
+            <StatTile icon={Eye} label="Opens" value={sums.opened} color="amber" />
+          </div>
+        )
+      })()}
 
       {/* Campaign List */}
       {loading ? <div className="text-sm text-muted-foreground">Loading...</div> :

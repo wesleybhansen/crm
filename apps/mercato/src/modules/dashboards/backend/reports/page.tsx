@@ -55,6 +55,20 @@ export default function ReportsPage() {
   const revenueChange = data.paymentRevenue.lastMonth > 0
     ? Math.round(((data.paymentRevenue.thisMonth - data.paymentRevenue.lastMonth) / data.paymentRevenue.lastMonth) * 100) : null
 
+  // Daily new-contact series over the last 30 days, bucketed client-side from
+  // the already-fetched contactsOverTime rows (zero-filled for missing days).
+  const contactsDaily = (() => {
+    const out = new Array(30).fill(0)
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    for (const r of data.contactsOverTime) {
+      const t = new Date(r.day).getTime()
+      if (Number.isNaN(t)) continue
+      const diff = Math.floor((today.getTime() - t) / 86400000)
+      if (diff >= 0 && diff < 30) out[29 - diff] += Number(r.count) || 0
+    }
+    return out
+  })()
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -70,9 +84,9 @@ export default function ReportsPage() {
           sub={`${data.dealOutcomes.won} deal${data.dealOutcomes.won !== 1 ? 's' : ''} closed`} accent="emerald" />
         <KpiCard icon={DollarSign} label="Payments" value={`$${data.paymentRevenue.thisMonth.toLocaleString()}`}
           sub={revenueChange !== null ? `${revenueChange >= 0 ? '+' : ''}${revenueChange}% vs last month` : 'First month tracking'}
-          accent={revenueChange !== null && revenueChange >= 0 ? 'emerald' : 'default'} />
+          accent="amber" />
         <KpiCard icon={Users} label="New Contacts" value={String(totalContacts30d)}
-          sub={`${data.contactsBySource.length} source${data.contactsBySource.length !== 1 ? 's' : ''}`} accent="blue" />
+          sub={`${data.contactsBySource.length} source${data.contactsBySource.length !== 1 ? 's' : ''}`} accent="blue" series={contactsDaily} />
         <KpiCard icon={Calendar} label="Bookings" value={String(data.bookingStats.thisMonth)}
           sub={`${data.bookingStats.upcoming} upcoming`} accent="purple" />
       </div>
@@ -82,7 +96,7 @@ export default function ReportsPage() {
         <div className="rounded-xl border p-5 bg-card mb-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h2 className="text-sm font-semibold flex items-center gap-2">
-              <BarChart3 className="size-4 text-muted-foreground" /> Revenue Forecast
+              <BarChart3 className="size-4 text-[#7c3aed] dark:text-[#a78bfa]" /> Revenue Forecast
             </h2>
             {data.salesVelocity?.avgDaysToWin != null && (
               <span className="text-xs text-muted-foreground">
@@ -114,7 +128,7 @@ export default function ReportsPage() {
         {/* Pipeline by Stage */}
         <div className="rounded-xl border p-5 bg-card">
           <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
-            <Target className="size-4 text-muted-foreground" /> Pipeline by Stage
+            <Target className="size-4 text-[#1d4ed8] dark:text-[#60a5fa]" /> Pipeline by Stage
           </h2>
           {data.pipelineByStage.length === 0 ? (
             <EmptySection text="No deals yet" />
@@ -138,7 +152,7 @@ export default function ReportsPage() {
         {/* Contacts by Source */}
         <div className="rounded-xl border p-5 bg-card">
           <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
-            <Users className="size-4 text-muted-foreground" /> Contacts by Source
+            <Users className="size-4 text-[#047857] dark:text-[#34d399]" /> Contacts by Source
           </h2>
           {data.contactsBySource.length === 0 ? (
             <EmptySection text="No contacts yet" />
@@ -162,7 +176,7 @@ export default function ReportsPage() {
         {/* Deal Outcomes */}
         <div className="rounded-xl border p-5 bg-card">
           <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
-            <TrendingUp className="size-4 text-muted-foreground" /> Deal Outcomes
+            <TrendingUp className="size-4 text-[#b45309] dark:text-[#fbbf24]" /> Deal Outcomes
           </h2>
           <div className="grid grid-cols-3 gap-4 text-center">
             <div className="rounded-xl bg-[rgba(16,185,129,.06)] dark:bg-[rgba(16,185,129,.08)] border border-[rgba(16,185,129,.22)] dark:border-[rgba(16,185,129,.26)] p-4">
@@ -184,7 +198,7 @@ export default function ReportsPage() {
         {(data.winLossBySource?.length || 0) > 0 && (
           <div className="rounded-xl border p-5 bg-card">
             <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
-              <ArrowUpRight className="size-4 text-muted-foreground" /> Win Rate by Source <span className="font-normal text-muted-foreground">(90 days)</span>
+              <ArrowUpRight className="size-4 text-[#047857] dark:text-[#34d399]" /> Win Rate by Source <span className="font-normal text-muted-foreground">(90 days)</span>
             </h2>
             <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">
               <span>Source</span>
@@ -209,7 +223,7 @@ export default function ReportsPage() {
         {/* Landing Page Performance */}
         <div className="rounded-xl border p-5 bg-card">
           <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
-            <FileText className="size-4 text-muted-foreground" /> Landing Pages
+            <FileText className="size-4 text-[#7c3aed] dark:text-[#a78bfa]" /> Landing Pages
           </h2>
           {data.landingPagePerf.length === 0 ? (
             <EmptySection text="No published pages" />
@@ -242,13 +256,31 @@ export default function ReportsPage() {
   )
 }
 
-function KpiCard({ icon: Icon, label, value, sub, accent }: {
-  icon: any; label: string; value: string; sub: string; accent?: string
+// AMS-style compact sparkline with a soft colored area fill (color via currentColor).
+function Sparkline({ data, className = '' }: { data: number[]; className?: string }) {
+  const w = 84, h = 26, max = Math.max(...data, 1), n = Math.max(data.length - 1, 1)
+  const pts = data.map((v, i) => `${(2 + (i * (w - 4)) / n).toFixed(1)},${(h - 4 - (v * (h - 8)) / max).toFixed(1)}`).join(' ')
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className={`shrink-0 ${className}`}>
+      <polygon points={`${pts} ${w - 2},${h} 2,${h}`} className="fill-current opacity-[.12]" />
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function KpiCard({ icon: Icon, label, value, sub, accent, series }: {
+  icon: any; label: string; value: string; sub: string; accent?: string; series?: number[]
 }) {
   const accentColor = accent === 'emerald' ? 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399]'
     : accent === 'blue' ? 'bg-[rgba(37,99,235,.08)] text-[#1d4ed8] dark:bg-[rgba(59,130,246,.15)] dark:text-[#93c5fd]'
     : accent === 'purple' ? 'bg-[rgba(124,58,237,.09)] text-[#6d28d9] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd]'
+    : accent === 'amber' ? 'bg-[rgba(217,119,6,.10)] text-[#b45309] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24]'
     : 'bg-accent/8 text-accent'
+  const sparkColor = accent === 'emerald' ? 'text-[#047857] dark:text-[#34d399]'
+    : accent === 'blue' ? 'text-[#1d4ed8] dark:text-[#60a5fa]'
+    : accent === 'purple' ? 'text-[#7c3aed] dark:text-[#a78bfa]'
+    : accent === 'amber' ? 'text-[#b45309] dark:text-[#fbbf24]'
+    : 'text-accent'
 
   return (
     <div className="rounded-xl border bg-card p-4">
@@ -256,6 +288,7 @@ function KpiCard({ icon: Icon, label, value, sub, accent }: {
         <div className={`size-9 rounded-lg flex items-center justify-center ${accentColor}`}>
           <Icon className="size-4" />
         </div>
+        {series && series.length > 0 && <Sparkline data={series} className={`${sparkColor} opacity-90`} />}
       </div>
       <p className="text-2xl font-bold tabular-nums tracking-tight">{value}</p>
       <p className="text-xs text-muted-foreground mt-0.5">{label}</p>

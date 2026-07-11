@@ -95,6 +95,44 @@ const TABS: { id: TabId; label: string; icon: typeof CalendarDays }[] = [
   { id: 'booking-pages', label: 'Booking Pages', icon: Link2 },
 ]
 
+// ---------- stat tiles (house palette, matches the CRM dashboard) ----------
+const STAT_COLORS = {
+  violet: { icon: 'text-[#7c3aed] dark:text-[#a78bfa]', tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]' },
+  blue: { icon: 'text-[#1d4ed8] dark:text-[#60a5fa]', tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]' },
+  green: { icon: 'text-[#047857] dark:text-[#34d399]', tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]' },
+  amber: { icon: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]' },
+} as const
+
+// AMS-style compact sparkline with a soft colored area fill (color via currentColor).
+function Sparkline({ data, className = '' }: { data: number[]; className?: string }) {
+  const w = 84, h = 26, max = Math.max(...data, 1), n = Math.max(data.length - 1, 1)
+  const pts = data.map((v, i) => `${(2 + (i * (w - 4)) / n).toFixed(1)},${(h - 4 - (v * (h - 8)) / max).toFixed(1)}`).join(' ')
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className={`shrink-0 ${className}`}>
+      <polygon points={`${pts} ${w - 2},${h} 2,${h}`} className="fill-current opacity-[.12]" />
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function StatTile({ icon: Icon, label, value, color, series }: {
+  icon: typeof CalendarDays; label: string; value: number; color: keyof typeof STAT_COLORS; series?: number[]
+}) {
+  const c = STAT_COLORS[color]
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className={`size-9 rounded-lg flex items-center justify-center ${c.tile}`}>
+          <Icon className={`size-4 ${c.icon}`} />
+        </div>
+        {series && series.length > 0 && <Sparkline data={series} className={`${c.icon} opacity-90`} />}
+      </div>
+      <p className="text-2xl font-bold tabular-nums tracking-tight">{value.toLocaleString()}</p>
+      <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+    </div>
+  )
+}
+
 // ---------- event type config ----------
 const EVENT_TYPE_COLORS: Record<string, { bg: string; border: string; text: string; pillBg: string }> = {
   google_meet: { bg: '#3B82F6', border: '#2563EB', text: '#ffffff', pillBg: '#3B82F6' },
@@ -1052,6 +1090,22 @@ export default function CalendarPage() {
     return groups
   }, [upcomingEvents])
 
+  // Upcoming summary stats + per-day series for the next 14 days, derived from
+  // the already-fetched 30-day upcoming window (real data only).
+  const upcomingStats = useMemo(() => {
+    const today = startOfDay(new Date())
+    const daily = new Array(14).fill(0)
+    let todayCount = 0
+    let weekCount = 0
+    for (const ev of upcomingEvents) {
+      const diff = Math.floor((startOfDay(ev.start).getTime() - today.getTime()) / 86400000)
+      if (diff === 0) todayCount++
+      if (diff >= 0 && diff < 7) weekCount++
+      if (diff >= 0 && diff < 14) daily[diff]++
+    }
+    return { todayCount, weekCount, total: upcomingEvents.length, daily }
+  }, [upcomingEvents])
+
   // =============================================
   // CALENDAR EVENT PROP GETTER
   // =============================================
@@ -1487,6 +1541,11 @@ export default function CalendarPage() {
                 </div>
               ) : (
                 <div className="space-y-6">
+                  <div className="grid grid-cols-3 gap-3">
+                    <StatTile icon={CalendarCheck} label="Today" value={upcomingStats.todayCount} color="blue" />
+                    <StatTile icon={CalendarDays} label="Next 7 days" value={upcomingStats.weekCount} color="violet" />
+                    <StatTile icon={List} label="Next 30 days" value={upcomingStats.total} color="green" series={upcomingStats.daily} />
+                  </div>
                   {groupedUpcoming.map(group => (
                     <div key={group.label}>
                       <h3 className={`mb-3 text-xs font-bold uppercase tracking-wider ${

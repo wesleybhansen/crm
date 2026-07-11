@@ -269,6 +269,33 @@ function useToast() {
 }
 
 // ---------------------------------------------------------------------------
+// Stat tiles (house palette, matches the CRM dashboard). Counts only: the
+// conversations endpoint is status-filtered and capped, so no honest series.
+// ---------------------------------------------------------------------------
+
+const STAT_COLORS = {
+  violet: { icon: 'text-[#7c3aed] dark:text-[#a78bfa]', tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]' },
+  blue: { icon: 'text-[#1d4ed8] dark:text-[#60a5fa]', tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]' },
+  green: { icon: 'text-[#047857] dark:text-[#34d399]', tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]' },
+  amber: { icon: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]' },
+} as const
+
+function StatTile({ icon: Icon, label, value, color }: {
+  icon: typeof MessageCircle; label: string; value: number; color: keyof typeof STAT_COLORS
+}) {
+  const c = STAT_COLORS[color]
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className={`size-9 rounded-lg flex items-center justify-center mb-3 ${c.tile}`}>
+        <Icon className={`size-4 ${c.icon}`} />
+      </div>
+      <p className="text-2xl font-bold tabular-nums tracking-tight">{value.toLocaleString()}</p>
+      <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Landing Page
 // ---------------------------------------------------------------------------
 
@@ -331,8 +358,8 @@ function LandingPage({
             onClick={onCreateWidget}
             className="group text-left bg-card rounded-xl border border-border p-6 hover:border-accent/40 hover:shadow-md transition-all"
           >
-            <div className="inline-flex items-center justify-center size-10 rounded-lg bg-accent/10 mb-4 group-hover:bg-accent/15 transition-colors">
-              <Plug className="size-5 text-accent" />
+            <div className="inline-flex items-center justify-center size-10 rounded-lg bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)] mb-4 transition-colors">
+              <Plug className="size-5 text-[#1d4ed8] dark:text-[#60a5fa]" />
             </div>
             <h2 className="text-base font-semibold text-foreground mb-1.5">Create Chat Widget</h2>
             <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
@@ -349,8 +376,8 @@ function LandingPage({
             onClick={onOpenInbox}
             className="group text-left bg-card rounded-xl border border-border p-6 hover:border-accent/40 hover:shadow-md transition-all relative"
           >
-            <div className="inline-flex items-center justify-center size-10 rounded-lg bg-accent/10 mb-4 group-hover:bg-accent/15 transition-colors">
-              <Inbox className="size-5 text-accent" />
+            <div className="inline-flex items-center justify-center size-10 rounded-lg bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)] mb-4 transition-colors">
+              <Inbox className="size-5 text-[#047857] dark:text-[#34d399]" />
             </div>
             <h2 className="text-base font-semibold text-foreground mb-1.5">Chat with Customers</h2>
             <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
@@ -372,6 +399,11 @@ function LandingPage({
         {/* Existing Widgets List */}
         {widgets.length > 0 && (
           <div>
+            <div className="grid grid-cols-3 gap-4 mb-8">
+              <StatTile icon={MessageCircle} label="Chat widgets" value={widgets.length} color="violet" />
+              <StatTile icon={Check} label="Active widgets" value={widgets.filter(w => w.is_active).length} color="green" />
+              <StatTile icon={Inbox} label="Open conversations" value={openConversationCount} color="blue" />
+            </div>
             <div className="flex items-center gap-3 mb-4">
               <div className="h-px flex-1 bg-border" />
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Your Chat Widgets</span>

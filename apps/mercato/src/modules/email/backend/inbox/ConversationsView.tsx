@@ -105,6 +105,33 @@ function StateBadge({ state }: { state: AiState }) {
   return <span className={`font-mono text-[9px] font-bold uppercase tracking-[.05em] rounded px-1.5 py-0.5 ${m.cls}`}>{m.label}</span>
 }
 
+// House palette for tinted-icon stat tiles (matches the CRM dashboard). Counts
+// come from the already-loaded conversation list; no series is shown because the
+// list is server-filtered (no honest trend data here).
+const STAT_COLORS = {
+  violet: { icon: 'text-[#7c3aed] dark:text-[#a78bfa]', tile: 'bg-[rgba(124,58,237,0.10)] dark:bg-[rgba(139,92,246,0.16)]' },
+  blue: { icon: 'text-[#1d4ed8] dark:text-[#60a5fa]', tile: 'bg-[rgba(37,99,235,0.10)] dark:bg-[rgba(59,130,246,0.15)]' },
+  green: { icon: 'text-[#047857] dark:text-[#34d399]', tile: 'bg-[rgba(16,185,129,0.10)] dark:bg-[rgba(16,185,129,0.14)]' },
+  amber: { icon: 'text-[#b45309] dark:text-[#fbbf24]', tile: 'bg-[rgba(217,119,6,0.10)] dark:bg-[rgba(245,158,11,0.13)]' },
+} as const
+
+function InboxStat({ icon: Icon, label, value, color }: {
+  icon: typeof Inbox; label: string; value: number; color: keyof typeof STAT_COLORS
+}) {
+  const c = STAT_COLORS[color]
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border bg-card px-3 py-2">
+      <div className={`size-8 rounded-lg flex items-center justify-center shrink-0 ${c.tile}`}>
+        <Icon className={`size-4 ${c.icon}`} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-lg font-bold tabular-nums leading-tight">{value.toLocaleString()}</p>
+        <p className="text-[10px] text-muted-foreground leading-tight truncate">{label}</p>
+      </div>
+    </div>
+  )
+}
+
 function sanitizeHtml(html: string): string {
   return html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '').replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '').replace(/javascript\s*:/gi, '')
 }
@@ -521,8 +548,18 @@ export default function ConversationsView({
   const listMode: 'full' | 'side' = (selectedId || composing) ? 'side' : 'full'
 
   // ── List (shared by list-only + side-column modes) ──
+  const unreadTotal = conversations.filter(c => c.unreadCount > 0).length
+
   const renderList = () => (
     <div className={`flex flex-col min-h-0 bg-card overflow-hidden ${listMode === 'side' ? 'w-[340px] shrink-0 border-r' : 'flex-1'} ${listMode === 'side' ? 'hidden md:flex' : 'flex'}`}>
+      {/* Compact stat strip (full-width list only) */}
+      {listMode === 'full' && !listLoading && conversations.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 p-3 pb-0">
+          <InboxStat icon={Inbox} label="Conversations" value={conversations.length} color="blue" />
+          <InboxStat icon={Mail} label="Unread" value={unreadTotal} color="amber" />
+          <InboxStat icon={Sparkles} label="Needs review" value={reviewCount} color="violet" />
+        </div>
+      )}
       {/* Search + New Message */}
       <div className="p-3 pb-2 border-b">
         <div className="flex items-center gap-2">
