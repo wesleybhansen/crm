@@ -81,7 +81,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const config = typeof page.config === 'string' ? JSON.parse(page.config) : (page.config || {})
     const baseUrl = process.env.APP_URL || 'http://localhost:3000'
-    const formAction = `${baseUrl}/api/landing-pages/public/${page.slug}/submit`
+    const formAction = `${baseUrl}/api/landing_pages/public/${page.slug}/submit`
 
     let html: string | null = null
 
@@ -96,7 +96,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           const isUpsellOrDownsell = config.pageType === 'upsell' || config.pageType === 'downsell'
 
           // Create/update forms record for pages that have forms (not booking, upsell, or downsell)
-          let v2FormAction = `${baseUrl}/api/landing-pages/public/${page.slug}/submit`
+          let v2FormAction = `${baseUrl}/api/landing_pages/public/${page.slug}/submit`
 
           if (!isBookingPage && !isUpsellOrDownsell) {
             const formFields = convertWizardFieldsToFormFields(config.formFields || [])

@@ -1,4 +1,4 @@
-export const metadata = { path: '/affiliates/[id]', GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true } }
+export const metadata = { path: '/affiliates/[id]', GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, PATCH: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -100,6 +100,62 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
 }
 
+// Referral clawback: un-convert a converted referral (e.g. after a refund)
+// and decrement the affiliate's conversion/earnings totals. Manual v1 of
+// clawback; the event-driven charge.refunded path is documented in the Stripe
+// webhook's affiliate section.
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await getAuthFromCookies()
+  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  try {
+    const { id } = await params
+    const container = await createRequestContainer()
+    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const body = await req.json()
+
+    if (body.action !== 'reverse' || !body.referralId) {
+      return NextResponse.json({ ok: false, error: 'Expected { referralId, action: "reverse" }' }, { status: 400 })
+    }
+
+    const affiliate = await knex('affiliates').where('id', id).where('organization_id', auth.orgId).first()
+    if (!affiliate) return NextResponse.json({ ok: false, error: 'Affiliate not found' }, { status: 404 })
+
+    const referral = await knex('affiliate_referrals')
+      .where('id', body.referralId)
+      .where('affiliate_id', id)
+      .first()
+    if (!referral) return NextResponse.json({ ok: false, error: 'Referral not found' }, { status: 404 })
+    if (!referral.converted) return NextResponse.json({ ok: false, error: 'Referral is not converted' }, { status: 400 })
+
+    const commissionAmount = Number(referral.commission_amount) || 0
+
+    // Only the update that actually flips converted wins (idempotency guard).
+    const updated = await knex('affiliate_referrals')
+      .where('id', referral.id)
+      .where('converted', true)
+      .update({
+        converted: false,
+        converted_at: null,
+        commission_amount: null,
+      })
+    if (!updated) return NextResponse.json({ ok: false, error: 'Referral is not converted' }, { status: 400 })
+
+    await knex('affiliates')
+      .where('id', id)
+      .where('organization_id', auth.orgId)
+      .update({
+        total_conversions: knex.raw('GREATEST(total_conversions - 1, 0)'),
+        total_earned: knex.raw('GREATEST(total_earned - ?, 0)', [commissionAmount]),
+        updated_at: new Date(),
+      })
+
+    return NextResponse.json({ ok: true, data: { reversedCommission: commissionAmount } })
+  } catch (error) {
+    console.error('[affiliates.detail.PATCH] failed', error)
+    return NextResponse.json({ ok: false, error: 'Failed to reverse referral' }, { status: 500 })
+  }
+}
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Affiliates',
   summary: 'Affiliate detail and payout management',
@@ -107,5 +163,6 @@ export const openApi: OpenApiRouteDoc = {
     GET: { summary: 'Get affiliate detail with referrals and payouts', tags: ['Affiliates'] },
     POST: { summary: 'Create payout for affiliate', tags: ['Affiliates'] },
     PUT: { summary: 'Update affiliate or mark payout paid', tags: ['Affiliates'] },
+    PATCH: { summary: 'Reverse a converted referral (clawback)', tags: ['Affiliates'] },
   },
 }

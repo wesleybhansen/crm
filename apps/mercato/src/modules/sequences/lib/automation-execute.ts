@@ -1,5 +1,12 @@
 import { applyTaskTemplate } from '@/modules/customers/api/task-templates/apply/route'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import {
+  buildSenderContext,
+  htmlifyIfPlainText,
+  recordReviewRequest,
+  requiresReviewUrl,
+  substituteTemplateVars,
+} from './template-vars'
 
 /**
  * Automation Rules Executor
@@ -126,7 +133,7 @@ export async function executeAutomationRules(
         let status = 'executed'
 
         try {
-          actionResult = await executeAction(knex, orgId, tenantId, rule.action_type, actionConfig, context)
+          actionResult = await executeAction(knex, orgId, tenantId, rule.action_type, actionConfig, { ...context, ruleId: rule.id })
         } catch (err) {
           status = 'failed'
           actionResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
@@ -228,9 +235,24 @@ async function executeAction(
       if (!contactEmail || contactEmail.includes(':v1')) return { success: false, detail: 'Contact has no valid email' }
 
       const firstName = (contactName || '').split(' ')[0] || 'there'
-      const subject = (actionConfig.subject || 'Automated notification').replace(/\{\{firstName\}\}/g, firstName)
-      const bodyHtml = (actionConfig.bodyHtml || actionConfig.body || '<p>Hello {{firstName}},</p>')
-        .replace(/\{\{firstName\}\}/g, firstName)
+      const rawSubject = actionConfig.subject || 'Automated notification'
+      const rawBody = actionConfig.bodyHtml || actionConfig.body || '<p>Hello {{firstName}},</p>'
+
+      const senderCtx = await buildSenderContext(knex, orgId)
+      const isReviewRequest = requiresReviewUrl(rawSubject, rawBody)
+      if (isReviewRequest && !senderCtx.review_url) {
+        // A review request without a link is pointless — skip instead of sending
+        // an email with a hole in it. The caller logs this to automation_rule_logs.
+        return { success: false, detail: 'Skipped review request: no review link configured. Add your Google, Facebook or Yelp review link on the Reputation page (Settings), then this automation will send.' }
+      }
+
+      const varCtx = {
+        contact: { first_name: firstName, full_name: contactName || null, email: contactEmail },
+        sender: senderCtx,
+        reference: (context.reference as string | undefined) || null,
+      }
+      const subject = substituteTemplateVars(rawSubject, varCtx)
+      const bodyHtml = htmlifyIfPlainText(substituteTemplateVars(rawBody, varCtx))
 
       const result = await sendEmailByPurpose(knex, orgId, tenantId, 'automations', {
         to: contactEmail,
@@ -239,6 +261,16 @@ async function executeAction(
         contactId: context.contactId,
         fromName: actionConfig.fromName,
       })
+
+      // Count review-request sends for the Reputation page stats
+      if (result.ok && isReviewRequest && context.contactId) {
+        await recordReviewRequest(knex, {
+          organizationId: orgId,
+          tenantId,
+          contactId: context.contactId,
+          ruleId: (context.ruleId as string | undefined) || null,
+        })
+      }
 
       // Log to contact timeline
       if (result.ok && context.contactId) {
@@ -526,7 +558,7 @@ async function executeSteps(
       let status = 'executed'
 
       try {
-        actionResult = await executeAction(knex, orgId, tenantId, stepActionType, stepActionConfig, context)
+        actionResult = await executeAction(knex, orgId, tenantId, stepActionType, stepActionConfig, { ...context, ruleId: rule?.id || context.ruleId })
       } catch (err) {
         status = 'failed'
         actionResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' }

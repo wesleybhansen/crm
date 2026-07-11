@@ -2049,6 +2049,34 @@ export default function AutomationsV2Page() {
 
   useEffect(() => { loadRules() }, [loadRules])
 
+  // Behavior-suggested automations: repeated manual patterns mined server-side.
+  type BehaviorSuggestion = { id: string; title: string; description: string; occurrences: number; rule: { name: string; description: string; triggerType: string; triggerConfig: Record<string, unknown>; actionType: string; actionConfig: Record<string, unknown> } }
+  const [behaviorSuggestions, setBehaviorSuggestions] = useState<BehaviorSuggestion[]>([])
+  const [creatingSuggestion, setCreatingSuggestion] = useState<string | null>(null)
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    fetch('/api/sequences/automation-rules/suggestions', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.ok && Array.isArray(d.data)) setBehaviorSuggestions(d.data) })
+      .catch(() => {})
+  }, [])
+  const createFromSuggestion = async (sug: BehaviorSuggestion) => {
+    if (creatingSuggestion) return
+    setCreatingSuggestion(sug.id)
+    try {
+      const res = await fetch('/api/sequences/automation-rules', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sug.rule),
+      })
+      const d = await res.json()
+      if (d.ok) {
+        setBehaviorSuggestions(prev => prev.filter(x => x.id !== sug.id))
+        loadRules()
+      }
+    } catch { /* ignore */ }
+    setCreatingSuggestion(null)
+  }
+
   const loadHistory = useCallback(async (ruleId: string) => {
     setHistoryLoading(ruleId)
     try {
@@ -2562,6 +2590,26 @@ export default function AutomationsV2Page() {
           className="h-9 pl-9 text-sm"
         />
       </div>
+
+      {/* Behavior-suggested automations */}
+      {behaviorSuggestions.filter(sg => !dismissedSuggestions.has(sg.id)).length > 0 && (
+        <div className="mb-4 space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Suggested from what you do by hand</p>
+          {behaviorSuggestions.filter(sg => !dismissedSuggestions.has(sg.id)).map(sg => (
+            <div key={sg.id} className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 flex flex-wrap items-center gap-3">
+              <div className="flex-1 min-w-[240px]">
+                <p className="text-sm font-medium">{sg.title}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{sg.description}</p>
+              </div>
+              <button type="button" className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setDismissedSuggestions(prev => new Set([...prev, sg.id]))}>Not now</button>
+              <Button type="button" size="sm" disabled={creatingSuggestion === sg.id} onClick={() => createFromSuggestion(sg)}>
+                {creatingSuggestion === sg.id ? 'Creating...' : 'Create this automation'}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Content */}
       {loading ? (

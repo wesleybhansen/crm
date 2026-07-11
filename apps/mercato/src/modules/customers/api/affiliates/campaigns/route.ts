@@ -8,6 +8,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import crypto from 'crypto'
 import Stripe from 'stripe'
+import { parseTiers } from '../commission'
 
 function getStripe(stripeAccountId: string): Stripe | null {
   const key = process.env.STRIPE_SECRET_KEY
@@ -170,6 +171,12 @@ export async function PUT(req: Request) {
     if (body.status !== undefined) updates.status = body.status
     if (body.autoApprove !== undefined) updates.auto_approve = body.autoApprove
     if (body.signupPageEnabled !== undefined) updates.signup_page_enabled = body.signupPageEnabled
+    if (body.tiers !== undefined) {
+      // Tiered commissions: array of { name, minConversions, commissionRate }.
+      // Sanitized through parseTiers so junk rows never reach the column.
+      const tiers = parseTiers(body.tiers)
+      updates.tiers = tiers.length > 0 ? JSON.stringify(tiers) : null
+    }
 
     await knex('affiliate_campaigns').where('id', id).where('organization_id', auth.orgId).update(updates)
     const campaign = await knex('affiliate_campaigns').where('id', id).first()

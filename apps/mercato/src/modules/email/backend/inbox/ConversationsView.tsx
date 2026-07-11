@@ -159,6 +159,20 @@ export default function ConversationsView({
   // A pending AI-drafted reply for the open conversation (held in draft mode or
   // flagged for review).
   const [aiDraft, setAiDraft] = useState<{ id: string; body: string; flagged?: boolean; flagReasons?: string[] } | null>(null)
+  const [seqSuggestion, setSeqSuggestion] = useState<{ sequenceId: string; sequenceName: string; reason: string } | null>(null)
+  const [seqEnrolling, setSeqEnrolling] = useState(false)
+  const enrollSuggestedSequence = async () => {
+    if (!selectedId || !seqSuggestion || seqEnrolling) return
+    setSeqEnrolling(true)
+    try {
+      const r = await fetch('/api/inbox/sequence-suggestion', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: selectedId, sequenceId: seqSuggestion.sequenceId }) })
+      const j = await r.json()
+      if (j.ok) { showToast(`Enrolled in ${j.data.sequenceName}`); setSeqSuggestion(null) }
+      else showToast(j.error || 'Could not enroll')
+    } catch { showToast('Could not enroll') }
+    setSeqEnrolling(false)
+  }
   // Why no draft (e.g. 'automated' = the assistant skipped a newsletter).
   const [aiSkipReason, setAiSkipReason] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -246,7 +260,7 @@ export default function ConversationsView({
   // ── Load detail ──
   const loadDetail = useCallback(async (id: string) => {
     setComposing(false)
-    setSelectedId(id); setDetailLoading(true); setDetail(null); setSidebarData(null); setNotes([]); setShowNoteInput(false); setAiDraft(null); setAiSkipReason(null); setReplyOpen(false)
+    setSelectedId(id); setDetailLoading(true); setDetail(null); setSidebarData(null); setNotes([]); setShowNoteInput(false); setAiDraft(null); setAiSkipReason(null); setReplyOpen(false); setSeqSuggestion(null)
     try {
       const [convRes, notesRes] = await Promise.all([
         fetch(`/api/inbox/${id}`, { credentials: 'include' }),
@@ -277,6 +291,13 @@ export default function ConversationsView({
             setAiSkipReason(dj.skipReason)
           }
         } catch { /* no pending draft */ }
+        // Self-recommending sequences: does this inquiry match one of the
+        // org's follow-up sequences? One cached match per conversation.
+        try {
+          const sr = await fetch(`/api/inbox/sequence-suggestion?conversationId=${id}`, { credentials: 'include' })
+          const sj = await sr.json()
+          if (sj.ok && sj.data?.sequenceId) setSeqSuggestion(sj.data)
+        } catch { /* no suggestion */ }
         // Mark read
         fetch(`/api/inbox/${id}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markRead: true }) }).catch(() => {})
         setConversations(prev => prev.map(c => c.id === id ? { ...c, unreadCount: 0 } : c))
@@ -689,6 +710,10 @@ export default function ConversationsView({
             ) : detail ? (
               <ReadingPane
                 detail={detail}
+                seqSuggestion={seqSuggestion}
+                seqEnrolling={seqEnrolling}
+                onSeqEnroll={enrollSuggestedSequence}
+                onSeqDismiss={() => setSeqSuggestion(null)}
                 selectedConv={selectedConv}
                 notes={notes}
                 aiState={openAiState()}
@@ -741,6 +766,10 @@ export default function ConversationsView({
 // ══════════════════════════════ Reading pane ══════════════════════════════
 function ReadingPane(props: {
   detail: ConvDetail
+  seqSuggestion: { sequenceId: string; sequenceName: string; reason: string } | null
+  seqEnrolling: boolean
+  onSeqEnroll: () => void
+  onSeqDismiss: () => void
   selectedConv: InboxConv | undefined
   notes: Note[]
   aiState: AiState
@@ -939,6 +968,10 @@ function ReadingPane(props: {
         <div className="p-3 md:p-4 max-w-4xl mx-auto w-full">
           <ReplyArea
             detail={detail}
+            seqSuggestion={props.seqSuggestion}
+            seqEnrolling={props.seqEnrolling}
+            onSeqEnroll={props.onSeqEnroll}
+            onSeqDismiss={props.onSeqDismiss}
             aiState={aiState}
             aiDraft={aiDraft}
             aiSkipReason={aiSkipReason}
@@ -962,6 +995,10 @@ function ReadingPane(props: {
 // ══════════════════════════════ Reply area ══════════════════════════════
 function ReplyArea(props: {
   detail: ConvDetail
+  seqSuggestion: { sequenceId: string; sequenceName: string; reason: string } | null
+  seqEnrolling: boolean
+  onSeqEnroll: () => void
+  onSeqDismiss: () => void
   aiState: AiState
   aiDraft: { id: string; body: string; flagged?: boolean; flagReasons?: string[] } | null
   aiSkipReason: string | null
@@ -978,6 +1015,7 @@ function ReplyArea(props: {
 }) {
   const {
     detail, aiState, aiDraft, aiSkipReason, replyOpen, setReplyOpen,
+    seqSuggestion, seqEnrolling, onSeqEnroll, onSeqDismiss,
     replySubject, setReplySubject, replyBody, setReplyBody, activeChannel, setActiveChannel,
     sending, handleSend, approveDraft, dismissDraft, toggleStatus, showNoteInput, setShowNoteInput,
   } = props
@@ -1028,11 +1066,26 @@ function ReplyArea(props: {
     return <p className="text-[12px] text-muted-foreground text-center py-2">Closed. <button type="button" className="text-accent underline" onClick={toggleStatus}>Reopen</button> to reply.</p>
   }
 
+  // ── Sequence suggestion (independent of the draft state) ──
+  const seqBanner = seqSuggestion ? (
+    <div className="rounded-xl border border-[rgba(16,185,129,.35)] bg-[rgba(16,185,129,.06)] px-4 py-3 mb-2 flex flex-wrap items-center gap-2">
+      <span className="text-[13px] font-medium text-[#047857] dark:text-[#34d399]">
+        {seqSuggestion.reason || 'This looks like a fit for one of your sequences'}. Start &quot;{seqSuggestion.sequenceName}&quot;?
+      </span>
+      <div className="ml-auto flex items-center gap-3">
+        <button type="button" className="text-[12px] text-muted-foreground hover:text-foreground" onClick={onSeqDismiss}>Not now</button>
+        <Button type="button" size="sm" disabled={seqEnrolling} onClick={onSeqEnroll}>{seqEnrolling ? 'Starting...' : 'Start sequence'}</Button>
+      </div>
+    </div>
+  ) : null
+
   // ── Draft pending (not flagged) ──
   if (aiState === 'draft' && aiDraft) {
     // Collapsed: a compact card (no preview — they see the draft on Review).
     if (!replyOpen) {
       return (
+        <>
+        {seqBanner}
         <div className="rounded-xl border border-[rgba(109,74,255,.30)] bg-[rgba(109,74,255,.06)] px-4 py-4 flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-[13.5px] font-semibold text-[#5b3fd6] dark:text-[#c4b5fd]">
             <Sparkles className="size-4" /> A reply was drafted for you
@@ -1042,6 +1095,7 @@ function ReplyArea(props: {
             <Button type="button" size="sm" onClick={() => { setReplyBody(aiDraft.body); setReplyOpen(true) }}>Review &amp; send</Button>
           </div>
         </div>
+        </>
       )
     }
     // Expanded: editable draft + approve.
@@ -1138,6 +1192,8 @@ function ReplyArea(props: {
   // draft card, in a neutral colour to visually distinguish it. ──
   if (!replyOpen) {
     return (
+      <>
+      {seqBanner}
       <div className="rounded-xl border border-border bg-muted/50 px-4 py-4 flex items-center gap-3">
         <span className="text-[13.5px] font-semibold text-foreground">
           {automated ? 'This message is from a no-reply sender. No reply drafted.' : 'No reply was drafted for this one.'}
@@ -1146,6 +1202,7 @@ function ReplyArea(props: {
           <Send className="size-3.5 mr-1.5" /> Reply
         </Button>
       </div>
+      </>
     )
   }
   return <div>{composer(handleSend)}</div>

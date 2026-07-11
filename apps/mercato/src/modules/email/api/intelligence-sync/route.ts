@@ -12,6 +12,7 @@ import { refreshGmailToken } from '@/modules/email/lib/gmail-service'
 import { refreshOutlookToken } from '@/modules/email/lib/outlook-service'
 import { fetchImapInbox, fetchImapSent } from '@/modules/email/lib/imap-service'
 import { upsertInboxConversation } from '@/lib/inbox-conversation'
+import { parseSignature, enrichContactFromSignature } from '@/modules/email/lib/signature-enrichment'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
@@ -603,6 +604,34 @@ async function runSync(
         displayName: email.fromName || email.fromEmail,
         avatarEmail: safeFrom,
       })
+
+      // Signature enrichment: a KNOWN contact's inbound email fills their
+      // missing phone / job title / LinkedIn / company from the signature
+      // block. Never overwrites existing values; free (no LLM).
+      if (safeContactId && !created && safeText) {
+        try {
+          const parsed = parseSignature(safeText, email.fromName)
+          const filled = await enrichContactFromSignature(
+            async (sql, params) => ({ rows: await query(sql, params as any[]) }),
+            orgId,
+            safeContactId,
+            parsed,
+          )
+          if (filled.length > 0) {
+            await logTimelineRaw({
+              tenantId,
+              organizationId: orgId,
+              contactId: safeContactId,
+              eventType: 'contact_enriched',
+              title: `Filled in ${filled.join(', ')} from their email signature`,
+              description: null as any,
+              metadata: { source: 'signature-enrichment', fields: filled },
+            })
+          }
+        } catch (err: any) {
+          console.error('[email-intelligence] signature enrichment failed (non-fatal):', err?.message)
+        }
+      }
 
       // Log timeline event
       if (settings.auto_update_timeline) {

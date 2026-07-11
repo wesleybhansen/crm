@@ -299,9 +299,14 @@ export async function POST(req: Request) {
             : await knex('affiliates').where('id', attributedAffiliateId).where('organization_id', orgId).first()
           if (affiliate) {
             const saleAmount = (session.amount_total || 0) / 100
-            const commission = affiliate.commission_type === 'percentage'
-              ? saleAmount * (Number(affiliate.commission_rate) / 100)
-              : Number(affiliate.commission_rate)
+            // Tier-aware commission: if the affiliate's campaign defines tiers,
+            // the highest tier whose minConversions <= total_conversions BEFORE
+            // this conversion wins; otherwise the affiliate's own rate applies.
+            const { computeCommission } = await import('@/modules/customers/api/affiliates/commission')
+            const affCampaign = affiliate.campaign_id
+              ? await knex('affiliate_campaigns').where('id', affiliate.campaign_id).first().catch(() => null)
+              : null
+            const commission = computeCommission(saleAmount, affiliate, affCampaign).amount
 
             // Create referral record
             await knex('affiliate_referrals').insert({
@@ -333,6 +338,12 @@ export async function POST(req: Request) {
           console.error('[stripe.webhook] affiliate attribution failed:', affErr)
         }
       }
+      // Clawback note: an event-driven path would handle `charge.refunded` here
+      // by resolving charge.payment_intent -> affiliate_referrals.stripe_payment_intent_id
+      // and un-converting the matched referral. This endpoint currently only
+      // receives checkout.session.completed, and refund events are not routed
+      // to it, so clawbacks are handled manually via the per-referral "Reverse"
+      // action (PATCH /api/affiliates/[id] with { referralId, action: 'reverse' }).
 
       // ── Course enrollment on payment ──
       if (meta.type === 'course' && meta.courseId && meta.studentEmail) {

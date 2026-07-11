@@ -8,8 +8,9 @@ import {
   ArrowLeft, Save, Eye, Globe, ChevronDown, ChevronUp, Plus, Trash2, GripVertical,
   Type, Image, Link2, FileText, MessageSquare, BarChart3, HelpCircle, Layout, Loader2, Check,
   Monitor, Tablet, Smartphone, Sparkles, BookOpen, ArrowRightLeft, Gift, DollarSign, Target,
-  AlertTriangle, Zap,
+  AlertTriangle, Zap, FlaskConical,
 } from 'lucide-react'
+import AbTestPanel from './AbTestPanel'
 
 type Section = {
   id: string
@@ -68,6 +69,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [previewMode, setPreviewMode] = useState(false)
   const [title, setTitle] = useState('')
+  const [sidebarTab, setSidebarTab] = useState<'content' | 'growth'>('content')
 
   // Form customization
   const [formFields, setFormFields] = useState<Array<{ name: string; type: string; label: string; required: boolean; placeholder: string }>>([])
@@ -89,8 +91,8 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
     setLoading(true)
     try {
       const [pageRes, sectionsRes] = await Promise.all([
-        fetch(`/api/pages/${pageId}`, { credentials: 'include' }).then(r => r.json()),
-        fetch(`/api/pages/${pageId}/sections`, { credentials: 'include' }).then(r => r.json()),
+        fetch(`/api/landing_pages/pages/${pageId}`, { credentials: 'include' }).then(r => r.json()),
+        fetch(`/api/landing_pages/pages/${pageId}/sections`, { credentials: 'include' }).then(r => r.json()),
       ])
 
       if (pageRes.ok) {
@@ -190,7 +192,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
     if (!instruction?.trim()) return
     setAiRefiningSection(section.id)
     try {
-      const res = await fetch('/api/landing-page-ai/refine-section', {
+      const res = await fetch('/api/landing_pages/ai/refine-section', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -224,7 +226,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
     if (!config?.styleId) return
     try {
       const generatedSections = sections.map(s => ({ type: s.type, ...s.fields }))
-      const res = await fetch('/api/landing-page-ai/preview-style', {
+      const res = await fetch('/api/landing_pages/ai/preview-style', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -246,12 +248,12 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
     setSaving(true)
     try {
       // Save title
-      await fetch(`/api/pages/${pageId}`, {
+      await fetch(`/api/landing_pages/pages/${pageId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ title, formFields, successMessage, redirectUrl }),
       })
       // Save sections
-      await fetch(`/api/pages/${pageId}/sections`, {
+      await fetch(`/api/landing_pages/pages/${pageId}/sections`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ sections }),
       })
@@ -263,7 +265,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
     setPublishing(true)
     try {
       await saveSections()
-      const res = await fetch(`/api/pages/${pageId}/publish`, {
+      const res = await fetch(`/api/landing_pages/pages/${pageId}/publish`, {
         method: 'POST', credentials: 'include',
       })
       const data = await res.json()
@@ -329,7 +331,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
                 const formData = new FormData()
                 formData.append('file', file)
                 try {
-                  const res = await fetch(`/api/pages/${pageId}/images`, { method: 'POST', body: formData, credentials: 'include' })
+                  const res = await fetch(`/api/landing_pages/pages/${pageId}/images`, { method: 'POST', body: formData, credentials: 'include' })
                   const data = await res.json()
                   if (data.ok) {
                     updateSectionField(section.id, 'imageUrl', data.data.url)
@@ -596,15 +598,33 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
               <button type="button" onClick={() => setPreviewMode(true)} className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5">
                 <Eye className="size-3" /> Preview
               </button>
-              <a href={`/api/landing-pages/public/${page.slug}`} target="_blank" className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5">
+              <a href={`/p/${page.slug}`} target="_blank" className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5">
                 <Globe className="size-3" /> View Live
               </a>
             </div>
           )}
+          <div className="flex items-center gap-1 rounded-md bg-muted/50 p-0.5">
+            <button
+              type="button"
+              onClick={() => setSidebarTab('content')}
+              className={`flex-1 flex items-center justify-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition ${sidebarTab === 'content' ? 'bg-card shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <Layout className="size-3" /> Content
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarTab('growth')}
+              className={`flex-1 flex items-center justify-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition ${sidebarTab === 'growth' ? 'bg-card shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <FlaskConical className="size-3" /> A/B & Analytics
+            </button>
+          </div>
         </div>
 
+        {sidebarTab === 'growth' && <AbTestPanel pageId={pageId} />}
+
         {/* Sections */}
-        <div className="divide-y">
+        <div className={`divide-y ${sidebarTab === 'growth' ? 'hidden' : ''}`}>
           {sections.map((section, index) => {
             const isExpanded = expandedSection === section.id
             const Icon = SECTION_TYPES.find(t => t.id === section.type)?.icon || Layout
@@ -634,7 +654,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
         </div>
 
         {/* Add Section */}
-        <div className="p-4 border-t">
+        <div className={`p-4 border-t ${sidebarTab === 'growth' ? 'hidden' : ''}`}>
           <div className="relative">
             <Button type="button" variant="outline" size="sm" onClick={() => setShowAddMenu(!showAddMenu)} className="w-full h-8 text-xs">
               <Plus className="size-3 mr-1" /> Add Section

@@ -1,5 +1,5 @@
 // ORM-SKIP: events/event_attendees tables do not exist on prod — feature unused
-export const metadata = { path: '/crm-events/[id]/attendees', GET: { requireAuth: true }, DELETE: { requireAuth: true } }
+export const metadata = { path: '/crm-events/[id]/attendees', GET: { requireAuth: true }, PATCH: { requireAuth: true }, DELETE: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -22,6 +22,48 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       .limit(500)
 
     return NextResponse.json({ ok: true, data: attendees })
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
+  }
+}
+
+// Manual check-in / undo from the admin attendee list.
+// Body: { attendeeId, action: 'check_in' | 'undo_check_in' }
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  try {
+    const { id: eventId } = await params
+    const container = await createRequestContainer()
+    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const body = await req.json()
+    const { attendeeId, action } = body
+
+    if (!attendeeId || (action !== 'check_in' && action !== 'undo_check_in')) {
+      return NextResponse.json({ ok: false, error: 'Expected { attendeeId, action: "check_in" | "undo_check_in" }' }, { status: 400 })
+    }
+
+    const attendee = await knex('event_attendees')
+      .where('id', attendeeId)
+      .where('event_id', eventId)
+      .where('organization_id', auth.orgId)
+      .first()
+    if (!attendee) return NextResponse.json({ ok: false, error: 'Attendee not found' }, { status: 404 })
+
+    if (action === 'check_in') {
+      await knex('event_attendees').where('id', attendeeId).update({
+        checked_in_at: attendee.checked_in_at || new Date(),
+        checkin_source: attendee.checked_in_at ? attendee.checkin_source : 'manual',
+      })
+    } else {
+      await knex('event_attendees').where('id', attendeeId).update({
+        checked_in_at: null,
+        checkin_source: null,
+      })
+    }
+
+    const updated = await knex('event_attendees').where('id', attendeeId).first()
+    return NextResponse.json({ ok: true, data: updated })
   } catch {
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
   }

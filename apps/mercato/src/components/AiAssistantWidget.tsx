@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { X, Send, Loader2, Sparkles, Check, XCircle, Trash2, Maximize2, Minimize2, BarChart3, Calendar, CheckSquare, Zap } from 'lucide-react'
+import { X, Send, Loader2, Sparkles, Check, XCircle, Trash2, Maximize2, Minimize2, BarChart3, Calendar, CheckSquare, Zap, Mic } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 type CrmAction = {
@@ -413,7 +413,22 @@ export function AiAssistantWidget() {
       if ((e as CustomEvent).detail?.source !== 'scout') setOpen(false)
     }
     window.addEventListener('crm:close-floating-panels', onClose)
-    return () => window.removeEventListener('crm:close-floating-panels', onClose)
+    // Any surface can summon Scout (optionally with a prefilled command) via
+    // window.dispatchEvent(new CustomEvent('crm:open-scout', { detail: { prefill } }))
+    const onOpen = (e: Event) => {
+      window.dispatchEvent(new CustomEvent('crm:close-floating-panels', { detail: { source: 'scout' } }))
+      setOpen(true)
+      const prefill = (e as CustomEvent).detail?.prefill
+      if (typeof prefill === 'string' && prefill) {
+        setInput(prefill)
+        setTimeout(() => inputRef.current?.focus(), 150)
+      }
+    }
+    window.addEventListener('crm:open-scout', onOpen)
+    return () => {
+      window.removeEventListener('crm:close-floating-panels', onClose)
+      window.removeEventListener('crm:open-scout', onOpen)
+    }
   }, [])
   const openScout = () => {
     window.dispatchEvent(new CustomEvent('crm:close-floating-panels', { detail: { source: 'scout' } }))
@@ -704,6 +719,11 @@ export function AiAssistantWidget() {
                     <qa.Icon className="size-3.5 text-accent shrink-0" /> {qa.label}
                   </button>
                 ))}
+                <button type="button"
+                  onClick={() => router.push('/backend/assistant?mode=voice')}
+                  className="w-full text-left px-3 py-2 rounded-lg border text-xs hover:bg-muted transition flex items-center gap-2">
+                  <Mic className="size-3.5 text-accent shrink-0" /> Or just talk — have a voice conversation with {personaName}
+                </button>
               </div>
             )}
           </div>
@@ -724,6 +744,12 @@ export function AiAssistantWidget() {
               <button type="button" onClick={() => sendMessage(input)} disabled={!input.trim() || loading}
                 className="w-8 h-8 rounded-lg bg-accent text-white flex items-center justify-center disabled:opacity-50 shrink-0">
                 <Send className="size-3.5" />
+              </button>
+              <button type="button"
+                onClick={() => router.push('/backend/assistant?mode=voice')}
+                title={`Talk to ${personaName} — full voice conversation`}
+                className="w-8 h-8 rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center shrink-0">
+                <Mic className="size-3.5" />
               </button>
             </div>
           </div>

@@ -10,7 +10,9 @@ import {
   Plus, CalendarCheck, X, Loader2, ArrowLeft, Copy, ExternalLink, Users,
   MapPin, Globe, Clock, DollarSign, ChevronDown, Trash2, Download, Send,
   Sparkles, Eye, Check, FileText, Video, UserPlus, AlertTriangle,
+  QrCode, RefreshCw, UserCheck,
 } from 'lucide-react'
+import { qrSvg } from '@/modules/customers/api/crm-events/kiosk/qr'
 
 type Event = {
   id: string; title: string; description: string | null; slug: string
@@ -24,6 +26,7 @@ type Event = {
 type Attendee = {
   id: string; attendee_name: string; attendee_email: string; status: string
   ticket_quantity: number; guest_details: any; registration_data: any; registered_at: string
+  checked_in_at?: string | null; checkin_source?: string | null
 }
 
 const EVENT_TYPES = [
@@ -77,6 +80,14 @@ export default function EventsPage() {
   const [emailSubject, setEmailSubject] = useState('')
   const [emailMessage, setEmailMessage] = useState('')
   const [emailSending, setEmailSending] = useState(false)
+
+  // Kiosk sign-in
+  const [showKioskModal, setShowKioskModal] = useState(false)
+  const [kioskEvent, setKioskEvent] = useState<Event | null>(null)
+  const [kioskUrl, setKioskUrl] = useState('')
+  const [kioskLoading, setKioskLoading] = useState(false)
+  const [kioskCopied, setKioskCopied] = useState(false)
+  const [checkingInId, setCheckingInId] = useState<string | null>(null)
 
   // Create wizard step
   const [createStep, setCreateStep] = useState(0) // 0=info, 1=generate copy, 2=edit copy, 3=style+preview, 4=publish
@@ -250,8 +261,8 @@ export default function EventsPage() {
 
   function exportAttendeesCsv() {
     if (!attendeesEvent || attendees.length === 0) return
-    const headers = ['Name', 'Email', 'Status', 'Tickets', 'Registered']
-    const rows = attendees.map(a => [a.attendee_name, a.attendee_email, a.status, a.ticket_quantity, new Date(a.registered_at).toLocaleDateString()])
+    const headers = ['Name', 'Email', 'Status', 'Tickets', 'Registered', 'Checked In']
+    const rows = attendees.map(a => [a.attendee_name, a.attendee_email, a.status, a.ticket_quantity, new Date(a.registered_at).toLocaleDateString(), a.checked_in_at ? new Date(a.checked_in_at).toLocaleString() : ''])
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -283,6 +294,37 @@ export default function EventsPage() {
     setShowEmailModal(true)
   }
 
+  async function openKioskModal(ev: Event, rotate = false) {
+    setKioskEvent(ev); setShowKioskModal(true); setKioskLoading(true)
+    if (!rotate) setKioskUrl('')
+    try {
+      const res = await fetch(`/api/crm-events/${ev.id}/kiosk`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify(rotate ? { rotate: true } : {}),
+      })
+      const d = await res.json()
+      if (d.ok && d.data?.url) setKioskUrl(d.data.url)
+      else { showToast(d.error || 'Failed to create kiosk link'); setShowKioskModal(false) }
+    } catch { showToast('Failed to create kiosk link'); setShowKioskModal(false) }
+    setKioskLoading(false)
+  }
+
+  async function toggleCheckIn(a: Attendee) {
+    if (!attendeesEvent) return
+    setCheckingInId(a.id)
+    try {
+      const res = await fetch(`/api/crm-events/${attendeesEvent.id}/attendees`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ attendeeId: a.id, action: a.checked_in_at ? 'undo_check_in' : 'check_in' }),
+      })
+      const d = await res.json()
+      if (d.ok && d.data) {
+        setAttendees(prev => prev.map(att => att.id === a.id ? { ...att, checked_in_at: d.data.checked_in_at, checkin_source: d.data.checkin_source } : att))
+      } else showToast(d.error || 'Failed')
+    } catch { showToast('Failed to update check-in') }
+    setCheckingInId(null)
+  }
+
   async function generateCopy() {
     setGeneratingCopy(true)
     try {
@@ -301,6 +343,61 @@ export default function EventsPage() {
   const activeEvents = events.filter(e => e.status !== 'cancelled' && e.status !== 'archived' && new Date(e.start_time) >= now)
   const pastEvents = events.filter(e => e.status === 'cancelled' || e.status === 'archived' || new Date(e.start_time) < now)
 
+  // Kiosk modal is reachable from both the list view and the attendees view.
+  const kioskQr = kioskUrl ? qrSvg(kioskUrl, { moduleSize: 5, margin: 3 }) : null
+  const kioskModal = showKioskModal && kioskEvent ? (
+    <>
+      <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setShowKioskModal(false)} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-background rounded-xl border shadow-xl w-full max-w-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold">Kiosk Sign-in</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{kioskEvent.title}</p>
+            </div>
+            <IconButton variant="ghost" size="sm" type="button" aria-label="Close" onClick={() => setShowKioskModal(false)}><X className="size-4" /></IconButton>
+          </div>
+          {kioskLoading ? (
+            <div className="flex items-center justify-center py-12"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+          ) : kioskUrl ? (
+            <div className="space-y-4">
+              {kioskQr && (
+                <div className="flex justify-center">
+                  <div className="rounded-xl border p-2 bg-white" dangerouslySetInnerHTML={{ __html: kioskQr }} />
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground text-center">
+                Open this link on a tablet at the door, or let attendees scan the QR code to sign in on their own phones.
+                Walk-ins are added as attendees and CRM contacts automatically.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input readOnly value={kioskUrl} className="h-8 text-xs font-mono flex-1" />
+                <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => {
+                  navigator.clipboard.writeText(kioskUrl); setKioskCopied(true); setTimeout(() => setKioskCopied(false), 2000)
+                }}>
+                  {kioskCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                </Button>
+              </div>
+              {attendeesEvent?.id === kioskEvent.id && attendees.length > 0 && (
+                <p className="text-xs text-center font-medium">Attendees checked in: {attendees.filter(a => a.checked_in_at).length} of {attendees.length}</p>
+              )}
+              <div className="flex justify-between items-center pt-2 border-t">
+                <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => window.open(kioskUrl, '_blank')}>
+                  <ExternalLink className="size-3 mr-1" /> Open Kiosk
+                </Button>
+                <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" title="Invalidate the current link and QR code and mint a new one" onClick={() => openKioskModal(kioskEvent, true)}>
+                  <RefreshCw className="size-3 mr-1" /> Rotate Link
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-8">Could not load the kiosk link.</p>
+          )}
+        </div>
+      </div>
+    </>
+  ) : null
+
   // ═══ Attendees View ═══
   if (view === 'attendees' && attendeesEvent) {
     return (
@@ -311,18 +408,26 @@ export default function EventsPage() {
               <ArrowLeft className="size-4" /> Back to Events
             </button>
             <h1 className="text-xl font-semibold">{attendeesEvent.title}</h1>
-            <p className="text-sm text-muted-foreground">{attendees.length} registered{attendeesEvent.capacity ? ` of ${attendeesEvent.capacity}` : ''}</p>
+            <p className="text-sm text-muted-foreground">
+              {attendees.length} registered{attendeesEvent.capacity ? ` of ${attendeesEvent.capacity}` : ''}
+              {' · '}{attendees.filter(a => a.checked_in_at).length} checked in
+            </p>
           </div>
-          {attendees.length > 0 && (
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => openEmailModal(attendeesEvent!)}>
-                <Send className="size-4 mr-1.5" /> Email All
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={exportAttendeesCsv}>
-                <Download className="size-4 mr-1.5" /> Export CSV
-              </Button>
-            </div>
-          )}
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => openKioskModal(attendeesEvent!)}>
+              <QrCode className="size-4 mr-1.5" /> Kiosk Sign-in
+            </Button>
+            {attendees.length > 0 && (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={() => openEmailModal(attendeesEvent!)}>
+                  <Send className="size-4 mr-1.5" /> Email All
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={exportAttendeesCsv}>
+                  <Download className="size-4 mr-1.5" /> Export CSV
+                </Button>
+              </>
+            )}
+          </div>
         </div>
         {attendeesLoading ? (
           <div className="flex items-center justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
@@ -340,6 +445,7 @@ export default function EventsPage() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Tickets</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Registered</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Checked In</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground"></th>
               </tr></thead>
               <tbody>
@@ -350,6 +456,22 @@ export default function EventsPage() {
                     <td className="px-4 py-3">{a.ticket_quantity}</td>
                     <td className="px-4 py-3"><Badge variant="secondary" className={`text-[10px] ${a.status === 'registered' ? 'bg-emerald-100 text-emerald-700' : ''}`}>{a.status}</Badge></td>
                     <td className="px-4 py-3 text-muted-foreground">{new Date(a.registered_at).toLocaleDateString()}</td>
+                    <td className="px-4 py-3">
+                      {a.checked_in_at ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Badge variant="secondary" className="text-[10px] bg-emerald-100 text-emerald-700">
+                            <UserCheck className="size-3 mr-0.5" />
+                            {new Date(a.checked_in_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                          </Badge>
+                          {a.checkin_source && <span className="text-[10px] text-muted-foreground">{a.checkin_source}</span>}
+                          <button type="button" className="text-[10px] text-muted-foreground underline opacity-0 group-hover:opacity-100 transition" disabled={checkingInId === a.id} onClick={() => toggleCheckIn(a)}>undo</button>
+                        </span>
+                      ) : (
+                        <Button type="button" variant="outline" size="sm" className="h-7 text-xs" disabled={checkingInId === a.id} onClick={() => toggleCheckIn(a)}>
+                          {checkingInId === a.id ? <Loader2 className="size-3 mr-1 animate-spin" /> : <UserCheck className="size-3 mr-1" />} Check in
+                        </Button>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <button type="button" onClick={async () => {
                         if (!confirm(`Remove ${a.attendee_name} from this event?`)) return
@@ -364,6 +486,12 @@ export default function EventsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {kioskModal}
+        {toast && (
+          <div className="fixed bottom-6 right-6 bg-foreground text-background px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg z-50">
+            {toast}
           </div>
         )}
       </div>
@@ -895,6 +1023,9 @@ export default function EventsPage() {
                             <Send className="size-4 text-muted-foreground" />
                           </IconButton>
                         )}
+                        <IconButton variant="ghost" size="sm" type="button" title="Kiosk sign-in" onClick={() => openKioskModal(ev)}>
+                          <QrCode className="size-4 text-muted-foreground" />
+                        </IconButton>
                         <IconButton variant="ghost" size="sm" type="button" title="Attendees" onClick={() => viewAttendees(ev)}>
                           <Users className="size-4 text-muted-foreground" />
                         </IconButton>
@@ -989,6 +1120,8 @@ export default function EventsPage() {
           </div>
         </>
       )}
+
+      {kioskModal}
 
       {toast && (
         <div className="fixed bottom-6 right-6 bg-foreground text-background px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg z-50">

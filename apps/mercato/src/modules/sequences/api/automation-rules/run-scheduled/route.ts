@@ -6,6 +6,13 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import {
+  buildSenderContext,
+  htmlifyIfPlainText,
+  recordReviewRequest,
+  requiresReviewUrl,
+  substituteTemplateVars,
+} from '@/modules/sequences/lib/template-vars'
 
 /**
  * Run Scheduled Automations
@@ -103,12 +110,35 @@ async function executeScheduledAction(
       if (!contact?.primary_email) return { success: false, detail: 'Contact has no email' }
 
       const firstName = (contact.display_name || '').split(' ')[0] || 'there'
-      const subject = (actionConfig.subject || 'Scheduled notification')
-        .replace(/\{\{firstName\}\}/g, firstName)
-        .replace(/\{\{reference\}\}/g, context.reference || '')
-      const bodyHtml = (actionConfig.bodyHtml || actionConfig.body || '<p>Hello {{firstName}},</p>')
-        .replace(/\{\{firstName\}\}/g, firstName)
-        .replace(/\{\{reference\}\}/g, context.reference || '')
+      const rawSubject = actionConfig.subject || 'Scheduled notification'
+      const rawBody = actionConfig.bodyHtml || actionConfig.body || '<p>Hello {{firstName}},</p>'
+
+      const senderCtx = await buildSenderContext(knex, orgId)
+      const isReviewRequest = requiresReviewUrl(rawSubject, rawBody)
+      if (isReviewRequest && !senderCtx.review_url) {
+        // A review request without a link is pointless — skip instead of sending
+        // an email with a hole in it. The caller logs this to automation_rule_logs.
+        return { success: false, detail: 'Skipped review request: no review link configured. Add your Google, Facebook or Yelp review link on the Reputation page (Settings), then this automation will send.' }
+      }
+
+      const varCtx = {
+        contact: { first_name: firstName, full_name: contact.display_name || null, email: contact.primary_email },
+        sender: senderCtx,
+        reference: (context.reference as string | undefined) || null,
+      }
+      const subject = substituteTemplateVars(rawSubject, varCtx)
+      const bodyHtml = htmlifyIfPlainText(substituteTemplateVars(rawBody, varCtx))
+
+      const logReviewSend = async () => {
+        if (isReviewRequest && context.contactId) {
+          await recordReviewRequest(knex, {
+            organizationId: orgId,
+            tenantId,
+            contactId: context.contactId,
+            ruleId: (context.ruleId as string | undefined) || null,
+          })
+        }
+      }
 
       // Send via the org's own connection/ESP (no platform sender). Falls through
       // to the queue below if the org has nothing connected.
@@ -117,6 +147,7 @@ async function executeScheduledAction(
         fromName: actionConfig.fromName,
       })
       if (sendRes.ok) {
+        await logReviewSend()
         return { success: true, detail: `Email sent via ${sendRes.sentVia}` }
       }
 
@@ -129,6 +160,7 @@ async function executeScheduledAction(
         contact_id: context.contactId, status: 'queued',
         tracking_id: require('crypto').randomUUID(), created_at: new Date(),
       })
+      await logReviewSend()
       return { success: true, detail: `Email queued to ${contact.primary_email}` }
     }
 
@@ -254,6 +286,7 @@ export async function POST(req: Request) {
             triggerType: 'schedule',
             scheduleType: triggerConfig.scheduleType,
             reference: target.reference || target.id,
+            ruleId: rule.id,
           }
 
           if (Array.isArray(steps) && steps.length > 0) {

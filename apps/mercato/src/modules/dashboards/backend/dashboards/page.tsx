@@ -5,8 +5,7 @@ import {
   Users, DollarSign, FileText, Eye, Plus, Send, TrendingUp, TrendingDown,
   AlertCircle, CheckCircle2, ArrowRight, BarChart3, Flame, AlertTriangle,
   Mail, HeartCrack, Clock, Zap, BookOpen, CalendarPlus, UserPlus,
-  ArrowUpRight, Target, Activity, X,
-} from 'lucide-react'
+  ArrowUpRight, Target, Activity, X, Mic, Sparkles } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 
@@ -122,6 +121,7 @@ export default function SimpleDashboard() {
             { icon: FileText, label: 'Create Page', href: '/backend/landing-pages/create' },
             { icon: DollarSign, label: 'New Deal', href: '/backend/customers/deals/pipeline' },
             { icon: Send, label: 'Send Email', href: '/backend/email' },
+            { icon: Mic, label: 'Debrief a Call', href: '/backend/debrief' },
             { icon: BookOpen, label: 'Create Course', href: '/backend/courses' },
             { icon: CalendarPlus, label: 'New Booking', href: '/backend/calendar' },
             { icon: BarChart3, label: 'Reports', href: '/backend/reports' },
@@ -132,6 +132,41 @@ export default function SimpleDashboard() {
           ))}
         </div>
       </div>
+
+      {/* First win: a brand-new account's first moment should be an AI action,
+          not a wall of zeros. One click opens Scout with the command prefilled. */}
+      {isNewUser && !dismissedItems.has('first-win:card') && (
+        <div className="mb-8 rounded-xl border-2 border-accent/30 bg-accent/5 px-5 py-4 flex flex-wrap items-center gap-4">
+          <div className="size-10 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
+            <Sparkles className="size-5 text-accent" />
+          </div>
+          <div className="flex-1 min-w-[240px]">
+            <p className="text-sm font-semibold">Your first win takes 15 seconds</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              You never have to fill in forms here. Just tell Scout what you want, like adding your first contact, and watch it happen.
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => window.dispatchEvent(new CustomEvent('crm:open-scout', {
+              detail: { prefill: 'Add my first contact: Jane Smith, jane@example.com, met at the chamber mixer last week' },
+            }))}
+          >
+            <Sparkles className="size-3.5 mr-1.5" /> Tell Scout to add my first contact
+          </Button>
+          <button type="button" onClick={() => {
+            setDismissedItems(prev => {
+              const next = new Set([...prev, 'first-win:card'])
+              document.cookie = `crm_dismissed_actions=${encodeURIComponent(JSON.stringify([...next]))}; path=/; max-age=${60 * 60 * 24 * 30}`
+              return next
+            })
+          }}
+            className="p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition shrink-0" title="Dismiss">
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Needs Attention */}
       <NeedsAttention />

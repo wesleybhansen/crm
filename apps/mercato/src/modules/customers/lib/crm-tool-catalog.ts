@@ -32,6 +32,24 @@ export const CRM_TOOLS = [
   },
   {
     type: 'function' as const,
+    name: 'add_commitment',
+    description: 'Record a commitment (a promise made in either direction): "I told them I would send the proposal by Friday" or "they said they would review it next week". Commitments surface in meeting prep so promises never get dropped.',
+    parameters: { type: 'object', properties: { contactId: { type: 'string', description: 'Contact ID' }, description: { type: 'string', description: 'One sentence: who promised what' }, direction: { type: 'string', enum: ['ours', 'theirs'], description: 'ours = we promised, theirs = they promised' }, dueDate: { type: 'string', description: 'YYYY-MM-DD (optional)' } }, required: ['contactId', 'description', 'direction'] },
+  },
+  {
+    type: 'function' as const,
+    name: 'list_commitments',
+    description: 'List open commitments (promises) for a contact, both what we owe them and what they owe us.',
+    parameters: { type: 'object', properties: { contactId: { type: 'string', description: 'Contact ID' } }, required: ['contactId'] },
+  },
+  {
+    type: 'function' as const,
+    name: 'resolve_commitment',
+    description: 'Mark a commitment as kept/resolved (or dismissed if no longer relevant).',
+    parameters: { type: 'object', properties: { commitmentId: { type: 'string', description: 'Commitment ID' }, action: { type: 'string', enum: ['resolve', 'dismiss'], description: 'resolve = promise kept; dismiss = no longer relevant' } }, required: ['commitmentId', 'action'] },
+  },
+  {
+    type: 'function' as const,
     name: 'add_tag',
     description: 'Add a tag to a contact for categorization.',
     parameters: { type: 'object', properties: { contactId: { type: 'string', description: 'Contact ID' }, tagName: { type: 'string', description: 'Tag name' } }, required: ['contactId', 'tagName'] },
@@ -569,6 +587,7 @@ export const CRM_TOOLS = [
 export const READ_ONLY_TOOLS = new Set([
   'find_entity',
   'search_contacts',
+  'list_commitments',
   'get_engagement_score',
   'get_pipeline_summary',
   'get_contact_details',

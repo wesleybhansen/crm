@@ -361,6 +361,35 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         const d = await res.json()
         return d.ok ? { ok: true, message: `Note added to ${contact.name}` } : { ok: false, message: d.error || 'Failed' }
       }
+      case 'add_commitment': {
+        const contact = await resolveContactId(action.data.contactId)
+        if (!contact) return { ok: false, message: `Contact "${action.data.contactId}" not found` }
+        const res = await fetch('/api/customers/commitments', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ contactId: contact.id, description: action.data.description, direction: action.data.direction, dueDate: action.data.dueDate })
+        })
+        const d = await res.json()
+        return d.ok ? { ok: true, message: `Commitment recorded for ${contact.name}` } : { ok: false, message: d.error || 'Failed' }
+      }
+      case 'list_commitments': {
+        const contact = await resolveContactId(action.data.contactId)
+        if (!contact) return { ok: false, message: `Contact "${action.data.contactId}" not found` }
+        const res = await fetch(`/api/customers/commitments?contactId=${encodeURIComponent(contact.id)}`, { credentials: 'include' })
+        const d = await res.json()
+        if (!d.ok) return { ok: false, message: d.error || 'Failed' }
+        const rows = (d.data as Array<{ id: string; direction: string; description: string; due_at: string | null }>) ?? []
+        if (rows.length === 0) return { ok: true, message: `No open commitments for ${contact.name}` }
+        const lines = rows.map(r => `${r.direction === 'ours' ? 'We promised' : 'They promised'}: ${r.description}${r.due_at ? ` (due ${new Date(r.due_at).toLocaleDateString()})` : ''} [id: ${r.id}]`)
+        return { ok: true, message: `Open commitments for ${contact.name}:\n${lines.join('\n')}` }
+      }
+      case 'resolve_commitment': {
+        const res = await fetch('/api/customers/commitments', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ id: action.data.commitmentId, action: action.data.action || 'resolve' })
+        })
+        const d = await res.json()
+        return d.ok ? { ok: true, message: 'Commitment updated' } : { ok: false, message: d.error || 'Failed' }
+      }
       case 'add_tag': {
         const contact = await resolveContactId(action.data.contactId)
         if (!contact) return { ok: false, message: `Contact "${action.data.contactId}" not found` }
@@ -1521,6 +1550,21 @@ export default function VoiceAssistantPage() {
   }, [messages, assistantTranscript, userTranscript])
 
   // ---- Realtime Voice Connection ----
+  // Deep link: /backend/assistant?mode=voice auto-starts the voice session
+  // (the floating Scout button's "talk" entry point). Read once on mount.
+  const autoVoiceRef = useRef(false)
+  useEffect(() => {
+    if (autoVoiceRef.current) return
+    autoVoiceRef.current = true
+    try {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('mode') === 'voice') {
+        void connectVoice()
+      }
+    } catch { /* no-op */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function connectVoice() {
     setConnecting(true)
     try {

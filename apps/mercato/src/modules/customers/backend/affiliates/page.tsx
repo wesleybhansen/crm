@@ -18,6 +18,8 @@ import {
 
 // ── Types ──
 
+type TierRow = { name: string; minConversions: number; commissionRate: number }
+
 type Campaign = {
   id: string
   name: string
@@ -35,6 +37,7 @@ type Campaign = {
   created_at: string
   affiliate_count: number
   products_info: Array<{ id: string; name: string; price: number }>
+  tiers?: TierRow[] | string | null
 }
 
 type Affiliate = {
@@ -69,6 +72,28 @@ const fmt = (v: number | string | null) => `$${Number(v || 0).toFixed(2)}`
 const fmtRate = (rate: number, type: string) => type === 'percentage' ? `${Number(rate).toFixed(0)}%` : fmt(rate)
 const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString() : '-'
 const fmtDateTime = (d: string | null) => d ? new Date(d).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
+
+// Parse the campaign's tiers jsonb (may arrive as array or JSON string).
+const parseTierList = (raw: Campaign['tiers']): TierRow[] => {
+  let value: unknown = raw
+  if (typeof value === 'string') { try { value = JSON.parse(value) } catch { return [] } }
+  if (!Array.isArray(value)) return []
+  return (value as any[])
+    .filter(t => t && Number.isFinite(Number(t.minConversions)) && Number(t.commissionRate) > 0)
+    .map(t => ({ name: String(t.name || ''), minConversions: Math.max(0, Math.floor(Number(t.minConversions))), commissionRate: Number(t.commissionRate) }))
+    .sort((a, b) => a.minConversions - b.minConversions)
+}
+
+// The affiliate's current tier: highest tier already reached by total_conversions.
+const currentTier = (aff: Affiliate, campaigns: Campaign[]): TierRow | null => {
+  if (!aff.campaign_id) return null
+  const campaign = campaigns.find(c => c.id === aff.campaign_id)
+  if (!campaign) return null
+  const tiers = parseTierList(campaign.tiers)
+  let match: TierRow | null = null
+  for (const t of tiers) { if (t.minConversions <= aff.total_conversions) match = t }
+  return match
+}
 
 // House palette tinted tiles (light/dark) for summary stat icons.
 const STAT_COLORS = {
@@ -154,6 +179,13 @@ export default function AffiliatesPage() {
   const [pAffId, setPAffId] = useState('')
   const [pAmount, setPAmount] = useState('')
   const [creatingPayout, setCreatingPayout] = useState(false)
+  const [generatingPayouts, setGeneratingPayouts] = useState(false)
+  const [genMinAmount, setGenMinAmount] = useState('0')
+
+  // Tier editing
+  const [editingTiersId, setEditingTiersId] = useState<string | null>(null)
+  const [tierDraft, setTierDraft] = useState<TierRow[]>([])
+  const [savingTiers, setSavingTiers] = useState(false)
 
   // Detail
   const [detailAff, setDetailAff] = useState<Affiliate | null>(null)
@@ -283,6 +315,59 @@ export default function AffiliatesPage() {
     loadReferralsAndPayouts(affiliates)
   }
 
+  const handleGeneratePayouts = async () => {
+    setGeneratingPayouts(true)
+    try {
+      const res = await fetch('/api/affiliates/payouts/generate', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minAmount: parseFloat(genMinAmount) || 0 }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        const count = data.data?.count || 0
+        alert(count > 0 ? `Created ${count} pending payout${count > 1 ? 's' : ''}.` : 'No unpaid balances found. Every affiliate is settled up.')
+        loadAll(); loadReferralsAndPayouts(affiliates)
+      } else alert(data.error || 'Failed')
+    } catch { alert('Failed to generate payouts') }
+    setGeneratingPayouts(false)
+  }
+
+  const handleReverseReferral = async (r: Referral) => {
+    if (!confirm('Reverse this conversion? The commission will be removed from the affiliate\'s totals.')) return
+    try {
+      const res = await fetch(`/api/affiliates/${r.affiliate_id}`, {
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ referralId: r.id, action: 'reverse' }),
+      })
+      const data = await res.json()
+      if (data.ok) { loadAll(); loadReferralsAndPayouts(affiliates) }
+      else alert(data.error || 'Failed')
+    } catch { alert('Failed to reverse referral') }
+  }
+
+  const openTierEditor = (c: Campaign) => {
+    setEditingTiersId(c.id)
+    setTierDraft(parseTierList(c.tiers))
+  }
+
+  const handleSaveTiers = async () => {
+    if (!editingTiersId) return
+    setSavingTiers(true)
+    try {
+      const cleaned = tierDraft
+        .filter(t => Number(t.commissionRate) > 0 && Number(t.minConversions) >= 0)
+        .map(t => ({ name: t.name.trim() || `Tier ${t.minConversions}+`, minConversions: Math.floor(Number(t.minConversions)), commissionRate: Number(t.commissionRate) }))
+      const res = await fetch(`/api/affiliates/campaigns?id=${editingTiersId}`, {
+        method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tiers: cleaned }),
+      })
+      const data = await res.json()
+      if (data.ok) { setEditingTiersId(null); setTierDraft([]); loadAll() }
+      else alert(data.error || 'Failed')
+    } catch { alert('Failed to save tiers') }
+    setSavingTiers(false)
+  }
+
   const refLink = (code: string) => `${window.location.origin}/api/affiliates/ref/${code}`
   const dashLink = (code: string) => `${window.location.origin}/api/affiliates/dashboard/${code}`
   const signupLink = (campaignId: string) => `${window.location.origin}/api/affiliates/signup?campaign=${campaignId}`
@@ -403,14 +488,65 @@ export default function AffiliatesPage() {
                     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground mb-4">
                       <span className="flex items-center gap-1"><Package className="size-3" /> {productNames}</span>
                       <span className="flex items-center gap-1"><Percent className="size-3" /> {fmtRate(c.commission_rate, c.commission_type)} commission</span>
+                      {parseTierList(c.tiers).length > 0 && (
+                        <span className="flex items-center gap-1"><BarChart3 className="size-3" /> {parseTierList(c.tiers).map(t => `${t.commissionRate}% at ${t.minConversions}+`).join(', ')}</span>
+                      )}
                       {Number(c.customer_discount) > 0 && <span className="flex items-center gap-1"><Sparkles className="size-3" /> {fmtRate(c.customer_discount, c.customer_discount_type)} customer discount</span>}
                       <span className="flex items-center gap-1"><Users className="size-3" /> {c.affiliate_count} affiliates</span>
                       <span className="flex items-center gap-1"><Clock className="size-3" /> {c.cookie_duration_days}d cookie</span>
                     </div>
 
+                    {/* Tier editor */}
+                    {editingTiersId === c.id && (
+                      <div className="rounded-lg border bg-muted/30 p-4 mb-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-xs font-semibold">Commission Tiers</p>
+                            <p className="text-[10px] text-muted-foreground">Affiliates earn the rate of the highest tier they have reached. Tier rates are a percent of each sale.</p>
+                          </div>
+                        </div>
+                        <div className="space-y-2 mb-3">
+                          {tierDraft.map((t, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <Input value={t.name} onChange={e => setTierDraft(prev => prev.map((row, j) => j === i ? { ...row, name: e.target.value } : row))}
+                                placeholder="Tier name (e.g. Silver)" className="h-8 text-xs flex-1" />
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-muted-foreground whitespace-nowrap">min conv.</span>
+                                <Input type="number" min="0" value={String(t.minConversions)} onChange={e => setTierDraft(prev => prev.map((row, j) => j === i ? { ...row, minConversions: parseInt(e.target.value) || 0 } : row))}
+                                  className="h-8 text-xs w-20" />
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Input type="number" min="0" step="0.5" value={String(t.commissionRate)} onChange={e => setTierDraft(prev => prev.map((row, j) => j === i ? { ...row, commissionRate: parseFloat(e.target.value) || 0 } : row))}
+                                  className="h-8 text-xs w-20" />
+                                <span className="text-[10px] text-muted-foreground">%</span>
+                              </div>
+                              <IconButton variant="ghost" size="xs" type="button" aria-label="Remove tier" onClick={() => setTierDraft(prev => prev.filter((_, j) => j !== i))}>
+                                <X className="size-3.5" />
+                              </IconButton>
+                            </div>
+                          ))}
+                          {tierDraft.length === 0 && <p className="text-xs text-muted-foreground py-2">No tiers yet. Without tiers, every affiliate earns the campaign or personal rate.</p>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setTierDraft(prev => [...prev, { name: '', minConversions: prev.length ? (prev[prev.length - 1].minConversions + 5) : 0, commissionRate: Number(c.commission_rate) || 10 }])}>
+                            <Plus className="size-3 mr-1" /> Add Tier
+                          </Button>
+                          <div className="ml-auto flex items-center gap-2">
+                            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setEditingTiersId(null); setTierDraft([]) }}>Cancel</Button>
+                            <Button type="button" size="sm" className="h-7 text-xs" onClick={handleSaveTiers} disabled={savingTiers}>
+                              {savingTiers ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Check className="size-3 mr-1" />} Save Tiers
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-2 pt-3 border-t">
                       <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setACampaignId(c.id); setShowAddAffiliate(true); setTab('affiliates') }}>
                         <UserPlus className="size-3 mr-1" /> Add Affiliate
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => editingTiersId === c.id ? setEditingTiersId(null) : openTierEditor(c)}>
+                        <BarChart3 className="size-3 mr-1" /> {parseTierList(c.tiers).length > 0 ? 'Edit Tiers' : 'Add Tiers'}
                       </Button>
                       {c.signup_page_enabled && (
                         <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => copy(signupLink(c.id), `signup2-${c.id}`)}>
@@ -518,7 +654,19 @@ export default function AffiliatesPage() {
                         <p className="font-medium">{aff.name}</p>
                         <p className="text-xs text-muted-foreground">{aff.email}</p>
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">{aff.campaign_name || '-'}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {aff.campaign_name || '-'}
+                        {(() => {
+                          const tier = currentTier(aff, campaigns)
+                          return tier ? (
+                            <span className="block mt-0.5">
+                              <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${COUNT_BADGE.violet}`}>
+                                {tier.name || `Tier ${tier.minConversions}+`} · {tier.commissionRate}%
+                              </span>
+                            </span>
+                          ) : null
+                        })()}
+                      </td>
                       <td className="px-4 py-3">
                         <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{aff.stripe_promo_code || aff.affiliate_code}</code>
                       </td>
@@ -615,6 +763,7 @@ export default function AffiliatesPage() {
                     <th className="text-center px-4 py-3 font-medium text-muted-foreground">Status</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground">Sale</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground">Commission</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground w-24"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -631,6 +780,13 @@ export default function AffiliatesPage() {
                       </td>
                       <td className="px-4 py-3 text-right">{r.conversion_value ? fmt(r.conversion_value) : '-'}</td>
                       <td className="px-4 py-3 text-right font-medium">{r.commission_amount ? fmt(r.commission_amount) : '-'}</td>
+                      <td className="px-4 py-3 text-right">
+                        {r.converted && (
+                          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" title="Un-convert this referral and remove the commission, e.g. after a refund" onClick={() => handleReverseReferral(r)}>
+                            <ArrowRightLeft className="size-3 mr-1" /> Reverse
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -654,9 +810,18 @@ export default function AffiliatesPage() {
                 <p className="text-lg font-bold text-[#047857] dark:text-[#34d399]">{fmt(allPayouts.filter(p => p.status === 'paid').reduce((s, p) => s + Number(p.amount), 0))}</p>
               </div>
             </div>
-            <Button type="button" size="sm" onClick={() => setShowPayoutForm(true)}>
-              <DollarSign className="size-4 mr-1.5" /> Create Payout
-            </Button>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground uppercase whitespace-nowrap">Min $</span>
+                <Input value={genMinAmount} onChange={e => setGenMinAmount(e.target.value)} type="number" step="0.01" min="0" className="h-8 w-20 text-xs" title="Skip affiliates whose unpaid balance is below this amount" />
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={handleGeneratePayouts} disabled={generatingPayouts} title="Create a pending payout for every affiliate with an unpaid earned balance">
+                {generatingPayouts ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <Sparkles className="size-4 mr-1.5" />} Generate Payouts
+              </Button>
+              <Button type="button" size="sm" onClick={() => setShowPayoutForm(true)}>
+                <DollarSign className="size-4 mr-1.5" /> Create Payout
+              </Button>
+            </div>
           </div>
 
           {allPayouts.length === 0 ? (
@@ -716,7 +881,12 @@ export default function AffiliatesPage() {
               <div className="grid grid-cols-2 gap-3 mb-5">
                 {[
                   { label: 'Referral Code', value: detailAff.stripe_promo_code || detailAff.affiliate_code, mono: true },
-                  { label: 'Commission', value: fmtRate(detailAff.commission_rate, detailAff.commission_type) },
+                  (() => {
+                    const tier = currentTier(detailAff, campaigns)
+                    return tier
+                      ? { label: 'Current Tier', value: `${tier.name || `Tier ${tier.minConversions}+`} · ${tier.commissionRate}%` }
+                      : { label: 'Commission', value: fmtRate(detailAff.commission_rate, detailAff.commission_type) }
+                  })(),
                   { label: 'Referrals / Conv.', value: `${detailAff.total_referrals} / ${detailAff.total_conversions}` },
                   { label: 'Total Earned', value: fmt(detailAff.total_earned), green: true },
                 ].map(s => (

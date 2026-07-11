@@ -5,7 +5,7 @@ import { splitCsvLine } from '@/lib/csv'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { ArrowRight, ArrowLeft, Sparkles, Check, Loader2, FileText, Users, Kanban, Plus, Trash2, GripVertical, Target, Briefcase, ShoppingBag, Monitor, Wrench, GraduationCap, Heart, Home, Lightbulb, Globe, Megaphone, UserPlus, Search, CalendarDays, Presentation, PenTool, Smile, Minus, Mail, CreditCard, MessageSquare, Link, CheckCircle2, Mic } from 'lucide-react'
+import { ArrowRight, ArrowLeft, Sparkles, Check, Loader2, FileText, Users, Kanban, Plus, Trash2, GripVertical, Target, Briefcase, ShoppingBag, Monitor, Wrench, GraduationCap, Heart, Home, Lightbulb, Globe, Megaphone, UserPlus, Search, CalendarDays, Presentation, PenTool, Smile, Minus, Mail, CreditCard, MessageSquare, Link, CheckCircle2 } from 'lucide-react'
 
 type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 
@@ -92,8 +92,6 @@ export default function WelcomePage() {
   const [stripeConnected, setStripeConnected] = useState(false)
   const [twilioConnected, setTwilioConnected] = useState(false)
   const [emailIntakeMode, setEmailIntakeMode] = useState<'auto' | 'suggest' | 'off'>('suggest')
-  const [voiceAnalyzing, setVoiceAnalyzing] = useState(false)
-  const [voiceDone, setVoiceDone] = useState(false)
 
   // IMAP/SMTP email connect state
   const [emailAddr, setEmailAddr] = useState('')

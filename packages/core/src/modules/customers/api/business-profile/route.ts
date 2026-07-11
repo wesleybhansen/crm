@@ -22,6 +22,40 @@ export const metadata = {
   PUT: { requireAuth: true, requireFeatures: ['customers.business_profile.manage'] },
 }
 
+const REVIEW_PLATFORMS = ['google', 'facebook', 'yelp', 'other'] as const
+
+/**
+ * Reputation settings (review_url / review_platform) live as raw columns on
+ * business_profiles (added by scripts/sql/reputation.sql) and are intentionally
+ * not on the ORM entity or upsert command: they are read/written here with knex
+ * so this route stays the single touch point. Reads are resilient to the
+ * columns not existing yet.
+ */
+async function readReviewSettings(em: EntityManager, orgId: string): Promise<{ review_url: string | null; review_platform: string | null }> {
+  try {
+    const row = await em.getKnex()('business_profiles').where('organization_id', orgId).first()
+    return {
+      review_url: (row as any)?.review_url ?? null,
+      review_platform: (row as any)?.review_platform ?? null,
+    }
+  } catch {
+    return { review_url: null, review_platform: null }
+  }
+}
+
+function extractReviewPatch(body: Record<string, any>): Record<string, string | null> {
+  const patch: Record<string, string | null> = {}
+  if ('review_url' in body) {
+    const v = typeof body.review_url === 'string' ? body.review_url.trim() : ''
+    patch.review_url = v ? v.slice(0, 2048) : null
+  }
+  if ('review_platform' in body) {
+    const v = typeof body.review_platform === 'string' ? body.review_platform.trim().toLowerCase() : ''
+    patch.review_platform = (REVIEW_PLATFORMS as readonly string[]).includes(v) ? v : null
+  }
+  return patch
+}
+
 function serializeProfile(bp: CustomerBusinessProfile | null) {
   if (!bp) return null
   return {
@@ -69,7 +103,10 @@ export async function GET(req: Request) {
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
     })
-    return NextResponse.json({ ok: true, data: serializeProfile(bp) })
+    const serialized = serializeProfile(bp)
+    if (!serialized) return NextResponse.json({ ok: true, data: null })
+    const review = await readReviewSettings(em, auth.orgId)
+    return NextResponse.json({ ok: true, data: { ...serialized, ...review } })
   } catch {
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
   }
@@ -97,10 +134,25 @@ export async function PUT(req: Request) {
       },
     )
     const em = (container.resolve('em') as EntityManager).fork()
+
+    // Reputation settings ride alongside the zod-validated upsert (which strips
+    // unknown keys). The upsert command guarantees the profile row exists.
+    const reviewPatch = extractReviewPatch(body)
+    if (Object.keys(reviewPatch).length > 0) {
+      try {
+        await em.getKnex()('business_profiles').where('id', result.businessProfileId).update(reviewPatch)
+      } catch (patchErr) {
+        console.error('[business-profile] Failed to save review settings (is scripts/sql/reputation.sql applied?):', patchErr)
+      }
+    }
+
     const bp = await em.findOne(CustomerBusinessProfile, {
       id: result.businessProfileId,
     })
-    return NextResponse.json({ ok: true, data: serializeProfile(bp) })
+    const serialized = serializeProfile(bp)
+    if (!serialized) return NextResponse.json({ ok: true, data: null })
+    const review = await readReviewSettings(em, auth.orgId)
+    return NextResponse.json({ ok: true, data: { ...serialized, ...review } })
   } catch (err: any) {
     if (err?.issues) {
       return NextResponse.json({ ok: false, error: 'Validation failed', details: err.issues }, { status: 400 })

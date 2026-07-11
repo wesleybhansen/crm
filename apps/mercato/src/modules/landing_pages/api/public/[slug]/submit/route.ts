@@ -7,6 +7,7 @@ import { trackEngagement } from '@/modules/customers/lib/engagement-score'
 import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
 import { executeAutomationRules } from '@/modules/sequences/lib/automation-execute'
 import { attributeReferral } from '@/modules/customers/api/affiliates/attribute'
+import { bumpDailyStats, readAbArmFromRequest } from '../../../../services/public-serving'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -109,6 +110,27 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     delete cleanData._utm_content
     delete cleanData._utm_term
     delete cleanData._referrer
+    delete cleanData._ab_variant
+
+    // A/B conversion attribution: the serve route pinned this visitor to an
+    // arm via the lp_ab_{pageId} cookie. Validate the cookie value against the
+    // page's variants before trusting it (it is client-controlled input).
+    let abArm: string | null = null
+    const cookieArm = readAbArmFromRequest(req, page.id)
+    if (cookieArm === 'control') {
+      abArm = 'control'
+    } else if (cookieArm) {
+      try {
+        const variant = await knex('landing_page_variants')
+          .where('id', cookieArm)
+          .where('landing_page_id', page.id)
+          .first()
+        if (variant) abArm = variant.id
+      } catch {
+        // Variant table not provisioned yet; treat as no A/B context.
+      }
+    }
+    if (abArm) cleanData._ab_variant = abArm
 
     await knex('form_submissions').insert({
       id: require('crypto').randomUUID(),
@@ -123,7 +145,16 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
       created_at: new Date(),
     })
 
-    await knex('landing_pages').where('id', page.id).increment('submission_count', 1)
+    // Per-arm conversion counters: control keeps today's behavior (the
+    // landing_pages row); a variant arm increments the variant's counter.
+    if (abArm && abArm !== 'control') {
+      try {
+        await knex('landing_page_variants').where('id', abArm).increment('submission_count', 1)
+      } catch {}
+    } else {
+      await knex('landing_pages').where('id', page.id).increment('submission_count', 1)
+    }
+    await bumpDailyStats(knex, page, abArm, 'submission')
 
     // Auto-create contact if email is provided
     const email = cleanData.email || cleanData.Email

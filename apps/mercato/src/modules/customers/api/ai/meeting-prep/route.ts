@@ -10,6 +10,7 @@ import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { listOpenCommitments, extractCommitmentsForContact, formatCommitmentsForBrief } from '../../../lib/commitments'
 import { requireProcessAuth } from '@/lib/cron-auth'
 
 export const metadata = { path: '/ai/meeting-prep',
@@ -192,7 +193,10 @@ async function loadContactData(knex: ReturnType<EntityManager['getKnex']>, orgId
     }))
   } catch {}
 
-  return { contact, engagementScore, interactions, deals }
+  // Open commitments, both directions — the "keep your promises" section.
+  const commitments = await listOpenCommitments(knex, orgId, contactId)
+
+  return { contact, engagementScore, interactions, deals, commitments }
 }
 
 async function generateBrief(
@@ -208,7 +212,7 @@ async function generateBrief(
     throw new Error('Gemini API key not configured')
   }
 
-  const { contact, engagementScore, interactions, deals } = contactData
+  const { contact, engagementScore, interactions, deals, commitments } = contactData as typeof contactData & { commitments?: Awaited<ReturnType<typeof listOpenCommitments>> }
 
   const dataSection = `
 CONTACT: ${contact.display_name}
@@ -224,7 +228,7 @@ ${interactions.length > 0 ? interactions.map(i => `- [${i.type}] ${new Date(i.da
 
 ACTIVE DEALS:
 ${deals.length > 0 ? deals.map(d => `- "${d.title}" — $${d.value.toLocaleString()}${d.stage ? ` (${d.stage})` : ''}${d.aiSummary ? `\n  Status: ${String(d.aiSummary).slice(0, 300)}` : ''}`).join('\n') : 'No active deals'}
-`
+${formatCommitmentsForBrief(commitments ?? [])}`
 
   const prompt = `${personaPrompt}
 
@@ -232,6 +236,7 @@ Generate a concise meeting prep brief in clean HTML format. Include:
 - Key context about this person and the relationship
 - Relationship status assessment
 - 3-4 suggested talking points
+- Open commitments, both directions: lead with anything WE promised (deliver or acknowledge it), and gently follow up on anything THEY promised
 - A recommended ask or next step
 
 Format as HTML (no outer html/head/body tags). Use inline styles. Keep it scannable — this should be a quick read before the meeting.
@@ -294,6 +299,18 @@ export async function GET(req: Request) {
 
     // On-demand brief for a specific contact
     if (contactId) {
+      // Refresh commitment extraction for this contact before the brief —
+      // bounded cost (one flash call, only when there's new mail). Caller
+      // meters per the ai-summaries house rule.
+      try {
+        const extractKey = gate.byoApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
+        if (extractKey) {
+          const ext = await extractCommitmentsForContact(knex, extractKey, auth.orgId, auth.tenantId ?? null, contactId)
+          if (ext.tokensIn > 0) {
+            void meterCustomersAi(auth, { model: ext.model, tokensIn: ext.tokensIn, tokensOut: ext.tokensOut, feature: 'commitments-extract', byoKey: !!gate.byoApiKey })
+          }
+        }
+      } catch { /* non-fatal */ }
       const contactData = await loadContactData(knex, auth.orgId, contactId)
       if (!contactData) {
         return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })

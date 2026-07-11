@@ -1,6 +1,7 @@
 import type { Knex } from 'knex'
 import { cookies } from 'next/headers'
 import crypto from 'crypto'
+import { computeCommission } from './commission'
 
 export async function attributeReferral(
   knex: Knex,
@@ -33,6 +34,11 @@ export async function attributeReferral(
 
     if (!affiliate) return
 
+    // Campaign drives tiered commission rates (if configured).
+    const campaign = affiliate.campaign_id
+      ? await knex('affiliate_campaigns').where('id', affiliate.campaign_id).first()
+      : null
+
     // Check if we already have a referral for this email from this affiliate
     const existingReferral = await knex('affiliate_referrals')
       .where('affiliate_id', affiliate.id)
@@ -42,9 +48,8 @@ export async function attributeReferral(
     if (existingReferral) {
       // If already referred but not converted and we now have a conversion value, update it
       if (!existingReferral.converted && conversionValue) {
-        const commissionAmount = affiliate.commission_type === 'percentage'
-          ? (conversionValue * Number(affiliate.commission_rate)) / 100
-          : Number(affiliate.commission_rate)
+        // Tier is picked from total_conversions BEFORE this conversion.
+        const { amount: commissionAmount } = computeCommission(conversionValue, affiliate, campaign)
 
         await knex('affiliate_referrals')
           .where('id', existingReferral.id)
@@ -71,13 +76,11 @@ export async function attributeReferral(
       .whereNull('deleted_at')
       .first()
 
-    // Calculate commission if conversion value provided
+    // Calculate commission if conversion value provided (tier-aware)
     let commissionAmount: number | null = null
     const converted = Boolean(conversionValue)
     if (conversionValue) {
-      commissionAmount = affiliate.commission_type === 'percentage'
-        ? (conversionValue * Number(affiliate.commission_rate)) / 100
-        : Number(affiliate.commission_rate)
+      commissionAmount = computeCommission(conversionValue, affiliate, campaign).amount
     }
 
     // Create referral record

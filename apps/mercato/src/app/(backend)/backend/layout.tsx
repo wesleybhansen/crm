@@ -1,7 +1,7 @@
 import { cookies, headers } from 'next/headers'
 import Script from 'next/script'
 import { createElement, type ReactNode } from 'react'
-import { Users, Kanban, FileText, Mail, Inbox, LayoutDashboard, CreditCard, Settings, CalendarDays, BookOpen, GitBranch, GitMerge, Zap, ClipboardList, MessageCircle, Share2, CheckSquare, CalendarCheck, BarChart3, Wrench, Sparkles, Headphones } from 'lucide-react'
+import { Users, Kanban, FileText, Mail, Inbox, LayoutDashboard, CreditCard, Settings, CalendarDays, BookOpen, GitBranch, GitMerge, Zap, ClipboardList, MessageCircle, Share2, CheckSquare, CalendarCheck, BarChart3, Wrench, Sparkles, Headphones, Star, Mic } from 'lucide-react'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -714,6 +714,20 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
         defaultTitle: 'Affiliates',
         enabled: true,
         icon: createElement(Share2, { className: iconClass }),
+      },
+      {
+        href: '/backend/reputation',
+        title: translate('nav.reputation', 'Reputation'),
+        defaultTitle: 'Reputation',
+        enabled: true,
+        icon: createElement(Star, { className: iconClass }),
+      },
+      {
+        href: '/backend/debrief',
+        title: translate('nav.debrief', 'Call Debrief'),
+        defaultTitle: 'Call Debrief',
+        enabled: true,
+        icon: createElement(Mic, { className: iconClass }),
       },
       {
         href: '/backend/surveys',

@@ -189,7 +189,8 @@ export async function POST(req: Request) {
     for (let i = 0; i < template.actions.length; i++) {
       const action = template.actions[i]
       if (action.type === 'wait') {
-        const duration = Number(action.config?.duration || action.config?.delay || 60)
+        // Solopreneur templates author waits as durationMinutes; older ones use duration/delay.
+        const duration = Number(action.config?.durationMinutes || action.config?.duration || action.config?.delay || 60)
         steps.push({ type: 'delay', delayMinutes: duration })
       } else {
         steps.push({

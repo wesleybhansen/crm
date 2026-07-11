@@ -11,6 +11,38 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['landing_pages.delete'] },
 }
 
+/**
+ * Normalize a submitted custom domain: lowercase, strip protocol/port/path.
+ * Returns null for empty input (clears the domain) and undefined when the
+ * value is not a plausible hostname.
+ */
+function normalizeCustomDomain(raw: string | null): string | null | undefined {
+  if (raw === null) return null
+  let value = String(raw).trim().toLowerCase()
+  if (!value) return null
+  value = value.replace(/^[a-z]+:\/\//, '')
+  value = value.split('/')[0].split('?')[0].split('#')[0]
+  value = value.replace(/:\d+$/, '')
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(value)) return undefined
+  return value
+}
+
+/** Never allow tenants to claim hosts that belong to us. */
+function isReservedDomain(host: string): boolean {
+  if (host === 'localhost' || host === '127.0.0.1') return true
+  const appHost = (() => {
+    if (process.env.APP_HOST) return process.env.APP_HOST.toLowerCase().replace(/:\d+$/, '')
+    try {
+      if (process.env.APP_URL) return new URL(process.env.APP_URL).hostname.toLowerCase()
+    } catch {}
+    return 'crm.noliai.com'
+  })()
+  if (host === appHost) return true
+  if (host === 'noliai.com' || host.endsWith('.noliai.com')) return true
+  if (host === 'thelaunchpadincubator.com' || host.endsWith('.thelaunchpadincubator.com')) return true
+  return false
+}
+
 function getScope(ctx: any) {
   const auth = ctx?.auth
   if (!auth?.tenantId || !auth?.orgId) return null
@@ -64,7 +96,28 @@ export async function PUT(req: Request, ctx: any) {
     if (parsed.templateId !== undefined) update.template_id = parsed.templateId
     if (parsed.templateCategory !== undefined) update.template_category = parsed.templateCategory
     if (parsed.config !== undefined) update.config = JSON.stringify(parsed.config)
-    if (parsed.customDomain !== undefined) update.custom_domain = parsed.customDomain
+    if (parsed.customDomain !== undefined) {
+      const normalized = normalizeCustomDomain(parsed.customDomain)
+      if (normalized === undefined) {
+        return NextResponse.json({ ok: false, error: 'Enter a valid domain, like pages.yourbusiness.com' }, { status: 400 })
+      }
+      if (normalized) {
+        if (isReservedDomain(normalized)) {
+          return NextResponse.json({ ok: false, error: 'That domain is not available. Use a domain you own.' }, { status: 400 })
+        }
+        // A domain can only point at one page (checked across all accounts,
+        // since public serving resolves purely by host).
+        const domainDup = await knex('landing_pages')
+          .whereRaw('lower(custom_domain) = ?', [normalized])
+          .whereNull('deleted_at')
+          .whereNot('id', id)
+          .first('id')
+        if (domainDup) {
+          return NextResponse.json({ ok: false, error: 'That domain is already connected to another page.' }, { status: 409 })
+        }
+      }
+      update.custom_domain = normalized
+    }
     if (parsed.publishedHtml !== undefined) update.published_html = parsed.publishedHtml
     if (parsed.status !== undefined) update.status = parsed.status
 

@@ -87,6 +87,36 @@ export async function PUT(req: Request, ctx: any) {
       } catch {}
     }
 
+    // Affiliate deal-win attribution: when the deal transitions to won,
+    // convert any pending affiliate referral for the deal's linked contacts
+    // using the deal value. Non-fatal by design.
+    const winStatuses = ['win', 'won']
+    const becameWon = status !== undefined
+      && winStatuses.includes(String(status).toLowerCase())
+      && !winStatuses.includes(String(deal.status || '').toLowerCase())
+    if (becameWon) {
+      try {
+        const { attributeDealWin } = await import('@/modules/customers/api/affiliates/deal-attribution')
+        const dealValue = Number(deal.value_amount) || 0
+        const people = await knex('customer_deal_people as cdp')
+          .join('customer_entities as ce', 'ce.id', 'cdp.person_entity_id')
+          .where('cdp.deal_id', id)
+          .where('ce.organization_id', auth.orgId)
+          .whereNull('ce.deleted_at')
+          .select('ce.id', 'ce.primary_email')
+          .limit(10)
+        for (const person of people) {
+          await attributeDealWin(knex, auth.orgId, auth.tenantId, {
+            contactId: person.id,
+            email: person.primary_email || null,
+            dealValue,
+          })
+        }
+      } catch (attrErr) {
+        console.error('[ext.deals.update] affiliate deal-win attribution failed (non-fatal):', attrErr)
+      }
+    }
+
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('[ext.deals.update]', error)
