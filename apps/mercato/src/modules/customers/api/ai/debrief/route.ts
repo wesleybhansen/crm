@@ -57,8 +57,13 @@ export async function POST(req: Request) {
     const apiKey = gate.byoApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
     if (!apiKey) return NextResponse.json({ ok: false, error: 'AI is not configured' }, { status: 500 })
 
-    const today = new Date().toISOString().slice(0, 10)
-    const prompt = `You are processing a spoken post-call debrief from a business owner${contact ? ` about their contact "${contact.display_name}"` : ''}. Turn it into structured CRM records. Today is ${today} (resolve relative dates like "Friday" or "next week" to real dates).
+    // Prefer the browser's local date (a US evening debrief in UTC lands on
+    // tomorrow, shifting every relative date like "Friday" by a day).
+    const clientToday = typeof body.today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.today) ? body.today : null
+    const todayDate = clientToday ? new Date(`${clientToday}T12:00:00`) : new Date()
+    const today = clientToday ?? todayDate.toISOString().slice(0, 10)
+    const weekday = todayDate.toLocaleDateString('en-US', { weekday: 'long' })
+    const prompt = `You are processing a spoken post-call debrief from a business owner${contact ? ` about their contact "${contact.display_name}"` : ''}. Turn it into structured CRM records. Today is ${weekday}, ${today} (resolve relative dates like "Friday" or "next week" to real dates).
 
 Return ONLY JSON (no markdown fences):
 {
@@ -79,7 +84,7 @@ ${transcript}`
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 1200, temperature: 0.3 },
+          generationConfig: { maxOutputTokens: 2200, temperature: 0.3 },
         }),
       },
     )
@@ -120,14 +125,16 @@ ${transcript}`
     for (const t of (plan.tasks ?? []).slice(0, 6)) {
       const title = (t.title ?? '').trim()
       if (title.length < 3 || title.length > 300) continue
-      await knex('tasks').insert({
-        tenant_id: auth.tenantId,
-        organization_id: auth.orgId,
-        title,
-        contact_id: contact?.id ?? null,
-        due_date: t.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(t.dueDate) ? new Date(t.dueDate) : null,
-      })
-      created.tasks++
+      try {
+        await knex('tasks').insert({
+          tenant_id: auth.tenantId,
+          organization_id: auth.orgId,
+          title,
+          contact_id: contact?.id ?? null,
+          due_date: t.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(t.dueDate) ? new Date(t.dueDate) : null,
+        })
+        created.tasks++
+      } catch { /* one bad row must not sink the whole debrief */ }
     }
 
     // Commitments

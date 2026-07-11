@@ -252,7 +252,7 @@ async function executeAction(
         reference: (context.reference as string | undefined) || null,
       }
       const subject = substituteTemplateVars(rawSubject, varCtx)
-      const bodyHtml = htmlifyIfPlainText(substituteTemplateVars(rawBody, varCtx))
+      const bodyHtml = substituteTemplateVars(htmlifyIfPlainText(rawBody), { ...varCtx, html: true })
 
       const result = await sendEmailByPurpose(knex, orgId, tenantId, 'automations', {
         to: contactEmail,

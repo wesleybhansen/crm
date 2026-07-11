@@ -15,11 +15,11 @@ export async function attributeDealWin(
   orgId: string,
   tenantId: string | null,
   opts: { contactId?: string | null; email?: string | null; dealValue: number },
-): Promise<void> {
+): Promise<boolean> {
   try {
     const { contactId, email, dealValue } = opts
-    if (!contactId && !email) return
-    if (!Number.isFinite(dealValue) || dealValue <= 0) return
+    if (!contactId && !email) return false
+    if (!Number.isFinite(dealValue) || dealValue <= 0) return false
 
     // Find the most recent unconverted referral for this contact/email,
     // scoped to affiliates in this org.
@@ -36,13 +36,13 @@ export async function attributeDealWin(
     })
 
     const referral = await query.first()
-    if (!referral) return
+    if (!referral) return false
 
     const affiliate = await knex('affiliates')
       .where('id', referral.affiliate_id)
       .where('organization_id', orgId)
       .first()
-    if (!affiliate || affiliate.status !== 'active') return
+    if (!affiliate || affiliate.status !== 'active') return false
 
     const campaign = affiliate.campaign_id
       ? await knex('affiliate_campaigns').where('id', affiliate.campaign_id).first()
@@ -62,7 +62,7 @@ export async function attributeDealWin(
         commission_amount: commissionAmount,
         converted_at: new Date(),
       })
-    if (!updated) return
+    if (!updated) return false
 
     await knex('affiliates')
       .where('id', affiliate.id)
@@ -72,7 +72,9 @@ export async function attributeDealWin(
         total_earned: knex.raw('total_earned + ?', [commissionAmount]),
         updated_at: new Date(),
       })
+    return true
   } catch (err) {
     console.error('[affiliates.deal-attribution] failed (non-fatal):', err)
+      return false
   }
 }

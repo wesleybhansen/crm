@@ -103,7 +103,7 @@ export default function DebriefPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ transcript: transcript.trim(), contactId: contact?.id }),
+        body: JSON.stringify({ transcript: transcript.trim(), contactId: contact?.id, today: new Date().toLocaleDateString('en-CA') }),
       })
       const d = await res.json()
       if (!d.ok) throw new Error(d.error || 'Debrief failed')
@@ -208,9 +208,11 @@ export default function DebriefPage() {
         <div className="rounded-xl border-2 border-accent/30 bg-accent/5 p-4 space-y-3">
           <p className="text-sm font-semibold">Done{result.contactName ? ` — filed under ${result.contactName}` : ''}.</p>
           <div className="space-y-2 text-sm">
-            {result.noteSaved && (
+            {result.noteSaved ? (
               <p className="flex items-start gap-2"><StickyNote className="size-4 text-accent mt-0.5 shrink-0" /> Call note saved{result.noteSummary ? `: ${result.noteSummary}` : ''}</p>
-            )}
+            ) : result.noteSummary ? (
+              <p className="flex items-start gap-2"><StickyNote className="size-4 text-muted-foreground mt-0.5 shrink-0" /> Note (pick a contact next time to file it): {result.noteSummary}</p>
+            ) : null}
             {result.tasksCreated > 0 && (
               <p className="flex items-start gap-2"><ClipboardList className="size-4 text-accent mt-0.5 shrink-0" /> {result.tasksCreated} task{result.tasksCreated === 1 ? '' : 's'} created</p>
             )}

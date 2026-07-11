@@ -35,10 +35,10 @@ export async function GET(req: Request) {
       .first()
     if (!conv || !conv.contact_id) return NextResponse.json({ ok: true, data: null })
 
-    // Cached verdict (one match per conversation).
-    const meta = typeof conv.metadata === 'string' ? JSON.parse(conv.metadata || '{}') : (conv.metadata ?? {})
-    if (meta.sequence_suggestion !== undefined) {
-      return NextResponse.json({ ok: true, data: meta.sequence_suggestion })
+    // Cached verdict (one match per conversation) in the dedicated column.
+    if (conv.seq_suggestion !== undefined && conv.seq_suggestion !== null) {
+      const cached = typeof conv.seq_suggestion === 'string' ? JSON.parse(conv.seq_suggestion) : conv.seq_suggestion
+      return NextResponse.json({ ok: true, data: cached?.value ?? null })
     }
 
     const sequences = await knex('sequences')
@@ -65,7 +65,7 @@ export async function GET(req: Request) {
       .select('subject', 'body_text', 'body_html')
       .first()
     const inquiry = [
-      conv.preview ?? '',
+      conv.last_message_preview ?? '',
       lastInbound?.subject ?? '',
       (lastInbound?.body_text || (lastInbound?.body_html || '').replace(/<[^>]+>/g, ' ')).toString().slice(0, 1500),
     ].filter(Boolean).join('\n')
@@ -114,15 +114,18 @@ Return ONLY JSON: {"sequenceId": "<id>" | null, "reason": "<one short sentence f
 
     const matched = verdict.sequenceId ? sequences.find((s: any) => s.id === verdict.sequenceId) : null
     const suggestion = matched
-      ? { sequenceId: matched.id, sequenceName: matched.name, reason: (verdict.reason ?? '').slice(0, 200) }
+      ? { sequenceId: matched.id, sequenceName: matched.name, reason: (verdict.reason ?? '').replace(/[.\s]+$/, '').slice(0, 200) }
       : null
 
-    // Cache on the conversation so we never re-match the same thread.
-    await knex('inbox_conversations')
-      .where('id', conversationId)
-      .where('organization_id', auth.orgId)
-      .update({ metadata: JSON.stringify({ ...meta, sequence_suggestion: suggestion }) })
-      .catch(() => {})
+    // Only cache when the AI call actually succeeded and parsed — a transient
+    // 5xx must not permanently cache a false negative for this thread.
+    if (aiRes.ok && text) {
+      await knex('inbox_conversations')
+        .where('id', conversationId)
+        .where('organization_id', auth.orgId)
+        .update({ seq_suggestion: JSON.stringify({ value: suggestion }) })
+        .catch(() => {})
+    }
 
     return NextResponse.json({ ok: true, data: suggestion })
   } catch (error) {
@@ -193,10 +196,9 @@ export async function POST(req: Request) {
     }
 
     // Clear the cached suggestion so the chip disappears.
-    const meta = typeof conv.metadata === 'string' ? JSON.parse(conv.metadata || '{}') : (conv.metadata ?? {})
     await knex('inbox_conversations')
       .where('id', conversationId).where('organization_id', auth.orgId)
-      .update({ metadata: JSON.stringify({ ...meta, sequence_suggestion: null }) })
+      .update({ seq_suggestion: JSON.stringify({ value: null }) })
       .catch(() => {})
 
     return NextResponse.json({ ok: true, data: { enrollmentId, sequenceName: sequence.name } }, { status: 201 })

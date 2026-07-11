@@ -33,15 +33,16 @@ export async function POST(req: Request) {
     }
 
     // Earned per affiliate (converted referrals only, org-scoped via join).
-    let earnedQuery = knex('affiliate_referrals as r')
+    const earnedQuery = knex('affiliate_referrals as r')
       .join('affiliates as a', 'r.affiliate_id', 'a.id')
       .where('a.organization_id', auth.orgId)
       .where('r.converted', true)
       .groupBy('r.affiliate_id')
       .select('r.affiliate_id')
       .sum('r.commission_amount as earned')
-    if (periodStart) earnedQuery = earnedQuery.where('r.converted_at', '>=', periodStart)
-    if (periodEnd) earnedQuery = earnedQuery.where('r.converted_at', '<=', periodEnd)
+    // Balance is LIFETIME earned minus LIFETIME payouts. Filtering earned by a
+    // period while subtracting all-time payouts underpays (prior payouts exceed
+    // one period's earnings). The period params only label the created row.
     const earnedRows = await earnedQuery
 
     // Already-covered amounts: every existing payout counts (pending AND paid),

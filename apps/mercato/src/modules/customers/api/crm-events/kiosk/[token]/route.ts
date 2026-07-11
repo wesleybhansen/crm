@@ -16,7 +16,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
-import { qrSvg } from '../qr'
+import { qrSvg } from '@/modules/customers/lib/kiosk-qr'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
@@ -27,7 +27,7 @@ function esc(s: string): string {
 // unbounded.
 const signinHits = new Map<string, number[]>()
 const WINDOW_MS = 60 * 60 * 1000
-const MAX_PER_WINDOW = 60 // a kiosk device serves many people from one IP
+const MAX_PER_WINDOW = 300 // a kiosk device serves many people from one IP
 function rateLimited(key: string): boolean {
   const now = Date.now()
   const hits = (signinHits.get(key) ?? []).filter((t) => now - t < WINDOW_MS)
@@ -240,9 +240,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       if (existing.checked_in_at) {
         return NextResponse.json({ ok: true, alreadyCheckedIn: true })
       }
+      // They showed up, so a prior cancellation is void — mark registered again.
       await knex('event_attendees').where('id', existing.id).update({
         checked_in_at: now,
         checkin_source: 'kiosk',
+        status: 'registered',
+        cancelled_at: null,
       })
       return NextResponse.json({ ok: true })
     }

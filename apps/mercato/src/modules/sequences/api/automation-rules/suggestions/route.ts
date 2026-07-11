@@ -32,6 +32,10 @@ type Suggestion = {
 export async function GET() {
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  // Patterns 1 (stage→tag) and 2 (deal-won→task) are suppressed until their
+  // automation triggers are dispatched to the executor (today only
+  // form_submitted fires). Non-literal so TS keeps auth narrowed in the blocks.
+  const WIRED_PATTERNS_ONLY: boolean = true
   try {
     const knex = ((await createRequestContainer()).resolve('em') as EntityManager).getKnex()
     const suggestions: Suggestion[] = []
@@ -51,7 +55,10 @@ export async function GET() {
       })
 
     // ── Pattern 1: after moving a contact to stage X, you add tag Y ──
-    try {
+    // SUPPRESSED: stage_change automation triggers are not dispatched to the
+    // executor yet, so a created rule would never fire. Re-enable when the
+    // stage-change dispatch is wired.
+    if (!WIRED_PATTERNS_ONLY) try {
       const tagAfterStage = await knex.raw(
         `SELECT e.metadata->>'to' AS to_stage, t.label AS tag_label, t.slug AS tag_slug,
                 count(DISTINCT e.contact_id) AS n
@@ -91,7 +98,9 @@ export async function GET() {
     } catch { /* pattern query failed (schema variance) — skip */ }
 
     // ── Pattern 2: after winning a deal, you create a task ──
-    try {
+    // SUPPRESSED: deal_won automation triggers are not dispatched to the
+    // executor yet (only form_submitted is). Re-enable when wired.
+    if (!WIRED_PATTERNS_ONLY) try {
       const taskAfterWin = await knex.raw(
         `SELECT count(*) AS n
            FROM customer_deals d

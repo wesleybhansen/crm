@@ -91,9 +91,14 @@ export async function PUT(req: Request, ctx: any) {
     // convert any pending affiliate referral for the deal's linked contacts
     // using the deal value. Non-fatal by design.
     const winStatuses = ['win', 'won']
-    const becameWon = status !== undefined
-      && winStatuses.includes(String(status).toLowerCase())
-      && !winStatuses.includes(String(deal.status || '').toLowerCase())
+    const wasWon = winStatuses.includes(String(deal.status || '').toLowerCase())
+    const stageLooksWon = pipeline_stage !== undefined
+      && /\b(won|closed[\s_-]*won)\b/i.test(String(pipeline_stage))
+    // A win is: status flipped to won, OR the deal was dragged into a
+    // won-named pipeline stage (the primary way deals close in the UI, which
+    // sends pipeline_stage but no status).
+    const becameWon = !wasWon
+      && ((status !== undefined && winStatuses.includes(String(status).toLowerCase())) || stageLooksWon)
     if (becameWon) {
       try {
         const { attributeDealWin } = await import('@/modules/customers/api/affiliates/deal-attribution')
@@ -105,12 +110,15 @@ export async function PUT(req: Request, ctx: any) {
           .whereNull('ce.deleted_at')
           .select('ce.id', 'ce.primary_email')
           .limit(10)
+        // One deal pays ONE commission: stop at the first linked contact whose
+        // referral actually converts (else a multi-contact deal pays 2-3x).
         for (const person of people) {
-          await attributeDealWin(knex, auth.orgId, auth.tenantId, {
+          const converted = await attributeDealWin(knex, auth.orgId, auth.tenantId, {
             contactId: person.id,
             email: person.primary_email || null,
             dealValue,
           })
+          if (converted) break
         }
       } catch (attrErr) {
         console.error('[ext.deals.update] affiliate deal-win attribution failed (non-fatal):', attrErr)

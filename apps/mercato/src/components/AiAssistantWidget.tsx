@@ -722,7 +722,7 @@ export function AiAssistantWidget() {
                 <button type="button"
                   onClick={() => router.push('/backend/assistant?mode=voice')}
                   className="w-full text-left px-3 py-2 rounded-lg border text-xs hover:bg-muted transition flex items-center gap-2">
-                  <Mic className="size-3.5 text-accent shrink-0" /> Or just talk — have a voice conversation with {personaName}
+                  <Mic className="size-3.5 text-accent shrink-0" /> Or just talk. Have a voice conversation with {personaName}
                 </button>
               </div>
             )}
@@ -747,7 +747,7 @@ export function AiAssistantWidget() {
               </button>
               <button type="button"
                 onClick={() => router.push('/backend/assistant?mode=voice')}
-                title={`Talk to ${personaName} — full voice conversation`}
+                title={`Talk to ${personaName} with a full voice conversation`}
                 className="w-8 h-8 rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center shrink-0">
                 <Mic className="size-3.5" />
               </button>

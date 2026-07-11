@@ -79,7 +79,7 @@ export async function POST(req: Request) {
       sender: senderCtx,
     }
     const subject = substituteTemplateVars(REVIEW_REQUEST_SUBJECT, varCtx)
-    const htmlBody = htmlifyIfPlainText(substituteTemplateVars(REVIEW_REQUEST_BODY, varCtx))
+    const htmlBody = substituteTemplateVars(htmlifyIfPlainText(REVIEW_REQUEST_BODY), { ...varCtx, html: true })
 
     const result = await sendEmailByPurpose(knex, auth.orgId, auth.tenantId, 'automations', {
       to: contactEmail,

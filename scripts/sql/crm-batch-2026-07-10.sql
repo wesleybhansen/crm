@@ -38,3 +38,17 @@ ALTER TABLE automation_rules
   ADD COLUMN IF NOT EXISTS steps jsonb,
   ADD COLUMN IF NOT EXISTS status text DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS template_id text;
+
+-- Adversarial-pass fixes (2026-07-11):
+-- sequence-suggestion caches its verdict per conversation (the code wrote to a
+-- nonexistent metadata column → unbounded repeat LLM spend).
+ALTER TABLE inbox_conversations ADD COLUMN IF NOT EXISTS seq_suggestion jsonb;
+-- commitments extraction marker (guard against re-running the flash call when a
+-- run legitimately finds zero commitments).
+ALTER TABLE customer_entities ADD COLUMN IF NOT EXISTS commitments_extracted_at timestamptz;
+
+-- Custom-domain uniqueness (a domain must map to one page) + kiosk lookup index.
+CREATE UNIQUE INDEX IF NOT EXISTS landing_pages_custom_domain_uidx
+  ON landing_pages (lower(custom_domain)) WHERE custom_domain IS NOT NULL AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS events_kiosk_token_idx
+  ON events (kiosk_token) WHERE kiosk_token IS NOT NULL;

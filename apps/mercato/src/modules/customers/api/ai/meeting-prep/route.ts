@@ -236,8 +236,7 @@ Generate a concise meeting prep brief in clean HTML format. Include:
 - Key context about this person and the relationship
 - Relationship status assessment
 - 3-4 suggested talking points
-- Open commitments, both directions: lead with anything WE promised (deliver or acknowledge it), and gently follow up on anything THEY promised
-- A recommended ask or next step
+${(commitments ?? []).length > 0 ? '- Open commitments, both directions: lead with anything WE promised (deliver or acknowledge it), and gently follow up on anything THEY promised\n' : ''}- A recommended ask or next step
 
 Format as HTML (no outer html/head/body tags). Use inline styles. Keep it scannable — this should be a quick read before the meeting.
 

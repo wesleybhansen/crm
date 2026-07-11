@@ -12,7 +12,7 @@ import {
   Sparkles, Eye, Check, FileText, Video, UserPlus, AlertTriangle,
   QrCode, RefreshCw, UserCheck,
 } from 'lucide-react'
-import { qrSvg } from '@/modules/customers/api/crm-events/kiosk/qr'
+import { qrSvg } from '@/modules/customers/lib/kiosk-qr'
 
 type Event = {
   id: string; title: string; description: string | null; slug: string

@@ -44,14 +44,44 @@ const ORG_TABLES = [
   'automation_rule_logs',
   'automation_scheduled_steps',
   'automation_rules',
+  // Commitments, reputation, events, affiliates (added in the 2026-07-10 batch).
+  'commitments',
+  'review_requests',
+  'event_attendees',
+  'events',
+  'affiliate_referrals',
+  'affiliate_payouts',
+  'affiliates',
+  // Landing analytics + variants (raw tables from the A/B build).
+  'landing_page_daily_stats',
+  'landing_page_referrers',
+  'landing_page_variants',
+  'landing_page_forms',
   'form_submissions',
   'landing_pages',
+  // Inbox (both the knex-side unified conversations and the inbox_ops module).
+  'inbox_discrepancies',
+  'inbox_proposal_actions',
+  'inbox_proposals',
+  'inbox_settings',
+  'inbox_emails',
   'inbox_conversations',
   'email_messages',
+  // Contact-scoped PII + activity.
+  'contact_timeline_events',
+  'contact_engagement_scores',
+  'contact_attachments',
+  'customer_addresses',
+  'customer_activities',
+  'customer_comments',
+  'customer_tag_assignments',
+  'customer_deal_people',
+  'customer_deal_companies',
   'tasks',
   'contact_notes',
   'customer_deals',
   'customer_people',
+  'customer_companies',
   'customer_entities',
   'api_keys',
 ] as const
@@ -103,12 +133,16 @@ export async function POST(req: Request) {
     const em = container.resolve('em') as EntityManager
     const knex = em.getKnex()
 
-    // 4. Resolve the Mercato user WITHOUT provisioning side-effects.
+    // 4. Resolve the Mercato user WITHOUT provisioning side-effects. Prefer the
+    //    Clerk id (the authoritative identity); only fall back to email when no
+    //    Clerk id is known, so a recycled/stale email can't select and purge a
+    //    different user's workspace.
     const userRow = (await knex('users')
       .whereNull('deleted_at')
       .where((qb) => {
-        if (clerkUserId) qb.orWhere('clerk_user_id', clerkUserId)
-        if (email) qb.orWhere('email', email)
+        if (clerkUserId) qb.where('clerk_user_id', clerkUserId)
+        else if (email) qb.where('email', email)
+        else qb.whereRaw('false')
       })
       .first()
       .catch(() => null)) as
@@ -135,6 +169,8 @@ export async function POST(req: Request) {
           .where('id', userRow.id)
           .update({
             email: `gdpr-deleted+${userRow.id}@deleted.invalid`,
+            email_hash: null,
+            google_sub: null,
             name: null,
             clerk_user_id: null,
             deleted_at: new Date(),

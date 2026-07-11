@@ -47,7 +47,9 @@ function extractReviewPatch(body: Record<string, any>): Record<string, string | 
   const patch: Record<string, string | null> = {}
   if ('review_url' in body) {
     const v = typeof body.review_url === 'string' ? body.review_url.trim() : ''
-    patch.review_url = v ? v.slice(0, 2048) : null
+    // Only http(s) — this URL is embedded in emails and rendered on the
+    // reputation page, so javascript:/data: must never be stored.
+    patch.review_url = v && /^https?:\/\//i.test(v) ? v.slice(0, 2048) : null
   }
   if ('review_platform' in body) {
     const v = typeof body.review_platform === 'string' ? body.review_platform.trim().toLowerCase() : ''

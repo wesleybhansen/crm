@@ -38,6 +38,18 @@ export type TemplateVarContext = {
   sender?: TemplateSenderVars
   /** Passthrough for scheduled automations ({{reference}} = invoice number, deal title, ...) */
   reference?: string | null
+  /** When true, substituted values are HTML-escaped (contact names come from
+   * public forms/kiosk/inbound mail and land in an HTML email body). */
+  html?: boolean
+}
+
+function htmlEscape(v: string): string {
+  return v
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }
 
 const REVIEW_URL_TOKEN = /\{\{\s*sender\.review_url\s*\}\}/
@@ -77,10 +89,13 @@ export function substituteTemplateVars(text: string, ctx: TemplateVarContext): s
   }
 
   // One pass: known keys substituted, everything else (including {{now-90d}}-style
-  // condition placeholders that leak into copy) stripped to ''.
+  // condition placeholders that leak into copy) stripped to ''. When emitting
+  // HTML, escape the substituted value so a contact-supplied name like
+  // "<img onerror=...>" can't inject markup into the email.
+  const esc = ctx.html ? htmlEscape : (x: string) => x
   return text.replace(/\{\{([^{}]*)\}\}/g, (_m, rawKey) => {
     const key = String(rawKey).trim()
-    return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : ''
+    return Object.prototype.hasOwnProperty.call(values, key) ? esc(values[key]) : ''
   })
 }
 
