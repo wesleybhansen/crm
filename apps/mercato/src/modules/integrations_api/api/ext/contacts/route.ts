@@ -79,13 +79,14 @@ export async function POST(req: Request, ctx: any) {
     // schema without utm columns.
     let description: string | null = null
     if (channel && typeof channel === 'string') {
-      description = `Came from: ${channel.slice(0, 160)}`
+      description = `Came from: ${channel.replace(/[\r\n\t\u0000-\u001f\u007f]+/g, ' ').slice(0, 160)}`
     }
     if (attribution && typeof attribution === 'object') {
+      const clean = (t: string) => t.replace(/[\r\n\t\u0000-\u001f\u007f]+/g, ' ').trim()
       const parts = Object.entries(attribution as Record<string, unknown>)
         .filter(([, v]) => typeof v === 'string' && v)
         .slice(0, 10)
-        .map(([k, v]) => `${k}=${String(v).slice(0, 160)}`)
+        .map(([k, v]) => `${clean(k).slice(0, 40)}=${clean(String(v)).slice(0, 160)}`)
       if (parts.length > 0) {
         description = `${description ? description + '\n' : ''}Attribution: ${parts.join(' · ')}`
       }
