@@ -28,7 +28,50 @@ const isPublicPage = createRouteMatcher([
   '/privacy',
 ])
 
+const OWN_APEX_DOMAINS = ['noliai.com', 'thelaunchpadincubator.com']
+
+function lpAppHost(): string {
+  if (process.env.APP_HOST) return process.env.APP_HOST.toLowerCase().replace(/:\d+$/, '')
+  try {
+    if (process.env.APP_URL) return new URL(process.env.APP_URL).hostname.toLowerCase()
+  } catch {}
+  return 'crm.noliai.com'
+}
+
+function isOwnHost(host: string): boolean {
+  if (!host) return true
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost')) return true
+  // IP literals (direct-to-box requests, health checks) keep default behavior
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return true
+  if (host === lpAppHost()) return true
+  for (const apex of OWN_APEX_DOMAINS) {
+    if (host === apex || host.endsWith(`.${apex}`)) return true
+  }
+  return false
+}
+
 export default clerkMiddleware(async (auth, req) => {
+  // 0. Custom-domain landing pages: nginx passes the original Host through,
+  //    so any host that isn't ours serves exactly one published landing page
+  //    at '/' (rewritten to the public by-domain route) and 404s elsewhere.
+  //    /api, /_next, and file assets never reach here (see config.matcher),
+  //    so form submits on custom domains still work.
+  const rawHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? ''
+  const customHost = rawHost.trim().toLowerCase().replace(/:\d+$/, '')
+  if (!isOwnHost(customHost)) {
+    if (req.nextUrl.pathname === '/' && (req.method === 'GET' || req.method === 'HEAD')) {
+      const url = req.nextUrl.clone()
+      url.pathname = '/api/landing_pages/public/by-domain'
+      url.search = `?host=${encodeURIComponent(customHost)}&path=${encodeURIComponent('/')}`
+      return NextResponse.rewrite(url)
+    }
+    // Unlike the standalone-middleware version, this proxy's matcher covers
+    // /api — let API calls (the landing page's own form submit) through.
+    if (!req.nextUrl.pathname.startsWith('/api/')) {
+      return new NextResponse('Not found', { status: 404 })
+    }
+  }
+
   // 1. Root: the marketing page is the single source of truth at
   //    noliai.com/crm. The in-repo landing.html drifted from it, so we no
   //    longer serve a local copy. Logged-out visitors are redirected to the
