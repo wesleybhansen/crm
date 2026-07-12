@@ -15,6 +15,14 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const dynamic = 'force-dynamic'
 
+// Dispatcher mapping: serve at /api/internal/email-send (not the module-prefixed
+// default) and public at the dispatcher level — we authenticate below with the
+// shared service secret. Mirrors provision-key.
+export const metadata = {
+  path: '/internal/email-send',
+  POST: { requireAuth: false },
+}
+
 function safeEq(a: string, b: string): boolean {
   const ab = Buffer.from(a)
   const bb = Buffer.from(b)
