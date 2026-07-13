@@ -27,7 +27,11 @@ const PRICING: Record<string, { in: number; out: number; cached: number }> = {
   'claude-sonnet': { in: 3, out: 15, cached: 0.3 },
   'claude-haiku-4-5-20251001': { in: 1, out: 5, cached: 0.1 },
   'claude-haiku': { in: 1, out: 5, cached: 0.1 },
+  'claude-fable-5': { in: 10, out: 50, cached: 1.0 },
   // OpenAI
+  'gpt-5.6-sol': { in: 5, out: 30, cached: 0.5 },
+  'gpt-5.6-terra': { in: 2.5, out: 15, cached: 0.25 },
+  'gpt-5.6-luna': { in: 1, out: 6, cached: 0.1 },
   'gpt-5.5': { in: 5, out: 30, cached: 0.5 },
   'gpt-5.4-mini': { in: 0.75, out: 4.5, cached: 0.075 },
   'gpt-5.4': { in: 2.5, out: 15, cached: 0.25 },
@@ -52,6 +56,9 @@ const PRICING: Record<string, { in: number; out: number; cached: number }> = {
   'gemini-2.5-flash': { in: 0.3, out: 2.5, cached: 0.03 },
   'gemini-2.5-pro': { in: 1.25, out: 10, cached: 0.125 },
   'gemini': { in: 0.3, out: 2.5, cached: 0.03 }, // generic Gemini fallback (2.5-flash class)
+  // xAI (Grok — OpenAI-compatible). Longer prefix precedes the generic.
+  'grok-4.5': { in: 2, out: 6, cached: 0.5 },
+  'grok': { in: 2, out: 6, cached: 0.5 },
 };
 
 // Conservative fallback (round up so we never under-count an unknown model).

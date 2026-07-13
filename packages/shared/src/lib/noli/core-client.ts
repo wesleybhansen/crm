@@ -89,11 +89,11 @@ export async function findPrimaryOrgIdForUser(
  * (org_provider_keys, pgcrypto). Used for over-allowance fall-through — once the
  * pooled allowance is exhausted, CRM runs on the customer's own key. The
  * decryption secret is passed to the RPC and never stored. Fail-safe to {}. */
-export type ByoProvider = 'openai' | 'anthropic' | 'google';
+export type ByoProvider = 'openai' | 'anthropic' | 'google' | 'xai';
 
 export async function resolveOrgByoKeys(
   noliOrgId: string,
-): Promise<{ openai?: string; anthropic?: string; google?: string }> {
+): Promise<{ openai?: string; anthropic?: string; google?: string; xai?: string }> {
   const secret = process.env.BYO_KEY_ENCRYPTION_SECRET;
   if (!noliOrgId || !secret) return {};
   try {
@@ -107,11 +107,13 @@ export async function resolveOrgByoKeys(
       openai_api_key: string | null;
       anthropic_api_key: string | null;
       google_api_key: string | null;
+      xai_api_key: string | null;
     };
-    const out: { openai?: string; anthropic?: string; google?: string } = {};
+    const out: { openai?: string; anthropic?: string; google?: string; xai?: string } = {};
     if (row.openai_api_key) out.openai = row.openai_api_key;
     if (row.anthropic_api_key) out.anthropic = row.anthropic_api_key;
     if (row.google_api_key) out.google = row.google_api_key;
+    if (row.xai_api_key) out.xai = row.xai_api_key;
     return out;
   } catch {
     return {};

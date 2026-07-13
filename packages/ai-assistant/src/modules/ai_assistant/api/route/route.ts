@@ -64,6 +64,14 @@ function createRoutingModel(providerId: ChatProviderId, configuredModel?: string
         modelWithProvider,
       }
     }
+    case 'xai': {
+      // xAI/Grok is OpenAI-compatible — OpenAI factory pointed at xAI's base URL.
+      const xai = createOpenAI({ apiKey, baseURL: 'https://api.x.ai/v1' })
+      return {
+        model: xai(modelId) as unknown as Parameters<typeof generateObject>[0]['model'],
+        modelWithProvider,
+      }
+    }
     default:
       throw new Error(`Unknown provider: ${providerId}`)
   }

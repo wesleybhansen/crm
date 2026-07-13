@@ -1,6 +1,6 @@
 type EnvLookup = Record<string, string | undefined>
 
-export type OpenCodeProviderId = 'anthropic' | 'openai' | 'google'
+export type OpenCodeProviderId = 'anthropic' | 'openai' | 'google' | 'xai'
 
 export type OpenCodeProviderDefinition = {
   id: OpenCodeProviderId
@@ -9,7 +9,7 @@ export type OpenCodeProviderDefinition = {
   defaultModel: string
 }
 
-export const OPEN_CODE_PROVIDER_IDS = ['anthropic', 'openai', 'google'] as const
+export const OPEN_CODE_PROVIDER_IDS = ['anthropic', 'openai', 'google', 'xai'] as const
 
 export const OPEN_CODE_PROVIDERS: Record<OpenCodeProviderId, OpenCodeProviderDefinition> = {
   anthropic: {
@@ -29,6 +29,12 @@ export const OPEN_CODE_PROVIDERS: Record<OpenCodeProviderId, OpenCodeProviderDef
     name: 'Google',
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
     defaultModel: 'gemini-3.5-flash',
+  },
+  xai: {
+    id: 'xai',
+    name: 'xAI (Grok)',
+    envKeys: ['XAI_API_KEY'],
+    defaultModel: 'grok-4.5',
   },
 }
 

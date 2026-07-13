@@ -56,6 +56,14 @@ export const CHAT_PROVIDERS: Record<ChatProviderId, ChatProviderInfo> = {
       { id: OPEN_CODE_PROVIDERS.google.defaultModel, name: 'Gemini 3.5 Flash', contextWindow: 1048576 },
     ],
   },
+  xai: {
+    name: OPEN_CODE_PROVIDERS.xai.name,
+    envKeyRequired: OPEN_CODE_PROVIDERS.xai.envKeys[0],
+    defaultModel: OPEN_CODE_PROVIDERS.xai.defaultModel,
+    models: [
+      { id: OPEN_CODE_PROVIDERS.xai.defaultModel, name: 'Grok 4.5', contextWindow: 256000 },
+    ],
+  },
 }
 
 export const DEFAULT_CHAT_CONFIG: Omit<ChatProviderConfig, 'updatedAt'> = {

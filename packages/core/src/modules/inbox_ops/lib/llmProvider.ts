@@ -48,6 +48,11 @@ export async function createStructuredModel(
       const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
       return asAiModel(createGoogleGenerativeAI({ apiKey })(modelId))
     }
+    case 'xai': {
+      // xAI/Grok is OpenAI-compatible — use the OpenAI factory with xAI's base URL.
+      const { createOpenAI } = await import('@ai-sdk/openai')
+      return asAiModel(createOpenAI({ apiKey, baseURL: 'https://api.x.ai/v1' })(modelId))
+    }
     default:
       throw new Error(`Unsupported provider: ${providerId}`)
   }

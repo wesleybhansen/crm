@@ -13,7 +13,7 @@ interface CallAIOptions {
    * `result.byoKey` when metering. See landing_pages/api/ai/generate/route.ts.
    */
   apiKey?: string
-  provider?: 'google' | 'anthropic' | 'openai'
+  provider?: 'google' | 'anthropic' | 'openai' | 'xai'
 }
 
 export interface AIUsage {
@@ -25,7 +25,7 @@ export interface CallAIResult {
   text: string
   model: string
   usage: AIUsage
-  provider: 'google' | 'anthropic' | 'openai'
+  provider: 'google' | 'anthropic' | 'openai' | 'xai'
 }
 
 /*
@@ -52,6 +52,7 @@ export async function callAIWithUsage(
   if (byoKey && byoProvider) {
     if (byoProvider === 'google') return callGemini(systemPrompt, userPrompt, byoKey, { jsonMode, maxTokens })
     if (byoProvider === 'anthropic') return callAnthropic(systemPrompt, userPrompt, byoKey, { maxTokens })
+    if (byoProvider === 'xai') return callXai(systemPrompt, userPrompt, byoKey, { jsonMode, maxTokens })
     return callOpenAI(systemPrompt, userPrompt, byoKey, { jsonMode, maxTokens })
   }
 
@@ -266,6 +267,57 @@ async function callOpenAI(
     text: data.choices?.[0]?.message?.content || '',
     model,
     provider: 'openai',
+    usage: {
+      tokensIn: data?.usage?.prompt_tokens || 0,
+      tokensOut: data?.usage?.completion_tokens || 0,
+    },
+  }
+}
+
+async function callXai(
+  systemPrompt: string,
+  userPrompt: string,
+  apiKey: string,
+  opts: { jsonMode: boolean; maxTokens: number }
+): Promise<CallAIResult> {
+  // xAI/Grok is OpenAI-compatible — same chat/completions shape, different host.
+  const model = process.env.XAI_MODEL || 'grok-4.5'
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 90000)
+
+  const body: Record<string, unknown> = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.7,
+    max_tokens: opts.maxTokens,
+  }
+  if (opts.jsonMode) {
+    body.response_format = { type: 'json_object' }
+  }
+
+  const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  })
+  clearTimeout(timeout)
+
+  const data = await response.json()
+  if (data.error) {
+    throw new Error(data.error.message || 'xAI error')
+  }
+
+  return {
+    text: data.choices?.[0]?.message?.content || '',
+    model,
+    provider: 'xai',
     usage: {
       tokensIn: data?.usage?.prompt_tokens || 0,
       tokensOut: data?.usage?.completion_tokens || 0,
