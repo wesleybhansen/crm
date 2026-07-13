@@ -3,13 +3,20 @@ export const metadata = { path: '/crm-events/ai', POST: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { meterCustomersAi } from '@/lib/usage/meter'
 
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-  const aiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  // P-3 allowance gate + BYOK fall-through, then meter — so this reachable
+  // endpoint runs on the platform Gemini key ONLY within allowance and every
+  // call is billed like the other CRM AI routes.
+  const gate = await checkCustomersAiAllowance(auth, 'google')
+  if (!gate.allowed) return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+  const aiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
   if (!aiKey) return NextResponse.json({ ok: false, error: 'AI not configured' }, { status: 400 })
 
   try {
@@ -57,6 +64,13 @@ Return ONLY valid JSON:
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 3000, temperature: 0.8 } }) },
     )
     const aiData = await res.json()
+    void meterCustomersAi(auth, {
+      model: 'gemini-2.5-flash',
+      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      feature: 'crm-events-ai-copy',
+      byoKey: !!gate.byoApiKey,
+    })
     let text = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
     text = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
     const jsonMatch = text.match(/\{[\s\S]*\}/)
