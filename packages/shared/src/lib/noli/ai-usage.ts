@@ -61,10 +61,41 @@ const FALLBACK_RATE = { in: 5, out: 15, cached: 0.5 };
 // provider cost. Canonical formula: credits = round((costCents / 100) * 250000).
 const DISPLAY_TOKENS_PER_DOLLAR = 250_000;
 
+// Catalog price overlay — the admin-managed noli-core model_catalog is the
+// source of truth; overlay it onto the local PRICING (fallback), cached ~60s. So
+// a price edited in the admin Models page takes effect in CRM billing in ~a minute.
+type Rate = { in: number; out: number; cached: number };
+let catalogRates: Record<string, Rate> | null = null;
+let catalogAt = 0;
+async function refreshCatalog(): Promise<void> {
+  if (catalogRates && Date.now() - catalogAt < 60_000) return;
+  try {
+    const supabase = getNoliCoreClient();
+    const { data, error } = await supabase
+      .from('model_catalog')
+      .select('model_id, in_per_m, out_per_m, cached_in_per_m, enabled')
+      .eq('enabled', true);
+    if (error || !data?.length) return;
+    const map: Record<string, Rate> = {};
+    for (const r of data as Array<Record<string, unknown>>) {
+      const id = String(r.model_id ?? '').toLowerCase();
+      if (!id) continue;
+      const inRate = Number(r.in_per_m);
+      map[id] = { in: inRate, out: Number(r.out_per_m), cached: r.cached_in_per_m != null ? Number(r.cached_in_per_m) : inRate };
+    }
+    catalogRates = map;
+    catalogAt = Date.now();
+  } catch {
+    /* keep fallback */
+  }
+}
+
 function rateForModel(model: string): { in: number; out: number; cached: number } {
   const m = (model || '').toLowerCase().trim();
+  const table = catalogRates ?? PRICING;
+  if (catalogRates && catalogRates[m]) return catalogRates[m];
   let best: { key: string; rate: { in: number; out: number; cached: number } } | null = null;
-  for (const [key, rate] of Object.entries(PRICING)) {
+  for (const [key, rate] of Object.entries(table)) {
     if (m.startsWith(key) && (!best || key.length > best.key.length)) best = { key, rate };
   }
   return best?.rate ?? FALLBACK_RATE;
@@ -122,6 +153,7 @@ export async function logCrmAiUsage(args: {
     }
     if (!userId) return; // ai_usage.user_id is NOT NULL — skip if unresolved
 
+    await refreshCatalog();
     const rate = rateForModel(args.model);
     const tokensIn = Math.max(0, args.tokensIn || 0);
     const tokensOut = Math.max(0, args.tokensOut || 0);
