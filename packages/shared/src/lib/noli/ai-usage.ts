@@ -79,8 +79,10 @@ async function refreshCatalog(): Promise<void> {
     const map: Record<string, Rate> = {};
     for (const r of data as Array<Record<string, unknown>>) {
       const id = String(r.model_id ?? '').toLowerCase();
-      if (!id) continue;
       const inRate = Number(r.in_per_m);
+      // Skip zero/blank/negative-priced rows (would bill $0 = unmetered). They
+      // fall through to the static PRICING via the merge below.
+      if (!id || !(inRate > 0)) continue;
       map[id] = { in: inRate, out: Number(r.out_per_m), cached: r.cached_in_per_m != null ? Number(r.cached_in_per_m) : inRate };
     }
     catalogRates = map;
@@ -90,15 +92,20 @@ async function refreshCatalog(): Promise<void> {
   }
 }
 
-function rateForModel(model: string): { in: number; out: number; cached: number } {
-  const m = (model || '').toLowerCase().trim();
-  const table = catalogRates ?? PRICING;
-  if (catalogRates && catalogRates[m]) return catalogRates[m];
+function matchRate(table: Record<string, { in: number; out: number; cached: number }>, m: string): { in: number; out: number; cached: number } | null {
   let best: { key: string; rate: { in: number; out: number; cached: number } } | null = null;
   for (const [key, rate] of Object.entries(table)) {
     if (m.startsWith(key) && (!best || key.length > best.key.length)) best = { key, rate };
   }
-  return best?.rate ?? FALLBACK_RATE;
+  return best?.rate ?? null;
+}
+
+function rateForModel(model: string): { in: number; out: number; cached: number } {
+  const m = (model || '').toLowerCase().trim();
+  // MERGE: catalog overlay first, then the static PRICING, then FALLBACK — so a
+  // model missing/disabled/zero-priced in the catalog keeps its correct static
+  // rate instead of jumping to the flat fallback.
+  return (catalogRates && matchRate(catalogRates, m)) || matchRate(PRICING, m) || FALLBACK_RATE;
 }
 
 // Cache noli orgId → owner userId for the process lifetime.
