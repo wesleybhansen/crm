@@ -38,31 +38,38 @@ export async function POST(req: Request) {
   }
 
   const body = (await req.json().catch(() => ({}))) as {
-    clerkUserId?: unknown
+    noliUserId?: unknown
     to?: unknown
     subject?: unknown
     html?: unknown
     text?: unknown
     contactId?: unknown
   }
-  const clerkUserId = typeof body.clerkUserId === 'string' ? body.clerkUserId.trim() : ''
+  // The COS passes the noli-core user id (same id space as provision-key), NOT
+  // the Clerk id — resolve noli -> clerk -> Mercato auth exactly like provision-key.
+  const noliUserId = typeof body.noliUserId === 'string' ? body.noliUserId.trim() : ''
   const to = typeof body.to === 'string' ? body.to.trim() : ''
   const subject = typeof body.subject === 'string' ? body.subject : ''
   const html = typeof body.html === 'string' ? body.html : ''
   const text = typeof body.text === 'string' ? body.text : undefined
   const contactId = typeof body.contactId === 'string' ? body.contactId : undefined
-  if (!clerkUserId || !to || !subject || (!html && !text)) {
+  if (!noliUserId || !to || !subject || (!html && !text)) {
     return NextResponse.json(
-      { ok: false, error: 'clerkUserId, to, subject, and (html or text) are required' },
+      { ok: false, error: 'noliUserId, to, subject, and (html or text) are required' },
       { status: 400 },
     )
   }
 
   try {
-    // clerk id -> Mercato auth context (org/tenant/user), gated on the 'crm'
-    // entitlement — returns null if the user has no CRM access.
+    // noli-core user id -> Clerk id -> Mercato auth context (org/tenant/user),
+    // gated on the 'crm' entitlement. Returns null if no CRM access.
+    const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
+    const noliUser = await findNoliUserById(noliUserId)
+    if (!noliUser?.clerk_user_id) {
+      return NextResponse.json({ ok: false, error: 'noli user not found' }, { status: 404 })
+    }
     const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
-    const auth = await resolveClerkUserToAuthContext(clerkUserId)
+    const auth = await resolveClerkUserToAuthContext(noliUser.clerk_user_id)
     if (!auth?.userId || !auth?.orgId || !auth?.tenantId) {
       return NextResponse.json({ ok: false, error: 'user has no CRM access' }, { status: 403 })
     }

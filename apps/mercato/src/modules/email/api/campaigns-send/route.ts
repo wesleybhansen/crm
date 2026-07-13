@@ -28,6 +28,15 @@ export async function POST(req: Request) {
     if (!campaign) return NextResponse.json({ ok: false, error: 'Blast not found' }, { status: 404 })
     if (campaign.status !== 'draft') return NextResponse.json({ ok: false, error: 'Blast already sent' }, { status: 400 })
 
+    // Atomically claim the campaign before doing any sending. A double-click or a
+    // retried request would otherwise both pass the status check above and send the
+    // whole blast twice. The conditional UPDATE flips draft -> sending in one shot;
+    // if a concurrent request already claimed it, this affects 0 rows and we bail.
+    const claimed = await knex('email_campaigns')
+      .where({ id: blastId, organization_id: auth.orgId, status: 'draft' })
+      .update({ status: 'sending' })
+    if (!claimed) return NextResponse.json({ ok: false, error: 'Blast is already sending or sent' }, { status: 409 })
+
     // Get recipients — filter by segment if set
     let query = knex('customer_entities')
       .where('organization_id', auth.orgId)
@@ -79,12 +88,13 @@ export async function POST(req: Request) {
     }
 
     if (recipients.length === 0) {
+      // Nothing to send — release the claim so the user can fix the audience and retry.
+      await knex('email_campaigns').where('id', blastId).update({ status: 'draft' })
       return NextResponse.json({ ok: false, error: 'No recipients match your audience criteria' }, { status: 400 })
     }
 
-    // Mark campaign as sending
+    // Already claimed as 'sending' above; just record the initial stats total.
     await knex('email_campaigns').where('id', blastId).update({
-      status: 'sending',
       stats: JSON.stringify({ total: recipients.length, sent: 0, delivered: 0, opened: 0, clicked: 0 }),
     })
 
