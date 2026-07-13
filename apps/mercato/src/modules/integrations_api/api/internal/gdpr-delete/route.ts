@@ -105,7 +105,10 @@ export async function POST(req: Request) {
   // Hub-authoritative sole-member status (from noli-core, which sees every org
   // member regardless of which apps they opened). Whole-org purge needs BOTH
   // this and the local check.
-  const hubSoleMember = body.soleMember !== false
+  // Fail-safe: a MISSING flag defaults to NOT sole member, so an ambiguous /
+  // malformed call can never wipe a shared org's data. The hub orchestrator
+  // always sends this explicitly.
+  const hubSoleMember = body.soleMember === true
   const noliUserId = typeof body.noliUserId === 'string' ? body.noliUserId.trim() : ''
   let email = typeof body.email === 'string' ? body.email.trim() : ''
   if (!noliUserId) {
