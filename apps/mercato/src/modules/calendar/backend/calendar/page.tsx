@@ -78,6 +78,8 @@ type BookingPage = {
   zoom_link: string | null
   auto_confirm: boolean
   reminder_config: any
+  availability: any
+  timezone: string | null
   created_at: string
 }
 
@@ -93,6 +95,61 @@ const TABS: { id: TabId; label: string; icon: typeof CalendarDays }[] = [
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'upcoming', label: 'Upcoming', icon: List },
   { id: 'booking-pages', label: 'Booking Pages', icon: Link2 },
+]
+
+// ---------- booking-page availability config ----------
+const WEEKDAYS: { key: string; label: string }[] = [
+  { key: 'sun', label: 'Sunday' },
+  { key: 'mon', label: 'Monday' },
+  { key: 'tue', label: 'Tuesday' },
+  { key: 'wed', label: 'Wednesday' },
+  { key: 'thu', label: 'Thursday' },
+  { key: 'fri', label: 'Friday' },
+  { key: 'sat', label: 'Saturday' },
+]
+
+const DEFAULT_AVAILABILITY: Record<string, { start: string; end: string }> = {
+  mon: { start: '09:00', end: '17:00' },
+  tue: { start: '09:00', end: '17:00' },
+  wed: { start: '09:00', end: '17:00' },
+  thu: { start: '09:00', end: '17:00' },
+  fri: { start: '09:00', end: '17:00' },
+}
+
+const DEFAULT_TIMEZONE = 'America/Los_Angeles'
+
+// Common IANA timezones. The API validates any value, so this is just a
+// convenient shortlist for the selector.
+const TIMEZONE_OPTIONS: string[] = [
+  'America/Los_Angeles',
+  'America/Denver',
+  'America/Phoenix',
+  'America/Chicago',
+  'America/New_York',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+  'America/Toronto',
+  'America/Mexico_City',
+  'America/Sao_Paulo',
+  'Europe/London',
+  'Europe/Dublin',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Madrid',
+  'Europe/Rome',
+  'Europe/Amsterdam',
+  'Europe/Warsaw',
+  'Europe/Athens',
+  'Europe/Moscow',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Hong_Kong',
+  'Asia/Shanghai',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+  'Pacific/Auckland',
+  'UTC',
 ]
 
 // ---------- stat tiles (house palette, matches the CRM dashboard) ----------
@@ -494,6 +551,8 @@ export default function CalendarPage() {
     meeting_type: 'google_meet' as string, auto_confirm: false,
     meeting_location: '', zoom_link: '',
     reminder_24h: true, reminder_1h: false,
+    availability: { ...DEFAULT_AVAILABILITY } as Record<string, { start: string; end: string }>,
+    timezone: DEFAULT_TIMEZONE,
   })
   const [savingPage, setSavingPage] = useState(false)
   const [deletingPageId, setDeletingPageId] = useState<string | null>(null)
@@ -976,6 +1035,8 @@ export default function CalendarPage() {
           ...(pageForm.reminder_24h ? [{ type: 'reminder', sendBefore: '24h' }] : []),
           ...(pageForm.reminder_1h ? [{ type: 'reminder', sendBefore: '1h' }] : []),
         ],
+        availability: pageForm.availability,
+        timezone: pageForm.timezone,
       }
       if (isEdit) {
         payload.id = editingPageId
@@ -1023,12 +1084,20 @@ export default function CalendarPage() {
       meeting_type: 'google_meet', auto_confirm: false,
       meeting_location: '', zoom_link: '',
       reminder_24h: true, reminder_1h: false,
+      availability: { ...DEFAULT_AVAILABILITY },
+      timezone: DEFAULT_TIMEZONE,
     })
   }
 
   function startEditPage(page: BookingPage) {
     setEditingPageId(page.id)
     const reminders = typeof page.reminder_config === 'string' ? JSON.parse(page.reminder_config) : (page.reminder_config || [])
+    let availability: Record<string, { start: string; end: string }> = {}
+    try {
+      const parsed = typeof page.availability === 'string' ? JSON.parse(page.availability) : (page.availability || {})
+      if (parsed && typeof parsed === 'object') availability = parsed
+    } catch { /* fall back to empty */ }
+    if (Object.keys(availability).length === 0) availability = { ...DEFAULT_AVAILABILITY }
     setPageForm({
       title: page.title,
       slug: page.slug,
@@ -1040,6 +1109,8 @@ export default function CalendarPage() {
       zoom_link: page.zoom_link || '',
       reminder_24h: reminders.some((r: any) => r.sendBefore === '24h'),
       reminder_1h: reminders.some((r: any) => r.sendBefore === '1h'),
+      availability,
+      timezone: page.timezone || DEFAULT_TIMEZONE,
     })
     setShowNewPageForm(false)
   }
@@ -2599,6 +2670,8 @@ function BookingPageForm({
     title: string; slug: string; description: string; duration_minutes: number
     meeting_type: string; auto_confirm: boolean; meeting_location: string; zoom_link: string
     reminder_24h: boolean; reminder_1h: boolean
+    availability: Record<string, { start: string; end: string }>
+    timezone: string
   }
   onChange: (form: any) => void
   saving: boolean
@@ -2712,6 +2785,74 @@ function BookingPageForm({
           />
         </div>
       )}
+
+      <div className="space-y-2 border-t pt-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Working Hours</p>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Days and times contacts can book. Times use the timezone below.
+        </p>
+        <div className="space-y-1.5">
+          {WEEKDAYS.map(({ key, label }) => {
+            const range = form.availability[key]
+            const enabled = !!range
+            return (
+              <div key={key} className="flex items-center gap-3">
+                <label className="flex w-28 shrink-0 items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => {
+                      const nextAvail = { ...form.availability }
+                      if (e.target.checked) {
+                        nextAvail[key] = range || { start: '09:00', end: '17:00' }
+                      } else {
+                        delete nextAvail[key]
+                      }
+                      update({ availability: nextAvail })
+                    }}
+                    className="size-4 rounded border"
+                  />
+                  <span className="text-xs font-medium">{label}</span>
+                </label>
+                {enabled ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="time"
+                      value={range.start}
+                      onChange={(e) => update({ availability: { ...form.availability, [key]: { ...range, start: e.target.value } } })}
+                      className="h-8 rounded-lg border bg-transparent px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <input
+                      type="time"
+                      value={range.end}
+                      onChange={(e) => update({ availability: { ...form.availability, [key]: { ...range, end: e.target.value } } })}
+                      className="h-8 rounded-lg border bg-transparent px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground/60">Unavailable</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Timezone</label>
+        <select
+          value={form.timezone}
+          onChange={(event) => update({ timezone: event.target.value })}
+          className="h-9 w-full rounded-lg border bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          {(TIMEZONE_OPTIONS.includes(form.timezone) ? TIMEZONE_OPTIONS : [form.timezone, ...TIMEZONE_OPTIONS]).map(tz => (
+            <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+          ))}
+        </select>
+      </div>
 
       <div className="space-y-2">
         <p className="text-xs font-medium text-muted-foreground">Attendee Reminders</p>

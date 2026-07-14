@@ -109,6 +109,7 @@ function generateBookingPageHtml(
   const meetingDisplay = getMeetingTypeDisplay(meetingType, page.meeting_location)
   const autoConfirm = page.auto_confirm !== false
   const durationMinutes = page.duration_minutes || 30
+  const pageTimezone = page.timezone || null
 
   // Build day availability JSON for client-side date filtering
   const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
@@ -822,6 +823,15 @@ function generateBookingPageHtml(
             ${meetingDisplay.detail ? `<div class="meta-sublabel">${escapeHtml(meetingDisplay.detail)}</div>` : ''}
           </div>
         </div>
+        ${pageTimezone ? `
+        <div class="meta-item">
+          <div class="meta-icon duration">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
+          <div>
+            <div class="meta-label">Times shown in ${escapeHtml(pageTimezone)}</div>
+          </div>
+        </div>` : ''}
       </div>
 
       ${page.description ? `<div class="meeting-description">${escapeHtml(page.description)}</div>` : ''}
@@ -927,6 +937,7 @@ function generateBookingPageHtml(
     var bookingPageId = '${page.id}';
     var submitUrl = '${submitUrl}';
     var dayAvailability = ${JSON.stringify(dayAvailability)};
+    var pageTimezone = ${page.timezone ? `'${String(page.timezone).replace(/'/g, "")}'` : 'null'};
     var durationMinutes = ${durationMinutes};
     var autoConfirm = ${autoConfirm ? 'true' : 'false'};
     var meetingTypeLabel = '${meetingDisplay.label}';
@@ -939,6 +950,41 @@ function generateBookingPageHtml(
     var selectedDate = null;
     var selectedTime = null;
     var todayStr = new Date().toISOString().split('T')[0];
+
+    // ─── Timezone helpers ───
+    // When the booking page has an owner timezone, times shown to the booker are
+    // the host's wall-clock times, and the ISO instant submitted is anchored to
+    // that timezone (accounting for DST). When pageTimezone is null we fall back
+    // to the visitor's local timezone (original behavior).
+    function tzOffsetMs(instant, timeZone) {
+      try {
+        var dtf = new Intl.DateTimeFormat('en-US', {
+          timeZone: timeZone, hour12: false,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+        var parts = dtf.formatToParts(instant);
+        var map = {};
+        parts.forEach(function(p) { map[p.type] = p.value; });
+        var hour = map.hour === '24' ? 0 : Number(map.hour);
+        var asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), hour, Number(map.minute), Number(map.second));
+        return asUTC - instant.getTime();
+      } catch (e) { return 0; }
+    }
+
+    // Returns an absolute Date for a wall-clock date+time in the page timezone
+    // (or the visitor's local timezone when pageTimezone is null).
+    function slotToDate(dateStr, timeStr) {
+      if (!pageTimezone) return new Date(dateStr + 'T' + timeStr + ':00');
+      var dp = dateStr.split('-').map(Number);
+      var tp = timeStr.split(':').map(Number);
+      var utcGuess = Date.UTC(dp[0], dp[1] - 1, dp[2], tp[0], tp[1], 0);
+      var offset = tzOffsetMs(new Date(utcGuess), pageTimezone);
+      var instant = utcGuess - offset;
+      // Refine once to settle DST boundary cases.
+      var offset2 = tzOffsetMs(new Date(instant), pageTimezone);
+      return new Date(utcGuess - offset2);
+    }
 
     // ─── Init ───
     document.addEventListener('DOMContentLoaded', function() {
@@ -1074,11 +1120,11 @@ function generateBookingPageHtml(
 
       // Filter out booked/busy slots
       var availableSlots = slots.filter(function(slot) {
-        var slotStart = new Date(selectedDate + 'T' + slot + ':00');
+        var slotStart = slotToDate(selectedDate, slot);
         var slotEnd = new Date(slotStart.getTime() + durationMinutes * 60000);
 
-        // Filter past times for today
-        if (selectedDate === todayStr && slotStart <= new Date()) return false;
+        // Filter out any slot that has already started (absolute-time comparison)
+        if (slotStart <= new Date()) return false;
 
         return !bookedSlots.some(function(bs) {
           var bsStart = new Date(bs.start);
@@ -1153,7 +1199,10 @@ function generateBookingPageHtml(
       btn.disabled = true;
       btn.textContent = 'Booking...';
 
-      var startTime = selectedDate + 'T' + selectedTime + ':00';
+      // Anchor to the host timezone when set, else the visitor's local time.
+      var startTime = pageTimezone
+        ? slotToDate(selectedDate, selectedTime).toISOString()
+        : selectedDate + 'T' + selectedTime + ':00';
 
       try {
         var res = await fetch(submitUrl, {
