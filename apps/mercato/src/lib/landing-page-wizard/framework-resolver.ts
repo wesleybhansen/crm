@@ -53,6 +53,12 @@ function selectFramework(
   // Events → BAB (aspirational transformation)
   if (pageType === 'promote-event') return 'BAB'
 
+  // Case studies → BAB (before → after is the case-study arc)
+  if (pageType === 'case-study') return 'BAB'
+
+  // Comparison pages → AIDA (attention, then a decision-oriented feature showcase)
+  if (pageType === 'comparison') return 'AIDA'
+
   // High-ticket services → PASTOR (story + transformation + detailed offer)
   if (pageType === 'sell-service') {
     if (subType === 'coaching' || subType === 'consulting') return 'PASTOR'

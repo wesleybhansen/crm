@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Better Choice</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --white: #FFFFFF;
+            --off: #F8F9FB;
+            --gray-100: #EDEFF3;
+            --gray-200: #DFE2E8;
+            --gray-400: #9BA2AD;
+            --gray-600: #575E69;
+            --ink: #10131A;
+            --accent: #0E7C6B;
+            --accent-soft: #E4F4F1;
+            --amber: #C2410C;
+            --font: 'Manrope', system-ui, sans-serif;
+            --container: 960px;
+            --radius: 16px;
+            --transition: 0.25s ease;
+        }
+        html { scroll-behavior: smooth; }
+        body { font-family: var(--font); color: var(--gray-600); background: var(--white); line-height: 1.65; font-size: 16px; -webkit-font-smoothing: antialiased; }
+        .container { max-width: var(--container); margin: 0 auto; padding: 0 28px; }
+        h1, h2, h3 { color: var(--ink); line-height: 1.2; letter-spacing: -0.01em; }
+
+        .nav { height: 72px; display: flex; align-items: center; justify-content: space-between; }
+        .nav-logo { font-size: 19px; font-weight: 800; color: var(--ink); }
+        .nav-cta { font-size: 14px; font-weight: 700; color: var(--white); background: var(--accent); text-decoration: none; padding: 10px 18px; border-radius: 10px; transition: all var(--transition); }
+        .nav-cta:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+        .hero { padding: 68px 0 44px; text-align: center; }
+        .hero-eyebrow { display: inline-block; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); background: var(--accent-soft); padding: 6px 14px; border-radius: 100px; margin-bottom: 22px; }
+        .hero h1 { font-size: clamp(32px, 5vw, 50px); font-weight: 800; max-width: 720px; margin: 0 auto 20px; }
+        .hero-sub { font-size: 18px; color: var(--gray-600); max-width: 540px; margin: 0 auto; }
+
+        /* TWO COLUMNS */
+        .cols { padding: 24px 0 56px; }
+        .cols-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; max-width: 860px; margin: 0 auto; }
+        .col { border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 32px 28px; }
+        .col.theirs { background: var(--off); }
+        .col.ours { border: 2px solid var(--accent); background: var(--white); box-shadow: 0 12px 40px -18px rgba(14,124,107,0.4); position: relative; }
+        .col-badge { position: absolute; top: -12px; left: 28px; background: var(--accent); color: var(--white); font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 100px; }
+        .col-name { font-size: 20px; font-weight: 800; color: var(--ink); margin-bottom: 4px; }
+        .col-tag { font-size: 14px; color: var(--gray-400); margin-bottom: 22px; }
+        .col ul { list-style: none; }
+        .col li { display: flex; gap: 12px; padding: 11px 0; font-size: 15px; border-top: 1px solid var(--gray-100); align-items: flex-start; }
+        .col li:first-of-type { border-top: none; }
+        .col li svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 2px; }
+        .col.ours li svg { color: var(--accent); }
+        .col.theirs li svg { color: var(--amber); }
+
+        /* BAND */
+        .band { padding: 52px 0; background: var(--accent); text-align: center; }
+        .band h2 { font-size: clamp(24px, 3.4vw, 34px); font-weight: 800; color: var(--white); max-width: 640px; margin: 0 auto 14px; }
+        .band p { font-size: 17px; color: rgba(255,255,255,0.88); max-width: 520px; margin: 0 auto; }
+
+        /* FAIR */
+        .fair { padding: 52px 0; text-align: center; }
+        .fair-inner { max-width: 600px; margin: 0 auto; }
+        .fair h2 { font-size: clamp(22px, 3vw, 28px); font-weight: 700; margin-bottom: 12px; }
+        .fair p { font-size: 16.5px; }
+
+        /* CTA */
+        .cta { padding: 60px 0 80px; text-align: center; }
+        .cta h2 { font-size: clamp(26px, 3.6vw, 38px); font-weight: 800; margin-bottom: 12px; }
+        .cta-sub { font-size: 17px; color: var(--gray-600); margin-bottom: 32px; }
+        .cta-form { display: flex; gap: 10px; max-width: 460px; margin: 0 auto; }
+        .cta-form input { flex: 1; padding: 15px 18px; border: 1px solid var(--gray-200); border-radius: 12px; font-family: var(--font); font-size: 15px; color: var(--ink); outline: none; transition: border-color var(--transition); }
+        .cta-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+        .cta-form button { padding: 15px 28px; background: var(--accent); color: var(--white); border: none; border-radius: 12px; font-family: var(--font); font-size: 15px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: all var(--transition); }
+        .cta-form button:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        .cta-note { font-size: 13px; color: var(--gray-400); margin-top: 16px; }
+        .cta-success { display: none; }
+        .cta-success.visible { display: block; font-size: 17px; color: var(--accent); font-weight: 700; }
+
+        .footer { padding: 28px 0; border-top: 1px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--gray-400); }
+        .footer-links { display: flex; gap: 20px; }
+        .footer-links a { color: var(--gray-400); text-decoration: none; }
+        .footer-links a:hover { color: var(--gray-600); }
+
+        .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.6s ease, transform 0.6s ease; }
+        .reveal.visible { opacity: 1; transform: translateY(0); }
+        .reveal-d1 { transition-delay: 0.1s; }
+
+        @media (max-width: 768px) {
+            .cols-grid { grid-template-columns: 1fr; }
+            .cta-form { flex-direction: column; }
+            .footer { flex-direction: column; gap: 12px; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Nav -->
+    <nav class="container nav">
+        <span class="nav-logo">BrandName</span>
+        <a href="#cta" class="nav-cta">See why teams switch</a>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="container">
+            <span class="hero-eyebrow reveal">Why switch</span>
+            <h1 class="reveal reveal-d1">The [category] built for [your audience] — without the headaches</h1>
+            <p class="hero-sub reveal reveal-d1">If you've outgrown the old way of doing this, here's a side-by-side look at the difference.</p>
+        </div>
+    </section>
+
+    <!-- Two columns -->
+    <section class="cols">
+        <div class="container">
+            <div class="cols-grid">
+                <div class="col theirs reveal">
+                    <div class="col-name">The old way</div>
+                    <div class="col-tag">What you're dealing with today</div>
+                    <ul>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>[A real frustration with the alternative]</span></li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>[Another downside buyers care about]</span></li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>[The cost or hassle they'd rather avoid]</span></li>
+                    </ul>
+                </div>
+                <div class="col ours reveal reveal-d1">
+                    <span class="col-badge">Recommended</span>
+                    <div class="col-name">BrandName</div>
+                    <div class="col-tag">The better way to do this</div>
+                    <ul>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>[Your genuine advantage on that same point]</span></li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>[The thing customers love most]</span></li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>[The proof point or guarantee]</span></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Band -->
+    <section class="band">
+        <div class="container reveal">
+            <h2>Switching is easier than staying</h2>
+            <p>Explain how simple it is to move over — migration help, no lock-in, and someone to guide you the whole way.</p>
+        </div>
+    </section>
+
+    <!-- Fair -->
+    <section class="fair">
+        <div class="container">
+            <div class="fair-inner reveal">
+                <h2>Where the alternative still makes sense</h2>
+                <p>Name the case where the other option is genuinely the right fit. Honesty here earns the trust that closes everyone else.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta" id="cta">
+        <div class="container">
+            <div class="reveal">
+                <h2>Make the switch today</h2>
+                <p class="cta-sub">Enter your email and we'll show you how simple it is.</p>
+            </div>
+            <div class="reveal reveal-d1" id="ctaWrap">
+                <form class="cta-form" onsubmit="handleSubmit(event)">
+                    <input type="email" placeholder="Your work email" required>
+                    <button type="submit">Get started</button>
+                </form>
+                <p class="cta-note">No lock-in. Cancel anytime.</p>
+                <div class="cta-success" id="ctaSuccess">Thanks — we'll be in touch shortly.</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="container footer">
+        <p>&copy; 2025 BrandName. All rights reserved.</p>
+        <div class="footer-links">
+            <a href="#">Privacy</a>
+            <a href="#">Terms</a>
+        </div>
+    </footer>
+
+    <script>
+        function handleSubmit(e) {
+            e.preventDefault();
+            document.querySelector('#ctaWrap form').style.display = 'none';
+            document.querySelector('#ctaWrap .cta-note').style.display = 'none';
+            document.getElementById('ctaSuccess').classList.add('visible');
+        }
+        var observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) { entry.target.classList.add('visible'); observer.unobserve(entry.target); }
+            });
+        }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+        document.querySelectorAll('.reveal').forEach(function(el) { observer.observe(el); });
+    </script>
+</body>
+</html>

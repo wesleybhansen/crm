@@ -54,7 +54,7 @@ export function parseTemplate(templateId: string): TemplateSchema {
 
   // Format template name
   const parts = templateId.split('-')
-  const twoWordCategories = ['lead-magnet', 'info-product', 'physical-product', 'thank-you']
+  const twoWordCategories = ['lead-magnet', 'info-product', 'physical-product', 'thank-you', 'case-study']
   const prefix = parts.slice(0, 2).join('-')
   let category: string
   if (twoWordCategories.includes(prefix)) {

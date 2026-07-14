@@ -1,13 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { Mail, Phone, Download, Package, Briefcase, CalendarDays, PenLine, ArrowUpCircle, ArrowDownCircle, CreditCard } from 'lucide-react'
+import { Mail, Phone, Download, Package, Briefcase, CalendarDays, PenLine, ArrowUpCircle, ArrowDownCircle, CreditCard, TrendingUp, GitCompare } from 'lucide-react'
 import { PAGE_TYPES } from '../constants'
 import type { WizardActions } from '../hooks/useWizardState'
 import type { PageType } from '../types'
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  Mail, Phone, Download, Package, Briefcase, CalendarDays, PenLine, ArrowUpCircle, ArrowDownCircle, CreditCard,
+  Mail, Phone, Download, Package, Briefcase, CalendarDays, PenLine, ArrowUpCircle, ArrowDownCircle, CreditCard, TrendingUp, GitCompare,
 }
 
 interface Props {

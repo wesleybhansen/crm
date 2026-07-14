@@ -5,6 +5,8 @@ export type PageType =
   | 'sell-physical'
   | 'sell-service'
   | 'promote-event'
+  | 'case-study'
+  | 'comparison'
   | 'general'
   | 'upsell'
   | 'downsell'
@@ -41,6 +43,12 @@ export type SubType =
   | 'workshop'
   | 'conference'
   | 'meetup'
+  // Case Study
+  | 'client-result'
+  | 'transformation-story'
+  // Comparison
+  | 'vs-competitor'
+  | 'vs-old-way'
   // General
   | 'general'
   // Upsell

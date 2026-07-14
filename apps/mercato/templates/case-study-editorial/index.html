@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Case Study</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --paper: #FBFAF7;
+            --white: #FFFFFF;
+            --line: #E7E3DA;
+            --gray-400: #A6A093;
+            --gray-600: #6B6558;
+            --ink: #201D16;
+            --accent: #9A3B2E;
+            --accent-soft: #F3E7E4;
+            --font-serif: 'Fraunces', Georgia, serif;
+            --font-sans: 'Inter', system-ui, sans-serif;
+            --container: 720px;
+            --container-wide: 940px;
+            --radius: 6px;
+            --transition: 0.25s ease;
+        }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: var(--font-sans); color: var(--gray-600); background: var(--paper);
+            line-height: 1.75; font-size: 17px; -webkit-font-smoothing: antialiased;
+        }
+        .container { max-width: var(--container); margin: 0 auto; padding: 0 28px; }
+        .container--wide { max-width: var(--container-wide); }
+        h1, h2, h3 { font-family: var(--font-serif); color: var(--ink); line-height: 1.2; font-weight: 500; }
+
+        /* NAV */
+        .nav { max-width: var(--container-wide); margin: 0 auto; padding: 0 28px; height: 72px; display: flex; align-items: center; justify-content: space-between; }
+        .nav-logo { font-family: var(--font-serif); font-size: 20px; font-weight: 600; color: var(--ink); }
+        .nav-links { display: flex; gap: 26px; font-size: 14px; }
+        .nav-links a { color: var(--gray-600); text-decoration: none; transition: color var(--transition); }
+        .nav-links a:hover { color: var(--ink); }
+
+        /* HERO */
+        .hero { padding: 72px 0 44px; text-align: center; border-bottom: 1px solid var(--line); }
+        .hero-eyebrow { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--accent); margin-bottom: 24px; }
+        .hero h1 { font-size: clamp(34px, 5.5vw, 56px); font-weight: 500; letter-spacing: -0.01em; max-width: 640px; margin: 0 auto 22px; line-height: 1.15; }
+        .hero h1 em { font-style: italic; color: var(--accent); }
+        .hero-sub { font-family: var(--font-serif); font-style: italic; font-size: 20px; color: var(--gray-600); max-width: 520px; margin: 0 auto; }
+
+        /* PULL METRICS */
+        .pull { padding: 40px 0; border-bottom: 1px solid var(--line); }
+        .pull-grid { display: flex; justify-content: center; gap: 64px; flex-wrap: wrap; }
+        .pull-item { text-align: center; }
+        .pull-value { font-family: var(--font-serif); font-size: 40px; font-weight: 600; color: var(--accent); line-height: 1; }
+        .pull-label { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--gray-400); margin-top: 8px; }
+
+        /* ARTICLE */
+        .article { padding: 56px 0; }
+        .article h2 { font-size: clamp(24px, 3.4vw, 32px); font-weight: 500; margin: 40px 0 16px; }
+        .article h2:first-child { margin-top: 0; }
+        .article p { font-size: 18px; margin-bottom: 22px; }
+        .article .lead { font-size: 21px; color: var(--ink); font-family: var(--font-serif); line-height: 1.6; }
+        .article blockquote {
+            border-left: 3px solid var(--accent); padding: 4px 0 4px 24px; margin: 32px 0;
+            font-family: var(--font-serif); font-style: italic; font-size: 22px; color: var(--ink); line-height: 1.5;
+        }
+
+        /* CTA */
+        .cta { padding: 64px 0 80px; text-align: center; background: var(--white); border-top: 1px solid var(--line); }
+        .cta h2 { font-size: clamp(26px, 3.6vw, 38px); font-weight: 500; margin-bottom: 12px; }
+        .cta h2 em { font-style: italic; color: var(--accent); }
+        .cta-sub { font-size: 18px; color: var(--gray-600); margin-bottom: 32px; max-width: 440px; margin-left: auto; margin-right: auto; }
+        .cta-form { display: flex; gap: 10px; max-width: 440px; margin: 0 auto; }
+        .cta-form input {
+            flex: 1; padding: 15px 18px; background: var(--paper); border: 1px solid var(--line);
+            border-radius: var(--radius); font-family: var(--font-sans); font-size: 15px; color: var(--ink); outline: none; transition: border-color var(--transition);
+        }
+        .cta-form input:focus { border-color: var(--accent); }
+        .cta-form button {
+            padding: 15px 26px; background: var(--accent); color: var(--white); border: none;
+            border-radius: var(--radius); font-family: var(--font-sans); font-size: 15px; font-weight: 600;
+            cursor: pointer; white-space: nowrap; transition: all var(--transition);
+        }
+        .cta-form button:hover { filter: brightness(1.1); transform: translateY(-1px); }
+        .cta-success { display: none; }
+        .cta-success.visible { display: block; font-size: 18px; color: var(--accent); font-family: var(--font-serif); font-style: italic; }
+
+        /* FOOTER */
+        .footer { max-width: var(--container-wide); margin: 0 auto; padding: 26px 28px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--gray-400); border-top: 1px solid var(--line); }
+        .footer-links { display: flex; gap: 20px; }
+        .footer-links a { color: var(--gray-400); text-decoration: none; }
+        .footer-links a:hover { color: var(--gray-600); }
+
+        .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.6s ease, transform 0.6s ease; }
+        .reveal.visible { opacity: 1; transform: translateY(0); }
+        .reveal-d1 { transition-delay: 0.08s; }
+        .reveal-d2 { transition-delay: 0.16s; }
+
+        @media (max-width: 640px) {
+            .nav-links { display: none; }
+            .pull-grid { gap: 36px; }
+            .cta-form { flex-direction: column; }
+            .footer { flex-direction: column; gap: 12px; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Nav -->
+    <nav class="nav">
+        <span class="nav-logo">BrandName</span>
+        <div class="nav-links">
+            <a href="#story">The story</a>
+            <a href="#cta">Work with us</a>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="container">
+            <p class="hero-eyebrow reveal">Client Story</p>
+            <h1 class="reveal reveal-d1">The turnaround that took CompanyName from <em>stuck</em> to scaling</h1>
+            <p class="hero-sub reveal reveal-d2">A short, honest account of what changed — and the numbers that followed.</p>
+        </div>
+    </section>
+
+    <!-- Pull metrics -->
+    <section class="pull">
+        <div class="container container--wide">
+            <div class="pull-grid">
+                <div class="pull-item reveal">
+                    <div class="pull-value">[X%]</div>
+                    <div class="pull-label">Growth in [metric]</div>
+                </div>
+                <div class="pull-item reveal reveal-d1">
+                    <div class="pull-value">[X]</div>
+                    <div class="pull-label">Weeks to see it</div>
+                </div>
+                <div class="pull-item reveal reveal-d2">
+                    <div class="pull-value">[X×]</div>
+                    <div class="pull-label">Return on spend</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Article -->
+    <article class="article" id="story">
+        <div class="container">
+            <p class="lead reveal">Open with the client and the moment they came to you. What was at stake? Set the scene in two or three sentences so the reader is pulled into the story.</p>
+
+            <h2 class="reveal">Where things stood</h2>
+            <p class="reveal">Describe the "before" in plain terms. What wasn't working, and what had they already tried? Be specific and honest — credibility comes from detail, not hype.</p>
+
+            <h2 class="reveal">The turning point</h2>
+            <p class="reveal">Walk through what you did and why. Frame it as a decision, not a checklist: the insight that reframed the problem and the work that followed from it.</p>
+
+            <blockquote class="reveal">"[REAL CLIENT QUOTE HERE — a single vivid line about the change.]"</blockquote>
+
+            <h2 class="reveal">Where they are now</h2>
+            <p class="reveal">Close the loop on the numbers above. What does day-to-day look like now, and why did the result last? End on the reader: this could be your story too.</p>
+        </div>
+    </article>
+
+    <!-- CTA -->
+    <section class="cta" id="cta">
+        <div class="container">
+            <div class="reveal">
+                <h2>Ready to write <em>your</em> story?</h2>
+                <p class="cta-sub">Leave your email and we'll show you what the first 90 days could look like.</p>
+            </div>
+            <div class="reveal reveal-d1" id="ctaWrap">
+                <form class="cta-form" onsubmit="handleSubmit(event)">
+                    <input type="email" placeholder="Your email address" required>
+                    <button type="submit">Start the conversation</button>
+                </form>
+                <div class="cta-success" id="ctaSuccess">Thank you — we'll reach out shortly.</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>&copy; 2025 BrandName. All rights reserved.</p>
+        <div class="footer-links">
+            <a href="#">Privacy</a>
+            <a href="#">Terms</a>
+        </div>
+    </footer>
+
+    <script>
+        function handleSubmit(e) {
+            e.preventDefault();
+            document.querySelector('#ctaWrap form').style.display = 'none';
+            document.getElementById('ctaSuccess').classList.add('visible');
+        }
+        var observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) { entry.target.classList.add('visible'); observer.unobserve(entry.target); }
+            });
+        }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+        document.querySelectorAll('.reveal').forEach(function(el) { observer.observe(el); });
+    </script>
+</body>
+</html>

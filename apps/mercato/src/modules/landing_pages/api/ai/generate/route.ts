@@ -172,7 +172,7 @@ ${bodyContent}`
 }
 
 function detectCategory(templateId: string): string {
-  const twoWord = ['lead-magnet', 'info-product', 'physical-product', 'thank-you']
+  const twoWord = ['lead-magnet', 'info-product', 'physical-product', 'thank-you', 'case-study']
   const parts = templateId.split('-')
   const prefix = parts.slice(0, 2).join('-')
   return twoWord.includes(prefix) ? prefix : parts[0]
@@ -248,6 +248,27 @@ function getCategoryGuidance(category: string): { pageType: string; rules: strin
 - Include curriculum/module breakdown if the template has sections for it.
 - Stats: students enrolled, completion rate, average rating.
 - Address the "will this work for me?" objection.`,
+    },
+    'case-study': {
+      pageType: 'case study / results story',
+      rules: `- The page goal is to prove results with a specific, credible client story, then convert readers who want the same outcome.
+- Structure the narrative as: the client's situation before, the problem/stakes, what was done, and the measurable result after.
+- Lead the headline with the concrete outcome ("How [Client] cut X by 40% in 60 days"), not the service name.
+- Feature/section content should be the story beats and the specific numbers (before/after metrics, timeline, ROI).
+- Use a real, named-style testimonial quote tied to the result. Never fabricate metrics — keep placeholders obviously editable ("[47%]") so the user fills in true figures.
+- CTA buttons should offer the same result: "Get These Results", "Book a Strategy Call", "See If This Fits Your Business".
+- Stats should be the case-study's own numbers, not generic vanity metrics.`,
+    },
+    'comparison': {
+      pageType: 'comparison / vs / alternative',
+      rules: `- The page goal is to win a visitor who is actively comparing options and get them to choose you.
+- Include a clear side-by-side comparison: your offering vs the alternative(s), across the criteria buyers actually care about.
+- Headlines should frame the choice honestly and confidently ("The [Category] built for [audience] — without [the alternative's biggest downside]").
+- Be fair about the competitor's genuine strengths; credibility comes from not trashing them. Win on the axes where you're genuinely better.
+- Feature sections map to comparison rows: price, ease, support, results, who it's for.
+- CTA buttons: "Make the Switch", "See Why Teams Choose Us", "Start Free".
+- Address switching friction directly: migration help, no lock-in, guarantees.
+- Never invent competitor facts or pricing — keep any competitor-specific claims as editable placeholders.`,
     },
   }
 

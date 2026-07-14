@@ -58,6 +58,18 @@ export const PAGE_TYPES: PageTypeOption[] = [
     iconName: 'CalendarDays',
   },
   {
+    id: 'case-study',
+    label: 'Show a Case Study',
+    description: 'Prove results with a real client story, then convert',
+    iconName: 'TrendingUp',
+  },
+  {
+    id: 'comparison',
+    label: 'Compare vs. Alternatives',
+    description: 'Win buyers who are weighing you against another option',
+    iconName: 'GitCompare',
+  },
+  {
     id: 'general',
     label: 'Custom Page',
     description: 'Describe what you need and we\'ll build it',
@@ -132,6 +144,14 @@ export const SUB_TYPES: Record<PageType, SubTypeOption[]> = {
     { id: 'workshop', label: 'Workshop', description: 'Hands-on workshop or class' },
     { id: 'conference', label: 'Conference', description: 'Multi-session conference' },
     { id: 'meetup', label: 'Meetup', description: 'Casual meetup or networking event' },
+  ],
+  'case-study': [
+    { id: 'client-result', label: 'Client Result', description: 'One client, a measurable before-and-after result' },
+    { id: 'transformation-story', label: 'Transformation Story', description: 'A narrative account of the turnaround' },
+  ],
+  comparison: [
+    { id: 'vs-competitor', label: 'vs. a Competitor', description: 'Side-by-side against a named alternative' },
+    { id: 'vs-old-way', label: 'vs. the Old Way', description: 'Your approach against how it is usually done' },
   ],
   general: [
     { id: 'general', label: 'General Page', description: 'Flexible page — you decide the structure' },
@@ -556,6 +576,41 @@ export const OFFER_QUESTIONS: Record<PageType, Record<string, OfferQuestion[]>> 
       SOCIAL_PROOF,
     ],
   },
+  'case-study': {
+    'client-result': [
+      ...SHARED_QUESTIONS,
+      { key: 'client', label: 'Who is the client (or client type)?', placeholder: 'e.g., A 3-agent real estate team in Austin', inputType: 'text', required: true },
+      { key: 'before', label: 'Where did they start? (the problem)', placeholder: 'What was stuck, slow, or costing them before you stepped in?', inputType: 'textarea', required: true },
+      { key: 'whatYouDid', label: 'What did you do?', placeholder: 'The approach or work in plain language', inputType: 'textarea', required: true },
+      { key: 'results', label: 'The measurable result', placeholder: 'e.g., 42% more qualified leads in 90 days. Use real numbers.', inputType: 'textarea', required: true },
+      SOCIAL_PROOF,
+    ],
+    'transformation-story': [
+      ...SHARED_QUESTIONS,
+      { key: 'client', label: 'Who is the client (or client type)?', placeholder: 'e.g., A solo bookkeeper doing everything by hand', inputType: 'text', required: true },
+      { key: 'before', label: 'The before: what was at stake?', placeholder: 'Set the scene. What had they already tried?', inputType: 'textarea', required: true },
+      { key: 'turningPoint', label: 'The turning point', placeholder: 'The decision or insight that changed things', inputType: 'textarea', required: true },
+      { key: 'results', label: 'Where are they now? (the numbers)', placeholder: 'The measurable outcome. Use real figures.', inputType: 'textarea', required: true },
+      SOCIAL_PROOF,
+    ],
+  },
+  comparison: {
+    'vs-competitor': [
+      ...SHARED_QUESTIONS,
+      { key: 'alternative', label: 'What are you being compared against?', placeholder: 'e.g., The name or type of competitor', inputType: 'text', required: true },
+      { key: 'criteria', label: 'The criteria buyers care about', placeholder: 'One per line: price, ease, support, results, who it is for', inputType: 'textarea', required: true },
+      { key: 'yourEdge', label: 'Where you genuinely win', placeholder: 'Be specific and honest about your real advantages', inputType: 'textarea', required: true },
+      { key: 'theirStrength', label: 'Where the alternative is genuinely strong', placeholder: 'Naming this builds credibility', inputType: 'textarea' },
+      SOCIAL_PROOF,
+    ],
+    'vs-old-way': [
+      ...SHARED_QUESTIONS,
+      { key: 'oldWay', label: 'How is this usually done today?', placeholder: 'e.g., Spreadsheets, manual follow-up, a patchwork of tools', inputType: 'textarea', required: true },
+      { key: 'criteria', label: 'The criteria buyers care about', placeholder: 'One per line: time, cost, reliability, headache', inputType: 'textarea', required: true },
+      { key: 'yourEdge', label: 'Why your way is better', placeholder: 'The concrete advantages of your approach', inputType: 'textarea', required: true },
+      SOCIAL_PROOF,
+    ],
+  },
   general: {
     general: [
       ...SHARED_QUESTIONS,
@@ -693,6 +748,22 @@ export const COPY_EXEMPLARS: Record<PageType, { headlines: string[]; ctas: strin
     ],
     ctas: ['Save my seat for June 24', 'Register free, 200 spots', 'Reserve my workshop spot'],
   },
+  'case-study': {
+    headlines: [
+      'How a 3-Agent Team Booked 42% More Listings in 90 Days',
+      'From 40 Unbilled Hours a Month to Books Closed by the 5th',
+      'The Rebuild That Took CedarWorks From Stalled to Sold Out',
+    ],
+    ctas: ['Get results like these', 'Book my strategy call', 'See if this fits my business'],
+  },
+  comparison: {
+    headlines: [
+      'The CRM Built for Solo Realtors, Without the 40-Tab Setup',
+      'Same Results, Half the Price, None of the Lock-In',
+      'Why Teams Switch From Spreadsheets and Never Look Back',
+    ],
+    ctas: ['Make the switch', 'See why teams choose us', 'Start free, no lock-in'],
+  },
   general: {
     headlines: [
       'Everything You Need to Switch Accountants in 14 Days',
@@ -757,6 +828,14 @@ export const DEFAULT_FORM_FIELDS: Record<PageType, { label: string; type: string
   'promote-event': [
     { label: 'Name', type: 'text', required: true },
     { label: 'Email', type: 'email', required: true },
+  ],
+  'case-study': [
+    { label: 'Name', type: 'text', required: true },
+    { label: 'Email', type: 'email', required: true },
+    { label: 'Company', type: 'text', required: false },
+  ],
+  comparison: [
+    { label: 'Work email', type: 'email', required: true },
   ],
   general: [
     { label: 'Name', type: 'text', required: true },

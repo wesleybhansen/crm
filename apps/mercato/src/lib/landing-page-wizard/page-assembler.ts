@@ -779,6 +779,8 @@ function buildHero(heroSection: GeneratedSection | undefined, options: AssembleO
     'sell-physical': 'Shop Now',
     'sell-service': 'Professional Service',
     'promote-event': 'Upcoming Event',
+    'case-study': 'Case Study',
+    'comparison': 'Compare Your Options',
     'general': '',
     'upsell': 'Special Offer',
     'downsell': 'Limited Offer',

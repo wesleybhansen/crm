@@ -71,7 +71,7 @@ export class TemplateEngine {
       let category: string
       let style: string
 
-      const twoWordCategories = ['lead-magnet', 'info-product', 'physical-product', 'thank-you']
+      const twoWordCategories = ['lead-magnet', 'info-product', 'physical-product', 'thank-you', 'case-study']
       const prefix = parts.slice(0, 2).join('-')
       if (twoWordCategories.includes(prefix)) {
         category = prefix
