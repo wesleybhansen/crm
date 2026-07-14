@@ -937,7 +937,7 @@ function generateBookingPageHtml(
     var bookingPageId = '${page.id}';
     var submitUrl = '${submitUrl}';
     var dayAvailability = ${JSON.stringify(dayAvailability)};
-    var pageTimezone = ${page.timezone ? `'${String(page.timezone).replace(/'/g, "")}'` : 'null'};
+    var pageTimezone = ${JSON.stringify(page.timezone || null)};
     var durationMinutes = ${durationMinutes};
     var autoConfirm = ${autoConfirm ? 'true' : 'false'};
     var meetingTypeLabel = '${meetingDisplay.label}';
