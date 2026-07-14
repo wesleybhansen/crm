@@ -949,7 +949,20 @@ function generateBookingPageHtml(
     var currentYear = new Date().getFullYear();
     var selectedDate = null;
     var selectedTime = null;
-    var todayStr = new Date().toISOString().split('T')[0];
+    // "Today" must be evaluated in the SAME frame as the calendar cells
+    // (formatDateStr builds local-calendar YYYY-MM-DD): the page timezone when
+    // one is set, otherwise the visitor's local date. Using a UTC date here made
+    // the past/today markers off-by-one near UTC midnight. en-CA yields YYYY-MM-DD.
+    var todayStr = (function() {
+      try {
+        var opts = { year: 'numeric', month: '2-digit', day: '2-digit' };
+        if (pageTimezone) opts.timeZone = pageTimezone;
+        return new Intl.DateTimeFormat('en-CA', opts).format(new Date());
+      } catch (e) {
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      }
+    })();
 
     // ─── Timezone helpers ───
     // When the booking page has an owner timezone, times shown to the booker are
