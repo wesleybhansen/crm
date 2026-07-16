@@ -99,6 +99,15 @@ export async function POST(req: Request) {
             const ownEmails = new Set<string>(
               ownConns.map((c: any) => (c.email_address || '').toLowerCase()).filter(Boolean),
             )
+            // Owner-skip for the COS email desk: the boss's own address sends
+            // COMMANDS to the desk (handled on the agent instance), never
+            // correspondence — don't draft replies to the boss.
+            const skipSenders: string[] = Array.isArray(settings.skip_senders)
+              ? settings.skip_senders
+              : (typeof settings.skip_senders === 'string' ? safeParse(settings.skip_senders) || [] : [])
+            for (const sk of skipSenders) {
+              if (typeof sk === 'string' && sk) ownEmails.add(sk.toLowerCase())
+            }
 
             for (const conn of csConns) {
               try {
