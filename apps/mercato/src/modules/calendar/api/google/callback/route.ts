@@ -4,7 +4,7 @@ import { cookies } from 'next/headers'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-export const metadata = { GET: { requireAuth: false } }
+export const metadata = { path: '/google/callback', GET: { requireAuth: false } }
 
 // Handle Google OAuth callback — exchange code for tokens using PKCE
 export async function GET(req: Request) {
