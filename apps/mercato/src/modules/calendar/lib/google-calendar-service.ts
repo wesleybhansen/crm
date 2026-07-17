@@ -43,6 +43,17 @@ async function refreshTokenIfNeeded(connection: CalendarConnection): Promise<str
   const tokens = await res.json()
 
   if (!tokens.access_token) {
+    // A revoked/expired grant never heals — deactivate the connection so every
+    // consumer stops retrying and the UI can show "reconnect" instead.
+    if (tokens.error === 'invalid_grant') {
+      const container = await createRequestContainer()
+      const knex = (container.resolve('em') as EntityManager).getKnex()
+      await knex('google_calendar_connections').where('id', connection.id).update({
+        is_active: false,
+        updated_at: new Date(),
+      })
+      throw new Error('Google Calendar access was revoked — reconnect Google in Settings')
+    }
     throw new Error('Token refresh failed')
   }
 

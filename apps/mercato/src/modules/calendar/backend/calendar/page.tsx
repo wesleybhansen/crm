@@ -361,10 +361,11 @@ const CALENDAR_STYLES = `
     background: transparent;
     padding: 0;
   }
+  /* NOTE: never force flex-basis/max-width on .rbc-row-segment — react-big-calendar
+     positions events via spacer segments whose inline flex-basis encodes the day
+     offset; overriding it shoves every event to the start of its week row. */
   .monday-cal .rbc-month-view .rbc-row-segment {
     padding: 0;
-    max-width: 14.28% !important;
-    flex-basis: 14.28% !important;
     overflow: hidden;
   }
   .monday-cal .rbc-month-view .rbc-event-content {

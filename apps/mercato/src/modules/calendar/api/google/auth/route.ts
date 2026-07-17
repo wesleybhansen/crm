@@ -1,6 +1,7 @@
 export const metadata = { GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { signOAuthState } from '@/lib/oauth-state'
 import crypto from 'crypto'
 
 const CALENDAR_SCOPES = [
@@ -54,7 +55,10 @@ export async function GET(req: Request) {
   const redirectUri = `${baseUrl}/api/google/callback`
 
   const from = url.searchParams.get('from') || 'settings'
-  const state = JSON.stringify({ userId: auth.sub, type, from })
+  // Signed + expiring state: the public callback trusts state.userId, so an
+  // unsigned value would let a logged-in user attach their Google account to
+  // another user's CRM identity (same attack class as the Stripe Connect state).
+  const state = signOAuthState({ userId: auth.sub, type, from })
 
   // Generate PKCE challenge
   const { verifier, challenge } = generatePKCE()

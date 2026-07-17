@@ -16,6 +16,8 @@ export default function SimpleSettingsPage() {
   const [savingKey, setSavingKey] = useState(false)
   const [emailConnections, setEmailConnections] = useState<Array<{ id: string; provider: string; email_address: string; is_primary: boolean }>>([])
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
+  const [gcalConnection, setGcalConnection] = useState<{ connected: boolean; email: string | null } | null>(null)
+  const [gcalDisconnecting, setGcalDisconnecting] = useState(false)
 
   // Email connection state (IMAP/SMTP)
   const [emailAddr, setEmailAddr] = useState('')
@@ -173,6 +175,9 @@ export default function SimpleSettingsPage() {
     // Load email connections
     fetch('/api/email/connections', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setEmailConnections(d.data || []) }).catch(() => {})
+    // Load Google Calendar connection status
+    fetch('/api/calendar/google/connection', { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.ok) setGcalConnection({ connected: d.connected, email: d.email }) }).catch(() => {})
     // Load ESP connection
     fetch('/api/email/esp', { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok && d.data) setEspConnection(d.data) }).catch(() => {})
@@ -961,11 +966,31 @@ export default function SimpleSettingsPage() {
             <div>
               <p className="text-sm font-medium">Google Calendar</p>
               <p className="text-xs text-muted-foreground">Two-way sync with your Google Calendar</p>
-              {emailConnections.some(c => c.provider === 'gmail') && (
-                <p className="text-xs text-[#047857] dark:text-[#34d399] mt-1 flex items-center gap-1"><Check className="size-3" /> Connected via Gmail</p>
+              {gcalConnection?.connected && (
+                <p className="text-xs text-[#047857] dark:text-[#34d399] mt-1 flex items-center gap-1">
+                  <Check className="size-3" /> Connected{gcalConnection.email ? ` as ${gcalConnection.email}` : ''}
+                </p>
               )}
             </div>
-            {!emailConnections.some(c => c.provider === 'gmail') && (
+            {gcalConnection?.connected ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={gcalDisconnecting}
+                onClick={async () => {
+                  setGcalDisconnecting(true)
+                  try {
+                    const res = await fetch('/api/calendar/google/connection', { method: 'DELETE', credentials: 'include' })
+                    const d = await res.json()
+                    if (d.ok) setGcalConnection({ connected: false, email: null })
+                  } catch {}
+                  setGcalDisconnecting(false)
+                }}
+              >
+                {gcalDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+              </Button>
+            ) : (
               <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/calendar/google/auth?type=both'}>
                 Connect
               </Button>

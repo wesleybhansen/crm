@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { verifyOAuthState } from '@/lib/oauth-state'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const metadata = { path: '/google/callback', GET: { requireAuth: false } }
@@ -21,18 +22,12 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${baseUrl}/backend/settings-simple?google_error=${error || 'no_code'}`)
   }
 
-  // Parse state
-  let userId: string | null = null
-  let connectType = 'both'
-  let fromPage = 'settings'
-  try {
-    const parsed = JSON.parse(stateRaw || '')
-    userId = parsed.userId
-    connectType = parsed.type || 'both'
-    fromPage = parsed.from || 'settings'
-  } catch {
-    userId = stateRaw
-  }
+  // Verify the signed state — this route is public, so state.userId can only be
+  // trusted because the auth route HMAC-signed it (15-min TTL).
+  const parsed = verifyOAuthState<{ userId?: string; type?: string; from?: string }>(stateRaw)
+  const userId: string | null = parsed?.userId || null
+  const connectType = parsed?.type || 'both'
+  const fromPage = parsed?.from || 'settings'
 
   const redirectBase = fromPage === 'onboarding' ? `${baseUrl}/backend/welcome` : `${baseUrl}/backend/settings-simple`
 

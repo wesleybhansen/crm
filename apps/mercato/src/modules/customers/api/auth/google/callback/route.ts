@@ -89,6 +89,12 @@ export async function GET(req: NextRequest) {
 
   const payload = decodeIdTokenPayload(idToken)
   if (!payload) return errorRedirect(base, 'Google sign-in failed')
+  // The token came from Google's token endpoint over TLS, but assert audience +
+  // issuer anyway — this route mints admin sessions.
+  const claims = payload as { aud?: string; iss?: string } & typeof payload
+  if (claims.aud !== clientId || !['https://accounts.google.com', 'accounts.google.com'].includes(claims.iss || '')) {
+    return errorRedirect(base, 'Google sign-in failed')
+  }
   if (payload.email_verified === false) return errorRedirect(base, 'Google account email is not verified')
 
   const email = payload.email.toLowerCase().trim()

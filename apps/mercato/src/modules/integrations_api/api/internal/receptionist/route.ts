@@ -224,6 +224,25 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, alreadyBooked: true, bookingId: dupe.id })
       }
 
+      // Best-effort Google re-check at book time: the availability pass may have
+      // timed out its Google fetch (2.5s race), so a Google event can exist on a
+      // slot we offered. A slow/failed check must not stall the live call.
+      if (page.owner_user_id) {
+        try {
+          const { getGoogleBusyTimes } = await import('@/modules/calendar/lib/google-calendar-service')
+          const gBusy = (await Promise.race([
+            getGoogleBusyTimes(page.owner_user_id, start, end),
+            new Promise((resolve) => setTimeout(() => resolve([]), 2000)),
+          ])) as Array<{ start: string; end: string }>
+          const conflict = (gBusy || []).some(
+            (bt) => new Date(bt.start) < end && new Date(bt.end) > start,
+          )
+          if (conflict) {
+            return NextResponse.json({ ok: false, error: 'slot no longer available', code: 'slot_taken' }, { status: 409 })
+          }
+        } catch { /* book on CRM data only */ }
+      }
+
       const id = crypto.randomUUID()
       const autoConfirm = page.auto_confirm !== false
       let slotTaken = false
