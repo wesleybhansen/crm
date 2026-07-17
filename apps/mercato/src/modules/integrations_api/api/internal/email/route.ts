@@ -137,9 +137,22 @@ export async function POST(req: Request) {
 
     if (op === 'messages') {
       const limit = Math.min(100, Math.max(1, Number(body.limit) || 40))
+      // Scope to THIS user's own personal mailboxes only — never another
+      // org-member's inbox, and never the dedicated customer-service inbox.
+      const myAddresses = (
+        await knex('email_connections')
+          .where('organization_id', auth.orgId)
+          .where('user_id', auth.userId)
+          .where('is_active', true)
+          .whereNull('purpose')
+          .pluck('email_address')
+      ) as string[]
+      if (myAddresses.length === 0) return NextResponse.json({ ok: true, data: [] })
       const rows = await knex('email_messages')
         .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
         .where('direction', 'inbound')
+        .whereIn('to_address', myAddresses)
         .orderBy('created_at', 'desc')
         .limit(limit)
         .select('id', 'from_address', 'subject', 'body_text', 'body_html', 'created_at')
