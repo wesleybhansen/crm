@@ -84,6 +84,7 @@ async function listDrafts(knex: Knex, auth: Auth, limit: number) {
       createdAt: row.created_at,
       flagged: meta.flagged === true,
       flagReasons: Array.isArray(meta.flagReasons) ? meta.flagReasons : [],
+      contactId: (payload.contactId as string) || null,
       contactName: (payload.toName as string) || (first?.name as string) || null,
       contactAddress: (payload.to as string) || (first?.email as string) || null,
       inboundPreview: stripHtml(inbound).slice(0, 400),
