@@ -61,6 +61,15 @@ export async function POST(req: Request) {
       const hybridThreshold = settings.hybrid_confidence_threshold != null
         ? Number(settings.hybrid_confidence_threshold)
         : DEFAULT_HYBRID_THRESHOLD
+      // ── Safety rails ── kill switch + hold window. When paused, auto-eligible
+      // replies fall back to the review queue. When a hold window is set, an
+      // auto-eligible reply is queued as a SCHEDULED draft (visible + cancelable
+      // in the inbox) instead of sent immediately; a separate scheduled-send
+      // pass fires it after the window unless the user intervenes.
+      const autoPaused = settings.auto_send_paused === true
+      const holdMinutes = Number.isFinite(Number(settings.auto_send_hold_minutes))
+        ? Math.max(0, Number(settings.auto_send_hold_minutes))
+        : 10
       // Per-source (per-mailbox) overrides, keyed by email_connection id. Falls
       // back to the global mode/threshold for sources without an entry.
       const sourceModes = parseSourceModes(settings.source_modes)
@@ -360,7 +369,31 @@ export async function POST(req: Request) {
               ? { flagged: true, flagReasons: flagOutcome?.reasons || [] }
               : undefined
 
-            if (shouldAutoSend) {
+            // Kill switch: when auto-sending is paused, an auto-eligible reply
+            // falls back to the manual review queue.
+            const holdThis = shouldAutoSend && !autoPaused && holdMinutes > 0
+            const sendNow = shouldAutoSend && !autoPaused && holdMinutes === 0
+
+            if (holdThis) {
+              // Queue it as a SCHEDULED draft (shows in the inbox with a
+              // "sending in N min" badge; the scheduled-send pass fires it after
+              // the window unless the user cancels/edits/approves first).
+              await createDraftProposal(knex, orgId, tenantId, {
+                displayName,
+                toEmail,
+                contactId,
+                conversationId: conv.id,
+                subject,
+                body: result.draft,
+                lastInboundPreview,
+                confidence: result.confidence,
+                status: 'pending',
+                flag: flagMeta,
+                autoSchedule: { scheduledSendAt: new Date(Date.now() + holdMinutes * 60000).toISOString() },
+              })
+              await markDrafted(knex, conv.id, orgId)
+              queued++
+            } else if (sendNow) {
               const sendResult = await sendReply(knex, orgId, tenantId, {
                 to: toEmail,
                 toName: displayName,
@@ -818,6 +851,9 @@ async function createDraftProposal(
     // Set when the message matched a flag scenario; stored in action metadata so
     // the queue can render the flag badge + reasons.
     flag?: { flagged: boolean; flagReasons: Array<{ key: string; label: string }> }
+    // Set when this is a held auto-send: the draft is pending but will be sent
+    // automatically at scheduledSendAt by the scheduled-send pass.
+    autoSchedule?: { scheduledSendAt: string }
   },
 ) {
   const now = new Date()
@@ -889,6 +925,8 @@ async function createDraftProposal(
       channel: 'email',
       flagged: d.flag?.flagged === true,
       flagReasons: d.flag?.flagReasons || [],
+      auto_scheduled: Boolean(d.autoSchedule),
+      scheduled_send_at: d.autoSchedule?.scheduledSendAt ?? null,
     }),
     created_at: now,
     updated_at: now,

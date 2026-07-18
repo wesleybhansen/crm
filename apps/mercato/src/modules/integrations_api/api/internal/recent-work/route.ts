@@ -63,7 +63,7 @@ export async function POST(req: Request) {
           .where('created_at', '>=', since)
           .orderBy('created_at', 'desc')
           .limit(10)
-          .select('id', 'to_address', 'subject', 'created_at')
+          .select('id', 'to_address', 'subject', 'body_text', 'created_at')
           .catch(() => []),
         knex('meeting_prep_briefs')
           .where('organization_id', orgId)
@@ -133,6 +133,7 @@ export async function POST(req: Request) {
         specialist: 'CRM',
         title: `Followed up with ${String(e.to_address ?? 'a contact')}`,
         detail: e.subject ? String(e.subject).slice(0, 100) : undefined,
+        body: e.body_text ? String(e.body_text).slice(0, 4000) : undefined,
         kind: 'done',
         minutes: 8,
       })

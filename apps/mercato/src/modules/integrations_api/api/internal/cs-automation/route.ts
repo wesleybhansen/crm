@@ -100,6 +100,9 @@ export async function POST(req: Request) {
           replyMode: row?.reply_mode && VALID_MODES.has(row.reply_mode) ? row.reply_mode : 'draft',
           hybridConfidenceThreshold: row?.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
           flagScenarios: scenarios,
+          autoSendPaused: row?.auto_send_paused === true,
+          holdMinutes: row?.auto_send_hold_minutes != null ? Number(row.auto_send_hold_minutes) : 10,
+          hourlyCap: row?.auto_send_hourly_cap != null ? Number(row.auto_send_hourly_cap) : 20,
         },
       })
     }
@@ -116,6 +119,9 @@ export async function POST(req: Request) {
       if (replyMode !== undefined) patch.reply_mode = replyMode
       if (threshold !== undefined) patch.hybrid_confidence_threshold = threshold
       if (scenarios !== undefined) patch.flag_scenarios = JSON.stringify(scenarios)
+      if (typeof body.autoSendPaused === 'boolean') patch.auto_send_paused = body.autoSendPaused
+      if (body.holdMinutes != null && Number.isFinite(Number(body.holdMinutes))) patch.auto_send_hold_minutes = Math.max(0, Math.min(120, Math.round(Number(body.holdMinutes))))
+      if (body.hourlyCap != null && Number.isFinite(Number(body.hourlyCap))) patch.auto_send_hourly_cap = Math.max(1, Math.min(500, Math.round(Number(body.hourlyCap))))
 
       if (existing) {
         await knex('customer_service_settings').where('id', existing.id).update(patch)
