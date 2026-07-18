@@ -46,16 +46,28 @@ export async function POST(req: Request) {
       let tripped = false
 
       try {
+        // ── Stale-claim recovery ── a row stuck in 'sending' (a crash between
+        // claim and finalize) is released back to pending so it isn't lost.
+        await knex('inbox_proposal_actions')
+          .where('organization_id', orgId)
+          .where('status', 'sending')
+          .where('updated_at', '<', new Date(now.getTime() - 10 * 60 * 1000))
+          .update({ status: 'pending', updated_at: now })
+
         // ── Circuit breaker ── if too many scheduled sends were cancelled
         // (dismissed) recently, pause the org and skip. It stays paused until
         // the user turns automatic sending back on.
         if (settings.auto_send_paused !== true) {
           const since = new Date(now.getTime() - BREAKER_WINDOW_HOURS * 3600 * 1000)
+          // Only count cancellations since the user last resumed, so hitting
+          // "Resume sending" isn't instantly re-tripped by the same dismissals.
+          const resumedAt = settings.auto_send_resumed_at ? new Date(settings.auto_send_resumed_at) : null
+          const windowStart = resumedAt && resumedAt.getTime() > since.getTime() ? resumedAt : since
           const cancelled = await knex('inbox_proposal_actions')
             .where('organization_id', orgId)
             .where('status', 'dismissed')
             .whereRaw("metadata->>'auto_scheduled' = 'true'")
-            .where('updated_at', '>=', since)
+            .where('updated_at', '>=', windowStart)
             .count('* as c')
             .first()
           if (Number(cancelled?.c || 0) >= BREAKER_CANCELS) {
@@ -102,15 +114,34 @@ export async function POST(req: Request) {
 
         for (const row of due) {
           if (remaining <= 0) break
+          const meta = safeParse(row.metadata)
           const payload = safeParse(row.payload)
           const to = payload.to as string | undefined
           const bodyText = (payload.body as string) || ''
           const subject = (payload.subject as string) || 'Re: your message'
           const contactId = (payload.contactId as string) || null
-          if (!to || !bodyText) continue
+
+          // Malformed row: unschedule it so it can't starve the queue forever.
+          if (!to || !bodyText) {
+            await knex('inbox_proposal_actions')
+              .where('id', row.action_id)
+              .update({ updated_at: now, metadata: JSON.stringify({ ...meta, auto_scheduled: false }) })
+            continue
+          }
+
+          // ── Atomic claim ── flip pending→sending in ONE guarded update. Only
+          // the winner (rowcount 1) proceeds to send. This is the single point of
+          // mutual exclusion against the Approve path, a Dismiss, and any
+          // overlapping cron run — so a held reply can never be double-sent or
+          // sent after the user cancelled it.
+          const claimed = await knex('inbox_proposal_actions')
+            .where('id', row.action_id)
+            .where('status', 'pending')
+            .whereRaw("metadata->>'auto_scheduled' = 'true'")
+            .update({ status: 'sending', updated_at: now })
+          if (!claimed) continue // someone else (approve/dismiss/other run) got it
 
           const sendResult = await sendReply(knex, orgId, tenantId, { to, subject, body: bodyText, contactId })
-          const meta = safeParse(row.metadata)
           if (sendResult.ok) {
             await knex('inbox_proposal_actions')
               .where('id', row.action_id)
@@ -124,12 +155,12 @@ export async function POST(req: Request) {
             sent++
             remaining--
           } else {
-            // Send failed (e.g. mailbox disconnected): leave it as a normal
-            // pending draft for manual handling — clear the schedule so it
+            // Send failed (e.g. mailbox disconnected): release the claim back to a
+            // plain pending draft for manual handling; clear the schedule so it
             // doesn't retry forever.
             await knex('inbox_proposal_actions')
               .where('id', row.action_id)
-              .update({ updated_at: now, metadata: JSON.stringify({ ...meta, auto_scheduled: false }) })
+              .update({ status: 'pending', updated_at: now, metadata: JSON.stringify({ ...meta, auto_scheduled: false }) })
             console.error('[customer-service.scheduled-send] send failed, unscheduled', { orgId, actionId: row.action_id, err: sendResult.error })
           }
         }

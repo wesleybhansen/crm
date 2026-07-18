@@ -67,9 +67,12 @@ export async function POST(req: Request) {
       // in the inbox) instead of sent immediately; a separate scheduled-send
       // pass fires it after the window unless the user intervenes.
       const autoPaused = settings.auto_send_paused === true
-      const holdMinutes = Number.isFinite(Number(settings.auto_send_hold_minutes))
-        ? Math.max(0, Number(settings.auto_send_hold_minutes))
-        : 10
+      // NULL must default to 10, not 0 — Number(null)===0 would silently disable
+      // the hold window and fire auto-sends immediately.
+      const holdMinutes =
+        settings.auto_send_hold_minutes == null || !Number.isFinite(Number(settings.auto_send_hold_minutes))
+          ? 10
+          : Math.max(0, Number(settings.auto_send_hold_minutes))
       // Per-source (per-mailbox) overrides, keyed by email_connection id. Falls
       // back to the global mode/threshold for sources without an entry.
       const sourceModes = parseSourceModes(settings.source_modes)
@@ -200,6 +203,22 @@ export async function POST(req: Request) {
         // Dedicated customer-service SMS number for this org (E.164-normalized).
         // When set, inbound SMS conversations addressed to it are drafted too.
         const csSmsNumber = normalizeE164(settings.cs_sms_number)
+
+        // Hourly cap for IMMEDIATE (no-hold) auto-sends. Held sends are capped in
+        // the scheduled-send pass; this bounds the hold=0 path so an auto-mode org
+        // can't blast customers in one run. Infinite when a hold applies.
+        let immediateBudget = Number.POSITIVE_INFINITY
+        if (holdMinutes === 0 && !autoPaused) {
+          const hcap = Number.isFinite(Number(settings.auto_send_hourly_cap)) ? Number(settings.auto_send_hourly_cap) : 20
+          const capRow = await knex('inbox_proposal_actions')
+            .where('organization_id', orgId)
+            .where('status', 'sent')
+            .whereRaw("metadata->>'auto_sent' = 'true'")
+            .where('executed_at', '>=', new Date(Date.now() - 3600 * 1000))
+            .count('* as c')
+            .first()
+          immediateBudget = Math.max(0, hcap - Number(capRow?.c || 0))
+        }
 
         for (const conv of conversations) {
           try {
@@ -372,7 +391,9 @@ export async function POST(req: Request) {
             // Kill switch: when auto-sending is paused, an auto-eligible reply
             // falls back to the manual review queue.
             const holdThis = shouldAutoSend && !autoPaused && holdMinutes > 0
-            const sendNow = shouldAutoSend && !autoPaused && holdMinutes === 0
+            // Immediate send only while the hourly budget lasts; once exhausted,
+            // fall through to the review queue rather than send uncapped.
+            const sendNow = shouldAutoSend && !autoPaused && holdMinutes === 0 && immediateBudget > 0
 
             if (holdThis) {
               // Queue it as a SCHEDULED draft (shows in the inbox with a
@@ -419,6 +440,7 @@ export async function POST(req: Request) {
                 })
                 await markDrafted(knex, conv.id, orgId)
                 autoSent++
+                immediateBudget--
               } else {
                 // Send failed (e.g. no connected mailbox): fall back to queuing
                 // the draft for manual review rather than dropping it.

@@ -119,7 +119,11 @@ export async function POST(req: Request) {
       if (replyMode !== undefined) patch.reply_mode = replyMode
       if (threshold !== undefined) patch.hybrid_confidence_threshold = threshold
       if (scenarios !== undefined) patch.flag_scenarios = JSON.stringify(scenarios)
-      if (typeof body.autoSendPaused === 'boolean') patch.auto_send_paused = body.autoSendPaused
+      if (typeof body.autoSendPaused === 'boolean') {
+        patch.auto_send_paused = body.autoSendPaused
+        // Resuming clears the circuit-breaker window so old cancellations don't re-trip it.
+        if (body.autoSendPaused === false) patch.auto_send_resumed_at = now
+      }
       if (body.holdMinutes != null && Number.isFinite(Number(body.holdMinutes))) patch.auto_send_hold_minutes = Math.max(0, Math.min(120, Math.round(Number(body.holdMinutes))))
       if (body.hourlyCap != null && Number.isFinite(Number(body.hourlyCap))) patch.auto_send_hourly_cap = Math.max(1, Math.min(500, Math.round(Number(body.hourlyCap))))
 

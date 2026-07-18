@@ -122,6 +122,13 @@ async function approveDraft(knex: Knex, auth: Auth, actionId: string, editedBody
     return { ok: false, error: 'Draft is missing a recipient or body', status: 400 }
   }
 
+  // Atomic claim: flip pending→sending in one guarded update so this manual
+  // approve can't race the auto scheduled-send pass (or a concurrent approve)
+  // and double-send. Only the winner (rowcount 1) proceeds.
+  const claimNow = new Date()
+  const claimed = await knex('inbox_proposal_actions').where('id', action.id).where('status', 'pending').update({ status: 'sending', updated_at: claimNow })
+  if (!claimed) return { ok: false, error: 'This reply was just handled.', status: 409 }
+
   let sendResult: { ok: boolean; error?: string; status?: number; sentVia?: string }
   if (channel === 'chat') {
     const conversationId = payload.conversationId as string | undefined
@@ -153,6 +160,8 @@ async function approveDraft(knex: Knex, auth: Auth, actionId: string, editedBody
   }
 
   if (!sendResult.ok) {
+    // Release the claim so the user can retry (or the schedule can re-fire).
+    await knex('inbox_proposal_actions').where('id', action.id).where('status', 'sending').update({ status: 'pending', updated_at: new Date() })
     const failMsg = channel === 'chat' ? 'Failed to deliver the chat reply' : channel === 'sms' ? 'Failed to send SMS' : 'Failed to send email'
     return { ok: false, error: sendResult.error || failMsg, status: sendResult.status || 502 }
   }
@@ -264,6 +273,24 @@ export async function POST(req: Request) {
       if (!actionId) return NextResponse.json({ ok: false, error: 'actionId required' }, { status: 400 })
       const r = await dismissDraft(knex, auth, actionId)
       return NextResponse.json({ ok: r.ok, ...(r.ok ? {} : { error: r.error }) }, { status: r.status || (r.ok ? 200 : 500) })
+    }
+    if (op === 'unschedule') {
+      // The user started editing a held auto-send — cancel the auto-send so their
+      // edit is never overtaken by the original body. Stays a normal pending draft.
+      const actionId = typeof body.actionId === 'string' ? body.actionId : ''
+      if (!actionId) return NextResponse.json({ ok: false, error: 'actionId required' }, { status: 400 })
+      const action = await knex('inbox_proposal_actions')
+        .where('id', actionId)
+        .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
+        .where('action_type', 'draft_reply')
+        .whereRaw(`metadata->>'feature_source' = ?`, ['customer_service'])
+        .first()
+      if (action && action.status === 'pending') {
+        const meta = safeParse(action.metadata)
+        await knex('inbox_proposal_actions').where('id', action.id).update({ metadata: JSON.stringify({ ...meta, auto_scheduled: false }), updated_at: new Date() })
+      }
+      return NextResponse.json({ ok: true })
     }
     return NextResponse.json({ ok: false, error: 'unknown op' }, { status: 400 })
   } catch (error) {
