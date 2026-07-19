@@ -148,7 +148,13 @@ async function fetchMessagesFromFolder(
 
   const toFetch = uids.slice(-maxMessages)
 
-  for await (const msg of config.fetch(toFetch, { envelope: true, source: true }, { uid: true })) {
+  // Fetch in small chunks: Gmail IMAP throws "Command failed" when asked for the
+  // full source of many messages at once, which aborts the entire sync. Skipping
+  // a failing chunk lets the rest still come through.
+  const CHUNK = 8
+  for (let ci = 0; ci < toFetch.length; ci += CHUNK) {
+   try {
+    for await (const msg of config.fetch(toFetch.slice(ci, ci + CHUNK), { envelope: true, source: true }, { uid: true })) {
     try {
       const parsed = await simpleParser(msg.source)
 
@@ -217,6 +223,10 @@ async function fetchMessagesFromFolder(
     } catch {
       // Skip malformed messages
     }
+    }
+   } catch {
+     // A chunk failed (e.g. Gmail "Command failed") — keep going with the rest.
+   }
   }
 
   return results

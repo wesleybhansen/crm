@@ -107,7 +107,8 @@ export async function POST(req: Request) {
     if (op === 'sync') {
       // Pull NEW incoming mail from the user's personal mailboxes into email_messages.
       const { syncPersonalInbox } = await import('@/modules/email/lib/personal-inbox-sync')
-      const days = Number(body.days) > 0 ? Math.min(60, Math.floor(Number(body.days))) : 14
+      // Wider default so a freshly-connected mailbox backfills a useful history.
+      const days = Number(body.days) > 0 ? Math.min(90, Math.floor(Number(body.days))) : 30
       const result = await syncPersonalInbox(knex, auth.orgId, auth.tenantId, auth.userId, days)
       return NextResponse.json({ ok: true, data: result })
     }
