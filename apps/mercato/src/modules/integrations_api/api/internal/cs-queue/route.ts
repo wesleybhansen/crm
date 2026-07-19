@@ -53,14 +53,14 @@ async function resolveAuth(noliUserId: string): Promise<Auth | null> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Knex = any
 
-async function listDrafts(knex: Knex, auth: Auth, limit: number) {
+async function listDrafts(knex: Knex, auth: Auth, limit: number, source: string) {
   const actions = await knex('inbox_proposal_actions as a')
     .join('inbox_proposals as p', 'p.id', 'a.proposal_id')
     .where('a.organization_id', auth.orgId)
     .where('a.tenant_id', auth.tenantId)
     .where('a.action_type', 'draft_reply')
     .where('a.status', 'pending')
-    .whereRaw(`a.metadata->>'feature_source' = ?`, ['customer_service'])
+    .whereRaw(`a.metadata->>'feature_source' = ?`, [source])
     .where('p.status', 'pending')
     .select('a.id as action_id', 'a.proposal_id', 'a.payload', 'a.created_at', 'a.metadata as action_metadata', 'p.summary', 'p.participants')
     .orderBy('a.created_at', 'desc')
@@ -102,7 +102,7 @@ async function approveDraft(knex: Knex, auth: Auth, actionId: string, editedBody
     .where('organization_id', auth.orgId)
     .where('tenant_id', auth.tenantId)
     .where('action_type', 'draft_reply')
-    .whereRaw(`metadata->>'feature_source' = ?`, ['customer_service'])
+    .whereRaw(`metadata->>'feature_source' in (?, ?)`, ['customer_service', 'inbox'])
     .first()
   if (!action) return { ok: false, error: 'Draft not found', status: 404 }
   if (action.status === 'sent') return { ok: false, error: 'Draft already sent', status: 409 }
@@ -224,7 +224,7 @@ async function dismissDraft(knex: Knex, auth: Auth, actionId: string) {
     .where('organization_id', auth.orgId)
     .where('tenant_id', auth.tenantId)
     .where('action_type', 'draft_reply')
-    .whereRaw(`metadata->>'feature_source' = ?`, ['customer_service'])
+    .whereRaw(`metadata->>'feature_source' in (?, ?)`, ['customer_service', 'inbox'])
     .first()
   if (!action) return { ok: false, error: 'Draft not found', status: 404 }
   if (action.status === 'sent') return { ok: false, error: 'Draft already sent', status: 409 }
@@ -258,7 +258,9 @@ export async function POST(req: Request) {
 
     if (op === 'list') {
       const limit = Math.min(100, Math.max(1, Number(body.limit) || 50))
-      const drafts = await listDrafts(knex, auth, limit)
+      // source: 'customer_service' (desk drafts, default) or 'inbox' (personal-inbox drafts).
+      const source = body.source === 'inbox' ? 'inbox' : 'customer_service'
+      const drafts = await listDrafts(knex, auth, limit, source)
       return NextResponse.json({ ok: true, data: drafts })
     }
     if (op === 'approve') {
@@ -284,7 +286,7 @@ export async function POST(req: Request) {
         .where('organization_id', auth.orgId)
         .where('tenant_id', auth.tenantId)
         .where('action_type', 'draft_reply')
-        .whereRaw(`metadata->>'feature_source' = ?`, ['customer_service'])
+        .whereRaw(`metadata->>'feature_source' in (?, ?)`, ['customer_service', 'inbox'])
         .first()
       if (action && action.status === 'pending') {
         const meta = safeParse(action.metadata)
