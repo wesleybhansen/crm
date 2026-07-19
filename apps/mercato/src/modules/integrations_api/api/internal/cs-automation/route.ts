@@ -90,8 +90,17 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex() as Knex
 
+    // source: 'customer_service' (desk, default) or 'inbox' (personal inbox). Both
+    // engines are configured independently — same reply_mode + flag_scenarios shape,
+    // different settings table. The auto-send circuit-breaker columns
+    // (auto_send_paused/hold/cap) exist ONLY on customer_service_settings, so they
+    // are read/written only for the desk; the personal inbox ignores them.
+    const source = body.source === 'inbox' ? 'inbox' : 'customer_service'
+    const table = source === 'inbox' ? 'inbox_ai_settings' : 'customer_service_settings'
+    const hasAutoSendCols = source === 'customer_service'
+
     if (op === 'get') {
-      const row = await knex('customer_service_settings').where('organization_id', auth.orgId).first()
+      const row = await knex(table).where('organization_id', auth.orgId).first()
       const scenarios = (() => {
         const raw = row?.flag_scenarios
         const parsed = typeof raw === 'string' ? JSON.parse(raw || 'null') : raw
@@ -103,9 +112,9 @@ export async function POST(req: Request) {
           replyMode: row?.reply_mode && VALID_MODES.has(row.reply_mode) ? row.reply_mode : 'draft',
           hybridConfidenceThreshold: row?.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
           flagScenarios: scenarios,
-          autoSendPaused: row?.auto_send_paused === true,
-          holdMinutes: row?.auto_send_hold_minutes != null ? Number(row.auto_send_hold_minutes) : 10,
-          hourlyCap: row?.auto_send_hourly_cap != null ? Number(row.auto_send_hourly_cap) : 20,
+          autoSendPaused: hasAutoSendCols ? row?.auto_send_paused === true : false,
+          holdMinutes: hasAutoSendCols && row?.auto_send_hold_minutes != null ? Number(row.auto_send_hold_minutes) : 10,
+          hourlyCap: hasAutoSendCols && row?.auto_send_hourly_cap != null ? Number(row.auto_send_hourly_cap) : 20,
         },
       })
     }
@@ -118,7 +127,7 @@ export async function POST(req: Request) {
       const rows = await knex('inbox_proposal_actions')
         .where('organization_id', auth.orgId)
         .where('tenant_id', auth.tenantId)
-        .whereRaw("metadata->>'feature_source' = 'customer_service'")
+        .whereRaw("metadata->>'feature_source' = ?", [source])
         .where('status', 'sent')
         .whereRaw("created_at >= now() - interval '56 days'")
         .select(knex.raw("to_char(date_trunc('week', created_at), 'YYYY-MM-DD') as wk"))
@@ -143,24 +152,27 @@ export async function POST(req: Request) {
         body.hybridConfidenceThreshold != null ? Math.min(1, Math.max(0, Number(body.hybridConfidenceThreshold))) : undefined
       const scenarios = body.flagScenarios !== undefined ? normalizeScenarios(body.flagScenarios) : undefined
 
-      const existing = await knex('customer_service_settings').where('organization_id', auth.orgId).first()
+      const existing = await knex(table).where('organization_id', auth.orgId).first()
       const now = new Date()
       const patch: Record<string, unknown> = { updated_at: now }
       if (replyMode !== undefined) patch.reply_mode = replyMode
       if (threshold !== undefined) patch.hybrid_confidence_threshold = threshold
       if (scenarios !== undefined) patch.flag_scenarios = JSON.stringify(scenarios)
-      if (typeof body.autoSendPaused === 'boolean') {
-        patch.auto_send_paused = body.autoSendPaused
-        // Resuming clears the circuit-breaker window so old cancellations don't re-trip it.
-        if (body.autoSendPaused === false) patch.auto_send_resumed_at = now
+      // Auto-send circuit-breaker columns exist only on the desk settings table.
+      if (hasAutoSendCols) {
+        if (typeof body.autoSendPaused === 'boolean') {
+          patch.auto_send_paused = body.autoSendPaused
+          // Resuming clears the circuit-breaker window so old cancellations don't re-trip it.
+          if (body.autoSendPaused === false) patch.auto_send_resumed_at = now
+        }
+        if (body.holdMinutes != null && Number.isFinite(Number(body.holdMinutes))) patch.auto_send_hold_minutes = Math.max(0, Math.min(120, Math.round(Number(body.holdMinutes))))
+        if (body.hourlyCap != null && Number.isFinite(Number(body.hourlyCap))) patch.auto_send_hourly_cap = Math.max(1, Math.min(500, Math.round(Number(body.hourlyCap))))
       }
-      if (body.holdMinutes != null && Number.isFinite(Number(body.holdMinutes))) patch.auto_send_hold_minutes = Math.max(0, Math.min(120, Math.round(Number(body.holdMinutes))))
-      if (body.hourlyCap != null && Number.isFinite(Number(body.hourlyCap))) patch.auto_send_hourly_cap = Math.max(1, Math.min(500, Math.round(Number(body.hourlyCap))))
 
       if (existing) {
-        await knex('customer_service_settings').where('id', existing.id).update(patch)
+        await knex(table).where('id', existing.id).update(patch)
       } else {
-        await knex('customer_service_settings').insert({
+        await knex(table).insert({
           id: crypto.randomUUID(),
           tenant_id: auth.tenantId,
           organization_id: auth.orgId,
