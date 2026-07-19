@@ -9,14 +9,9 @@ const CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
 ]
 
-// gmail.readonly is a RESTRICTED scope that requires CASA security assessment
-// to verify. Removed pending Tier 1 (sensitive-only) verification. Inbox read
-// will be re-added later via App Password / IMAP path or via restricted-scope
-// verification once we're ready for CASA. See SPEC: OAuth Tier 1 verification.
-const EMAIL_SCOPES = [
-  'https://www.googleapis.com/auth/gmail.send',
-]
-
+// Gmail mailbox scopes intentionally removed: mailboxes are app-password/IMAP
+// only (connected from the Noli dashboard), never Gmail OAuth. This Google OAuth
+// flow is Calendar-only.
 const USERINFO_SCOPE = 'https://www.googleapis.com/auth/userinfo.email'
 
 // Generate PKCE code verifier and challenge
@@ -40,16 +35,11 @@ export async function GET(req: Request) {
   if (!clientId) return NextResponse.json({ error: 'Google OAuth not configured' }, { status: 500 })
 
   const url = new URL(req.url)
-  const type = url.searchParams.get('type') || 'both'
+  const type = url.searchParams.get('type') || 'calendar'
 
-  let scopeList: string[] = [USERINFO_SCOPE]
-  if (type === 'calendar') {
-    scopeList = [...scopeList, ...CALENDAR_SCOPES]
-  } else if (type === 'email') {
-    scopeList = [...scopeList, ...EMAIL_SCOPES]
-  } else {
-    scopeList = [...scopeList, ...CALENDAR_SCOPES, ...EMAIL_SCOPES]
-  }
+  // Mailboxes connect via the Noli dashboard with an app password (IMAP) — never
+  // Gmail OAuth — so Google OAuth here is Calendar-only regardless of `type`.
+  const scopeList: string[] = [USERINFO_SCOPE, ...CALENDAR_SCOPES]
 
   const baseUrl = process.env.APP_URL || 'http://localhost:3000'
   const redirectUri = `${baseUrl}/api/google/callback`

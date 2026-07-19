@@ -991,7 +991,9 @@ export default function SimpleSettingsPage() {
                 {gcalDisconnecting ? 'Disconnecting…' : 'Disconnect'}
               </Button>
             ) : (
-              <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/calendar/google/auth?type=both'}>
+              {/* Calendar only — mailboxes connect via the Noli dashboard with an
+                  app password (IMAP), never Gmail OAuth. */}
+              <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/calendar/google/auth?type=calendar'}>
                 Connect
               </Button>
             )}

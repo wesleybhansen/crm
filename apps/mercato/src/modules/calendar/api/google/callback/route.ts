@@ -127,48 +127,10 @@ export async function GET(req: Request) {
       }
     }
 
-    // Store email connection for email or both
-    if (connectType === 'email' || connectType === 'both') {
-      const existingEmail = await knex('email_connections')
-        .where('user_id', userId)
-        .where('organization_id', crmUser.organization_id)
-        .where('provider', 'gmail')
-        .first()
-
-      // Check if user has any existing email connection (to set is_primary)
-      const anyExisting = await knex('email_connections')
-        .where('user_id', userId)
-        .where('organization_id', crmUser.organization_id)
-        .where('is_active', true)
-        .first()
-
-      if (existingEmail) {
-        await knex('email_connections').where('id', existingEmail.id).update({
-          email_address: userInfo.email,
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token || existingEmail.refresh_token,
-          token_expiry: expiry,
-          is_active: true,
-          updated_at: new Date(),
-        })
-      } else {
-        await knex('email_connections').insert({
-          id: require('crypto').randomUUID(),
-          tenant_id: crmUser.tenant_id,
-          organization_id: crmUser.organization_id,
-          user_id: userId,
-          provider: 'gmail',
-          email_address: userInfo.email,
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token || '',
-          token_expiry: expiry,
-          is_primary: !anyExisting, // Primary if no other connections
-          is_active: true,
-          created_at: new Date(),
-          updated_at: new Date(),
-        })
-      }
-    }
+    // Gmail-OAuth mailbox connections are intentionally NOT created here anymore:
+    // mailboxes connect via the Noli dashboard with an app password (IMAP). This
+    // callback now only links Google Calendar. (The `email`/`both` connectType is
+    // never requested — the auth route is Calendar-only.)
 
     const redirectParams = new URLSearchParams()
     if (connectType === 'calendar' || connectType === 'both') {

@@ -1,7 +1,7 @@
 import { cookies, headers } from 'next/headers'
 import Script from 'next/script'
 import { createElement, type ReactNode } from 'react'
-import { Users, Kanban, FileText, Mail, Inbox, LayoutDashboard, CreditCard, Settings, CalendarDays, BookOpen, GitBranch, GitMerge, Zap, ClipboardList, MessageCircle, Share2, CheckSquare, CalendarCheck, BarChart3, Wrench, Sparkles, Headphones, Star, Mic } from 'lucide-react'
+import { Users, Kanban, FileText, Mail, LayoutDashboard, CreditCard, Settings, CalendarDays, BookOpen, GitBranch, GitMerge, Zap, ClipboardList, MessageCircle, Share2, CheckSquare, CalendarCheck, BarChart3, Wrench, Sparkles, Headphones, Star, Mic } from 'lucide-react'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -539,7 +539,6 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
     '/backend/customers/deals/pipeline',
     '/backend/landing-pages',
     '/backend/landing-pages/create',
-    '/backend/inbox',
   ])
 
   // Build simplified groups
@@ -616,13 +615,8 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
         enabled: true,
         icon: createElement(Zap, { className: iconClass }),
       },
-      {
-        href: '/backend/inbox',
-        title: translate('nav.inbox', 'Inbox'),
-        defaultTitle: 'Inbox',
-        enabled: true,
-        icon: createElement(Inbox, { className: iconClass }),
-      },
+      // The unified personal inbox now lives in the Noli dashboard (app.noliai.com),
+      // not the CRM. The CRM keeps only the email ENGINE + the customer-service desk.
       {
         href: '/backend/customer-service',
         title: translate('nav.customerService', 'Customer Service'),
