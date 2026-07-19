@@ -34,9 +34,9 @@ function safeEq(a: string, b: string): boolean {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeScenarios(raw: any): { key: string; label: string; enabled: boolean; action: string; instructions: string }[] {
+function normalizeScenarios(raw: any): { key: string; label: string; enabled: boolean; action: string; instructions: string; audience?: 'anyone' | 'new' | 'existing' }[] {
   if (!Array.isArray(raw)) return DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s }))
-  const out: { key: string; label: string; enabled: boolean; action: string; instructions: string }[] = []
+  const out: { key: string; label: string; enabled: boolean; action: string; instructions: string; audience?: 'anyone' | 'new' | 'existing' }[] = []
   const seen = new Set<string>()
   for (const s of raw) {
     if (!s || typeof s !== 'object') continue
@@ -50,6 +50,7 @@ function normalizeScenarios(raw: any): { key: string; label: string; enabled: bo
       enabled: s.enabled === true,
       action: VALID_ACTIONS.has(s.action) ? s.action : 'pause',
       instructions: typeof s.instructions === 'string' ? s.instructions.slice(0, 4000) : '',
+      audience: s.audience === 'new' || s.audience === 'existing' ? s.audience : 'anyone',
     })
   }
   return out.length ? out : DEFAULT_FLAG_SCENARIOS.map((sc) => ({ ...sc }))

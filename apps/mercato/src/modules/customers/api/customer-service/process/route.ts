@@ -320,13 +320,27 @@ export async function POST(req: Request) {
               body: m.body_html,
             }))
 
+            // Audience-scoped guardrails: apply a rule only when the contact
+            // matches its audience. "new" = first message on record for them;
+            // "existing" = we already have prior correspondence. Rules with no
+            // audience (or 'anyone') always apply.
+            const contactIsNew = emailMessages.length <= 1
+            const applicableScenarios = flagScenarios.filter(
+              (s) =>
+                !s.audience ||
+                s.audience === 'anyone' ||
+                (s.audience === 'new' && contactIsNew) ||
+                (s.audience === 'existing' && !contactIsNew),
+            )
+            const emailDrafterScenarios = toDrafterScenarios(applicableScenarios)
+
             const result = await generateReplyDraft(knex, aiKey, {
               orgId,
               channel: 'email',
               recentMessages,
               contactId,
               signature: settings.signature || null,
-              flagScenarios: drafterScenarios,
+              flagScenarios: emailDrafterScenarios,
               // The critic verdict only gates hybrid auto-send; auto mode sends
               // regardless and draft mode queues everything, so skip the extra call.
               criticGate: effMode === 'hybrid',
@@ -363,7 +377,7 @@ export async function POST(req: Request) {
             //   all matched scenarios 'auto_send'    -> send the draft.
             const matched = result.matchedScenarios || []
             const flagged = matched.length > 0
-            const flagOutcome = flagged ? resolveFlagOutcome(matched, flagScenarios) : null
+            const flagOutcome = flagged ? resolveFlagOutcome(matched, applicableScenarios) : null
 
             // Decide whether to auto-send based on the org's reply mode.
             //   draft  -> never auto-send (always queue).
@@ -734,7 +748,7 @@ function parseSourceModes(raw: any): Record<string, { mode: string; threshold: n
   return out
 }
 
-type FlagScenario = { key: string; label: string; enabled: boolean; action: 'pause' | 'auto_send'; instructions: string }
+type FlagScenario = { key: string; label: string; enabled: boolean; action: 'pause' | 'auto_send'; instructions: string; audience?: 'anyone' | 'new' | 'existing' }
 
 const VALID_FLAG_ACTIONS = new Set(['pause', 'auto_send'])
 
@@ -759,6 +773,7 @@ function parseFlagScenarios(raw: any): FlagScenario[] {
       enabled: item.enabled === true,
       action: action as 'pause' | 'auto_send',
       instructions: typeof item.instructions === 'string' ? item.instructions : '',
+      audience: item.audience === 'new' || item.audience === 'existing' ? item.audience : 'anyone',
     })
   }
   return out
