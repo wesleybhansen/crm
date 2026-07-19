@@ -289,10 +289,14 @@ export async function POST(req: Request) {
         .where('tenant_id', auth.tenantId)
         .whereNull('deleted_at')
       q = applyKey(q, key)
+      // Fetch the NEWEST 100 (desc) so the user's own recent messages fall inside
+      // the cap even if a shared address has >100 older rows from other members;
+      // reverse to chronological for the reader.
       const rows = await q
-        .orderBy('created_at', 'asc')
+        .orderBy('created_at', 'desc')
         .limit(100)
         .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'direction')
+      rows.reverse()
       const messages = rows
         .filter(
           (m: Record<string, unknown>) =>
@@ -370,11 +374,15 @@ export async function POST(req: Request) {
       if (!key) return NextResponse.json({ ok: false, error: 'key required' }, { status: 400 })
       const archived = op === 'archive'
       const mine = await myAddresses()
+      // No personal mailbox = no personal mail to act on. Never fall through to an
+      // unscoped update (that would let a member touch another member's mail).
+      if (mine.length === 0) return NextResponse.json({ ok: true })
       let q = knex('email_messages')
         .where('organization_id', auth.orgId)
         .where('tenant_id', auth.tenantId)
         .whereNull('deleted_at')
-      if (mine.length) q = q.where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
+        // Mandatory: only the caller's OWN mailbox mail.
+        .where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
       q = applyKey(q, key)
       await q.update({
         metadata: knex.raw("coalesce(metadata, '{}'::jsonb) || ?::jsonb", [JSON.stringify({ archived })]),
@@ -387,15 +395,18 @@ export async function POST(req: Request) {
       const id = typeof body.id === 'string' ? body.id : ''
       const key = typeof body.key === 'string' ? body.key : ''
       if (!id && !key) return NextResponse.json({ ok: false, error: 'id or key required' }, { status: 400 })
+      const mine = await myAddresses()
+      // Same guard as archive: the caller can only delete mail in their OWN mailbox,
+      // whether targeting by id or by conversation key. Empty mailbox = nothing to do.
+      if (mine.length === 0) return NextResponse.json({ ok: true })
       let q = knex('email_messages')
         .where('organization_id', auth.orgId)
         .where('tenant_id', auth.tenantId)
         .whereNull('deleted_at')
+        .where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
       if (id) {
         q = q.where('id', id)
       } else {
-        const mine = await myAddresses()
-        if (mine.length) q = q.where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
         q = applyKey(q, key)
       }
       await q.update({ deleted_at: new Date(), updated_at: new Date() })
