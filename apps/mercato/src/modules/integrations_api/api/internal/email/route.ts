@@ -104,6 +104,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, data: { personal: Number(personal?.c || 0), deskConnected: !!desk } })
     }
 
+    if (op === 'sync') {
+      // Pull NEW incoming mail from the user's personal mailboxes into email_messages.
+      const { syncPersonalInbox } = await import('@/modules/email/lib/personal-inbox-sync')
+      const days = Number(body.days) > 0 ? Math.min(60, Math.floor(Number(body.days))) : 14
+      const result = await syncPersonalInbox(knex, auth.orgId, auth.tenantId, auth.userId, days)
+      return NextResponse.json({ ok: true, data: result })
+    }
+
     if (op === 'add') {
       const emailAddress = typeof body.emailAddress === 'string' ? body.emailAddress.trim() : ''
       const password = typeof body.password === 'string' ? body.password : ''
