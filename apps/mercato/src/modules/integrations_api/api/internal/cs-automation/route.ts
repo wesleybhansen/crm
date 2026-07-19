@@ -16,15 +16,17 @@ export const metadata = {
 }
 
 const VALID_MODES = new Set(['draft', 'hybrid', 'auto'])
-const VALID_ACTIONS = new Set(['pause', 'auto_send'])
+const VALID_ACTIONS = new Set(['pause', 'auto_send', 'no_draft'])
 
+// Sensible rules ON by default; the automated/no-reply rule withholds drafting.
 const DEFAULT_FLAG_SCENARIOS = [
-  { key: 'angry_or_upset', label: 'Upset or angry customer', enabled: false, action: 'pause', instructions: '' },
-  { key: 'incoherent', label: 'Incoherent or unclear message', enabled: false, action: 'pause', instructions: '' },
-  { key: 'cancel', label: 'Customer wants to cancel', enabled: false, action: 'pause', instructions: '' },
-  { key: 'refund', label: 'Customer wants a refund', enabled: false, action: 'pause', instructions: '' },
-  { key: 'complaint', label: 'Complaint about product or service', enabled: false, action: 'pause', instructions: '' },
-  { key: 'legal', label: 'Legal or compliance matter', enabled: false, action: 'pause', instructions: '' },
+  { key: 'automated_or_noreply', label: 'Automated / no-reply messages (newsletters, receipts)', enabled: true, action: 'no_draft', instructions: '' },
+  { key: 'angry_or_upset', label: 'Upset or angry customer', enabled: true, action: 'pause', instructions: '' },
+  { key: 'incoherent', label: 'Incoherent or unclear message', enabled: true, action: 'pause', instructions: '' },
+  { key: 'cancel', label: 'Customer wants to cancel', enabled: true, action: 'pause', instructions: '' },
+  { key: 'refund', label: 'Customer wants a refund', enabled: true, action: 'pause', instructions: '' },
+  { key: 'complaint', label: 'Complaint about product or service', enabled: true, action: 'pause', instructions: '' },
+  { key: 'legal', label: 'Legal or compliance matter', enabled: true, action: 'pause', instructions: '' },
 ]
 
 function safeEq(a: string, b: string): boolean {
