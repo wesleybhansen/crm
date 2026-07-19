@@ -169,6 +169,7 @@ export async function POST(req: Request) {
       const rows = await knex('email_messages')
         .where('organization_id', auth.orgId)
         .where('tenant_id', auth.tenantId)
+        .whereNull('deleted_at')
         .where('direction', 'inbound')
         .whereIn('to_address', myAddresses)
         .orderBy('created_at', 'desc')
@@ -193,14 +194,25 @@ export async function POST(req: Request) {
         .whereNull('purpose')
         .pluck('email_address')) as string[]
 
+    // Narrow a query to one conversation, identified by its thread key
+    // (`c:<contactId>` or `a:<address>`). Shared by thread / archive / delete.
+    const applyKey = (q: Knex, key: string): Knex => {
+      if (key.startsWith('c:')) return q.where('contact_id', key.slice(2))
+      const addr = key.slice(2)
+      return q.where((qb: Knex) => qb.whereRaw('lower(from_address) = ?', [addr]).orWhereRaw('lower(to_address) = ?', [addr]))
+    }
+
     if (op === 'threads') {
       const limit = Math.min(60, Math.max(1, Number(body.limit) || 40))
+      const showArchived = body.archived === true
       const mine = await myAddresses()
       if (mine.length === 0) return NextResponse.json({ ok: true, data: [] })
       const setMine = new Set(mine.map((a) => a.toLowerCase()))
       const rows = await knex('email_messages')
         .where('organization_id', auth.orgId)
         .where('tenant_id', auth.tenantId)
+        .whereNull('deleted_at')
+        .whereRaw("coalesce((metadata->>'archived')::boolean, false) = ?", [showArchived])
         .where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
         .orderBy('created_at', 'desc')
         .limit(600)
@@ -257,12 +269,8 @@ export async function POST(req: Request) {
       let q = knex('email_messages')
         .where('organization_id', auth.orgId)
         .where('tenant_id', auth.tenantId)
-      if (key.startsWith('c:')) {
-        q = q.where('contact_id', key.slice(2))
-      } else {
-        const addr = key.slice(2)
-        q = q.where((qb: Knex) => qb.whereRaw('lower(from_address) = ?', [addr]).orWhereRaw('lower(to_address) = ?', [addr]))
-      }
+        .whereNull('deleted_at')
+      q = applyKey(q, key)
       const rows = await q
         .orderBy('created_at', 'asc')
         .limit(100)
@@ -282,6 +290,98 @@ export async function POST(req: Request) {
           at: m.created_at,
         }))
       return NextResponse.json({ ok: true, data: { messages } })
+    }
+
+    if (op === 'send') {
+      const to = typeof body.to === 'string' ? body.to.trim() : ''
+      const subject = typeof body.subject === 'string' ? body.subject : ''
+      const text = typeof body.text === 'string' ? body.text : ''
+      const html = typeof body.html === 'string' ? body.html : ''
+      const key = typeof body.key === 'string' ? body.key : ''
+      const threadId = typeof body.threadId === 'string' ? body.threadId : null
+      let contactId = typeof body.contactId === 'string' ? body.contactId : null
+      if (!contactId && key.startsWith('c:')) contactId = key.slice(2)
+      if (!to || !subject || (!text && !html)) {
+        return NextResponse.json({ ok: false, error: 'A recipient, subject, and message are required.' }, { status: 400 })
+      }
+      const conn = await knex('email_connections')
+        .where('organization_id', auth.orgId)
+        .where('user_id', auth.userId)
+        .where('is_active', true)
+        .whereNull('purpose')
+        .orderBy('is_primary', 'desc')
+        .first()
+      if (!conn) return NextResponse.json({ ok: false, error: 'Connect a mailbox before sending.' }, { status: 400 })
+
+      const { sendEmailForOrg } = await import('@/modules/email/lib/email-router')
+      const result = await sendEmailForOrg(knex, auth.orgId, auth.tenantId, auth.userId, {
+        to,
+        subject,
+        htmlBody: html || text,
+        textBody: text || undefined,
+        contactId: contactId || undefined,
+      })
+      if (!result?.ok) return NextResponse.json({ ok: false, error: result?.error || 'We could not send that message.' }, { status: 400 })
+
+      // Record the sent mail so it shows in the thread immediately.
+      const now = new Date()
+      await knex('email_messages').insert({
+        id: crypto.randomUUID(),
+        tenant_id: auth.tenantId,
+        organization_id: auth.orgId,
+        account_id: conn.id,
+        direction: 'outbound',
+        from_address: result.fromAddress || conn.email_address,
+        to_address: to,
+        subject,
+        body_html: html || '',
+        body_text: text || null,
+        thread_id: threadId,
+        contact_id: contactId,
+        status: 'sent',
+        tracking_id: crypto.randomUUID(),
+        created_at: now,
+        updated_at: now,
+        sent_at: now,
+      })
+      return NextResponse.json({ ok: true })
+    }
+
+    if (op === 'archive' || op === 'unarchive') {
+      const key = typeof body.key === 'string' ? body.key : ''
+      if (!key) return NextResponse.json({ ok: false, error: 'key required' }, { status: 400 })
+      const archived = op === 'archive'
+      const mine = await myAddresses()
+      let q = knex('email_messages')
+        .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
+        .whereNull('deleted_at')
+      if (mine.length) q = q.where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
+      q = applyKey(q, key)
+      await q.update({
+        metadata: knex.raw("coalesce(metadata, '{}'::jsonb) || ?::jsonb", [JSON.stringify({ archived })]),
+        updated_at: new Date(),
+      })
+      return NextResponse.json({ ok: true })
+    }
+
+    if (op === 'delete') {
+      const id = typeof body.id === 'string' ? body.id : ''
+      const key = typeof body.key === 'string' ? body.key : ''
+      if (!id && !key) return NextResponse.json({ ok: false, error: 'id or key required' }, { status: 400 })
+      let q = knex('email_messages')
+        .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
+        .whereNull('deleted_at')
+      if (id) {
+        q = q.where('id', id)
+      } else {
+        const mine = await myAddresses()
+        if (mine.length) q = q.where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
+        q = applyKey(q, key)
+      }
+      await q.update({ deleted_at: new Date(), updated_at: new Date() })
+      return NextResponse.json({ ok: true })
     }
 
     return NextResponse.json({ ok: false, error: 'unknown op' }, { status: 400 })
