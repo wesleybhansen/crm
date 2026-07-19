@@ -110,6 +110,7 @@ export async function POST(req: Request) {
         ok: true,
         data: {
           replyMode: row?.reply_mode && VALID_MODES.has(row.reply_mode) ? row.reply_mode : 'draft',
+          enabled: row?.enabled === true,
           hybridConfidenceThreshold: row?.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
           flagScenarios: scenarios,
           autoSendPaused: hasAutoSendCols ? row?.auto_send_paused === true : false,
@@ -158,6 +159,8 @@ export async function POST(req: Request) {
       if (replyMode !== undefined) patch.reply_mode = replyMode
       if (threshold !== undefined) patch.hybrid_confidence_threshold = threshold
       if (scenarios !== undefined) patch.flag_scenarios = JSON.stringify(scenarios)
+      // enabled = the drafter's master switch (both settings tables have it).
+      if (typeof body.enabled === 'boolean') patch.enabled = body.enabled
       // Auto-send circuit-breaker columns exist only on the desk settings table.
       if (hasAutoSendCols) {
         if (typeof body.autoSendPaused === 'boolean') {
@@ -179,6 +182,7 @@ export async function POST(req: Request) {
           reply_mode: replyMode ?? 'draft',
           hybrid_confidence_threshold: threshold ?? 0.8,
           flag_scenarios: JSON.stringify(scenarios ?? DEFAULT_FLAG_SCENARIOS),
+          enabled: typeof body.enabled === 'boolean' ? body.enabled : true,
           created_at: now,
           updated_at: now,
         })
