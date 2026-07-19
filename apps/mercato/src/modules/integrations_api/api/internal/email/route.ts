@@ -234,11 +234,17 @@ export async function POST(req: Request) {
         .where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
         .orderBy('created_at', 'desc')
         .limit(600)
-        .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'direction', 'contact_id')
+        .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'direction', 'contact_id', 'metadata')
 
       const other = (m: Record<string, unknown>): string => {
         const from = String(m.from_address || '').toLowerCase()
         return setMine.has(from) ? String(m.to_address || '').toLowerCase() : from
+      }
+      // A thread is unread if it has any INBOUND message not yet marked read.
+      const isRead = (m: Record<string, unknown>): boolean => {
+        const md = m.metadata
+        const parsed = typeof md === 'string' ? (() => { try { return JSON.parse(md || 'null') } catch { return null } })() : md
+        return !!(parsed && (parsed as Record<string, unknown>).read === true)
       }
       const threads = new Map<string, Record<string, unknown>>()
       const contactIds = new Set<string>()
@@ -246,6 +252,7 @@ export async function POST(req: Request) {
         const o = other(m)
         if (!o) continue
         const key = m.contact_id ? `c:${m.contact_id}` : `a:${o}`
+        const inboundUnread = m.direction === 'inbound' && !isRead(m)
         const existing = threads.get(key)
         if (!existing) {
           threads.set(key, {
@@ -257,10 +264,12 @@ export async function POST(req: Request) {
             at: m.created_at,
             lastDirection: m.direction,
             count: 1,
+            unread: inboundUnread,
           })
           if (m.contact_id) contactIds.add(String(m.contact_id))
         } else {
           existing.count = (existing.count as number) + 1
+          if (inboundUnread) existing.unread = true
         }
       }
       const names: Record<string, string> = {}
@@ -386,6 +395,27 @@ export async function POST(req: Request) {
       q = applyKey(q, key)
       await q.update({
         metadata: knex.raw("coalesce(metadata, '{}'::jsonb) || ?::jsonb", [JSON.stringify({ archived })]),
+        updated_at: new Date(),
+      })
+      return NextResponse.json({ ok: true })
+    }
+
+    if (op === 'markRead' || op === 'markUnread') {
+      const key = typeof body.key === 'string' ? body.key : ''
+      if (!key) return NextResponse.json({ ok: false, error: 'key required' }, { status: 400 })
+      const read = op === 'markRead'
+      const mine = await myAddresses()
+      if (mine.length === 0) return NextResponse.json({ ok: true })
+      let q = knex('email_messages')
+        .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
+        .whereNull('deleted_at')
+        .where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
+        // Read state applies to INBOUND mail (your own sent mail is always "read").
+        .where('direction', 'inbound')
+      q = applyKey(q, key)
+      await q.update({
+        metadata: knex.raw("coalesce(metadata, '{}'::jsonb) || ?::jsonb", [JSON.stringify({ read })]),
         updated_at: new Date(),
       })
       return NextResponse.json({ ok: true })
