@@ -86,6 +86,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, data: rows })
     }
 
+    if (op === 'status') {
+      // Cheap setup signal for the inbox: how many personal mailboxes this user
+      // has, and whether the org's Chief-of-Staff desk mailbox is connected.
+      const personal = await knex('email_connections')
+        .where('organization_id', auth.orgId)
+        .where('user_id', auth.userId)
+        .where('is_active', true)
+        .whereNull('purpose')
+        .count('* as c')
+        .first()
+      const desk = await knex('email_connections')
+        .where('organization_id', auth.orgId)
+        .where('is_active', true)
+        .where('purpose', 'customer_service')
+        .first()
+      return NextResponse.json({ ok: true, data: { personal: Number(personal?.c || 0), deskConnected: !!desk } })
+    }
+
     if (op === 'add') {
       const emailAddress = typeof body.emailAddress === 'string' ? body.emailAddress.trim() : ''
       const password = typeof body.password === 'string' ? body.password : ''
