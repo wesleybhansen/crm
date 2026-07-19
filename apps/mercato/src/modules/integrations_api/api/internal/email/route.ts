@@ -107,8 +107,9 @@ export async function POST(req: Request) {
     if (op === 'sync') {
       // Pull NEW incoming mail from the user's personal mailboxes into email_messages.
       const { syncPersonalInbox } = await import('@/modules/email/lib/personal-inbox-sync')
-      // Wider default so a freshly-connected mailbox backfills a useful history.
-      const days = Number(body.days) > 0 ? Math.min(90, Math.floor(Number(body.days))) : 30
+      // Wide default so a freshly-connected mailbox backfills real history
+      // (the inbox should show what Gmail shows, not just the last few weeks).
+      const days = Number(body.days) > 0 ? Math.min(365, Math.floor(Number(body.days))) : 120
       const result = await syncPersonalInbox(knex, auth.orgId, auth.tenantId, auth.userId, days)
       return NextResponse.json({ ok: true, data: result })
     }
@@ -230,7 +231,7 @@ export async function POST(req: Request) {
     }
 
     if (op === 'threads') {
-      const limit = Math.min(60, Math.max(1, Number(body.limit) || 40))
+      const limit = Math.min(150, Math.max(1, Number(body.limit) || 100))
       const showArchived = body.archived === true
       const mine = await myAddresses()
       if (mine.length === 0) return NextResponse.json({ ok: true, data: [] })
@@ -242,7 +243,7 @@ export async function POST(req: Request) {
         .whereRaw("coalesce((metadata->>'archived')::boolean, false) = ?", [showArchived])
         .where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
         .orderBy('created_at', 'desc')
-        .limit(600)
+        .limit(1500)
         .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'direction', 'contact_id', 'metadata')
 
       const other = (m: Record<string, unknown>): string => {

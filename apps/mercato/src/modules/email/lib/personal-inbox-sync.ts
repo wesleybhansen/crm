@@ -12,7 +12,7 @@ import { ingestImapConnection } from '@/modules/email/lib/inbox-ingest'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Knex = any
 
-const MAX = 80
+const MAX = 120
 
 function extractHeader(headers: Array<{ name?: string; value?: string }>, name: string): string {
   const h = headers.find((x) => (x.name || '').toLowerCase() === name.toLowerCase())
