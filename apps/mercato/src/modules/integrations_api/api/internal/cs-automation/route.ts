@@ -108,6 +108,33 @@ export async function POST(req: Request) {
       })
     }
 
+    if (op === 'stats') {
+      // The "inbox getting lighter" signal: over the last 8 weeks, how many
+      // customer-service replies the CoS sent on its own (metadata.auto_sent)
+      // vs. ones the user had to approve. Both are audit rows in
+      // inbox_proposal_actions with status 'sent'.
+      const rows = await knex('inbox_proposal_actions')
+        .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
+        .whereRaw("metadata->>'feature_source' = 'customer_service'")
+        .where('status', 'sent')
+        .whereRaw("created_at >= now() - interval '56 days'")
+        .select(knex.raw("to_char(date_trunc('week', created_at), 'YYYY-MM-DD') as wk"))
+        .select(knex.raw("count(*) filter (where metadata->>'auto_sent' = 'true') as auto_count"))
+        .select(knex.raw("count(*) filter (where metadata->>'auto_sent' is distinct from 'true') as manual_count"))
+        .groupByRaw("date_trunc('week', created_at)")
+        .orderByRaw("date_trunc('week', created_at) asc")
+
+      const weeks = (rows as Array<Record<string, unknown>>).map((r) => ({
+        week: String(r.wk),
+        auto: Number(r.auto_count || 0),
+        manual: Number(r.manual_count || 0),
+      }))
+      const totalAuto = weeks.reduce((s, w) => s + w.auto, 0)
+      const totalHandled = weeks.reduce((s, w) => s + w.auto + w.manual, 0)
+      return NextResponse.json({ ok: true, data: { weeks, totalAuto, totalHandled } })
+    }
+
     if (op === 'set') {
       const replyMode = VALID_MODES.has(String(body.replyMode)) ? String(body.replyMode) : undefined
       const threshold =
