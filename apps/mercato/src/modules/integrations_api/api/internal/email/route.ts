@@ -39,6 +39,24 @@ function stripHtml(html: string): string {
   return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+// Turn a raw email body into readable text: drop tracking-URL clutter (bracketed
+// [https://…] links, bare long tracking URLs, zero-width chars) and collapse
+// whitespace, so previews + the reader don't show newsletter junk.
+function cleanText(raw: string): string {
+  return String(raw || '')
+    .replace(/\[https?:\/\/[^\]]+\]/gi, '')
+    .replace(/https?:\/\/\S{45,}/gi, '')
+    .replace(/[​-‍﻿]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function bodyToText(m: { body_text?: unknown; body_html?: unknown }): string {
+  const t = String(m.body_text || '').trim()
+  return cleanText(t ? t : stripHtml(String(m.body_html || '')))
+}
+
 export async function POST(req: Request) {
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
   const authHeader = (req.headers.get('authorization') || '').trim()
@@ -160,10 +178,110 @@ export async function POST(req: Request) {
         id: m.id,
         from: m.from_address,
         subject: m.subject,
-        preview: (String(m.body_text || '').trim() ? String(m.body_text) : stripHtml(String(m.body_html || ''))).slice(0, 300),
+        preview: bodyToText(m).slice(0, 300),
         createdAt: m.created_at,
       }))
       return NextResponse.json({ ok: true, data })
+    }
+
+    // Personal mailbox addresses for this user (reused by threads/thread/send).
+    const myAddresses = async (): Promise<string[]> =>
+      (await knex('email_connections')
+        .where('organization_id', auth.orgId)
+        .where('user_id', auth.userId)
+        .where('is_active', true)
+        .whereNull('purpose')
+        .pluck('email_address')) as string[]
+
+    if (op === 'threads') {
+      const limit = Math.min(60, Math.max(1, Number(body.limit) || 40))
+      const mine = await myAddresses()
+      if (mine.length === 0) return NextResponse.json({ ok: true, data: [] })
+      const setMine = new Set(mine.map((a) => a.toLowerCase()))
+      const rows = await knex('email_messages')
+        .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
+        .where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
+        .orderBy('created_at', 'desc')
+        .limit(600)
+        .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'direction', 'contact_id')
+
+      const other = (m: Record<string, unknown>): string => {
+        const from = String(m.from_address || '').toLowerCase()
+        return setMine.has(from) ? String(m.to_address || '').toLowerCase() : from
+      }
+      const threads = new Map<string, Record<string, unknown>>()
+      const contactIds = new Set<string>()
+      for (const m of rows) {
+        const o = other(m)
+        if (!o) continue
+        const key = m.contact_id ? `c:${m.contact_id}` : `a:${o}`
+        const existing = threads.get(key)
+        if (!existing) {
+          threads.set(key, {
+            key,
+            contactId: m.contact_id || null,
+            address: o,
+            subject: m.subject || '(no subject)',
+            preview: bodyToText(m).slice(0, 160),
+            at: m.created_at,
+            lastDirection: m.direction,
+            count: 1,
+          })
+          if (m.contact_id) contactIds.add(String(m.contact_id))
+        } else {
+          existing.count = (existing.count as number) + 1
+        }
+      }
+      const names: Record<string, string> = {}
+      if (contactIds.size) {
+        const cs = await knex('customer_entities')
+          .where('organization_id', auth.orgId)
+          .whereIn('id', [...contactIds])
+          .select('id', 'display_name')
+        for (const c of cs) names[c.id] = c.display_name || ''
+      }
+      const data = [...threads.values()].slice(0, limit).map((t) => ({
+        ...t,
+        name: (t.contactId && names[String(t.contactId)]) || String(t.address).split('@')[0] || t.address,
+      }))
+      return NextResponse.json({ ok: true, data })
+    }
+
+    if (op === 'thread') {
+      const key = typeof body.key === 'string' ? body.key : ''
+      if (!key) return NextResponse.json({ ok: false, error: 'key required' }, { status: 400 })
+      const mine = await myAddresses()
+      if (mine.length === 0) return NextResponse.json({ ok: true, data: { messages: [] } })
+      const setMine = new Set(mine.map((a) => a.toLowerCase()))
+      let q = knex('email_messages')
+        .where('organization_id', auth.orgId)
+        .where('tenant_id', auth.tenantId)
+      if (key.startsWith('c:')) {
+        q = q.where('contact_id', key.slice(2))
+      } else {
+        const addr = key.slice(2)
+        q = q.where((qb: Knex) => qb.whereRaw('lower(from_address) = ?', [addr]).orWhereRaw('lower(to_address) = ?', [addr]))
+      }
+      const rows = await q
+        .orderBy('created_at', 'asc')
+        .limit(100)
+        .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'direction')
+      const messages = rows
+        .filter(
+          (m: Record<string, unknown>) =>
+            setMine.has(String(m.from_address || '').toLowerCase()) || setMine.has(String(m.to_address || '').toLowerCase()),
+        )
+        .map((m: Record<string, unknown>) => ({
+          id: m.id,
+          direction: m.direction,
+          from: m.from_address,
+          to: m.to_address,
+          subject: m.subject,
+          body: bodyToText(m).slice(0, 8000),
+          at: m.created_at,
+        }))
+      return NextResponse.json({ ok: true, data: { messages } })
     }
 
     return NextResponse.json({ ok: false, error: 'unknown op' }, { status: 400 })
