@@ -536,34 +536,37 @@ function tryParseEnvelope(raw: string): { body?: unknown; confidence?: unknown; 
   return null
 }
 
-// Last-ditch: the output is a `{"body": "..."}` envelope whose JSON is malformed
-// (commonly a raw newline inside the string value, which strict JSON rejects).
-// Pull the body value out and unescape it so the user never sees raw JSON. Returns
-// null when the text isn't a body-envelope, so the caller keeps its raw fallback.
+// Last-ditch: the output is a `{"body": "..."}` envelope whose JSON is malformed —
+// commonly a raw newline OR unescaped double-quotes inside the body value, both of
+// which strict JSON rejects. Pull the body value out (tolerating inner quotes) and
+// unescape it so the user never sees raw JSON. The body value is taken up to the
+// trailing envelope key or closing brace, NOT the first inner quote (that would
+// truncate a reply that legitimately contains quotes). Returns null when the text
+// isn't a body-envelope, so the caller keeps its raw fallback.
 function salvageEnvelopeBody(raw: string): string | null {
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
   if (!/^\{/.test(cleaned)) return null
   const m = cleaned.match(/"body"\s*:\s*"/)
   if (!m || m.index === undefined) return null
-  const startIdx = m.index + m[0].length
-  // Walk to the closing unescaped quote of the body value.
-  let out = ''
-  for (let i = startIdx; i < cleaned.length; i++) {
-    const ch = cleaned[i]
-    if (ch === '\\') {
-      const next = cleaned[i + 1]
-      if (next === 'n') out += '\n'
-      else if (next === 't') out += '\t'
-      else if (next === 'r') out += '\r'
-      else if (next === '"') out += '"'
-      else if (next === '\\') out += '\\'
-      else out += next ?? ''
-      i++
-      continue
+  const rest = cleaned.slice(m.index + m[0].length)
+  // The body value ends right before the next envelope key (`", "confidence"` etc.).
+  // Cut there rather than at the first inner `"`, so a reply that legitimately
+  // contains quotes isn't truncated. Fall back to the trailing closing brace.
+  let cut = -1
+  for (const key of ['confidence', 'auto_send_safe', 'matched_scenarios']) {
+    const i = rest.search(new RegExp('"\\s*,\\s*"' + key + '"'))
+    if (i !== -1) {
+      cut = i
+      break
     }
-    if (ch === '"') break // end of the body value
-    out += ch
   }
-  const trimmed = out.trim()
+  let body = cut !== -1 ? rest.slice(0, cut) : rest.replace(/"\s*\}?\s*$/, '')
+  body = body
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+  const trimmed = body.trim()
   return trimmed.length ? trimmed : null
 }
