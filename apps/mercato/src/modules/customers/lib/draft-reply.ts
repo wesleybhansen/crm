@@ -454,9 +454,14 @@ Return the JSON object now:` }] }],
       }
     }
   } else {
-    // Could not parse structured output: keep the text as the body but force the
-    // conservative path (no auto-send) since we have no trustworthy signal.
-    draft = raw
+    // Could not strict-parse the envelope. Before falling back to raw, salvage the
+    // body if the output is still an envelope whose JSON was just malformed (e.g. a
+    // literal newline inside the string value) — otherwise the reply would show the
+    // raw `{"body": "..."}` text to the user.
+    const salvaged = salvageEnvelopeBody(raw)
+    // Keep the text as the body but force the conservative path (no auto-send) since
+    // we have no trustworthy confidence signal.
+    draft = salvaged ?? raw
     confidence = 0
     autoSendSafe = false
   }
@@ -529,4 +534,36 @@ function tryParseEnvelope(raw: string): { body?: unknown; confidence?: unknown; 
     } catch {}
   }
   return null
+}
+
+// Last-ditch: the output is a `{"body": "..."}` envelope whose JSON is malformed
+// (commonly a raw newline inside the string value, which strict JSON rejects).
+// Pull the body value out and unescape it so the user never sees raw JSON. Returns
+// null when the text isn't a body-envelope, so the caller keeps its raw fallback.
+function salvageEnvelopeBody(raw: string): string | null {
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+  if (!/^\{/.test(cleaned)) return null
+  const m = cleaned.match(/"body"\s*:\s*"/)
+  if (!m || m.index === undefined) return null
+  const startIdx = m.index + m[0].length
+  // Walk to the closing unescaped quote of the body value.
+  let out = ''
+  for (let i = startIdx; i < cleaned.length; i++) {
+    const ch = cleaned[i]
+    if (ch === '\\') {
+      const next = cleaned[i + 1]
+      if (next === 'n') out += '\n'
+      else if (next === 't') out += '\t'
+      else if (next === 'r') out += '\r'
+      else if (next === '"') out += '"'
+      else if (next === '\\') out += '\\'
+      else out += next ?? ''
+      i++
+      continue
+    }
+    if (ch === '"') break // end of the body value
+    out += ch
+  }
+  const trimmed = out.trim()
+  return trimmed.length ? trimmed : null
 }
