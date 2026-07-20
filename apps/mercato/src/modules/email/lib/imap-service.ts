@@ -122,14 +122,19 @@ function isGmailHost(host: string): boolean {
 
 // Gmail's IMAP INBOX includes the Promotions/Social/Updates/Forums category tabs,
 // so a raw INBOX read shows mail Gmail hides from the Primary view. When the server
-// advertises Gmail extensions (X-GM-EXT-1) we restrict the search to the Primary tab
-// with an X-GM-RAW query, so the mirror matches what the user sees in Gmail. Any
-// non-Gmail provider (or a server without the extension) is left untouched.
-function gmailPrimarySearch(client: ImapFlow, base: Record<string, unknown>): Record<string, unknown> {
+// advertises Gmail extensions (X-GM-EXT-1) we EXCLUDE those category tabs with an
+// X-GM-RAW query, so the mirror matches the Primary view the user sees in Gmail.
+//
+// We use the exclusion form (-category:promotions ...) rather than category:primary
+// on purpose: many accounts turn category tabs off, and in that case category:primary
+// matches nothing and would hide the entire inbox. The exclusion form degrades safely
+// to "show everything" when there are no category labels. Non-Gmail providers (or a
+// server without the extension) are left untouched.
+function gmailHideCategoryTabs(client: ImapFlow, base: Record<string, unknown>): Record<string, unknown> {
   try {
     const caps: any = (client as any).capabilities
     const supported = caps && (typeof caps.has === 'function' ? caps.has('X-GM-EXT-1') : !!caps['X-GM-EXT-1'])
-    if (supported) return { ...base, gmailRaw: 'category:primary' }
+    if (supported) return { ...base, gmailRaw: '-category:promotions -category:social -category:updates -category:forums' }
   } catch {
     /* fall through to unfiltered */
   }
@@ -166,9 +171,15 @@ async function fetchMessagesFromFolder(
   since.setHours(0, 0, 0, 0)
 
   // On Gmail, an INBOX read pulls the Promotions/Social/Updates/Forums tabs too;
-  // restrict to the Primary tab so the mirror matches the user's Gmail view.
-  const query = gmailPrimaryOnly ? gmailPrimarySearch(config, { since }) : { since }
-  const uids = await config.search(query as any, { uid: true })
+  // exclude those category tabs so the mirror matches the user's Primary view.
+  const query = gmailPrimaryOnly ? gmailHideCategoryTabs(config, { since }) : { since }
+  let uids = await config.search(query as any, { uid: true })
+  // Defensive: if the category filter matched nothing (some accounts label mail in
+  // ways X-GM-RAW cannot see), fall back to the full INBOX so we never show an empty
+  // inbox or skip the display-name backfill.
+  if (gmailPrimaryOnly && (!uids || uids.length === 0)) {
+    uids = await config.search({ since }, { uid: true })
+  }
   if (!uids || uids.length === 0) return results
 
   const toFetch = uids.slice(-maxMessages)
@@ -299,12 +310,18 @@ export async function listInboxMessageIds(config: ImapConfig, sinceDate: Date): 
     await client.mailboxOpen('INBOX')
     const since = new Date(sinceDate)
     since.setHours(0, 0, 0, 0)
-    // Match the Primary-tab filter used when ingesting, so that mail Gmail keeps
-    // in Promotions/Social (and which we therefore never stored) is NOT treated as
-    // "still live" — and any such mail stored before the filter existed reconciles
-    // away like a real archive.
-    const query = isGmailHost(config.host) ? gmailPrimarySearch(client, { since }) : { since }
-    const uids = await client.search(query as any, { uid: true })
+    // Match the category-tab filter used when ingesting, so mail Gmail keeps in
+    // Promotions/Social (which we therefore never stored) is NOT treated as still
+    // live, and any such mail stored before the filter existed reconciles away like
+    // a real archive. Same defensive fallback as the fetch: if the filter matches
+    // nothing, use the full INBOX so we never build an empty "live" set (which the
+    // caller would otherwise ignore, but keeping the two paths identical is safest).
+    const gmail = isGmailHost(config.host)
+    const query = gmail ? gmailHideCategoryTabs(client, { since }) : { since }
+    let uids = await client.search(query as any, { uid: true })
+    if (gmail && (!uids || uids.length === 0)) {
+      uids = await client.search({ since }, { uid: true })
+    }
     if (uids && uids.length) {
       const CHUNK = 300
       for (let ci = 0; ci < uids.length; ci += CHUNK) {
