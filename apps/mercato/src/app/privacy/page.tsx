@@ -40,7 +40,7 @@ export default function PrivacyPage() {
       <h3 style={s.h3}>1.4 Connected Third-Party Accounts</h3>
       <p style={s.p}>When you connect external services, we store OAuth access tokens and refresh tokens to act on your behalf. We never store your third-party passwords. Connected services may include:</p>
       <ul style={s.ul}>
-        <li style={s.li}><strong>Google (Gmail, Calendar):</strong> OAuth tokens for email sending and calendar sync</li>
+        <li style={s.li}><strong>Google (Calendar):</strong> OAuth tokens for reading your calendar availability and creating booking events</li>
         <li style={s.li}><strong>Microsoft (Outlook):</strong> OAuth tokens for email sending and calendar sync</li>
         <li style={s.li}><strong>Stripe:</strong> Account connection for payment processing</li>
       </ul>
@@ -56,8 +56,8 @@ export default function PrivacyPage() {
 
       <h3 style={s.h3}>2.1 What Google Data We Access</h3>
       <ul style={s.ul}>
-        <li style={s.li}><strong>Gmail Send (gmail.send):</strong> Used to send emails on your behalf from your Gmail address — when you compose emails in the CRM, when automated email sequences fire, when reminders are sent, and when invoices are delivered. We do not read messages in your inbox or sent folder with this scope.</li>
-        <li style={s.li}><strong>Google Calendar (calendar.readonly, calendar.events):</strong> Used to sync calendar events, create events from booking pages, and display your schedule within the Platform.</li>
+        <li style={s.li}><strong>Google Calendar (calendar.readonly):</strong> Reads your calendar availability (free/busy) so booking pages and the AI receptionist do not double-book you.</li>
+        <li style={s.li}><strong>Google Calendar (calendar.events):</strong> Creates and updates booking appointments on your calendar when someone books time with you, and displays your schedule within the Platform.</li>
         <li style={s.li}><strong>User Info (userinfo.email, openid):</strong> Used solely to identify your email address for account linking when you connect your Google account.</li>
       </ul>
 
@@ -67,12 +67,12 @@ export default function PrivacyPage() {
         <li style={s.li}>We <strong>do not</strong> sell, rent, or lease Google user data to any third party.</li>
         <li style={s.li}>We <strong>do not</strong> use Google user data for advertising, ad targeting, or to serve ads.</li>
         <li style={s.li}>We <strong>do not</strong> use Google user data to build user profiles for advertising purposes.</li>
-        <li style={s.li}>We <strong>do not</strong> transfer Google user data to third parties except as necessary to provide or improve the Platform's user-facing features (e.g., passing email content to the AI model to generate a draft reply).</li>
+        <li style={s.li}>We <strong>do not</strong> transfer Google user data to third parties except as necessary to provide or improve the Platform's user-facing features (for example, the infrastructure and service providers listed in Section 5.1 that operate the Platform's scheduling features).</li>
         <li style={s.li}>We <strong>do not</strong> allow humans to read your Google data unless: (a) you give explicit, affirmative consent for a specific message; (b) it is necessary for security purposes such as investigating abuse; (c) it is necessary to comply with applicable law; or (d) the data has been aggregated and fully anonymized for internal operations.</li>
       </ul>
 
       <h3 style={s.h3}>2.3 Google Data Storage and Retention</h3>
-      <p style={s.p}>Gmail OAuth tokens (access and refresh tokens) are stored encrypted in our database. Calendar events synced from Google Calendar are stored in the CRM as part of your scheduling data. Outbound email metadata (recipient, subject, send timestamp) is logged in the CRM activity timeline for messages you send through the Platform. You can disconnect Google at any time in Settings, which immediately revokes our access and deletes stored tokens.</p>
+      <p style={s.p}>Google OAuth tokens (access and refresh tokens) are stored encrypted in our database. Calendar events synced from Google Calendar are stored in the CRM as part of your scheduling data. You can disconnect Google at any time in Settings, which immediately revokes our access and deletes stored tokens.</p>
 
       <h2 style={s.h2}>3. AI and Third-Party Data Processing</h2>
       <p style={s.p}>Noli CRM uses AI services to power intelligent features. When you use these features, relevant context is sent to the AI provider to generate responses:</p>
@@ -107,10 +107,10 @@ export default function PrivacyPage() {
       <p style={s.p}>The Company uses the following third-party service providers ("subprocessors") to operate the Platform. Each subprocessor processes user data only as needed to provide its specific service and is bound by its own terms of service and privacy policy:</p>
       <ul style={s.ul}>
         <li style={s.li}><strong>Hetzner Online GmbH</strong> (Germany) — Infrastructure hosting, server hosting, database storage. Data is stored in EU data centers.</li>
-        <li style={s.li}><strong>Google LLC</strong> (United States) — Gemini AI API for AI-powered features (email drafting, content generation, brand voice analysis, voice assistant). Google OAuth for Gmail and Google Calendar integration.</li>
+        <li style={s.li}><strong>Google LLC</strong> (United States) — Gemini AI API for AI-powered features (email drafting, content generation, brand voice analysis, voice assistant). Google OAuth for Google Calendar integration only.</li>
         <li style={s.li}><strong>OpenAI, L.L.C.</strong> (United States) — Realtime API for the Scout voice assistant (speech-to-speech), text-to-speech, and other voice-related features.</li>
         <li style={s.li}><strong>Anthropic, PBC</strong> (United States) — May be used for certain AI features and Model Context Protocol (MCP) integrations.</li>
-        <li style={s.li}><strong>Resend, Inc.</strong> (United States) — Transactional and notification email delivery (reminders, system notifications, fallback for user emails when Gmail is unavailable).</li>
+        <li style={s.li}><strong>Resend, Inc.</strong> (United States) — Transactional and notification email delivery (reminders, system notifications, and outbound platform email).</li>
         <li style={s.li}><strong>Stripe, Inc.</strong> (United States) — Payment processing for invoices, subscriptions, and funnel checkouts. Stripe processes payment card data directly; the Company does not store credit card information.</li>
         <li style={s.li}><strong>Microsoft Corporation</strong> (United States) — Outlook OAuth integration (when users connect Microsoft accounts).</li>
       </ul>
@@ -181,7 +181,7 @@ export default function PrivacyPage() {
         <li style={s.li}><strong>Export:</strong> Export contacts and data via CSV at any time</li>
         <li style={s.li}><strong>Correction:</strong> Edit or update your information at any time</li>
         <li style={s.li}><strong>Deletion:</strong> Request deletion of your account and all associated data by contacting us</li>
-        <li style={s.li}><strong>Disconnect:</strong> Revoke Gmail, Outlook, or Stripe access at any time in Settings</li>
+        <li style={s.li}><strong>Disconnect:</strong> Revoke Google, Outlook, or Stripe access at any time in Settings</li>
         <li style={s.li}><strong>Google Revocation:</strong> Revoke Google access at <a href="https://myaccount.google.com/permissions" style={s.link}>Google Account Permissions</a></li>
         <li style={s.li}><strong>Feature Control:</strong> Enable or disable Brand Voice Engine, AI features, and individual integrations independently in Settings</li>
       </ul>
