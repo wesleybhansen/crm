@@ -624,7 +624,9 @@ async function handleSmsConversation(
     audiences: Audience[]
   },
 ): Promise<'queued' | 'sent' | 'skipped'> {
-  const { conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber, signature, byoKey, flagScenarios, drafterScenarios, audiences } = args
+  // drafterScenarios is re-derived per-conversation below (audience-gated), so the
+  // pre-built set from the caller is intentionally not destructured here.
+  const { conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber, signature, byoKey, flagScenarios, audiences } = args
 
   // Resolve the customer's phone number: prefer the conversation avatar_phone,
   // else the contact's primary_phone. We need it both to load the transcript and
@@ -673,6 +675,14 @@ async function handleSmsConversation(
   const inbound = [...smsMessages].reverse().find((m: any) => m.direction === 'inbound')
   if (!inbound) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
 
+  // Audience-gate the content scenarios for this sender (parity with email).
+  const contactIsNew = smsMessages.length <= 1
+  const applicableScenarios = flagScenarios.filter((s) => {
+    if (s.audience && s.audience.startsWith('aud:')) return scenarioAudienceMatches(s.audience, senderMatch)
+    return !s.audience || s.audience === 'anyone' || (s.audience === 'new' && contactIsNew) || (s.audience === 'existing' && !contactIsNew)
+  })
+  const smsDrafterScenarios = toDrafterScenarios(applicableScenarios)
+
   // Confirm the latest inbound really went to the dedicated CS number. The
   // conversation marker was set by the webhook, but re-check defensively.
   if (normalizeE164(inbound.to_number) !== csSmsNumber) {
@@ -694,7 +704,7 @@ async function handleSmsConversation(
     recentMessages,
     contactId,
     signature: null,
-    flagScenarios: drafterScenarios,
+    flagScenarios: smsDrafterScenarios,
     criticGate: mode === 'hybrid',
     conversationId: conv.id,
   })
@@ -716,7 +726,7 @@ async function handleSmsConversation(
   // auto/hybrid, all-auto_send forces a send. Email the org user on any flag.
   const matched = result.matchedScenarios || []
   const flagged = matched.length > 0
-  const flagOutcome = flagged ? resolveFlagOutcome(matched, flagScenarios) : null
+  const flagOutcome = flagged ? resolveFlagOutcome(matched, applicableScenarios) : null
   // A "don't draft" content rule matched — discard the draft and move on.
   if (flagOutcome?.noDraft) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
   const flagMeta = flagged ? { flagged: true, flagReasons: flagOutcome?.reasons || [] } : undefined
