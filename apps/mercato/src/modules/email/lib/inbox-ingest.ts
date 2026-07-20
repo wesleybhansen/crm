@@ -161,7 +161,12 @@ export async function ingestImapConnection(
         knex, orgId, tenantId, email.fromEmail, email.fromName, autoCreate, source,
       )
       if (created) contactsCreated++
-      if (!contactId) continue // auto-create off and contact not found
+      // When auto-create is OFF (personal inbox) and the sender isn't a known
+      // contact, STILL ingest the message with a null contact — the inbox shows ALL
+      // mail and the conversation keys off the email address. Previously this
+      // `continue`d, silently dropping every message from a non-contact (newsletters,
+      // receipts, first-time senders), which is why new inbox mail never appeared.
+      // (CS ingest passes autoCreate=true, so contactId is always set there.)
 
       const msgId = crypto.randomUUID()
       const safeSub = sanitize(email.subject) || '(no subject)'
