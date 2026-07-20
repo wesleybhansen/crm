@@ -272,6 +272,14 @@ export async function POST(req: Request) {
         const parsed = typeof md === 'string' ? (() => { try { return JSON.parse(md || 'null') } catch { return null } })() : md
         return !!(parsed && (parsed as Record<string, unknown>).read === true)
       }
+      // The From-header display name ("Walmart.com"), stored at sync time. Only
+      // meaningful on inbound rows (outbound from_name is the user themselves).
+      const fromNameOf = (m: Record<string, unknown>): string => {
+        const md = m.metadata
+        const parsed = typeof md === 'string' ? (() => { try { return JSON.parse(md || 'null') } catch { return null } })() : md
+        const n = parsed && (parsed as Record<string, unknown>).from_name
+        return typeof n === 'string' && n.trim() ? n.trim() : ''
+      }
       const threads = new Map<string, Record<string, unknown>>()
       const contactIds = new Set<string>()
       for (const m of rows) {
@@ -285,6 +293,7 @@ export async function POST(req: Request) {
             key,
             contactId: m.contact_id || null,
             address: o,
+            fromName: m.direction === 'inbound' ? fromNameOf(m) : '',
             subject: m.subject || '(no subject)',
             preview: bodyToText(m).slice(0, 160),
             at: m.sent_at || m.created_at,
@@ -296,6 +305,11 @@ export async function POST(req: Request) {
         } else {
           existing.count = (existing.count as number) + 1
           if (inboundUnread) existing.unread = true
+          // Backfill the display name from an inbound message if the newest was outbound.
+          if (!existing.fromName && m.direction === 'inbound') {
+            const fn = fromNameOf(m)
+            if (fn) existing.fromName = fn
+          }
         }
       }
       const names: Record<string, string> = {}
@@ -308,9 +322,9 @@ export async function POST(req: Request) {
       }
       const data = [...threads.values()].slice(0, limit).map((t) => ({
         ...t,
-        // Contact's name if we have one, otherwise the FULL email address (not just
-        // the local part — "payments-noreply@google.com", not "payments-noreply").
-        name: (t.contactId && names[String(t.contactId)]) || String(t.address),
+        // Like Gmail: the contact's name, else the From-header display name
+        // ("Walmart.com"), else the full email address as a last resort.
+        name: (t.contactId && names[String(t.contactId)]) || (t.fromName as string) || String(t.address),
       }))
       return NextResponse.json({ ok: true, data })
     }

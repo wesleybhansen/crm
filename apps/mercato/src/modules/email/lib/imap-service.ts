@@ -257,6 +257,48 @@ export async function fetchImapInbox(
   }
 }
 
+/* List the Message-IDs of EVERY message currently in the INBOX since `sinceDate`
+ * (envelope-only fetch — light). Used to reconcile the local mirror: any locally
+ * stored message no longer in this set was deleted or archived in Gmail. Returns
+ * null on any failure so the caller NEVER deletes on an incomplete/failed read. */
+export async function listInboxMessageIds(config: ImapConfig, sinceDate: Date): Promise<Set<string> | null> {
+  const client = buildClient(config)
+  try {
+    await client.connect()
+  } catch {
+    return null
+  }
+  const ids = new Set<string>()
+  let ok = true
+  try {
+    await client.mailboxOpen('INBOX')
+    const since = new Date(sinceDate)
+    since.setHours(0, 0, 0, 0)
+    const uids = await client.search({ since }, { uid: true })
+    if (uids && uids.length) {
+      const CHUNK = 300
+      for (let ci = 0; ci < uids.length; ci += CHUNK) {
+        try {
+          for await (const msg of client.fetch(uids.slice(ci, ci + CHUNK), { envelope: true }, { uid: true })) {
+            const mid = (msg.envelope?.messageId || '').replace(/[<>]/g, '').trim()
+            // Fallback to the UID string, matching the ingest's messageId fallback.
+            ids.add(mid || String(msg.uid))
+          }
+        } catch {
+          // A chunk failed — we can no longer trust completeness, so bail out.
+          ok = false
+          break
+        }
+      }
+    }
+  } catch {
+    ok = false
+  } finally {
+    await client.logout().catch(() => {})
+  }
+  return ok ? ids : null
+}
+
 export async function fetchImapSent(
   config: ImapConfig,
   sinceDate: Date,

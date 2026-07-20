@@ -16,7 +16,7 @@
 
 import type { Knex } from 'knex'
 import crypto from 'crypto'
-import { fetchImapInbox } from '@/modules/email/lib/imap-service'
+import { fetchImapInbox, listInboxMessageIds } from '@/modules/email/lib/imap-service'
 import { upsertInboxConversation } from '@/lib/inbox-conversation'
 
 export interface ImapConnectionRow {
@@ -155,7 +155,25 @@ export async function ingestImapConnection(
         .where('organization_id', orgId)
         .whereRaw(`metadata->>'provider_message_id' = ?`, [String(email.messageId)])
         .first()
-      if (existingMsg) continue
+      if (existingMsg) {
+        // Backfill the sender's display name onto rows synced before we stored it,
+        // so the inbox can show "Walmart.com" instead of the raw address.
+        if (email.fromName) {
+          const meta = (() => {
+            try {
+              return typeof existingMsg.metadata === 'string' ? JSON.parse(existingMsg.metadata || '{}') : existingMsg.metadata || {}
+            } catch {
+              return {}
+            }
+          })()
+          if (!meta.from_name) {
+            await knex('email_messages')
+              .where('id', existingMsg.id)
+              .update({ metadata: JSON.stringify({ ...meta, from_name: email.fromName }) })
+          }
+        }
+        continue
+      }
 
       const { contactId, created } = await findOrCreateContact(
         knex, orgId, tenantId, email.fromEmail, email.fromName, autoCreate, source,
@@ -195,6 +213,9 @@ export async function ingestImapConnection(
         metadata: JSON.stringify({
           provider_message_id: String(email.messageId),
           source,
+          // Sender's display name from the From header ("Walmart.com" etc.) so the
+          // inbox can show it like Gmail does, not the raw address.
+          from_name: email.fromName || null,
           // Keep the small header allow-list so downstream automated/bulk-mail
           // detection (Customer Service skip) has Precedence/Auto-Submitted/
           // List-Unsubscribe/List-Id without re-fetching from IMAP.
@@ -219,6 +240,45 @@ export async function ingestImapConnection(
       emailsProcessed++
     } catch (err: any) {
       errors.push(`Email ${email.messageId}: ${err?.message || 'unknown'}`)
+    }
+  }
+
+  // Mirror deletions/archives: anything we stored that is no longer in the Gmail
+  // INBOX window was deleted or archived there, so soft-delete our copy. Only the
+  // personal inbox mirrors a live mailbox 1:1 (CS mail is a queue, not a mirror).
+  // Reconcile over the wider of the sync window or 30 days so the frequent 3-day
+  // cron still cleans up older archives without a deep backfill.
+  if (source === 'personal_inbox') {
+    try {
+      const reconcileSince = new Date(Math.min(opts.sinceDate.getTime(), Date.now() - 30 * 24 * 60 * 60 * 1000))
+      const liveIds = await listInboxMessageIds(imapConfig, reconcileSince)
+      // NEVER delete on a failed/empty read — an IMAP hiccup must not wipe the inbox.
+      if (liveIds && liveIds.size > 0) {
+        const rows = await knex('email_messages')
+          .where('organization_id', orgId)
+          .where('account_id', conn.id)
+          .where('direction', 'inbound')
+          .whereNull('deleted_at')
+          .where('sent_at', '>=', reconcileSince)
+          .whereRaw(`metadata->>'source' = ?`, [source])
+          .select('id', 'metadata')
+        const now = new Date()
+        for (const r of rows) {
+          const meta = (() => {
+            try {
+              return typeof r.metadata === 'string' ? JSON.parse(r.metadata || '{}') : r.metadata || {}
+            } catch {
+              return {}
+            }
+          })()
+          const pmid = String(meta.provider_message_id || '')
+          if (pmid && !liveIds.has(pmid)) {
+            await knex('email_messages').where('id', r.id).update({ deleted_at: now, updated_at: now })
+          }
+        }
+      }
+    } catch (recErr: any) {
+      errors.push(`reconcile: ${recErr?.message || 'failed'}`)
     }
   }
 
