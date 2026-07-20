@@ -115,6 +115,9 @@ async function approveDraft(knex: Knex, auth: Auth, actionId: string, editedBody
   const originalBody = (payload.body as string) || ''
   const bodyText = editedBody !== undefined && editedBody.trim().length > 0 ? editedBody : originalBody
   const contactId = (payload.contactId as string) || null
+  // Personal-inbox replies (feature_source='inbox') are 1:1 correspondence — send
+  // them clean (no tracking pixel / link wrapping / unsubscribe footer).
+  const isPersonal = safeParse(action.metadata).feature_source === 'inbox'
 
   if (channel === 'chat') {
     if (!bodyText) return { ok: false, error: 'Draft is missing a body', status: 400 }
@@ -156,7 +159,7 @@ async function approveDraft(knex: Knex, auth: Auth, actionId: string, editedBody
   } else if (channel === 'sms') {
     sendResult = await sendSmsReply(knex, auth.orgId, auth.tenantId, { to: to!, body: bodyText, contactId })
   } else {
-    sendResult = await sendReply(knex, auth.orgId, auth.tenantId, { to: to!, subject, body: bodyText, contactId, sentByUserId: auth.userId })
+    sendResult = await sendReply(knex, auth.orgId, auth.tenantId, { to: to!, subject, body: bodyText, contactId, sentByUserId: auth.userId, skipTracking: isPersonal })
   }
 
   if (!sendResult.ok) {

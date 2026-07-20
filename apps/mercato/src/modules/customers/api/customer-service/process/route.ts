@@ -423,6 +423,13 @@ export async function POST(req: Request) {
             // the reply mode or content flags say.
             const audiencePause = senderMatch.action === 'pause'
             if (audiencePause) shouldAutoSend = false
+            // Audience 'auto_send' (trusted senders): in hybrid mode, treat as
+            // auto-send-safe (skip the confidence gate). Never overrides a content
+            // pause, and draft mode still holds everything. The kill switch + hourly
+            // cap downstream still apply.
+            if (senderMatch.action === 'auto_send' && effMode === 'hybrid' && !flagOutcome?.shouldPause) {
+              shouldAutoSend = true
+            }
 
             // Common flag metadata for the proposal/action rows.
             const audienceReasons = audiencePause

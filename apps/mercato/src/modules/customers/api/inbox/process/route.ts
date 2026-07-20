@@ -264,6 +264,11 @@ export async function POST(req: Request) {
             // Audience 'pause' (e.g. VIP contacts): always hold for review.
             const audiencePause = senderMatch.action === 'pause'
             if (audiencePause) shouldAutoSend = false
+            // Audience 'auto_send': in hybrid mode, treat as auto-send-safe (skip the
+            // confidence gate). Never overrides a content pause; draft mode still holds.
+            if (senderMatch.action === 'auto_send' && mode === 'hybrid' && !flagOutcome?.shouldPause) {
+              shouldAutoSend = true
+            }
 
             const audienceReasons = audiencePause
               ? [{ key: 'audience_pause', label: 'Held for review: message from a review-first audience' }]
@@ -279,6 +284,8 @@ export async function POST(req: Request) {
                 subject,
                 body: result.draft,
                 contactId,
+                // Personal inbox = 1:1 mail; no tracking/unsubscribe injection.
+                skipTracking: true,
               })
 
               if (sendResult.ok) {

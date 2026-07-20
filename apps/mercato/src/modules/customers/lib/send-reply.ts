@@ -26,6 +26,10 @@ export type SendReplyInput = {
   // Optional id of the user who triggered the send (approve flow). Auto-send
   // from the cron leaves this null.
   sentByUserId?: string | null
+  // Personal-inbox replies are 1:1 correspondence, NOT marketing/CS mail — skip the
+  // open-tracking pixel, link wrapping, and unsubscribe footer (which would be wrong
+  // and spammy on a reply to a colleague). Defaults to the tracked CS behavior.
+  skipTracking?: boolean
 }
 
 export type SendReplyResult = {
@@ -73,9 +77,14 @@ export async function sendReply(
   const trackingId = crypto.randomUUID()
   const bodyHtml = bodyText.replace(/\n/g, '<br>')
 
-  let trackedHtml = sender.injectTrackingPixel(bodyHtml, trackingId, baseUrl)
-  trackedHtml = sender.wrapLinksForTracking(trackedHtml, trackingId, baseUrl)
-  if (contactId) trackedHtml = sender.injectUnsubscribeLink(trackedHtml, contactId, baseUrl)
+  // Personal replies go out clean; CS/marketing replies get open-tracking + link
+  // wrapping + an unsubscribe footer.
+  let trackedHtml = bodyHtml
+  if (!input.skipTracking) {
+    trackedHtml = sender.injectTrackingPixel(bodyHtml, trackingId, baseUrl)
+    trackedHtml = sender.wrapLinksForTracking(trackedHtml, trackingId, baseUrl)
+    if (contactId) trackedHtml = sender.injectUnsubscribeLink(trackedHtml, contactId, baseUrl)
+  }
 
   const routerResult = await sendEmailForOrg(knex, orgId, tenantId, connection.user_id, {
     to,
