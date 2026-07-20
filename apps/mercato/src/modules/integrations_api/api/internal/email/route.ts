@@ -245,7 +245,7 @@ export async function POST(req: Request) {
     }
 
     if (op === 'threads') {
-      const limit = Math.min(150, Math.max(1, Number(body.limit) || 100))
+      const limit = Math.min(400, Math.max(1, Number(body.limit) || 100))
       const showArchived = body.archived === true
       const mine = await myAddresses()
       if (mine.length === 0) return NextResponse.json({ ok: true, data: [] })
