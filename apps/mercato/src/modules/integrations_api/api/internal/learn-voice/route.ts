@@ -154,7 +154,28 @@ export async function POST(req: Request) {
     const knex = (container.resolve('em') as EntityManager).getKnex() as Knex
 
     if (op === 'get') {
-      return NextResponse.json({ ok: true, data: await loadProfile(knex, auth.orgId) })
+      const profile = await loadProfile(knex, auth.orgId)
+      const settings = await knex('inbox_ai_settings').where('organization_id', auth.orgId).first()
+      return NextResponse.json({ ok: true, data: { ...profile, autoLearn: settings?.voice_auto_learn === true } })
+    }
+
+    if (op === 'set-auto') {
+      // Toggle "learn my writing voice automatically". Enabling stores the flag;
+      // the client then triggers an immediate 'learn' so it's populated right away,
+      // and the personal-inbox sync re-learns periodically after that.
+      const enabled = body.enabled === true
+      const existing = await knex('inbox_ai_settings').where('organization_id', auth.orgId).first()
+      if (existing) {
+        await knex('inbox_ai_settings').where('id', existing.id).update({ voice_auto_learn: enabled, updated_at: new Date() })
+      } else {
+        await knex('inbox_ai_settings').insert({
+          id: crypto.randomUUID(),
+          tenant_id: auth.tenantId,
+          organization_id: auth.orgId,
+          voice_auto_learn: enabled,
+        })
+      }
+      return NextResponse.json({ ok: true, data: { autoLearn: enabled } })
     }
 
     if (op === 'learn') {

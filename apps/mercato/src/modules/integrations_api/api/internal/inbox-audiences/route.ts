@@ -62,6 +62,21 @@ function normEmails(raw: unknown): string[] {
   return out
 }
 
+function normListIds(raw: unknown): string[] {
+  const arr = Array.isArray(raw) ? raw : []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const v of arr) {
+    const s = String(v || '').trim()
+    if (/^[0-9a-fA-F-]{16,}$/.test(s) && !seen.has(s)) {
+      seen.add(s)
+      out.push(s)
+    }
+    if (out.length >= 100) break
+  }
+  return out
+}
+
 function normStages(raw: unknown): string[] {
   const arr = Array.isArray(raw) ? raw : []
   const out: string[] = []
@@ -91,12 +106,17 @@ function serialize(row: Record<string, any>) {
     }
     return []
   }
+  const crmListIds = (() => {
+    const arr = parse(row.crm_list_ids)
+    if (arr.length) return arr
+    return row.crm_list_id ? [String(row.crm_list_id)] : []
+  })()
   return {
     id: String(row.id),
     name: String(row.name || ''),
     action: VALID_ACTIONS.has(row.action) ? row.action : 'no_draft',
     emails: parse(row.emails),
-    crmListId: row.crm_list_id ? String(row.crm_list_id) : null,
+    crmListIds,
     contactStages: parse(row.contact_stages),
     isDefaultTeam: row.is_default_team === true,
   }
@@ -197,7 +217,7 @@ export async function POST(req: Request) {
       const action = VALID_ACTIONS.has(String(body.action)) ? String(body.action) : 'no_draft'
       const emails = normEmails(body.emails)
       const stages = normStages(body.contactStages)
-      const crmListId = typeof body.crmListId === 'string' && body.crmListId ? body.crmListId : null
+      const crmListIds = normListIds(body.crmListIds)
       const id = crypto.randomUUID()
       await knex('inbox_audiences').insert({
         id,
@@ -206,7 +226,7 @@ export async function POST(req: Request) {
         name,
         action,
         emails: JSON.stringify(emails),
-        crm_list_id: crmListId,
+        crm_list_ids: JSON.stringify(crmListIds),
         contact_stages: JSON.stringify(stages),
         is_default_team: false,
       })
@@ -223,7 +243,7 @@ export async function POST(req: Request) {
       if (VALID_ACTIONS.has(String(body.action))) patch.action = String(body.action)
       if (body.emails !== undefined) patch.emails = JSON.stringify(normEmails(body.emails))
       if (body.contactStages !== undefined) patch.contact_stages = JSON.stringify(normStages(body.contactStages))
-      if (body.crmListId !== undefined) patch.crm_list_id = typeof body.crmListId === 'string' && body.crmListId ? body.crmListId : null
+      if (body.crmListIds !== undefined) patch.crm_list_ids = JSON.stringify(normListIds(body.crmListIds))
       await knex('inbox_audiences').where('id', id).where('organization_id', auth.orgId).update(patch)
       return NextResponse.json({ ok: true, data: await listAll(knex, auth) })
     }

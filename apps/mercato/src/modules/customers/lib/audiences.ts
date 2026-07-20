@@ -20,7 +20,7 @@ export type Audience = {
   name: string
   action: AudienceAction
   emails: string[]
-  crmListId: string | null
+  crmListIds: string[]
   contactStages: string[]
   isDefaultTeam: boolean
 }
@@ -53,7 +53,12 @@ function toAudience(row: Record<string, any>): Audience {
     name: String(row.name || ''),
     action: normAction(row.action),
     emails: asStringArray(row.emails),
-    crmListId: row.crm_list_id ? String(row.crm_list_id) : null,
+    // Prefer the multi-list array; fall back to the legacy single crm_list_id.
+    crmListIds: (() => {
+      const arr = asStringArray(row.crm_list_ids)
+      if (arr.length) return arr
+      return row.crm_list_id ? [String(row.crm_list_id).toLowerCase()] : []
+    })(),
     contactStages: asStringArray(row.contact_stages),
     isDefaultTeam: row.is_default_team === true,
   }
@@ -114,20 +119,18 @@ export async function resolveSenderAudiences(
   const stage = (contact?.lifecycle_stage || '').toString().trim().toLowerCase()
   const contactId = contact?.id ? String(contact.id) : null
 
-  // CRM-list membership: one query for all list-linked audiences, only if we have a contact.
+  // CRM-list membership: one query across every list any audience links to, only
+  // if we have a contact. list_id comparison is lowercased to match crmListIds.
   let memberListIds = new Set<string>()
-  const listLinked = audiences.filter((a) => a.crmListId)
-  if (contactId && listLinked.length) {
+  const allListIds = [...new Set(audiences.flatMap((a) => a.crmListIds))]
+  if (contactId && allListIds.length) {
     try {
       const rows = await knex('email_list_members')
         .where('organization_id', orgId)
         .where('contact_id', contactId)
-        .whereIn(
-          'list_id',
-          listLinked.map((a) => a.crmListId),
-        )
+        .whereRaw('lower(list_id::text) = any(?)', [allListIds])
         .pluck('list_id')
-      memberListIds = new Set((rows as string[]).map((x) => String(x)))
+      memberListIds = new Set((rows as string[]).map((x) => String(x).toLowerCase()))
     } catch {
       memberListIds = new Set()
     }
@@ -136,7 +139,7 @@ export async function resolveSenderAudiences(
   for (const a of audiences) {
     const byEmail = emailMatches(a.emails, email)
     const byStage = stage && a.contactStages.includes(stage)
-    const byList = a.crmListId ? memberListIds.has(a.crmListId) : false
+    const byList = a.crmListIds.some((id) => memberListIds.has(id))
     if (byEmail || byStage || byList) {
       matchedIds.add(a.id)
       if (a.isDefaultTeam) teamMatched = true
