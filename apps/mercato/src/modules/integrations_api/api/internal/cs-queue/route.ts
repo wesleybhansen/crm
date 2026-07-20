@@ -40,6 +40,17 @@ function stripHtml(html: string): string {
 
 type Auth = { userId: string; orgId: string; tenantId: string }
 
+// A personal draft (feature_source='inbox') is private to the user whose mailbox
+// received the message. Returns true when this auth is NOT allowed to touch it.
+// CS drafts are shared org-wide; legacy inbox drafts with no stamped owner stay open.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function notOwner(action: { metadata?: any }, auth: Auth): boolean {
+  const meta = safeParse(action.metadata)
+  if (meta.feature_source !== 'inbox') return false
+  const owner = meta.owner_user_id
+  return typeof owner === 'string' && owner.length > 0 && owner !== auth.userId
+}
+
 async function resolveAuth(noliUserId: string): Promise<Auth | null> {
   const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
   const noliUser = await findNoliUserById(noliUserId)
@@ -54,7 +65,7 @@ async function resolveAuth(noliUserId: string): Promise<Auth | null> {
 type Knex = any
 
 async function listDrafts(knex: Knex, auth: Auth, limit: number, source: string) {
-  const actions = await knex('inbox_proposal_actions as a')
+  let q = knex('inbox_proposal_actions as a')
     .join('inbox_proposals as p', 'p.id', 'a.proposal_id')
     .where('a.organization_id', auth.orgId)
     .where('a.tenant_id', auth.tenantId)
@@ -62,6 +73,13 @@ async function listDrafts(knex: Knex, auth: Auth, limit: number, source: string)
     .where('a.status', 'pending')
     .whereRaw(`a.metadata->>'feature_source' = ?`, [source])
     .where('p.status', 'pending')
+  // Personal drafts are private to the user whose mailbox received the message.
+  // In a solo org this is a no-op (one mailbox -> one user); legacy drafts with no
+  // stamped owner stay visible. CS drafts are shared across the org (no owner scope).
+  if (source === 'inbox') {
+    q = q.whereRaw(`(a.metadata->>'owner_user_id' = ? OR a.metadata->>'owner_user_id' IS NULL)`, [auth.userId])
+  }
+  const actions = await q
     .select('a.id as action_id', 'a.proposal_id', 'a.payload', 'a.created_at', 'a.metadata as action_metadata', 'p.summary', 'p.participants')
     .orderBy('a.created_at', 'desc')
     .limit(limit)
@@ -105,6 +123,7 @@ async function approveDraft(knex: Knex, auth: Auth, actionId: string, editedBody
     .whereRaw(`metadata->>'feature_source' in (?, ?)`, ['customer_service', 'inbox'])
     .first()
   if (!action) return { ok: false, error: 'Draft not found', status: 404 }
+  if (notOwner(action, auth)) return { ok: false, error: 'Draft not found', status: 404 }
   if (action.status === 'sent') return { ok: false, error: 'Draft already sent', status: 409 }
   if (action.status === 'dismissed') return { ok: false, error: 'Draft was dismissed', status: 409 }
 
@@ -235,6 +254,7 @@ async function dismissDraft(knex: Knex, auth: Auth, actionId: string) {
     .whereRaw(`metadata->>'feature_source' in (?, ?)`, ['customer_service', 'inbox'])
     .first()
   if (!action) return { ok: false, error: 'Draft not found', status: 404 }
+  if (notOwner(action, auth)) return { ok: false, error: 'Draft not found', status: 404 }
   if (action.status === 'sent') return { ok: false, error: 'Draft already sent', status: 409 }
 
   const now = new Date()
@@ -296,7 +316,7 @@ export async function POST(req: Request) {
         .where('action_type', 'draft_reply')
         .whereRaw(`metadata->>'feature_source' in (?, ?)`, ['customer_service', 'inbox'])
         .first()
-      if (action && action.status === 'pending') {
+      if (action && action.status === 'pending' && !notOwner(action, auth)) {
         const meta = safeParse(action.metadata)
         await knex('inbox_proposal_actions').where('id', action.id).update({ metadata: JSON.stringify({ ...meta, auto_scheduled: false }), updated_at: new Date() })
       }

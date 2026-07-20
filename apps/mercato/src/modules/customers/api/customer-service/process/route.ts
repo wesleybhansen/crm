@@ -14,6 +14,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import type { FlagScenarioInput } from '@/modules/customers/lib/draft-reply'
 import { loadAudiences, resolveSenderAudiences, scenarioAudienceMatches } from '@/modules/customers/lib/audiences'
+import type { Audience } from '@/modules/customers/lib/audiences'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
@@ -225,6 +226,16 @@ export async function POST(req: Request) {
 
         for (const conv of conversations) {
           try {
+            // Atomic claim: flip cs_drafted_at now, guarded on it still being NULL,
+            // so overlapping runs can't select + draft the same conversation twice →
+            // double-send. Only the winner proceeds; a new inbound resets the flag.
+            const claimed = await knex('inbox_conversations')
+              .where('id', conv.id)
+              .where('organization_id', orgId)
+              .whereNull('cs_drafted_at')
+              .update({ cs_drafted_at: new Date() })
+            if (!claimed) { skipped++; continue }
+
             // SMS conversations addressed to the dedicated CS number are handled
             // by a separate concise-reply path; everything else that is not email
             // is skipped (this engine only drafts email + dedicated-CS SMS).
@@ -236,6 +247,7 @@ export async function POST(req: Request) {
                   byoKey: !!gate.byoApiKey,
                   flagScenarios,
                   drafterScenarios,
+                  audiences,
                 })
                 if (handled === 'queued') queued++
                 else if (handled === 'sent') autoSent++
@@ -609,9 +621,10 @@ async function handleSmsConversation(
     byoKey: boolean
     flagScenarios: FlagScenario[]
     drafterScenarios: FlagScenarioInput[]
+    audiences: Audience[]
   },
 ): Promise<'queued' | 'sent' | 'skipped'> {
-  const { conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber, signature, byoKey, flagScenarios, drafterScenarios } = args
+  const { conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber, signature, byoKey, flagScenarios, drafterScenarios, audiences } = args
 
   // Resolve the customer's phone number: prefer the conversation avatar_phone,
   // else the contact's primary_phone. We need it both to load the transcript and
@@ -624,6 +637,11 @@ async function handleSmsConversation(
     if (!toPhone) toPhone = normalizeE164(contact?.primary_phone)
   }
   if (!toPhone) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
+
+  // Audience (identity) handling for SMS — match by the contact's email/stage/CRM
+  // list. no_draft -> skip before AI; pause/auto_send handled at the send decision.
+  const senderMatch = await resolveSenderAudiences(knex, orgId, audiences, contact?.primary_email || null, contact)
+  if (senderMatch.action === 'no_draft') { await markDrafted(knex, conv.id, orgId); return 'skipped' }
 
   // Load the recent SMS transcript for context. Match on contact_id when present,
   // otherwise on the customer phone (from_number for inbound, to_number for
@@ -699,12 +717,18 @@ async function handleSmsConversation(
   const matched = result.matchedScenarios || []
   const flagged = matched.length > 0
   const flagOutcome = flagged ? resolveFlagOutcome(matched, flagScenarios) : null
+  // A "don't draft" content rule matched — discard the draft and move on.
+  if (flagOutcome?.noDraft) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
   const flagMeta = flagged ? { flagged: true, flagReasons: flagOutcome?.reasons || [] } : undefined
 
   let shouldAutoSend = false
   if (mode === 'auto') shouldAutoSend = true
   else if (mode === 'hybrid') shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
   if (flagOutcome) shouldAutoSend = flagOutcome.shouldPause ? false : true
+  // Audience identity actions: 'pause' always holds; 'auto_send' relaxes the hybrid
+  // gate (never over a content pause; draft mode still holds).
+  if (senderMatch.action === 'pause') shouldAutoSend = false
+  if (senderMatch.action === 'auto_send' && mode === 'hybrid' && !flagOutcome?.shouldPause) shouldAutoSend = true
 
   // Fire the flag alert once, regardless of which branch handles the draft.
   const fireAlert = async (paused: boolean) => {

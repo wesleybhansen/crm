@@ -14,6 +14,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import type { FlagScenarioInput } from '@/modules/customers/lib/draft-reply'
 import { loadAudiences, resolveSenderAudiences, scenarioAudienceMatches } from '@/modules/customers/lib/audiences'
+import type { Audience } from '@/modules/customers/lib/audiences'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
@@ -74,6 +75,19 @@ export async function POST(req: Request) {
       const drafterScenarios = toDrafterScenarios(flagScenarios)
       // Audiences (My team / Customers / …) — identity-based handling for this org.
       const audiences = await loadAudiences(knex, orgId)
+      // Map each connected personal mailbox address -> its owning user, so a draft
+      // can be stamped with the user whose inbox it belongs to. This scopes the
+      // dashboard queue per-user in team orgs (a solo org has one mailbox -> one user).
+      const personalConns = await knex('email_connections')
+        .where('organization_id', orgId)
+        .where('is_active', true)
+        .whereNull('purpose')
+        .select('email_address', 'user_id')
+      const mailboxOwners = new Map<string, string>(
+        (personalConns as Array<{ email_address?: string; user_id?: string }>)
+          .filter((c) => c.email_address && c.user_id)
+          .map((c) => [String(c.email_address).toLowerCase(), String(c.user_id)]),
+      )
       let queued = 0
       let autoSent = 0
       let skipped = 0
@@ -108,6 +122,17 @@ export async function POST(req: Request) {
 
         for (const conv of conversations) {
           try {
+            // Atomic claim: flip inbox_drafted_at now, guarded on it still being
+            // NULL, so an overlapping run (cron overlap, or cron + a manual trigger)
+            // can't select and draft the same conversation twice → double-send. Only
+            // the winner (rowcount 1) proceeds; a new inbound later resets the flag.
+            const claimed = await knex('inbox_conversations')
+              .where('id', conv.id)
+              .where('organization_id', orgId)
+              .whereNull('inbox_drafted_at')
+              .update({ inbox_drafted_at: new Date() })
+            if (!claimed) { skipped++; continue }
+
             // SMS personal-inbox conversations are drafted by a separate
             // concise-reply path (mirrors the Customer Service SMS handling):
             // pull the transcript from sms_messages, draft with channel 'sms',
@@ -119,6 +144,7 @@ export async function POST(req: Request) {
                 byoKey: !!gate.byoApiKey,
                 flagScenarios,
                 drafterScenarios,
+                audiences,
               })
               if (handled === 'queued') queued++
               else if (handled === 'sent') autoSent++
@@ -175,6 +201,10 @@ export async function POST(req: Request) {
               skipped++
               continue
             }
+
+            // The user whose personal mailbox received this message — stamped on the
+            // draft so only they see/approve it in the dashboard queue.
+            const ownerUserId = mailboxOwners.get(String(inbound.to_address || '').toLowerCase()) || null
 
             // Audience-scoped guardrails: a content rule targeting a named audience
             // ('aud:*') applies only when the sender is in it; 'new'/'existing' gate on
@@ -301,6 +331,7 @@ export async function POST(req: Request) {
                   displayName,
                   toEmail,
                   contactId,
+                  ownerUserId,
                   conversationId: conv.id,
                   subject,
                   body: result.draft,
@@ -319,6 +350,7 @@ export async function POST(req: Request) {
                   displayName,
                   toEmail,
                   contactId,
+                  ownerUserId,
                   conversationId: conv.id,
                   subject,
                   body: result.draft,
@@ -335,6 +367,7 @@ export async function POST(req: Request) {
                 displayName,
                 toEmail,
                 contactId,
+                ownerUserId,
                 conversationId: conv.id,
                 subject,
                 body: result.draft,
@@ -426,9 +459,10 @@ async function handleSmsConversation(
     byoKey: boolean
     flagScenarios: FlagScenario[]
     drafterScenarios: FlagScenarioInput[]
+    audiences: Audience[]
   },
 ): Promise<'queued' | 'sent' | 'skipped'> {
-  const { conv, orgId, tenantId, mode, hybridThreshold, byoKey, flagScenarios, drafterScenarios } = args
+  const { conv, orgId, tenantId, mode, hybridThreshold, byoKey, flagScenarios, drafterScenarios, audiences } = args
 
   // Resolve the customer's phone number: prefer the conversation avatar_phone,
   // else the contact's primary_phone. Needed both to load the transcript and as
@@ -441,6 +475,11 @@ async function handleSmsConversation(
     if (!toPhone) toPhone = normalizeE164(contact?.primary_phone)
   }
   if (!toPhone) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
+
+  // Audience (identity) handling for SMS — match by the contact's email/stage/CRM
+  // list (there is no inbound email address on a text). no_draft -> skip before AI.
+  const senderMatch = await resolveSenderAudiences(knex, orgId, audiences, contact?.primary_email || null, contact)
+  if (senderMatch.action === 'no_draft') { await markDrafted(knex, conv.id, orgId); return 'skipped' }
 
   // Load the recent SMS transcript for context, org-scoped. Match on contact_id
   // when present, otherwise on the customer phone (from_number for inbound,
@@ -503,12 +542,18 @@ async function handleSmsConversation(
   const matched = result.matchedScenarios || []
   const flagged = matched.length > 0
   const flagOutcome = flagged ? resolveFlagOutcome(matched, flagScenarios) : null
+  // A "don't draft" content rule matched — discard the draft and move on.
+  if (flagOutcome?.noDraft) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
   const flagMeta = flagged ? { flagged: true, flagReasons: flagOutcome?.reasons || [] } : undefined
 
   let shouldAutoSend = false
   if (mode === 'auto') shouldAutoSend = true
   else if (mode === 'hybrid') shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
   if (flagOutcome) shouldAutoSend = flagOutcome.shouldPause ? false : true
+  // Audience identity actions: 'pause' always holds; 'auto_send' relaxes the hybrid
+  // gate (never over a content pause; draft mode still holds).
+  if (senderMatch.action === 'pause') shouldAutoSend = false
+  if (senderMatch.action === 'auto_send' && mode === 'hybrid' && !flagOutcome?.shouldPause) shouldAutoSend = true
 
   // Fire the flag alert once, regardless of which branch handles the draft.
   const fireAlert = async (paused: boolean) => {
@@ -716,6 +761,7 @@ async function createDraftProposal(
     confidence?: number
     status?: 'pending' | 'sent'
     flag?: { flagged: boolean; flagReasons: Array<{ key: string; label: string }> }
+    ownerUserId?: string | null
   },
 ) {
   const now = new Date()
@@ -781,6 +827,7 @@ async function createDraftProposal(
     confidence: conf,
     metadata: JSON.stringify({
       feature_source: 'inbox',
+      owner_user_id: d.ownerUserId || null,
       auto_sent: isSent,
       channel: 'email',
       flagged: d.flag?.flagged === true,
