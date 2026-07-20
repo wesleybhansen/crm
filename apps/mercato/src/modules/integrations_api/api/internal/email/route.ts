@@ -36,7 +36,21 @@ async function resolveAuth(noliUserId: string): Promise<Auth | null> {
 type Knex = any
 
 function stripHtml(html: string): string {
-  return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  return String(html || '')
+    // Drop non-content blocks whose INNER text would otherwise leak (e.g. a
+    // newsletter's `<style>#outlook a { padding:0 }</style>` showing as the preview).
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#\d+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 // Turn a raw email body into readable text: drop tracking-URL clutter (bracketed
@@ -242,9 +256,11 @@ export async function POST(req: Request) {
         .whereNull('deleted_at')
         .whereRaw("coalesce((metadata->>'archived')::boolean, false) = ?", [showArchived])
         .where((qb: Knex) => qb.whereIn('to_address', mine).orWhereIn('from_address', mine))
-        .orderBy('created_at', 'desc')
+        // Order by the real email date (sent_at), NOT ingest time — otherwise a
+        // backfill makes every message look like it just arrived.
+        .orderByRaw('coalesce(sent_at, created_at) desc')
         .limit(1500)
-        .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'direction', 'contact_id', 'metadata')
+        .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'sent_at', 'direction', 'contact_id', 'metadata')
 
       const other = (m: Record<string, unknown>): string => {
         const from = String(m.from_address || '').toLowerCase()
@@ -271,7 +287,7 @@ export async function POST(req: Request) {
             address: o,
             subject: m.subject || '(no subject)',
             preview: bodyToText(m).slice(0, 160),
-            at: m.created_at,
+            at: m.sent_at || m.created_at,
             lastDirection: m.direction,
             count: 1,
             unread: inboundUnread,
@@ -292,7 +308,9 @@ export async function POST(req: Request) {
       }
       const data = [...threads.values()].slice(0, limit).map((t) => ({
         ...t,
-        name: (t.contactId && names[String(t.contactId)]) || String(t.address).split('@')[0] || t.address,
+        // Contact's name if we have one, otherwise the FULL email address (not just
+        // the local part — "payments-noreply@google.com", not "payments-noreply").
+        name: (t.contactId && names[String(t.contactId)]) || String(t.address),
       }))
       return NextResponse.json({ ok: true, data })
     }
@@ -312,9 +330,9 @@ export async function POST(req: Request) {
       // the cap even if a shared address has >100 older rows from other members;
       // reverse to chronological for the reader.
       const rows = await q
-        .orderBy('created_at', 'desc')
+        .orderByRaw('coalesce(sent_at, created_at) desc')
         .limit(100)
-        .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'direction')
+        .select('id', 'from_address', 'to_address', 'subject', 'body_text', 'body_html', 'created_at', 'sent_at', 'direction')
       rows.reverse()
       const messages = rows
         .filter(
@@ -328,13 +346,15 @@ export async function POST(req: Request) {
           to: m.to_address,
           subject: m.subject,
           body: bodyToText(m).slice(0, 8000),
-          at: m.created_at,
+          at: m.sent_at || m.created_at,
         }))
       return NextResponse.json({ ok: true, data: { messages } })
     }
 
     if (op === 'send') {
       const to = typeof body.to === 'string' ? body.to.trim() : ''
+      const cc = typeof body.cc === 'string' ? body.cc.trim() : ''
+      const bcc = typeof body.bcc === 'string' ? body.bcc.trim() : ''
       const subject = typeof body.subject === 'string' ? body.subject : ''
       const text = typeof body.text === 'string' ? body.text : ''
       const html = typeof body.html === 'string' ? body.html : ''
@@ -357,6 +377,8 @@ export async function POST(req: Request) {
       const { sendEmailForOrg } = await import('@/modules/email/lib/email-router')
       const result = await sendEmailForOrg(knex, auth.orgId, auth.tenantId, auth.userId, {
         to,
+        cc: cc || undefined,
+        bcc: bcc || undefined,
         subject,
         htmlBody: html || text,
         textBody: text || undefined,
@@ -374,6 +396,7 @@ export async function POST(req: Request) {
         direction: 'outbound',
         from_address: result.fromAddress || conn.email_address,
         to_address: to,
+        cc: cc || null,
         subject,
         body_html: html || '',
         body_text: text || null,
