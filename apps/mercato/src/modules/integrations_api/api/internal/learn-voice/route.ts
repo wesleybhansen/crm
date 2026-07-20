@@ -95,16 +95,18 @@ async function gatherSentSamples(knex: Knex, auth: Auth): Promise<{ text: string
     .pluck('email_address')) as string[]
   const mineLower = mine.map((a) => String(a || '').toLowerCase()).filter(Boolean)
 
-  let q = knex('email_messages')
+  // Only learn from THIS user's personal mailbox(es). If none are connected, return
+  // nothing rather than falling back to the whole org's outbound (which would learn
+  // from CS/auto-sent mail and, in a team org, other people's mail).
+  if (!mineLower.length) return { text: '', count: 0 }
+
+  const rows = (await knex('email_messages')
     .where('organization_id', auth.orgId)
     .where('direction', 'outbound')
+    .where((qb: Knex) => qb.whereRaw('lower(from_address) = any(?)', [mineLower]))
     .orderBy('created_at', 'desc')
     .limit(60)
-    .select('from_address', 'body_text', 'body_html')
-  if (mineLower.length) {
-    q = q.where((qb: Knex) => qb.whereRaw('lower(from_address) = any(?)', [mineLower]))
-  }
-  const rows = (await q) as Array<{ from_address?: string; body_text?: string; body_html?: string }>
+    .select('from_address', 'body_text', 'body_html')) as Array<{ from_address?: string; body_text?: string; body_html?: string }>
 
   const parts: string[] = []
   let total = 0

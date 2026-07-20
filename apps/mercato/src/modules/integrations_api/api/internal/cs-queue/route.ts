@@ -183,14 +183,19 @@ async function approveDraft(knex: Knex, auth: Auth, actionId: string, editedBody
       originalBody.trim().length > 0 &&
       editedBody.replace(/\s+/g, ' ').trim() !== originalBody.replace(/\s+/g, ' ').trim()
     if (changed) {
-      const title = `Approved reply: ${(subject || 'customer inquiry').replace(/^re:\s*/i, '').slice(0, 120)}`
+      // Capture the correction into the SAME library the matching drafter reads:
+      // personal edits -> inbox_knowledge (drafter reads it), CS edits ->
+      // customer_service_knowledge. Never cross them — private 1:1 correspondence
+      // must not become a customer-facing example answer.
+      const knowledgeTable = isPersonal ? 'inbox_knowledge' : 'customer_service_knowledge'
+      const title = `Approved reply: ${(subject || (isPersonal ? 'message' : 'customer inquiry')).replace(/^re:\s*/i, '').slice(0, 120)}`
       const content = bodyText.slice(0, 6000)
-      const duplicate = await knex('customer_service_knowledge').where('organization_id', auth.orgId).where('kind', 'model_answer').where('content', content).first()
+      const duplicate = await knex(knowledgeTable).where('organization_id', auth.orgId).where('kind', 'model_answer').where('content', content).first()
       if (duplicate && duplicate.is_active === false) {
-        await knex('customer_service_knowledge').where('id', duplicate.id).update({ is_active: true, updated_at: now })
+        await knex(knowledgeTable).where('id', duplicate.id).update({ is_active: true, updated_at: now })
       }
       if (!duplicate) {
-        await knex('customer_service_knowledge').insert({
+        await knex(knowledgeTable).insert({
           id: crypto.randomUUID(),
           tenant_id: auth.tenantId,
           organization_id: auth.orgId,
@@ -201,7 +206,7 @@ async function approveDraft(knex: Knex, auth: Auth, actionId: string, editedBody
           created_at: now,
           updated_at: now,
         })
-        const excess = await knex('customer_service_knowledge')
+        const excess = await knex(knowledgeTable)
           .where('organization_id', auth.orgId)
           .where('kind', 'model_answer')
           .where('title', 'like', 'Approved reply:%')
@@ -210,7 +215,7 @@ async function approveDraft(knex: Knex, auth: Auth, actionId: string, editedBody
           .offset(50)
           .select('id')
         if (excess.length > 0) {
-          await knex('customer_service_knowledge').whereIn('id', excess.map((r: { id: string }) => r.id)).update({ is_active: false, updated_at: now })
+          await knex(knowledgeTable).whereIn('id', excess.map((r: { id: string }) => r.id)).update({ is_active: false, updated_at: now })
         }
       }
     }

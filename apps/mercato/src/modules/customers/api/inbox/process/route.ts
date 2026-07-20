@@ -244,6 +244,14 @@ export async function POST(req: Request) {
             const flagged = matched.length > 0
             const flagOutcome = flagged ? resolveFlagOutcome(matched, applicableScenarios) : null
 
+            // A "don't draft" rule matched (e.g. automated / no-reply mail) — discard
+            // the draft, mark handled so it isn't re-processed, and move on.
+            if (flagOutcome?.noDraft) {
+              await markDrafted(knex, conv.id, orgId)
+              skipped++
+              continue
+            }
+
             // Decide whether to auto-send based on the org's reply mode.
             //   draft  -> never auto-send (always hold).
             //   auto   -> always auto-send.
@@ -564,9 +572,10 @@ function parseMetadata(raw: any): { headers?: Record<string, string> } | null {
 }
 
 // audience: 'anyone' | 'new' | 'existing' | 'aud:team' | 'aud:<audienceId>'
-type FlagScenario = { key: string; label: string; enabled: boolean; action: 'pause' | 'auto_send'; instructions: string; audience?: string }
+type FlagAction = 'pause' | 'auto_send' | 'no_draft'
+type FlagScenario = { key: string; label: string; enabled: boolean; action: FlagAction; instructions: string; audience?: string }
 
-const VALID_FLAG_ACTIONS = new Set(['pause', 'auto_send'])
+const VALID_FLAG_ACTIONS = new Set(['pause', 'auto_send', 'no_draft'])
 
 // Parse the org's stored flag_scenarios jsonb (parsed object or string) into a
 // clean, validated array. Returns [] when nothing usable is present.
@@ -586,7 +595,7 @@ function parseFlagScenarios(raw: any): FlagScenario[] {
       key,
       label: typeof item.label === 'string' ? item.label : '',
       enabled: item.enabled === true,
-      action: action as 'pause' | 'auto_send',
+      action: action as FlagAction,
       instructions: typeof item.instructions === 'string' ? item.instructions : '',
       audience:
         item.audience === 'new' || item.audience === 'existing' || (typeof item.audience === 'string' && /^aud:[\w-]+$/.test(item.audience))
@@ -607,17 +616,19 @@ function toDrafterScenarios(scenarios: FlagScenario[]): FlagScenarioInput[] {
 //  - shouldPause: true if ANY matched scenario is 'pause' (pause overrides
 //    auto_send AND the org's reply_mode). false only when ALL matched are
 //    'auto_send'.
-function resolveFlagOutcome(matchedKeys: string[], scenarios: FlagScenario[]): { reasons: Array<{ key: string; label: string }>; shouldPause: boolean } {
+function resolveFlagOutcome(matchedKeys: string[], scenarios: FlagScenario[]): { reasons: Array<{ key: string; label: string }>; shouldPause: boolean; noDraft: boolean } {
   const byKey = new Map(scenarios.map((s) => [s.key, s]))
   const reasons: Array<{ key: string; label: string }> = []
   let anyPause = false
+  let anyNoDraft = false
   for (const k of matchedKeys) {
     const s = byKey.get(k)
     if (!s || !s.enabled) continue
     reasons.push({ key: s.key, label: s.label })
     if (s.action === 'pause') anyPause = true
+    if (s.action === 'no_draft') anyNoDraft = true
   }
-  return { reasons, shouldPause: anyPause }
+  return { reasons, shouldPause: anyPause, noDraft: anyNoDraft }
 }
 
 // Email the org user a flag alert. Reuses sendEmailByPurpose('transactional')
