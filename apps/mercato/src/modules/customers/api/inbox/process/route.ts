@@ -13,6 +13,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import type { FlagScenarioInput } from '@/modules/customers/lib/draft-reply'
+import { loadAudiences, resolveSenderAudiences } from '@/modules/customers/lib/audiences'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
@@ -69,6 +70,8 @@ export async function POST(req: Request) {
       // handed to the drafter. Empty = no flagging.
       const flagScenarios = parseFlagScenarios(settings.flag_scenarios)
       const drafterScenarios = toDrafterScenarios(flagScenarios)
+      // Audiences (My team / Customers / …) — identity-based handling for this org.
+      const audiences = await loadAudiences(knex, orgId)
       let queued = 0
       let autoSent = 0
       let skipped = 0
@@ -162,6 +165,15 @@ export async function POST(req: Request) {
             const toEmail: string | null = contact?.primary_email || conv.avatar_email || inbound.from_address || null
             if (!toEmail) { await markDrafted(knex, conv.id, orgId); skipped++; continue }
 
+            // Audience (identity) handling: 'no_draft' (e.g. your own team) -> don't
+            // draft at all, before spending AI. 'pause' -> always hold for review.
+            const senderMatch = await resolveSenderAudiences(knex, orgId, audiences, inbound.from_address || toEmail, contact)
+            if (senderMatch.action === 'no_draft') {
+              await markDrafted(knex, conv.id, orgId)
+              skipped++
+              continue
+            }
+
             const recentMessages = emailMessages.map((m: any) => ({
               direction: m.direction,
               bodyText: m.body_text,
@@ -232,8 +244,15 @@ export async function POST(req: Request) {
               shouldAutoSend = flagOutcome.shouldPause ? false : true
             }
 
-            const flagMeta = flagged
-              ? { flagged: true, flagReasons: flagOutcome?.reasons || [] }
+            // Audience 'pause' (e.g. VIP contacts): always hold for review.
+            const audiencePause = senderMatch.action === 'pause'
+            if (audiencePause) shouldAutoSend = false
+
+            const audienceReasons = audiencePause
+              ? [{ key: 'audience_pause', label: 'Held for review: message from a review-first audience' }]
+              : []
+            const flagMeta = flagged || audiencePause
+              ? { flagged: true, flagReasons: [...(flagOutcome?.reasons || []), ...audienceReasons] }
               : undefined
 
             if (shouldAutoSend) {

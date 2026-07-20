@@ -52,7 +52,10 @@ function normalizeScenarios(raw: any): { key: string; label: string; enabled: bo
       enabled: s.enabled === true,
       action: VALID_ACTIONS.has(s.action) ? s.action : 'pause',
       instructions: typeof s.instructions === 'string' ? s.instructions.slice(0, 4000) : '',
-      audience: s.audience === 'new' || s.audience === 'existing' ? s.audience : 'anyone',
+      audience:
+        s.audience === 'new' || s.audience === 'existing' || (typeof s.audience === 'string' && /^aud:[\w-]+$/.test(s.audience))
+          ? s.audience
+          : 'anyone',
     })
   }
   return out.length ? out : DEFAULT_FLAG_SCENARIOS.map((sc) => ({ ...sc }))

@@ -13,6 +13,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import type { FlagScenarioInput } from '@/modules/customers/lib/draft-reply'
+import { loadAudiences, resolveSenderAudiences, scenarioAudienceMatches } from '@/modules/customers/lib/audiences'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
@@ -79,6 +80,8 @@ export async function POST(req: Request) {
       // Flag scenarios for this org (full validated list) + the enabled subset
       // handed to the drafter. Empty = no flagging, existing behavior unchanged.
       const flagScenarios = parseFlagScenarios(settings.flag_scenarios)
+      // Audiences (My team / Customers / …) — identity-based handling for this org.
+      const audiences = await loadAudiences(knex, orgId)
       const drafterScenarios = toDrafterScenarios(flagScenarios)
       let queued = 0
       let autoSent = 0
@@ -314,24 +317,35 @@ export async function POST(req: Request) {
             const toEmail: string | null = contact?.primary_email || conv.avatar_email || inbound.from_address || null
             if (!toEmail) { await markDrafted(knex, conv.id, orgId); skipped++; continue }
 
+            // Audience (identity) handling: resolve which audiences this sender is in.
+            // 'no_draft' (e.g. your own team) -> don't draft at all, before spending AI.
+            const senderMatch = await resolveSenderAudiences(knex, orgId, audiences, inbound.from_address || toEmail, contact)
+            if (senderMatch.action === 'no_draft') {
+              await markDrafted(knex, conv.id, orgId)
+              skipped++
+              continue
+            }
+
             const recentMessages = emailMessages.map((m: any) => ({
               direction: m.direction,
               bodyText: m.body_text,
               body: m.body_html,
             }))
 
-            // Audience-scoped guardrails: apply a rule only when the contact
-            // matches its audience. "new" = first message on record for them;
-            // "existing" = we already have prior correspondence. Rules with no
-            // audience (or 'anyone') always apply.
+            // Audience-scoped guardrails: apply a rule only when the sender matches
+            // its audience. A rule targeting a named audience ('aud:team'/'aud:<id>')
+            // applies only when the sender is in it; 'new' = first message on record,
+            // 'existing' = prior correspondence; no audience (or 'anyone') always applies.
             const contactIsNew = emailMessages.length <= 1
-            const applicableScenarios = flagScenarios.filter(
-              (s) =>
+            const applicableScenarios = flagScenarios.filter((s) => {
+              if (s.audience && s.audience.startsWith('aud:')) return scenarioAudienceMatches(s.audience, senderMatch)
+              return (
                 !s.audience ||
                 s.audience === 'anyone' ||
                 (s.audience === 'new' && contactIsNew) ||
-                (s.audience === 'existing' && !contactIsNew),
-            )
+                (s.audience === 'existing' && !contactIsNew)
+              )
+            })
             const emailDrafterScenarios = toDrafterScenarios(applicableScenarios)
 
             const result = await generateReplyDraft(knex, aiKey, {
@@ -405,9 +419,17 @@ export async function POST(req: Request) {
               shouldAutoSend = flagOutcome.shouldPause ? false : true
             }
 
+            // Audience 'pause' (e.g. VIP customers): always hold for review, whatever
+            // the reply mode or content flags say.
+            const audiencePause = senderMatch.action === 'pause'
+            if (audiencePause) shouldAutoSend = false
+
             // Common flag metadata for the proposal/action rows.
-            const flagMeta = flagged
-              ? { flagged: true, flagReasons: flagOutcome?.reasons || [] }
+            const audienceReasons = audiencePause
+              ? [{ key: 'audience_pause', label: 'Held for review: message from a review-first audience' }]
+              : []
+            const flagMeta = flagged || audiencePause
+              ? { flagged: true, flagReasons: [...(flagOutcome?.reasons || []), ...audienceReasons] }
               : undefined
 
             // Kill switch: when auto-sending is paused, an auto-eligible reply
@@ -757,7 +779,8 @@ function parseSourceModes(raw: any): Record<string, { mode: string; threshold: n
 }
 
 type FlagAction = 'pause' | 'auto_send' | 'no_draft'
-type FlagScenario = { key: string; label: string; enabled: boolean; action: FlagAction; instructions: string; audience?: 'anyone' | 'new' | 'existing' }
+// audience: 'anyone' | 'new' | 'existing' | 'aud:team' | 'aud:<audienceId>'
+type FlagScenario = { key: string; label: string; enabled: boolean; action: FlagAction; instructions: string; audience?: string }
 
 const VALID_FLAG_ACTIONS = new Set(['pause', 'auto_send', 'no_draft'])
 
@@ -782,7 +805,10 @@ function parseFlagScenarios(raw: any): FlagScenario[] {
       enabled: item.enabled === true,
       action: action as FlagAction,
       instructions: typeof item.instructions === 'string' ? item.instructions : '',
-      audience: item.audience === 'new' || item.audience === 'existing' ? item.audience : 'anyone',
+      audience:
+        item.audience === 'new' || item.audience === 'existing' || (typeof item.audience === 'string' && /^aud:[\w-]+$/.test(item.audience))
+          ? item.audience
+          : 'anyone',
     })
   }
   return out
