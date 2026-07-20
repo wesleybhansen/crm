@@ -13,7 +13,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import type { FlagScenarioInput } from '@/modules/customers/lib/draft-reply'
-import { loadAudiences, resolveSenderAudiences } from '@/modules/customers/lib/audiences'
+import { loadAudiences, resolveSenderAudiences, scenarioAudienceMatches } from '@/modules/customers/lib/audiences'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
@@ -69,6 +69,8 @@ export async function POST(req: Request) {
       // Flag scenarios for this org (full validated list) + the enabled subset
       // handed to the drafter. Empty = no flagging.
       const flagScenarios = parseFlagScenarios(settings.flag_scenarios)
+      // Email content scenarios are re-filtered per-conversation by audience below;
+      // the SMS path (senders are phone numbers) keeps the full org set.
       const drafterScenarios = toDrafterScenarios(flagScenarios)
       // Audiences (My team / Customers / …) — identity-based handling for this org.
       const audiences = await loadAudiences(knex, orgId)
@@ -174,6 +176,21 @@ export async function POST(req: Request) {
               continue
             }
 
+            // Audience-scoped guardrails: a content rule targeting a named audience
+            // ('aud:*') applies only when the sender is in it; 'new'/'existing' gate on
+            // prior correspondence; 'anyone' (or none) always applies.
+            const contactIsNew = emailMessages.length <= 1
+            const applicableScenarios = flagScenarios.filter((s) => {
+              if (s.audience && s.audience.startsWith('aud:')) return scenarioAudienceMatches(s.audience, senderMatch)
+              return (
+                !s.audience ||
+                s.audience === 'anyone' ||
+                (s.audience === 'new' && contactIsNew) ||
+                (s.audience === 'existing' && !contactIsNew)
+              )
+            })
+            const convDrafterScenarios = toDrafterScenarios(applicableScenarios)
+
             const recentMessages = emailMessages.map((m: any) => ({
               direction: m.direction,
               bodyText: m.body_text,
@@ -190,7 +207,7 @@ export async function POST(req: Request) {
               recentMessages,
               contactId,
               signature: settings.signature || null,
-              flagScenarios: drafterScenarios,
+              flagScenarios: convDrafterScenarios,
               knowledgeTable: 'inbox_knowledge',
               // Critic only gates hybrid auto-send; skip the extra call otherwise.
               criticGate: mode === 'hybrid',
@@ -225,7 +242,7 @@ export async function POST(req: Request) {
             //   all matched scenarios 'auto_send'    -> send the draft.
             const matched = result.matchedScenarios || []
             const flagged = matched.length > 0
-            const flagOutcome = flagged ? resolveFlagOutcome(matched, flagScenarios) : null
+            const flagOutcome = flagged ? resolveFlagOutcome(matched, applicableScenarios) : null
 
             // Decide whether to auto-send based on the org's reply mode.
             //   draft  -> never auto-send (always hold).
@@ -539,7 +556,8 @@ function parseMetadata(raw: any): { headers?: Record<string, string> } | null {
   return obj
 }
 
-type FlagScenario = { key: string; label: string; enabled: boolean; action: 'pause' | 'auto_send'; instructions: string }
+// audience: 'anyone' | 'new' | 'existing' | 'aud:team' | 'aud:<audienceId>'
+type FlagScenario = { key: string; label: string; enabled: boolean; action: 'pause' | 'auto_send'; instructions: string; audience?: string }
 
 const VALID_FLAG_ACTIONS = new Set(['pause', 'auto_send'])
 
@@ -563,6 +581,10 @@ function parseFlagScenarios(raw: any): FlagScenario[] {
       enabled: item.enabled === true,
       action: action as 'pause' | 'auto_send',
       instructions: typeof item.instructions === 'string' ? item.instructions : '',
+      audience:
+        item.audience === 'new' || item.audience === 'existing' || (typeof item.audience === 'string' && /^aud:[\w-]+$/.test(item.audience))
+          ? item.audience
+          : 'anyone',
     })
   }
   return out
