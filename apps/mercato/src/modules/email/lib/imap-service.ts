@@ -115,6 +115,27 @@ export function getProviderPreset(email: string) {
   return PROVIDER_PRESETS[domain] || null
 }
 
+function isGmailHost(host: string): boolean {
+  const h = (host || '').toLowerCase()
+  return h === 'imap.gmail.com' || h.endsWith('.gmail.com') || h.includes('googlemail')
+}
+
+// Gmail's IMAP INBOX includes the Promotions/Social/Updates/Forums category tabs,
+// so a raw INBOX read shows mail Gmail hides from the Primary view. When the server
+// advertises Gmail extensions (X-GM-EXT-1) we restrict the search to the Primary tab
+// with an X-GM-RAW query, so the mirror matches what the user sees in Gmail. Any
+// non-Gmail provider (or a server without the extension) is left untouched.
+function gmailPrimarySearch(client: ImapFlow, base: Record<string, unknown>): Record<string, unknown> {
+  try {
+    const caps: any = (client as any).capabilities
+    const supported = caps && (typeof caps.has === 'function' ? caps.has('X-GM-EXT-1') : !!caps['X-GM-EXT-1'])
+    if (supported) return { ...base, gmailRaw: 'category:primary' }
+  } catch {
+    /* fall through to unfiltered */
+  }
+  return base
+}
+
 function buildClient(config: ImapConfig): ImapFlow {
   return new ImapFlow({
     host: config.host,
@@ -131,6 +152,7 @@ async function fetchMessagesFromFolder(
   folder: string,
   sinceDate: Date,
   maxMessages: number,
+  gmailPrimaryOnly = false,
 ): Promise<FetchedEmail[]> {
   const results: FetchedEmail[] = []
 
@@ -143,7 +165,10 @@ async function fetchMessagesFromFolder(
   const since = new Date(sinceDate)
   since.setHours(0, 0, 0, 0)
 
-  const uids = await config.search({ since }, { uid: true })
+  // On Gmail, an INBOX read pulls the Promotions/Social/Updates/Forums tabs too;
+  // restrict to the Primary tab so the mirror matches the user's Gmail view.
+  const query = gmailPrimaryOnly ? gmailPrimarySearch(config, { since }) : { since }
+  const uids = await config.search(query as any, { uid: true })
   if (!uids || uids.length === 0) return results
 
   const toFetch = uids.slice(-maxMessages)
@@ -251,7 +276,7 @@ export async function fetchImapInbox(
   const client = buildClient(config)
   await client.connect()
   try {
-    return await fetchMessagesFromFolder(client, 'INBOX', sinceDate, maxMessages)
+    return await fetchMessagesFromFolder(client, 'INBOX', sinceDate, maxMessages, isGmailHost(config.host))
   } finally {
     await client.logout().catch(() => {})
   }
@@ -274,7 +299,12 @@ export async function listInboxMessageIds(config: ImapConfig, sinceDate: Date): 
     await client.mailboxOpen('INBOX')
     const since = new Date(sinceDate)
     since.setHours(0, 0, 0, 0)
-    const uids = await client.search({ since }, { uid: true })
+    // Match the Primary-tab filter used when ingesting, so that mail Gmail keeps
+    // in Promotions/Social (and which we therefore never stored) is NOT treated as
+    // "still live" — and any such mail stored before the filter existed reconciles
+    // away like a real archive.
+    const query = isGmailHost(config.host) ? gmailPrimarySearch(client, { since }) : { since }
+    const uids = await client.search(query as any, { uid: true })
     if (uids && uids.length) {
       const CHUNK = 300
       for (let ci = 0; ci < uids.length; ci += CHUNK) {
