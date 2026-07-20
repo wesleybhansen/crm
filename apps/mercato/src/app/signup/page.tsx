@@ -51,7 +51,7 @@ export default function SignupPage() {
       <div className="auth-topbar">
         <Link href="/" className="auth-logo">
           <div className="auth-logo-mark" />
-          Launch OS
+          Noli AI
         </Link>
         <Link href="/" className="auth-back">
           <ArrowLeftIcon />
@@ -63,7 +63,7 @@ export default function SignupPage() {
         <div className="auth-card">
           <div className="auth-card-mark" />
           <h1>Become a founding member.</h1>
-          <p className="auth-sub">Create your Launch OS workspace in 30 seconds.</p>
+          <p className="auth-sub">Create your Noli AI workspace in 30 seconds.</p>
 
           <a href="/api/auth/google/start" className="auth-google">
             <GoogleIcon />

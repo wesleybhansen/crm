@@ -71,7 +71,7 @@ function ResetPasswordForm() {
       <div className="auth-topbar">
         <Link href="/" className="auth-logo">
           <div className="auth-logo-mark" />
-          Launch OS
+          Noli AI
         </Link>
         <Link href="/login" className="auth-back">
           <ArrowLeftIcon />

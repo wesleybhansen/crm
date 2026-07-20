@@ -69,7 +69,7 @@ function LoginInner() {
       <div className="auth-topbar">
         <Link href="/" className="auth-logo">
           <div className="auth-logo-mark" />
-          Launch OS
+          Noli AI
         </Link>
         <Link href="/" className="auth-back">
           <ArrowLeftIcon />
@@ -105,8 +105,8 @@ function LoginInner() {
             </div>
           ) : (
             <div className="auth-swap" key="login">
-              <h1>Welcome back, rockstar.</h1>
-              <p className="auth-sub">Sign in to your Launch OS workspace.</p>
+              <h1>Welcome back.</h1>
+              <p className="auth-sub">Sign in to your Noli AI workspace.</p>
 
               <a href="/api/auth/google/start" className="auth-google">
                 <GoogleIcon />
@@ -133,13 +133,13 @@ function LoginInner() {
 
                 <button type="submit" className={`auth-submit ${loading ? 'is-loading' : ''}`} disabled={loading}>
                   <span className="auth-spinner" />
-                  <span className="auth-submit-label">Log in to Launch OS</span>
+                  <span className="auth-submit-label">Log in to Noli AI</span>
                   <ArrowRightIcon />
                 </button>
               </form>
 
               <div className="auth-footer-line">
-                Don&apos;t have a workspace yet? <Link href="/signup">Become a founding operator →</Link>
+                Don&apos;t have a workspace yet? <Link href="/signup">Create your account →</Link>
               </div>
             </div>
           )}
