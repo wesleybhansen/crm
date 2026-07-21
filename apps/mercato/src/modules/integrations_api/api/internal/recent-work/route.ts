@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { classifyRecentWorkIdentity, summarizeRecentWorkPartitions } from '../../../lib/recent-work-health'
 
 /*
  * Internal server-to-server endpoint (Noli U-2 work feed). Returns the CRM's
@@ -41,21 +42,77 @@ export async function POST(req: Request) {
   const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
 
   try {
-    const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
+    const { findNoliUserById, findPrimaryOrgIdForUser, isEntitled } = await import(
+      '@open-mercato/shared/lib/noli/core-client'
+    )
     const noliUser = await findNoliUserById(noliUserId)
     if (!noliUser?.clerk_user_id) return NextResponse.json({ events: [] })
-
-    const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
-    const auth = await resolveClerkUserToAuthContext(noliUser.clerk_user_id)
-    if (!auth?.orgId) return NextResponse.json({ events: [] })
-    const orgId = auth.orgId as string
+    const entitled = await isEntitled(noliUser.id, 'crm')
+    if (!entitled) {
+      return NextResponse.json({ error: 'CRM access unavailable' }, { status: 403 })
+    }
+    const noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
+    if (!noliOrgId) return NextResponse.json({ events: [] })
 
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
+    let organizationId: string | null = null
+    const mappedOrganizations = (await knex('organizations')
+      .where('noli_org_id', noliOrgId)
+      .whereNull('deleted_at')
+      .select('id')) as Array<{ id?: string | null }>
+    if (mappedOrganizations.length > 1) throw new Error('Ambiguous Noli organization mapping')
+    organizationId = mappedOrganizations[0]?.id ?? null
 
-    const [emails, briefs, automations, pages, leads, pendingBookings, proposals, stallingDeals] =
-      await Promise.all([
+    // Legacy floor: before noli_org_id existed, a Clerk-linked user could own
+    // an unlinked local org. Accept only one exact Clerk mapping and verify that
+    // any existing org link does not contradict the authoritative Noli org.
+    if (!organizationId) {
+      const userOrganizations = (await knex('users')
+        .where('clerk_user_id', noliUser.clerk_user_id)
+        .whereNull('deleted_at')
+        .whereNotNull('organization_id')
+        .select('organization_id')) as Array<{ organization_id?: string | null }>
+      const uniqueOrganizationIds = [
+        ...new Set(userOrganizations.map((row) => row.organization_id).filter((id): id is string => Boolean(id))),
+      ]
+      if (uniqueOrganizationIds.length > 1) throw new Error('Ambiguous Clerk organization mapping')
+      const legacyOrganizationId = uniqueOrganizationIds[0]
+      if (legacyOrganizationId) {
+        const legacyOrganization = (await knex('organizations')
+          .where('id', legacyOrganizationId)
+          .whereNull('deleted_at')
+          .select('noli_org_id')
+          .first()) as { noli_org_id?: string | null } | undefined
+        if (legacyOrganization?.noli_org_id && legacyOrganization.noli_org_id !== noliOrgId) {
+          throw new Error('Conflicting organization mapping')
+        }
+        if (legacyOrganization) organizationId = legacyOrganizationId
+      }
+    }
+    const identity = classifyRecentWorkIdentity({
+      hasNoliIdentity: true,
+      entitled,
+      organizationId,
+    })
+    if (identity.state === 'forbidden') {
+      return NextResponse.json({ error: 'CRM access unavailable' }, { status: 403 })
+    }
+    if (identity.state === 'empty') return NextResponse.json({ events: [] })
+    const orgId = identity.organizationId
+
+    const partitionNames = [
+      'emails',
+      'briefs',
+      'automations',
+      'pages',
+      'leads',
+      'pendingBookings',
+      'proposals',
+      'stallingDeals',
+    ] as const
+    const partitionResults = await Promise.allSettled([
         knex('email_messages')
           .where('organization_id', orgId)
           .where('direction', 'outbound')
@@ -63,54 +120,47 @@ export async function POST(req: Request) {
           .where('created_at', '>=', since)
           .orderBy('created_at', 'desc')
           .limit(10)
-          .select('id', 'to_address', 'subject', 'body_text', 'created_at')
-          .catch(() => []),
+          .select('id', 'to_address', 'subject', 'body_text', 'created_at'),
         knex('meeting_prep_briefs')
           .where('organization_id', orgId)
           .where('created_at', '>=', since)
           .orderBy('created_at', 'desc')
           .limit(5)
-          .select('id', 'event_summary', 'created_at')
-          .catch(() => []),
+          .select('id', 'event_summary', 'created_at'),
         knex('customer_activities')
           .where('organization_id', orgId)
           .where('activity_type', 'automation')
           .where('created_at', '>=', since)
           .orderBy('created_at', 'desc')
           .limit(8)
-          .select('id', 'subject', 'created_at')
-          .catch(() => []),
+          .select('id', 'subject', 'created_at'),
         knex('landing_pages')
           .where('organization_id', orgId)
           .where('status', 'published')
           .where('published_at', '>=', since)
           .orderBy('published_at', 'desc')
           .limit(5)
-          .select('id', 'title', 'published_at')
-          .catch(() => []),
+          .select('id', 'title', 'published_at'),
         knex('customer_activities')
           .where('organization_id', orgId)
           .where('activity_type', 'form_submission')
           .where('created_at', '>=', since)
           .orderBy('created_at', 'desc')
           .limit(8)
-          .select('id', 'subject', 'created_at')
-          .catch(() => []),
+          .select('id', 'subject', 'created_at'),
         knex('bookings')
           .where('organization_id', orgId)
           .where('status', 'pending')
           .where('start_time', '>=', new Date())
           .orderBy('start_time', 'asc')
           .limit(8)
-          .select('id', 'guest_name', 'start_time', 'created_at')
-          .catch(() => []),
+          .select('id', 'guest_name', 'start_time', 'created_at'),
         knex('inbox_proposals')
           .where('organization_id', orgId)
           .where('status', 'pending')
           .orderBy('created_at', 'desc')
           .limit(8)
-          .select('id', 'summary', 'created_at')
-          .catch(() => []),
+          .select('id', 'summary', 'created_at'),
         // Watchdog: open deals that haven't moved in a week.
         knex('customer_deals')
           .where('organization_id', orgId)
@@ -118,9 +168,34 @@ export async function POST(req: Request) {
           .whereNull('deleted_at')
           .where('updated_at', '<', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
           .count({ n: '*' })
-          .first()
-          .catch(() => ({ n: 0 })),
+          .first(),
       ])
+    const { failedPartitions, totalFailure } = summarizeRecentWorkPartitions(partitionNames, partitionResults)
+    if (failedPartitions.length > 0) {
+      console.error('[internal.recent-work] partition reads failed', { failedPartitions })
+    }
+    if (totalFailure) {
+      return NextResponse.json({ error: 'Recent work temporarily unavailable' }, { status: 503 })
+    }
+
+    const [
+      emailsResult,
+      briefsResult,
+      automationsResult,
+      pagesResult,
+      leadsResult,
+      pendingBookingsResult,
+      proposalsResult,
+      stallingDealsResult,
+    ] = partitionResults
+    const emails = emailsResult.status === 'fulfilled' ? emailsResult.value : []
+    const briefs = briefsResult.status === 'fulfilled' ? briefsResult.value : []
+    const automations = automationsResult.status === 'fulfilled' ? automationsResult.value : []
+    const pages = pagesResult.status === 'fulfilled' ? pagesResult.value : []
+    const leads = leadsResult.status === 'fulfilled' ? leadsResult.value : []
+    const pendingBookings = pendingBookingsResult.status === 'fulfilled' ? pendingBookingsResult.value : []
+    const proposals = proposalsResult.status === 'fulfilled' ? proposalsResult.value : []
+    const stallingDeals = stallingDealsResult.status === 'fulfilled' ? stallingDealsResult.value : { n: 0 }
 
     const iso = (v: unknown) =>
       v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString()
@@ -221,9 +296,11 @@ export async function POST(req: Request) {
       })
     }
 
-    return NextResponse.json({ events })
+    return NextResponse.json({ events, partial: failedPartitions.length > 0 })
   } catch (err) {
-    console.error('[internal.recent-work]', err)
-    return NextResponse.json({ events: [] })
+    console.error('[internal.recent-work] failed', {
+      name: err instanceof Error ? err.name : 'unknown',
+    })
+    return NextResponse.json({ error: 'Recent work temporarily unavailable' }, { status: 503 })
   }
 }
