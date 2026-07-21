@@ -1,5 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
+import { applyBrowserSecurityHeaders } from '@/lib/security-headers'
 
 // Note: Do NOT import bootstrap here — proxy runs in Edge runtime which
 // cannot use Node.js modules like MikroORM. Bootstrap is called in
@@ -50,6 +51,15 @@ function isOwnHost(host: string): boolean {
   return false
 }
 
+function withBrowserSecurityHeaders<T extends Response>(
+  response: T,
+  pathname: string,
+  includeHsts: boolean,
+): T {
+  applyBrowserSecurityHeaders(response.headers, pathname, { includeHsts })
+  return response
+}
+
 export default clerkMiddleware(async (auth, req) => {
   // 0. Custom-domain landing pages: nginx passes the original Host through,
   //    so any host that isn't ours serves exactly one published landing page
@@ -58,17 +68,22 @@ export default clerkMiddleware(async (auth, req) => {
   //    so form submits on custom domains still work.
   const rawHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? ''
   const customHost = rawHost.trim().toLowerCase().replace(/:\d+$/, '')
-  if (!isOwnHost(customHost)) {
+  const ownHost = isOwnHost(customHost)
+  if (!ownHost) {
     if (req.nextUrl.pathname === '/' && (req.method === 'GET' || req.method === 'HEAD')) {
       const url = req.nextUrl.clone()
       url.pathname = '/api/landing_pages/public/by-domain'
       url.search = `?host=${encodeURIComponent(customHost)}&path=${encodeURIComponent('/')}`
-      return NextResponse.rewrite(url)
+      return withBrowserSecurityHeaders(NextResponse.rewrite(url), req.nextUrl.pathname, false)
     }
     // Unlike the standalone-middleware version, this proxy's matcher covers
     // /api — let API calls (the landing page's own form submit) through.
     if (!req.nextUrl.pathname.startsWith('/api/')) {
-      return new NextResponse('Not found', { status: 404 })
+      return withBrowserSecurityHeaders(
+        new NextResponse('Not found', { status: 404 }),
+        req.nextUrl.pathname,
+        false,
+      )
     }
   }
 
@@ -79,7 +94,11 @@ export default clerkMiddleware(async (auth, req) => {
   if (req.nextUrl.pathname === '/') {
     const { userId } = await auth()
     if (!userId) {
-      return NextResponse.redirect(`https://noliai.com/crm${req.nextUrl.search}`)
+      return withBrowserSecurityHeaders(
+        NextResponse.redirect(`https://noliai.com/crm${req.nextUrl.search}`),
+        req.nextUrl.pathname,
+        ownHost,
+      )
     }
     // Reconstruct the public-facing origin (behind nginx, req.url reads as
     // http://0.0.0.0:3000) so the redirect lands on crm.noliai.com/backend.
@@ -88,13 +107,18 @@ export default clerkMiddleware(async (auth, req) => {
       req.headers.get('x-forwarded-host') ??
       req.headers.get('host') ??
       req.nextUrl.host
-    return NextResponse.redirect(new URL('/backend', `${proto}://${host}`))
+    return withBrowserSecurityHeaders(
+      NextResponse.redirect(new URL('/backend', `${proto}://${host}`)),
+      req.nextUrl.pathname,
+      ownHost,
+    )
   }
 
   // 2. Set x-next-url for server components (preserved from original).
   const requestHeaders = new Headers(req.headers)
   requestHeaders.set('x-next-url', req.nextUrl.pathname)
   const passThrough = NextResponse.next({ request: { headers: requestHeaders } })
+  applyBrowserSecurityHeaders(passThrough.headers, req.nextUrl.pathname, { includeHsts: ownHost })
 
   // 3. Public-page allowlist — auth UI orphans and legal pages.
   if (isPublicPage(req)) return passThrough
@@ -122,7 +146,11 @@ export default clerkMiddleware(async (auth, req) => {
     const publicUrl = `${proto}://${host}${req.nextUrl.pathname}${req.nextUrl.search}`
     const signInUrl = new URL(HUB_SIGN_IN_URL)
     signInUrl.searchParams.set('redirect_url', publicUrl)
-    return NextResponse.redirect(signInUrl)
+    return withBrowserSecurityHeaders(
+      NextResponse.redirect(signInUrl),
+      req.nextUrl.pathname,
+      ownHost,
+    )
   }
 
   return passThrough

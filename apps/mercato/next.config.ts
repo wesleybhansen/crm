@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { browserSecurityHeaderRules } from "./src/lib/security-headers";
 
 const nextConfig: NextConfig = {
   output: 'standalone',
@@ -32,6 +33,9 @@ const nextConfig: NextConfig = {
       { source: '/terms', destination: 'https://noliai.com/terms', permanent: false },
       { source: '/privacy', destination: 'https://noliai.com/privacy', permanent: false },
     ]
+  },
+  async headers() {
+    return browserSecurityHeaderRules()
   },
 }
 
