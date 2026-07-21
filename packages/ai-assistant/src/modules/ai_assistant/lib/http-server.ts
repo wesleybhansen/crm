@@ -14,7 +14,7 @@ import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { MCP_BOOTSTRAP_INSTRUCTIONS } from './agent-guide-tool'
-import { listenBeforeOptionalStartupTask } from './optional-startup-task'
+import { createRunOncePerOwner, listenBeforeOptionalStartupTask } from './optional-startup-task'
 
 /**
  * Options for the HTTP MCP server.
@@ -340,12 +340,14 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
   })
 }
 
-async function indexDiscoveryCatalog(container: AwilixContainer): Promise<void> {
+async function indexDiscoveryCatalog(container: AwilixContainer, signal: AbortSignal): Promise<void> {
   try {
     const searchService = container.resolve('searchService') as SearchService
 
+    signal.throwIfAborted()
     await indexToolsForSearch(searchService)
 
+    signal.throwIfAborted()
     const { indexApiEndpoints } = await import('./api-endpoint-index')
     const endpointCount = await indexApiEndpoints(searchService)
     if (endpointCount > 0) {
@@ -353,6 +355,7 @@ async function indexDiscoveryCatalog(container: AwilixContainer): Promise<void> 
     }
 
     try {
+      signal.throwIfAborted()
       const { getCachedEntityGraph } = await import('./entity-graph')
       const { indexEntitiesForSearch } = await import('./entity-index')
       const graph = getCachedEntityGraph()
@@ -363,12 +366,16 @@ async function indexDiscoveryCatalog(container: AwilixContainer): Promise<void> 
         }
       }
     } catch (entityError) {
+      if (signal.aborted) throw entityError
       console.error('[MCP HTTP] Entity schema indexing skipped:', entityError instanceof Error ? entityError.message : entityError)
     }
   } catch (error) {
+    if (signal.aborted) throw error
     console.error('[MCP HTTP] Search indexing skipped (search service not available):', error)
   }
 }
+
+const indexDiscoveryCatalogOnce = createRunOncePerOwner(indexDiscoveryCatalog)
 
 /**
  * Run MCP server with HTTP transport (stateless mode).
@@ -527,32 +534,67 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
   console.error(`[MCP HTTP] User Auth: Session token in _sessionToken parameter`)
 
   // Return a Promise that keeps the process alive until shutdown
-  return new Promise<void>((resolve) => {
-    listenBeforeOptionalStartupTask(
-      httpServer,
-      port,
-      () => indexDiscoveryCatalog(container),
-      {
-        label: 'Search discovery indexing',
-        timeoutMs: DISCOVERY_INDEXING_BACKGROUND_BUDGET_MS,
-        onListening: () => {
-          console.error(`[MCP HTTP] Server listening on port ${port}`)
-        },
-        onError: (message, error) => {
-          console.error(`[MCP HTTP] ${message}:`, error)
-        },
-      },
-    )
+  return new Promise<void>((resolve, reject) => {
+    let settled = false
+    let shuttingDown = false
+    let startupTask: ReturnType<typeof listenBeforeOptionalStartupTask> | undefined
 
-    const shutdown = async () => {
+    const removeSignalHandlers = () => {
+      process.off('SIGINT', shutdown)
+      process.off('SIGTERM', shutdown)
+    }
+
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      startupTask?.cancel()
+      removeSignalHandlers()
+      httpServer.off('error', handleServerError)
+      if (error) reject(error)
+      else resolve()
+    }
+
+    const shutdown = () => {
+      if (shuttingDown) return
+      shuttingDown = true
       console.error('[MCP HTTP] Shutting down...')
-      httpServer.close(() => {
+      startupTask?.cancel()
+      httpServer.close((error) => {
+        if (error && (error as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING') {
+          finish(error)
+          return
+        }
         console.error('[MCP HTTP] Server closed')
-        resolve()
+        finish()
       })
     }
 
-    process.on('SIGINT', shutdown)
-    process.on('SIGTERM', shutdown)
+    const handleServerError = (error: Error) => {
+      finish(error)
+    }
+
+    process.once('SIGINT', shutdown)
+    process.once('SIGTERM', shutdown)
+    httpServer.once('error', handleServerError)
+
+    try {
+      startupTask = listenBeforeOptionalStartupTask(
+        httpServer,
+        port,
+        (signal) => indexDiscoveryCatalogOnce(container, signal),
+        {
+          label: 'Search discovery indexing',
+          timeoutMs: DISCOVERY_INDEXING_BACKGROUND_BUDGET_MS,
+          onListening: () => {
+            console.error(`[MCP HTTP] Server listening on port ${port}`)
+          },
+          onError: (message, error) => {
+            console.error(`[MCP HTTP] ${message}:`, error)
+          },
+        },
+      )
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)))
+    }
   })
 }

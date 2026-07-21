@@ -1034,6 +1034,12 @@ if (tool.requiredFeatures?.length) {
 
 ## Changelog
 
+### 2026-07-21 - Listener-First HTTP Startup
+
+**Lesson learned:** Optional discovery indexing must not delay MCP health or request handling. The production HTTP server binds first, schedules indexing in the background, shares one run per container, and cancels the background lifecycle during shutdown.
+
+**Verification requirement:** Keep the package test wired into the root `yarn test` pipeline and prove readiness with a real random-port listener while the optional task remains pending.
+
 ### 2026-01-17 - Session Persistence Fix
 
 **Lesson learned:** Never use `Promise.race` for SSE completion — the HTTP response resolves before SSE can emit the `done` event. Always await only the SSE event promise.
