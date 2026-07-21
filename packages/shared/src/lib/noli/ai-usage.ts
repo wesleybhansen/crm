@@ -118,27 +118,37 @@ function rateForModel(model: string): { in: number; out: number; cached: number 
   return (catalogRates && matchRate(catalogRates, m)) || matchRate(PRICING, m) || FALLBACK_RATE;
 }
 
-// Cache noli orgId → owner userId for the process lifetime.
-const ownerCache = new Map<string, string | null>();
+const OWNER_NEGATIVE_CACHE_TTL_MS = 30_000;
+type OwnerCacheEntry = { userId: string | null; retryAt: number | null };
+const ownerCache = new Map<string, OwnerCacheEntry>();
 
 async function resolveOwnerUserId(noliOrgId: string): Promise<string | null> {
-  if (ownerCache.has(noliOrgId)) return ownerCache.get(noliOrgId) ?? null;
-  let userId: string | null = null;
+  const cached = ownerCache.get(noliOrgId);
+  if (cached?.userId) return cached.userId;
+  if (cached?.retryAt && cached.retryAt > Date.now()) return null;
+  if (cached) ownerCache.delete(noliOrgId);
+
   try {
     const supabase = getNoliCoreClient();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('organization_members')
       .select('user_id, role, created_at')
       .eq('organization_id', noliOrgId)
       .order('created_at', { ascending: true });
+    if (error) return null;
+
     const rows = (data as { user_id: string; role: string }[] | null) ?? [];
     const owner = rows.find((r) => r.role === 'owner') ?? rows[0];
-    userId = owner?.user_id ?? null;
+    const userId = owner?.user_id ?? null;
+    ownerCache.set(noliOrgId, {
+      userId,
+      retryAt: userId ? null : Date.now() + OWNER_NEGATIVE_CACHE_TTL_MS,
+    });
+    return userId;
   } catch (err) {
     console.error('[crm ai_usage] resolveOwnerUserId failed', err);
+    return null;
   }
-  ownerCache.set(noliOrgId, userId);
-  return userId;
 }
 
 export async function logCrmAiUsage(args: {

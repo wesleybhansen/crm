@@ -2,6 +2,11 @@ import 'server-only'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { getNoliCoreClient, resolveOrgByoKeys, type ByoProvider } from '@open-mercato/shared/lib/noli/core-client'
+import {
+  LIVE_NOLI_SUBSCRIPTION_STATUSES,
+  resolveAllowanceBillingPeriod,
+  type NoliBillingSubscription,
+} from '@open-mercato/shared/lib/noli/billing-period'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 /*
@@ -43,25 +48,36 @@ export async function checkCustomersAiAllowance(
     const supabase = getNoliCoreClient()
 
     const now = new Date()
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
-    const [{ data: members }, { data: usage }, { data: subs }] = await Promise.all([
+    const [membersResult, subscriptionsResult] = await Promise.all([
       supabase.from('organization_members').select('user_id').eq('organization_id', org.noliOrgId),
       supabase
-        .from('ai_usage')
-        .select('credits_consumed')
-        .eq('organization_id', org.noliOrgId)
-        .eq('byo_key', false)
-        .gte('ts', monthStart),
-      supabase
         .from('subscriptions')
-        .select('seats, token_boosts, status')
-        .eq('organization_id', org.noliOrgId),
+        .select('id, seats, token_boosts, status, billing_interval, current_period_start, updated_at')
+        .eq('organization_id', org.noliOrgId)
+        .in('status', [...LIVE_NOLI_SUBSCRIPTION_STATUSES]),
     ])
+    if (membersResult.error || subscriptionsResult.error) return { allowed: true }
+    const members = membersResult.data
+    const subs = subscriptionsResult.data
     // Paid seats (base + purchased overflow) drive allowance, matching the hub —
     // a Team with unfilled seats still gets its full pooled budget. Fall back to
     // the member count for legacy/unsubscribed orgs.
-    const sub = (((subs as { seats: number | null; token_boosts: number | null; status: string | null }[]) ?? [])
-      .find((s) => s.status === 'active' || s.status === 'trialing'))
+    type AllowanceSubscription = NoliBillingSubscription & {
+      seats: number | null
+      token_boosts: number | null
+    }
+    const { subscription: sub, periodStart } = resolveAllowanceBillingPeriod(
+      (subs as AllowanceSubscription[] | null) ?? [],
+      now,
+    )
+    const usageResult = await supabase
+      .from('ai_usage')
+      .select('credits_consumed')
+      .eq('organization_id', org.noliOrgId)
+      .eq('byo_key', false)
+      .gte('ts', periodStart.toISOString())
+    if (usageResult.error) return { allowed: true }
+    const usage = usageResult.data
     const memberSeats = Math.max(1, ((members as unknown[]) ?? []).length)
     const seats = sub?.seats && sub.seats > 0 ? sub.seats : memberSeats
     const tokenBoosts = sub?.token_boosts ?? 0
@@ -76,10 +92,12 @@ export async function checkCustomersAiAllowance(
     const memberIds = ((members as { user_id: string }[]) ?? []).map((m) => m.user_id)
     let overrideCredits = 0
     if (memberIds.length) {
-      const { data: ov } = await supabase
+      const overridesResult = await supabase
         .from('user_cap_overrides')
         .select('monthly_credits, expires_at')
         .in('user_id', memberIds)
+      if (overridesResult.error) return { allowed: true }
+      const ov = overridesResult.data
       const nowIso = now.toISOString()
       overrideCredits = ((ov as { monthly_credits: number | null; expires_at: string | null }[]) ?? []).reduce(
         (s, r) => (r.expires_at && r.expires_at < nowIso ? s : s + Math.max(0, r.monthly_credits ?? 0)),
