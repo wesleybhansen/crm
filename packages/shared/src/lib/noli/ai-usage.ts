@@ -44,6 +44,9 @@ const PRICING: Record<string, { in: number; out: number; cached: number }> = {
   'gpt-4o-realtime': { in: 40, out: 80, cached: 2.5 },
   'gpt-realtime': { in: 40, out: 80, cached: 2.5 },
   'gpt-4o': { in: 2.5, out: 10, cached: 1.25 },
+  'text-embedding-3-large': { in: 0.13, out: 0, cached: 0.13 },
+  'text-embedding-3-small': { in: 0.02, out: 0, cached: 0.02 },
+  'text-embedding': { in: 0.1, out: 0, cached: 0.1 },
   // Text-to-speech is priced per CHARACTER, not per token: tts-1 = $15 / 1M
   // chars, tts-1-hd = $30 / 1M chars. Callers pass the input character count as
   // `tokensIn` (tokensOut = 0) so cost = (chars / 1M) * rate.in lands exactly.
@@ -65,7 +68,7 @@ const PRICING: Record<string, { in: number; out: number; cached: number }> = {
 const FALLBACK_RATE = { in: 5, out: 15, cached: 0.5 };
 
 // Customer-facing display tokens (credits) peg: 250,000 credits per $1 of
-// provider cost. Canonical formula: credits = round((costCents / 100) * 250000).
+// provider cost. Canonical formula: credits = round(costDollars * 250000).
 const DISPLAY_TOKENS_PER_DOLLAR = 250_000;
 
 // Catalog price overlay — the admin-managed noli-core model_catalog is the
@@ -181,7 +184,7 @@ export async function logCrmAiUsage(args: {
       (tokensOut / 1_000_000) * rate.out;
     // Round provider cost UP to whole cents so we never under-bill.
     const costCents = Math.ceil(costDollars * 100);
-    const creditsConsumed = Math.round((costCents / 100) * DISPLAY_TOKENS_PER_DOLLAR);
+    const creditsConsumed = Math.round(costDollars * DISPLAY_TOKENS_PER_DOLLAR);
 
     const supabase = getNoliCoreClient();
     const { error } = await supabase.from('ai_usage').insert({
