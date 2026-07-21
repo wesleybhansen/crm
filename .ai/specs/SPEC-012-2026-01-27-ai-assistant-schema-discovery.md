@@ -18,7 +18,7 @@ The system uses two parallel discovery mechanisms:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         AT STARTUP                               │
+│                    AFTER LISTENER STARTUP                        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  MikroORM ──► extractEntityGraph() ──► EntityGraph (cached)    │
@@ -308,7 +308,7 @@ For each entity:
 Cache in memory as EntityGraph { nodes[], edges[], generatedAt }
 ```
 
-**When it runs:** At MCP server startup (`mcp-dev-server.ts` lines 254-266)
+**When it runs:** In development and stdio modes, indexing runs during MCP startup. The production HTTP server binds its listener first, then performs discovery indexing as optional background work. Repeated HTTP starts sharing the same container reuse one in-flight or completed indexing run. A slow or unavailable search backend therefore cannot prevent the health or MCP endpoints from accepting connections.
 
 ### Module Inference
 
@@ -468,6 +468,11 @@ yarn mercato ai_assistant mcp:list-tools --verbose
 ```
 
 ## Changelog
+
+### 2026-07-21
+- Production HTTP MCP startup now binds before optional discovery indexing.
+- Background indexing has a bounded lifecycle, cancellation on shutdown, and per-container run deduplication.
+- Discovery tools retain their in-memory fallback when search indexing is delayed or unavailable.
 
 ### 2026-01-27
 - Initial specification documenting current implementation
