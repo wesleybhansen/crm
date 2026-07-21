@@ -1,5 +1,10 @@
 import 'server-only';
 import { getNoliCoreClient, resolveOrgByoKeys, type ByoProvider } from './core-client';
+import {
+  LIVE_NOLI_SUBSCRIPTION_STATUSES,
+  resolveAllowanceBillingPeriod,
+  type NoliBillingSubscription,
+} from './billing-period';
 
 /*
  * Shared P-3 allowance gate keyed by noli org id (NOT the Mercato auth). This is
@@ -37,23 +42,29 @@ export async function checkOrgAiAllowance(
     const supabase = getNoliCoreClient();
 
     const now = new Date();
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-    const [{ data: members }, { data: usage }, { data: subs }] = await Promise.all([
+    const [{ data: members }, { data: subs }] = await Promise.all([
       supabase.from('organization_members').select('user_id').eq('organization_id', noliOrgId),
       supabase
-        .from('ai_usage')
-        .select('credits_consumed')
-        .eq('organization_id', noliOrgId)
-        .eq('byo_key', false)
-        .gte('ts', monthStart),
-      supabase
         .from('subscriptions')
-        .select('seats, token_boosts, status')
-        .eq('organization_id', noliOrgId),
+        .select('id, seats, token_boosts, status, current_period_start, updated_at')
+        .eq('organization_id', noliOrgId)
+        .in('status', [...LIVE_NOLI_SUBSCRIPTION_STATUSES]),
     ]);
 
-    const sub = (((subs as { seats: number | null; token_boosts: number | null; status: string | null }[]) ?? [])
-      .find((s) => s.status === 'active' || s.status === 'trialing'));
+    type AllowanceSubscription = NoliBillingSubscription & {
+      seats: number | null;
+      token_boosts: number | null;
+    };
+    const { subscription: sub, periodStart } = resolveAllowanceBillingPeriod(
+      (subs as AllowanceSubscription[] | null) ?? [],
+      now,
+    );
+    const { data: usage } = await supabase
+      .from('ai_usage')
+      .select('credits_consumed')
+      .eq('organization_id', noliOrgId)
+      .eq('byo_key', false)
+      .gte('ts', periodStart.toISOString());
     const memberSeats = Math.max(1, ((members as unknown[]) ?? []).length);
     const seats = sub?.seats && sub.seats > 0 ? sub.seats : memberSeats;
     const tokenBoosts = sub?.token_boosts ?? 0;
