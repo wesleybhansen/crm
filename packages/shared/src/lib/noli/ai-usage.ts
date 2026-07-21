@@ -118,11 +118,16 @@ function rateForModel(model: string): { in: number; out: number; cached: number 
   return (catalogRates && matchRate(catalogRates, m)) || matchRate(PRICING, m) || FALLBACK_RATE;
 }
 
-// Cache noli orgId → owner userId for the process lifetime.
-const ownerCache = new Map<string, string | null>();
+const OWNER_NEGATIVE_CACHE_TTL_MS = 30_000;
+type OwnerCacheEntry = { userId: string | null; retryAt: number | null };
+const ownerCache = new Map<string, OwnerCacheEntry>();
 
 async function resolveOwnerUserId(noliOrgId: string): Promise<string | null> {
-  if (ownerCache.has(noliOrgId)) return ownerCache.get(noliOrgId) ?? null;
+  const cached = ownerCache.get(noliOrgId);
+  if (cached?.userId) return cached.userId;
+  if (cached?.retryAt && cached.retryAt > Date.now()) return null;
+  if (cached) ownerCache.delete(noliOrgId);
+
   let userId: string | null = null;
   try {
     const supabase = getNoliCoreClient();
@@ -137,7 +142,10 @@ async function resolveOwnerUserId(noliOrgId: string): Promise<string | null> {
   } catch (err) {
     console.error('[crm ai_usage] resolveOwnerUserId failed', err);
   }
-  ownerCache.set(noliOrgId, userId);
+  ownerCache.set(noliOrgId, {
+    userId,
+    retryAt: userId ? null : Date.now() + OWNER_NEGATIVE_CACHE_TTL_MS,
+  });
   return userId;
 }
 
