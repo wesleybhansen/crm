@@ -120,4 +120,62 @@ describe('logCrmAiUsage cost attribution', () => {
       organization_id: 'org-negative-cache-retry',
     }))
   })
+
+  it('retries owner resolution immediately after a returned query error', async () => {
+    organizationMembersMock
+      .mockResolvedValueOnce({ data: null, error: { message: 'temporary read failure' } })
+      .mockResolvedValueOnce({
+        data: [{ user_id: 'owner-after-returned-error', role: 'owner' }],
+        error: null,
+      })
+
+    const event = {
+      noliOrgId: 'org-returned-error-retry',
+      model: 'gpt-5-mini',
+      tokensIn: 1_000,
+      tokensOut: 100,
+    }
+
+    await logCrmAiUsage(event)
+    await logCrmAiUsage(event)
+
+    expect(organizationMembersMock).toHaveBeenCalledTimes(2)
+    expect(insertMock).toHaveBeenCalledTimes(1)
+    expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: 'owner-after-returned-error',
+      organization_id: 'org-returned-error-retry',
+    }))
+  })
+
+  it('retries owner resolution immediately after a thrown query failure', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    organizationMembersMock
+      .mockRejectedValueOnce(new Error('temporary transport failure'))
+      .mockResolvedValueOnce({
+        data: [{ user_id: 'owner-after-thrown-error', role: 'owner' }],
+        error: null,
+      })
+
+    const event = {
+      noliOrgId: 'org-thrown-error-retry',
+      model: 'gpt-5-mini',
+      tokensIn: 1_000,
+      tokensOut: 100,
+    }
+
+    await logCrmAiUsage(event)
+    await logCrmAiUsage(event)
+
+    expect(organizationMembersMock).toHaveBeenCalledTimes(2)
+    expect(insertMock).toHaveBeenCalledTimes(1)
+    expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: 'owner-after-thrown-error',
+      organization_id: 'org-thrown-error-retry',
+    }))
+    expect(consoleError).toHaveBeenCalledWith(
+      '[crm ai_usage] resolveOwnerUserId failed',
+      expect.any(Error),
+    )
+    consoleError.mockRestore()
+  })
 })

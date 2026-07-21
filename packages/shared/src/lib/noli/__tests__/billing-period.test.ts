@@ -12,11 +12,12 @@ type TestSubscription = NoliBillingSubscription & {
 const now = new Date('2026-07-21T18:00:00.000Z');
 
 describe('resolveAllowanceBillingPeriod', () => {
-  it('uses the newest valid live subscription period instead of the UTC calendar month', () => {
+  it('uses the newest valid live monthly subscription period instead of the UTC calendar month', () => {
     const subscriptions: TestSubscription[] = [
       {
         id: 'older-active',
         status: 'active',
+        billing_interval: 'month',
         current_period_start: '2026-06-15T12:00:00.000Z',
         updated_at: '2026-06-15T12:00:00.000Z',
         seats: 2,
@@ -25,6 +26,7 @@ describe('resolveAllowanceBillingPeriod', () => {
       {
         id: 'current-past-due',
         status: 'past_due',
+        billing_interval: 'month',
         current_period_start: '2026-07-15T12:00:00.000Z',
         updated_at: '2026-07-20T12:00:00.000Z',
         seats: 4,
@@ -33,6 +35,7 @@ describe('resolveAllowanceBillingPeriod', () => {
       {
         id: 'canceled-newer',
         status: 'canceled',
+        billing_interval: 'month',
         current_period_start: '2026-07-20T12:00:00.000Z',
         updated_at: '2026-07-20T12:00:00.000Z',
         seats: 20,
@@ -51,6 +54,7 @@ describe('resolveAllowanceBillingPeriod', () => {
       {
         id: status,
         status,
+        billing_interval: 'month',
         current_period_start: '2026-07-12T00:00:00.000Z',
         updated_at: '2026-07-12T00:00:00.000Z',
       },
@@ -64,12 +68,14 @@ describe('resolveAllowanceBillingPeriod', () => {
       {
         id: 'a',
         status: 'active',
+        billing_interval: 'month',
         current_period_start: '2026-07-15T00:00:00.000Z',
         updated_at: '2026-07-20T00:00:00.000Z',
       },
       {
         id: 'b',
         status: 'trialing',
+        billing_interval: 'month',
         current_period_start: '2026-07-15T00:00:00.000Z',
         updated_at: '2026-07-20T00:00:00.000Z',
       },
@@ -78,29 +84,87 @@ describe('resolveAllowanceBillingPeriod', () => {
     expect(result.subscription?.id).toBe('b');
   });
 
-  it('falls back to the UTC month start when no live subscription has a valid period', () => {
+  it('resets annual plans at the latest monthly UTC anniversary without month-end drift', () => {
+    const subscription = {
+      id: 'annual',
+      status: 'active',
+      billing_interval: 'year',
+      current_period_start: '2024-01-31T10:15:30.000Z',
+      updated_at: '2024-01-31T10:15:30.000Z',
+    };
+
+    expect(resolveAllowanceBillingPeriod(
+      [subscription],
+      new Date('2024-03-15T00:00:00.000Z'),
+    ).periodStart.toISOString()).toBe('2024-02-29T10:15:30.000Z');
+    expect(resolveAllowanceBillingPeriod(
+      [subscription],
+      new Date('2024-04-15T00:00:00.000Z'),
+    ).periodStart.toISOString()).toBe('2024-03-31T10:15:30.000Z');
+  });
+
+  it('rejects future, timezone-less, and calendar-invalid period starts', () => {
+    const result = resolveAllowanceBillingPeriod([
+      {
+        id: 'valid',
+        status: 'active',
+        billing_interval: 'month',
+        current_period_start: '2026-07-10T00:00:00.000Z',
+        updated_at: '2026-07-10T00:00:00.000Z',
+      },
+      {
+        id: 'future',
+        status: 'active',
+        billing_interval: 'month',
+        current_period_start: '2026-07-22T00:00:00.000Z',
+        updated_at: '2026-07-22T00:00:00.000Z',
+      },
+      {
+        id: 'timezone-less',
+        status: 'active',
+        billing_interval: 'month',
+        current_period_start: '2026-07-20T00:00:00.000',
+        updated_at: '2026-07-20T00:00:00.000Z',
+      },
+      {
+        id: 'invalid-calendar-date',
+        status: 'active',
+        billing_interval: 'month',
+        current_period_start: '2026-06-31T00:00:00.000Z',
+        updated_at: '2026-07-21T00:00:00.000Z',
+      },
+    ], now);
+
+    expect(result.subscription?.id).toBe('valid');
+    expect(result.periodStart.toISOString()).toBe('2026-07-10T00:00:00.000Z');
+  });
+
+  it('retains a deterministic live subscription for paid seats and boosts when every period is unusable', () => {
     const result = resolveAllowanceBillingPeriod([
       {
         id: 'invalid-active',
         status: 'active',
+        billing_interval: 'month',
         current_period_start: 'not-a-date',
         updated_at: '2026-07-20T00:00:00.000Z',
       },
       {
         id: 'missing-trial',
         status: 'trialing',
+        billing_interval: 'month',
         current_period_start: null,
         updated_at: '2026-07-20T00:00:00.000Z',
       },
       {
         id: 'valid-canceled',
         status: 'canceled',
+        billing_interval: 'month',
         current_period_start: '2026-07-19T00:00:00.000Z',
-        updated_at: '2026-07-20T00:00:00.000Z',
+        updated_at: '2026-07-21T00:00:00.000Z',
       },
     ], now);
 
-    expect(result.subscription).toBeNull();
+    expect(result.subscription?.id).toBe('missing-trial');
     expect(result.periodStart.toISOString()).toBe('2026-07-01T00:00:00.000Z');
   });
 });

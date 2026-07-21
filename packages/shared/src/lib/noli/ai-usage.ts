@@ -128,25 +128,27 @@ async function resolveOwnerUserId(noliOrgId: string): Promise<string | null> {
   if (cached?.retryAt && cached.retryAt > Date.now()) return null;
   if (cached) ownerCache.delete(noliOrgId);
 
-  let userId: string | null = null;
   try {
     const supabase = getNoliCoreClient();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('organization_members')
       .select('user_id, role, created_at')
       .eq('organization_id', noliOrgId)
       .order('created_at', { ascending: true });
+    if (error) return null;
+
     const rows = (data as { user_id: string; role: string }[] | null) ?? [];
     const owner = rows.find((r) => r.role === 'owner') ?? rows[0];
-    userId = owner?.user_id ?? null;
+    const userId = owner?.user_id ?? null;
+    ownerCache.set(noliOrgId, {
+      userId,
+      retryAt: userId ? null : Date.now() + OWNER_NEGATIVE_CACHE_TTL_MS,
+    });
+    return userId;
   } catch (err) {
     console.error('[crm ai_usage] resolveOwnerUserId failed', err);
+    return null;
   }
-  ownerCache.set(noliOrgId, {
-    userId,
-    retryAt: userId ? null : Date.now() + OWNER_NEGATIVE_CACHE_TTL_MS,
-  });
-  return userId;
 }
 
 export async function logCrmAiUsage(args: {
