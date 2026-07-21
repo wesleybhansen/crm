@@ -14,7 +14,7 @@ import { getNoliCoreClient } from '@open-mercato/shared/lib/noli/core-client'
  * sync) so it doesn't write wrong cost/credits if ever re-wired.
  *
  * Pricing peg: 250,000 credits per $1 of provider cost (credits =
- * round((costCents / 100) * 250000)). Matches ai-usage.ts and the canonical
+ * round(costDollars * 250000)). Matches ai-usage.ts and the canonical
  * noli-platform MODEL_PRICING table.
  */
 
@@ -34,6 +34,9 @@ const PRICING: Record<string, ModelPricing> = {
   'gpt-5.4-mini': { in: 0.75, out: 4.5 },
   'gpt-5.4': { in: 2.5, out: 15.0 },
   'gpt-5.5': { in: 5.0, out: 30.0 },
+  'text-embedding-3-large': { in: 0.13, out: 0 },
+  'text-embedding-3-small': { in: 0.02, out: 0 },
+  'text-embedding': { in: 0.1, out: 0 },
   // Google
   'gemini-3.5-flash': { in: 1.5, out: 9.0 },
   'gemini-3-flash': { in: 0.5, out: 3.0 },
@@ -55,15 +58,17 @@ export type LogAiUsageArgs = {
 export async function logAiUsage(args: LogAiUsageArgs): Promise<void> {
   try {
     const pricing = PRICING[args.model]
+    let costDollars = 0
     let costCents = 0
     if (pricing) {
       const inCost = (Math.max(0, args.tokensIn) / 1_000_000) * pricing.in
       const outCost = (Math.max(0, args.tokensOut) / 1_000_000) * pricing.out
+      costDollars = inCost + outCost
       // Round provider cost UP to whole cents so we never under-bill.
-      costCents = Math.ceil((inCost + outCost) * 100)
+      costCents = Math.ceil(costDollars * 100)
     }
     // Peg: 250,000 credits per $1 of provider cost.
-    const creditsConsumed = Math.round((costCents / 100) * 250_000)
+    const creditsConsumed = Math.round(costDollars * 250_000)
 
     const supabase = getNoliCoreClient()
     const { error } = await supabase.from('ai_usage').insert({
