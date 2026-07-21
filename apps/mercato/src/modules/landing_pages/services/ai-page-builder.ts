@@ -1,4 +1,9 @@
 import type { TemplateSchema, TemplateSection } from './template-parser'
+import {
+  normalizeAiProvider,
+  resolvePlatformProviderApiKey,
+  type SupportedAiProvider,
+} from '@/lib/usage/provider-access'
 
 export interface ConversationMessage {
   role: 'user' | 'assistant'
@@ -78,7 +83,7 @@ export interface AIUsage {
 }
 
 export class AIPageBuilder {
-  private provider: string
+  private provider: SupportedAiProvider
   private apiKey: string
   private model: string
   /*
@@ -97,20 +102,18 @@ export class AIPageBuilder {
    * the meter records it correctly.
    */
   constructor(byoApiKey?: string) {
-    this.provider = process.env.AI_PROVIDER || 'google'
+    this.provider = normalizeAiProvider(process.env.AI_PROVIDER)
     this.byoKey = !!byoApiKey
     this.apiKey = byoApiKey || this.resolveApiKey()
     this.model = this.resolveModel()
   }
 
   private resolveApiKey(): string {
-    const provider = process.env.AI_PROVIDER || 'google'
-    switch (provider) {
-      case 'google': return process.env.GOOGLE_GENERATIVE_AI_API_KEY || ''
-      case 'anthropic': return process.env.ANTHROPIC_API_KEY || ''
-      case 'openai': return process.env.OPENAI_API_KEY || ''
-      default: return ''
-    }
+    return resolvePlatformProviderApiKey(this.provider, {
+      google: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      openai: process.env.OPENAI_API_KEY,
+    }) || ''
   }
 
   /* The resolved model id, for metering. */
@@ -119,12 +122,10 @@ export class AIPageBuilder {
   }
 
   private resolveModel(): string {
-    const provider = process.env.AI_PROVIDER || 'google'
-    switch (provider) {
+    switch (this.provider) {
       case 'google': return process.env.AI_MODEL || 'gemini-3.5-flash'
       case 'anthropic': return process.env.AI_MODEL || 'claude-haiku-4-5-20251001'
       case 'openai': return process.env.AI_MODEL || 'gpt-4o-mini'
-      default: return 'gemini-3.5-flash'
     }
   }
 

@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { normalizeAiProvider } from '@/lib/usage/provider-access'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['landing_pages.create'] },
@@ -14,9 +15,10 @@ export async function POST(req: Request) {
     const auth = await getAuthFromCookies()
     if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-    // AIPageBuilder runs the AI_PROVIDER provider (Gemini by default). Gate on
-    // google; over the pool, thread the org's google BYO key into the builder.
-    const gate = await checkCustomersAiAllowance(auth, 'google')
+    // Gate the same normalized provider that AIPageBuilder will call. Over the
+    // pool, thread only that provider's customer key into the builder.
+    const provider = normalizeAiProvider(process.env.AI_PROVIDER)
+    const gate = await checkCustomersAiAllowance(auth, provider)
     if (!gate.allowed) {
       return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
     }

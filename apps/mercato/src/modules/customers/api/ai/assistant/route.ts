@@ -6,7 +6,12 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
-import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { ALLOWANCE_BLOCK_MESSAGE, checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import {
+  resolveFallbackProviderAccess,
+  resolvePrimaryProviderAccess,
+  type ProviderAccess,
+} from '@/lib/usage/provider-access'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
@@ -562,16 +567,46 @@ export async function POST(req: Request, ctx?: any) {
       return NextResponse.json({ ok: false, error: 'messages required' }, { status: 400 })
     }
 
-    // Resolve auth + allowance up front so we can BYO-key the Gemini call.
+    // Resolve the preferred provider up front. A fallback provider is gated
+    // separately before use so a customer-key call can never spill onto a
+    // different provider's platform key after the pooled allowance is spent.
     const gateAuth = ctx?.auth ?? (await getAuthFromCookies())
-    const gate = await checkCustomersAiAllowance(gateAuth as { orgId?: string | null })
-    if (!gate.allowed) {
-      return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
+    const googleGate = await checkCustomersAiAllowance(
+      gateAuth as { orgId?: string | null },
+      'google',
+    )
+    const googleAccess = resolvePrimaryProviderAccess(
+      googleGate,
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    )
+    let openaiAccess: ProviderAccess | null = null
+    const getOpenAiAccess = async (): Promise<ProviderAccess> => {
+      if (openaiAccess) return openaiAccess
+      const openaiGate = await checkCustomersAiAllowance(
+        gateAuth as { orgId?: string | null },
+        'openai',
+      )
+      openaiAccess = resolveFallbackProviderAccess(
+        googleGate,
+        openaiGate,
+        process.env.OPENAI_API_KEY,
+      )
+      return openaiAccess
     }
 
-    const geminiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
-    const openaiKey = process.env.OPENAI_API_KEY
-    if (!geminiKey && !openaiKey) {
+    let hasConfiguredProvider = Boolean(googleAccess.apiKey)
+    if (!hasConfiguredProvider) {
+      const fallbackAccess = await getOpenAiAccess()
+      if (fallbackAccess.blocked) {
+        return NextResponse.json({
+          ok: false,
+          error: fallbackAccess.message ?? googleAccess.message ?? ALLOWANCE_BLOCK_MESSAGE,
+        }, { status: 402 })
+      }
+      hasConfiguredProvider = Boolean(fallbackAccess.apiKey)
+    }
+
+    if (!hasConfiguredProvider) {
       return NextResponse.json({
         ok: true,
         message: "I'm Scout, your CRM assistant, but no AI API keys are configured. I can still help with basic navigation — what are you looking for?",
@@ -648,12 +683,14 @@ export async function POST(req: Request, ctx?: any) {
     // {text, model, tokensIn, tokensOut} or throws a classified error.
     let result: { text: string; model: string; tokensIn: number; tokensOut: number } | null = null
     let provider: 'gemini' | 'openai' | null = null
+    let servedWithByoKey = false
     let lastError: { provider: string; message: string } | null = null
 
-    if (geminiKey) {
+    if (googleAccess.apiKey) {
       try {
-        result = await callGemini(geminiKey, systemPrompt, contextPrefixed)
+        result = await callGemini(googleAccess.apiKey, systemPrompt, contextPrefixed)
         provider = 'gemini'
+        servedWithByoKey = googleAccess.byoKey
       } catch (err: any) {
         lastError = { provider: 'gemini', message: err?.message || String(err) }
         const retriable = err?.retriable !== false
@@ -665,14 +702,24 @@ export async function POST(req: Request, ctx?: any) {
       }
     }
 
-    if (result === null && openaiKey) {
-      try {
-        result = await callOpenAI(openaiKey, systemPrompt, contextPrefixed)
-        provider = 'openai'
-        console.log('[ai.assistant] Served via OpenAI fallback')
-      } catch (err: any) {
-        lastError = { provider: 'openai', message: err?.message || String(err) }
-        console.error('[ai.assistant] OpenAI fallback failed', lastError.message)
+    if (result === null) {
+      const fallbackAccess = await getOpenAiAccess()
+      if (fallbackAccess.blocked) {
+        return NextResponse.json({
+          ok: false,
+          error: fallbackAccess.message ?? googleAccess.message ?? ALLOWANCE_BLOCK_MESSAGE,
+        }, { status: 402 })
+      }
+      if (fallbackAccess.apiKey) {
+        try {
+          result = await callOpenAI(fallbackAccess.apiKey, systemPrompt, contextPrefixed)
+          provider = 'openai'
+          servedWithByoKey = fallbackAccess.byoKey
+          console.log('[ai.assistant] Served via OpenAI fallback')
+        } catch (err: any) {
+          lastError = { provider: 'openai', message: err?.message || String(err) }
+          console.error('[ai.assistant] OpenAI fallback failed', lastError.message)
+        }
       }
     }
 
@@ -687,9 +734,7 @@ export async function POST(req: Request, ctx?: any) {
           tokensIn: result.tokensIn,
           tokensOut: result.tokensOut,
           feature: 'scout-assistant',
-          // BYO key only applies when Gemini served (it consumed the BYO key);
-          // OpenAI fallback always uses the platform key.
-          byoKey: provider === 'gemini' && !!gate.byoApiKey,
+          byoKey: servedWithByoKey,
         })
       } catch {}
       return NextResponse.json({ ok: true, message: result.text, provider })
