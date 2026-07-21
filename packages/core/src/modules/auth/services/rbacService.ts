@@ -70,7 +70,10 @@ export class RbacService {
   }
 
   private getCacheKey(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string {
-    return `rbac:${userId}:${scope.tenantId || 'null'}:${scope.organizationId || 'null'}`
+    // v2 changes API-key organization semantics from a soft role-derived hint
+    // to a hard cap. Namespace the cache so pre-deploy ACL entries cannot keep
+    // the former all-org result alive during their TTL.
+    return `rbac:v2:${userId}:${scope.tenantId || 'null'}:${scope.organizationId || 'null'}`
   }
 
   private getUserTag(userId: string): string {
@@ -263,7 +266,10 @@ export class RbacService {
       const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
       let isSuper = false
       const features: string[] = []
-      let organizations: string[] | null = key.organizationId ? [key.organizationId] : null
+      // Role ACL organization visibility is additive across roles, but an API
+      // key's own organization is a hard upper bound. A role with all-org
+      // visibility must never erase that bound.
+      let roleOrganizations: string[] | null = []
       if (tenantId && roleIds.length) {
         const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any)
         for (const acl of racls) {
@@ -271,15 +277,22 @@ export class RbacService {
           if (Array.isArray(acl.featuresJson)) {
             for (const f of acl.featuresJson) if (!features.includes(f)) features.push(f)
           }
-          if (organizations !== null) {
+          if (roleOrganizations !== null) {
             if (acl.organizationsJson == null) {
-              organizations = null
+              roleOrganizations = null
             } else {
-              organizations = Array.from(new Set([...(organizations || []), ...acl.organizationsJson]))
+              roleOrganizations = Array.from(
+                new Set([...roleOrganizations, ...acl.organizationsJson]),
+              )
             }
           }
         }
       }
+      const organizations = key.organizationId
+        ? roleOrganizations === null || roleOrganizations.includes(key.organizationId)
+          ? [key.organizationId]
+          : []
+        : roleOrganizations
       const result = { isSuperAdmin: isSuper, features, organizations }
       await this.setCache(cacheKey, result, userId, scope)
       return result
@@ -385,8 +398,8 @@ export class RbacService {
   async userHasAllFeatures(userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean> {
     if (!required.length) return true
     const acl = await this.loadAcl(userId, scope)
-    if (acl.isSuperAdmin) return true
     if (acl.organizations && scope.organizationId && !acl.organizations.includes(scope.organizationId)) return false
+    if (acl.isSuperAdmin) return true
     return this.hasAllFeatures(required, acl.features)
   }
 }

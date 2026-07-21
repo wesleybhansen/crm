@@ -11,6 +11,16 @@ interface MockEntityManager {
   findOne: jest.Mock<Promise<unknown>, [unknown, Record<string, unknown>?]>
   find: jest.Mock<Promise<unknown[]>, [unknown, Record<string, unknown>?]>
   fork: jest.Mock<MockEntityManager, []>
+  createQueryBuilder: jest.Mock<MockQueryBuilder, [unknown, string]>
+}
+
+interface MockQueryBuilder {
+  where: jest.Mock<MockQueryBuilder, [Record<string, unknown>]>
+  andWhere: jest.Mock<MockQueryBuilder, [Record<string, unknown>]>
+  orderBy: jest.Mock<MockQueryBuilder, [Record<string, unknown>]>
+  limit: jest.Mock<MockQueryBuilder, [number]>
+  offset: jest.Mock<MockQueryBuilder, [number]>
+  getResultAndCount: jest.Mock<Promise<[unknown[], number]>, []>
 }
 
 interface MockDataEngine {
@@ -35,10 +45,18 @@ const queue: QueueEntry[] = []
 const mockGetAuthFromCookies = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveScope = jest.fn()
+const mockQueryBuilder = {} as MockQueryBuilder
+mockQueryBuilder.where = jest.fn(() => mockQueryBuilder)
+mockQueryBuilder.andWhere = jest.fn(() => mockQueryBuilder)
+mockQueryBuilder.orderBy = jest.fn(() => mockQueryBuilder)
+mockQueryBuilder.limit = jest.fn(() => mockQueryBuilder)
+mockQueryBuilder.offset = jest.fn(() => mockQueryBuilder)
+mockQueryBuilder.getResultAndCount = jest.fn()
 const mockEm: MockEntityManager = {
   findOne: jest.fn<Promise<unknown>, [unknown, Record<string, unknown>?]>(),
   find: jest.fn<Promise<unknown[]>, [unknown, Record<string, unknown>?]>(),
   fork: jest.fn<MockEntityManager, []>(),
+  createQueryBuilder: jest.fn(() => mockQueryBuilder),
 }
 const mockDataEngine: MockDataEngine = {
   __queue: queue,
@@ -91,12 +109,16 @@ jest.mock('../../services/apiKeyService', () => {
 
 type RouteModule = typeof import('../keys/route')
 let routeMetadata: RouteModule['metadata']
+let getHandler: RouteModule['GET']
 let postHandler: RouteModule['POST']
+let deleteHandler: RouteModule['DELETE']
 
 beforeAll(async () => {
   const routeModule = await import('../keys/route')
   routeMetadata = routeModule.metadata
+  getHandler = routeModule.GET
   postHandler = routeModule.POST
+  deleteHandler = routeModule.DELETE
 })
 
 describe('API Keys route', () => {
@@ -120,6 +142,7 @@ describe('API Keys route', () => {
       allowedIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
     })
     mockEm.findOne.mockResolvedValue(null)
+    mockQueryBuilder.getResultAndCount.mockResolvedValue([[], 0])
     mockEm.find.mockImplementation(async (_entity: unknown, criteria: Record<string, unknown> = {}) => {
       const nameValue = typeof criteria.name === 'string' ? criteria.name : null
       if (nameValue && nameValue.toLowerCase() === 'manager') {
@@ -240,5 +263,53 @@ describe('API Keys route', () => {
     const payload = await res.json()
     expect(payload.error).toBe('Organization out of scope')
     expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('rejects reserved platform-auto names on the ordinary creation surface', async () => {
+    const res = await postHandler(
+      new Request('http://localhost/api/api_keys/keys', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'platform-auto:cos' }),
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({
+      error: 'platform-auto is a reserved key name',
+    })
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('excludes managed platform-auto rows from the ordinary list query', async () => {
+    const res = await getHandler(
+      new Request('http://localhost/api/api_keys/keys', { method: 'GET' }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith({
+      $not: { name: { $like: 'platform-auto:%' } },
+    })
+  })
+
+  it('rejects deletion of managed platform-auto rows', async () => {
+    mockEm.findOne.mockResolvedValueOnce({
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      name: 'platform-auto:v2:dXNlcg:0123456789abcdef01234567:1',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      deletedAt: null,
+    })
+
+    const res = await deleteHandler(
+      new Request('http://localhost/api/api_keys/keys?id=cccccccc-cccc-4ccc-8ccc-cccccccccccc', {
+        method: 'DELETE',
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({
+      error: 'Managed platform keys cannot be deleted here',
+    })
   })
 })

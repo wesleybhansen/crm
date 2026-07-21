@@ -68,17 +68,19 @@ function resolveOrganizationOverride(raw: string | undefined): CookieOverride {
 
 function isSuperAdminAuth(auth: AuthContext | null | undefined): boolean {
   if (!auth) return false
+  if (auth.isApiKey === true) return false
   if ((auth as Record<string, unknown>).isSuperAdmin === true) return true
   const roles = Array.isArray(auth?.roles) ? auth.roles : []
   return roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === SUPERADMIN_ROLE)
 }
 
-function applySuperAdminScope(
+/** @internal Exported for focused scope-boundary regression tests. */
+export function applySuperAdminScope(
   auth: AuthContext,
   tenantCookie: string | undefined,
   orgCookie: string | undefined
 ): AuthContext {
-  if (!auth || !isSuperAdminAuth(auth)) return auth
+  if (!auth || auth.isApiKey === true || !isSuperAdminAuth(auth)) return auth
 
   const tenantOverride = resolveTenantOverride(tenantCookie)
   const orgOverride = resolveOrganizationOverride(orgCookie)
@@ -106,6 +108,15 @@ function applySuperAdminScope(
   return next
 }
 
+/** @internal Managed COS keys use RBAC for super features, never global role bypasses. */
+export function resolveApiKeyRoleNames(keyName: string, roleNames: unknown[]): string[] {
+  const validNames = roleNames.filter(
+    (name): name is string => typeof name === 'string' && name.length > 0,
+  )
+  if (!keyName.startsWith('platform-auto:')) return validNames
+  return validNames.filter((name) => name.trim().toLowerCase() !== SUPERADMIN_ROLE)
+}
+
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
   try {
@@ -124,7 +135,10 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const roles = roleIds.length
       ? await em.find(Role, { id: { $in: roleIds } })
       : []
-    const roleNames = roles.map((role) => role.name).filter((name): name is string => typeof name === 'string' && name.length > 0)
+    // Managed platform keys receive role-derived features through RbacService,
+    // but must not masquerade as an interactive superadmin in legacy call sites
+    // that inspect role names directly and bypass tenant/org checks.
+    const roleNames = resolveApiKeyRoleNames(record.name, roles.map((role) => role.name))
 
     try {
       record.lastUsedAt = new Date()

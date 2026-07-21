@@ -9,6 +9,7 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { ApiKey } from '../../data/entities'
 import { createApiKeySchema } from '../../data/validators'
 import { generateApiKeySecret, hashApiKey } from '../../services/apiKeyService'
+import { isPlatformAutoKeyName } from '../../services/platformAutoKeyService'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -156,6 +157,7 @@ const crud = makeCrudRoute<
       const qb = em.createQueryBuilder(ApiKey, 'k')
       qb.where({ deletedAt: null })
       qb.andWhere({ tenantId: auth.tenantId })
+      qb.andWhere({ $not: { name: { $like: 'platform-auto:%' } } })
       if (organizationIds && organizationIds.length > 0) {
         qb.andWhere({ organizationId: { $in: organizationIds } })
       } else if (auth.orgId) {
@@ -225,6 +227,9 @@ const crud = makeCrudRoute<
       const auth = ctx.auth
       const { translate } = await resolveTranslations()
       if (!auth?.tenantId) throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
+      if (isPlatformAutoKeyName(input.name)) {
+        throw json({ error: 'platform-auto is a reserved key name' }, { status: 400 })
+      }
 
       const requestedTenant = Object.prototype.hasOwnProperty.call(input, 'tenantId') ? input.tenantId : auth.tenantId
       const scopedCtx = ctx as ApiKeyCrudCtx
@@ -327,6 +332,9 @@ const crud = makeCrudRoute<
         if (!allowedIds.includes(record.organizationId)) {
           throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
         }
+      }
+      if (isPlatformAutoKeyName(record.name)) {
+        throw json({ error: 'Managed platform keys cannot be deleted here' }, { status: 400 })
       }
       scopedCtx.__apiKeyOrganizationId = record.organizationId ?? null
     },

@@ -149,6 +149,84 @@ describe('RbacService', () => {
       const acl = await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
       expect(acl.isSuperAdmin).toBe(true)
     })
+
+    it('keeps an organization-scoped API key capped when its role grants all-org super access', async () => {
+      const apiKey = Object.assign(new ApiKey(), {
+        id: 'key-org-a',
+        tenantId: 'tenant-1',
+        organizationId: 'org-a',
+        rolesJson: ['role-super'],
+        deletedAt: null,
+        expiresAt: null,
+      })
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === ApiKey && where?.id === apiKey.id) return apiKey
+        return null
+      })
+      em.find.mockImplementation(async (entity: any) => {
+        if (entity === RoleAcl) {
+          return [{
+            tenantId: 'tenant-1',
+            isSuperAdmin: true,
+            featuresJson: ['*'],
+            organizationsJson: null,
+          }]
+        }
+        return []
+      })
+
+      const subject = `api_key:${apiKey.id}`
+      const acl = await service.loadAcl(subject, {
+        tenantId: 'tenant-1',
+        organizationId: 'org-b',
+      })
+
+      expect(acl).toMatchObject({ isSuperAdmin: true, organizations: ['org-a'] })
+      await expect(
+        service.userHasAllFeatures(subject, ['anything'], {
+          tenantId: 'tenant-1',
+          organizationId: 'org-b',
+        }),
+      ).resolves.toBe(false)
+      await expect(
+        service.userHasAllFeatures(subject, ['anything'], {
+          tenantId: 'tenant-1',
+          organizationId: 'org-a',
+        }),
+      ).resolves.toBe(true)
+    })
+
+    it('intersects an API key organization cap with explicit role organizations', async () => {
+      const apiKey = Object.assign(new ApiKey(), {
+        id: 'key-org-a-restricted',
+        tenantId: 'tenant-1',
+        organizationId: 'org-a',
+        rolesJson: ['role-org-b-only'],
+        deletedAt: null,
+        expiresAt: null,
+      })
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === ApiKey && where?.id === apiKey.id) return apiKey
+        return null
+      })
+      em.find.mockImplementation(async (entity: any) => {
+        if (entity === RoleAcl) {
+          return [{
+            tenantId: 'tenant-1',
+            isSuperAdmin: false,
+            featuresJson: ['entities.records.view'],
+            organizationsJson: ['org-b'],
+          }]
+        }
+        return []
+      })
+
+      const acl = await service.loadAcl(`api_key:${apiKey.id}`, {
+        tenantId: 'tenant-1',
+        organizationId: 'org-a',
+      })
+      expect(acl.organizations).toEqual([])
+    })
   })
 
   describe('userHasAllFeatures', () => {

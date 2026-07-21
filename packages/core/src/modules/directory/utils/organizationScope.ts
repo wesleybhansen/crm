@@ -93,7 +93,8 @@ export async function resolveOrganizationScope({
     return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
   const usingOverride = candidateTenantId !== actorTenantId
-  const isSuperAdminActor = auth.isSuperAdmin === true
+  const isApiKeyActor = auth.isApiKey === true
+  const isSuperAdminActor = !isApiKeyActor && auth.isSuperAdmin === true
   const tenantId = usingOverride && actorTenantId && !isSuperAdminActor ? actorTenantId : candidateTenantId
   if (!tenantId) {
     return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
@@ -105,12 +106,22 @@ export async function resolveOrganizationScope({
   const contextOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
   const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: contextOrgId })
   const aclIsSuperAdmin = acl?.isSuperAdmin === true
-  const effectiveSuperAdmin = aclIsSuperAdmin || isSuperAdminActor
-  const rawAccessible = effectiveSuperAdmin
-    ? null
-    : Array.isArray(acl?.organizations)
-      ? acl.organizations.filter(Boolean)
-      : null
+  // API-key super roles may grant features, but never widen the key's tenant or
+  // organization scope. The key row itself is the hard scope boundary.
+  const effectiveSuperAdmin = !isApiKeyActor && (aclIsSuperAdmin || isSuperAdminActor)
+  const apiKeyOrgId = isApiKeyActor && typeof auth.orgId === 'string' && auth.orgId
+    ? auth.orgId
+    : null
+  const aclOrganizations = Array.isArray(acl?.organizations)
+    ? acl.organizations.filter(Boolean)
+    : null
+  const rawAccessible = apiKeyOrgId
+    ? aclOrganizations === null || aclOrganizations.includes(apiKeyOrgId)
+      ? [apiKeyOrgId]
+      : []
+    : effectiveSuperAdmin
+      ? null
+      : aclOrganizations
   const accessibleList = effectiveSuperAdmin
     ? null
     : rawAccessible && rawAccessible.some((value) => typeof value === 'string' && isAllOrganizationsSelection(value))
@@ -137,7 +148,7 @@ export async function resolveOrganizationScope({
     allowedSet = await collectWithDescendants(em, tenantId, accessibleList)
   }
 
-  if (allowedSet && allowedSet.size === 0 && fallbackOrgId) {
+  if (allowedSet && allowedSet.size === 0 && fallbackOrgId && !isApiKeyActor) {
     const computed = await loadFallbackSet()
     if (computed && computed.size > 0) {
       allowedSet = computed
@@ -163,7 +174,12 @@ export async function resolveOrganizationScope({
     filterSet = await loadFallbackSet()
   }
 
-  if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !(explicitAllSelection && effectiveSuperAdmin)) {
+  if (
+    (!filterSet || filterSet.size === 0) &&
+    fallbackOrgId &&
+    !isApiKeyActor &&
+    !(explicitAllSelection && effectiveSuperAdmin)
+  ) {
     const computed = await loadFallbackSet()
     if (computed && computed.size > 0) {
       filterSet = computed
@@ -203,7 +219,9 @@ export async function resolveOrganizationScopeForRequest({
   try { em = container.resolve<EntityManager>('em') } catch { em = null }
   try { rbac = container.resolve<RbacService>('rbacService') } catch { rbac = null }
   if (!em || !rbac) {
-    const fallbackSelected = selectedId ?? auth.orgId ?? null
+    const fallbackSelected = auth.isApiKey === true
+      ? auth.orgId ?? null
+      : selectedId ?? auth.orgId ?? null
     return {
       selectedId: fallbackSelected,
       filterIds: fallbackSelected ? [fallbackSelected] : null,
@@ -238,7 +256,7 @@ export async function resolveOrganizationScopeForRequest({
         ? cookieTenant
         : undefined
   const requestedTenantId = typeof requestedTenant === 'string' && requestedTenant.trim().length > 0 ? requestedTenant.trim() : null
-  const isSuperAdminActor = auth.isSuperAdmin === true
+  const isSuperAdminActor = auth.isApiKey !== true && auth.isSuperAdmin === true
   let effectiveTenantId = requestedTenantId ?? actorTenant ?? null
   if (actorTenant && effectiveTenantId && effectiveTenantId !== actorTenant && !isSuperAdminActor) {
     effectiveTenantId = actorTenant

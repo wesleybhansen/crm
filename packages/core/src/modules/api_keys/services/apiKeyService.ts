@@ -129,7 +129,10 @@ export async function deleteApiKey(
   }
 }
 
-export async function findApiKeyBySecret(em: EntityManager, secret: string): Promise<ApiKey | null> {
+export async function findApiKeyBySecret(
+  em: EntityManager,
+  secret: string
+): Promise<ApiKey | null> {
   if (!secret) return null
   // Extract prefix from the secret for fast candidate lookup
   const prefix = secret.slice(0, 12)
@@ -139,7 +142,17 @@ export async function findApiKeyBySecret(em: EntityManager, secret: string): Pro
   for (const candidate of candidates) {
     if (candidate.expiresAt && candidate.expiresAt.getTime() < Date.now()) continue
     const isValid = await verifyApiKey(secret, candidate.keyHash)
-    if (isValid) return candidate
+    if (isValid) {
+      const { isPlatformAutoApiKeyAuthorized, isPlatformAutoKeyName } =
+        await import('./platformAutoKeyService')
+      if (
+        isPlatformAutoKeyName(candidate.name) &&
+        !(await isPlatformAutoApiKeyAuthorized(em, candidate))
+      ) {
+        return null
+      }
+      return candidate
+    }
   }
   return null
 }

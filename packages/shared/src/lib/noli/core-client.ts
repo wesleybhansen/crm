@@ -85,6 +85,24 @@ export async function findPrimaryOrgIdForUser(
   return (data?.organization_id as string | undefined) ?? null;
 }
 
+/* Strict, uncached membership check for machine credentials. Unlike the
+ * primary-org helper this answers whether one exact user/org link exists. */
+export async function hasNoliOrgMembership(
+  noliUserId: string,
+  noliOrgId: string,
+): Promise<boolean> {
+  const supabase = getNoliCoreClient();
+  const { data, error } = await supabase
+    .from('organization_members')
+    .select('user_id')
+    .eq('user_id', noliUserId)
+    .eq('organization_id', noliOrgId)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data?.user_id);
+}
+
 /* Unified BYOK: resolve the org's own provider keys from noli-core
  * (org_provider_keys, pgcrypto). Used for over-allowance fall-through — once the
  * pooled allowance is exhausted, CRM runs on the customer's own key. The
