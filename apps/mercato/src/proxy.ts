@@ -1,6 +1,11 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
-import { applyBrowserSecurityHeaders } from '@/lib/security-headers'
+import {
+  applyBrowserSecurityHeaders,
+  COMPANY_LEGAL_REDIRECTS,
+  OWNED_BROWSER_APEX_DOMAINS,
+  trailingSlashRedirectPath,
+} from '@/lib/security-headers'
 
 // Note: Do NOT import bootstrap here — proxy runs in Edge runtime which
 // cannot use Node.js modules like MikroORM. Bootstrap is called in
@@ -29,8 +34,6 @@ const isPublicPage = createRouteMatcher([
   '/privacy',
 ])
 
-const OWN_APEX_DOMAINS = ['noliai.com', 'thelaunchpadincubator.com']
-
 function lpAppHost(): string {
   if (process.env.APP_HOST) return process.env.APP_HOST.toLowerCase().replace(/:\d+$/, '')
   try {
@@ -45,7 +48,7 @@ function isOwnHost(host: string): boolean {
   // IP literals (direct-to-box requests, health checks) keep default behavior
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return true
   if (host === lpAppHost()) return true
-  for (const apex of OWN_APEX_DOMAINS) {
+  for (const apex of OWNED_BROWSER_APEX_DOMAINS) {
     if (host === apex || host.endsWith(`.${apex}`)) return true
   }
   return false
@@ -66,9 +69,35 @@ export default clerkMiddleware(async (auth, req) => {
   //    at '/' (rewritten to the public by-domain route) and 404s elsewhere.
   //    /api, /_next, and file assets never reach here (see config.matcher),
   //    so form submits on custom domains still work.
-  const rawHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? ''
+  const rawHost = req.headers.get('host') ?? req.headers.get('x-forwarded-host') ?? ''
   const customHost = rawHost.trim().toLowerCase().replace(/:\d+$/, '')
   const ownHost = isOwnHost(customHost)
+
+  const canonicalPathname = trailingSlashRedirectPath(req.nextUrl.pathname)
+  if (canonicalPathname) {
+    const proto = req.headers.get('x-forwarded-proto') ?? req.nextUrl.protocol.replace(/:$/, '')
+    const host = req.headers.get('host') ?? req.nextUrl.host
+    return withBrowserSecurityHeaders(
+      NextResponse.redirect(
+        new URL(`${canonicalPathname}${req.nextUrl.search}`, `${proto}://${host}`),
+        308,
+      ),
+      req.nextUrl.pathname,
+      ownHost,
+    )
+  }
+
+  const legalRedirect = COMPANY_LEGAL_REDIRECTS[req.nextUrl.pathname]
+  if (legalRedirect) {
+    const url = new URL(legalRedirect)
+    url.search = req.nextUrl.search
+    return withBrowserSecurityHeaders(
+      NextResponse.redirect(url),
+      req.nextUrl.pathname,
+      ownHost,
+    )
+  }
+
   if (!ownHost) {
     if (req.nextUrl.pathname === '/' && (req.method === 'GET' || req.method === 'HEAD')) {
       const url = req.nextUrl.clone()

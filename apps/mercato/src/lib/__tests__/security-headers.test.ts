@@ -1,9 +1,11 @@
 import {
   applyBrowserSecurityHeaders,
   browserSecurityHeaderRules,
+  COMPANY_LEGAL_REDIRECTS,
   DEFAULT_BROWSER_HEADER_SOURCE,
   FRAMEABLE_PUBLIC_HEADER_SOURCE,
   isIntentionallyFrameablePublicPath,
+  trailingSlashRedirectPath,
 } from '../security-headers'
 
 function headersFor(source: string): Map<string, string> {
@@ -67,6 +69,19 @@ describe('CRM browser security headers', () => {
     expect(FRAMEABLE_PUBLIC_HEADER_SOURCE).toBe(
       '/api/:surface(forms|surveys)/public/:slug([a-z0-9-]+)',
     )
+  })
+
+  test('keeps legal and trailing-slash redirects available to the header-aware proxy', () => {
+    expect(COMPANY_LEGAL_REDIRECTS).toEqual({
+      '/privacy': 'https://noliai.com/privacy',
+      '/terms': 'https://noliai.com/terms',
+    })
+    expect(trailingSlashRedirectPath('/backend/')).toBe('/backend')
+    expect(trailingSlashRedirectPath('/api/forms/public/contact-us/')).toBe(
+      '/api/forms/public/contact-us',
+    )
+    expect(trailingSlashRedirectPath('/')).toBeNull()
+    expect(trailingSlashRedirectPath('/backend')).toBeNull()
   })
 
   test('applies the same policy to proxy-generated redirects and rewrites', () => {

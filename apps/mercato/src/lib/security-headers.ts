@@ -9,6 +9,7 @@ export type BrowserSecurityHeaderRule = {
 }
 
 export const FRAMEABLE_PUBLIC_PATH_PATTERN = /^\/api\/(?:forms|surveys)\/public\/[a-z0-9-]+\/?$/
+export const OWNED_BROWSER_APEX_DOMAINS = ['noliai.com', 'thelaunchpadincubator.com'] as const
 
 // These two public HTML responses are explicitly advertised as iframe embeds.
 // Keep every other route, including their submit endpoints and deeper lookalike
@@ -17,6 +18,11 @@ export const FRAMEABLE_PUBLIC_HEADER_SOURCE =
   '/api/:surface(forms|surveys)/public/:slug([a-z0-9-]+)'
 export const DEFAULT_BROWSER_HEADER_SOURCE =
   '/:path((?!api/(?:forms|surveys)/public/[a-z0-9-]+/?$).*)'
+
+export const COMPANY_LEGAL_REDIRECTS: Readonly<Record<string, string>> = {
+  '/privacy': 'https://noliai.com/privacy',
+  '/terms': 'https://noliai.com/terms',
+}
 
 export const HSTS_HEADER: BrowserSecurityHeader = {
   key: 'Strict-Transport-Security',
@@ -39,6 +45,11 @@ export const FRAME_PROTECTION_HEADER: BrowserSecurityHeader = {
 
 export function isIntentionallyFrameablePublicPath(pathname: string): boolean {
   return FRAMEABLE_PUBLIC_PATH_PATTERN.test(pathname)
+}
+
+export function trailingSlashRedirectPath(pathname: string): string | null {
+  if (pathname === '/' || !pathname.endsWith('/')) return null
+  return pathname.slice(0, -1)
 }
 
 export function applyBrowserSecurityHeaders(
