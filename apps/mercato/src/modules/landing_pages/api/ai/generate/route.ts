@@ -6,7 +6,11 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
-import type { ByoProvider } from '@open-mercato/shared/lib/noli/core-client'
+import {
+  normalizeAiProvider,
+  resolvePlatformProviderApiKey,
+  resolvePrimaryProviderAccess,
+} from '@/lib/usage/provider-access'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['landing_pages.create'] },
@@ -17,9 +21,8 @@ export async function POST(req: Request) {
     const auth = await getAuthFromCookies()
     if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-    const provider = process.env.AI_PROVIDER || 'google'
-    const gateProvider: ByoProvider = provider === 'openai' ? 'openai' : provider === 'anthropic' ? 'anthropic' : 'google'
-    const gate = await checkCustomersAiAllowance(auth, gateProvider)
+    const provider = normalizeAiProvider(process.env.AI_PROVIDER)
+    const gate = await checkCustomersAiAllowance(auth, provider)
     if (!gate.allowed) {
       return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
     }
@@ -50,11 +53,18 @@ export async function POST(req: Request) {
       ? messages.filter((m: any) => m.role === 'user').map((m: any) => m.content).join('\n')
       : String(messages)
 
-    // Call Gemini to rewrite the template
-    const apiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
+    const providerAccess = resolvePrimaryProviderAccess(
+      gate,
+      resolvePlatformProviderApiKey(provider, {
+        google: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+        anthropic: process.env.ANTHROPIC_API_KEY,
+        openai: process.env.OPENAI_API_KEY,
+      }),
+    )
+    const apiKey = providerAccess.apiKey
 
-    if (!apiKey && provider === 'google') {
-      return NextResponse.json({ ok: false, error: 'AI API key not configured. Add GOOGLE_GENERATIVE_AI_API_KEY to .env' }, { status: 500 })
+    if (!apiKey) {
+      return NextResponse.json({ ok: false, error: `AI API key not configured for ${provider}` }, { status: 500 })
     }
 
     // Build category-specific instructions
@@ -106,7 +116,7 @@ ${bodyContent}`
         tokensIn: data?.usageMetadata?.promptTokenCount || 0,
         tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
         feature: 'landing-generate',
-        byoKey: !!gate.byoApiKey,
+        byoKey: providerAccess.byoKey,
       })
       html = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
     } else if (provider === 'anthropic') {
@@ -122,7 +132,7 @@ ${bodyContent}`
         tokensIn: data?.usage?.input_tokens || 0,
         tokensOut: data?.usage?.output_tokens || 0,
         feature: 'landing-generate',
-        byoKey: !!gate.byoApiKey,
+        byoKey: providerAccess.byoKey,
       })
       html = data.content?.[0]?.text || ''
     } else {
@@ -138,7 +148,7 @@ ${bodyContent}`
         tokensIn: data?.usage?.prompt_tokens || 0,
         tokensOut: data?.usage?.completion_tokens || 0,
         feature: 'landing-generate',
-        byoKey: !!gate.byoApiKey,
+        byoKey: providerAccess.byoKey,
       })
       html = data.choices?.[0]?.message?.content || ''
     }
