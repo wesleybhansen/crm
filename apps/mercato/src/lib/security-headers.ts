@@ -52,6 +52,13 @@ export function trailingSlashRedirectPath(pathname: string): string | null {
   return pathname.slice(0, -1)
 }
 
+/** Prefer the RFC Host authority over a client-supplied forwarding hint.
+ * Trusted reverse proxies also overwrite X-Forwarded-Host at the edge, but
+ * direct runtimes must remain safe when a caller supplies that header. */
+export function trustedRequestHost(headers: Pick<Headers, 'get'>, fallback: string): string {
+  return headers.get('host') ?? fallback
+}
+
 export function applyBrowserSecurityHeaders(
   headers: Headers,
   pathname: string,

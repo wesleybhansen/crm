@@ -5,6 +5,7 @@ import {
   COMPANY_LEGAL_REDIRECTS,
   OWNED_BROWSER_APEX_DOMAINS,
   trailingSlashRedirectPath,
+  trustedRequestHost,
 } from '@/lib/security-headers'
 
 // Note: Do NOT import bootstrap here — proxy runs in Edge runtime which
@@ -69,14 +70,14 @@ export default clerkMiddleware(async (auth, req) => {
   //    at '/' (rewritten to the public by-domain route) and 404s elsewhere.
   //    /api, /_next, and file assets never reach here (see config.matcher),
   //    so form submits on custom domains still work.
-  const rawHost = req.headers.get('host') ?? req.headers.get('x-forwarded-host') ?? ''
+  const rawHost = trustedRequestHost(req.headers, '')
   const customHost = rawHost.trim().toLowerCase().replace(/:\d+$/, '')
   const ownHost = isOwnHost(customHost)
 
   const canonicalPathname = trailingSlashRedirectPath(req.nextUrl.pathname)
   if (canonicalPathname) {
     const proto = req.headers.get('x-forwarded-proto') ?? req.nextUrl.protocol.replace(/:$/, '')
-    const host = req.headers.get('host') ?? req.nextUrl.host
+    const host = trustedRequestHost(req.headers, req.nextUrl.host)
     return withBrowserSecurityHeaders(
       NextResponse.redirect(
         new URL(`${canonicalPathname}${req.nextUrl.search}`, `${proto}://${host}`),
@@ -132,10 +133,7 @@ export default clerkMiddleware(async (auth, req) => {
     // Reconstruct the public-facing origin (behind nginx, req.url reads as
     // http://0.0.0.0:3000) so the redirect lands on crm.noliai.com/backend.
     const proto = req.headers.get('x-forwarded-proto') ?? 'https'
-    const host =
-      req.headers.get('x-forwarded-host') ??
-      req.headers.get('host') ??
-      req.nextUrl.host
+    const host = trustedRequestHost(req.headers, req.nextUrl.host)
     return withBrowserSecurityHeaders(
       NextResponse.redirect(new URL('/backend', `${proto}://${host}`)),
       req.nextUrl.pathname,
@@ -168,10 +166,7 @@ export default clerkMiddleware(async (auth, req) => {
     // default. Reconstruct the public-facing URL so the hub can redirect
     // back to the original CRM page after sign-in.
     const proto = req.headers.get('x-forwarded-proto') ?? 'https'
-    const host =
-      req.headers.get('x-forwarded-host') ??
-      req.headers.get('host') ??
-      req.nextUrl.host
+    const host = trustedRequestHost(req.headers, req.nextUrl.host)
     const publicUrl = `${proto}://${host}${req.nextUrl.pathname}${req.nextUrl.search}`
     const signInUrl = new URL(HUB_SIGN_IN_URL)
     signInUrl.searchParams.set('redirect_url', publicUrl)

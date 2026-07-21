@@ -6,6 +6,7 @@ import {
   FRAMEABLE_PUBLIC_HEADER_SOURCE,
   isIntentionallyFrameablePublicPath,
   trailingSlashRedirectPath,
+  trustedRequestHost,
 } from '../security-headers'
 
 function headersFor(source: string): Map<string, string> {
@@ -82,6 +83,18 @@ describe('CRM browser security headers', () => {
     )
     expect(trailingSlashRedirectPath('/')).toBeNull()
     expect(trailingSlashRedirectPath('/backend')).toBeNull()
+  })
+
+  test('never lets a client forwarding hint override the request Host authority', () => {
+    expect(trustedRequestHost(new Headers({
+      Host: 'crm.noliai.com',
+      'X-Forwarded-Host': 'attacker.invalid',
+    }), 'fallback.invalid')).toBe('crm.noliai.com')
+    expect(trustedRequestHost(
+      new Headers({ 'X-Forwarded-Host': 'trusted-proxy.example' }),
+      'fallback.invalid',
+    )).toBe('fallback.invalid')
+    expect(trustedRequestHost(new Headers(), 'fallback.invalid')).toBe('fallback.invalid')
   })
 
   test('applies the same policy to proxy-generated redirects and rewrites', () => {
