@@ -11,6 +11,7 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
+      ATTACHMENTS_PARTITION_LANDING_PAGE_IMAGES_ROOT: /app/apps/mercato/storage/attachments/landingPageImages
       DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
     working_dir: /app/apps/mercato
     command: ["sh", "-c", "cp .mercato/next/standalone/apps/mercato/server.js .mercato/next/standalone/apps/mercato/server.cjs && node .mercato/next/standalone/apps/mercato/server.cjs"]
@@ -20,6 +21,7 @@ services:
       - "127.0.0.1:3000:3000"
     volumes:
       - uploads_data:/app/apps/mercato/uploads
+      - attachments_storage:/app/apps/mercato/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,6 +97,8 @@ volumes:
     name: launchos-postgres-data
   uploads_data:
     name: launchos-uploads-data
+  attachments_storage:
+    name: launchos-attachments-storage
 
 networks:
   launchos-network:

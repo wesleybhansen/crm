@@ -34,6 +34,10 @@ COPY eslint.config.mjs ./
 # Limit Node.js heap to 4GB and reduce worker count to avoid OOM in constrained Docker environments
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN yarn build
+RUN mkdir -p /app/.runtime-tools \
+ && yarn exec esbuild scripts/check-landing-page-image-assets.ts \
+      --bundle --platform=node --format=cjs --target=node24 \
+      --outfile=/app/.runtime-tools/check-landing-page-image-assets.cjs
 
 # Dev stage: install + build packages only, no production build; run dev server with watch
 FROM node:24-alpine AS dev
@@ -72,7 +76,8 @@ ARG CONTAINER_PORT=3000
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=${CONTAINER_PORT}
+    PORT=${CONTAINER_PORT} \
+    ATTACHMENTS_PARTITION_LANDING_PAGE_IMAGES_ROOT=/app/apps/mercato/storage/attachments/landingPageImages
 
 WORKDIR /app
 
@@ -126,6 +131,7 @@ COPY --from=builder /app/apps/mercato/public ./apps/mercato/.mercato/next/standa
 
 # Copy runtime configuration files
 COPY --from=builder /app/newrelic.js ./
+COPY --from=builder /app/.runtime-tools/check-landing-page-image-assets.cjs /app/scripts/check-landing-page-image-assets.cjs
 
 # Copy Railway entrypoint script
 COPY docker/scripts/railway-entrypoint.sh /app/docker/scripts/railway-entrypoint.sh

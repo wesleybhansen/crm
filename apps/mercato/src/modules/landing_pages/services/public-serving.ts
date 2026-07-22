@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { Knex } from 'knex'
+import { normalizeLegacyLandingPageImageUrls } from './landing-page-image-urls'
 
 /**
  * Shared serving logic for published landing pages, used by both public
@@ -128,7 +129,9 @@ const UTM_CAPTURE_SCRIPT = `<script>(function(){try{var p=new URLSearchParams(wi
 function normalizeHtml(html: string, opts: { makeApiUrlsRelative: boolean }): string {
   // Older publishes baked "/api/landing-pages/..." (hyphen) form actions; the
   // module dispatcher only serves "/api/landing_pages/..." (underscore).
-  let out = html.split('/api/landing-pages/public/').join('/api/landing_pages/public/')
+  let out = html
+    .split('/api/landing-pages/public/').join('/api/landing_pages/public/')
+  out = normalizeLegacyLandingPageImageUrls(out)
   if (opts.makeApiUrlsRelative) {
     // On custom domains, absolute form actions pointing at the CRM host would
     // be cross-origin (CORS preflight fails). Relative URLs keep the post
