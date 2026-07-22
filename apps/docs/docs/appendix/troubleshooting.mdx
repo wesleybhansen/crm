@@ -68,3 +68,26 @@ psql "postgresql://postgres:postgres@localhost:55432/open-mercato" -c "select 1;
 ```
 
 If this succeeds but `:5432` still fails, keep using the alternate port (or stop the other local PostgreSQL service that occupies `5432`).
+
+## Landing-page images after upgrading from legacy uploads
+
+Landing-page images use the attachment partition root named `landingPageImages`. The production image and Compose service pin `ATTACHMENTS_PARTITION_LANDING_PAGE_IMAGES_ROOT` to `/app/apps/mercato/storage/attachments/landingPageImages`, outside Next.js's standalone working directory and inside the persisted `/app/apps/mercato/storage` mount. For more than one application replica, replace that path with a durable shared filesystem mounted at the same location in every replica; do not scale the filesystem-backed route across replicas with independent disks.
+
+Before the first release containing this change:
+
+1. Build the new `app` image without replacing the running container.
+2. Enter a maintenance window and stop the old `app` container. Do not permit another landing-page image upload until the new image is running. A copy made while the old writer is live is not a release gate.
+3. With both named volumes attached, create both absolute roots (even when the legacy inventory is empty), then make a final no-symlink copy from `/app/apps/mercato/uploads/page-images` to `/app/apps/mercato/storage/attachments/landingPageImages`. Preserve the exact organization/page/file hierarchy, then set directories to owner `1001:1001` mode `0750` and files to owner `1001:1001` mode `0640`.
+4. Run the bundled checker from the new image while the writer remains stopped:
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm --no-deps app \
+  node /app/scripts/check-landing-page-image-assets.cjs \
+  --root=/app/apps/mercato/storage/attachments/landingPageImages \
+  --legacy-root=/app/apps/mercato/uploads/page-images \
+  --require-legacy-parity
+```
+
+The two absolute roots are required; invoking the source-tree command without them fails rather than inspecting a checkout-relative empty directory. The checker reads image bytes only to validate runtime eligibility and calculate digests. It emits no path, tenant identifier, filename, or image content—only counts and aggregate SHA-256 values. Deployment remains blocked unless `ready` is `true`, `migrationRequired` is `false`, both roots are present, both trees have zero unsafe/unsupported/runtime-rejected entries, and their supported counts and digests match after the writer was stopped.
+
+Start the new `app` only after this final parity gate succeeds. Keep the legacy volume unchanged for rollback. After the new version has served the copied assets successfully and the rollback window has closed, retire the legacy tree in a separate maintenance step. For later steady-state checks, omit `--require-legacy-parity`; the current root must still exist and pass every runtime-safety check.

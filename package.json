@@ -67,6 +67,7 @@
     "i18n:fix": "tsx scripts/i18n-check-sync.ts --fix",
     "check:dep-versions": "tsx scripts/check-dep-versions.ts",
     "check:deployment-security": "node --test scripts/check-deployment-security.test.mjs && node scripts/check-deployment-security.mjs",
+    "check:landing-page-images": "tsx scripts/check-landing-page-image-assets.ts",
     "template:sync": "tsx scripts/template-sync.ts",
     "template:sync:fix": "tsx scripts/template-sync.ts --fix",
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",

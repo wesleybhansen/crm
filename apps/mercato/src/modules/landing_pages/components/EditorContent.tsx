@@ -11,6 +11,7 @@ import {
   AlertTriangle, Zap, FlaskConical,
 } from 'lucide-react'
 import AbTestPanel from './AbTestPanel'
+import { normalizeLandingPageImagePreviewUrls } from '../services/landing-page-image-urls'
 
 type Section = {
   id: string
@@ -341,7 +342,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
                 } catch { alert('Upload failed') }
               }} />
               {fields.imageUrl && (
-                <img src={fields.imageUrl} alt={fields.altText || ''} className="mt-2 max-h-24 rounded border object-contain" />
+                <img src={normalizeLandingPageImagePreviewUrls(fields.imageUrl)} alt={fields.altText || ''} className="mt-2 max-h-24 rounded border object-contain" />
               )}
             </div>
             <div>
@@ -571,7 +572,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
           <span className="text-xs text-muted-foreground">Preview: {page.title}</span>
           <div />
         </div>
-        <iframe srcDoc={page.published_html} className="flex-1 w-full" sandbox="allow-scripts" />
+        <iframe srcDoc={normalizeLandingPageImagePreviewUrls(page.published_html)} className="flex-1 w-full" sandbox="allow-scripts" />
       </div>
     )
   }
@@ -704,12 +705,12 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
         </div>
         <div className="flex-1 overflow-hidden p-4 flex justify-center">
           {(isV2 && livePreviewHtml) ? (
-            <iframe srcDoc={livePreviewHtml}
+            <iframe srcDoc={normalizeLandingPageImagePreviewUrls(livePreviewHtml)}
               className="h-full rounded-lg border shadow-sm bg-white transition-all"
               style={{ width: viewport === 'mobile' ? '375px' : viewport === 'tablet' ? '768px' : '100%' }}
               sandbox="allow-scripts" />
           ) : page.published_html ? (
-            <iframe srcDoc={page.published_html}
+            <iframe srcDoc={normalizeLandingPageImagePreviewUrls(page.published_html)}
               className="h-full rounded-lg border shadow-sm bg-white transition-all"
               style={{ width: viewport === 'mobile' ? '375px' : viewport === 'tablet' ? '768px' : '100%' }}
               sandbox="allow-scripts" />

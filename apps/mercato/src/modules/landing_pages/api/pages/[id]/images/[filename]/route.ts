@@ -1,37 +1,48 @@
-export const metadata = { GET: { requireAuth: true } }
+export const metadata = {
+  GET: { requireAuth: false },
+}
 export const openApi = { summary: '[filename]', methods: {} }
-import * as fs from 'fs'
-import * as path from 'path'
 
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'page-images')
+import { resolveLandingPageImageAccess } from '@/modules/landing_pages/services/landing-page-image-access'
+import { checkLandingPageImageRateLimit } from '@/modules/landing_pages/services/landing-page-image-rate-limit'
+import {
+  LANDING_PAGE_IMAGE_ROOT,
+  isGeneratedImageFilename,
+  landingPageImageResponse,
+  readLandingPageImage,
+} from '@/modules/landing_pages/services/landing-page-image-storage'
 
-export async function GET(req: Request, { params }: { params: Promise<{ id: string; filename: string }> }) {
+type RouteContext = {
+  params: Promise<{ id: string; filename: string }>
+}
+
+export async function GET(req: Request, context: RouteContext) {
   try {
-    const { id: pageId, filename } = await params
+    const { id: pageId, filename } = await context.params
+    if (!isGeneratedImageFilename(filename)) return new Response('Not found', { status: 404 })
+    const rateLimitError = await checkLandingPageImageRateLimit(req, pageId, filename)
+    if (rateLimitError) return rateLimitError
 
-    // Search across org directories for this file
-    if (!fs.existsSync(UPLOAD_DIR)) return new Response('Not found', { status: 404 })
+    const access = await resolveLandingPageImageAccess({
+      pageId,
+      // This route is intentionally public and can serve only an asset that is
+      // referenced by the currently published control page or active A/B arm.
+      // Draft/editor reads use the feature-guarded collection route instead.
+      authOrganizationId: null,
+      allowPublishedPublic: true,
+      publicFilename: filename,
+    })
+    if (!access) return new Response('Not found', { status: 404 })
 
-    const orgDirs = fs.readdirSync(UPLOAD_DIR)
-    for (const orgDir of orgDirs) {
-      const filePath = path.join(UPLOAD_DIR, orgDir, pageId, filename)
-      if (fs.existsSync(filePath)) {
-        const buffer = fs.readFileSync(filePath)
-        const ext = filename.split('.').pop()?.toLowerCase() || ''
-        const mimeTypes: Record<string, string> = {
-          jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-          gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-        }
-        return new Response(buffer, {
-          headers: {
-            'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-            'Cache-Control': 'public, max-age=31536000',
-          },
-        })
-      }
-    }
-
-    return new Response('Not found', { status: 404 })
+    const asset = await readLandingPageImage({
+      root: LANDING_PAGE_IMAGE_ROOT,
+      organizationId: access.organizationId,
+      pageId,
+      filename,
+    })
+    return asset
+      ? landingPageImageResponse(asset, filename)
+      : new Response('Not found', { status: 404 })
   } catch {
     return new Response('Error', { status: 500 })
   }
