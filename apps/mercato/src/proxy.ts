@@ -1,5 +1,12 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
+import {
+  applyBrowserSecurityHeaders,
+  COMPANY_LEGAL_REDIRECTS,
+  OWNED_BROWSER_APEX_DOMAINS,
+  trailingSlashRedirectPath,
+  trustedRequestHost,
+} from '@/lib/security-headers'
 
 // Note: Do NOT import bootstrap here — proxy runs in Edge runtime which
 // cannot use Node.js modules like MikroORM. Bootstrap is called in
@@ -28,8 +35,6 @@ const isPublicPage = createRouteMatcher([
   '/privacy',
 ])
 
-const OWN_APEX_DOMAINS = ['noliai.com', 'thelaunchpadincubator.com']
-
 function lpAppHost(): string {
   if (process.env.APP_HOST) return process.env.APP_HOST.toLowerCase().replace(/:\d+$/, '')
   try {
@@ -44,10 +49,19 @@ function isOwnHost(host: string): boolean {
   // IP literals (direct-to-box requests, health checks) keep default behavior
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return true
   if (host === lpAppHost()) return true
-  for (const apex of OWN_APEX_DOMAINS) {
+  for (const apex of OWNED_BROWSER_APEX_DOMAINS) {
     if (host === apex || host.endsWith(`.${apex}`)) return true
   }
   return false
+}
+
+function withBrowserSecurityHeaders<T extends Response>(
+  response: T,
+  pathname: string,
+  includeHsts: boolean,
+): T {
+  applyBrowserSecurityHeaders(response.headers, pathname, { includeHsts })
+  return response
 }
 
 export default clerkMiddleware(async (auth, req) => {
@@ -56,19 +70,50 @@ export default clerkMiddleware(async (auth, req) => {
   //    at '/' (rewritten to the public by-domain route) and 404s elsewhere.
   //    /api, /_next, and file assets never reach here (see config.matcher),
   //    so form submits on custom domains still work.
-  const rawHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? ''
+  const rawHost = trustedRequestHost(req.headers, '')
   const customHost = rawHost.trim().toLowerCase().replace(/:\d+$/, '')
-  if (!isOwnHost(customHost)) {
+  const ownHost = isOwnHost(customHost)
+
+  const canonicalPathname = trailingSlashRedirectPath(req.nextUrl.pathname)
+  if (canonicalPathname) {
+    const proto = req.headers.get('x-forwarded-proto') ?? req.nextUrl.protocol.replace(/:$/, '')
+    const host = trustedRequestHost(req.headers, req.nextUrl.host)
+    return withBrowserSecurityHeaders(
+      NextResponse.redirect(
+        new URL(`${canonicalPathname}${req.nextUrl.search}`, `${proto}://${host}`),
+        308,
+      ),
+      req.nextUrl.pathname,
+      ownHost,
+    )
+  }
+
+  const legalRedirect = COMPANY_LEGAL_REDIRECTS[req.nextUrl.pathname]
+  if (legalRedirect) {
+    const url = new URL(legalRedirect)
+    url.search = req.nextUrl.search
+    return withBrowserSecurityHeaders(
+      NextResponse.redirect(url),
+      req.nextUrl.pathname,
+      ownHost,
+    )
+  }
+
+  if (!ownHost) {
     if (req.nextUrl.pathname === '/' && (req.method === 'GET' || req.method === 'HEAD')) {
       const url = req.nextUrl.clone()
       url.pathname = '/api/landing_pages/public/by-domain'
       url.search = `?host=${encodeURIComponent(customHost)}&path=${encodeURIComponent('/')}`
-      return NextResponse.rewrite(url)
+      return withBrowserSecurityHeaders(NextResponse.rewrite(url), req.nextUrl.pathname, false)
     }
     // Unlike the standalone-middleware version, this proxy's matcher covers
     // /api — let API calls (the landing page's own form submit) through.
     if (!req.nextUrl.pathname.startsWith('/api/')) {
-      return new NextResponse('Not found', { status: 404 })
+      return withBrowserSecurityHeaders(
+        new NextResponse('Not found', { status: 404 }),
+        req.nextUrl.pathname,
+        false,
+      )
     }
   }
 
@@ -79,22 +124,28 @@ export default clerkMiddleware(async (auth, req) => {
   if (req.nextUrl.pathname === '/') {
     const { userId } = await auth()
     if (!userId) {
-      return NextResponse.redirect(`https://noliai.com/crm${req.nextUrl.search}`)
+      return withBrowserSecurityHeaders(
+        NextResponse.redirect(`https://noliai.com/crm${req.nextUrl.search}`),
+        req.nextUrl.pathname,
+        ownHost,
+      )
     }
     // Reconstruct the public-facing origin (behind nginx, req.url reads as
     // http://0.0.0.0:3000) so the redirect lands on crm.noliai.com/backend.
     const proto = req.headers.get('x-forwarded-proto') ?? 'https'
-    const host =
-      req.headers.get('x-forwarded-host') ??
-      req.headers.get('host') ??
-      req.nextUrl.host
-    return NextResponse.redirect(new URL('/backend', `${proto}://${host}`))
+    const host = trustedRequestHost(req.headers, req.nextUrl.host)
+    return withBrowserSecurityHeaders(
+      NextResponse.redirect(new URL('/backend', `${proto}://${host}`)),
+      req.nextUrl.pathname,
+      ownHost,
+    )
   }
 
   // 2. Set x-next-url for server components (preserved from original).
   const requestHeaders = new Headers(req.headers)
   requestHeaders.set('x-next-url', req.nextUrl.pathname)
   const passThrough = NextResponse.next({ request: { headers: requestHeaders } })
+  applyBrowserSecurityHeaders(passThrough.headers, req.nextUrl.pathname, { includeHsts: ownHost })
 
   // 3. Public-page allowlist — auth UI orphans and legal pages.
   if (isPublicPage(req)) return passThrough
@@ -115,14 +166,15 @@ export default clerkMiddleware(async (auth, req) => {
     // default. Reconstruct the public-facing URL so the hub can redirect
     // back to the original CRM page after sign-in.
     const proto = req.headers.get('x-forwarded-proto') ?? 'https'
-    const host =
-      req.headers.get('x-forwarded-host') ??
-      req.headers.get('host') ??
-      req.nextUrl.host
+    const host = trustedRequestHost(req.headers, req.nextUrl.host)
     const publicUrl = `${proto}://${host}${req.nextUrl.pathname}${req.nextUrl.search}`
     const signInUrl = new URL(HUB_SIGN_IN_URL)
     signInUrl.searchParams.set('redirect_url', publicUrl)
-    return NextResponse.redirect(signInUrl)
+    return withBrowserSecurityHeaders(
+      NextResponse.redirect(signInUrl),
+      req.nextUrl.pathname,
+      ownHost,
+    )
   }
 
   return passThrough
