@@ -183,6 +183,7 @@ describe('CRM internal provision-key entitlement semantics', () => {
       ok: true,
       data: {
         key: 'omk_12345678.test',
+        userScoped: true,
         credentialVersion: 1,
         overlapSeconds: 600,
       },

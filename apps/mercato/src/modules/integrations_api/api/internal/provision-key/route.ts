@@ -215,6 +215,7 @@ export async function POST(req: Request) {
         key: provisioned.secret,
         keyPrefix: provisioned.record.keyPrefix,
         baseUrl,
+        userScoped: true,
         credentialVersion: provisioned.version,
         overlapSeconds: provisioned.overlapSeconds,
         reused: provisioned.reused,
