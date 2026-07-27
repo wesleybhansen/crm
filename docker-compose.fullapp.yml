@@ -1,19 +1,6 @@
 
 
 services:
-  opencode:
-    build:
-      context: ./docker/opencode
-    image: opencode-mvp
-    container_name: mercato-opencode-${DEPLOY_ENV:-local}
-    restart: unless-stopped
-    environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - mercato-network-fullapp
-
   app:
     build:
       context: .

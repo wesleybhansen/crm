@@ -338,8 +338,7 @@ Before starting, you may want to configure the following environment variables. 
 | `MEILISEARCH_MASTER_KEY` | For production | `meilisearch-dev-key` | Meilisearch API key. **Use a strong key in production.** |
 | `MEILISEARCH_PORT` | No | `7700` | Meilisearch exposed port |
 | `OPENAI_API_KEY` | No | - | OpenAI API key (enables AI features) |
-| `ANTHROPIC_API_KEY` | No | - | Anthropic API key (for opencode service) |
-| `OPENCODE_PORT` | No | `4096` | Opencode service exposed port |
+| `ANTHROPIC_API_KEY` | No | - | Anthropic API key |
 
 Example `.env` file for production:
 
@@ -349,6 +348,13 @@ POSTGRES_PASSWORD=your-strong-db-password
 MEILISEARCH_MASTER_KEY=your-strong-meilisearch-key
 OPENAI_API_KEY=sk-...  # Optional, for AI features
 ```
+
+### Coding-agent server safety
+
+The legacy `docker/opencode` image source is quarantined and is not referenced by
+any supported Compose file or CI build. Never run a coding-agent server on a
+production application host. Any deliberate local experiment must remain
+loopback-only and require `OPENCODE_SERVER_PASSWORD`.
 
 ### Ephemeral Environments
 

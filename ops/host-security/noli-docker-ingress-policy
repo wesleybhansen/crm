@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IPTABLES="${IPTABLES:-/usr/sbin/iptables}"
+PUBLIC_INTERFACE="${NOLI_PUBLIC_INTERFACE:-}"
+CHAIN="NOLI-DOCKER-INGRESS"
+
+if [ -z "$PUBLIC_INTERFACE" ]; then
+  PUBLIC_INTERFACE="$(ip -4 route list default | awk 'NR == 1 { print $5 }')"
+fi
+
+if [ -z "$PUBLIC_INTERFACE" ] || [ ! -d "/sys/class/net/$PUBLIC_INTERFACE" ]; then
+  echo "Unable to identify the public network interface" >&2
+  exit 1
+fi
+
+"$IPTABLES" -w -S DOCKER-USER >/dev/null
+"$IPTABLES" -w -N "$CHAIN" 2>/dev/null || true
+"$IPTABLES" -w -F "$CHAIN"
+"$IPTABLES" -w -A "$CHAIN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+"$IPTABLES" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -p tcp -m conntrack --ctstate DNAT --ctorigdstport 80 -j ACCEPT
+"$IPTABLES" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -p tcp -m conntrack --ctstate DNAT --ctorigdstport 443 -j ACCEPT
+"$IPTABLES" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -j DROP
+"$IPTABLES" -w -A "$CHAIN" -j RETURN
+
+if ! "$IPTABLES" -w -C DOCKER-USER -j "$CHAIN" 2>/dev/null; then
+  "$IPTABLES" -w -I DOCKER-USER 1 -j "$CHAIN"
+fi
+
+"$IPTABLES" -w -C DOCKER-USER -j "$CHAIN"
+"$IPTABLES" -w -C "$CHAIN" -i "$PUBLIC_INTERFACE" -j DROP
