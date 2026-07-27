@@ -6,14 +6,18 @@ import test from 'node:test'
 
 import { findDeploymentSecurityViolations } from './check-deployment-security.mjs'
 
-function createFixture({ productionPort = '127.0.0.1:3000:3000', includeOpenCode = false } = {}) {
+function createFixture({
+  productionPort = '127.0.0.1:3000:3000',
+  extraProductionPort,
+  includeOpenCode = false,
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), 'deployment-security-'))
   mkdirSync(join(root, 'docker/opencode'), { recursive: true })
   mkdirSync(join(root, '.github/workflows'), { recursive: true })
   mkdirSync(join(root, 'ops/host-security'), { recursive: true })
   writeFileSync(
     join(root, 'docker-compose.prod.yml'),
-    `services:\n  app:\n    ports:\n      - "${productionPort}"\n  nginx:\n    ports:\n      - "80:80"\n      - "443:443"\n`,
+    `services:\n  app:\n    ports:\n      - "${productionPort}"${extraProductionPort ? `\n      - ${extraProductionPort}` : ''}\n  nginx:\n    ports:\n      - "80:80"\n      - "443:443"\n`,
   )
   writeFileSync(
     join(root, 'docker-compose.yml'),
@@ -47,10 +51,15 @@ test('accepts the production loopback and public proxy allowlist', () => {
 })
 
 test('rejects a public application port and any Compose coding-agent service', () => {
-  const root = createFixture({ productionPort: '3000:3000', includeOpenCode: true })
+  const root = createFixture({
+    productionPort: '3000:3000',
+    extraProductionPort: '5000:5000',
+    includeOpenCode: true,
+  })
   try {
     const violations = findDeploymentSecurityViolations(root).violations.join('\n')
     assert.match(violations, /bare public port 3000 binding is forbidden/)
+    assert.match(violations, /unexpected published port 5000:5000/)
     assert.match(violations, /coding-agent service is forbidden/)
     assert.match(violations, /coding-agent image, container, or port reference is forbidden/)
   } finally {

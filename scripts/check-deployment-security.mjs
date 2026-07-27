@@ -17,6 +17,34 @@ export function findDeploymentSecurityViolations(root) {
     return readFileSync(resolve(root, path), 'utf8')
   }
 
+  function publishedPorts(contents) {
+    const bindings = []
+    let portsIndent = null
+
+    for (const line of contents.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed === '' || trimmed.startsWith('#')) {
+        continue
+      }
+
+      const indent = line.length - line.trimStart().length
+      if (portsIndent !== null && indent > portsIndent) {
+        const item = trimmed.match(/^-\s*(.+?)\s*$/)
+        if (item) {
+          bindings.push(item[1].replace(/^(['"])(.*)\1$/, '$2'))
+        }
+        continue
+      }
+
+      portsIndent = null
+      if (/^ports:\s*$/.test(trimmed)) {
+        portsIndent = indent
+      }
+    }
+
+    return bindings
+  }
+
   for (const file of composeFiles) {
     const contents = read(file)
     if (/(^|\n)\s{2}opencode:\s*(\n|$)/.test(contents)) {
@@ -31,13 +59,7 @@ export function findDeploymentSecurityViolations(root) {
   if (!/["']127\.0\.0\.1:3000:3000["']/.test(productionCompose)) {
     violations.push('docker-compose.prod.yml: app port must be published only on 127.0.0.1')
   }
-  if (/^\s*-\s*["']?3000:3000["']?\s*$/m.test(productionCompose)) {
-    violations.push('docker-compose.prod.yml: bare public port 3000 binding is forbidden')
-  }
-
-  const productionPublishedPorts = [...productionCompose.matchAll(/^\s*-\s*["']([^"']+:[^"']+)["']\s*$/gm)]
-    .map((match) => match[1])
-    .filter((binding) => /:\d+$/.test(binding))
+  const productionPublishedPorts = publishedPorts(productionCompose)
 
   const allowedProductionPorts = new Set([
     '127.0.0.1:3000:3000',
@@ -46,7 +68,9 @@ export function findDeploymentSecurityViolations(root) {
   ])
 
   for (const binding of productionPublishedPorts) {
-    if (!allowedProductionPorts.has(binding)) {
+    if (binding === '3000:3000') {
+      violations.push('docker-compose.prod.yml: bare public port 3000 binding is forbidden')
+    } else if (!allowedProductionPorts.has(binding)) {
       violations.push(`docker-compose.prod.yml: unexpected published port ${binding}`)
     }
   }
