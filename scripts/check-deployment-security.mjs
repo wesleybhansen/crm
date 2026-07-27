@@ -89,7 +89,14 @@ export function findDeploymentSecurityViolations(root) {
   }
 
   const dockerIngressPolicy = read('ops/host-security/noli-docker-ingress-policy')
-  for (const required of ['--ctorigdstport 80', '--ctorigdstport 443', '-i "$PUBLIC_INTERFACE" -j DROP']) {
+  for (const required of [
+    'IP6TABLES',
+    'apply_family "$IPTABLES"',
+    'apply_family "$IP6TABLES"',
+    '--ctorigdstport 80',
+    '--ctorigdstport 443',
+    '-i "$PUBLIC_INTERFACE" -j DROP',
+  ]) {
     if (!dockerIngressPolicy.includes(required)) {
       violations.push(`ops/host-security/noli-docker-ingress-policy: missing ${required}`)
     }

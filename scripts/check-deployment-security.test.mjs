@@ -32,7 +32,7 @@ function createFixture({
   writeFileSync(join(root, '.github/workflows/ci.yml'), 'name: CI\n')
   writeFileSync(
     join(root, 'ops/host-security/noli-docker-ingress-policy'),
-    '--ctorigdstport 80\n--ctorigdstport 443\n-i "$PUBLIC_INTERFACE" -j DROP\n',
+    'IP6TABLES=/usr/sbin/ip6tables\napply_family "$IPTABLES"\napply_family "$IP6TABLES"\n--ctorigdstport 80\n--ctorigdstport 443\n-i "$PUBLIC_INTERFACE" -j DROP\n',
   )
   writeFileSync(
     join(root, 'ops/host-security/noli-ingress-policy.conf'),

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 IPTABLES="${IPTABLES:-/usr/sbin/iptables}"
+IP6TABLES="${IP6TABLES:-/usr/sbin/ip6tables}"
 PUBLIC_INTERFACE="${NOLI_PUBLIC_INTERFACE:-}"
 CHAIN="NOLI-DOCKER-INGRESS"
 
@@ -14,18 +15,27 @@ if [ -z "$PUBLIC_INTERFACE" ] || [ ! -d "/sys/class/net/$PUBLIC_INTERFACE" ]; th
   exit 1
 fi
 
-"$IPTABLES" -w -S DOCKER-USER >/dev/null
-"$IPTABLES" -w -N "$CHAIN" 2>/dev/null || true
-"$IPTABLES" -w -F "$CHAIN"
-"$IPTABLES" -w -A "$CHAIN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-"$IPTABLES" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -p tcp -m conntrack --ctstate DNAT --ctorigdstport 80 -j ACCEPT
-"$IPTABLES" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -p tcp -m conntrack --ctstate DNAT --ctorigdstport 443 -j ACCEPT
-"$IPTABLES" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -j DROP
-"$IPTABLES" -w -A "$CHAIN" -j RETURN
+apply_family() {
+  local firewall="$1"
 
-if ! "$IPTABLES" -w -C DOCKER-USER -j "$CHAIN" 2>/dev/null; then
-  "$IPTABLES" -w -I DOCKER-USER 1 -j "$CHAIN"
+  "$firewall" -w -S DOCKER-USER >/dev/null
+  "$firewall" -w -N "$CHAIN" 2>/dev/null || true
+  "$firewall" -w -F "$CHAIN"
+  "$firewall" -w -A "$CHAIN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+  "$firewall" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -p tcp -m conntrack --ctstate DNAT --ctorigdstport 80 -j ACCEPT
+  "$firewall" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -p tcp -m conntrack --ctstate DNAT --ctorigdstport 443 -j ACCEPT
+  "$firewall" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -j DROP
+  "$firewall" -w -A "$CHAIN" -j RETURN
+
+  if ! "$firewall" -w -C DOCKER-USER -j "$CHAIN" 2>/dev/null; then
+    "$firewall" -w -I DOCKER-USER 1 -j "$CHAIN"
+  fi
+
+  "$firewall" -w -C DOCKER-USER -j "$CHAIN"
+  "$firewall" -w -C "$CHAIN" -i "$PUBLIC_INTERFACE" -j DROP
+}
+
+apply_family "$IPTABLES"
+if [ -x "$IP6TABLES" ] && "$IP6TABLES" -w -S DOCKER-USER >/dev/null 2>&1; then
+  apply_family "$IP6TABLES"
 fi
-
-"$IPTABLES" -w -C DOCKER-USER -j "$CHAIN"
-"$IPTABLES" -w -C "$CHAIN" -i "$PUBLIC_INTERFACE" -j DROP
