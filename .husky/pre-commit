@@ -5,3 +5,4 @@ git add packages/create-app/template/src/app packages/create-app/template/src/mo
 
 # Drift guards — see AGENTS.md "Forbidden Patterns" for the rationale.
 node scripts/check-forbidden-patterns.mjs || exit 1
+node scripts/check-deployment-security.mjs || exit 1

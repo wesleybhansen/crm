@@ -86,7 +86,7 @@ cat > "$CONFIG_FILE" << EOF
   },
   "server": {
     "port": 4096,
-    "hostname": "0.0.0.0"
+    "hostname": "127.0.0.1"
   }
 }
 EOF
@@ -97,5 +97,11 @@ echo "  Model: $MODEL"
 echo "  MCP URL: $MCP_URL"
 cat "$CONFIG_FILE"
 
-# Execute OpenCode
-exec opencode serve --hostname 0.0.0.0 --print-logs --log-level DEBUG
+# This image is retained only as quarantined development source. It is not part
+# of any supported Compose or CI path. Fail closed if someone runs it directly.
+if [ -z "${OPENCODE_SERVER_PASSWORD:-}" ]; then
+  echo "[OpenCode] Refusing to start without OPENCODE_SERVER_PASSWORD" >&2
+  exit 78
+fi
+
+exec opencode serve --hostname 127.0.0.1 --print-logs --log-level INFO

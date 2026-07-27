@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IPTABLES="${IPTABLES:-/usr/sbin/iptables}"
+IP6TABLES="${IP6TABLES:-/usr/sbin/ip6tables}"
+PUBLIC_INTERFACE="${NOLI_PUBLIC_INTERFACE:-}"
+CHAIN="NOLI-DOCKER-INGRESS"
+
+if [ -z "$PUBLIC_INTERFACE" ]; then
+  PUBLIC_INTERFACE="$(ip -4 route list default | awk 'NR == 1 { print $5 }')"
+fi
+
+if [ -z "$PUBLIC_INTERFACE" ] || [ ! -d "/sys/class/net/$PUBLIC_INTERFACE" ]; then
+  echo "Unable to identify the public network interface" >&2
+  exit 1
+fi
+
+apply_family() {
+  local firewall="$1"
+
+  "$firewall" -w -S DOCKER-USER >/dev/null
+  "$firewall" -w -N "$CHAIN" 2>/dev/null || true
+  "$firewall" -w -F "$CHAIN"
+  "$firewall" -w -A "$CHAIN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+  "$firewall" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -p tcp -m conntrack --ctstate DNAT --ctorigdstport 80 -j ACCEPT
+  "$firewall" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -p tcp -m conntrack --ctstate DNAT --ctorigdstport 443 -j ACCEPT
+  "$firewall" -w -A "$CHAIN" -i "$PUBLIC_INTERFACE" -j DROP
+  "$firewall" -w -A "$CHAIN" -j RETURN
+
+  if ! "$firewall" -w -C DOCKER-USER -j "$CHAIN" 2>/dev/null; then
+    "$firewall" -w -I DOCKER-USER 1 -j "$CHAIN"
+  fi
+
+  "$firewall" -w -C DOCKER-USER -j "$CHAIN"
+  "$firewall" -w -C "$CHAIN" -i "$PUBLIC_INTERFACE" -j DROP
+}
+
+apply_family "$IPTABLES"
+if [ -x "$IP6TABLES" ] && "$IP6TABLES" -w -S DOCKER-USER >/dev/null 2>&1; then
+  apply_family "$IP6TABLES"
+fi
