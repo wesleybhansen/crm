@@ -1,9 +1,13 @@
 "use client"
 
 import { useEffect, Suspense } from 'react'
-import { usePathname, useSearchParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import posthog from 'posthog-js'
+import {
+  redactPostHogEventUrls,
+  redactReplayRequestUrl,
+} from './posthogPrivacy'
 
 /* PostHog for the CRM (crm.noliai.com) — build-queue 5.3/S.4, the 6th and
  * final surface to get analytics + error tracking.
@@ -23,17 +27,14 @@ import posthog from 'posthog-js'
 
 function PostHogPageview() {
   const pathname = usePathname()
-  const searchParams = useSearchParams()
 
   useEffect(() => {
     if (!pathname) return
     if (!posthog.__loaded) return
-    const url =
-      searchParams && searchParams.toString()
-        ? `${pathname}?${searchParams.toString()}`
-        : pathname
-    posthog.capture('$pageview', { $current_url: window.location.origin + url })
-  }, [pathname, searchParams])
+    posthog.capture('$pageview', {
+      $current_url: window.location.origin + pathname,
+    })
+  }, [pathname])
 
   return null
 }
@@ -80,7 +81,13 @@ export function PostHogProvider({
       capture_pageview: false,
       person_profiles: 'identified_only',
       autocapture: true,
-      session_recording: { maskAllInputs: true },
+      mask_all_text: true,
+      before_send: redactPostHogEventUrls,
+      session_recording: {
+        maskAllInputs: true,
+        maskCapturedNetworkRequestFn: redactReplayRequestUrl,
+        maskTextSelector: '*',
+      },
       /* Auto-capture unhandled client errors + promise rejections. React
        * render errors caught by global-error.tsx call captureException
        * explicitly there. */
