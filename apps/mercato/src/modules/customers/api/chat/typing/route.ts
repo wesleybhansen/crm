@@ -1,45 +1,35 @@
-// ORM-SKIP: complex multi-table logic or writes to non-existent columns
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { refusePublicChatAtLaunch } from '@/modules/customers/lib/public-chat-launch-containment'
 
-import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { EntityManager } from '@mikro-orm/postgresql'
+const publicRoute = { requireAuth: false } as const
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+export const metadata = {
+  path: '/chat/typing',
+  GET: publicRoute,
+  POST: publicRoute,
+  PUT: publicRoute,
+  PATCH: publicRoute,
+  DELETE: publicRoute,
+  HEAD: publicRoute,
+  OPTIONS: publicRoute,
 }
 
-// Public widget endpoint that mutates conversation state — per-IP rate limit
-// keeps anonymous visitors from flooding it (typing pings are frequent, so the
-// limit is generous).
-export const metadata = { path: '/chat/typing',
-  POST: { requireAuth: false, rateLimit: { points: 60, duration: 60, keyPrefix: 'chat-typing' } },
-  OPTIONS: { requireAuth: false },
-}
+export const GET = refusePublicChatAtLaunch
+export const POST = refusePublicChatAtLaunch
+export const PUT = refusePublicChatAtLaunch
+export const PATCH = refusePublicChatAtLaunch
+export const DELETE = refusePublicChatAtLaunch
+export const HEAD = refusePublicChatAtLaunch
+export const OPTIONS = refusePublicChatAtLaunch
 
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS_HEADERS })
-}
-
-export async function POST(req: Request) {
-  try {
-    const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
-    const { conversationId, isTyping, sender } = await req.json()
-    if (!conversationId) return new NextResponse(JSON.stringify({ ok: false }), { status: 400, headers: CORS_HEADERS })
-
-    const updates: Record<string, unknown> = {}
-    if (sender === 'visitor') {
-      updates.visitor_typing = isTyping
-      updates.visitor_typing_at = isTyping ? new Date() : null
-    } else {
-      updates.agent_typing = isTyping
-      updates.agent_typing_at = isTyping ? new Date() : null
-    }
-    await knex('chat_conversations').where('id', conversationId).update(updates)
-    return new NextResponse(JSON.stringify({ ok: true }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } })
-  } catch {
-    return new NextResponse(JSON.stringify({ ok: false }), { status: 500, headers: CORS_HEADERS })
-  }
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Chat',
+  summary: 'Public chat typing is unavailable for launch',
+  methods: {
+    GET: { summary: 'Refuse public chat typing access', tags: ['Chat'] },
+    POST: { summary: 'Refuse public chat typing mutations', tags: ['Chat'] },
+    PUT: { summary: 'Refuse public chat typing mutations', tags: ['Chat'] },
+    PATCH: { summary: 'Refuse public chat typing mutations', tags: ['Chat'] },
+    DELETE: { summary: 'Refuse public chat typing mutations', tags: ['Chat'] },
+  },
 }

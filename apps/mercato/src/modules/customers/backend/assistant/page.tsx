@@ -105,7 +105,6 @@ function describeDestructive(action: CrmAction): string {
   if (type === 'manage_course_advanced' && sub === 'delete')         return `Delete course${label ? ` "${label}"` : ''}`
   if (type === 'manage_sequence_advanced' && sub === 'delete')       return `Delete sequence${label ? ` "${label}"` : ''}`
   if (type === 'manage_product_advanced' && sub === 'delete')        return `Delete product${label ? ` "${label}"` : ''}`
-  if (type === 'manage_chat_widget' && sub === 'delete')             return `Delete chat widget${label ? ` "${label}"` : ''}`
   if (type === 'manage_email_list_advanced' && (sub === 'delete' || sub === 'remove_member'))
                                                                      return `Remove from email list`
   if (type === 'manage_campaign' && (sub === 'delete' || sub === 'send'))
@@ -132,7 +131,6 @@ function isDestructiveAction(action: CrmAction): boolean {
   if (type === 'manage_course_advanced' && sub === 'delete') return true
   if (type === 'manage_sequence_advanced' && sub === 'delete') return true
   if (type === 'manage_product_advanced' && sub === 'delete') return true
-  if (type === 'manage_chat_widget' && sub === 'delete') return true
   if (type === 'manage_email_list_advanced' && (sub === 'delete' || sub === 'remove_member')) return true
   if (type === 'manage_campaign' && (sub === 'delete' || sub === 'send')) return true
   if (type === 'manage_automation_advanced' && sub === 'delete') return true
@@ -1270,15 +1268,6 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         if (sub === 'generate_outline') { await fetch('/api/courses/ai/generate-outline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ courseId, topic: action.data.title, audience: action.data.targetAudience }) }); return { ok: true, message: 'AI is generating the course outline. Check the Courses section.' } }
         if (sub === 'generate_landing') { await fetch('/api/courses/ai/generate-landing-copy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ courseId }) }); return { ok: true, message: 'AI is generating the landing page copy.' } }
         return { ok: false, message: `Unknown course action: ${sub}` }
-      }
-      case 'manage_chat_widget': {
-        const { action: sub } = action.data
-        if (sub === 'create') { const res = await fetch('/api/chat/widgets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name: action.data.name, greeting_message: action.data.greeting, personality: action.data.personality }) }); const d = await res.json(); return d.ok ? { ok: true, message: `Chat widget "${action.data.name}" created` } : { ok: false, message: d.error || 'Failed' } }
-        if (sub === 'edit') { await fetch('/api/chat/widgets', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: action.data.widgetId, name: action.data.name, greeting_message: action.data.greeting, personality: action.data.personality }) }); return { ok: true, message: 'Widget updated' } }
-        if (sub === 'delete') { await fetch(`/api/chat/widgets?id=${action.data.widgetId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Widget deleted' } }
-        if (sub === 'toggle_active') { await fetch('/api/chat/widgets', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: action.data.widgetId, toggleActive: true }) }); return { ok: true, message: 'Widget status toggled' } }
-        if (sub === 'get_conversations') { const res = await fetch('/api/chat/conversations', { credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: `${d.data?.length || 0} conversation(s)` } : { ok: true, message: 'No conversations' } }
-        return { ok: false, message: `Unknown widget action: ${sub}` }
       }
       case 'manage_inbox_conversation': {
         const { action: sub, conversationId, message } = action.data

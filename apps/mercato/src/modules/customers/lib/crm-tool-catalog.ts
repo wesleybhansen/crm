@@ -547,15 +547,9 @@ export const CRM_TOOLS = [
   // Communication
   {
     type: 'function' as const,
-    name: 'manage_chat_widget',
-    description: 'Manage chat widgets: create, edit, delete, toggle active, or view conversations.',
-    parameters: { type: 'object', properties: { action: { type: 'string', enum: ['create', 'edit', 'delete', 'toggle_active', 'get_conversations'] }, widgetId: { type: 'string' }, name: { type: 'string' }, greeting: { type: 'string' }, personality: { type: 'string' } }, required: ['action'] },
-  },
-  {
-    type: 'function' as const,
     name: 'manage_inbox_conversation',
     description: 'Manage inbox conversations: reply, mark as read, close, reopen, add internal note, or generate AI draft reply.',
-    parameters: { type: 'object', properties: { action: { type: 'string', enum: ['reply', 'mark_read', 'close', 'reopen', 'add_note', 'ai_draft'] }, conversationId: { type: 'string' }, message: { type: 'string' }, channel: { type: 'string', enum: ['email', 'sms', 'chat'] } }, required: ['action'] },
+    parameters: { type: 'object', properties: { action: { type: 'string', enum: ['reply', 'mark_read', 'close', 'reopen', 'add_note', 'ai_draft'] }, conversationId: { type: 'string' }, message: { type: 'string' }, channel: { type: 'string', enum: ['email', 'sms'] } }, required: ['action'] },
   },
 
   // Business Operations
