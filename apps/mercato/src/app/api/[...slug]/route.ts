@@ -21,6 +21,11 @@ import { enforceApiKeyRateLimit, applyRateLimitHeaders } from '@open-mercato/cor
 import { checkApiKeyScopes } from '@open-mercato/core/modules/api_keys/lib/apiKeyScopes'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
+import { refusePublicChatAtLaunch } from '@/modules/customers/lib/public-chat-launch-containment'
+
+type RouteContext = {
+  params: Promise<{ slug: string[] }>
+}
 
 type MethodMetadata = {
   requireAuth?: boolean
@@ -37,6 +42,24 @@ type HandlerContext = {
 type LifecycleEventBus = {
   emit?: (event: string, payload: unknown) => Promise<void>
   emitEvent?: (event: string, payload: unknown) => Promise<void>
+}
+
+const API_ALLOW_HEADER = 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT'
+
+function isPublicChatContainedPath(slug: string[]): boolean {
+  if (slug[0] !== 'chat') return false
+
+  if (slug.length === 2) {
+    return slug[1] === 'public'
+      || slug[1] === 'typing'
+      || slug[1] === 'widgets'
+      || slug[1] === 'conversations'
+      || slug[1] === 'messages'
+  }
+
+  return slug.length === 3
+    && (slug[1] === 'page' || slug[1] === 'widget')
+    && slug[2].length > 0
 }
 
 function buildRequestId(req: NextRequest): string {
@@ -247,10 +270,12 @@ async function handleRequest(
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>
 ): Promise<Response> {
+  const params = await paramsPromise
+  if (isPublicChatContainedPath(params.slug)) return refusePublicChatAtLaunch()
+
   const startedAt = Date.now()
   const requestId = buildRequestId(req)
   const { t } = await resolveTranslations()
-  const params = await paramsPromise
   const pathname = '/' + (params.slug?.join('/') ?? '')
   const receivedPayload = {
     requestId,
@@ -409,22 +434,36 @@ async function handleRequest(
   }
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+export async function GET(req: NextRequest, { params }: RouteContext) {
   return handleRequest('GET', req, params)
 }
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+export async function POST(req: NextRequest, { params }: RouteContext) {
   return handleRequest('POST', req, params)
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+export async function PUT(req: NextRequest, { params }: RouteContext) {
   return handleRequest('PUT', req, params)
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+export async function PATCH(req: NextRequest, { params }: RouteContext) {
   return handleRequest('PATCH', req, params)
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+export async function DELETE(req: NextRequest, { params }: RouteContext) {
   return handleRequest('DELETE', req, params)
+}
+
+export async function HEAD(req: NextRequest, { params }: RouteContext) {
+  return handleRequest('GET', req, params)
+}
+
+export async function OPTIONS(_req: NextRequest, { params }: RouteContext) {
+  const resolvedParams = await params
+  if (isPublicChatContainedPath(resolvedParams.slug)) return refusePublicChatAtLaunch()
+
+  return new Response(null, {
+    status: 204,
+    headers: { Allow: API_ALLOW_HEADER },
+  })
 }
