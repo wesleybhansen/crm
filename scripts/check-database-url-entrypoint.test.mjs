@@ -206,6 +206,13 @@ test('locks the production Compose and image boundary', () => {
   const mcpCommand = `["node", "${helperReference}", "--", "node", "/app/packages/cli/bin/mercato", "ai_assistant", "mcp:serve-http", "--port", "3001"]`
 
   assert.equal(composeSource.match(rawDatabaseUrlPattern), null)
+  for (const declaration of [
+    'POSTGRES_USER: ${POSTGRES_USER:-crm}',
+    'POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crm_prod_2026}',
+    'POSTGRES_DB: ${POSTGRES_DB:-crm}',
+  ]) {
+    assert.equal(composeSource.split(declaration).length - 1, 3)
+  }
   assert.equal(composeSource.split(appCommand).length - 1, 1)
   assert.equal(composeSource.split(mcpCommand).length - 1, 1)
   assert.equal(
