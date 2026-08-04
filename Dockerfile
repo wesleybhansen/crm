@@ -135,6 +135,7 @@ COPY --from=builder /app/.runtime-tools/check-landing-page-image-assets.cjs /app
 
 # Copy Railway entrypoint script
 COPY docker/scripts/railway-entrypoint.sh /app/docker/scripts/railway-entrypoint.sh
+COPY docker/scripts/database-url-entrypoint.mjs /app/docker/scripts/database-url-entrypoint.mjs
 RUN chmod +x /app/docker/scripts/railway-entrypoint.sh
 
 # Prepare storage directory for Railway volume mount

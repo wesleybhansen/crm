@@ -12,9 +12,8 @@ services:
       PORT: 3000
       HOSTNAME: 0.0.0.0
       ATTACHMENTS_PARTITION_LANDING_PAGE_IMAGES_ROOT: /app/apps/mercato/storage/attachments/landingPageImages
-      DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
     working_dir: /app/apps/mercato
-    command: ["sh", "-c", "cp .mercato/next/standalone/apps/mercato/server.js .mercato/next/standalone/apps/mercato/server.cjs && node .mercato/next/standalone/apps/mercato/server.cjs"]
+    command: ["node", "/app/docker/scripts/database-url-entrypoint.mjs", "--", "sh", "-c", "cp .mercato/next/standalone/apps/mercato/server.js .mercato/next/standalone/apps/mercato/server.cjs && node .mercato/next/standalone/apps/mercato/server.cjs"]
     ports:
       # Preserve host-local cron/health access without exposing a plaintext
       # path around the nginx TLS and security-header boundary.
@@ -38,9 +37,8 @@ services:
     env_file: .env.production
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
     working_dir: /app/apps/mercato
-    command: ["node", "/app/packages/cli/bin/mercato", "ai_assistant", "mcp:serve-http", "--port", "3001"]
+    command: ["node", "/app/docker/scripts/database-url-entrypoint.mjs", "--", "node", "/app/packages/cli/bin/mercato", "ai_assistant", "mcp:serve-http", "--port", "3001"]
     depends_on:
       app:
         condition: service_started
