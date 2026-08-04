@@ -1,4 +1,4 @@
-name: CI for Develop&Main
+name: CRM CI
 permissions:
   contents: read
 
@@ -7,10 +7,8 @@ on:
     branches:
       - main
       - develop
+      - 'agent/**'
   pull_request:
-    branches:
-      - main
-      - develop
 
 jobs:
   test:
@@ -53,7 +51,6 @@ jobs:
 
       - name: Check i18n usage
         run: yarn i18n:check-usage
-        continue-on-error: true
 
       - name: Checking types
         run: yarn typecheck
@@ -110,7 +107,7 @@ jobs:
             echo "Coverage summary not found at $SUMMARY_FILE"
             echo "## Integration Coverage" >> "$GITHUB_STEP_SUMMARY"
             echo "Coverage summary file was not generated." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            exit 1
           fi
 
           node -e "
@@ -157,7 +154,68 @@ jobs:
             .ai/qa/test-results/html/
             .ai/qa/test-results/artifacts/
             .ai/qa/test-results/results.json
-          if-no-files-found: ignore
+            .ai/qa/test-results/coverage/code/coverage-summary.json
+          if-no-files-found: error
+
+  evidence:
+    name: Bounded CI evidence
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - test
+      - ephemeral-integration
+      - docker-build
+    steps:
+      - name: Create bounded status evidence
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          TEST_RESULT: ${{ needs.test.result }}
+          INTEGRATION_RESULT: ${{ needs.ephemeral-integration.result }}
+          DOCKER_RESULT: ${{ needs.docker-build.result }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          allowed = {"success", "failure", "cancelled", "skipped"}
+          results = {
+              "test": os.environ["TEST_RESULT"],
+              "ephemeralIntegration": os.environ["INTEGRATION_RESULT"],
+              "dockerBuild": os.environ["DOCKER_RESULT"],
+          }
+          if any(value not in allowed for value in results.values()):
+              raise SystemExit("unbounded job result")
+          source_sha = os.environ["SOURCE_SHA"]
+          if len(source_sha) != 40 or any(character not in "0123456789abcdef" for character in source_sha):
+              raise SystemExit("invalid source identity")
+          evidence_dir = Path("ci-evidence")
+          evidence_dir.mkdir(mode=0o700)
+          evidence_path = evidence_dir / "summary.json"
+          evidence_path.write_text(
+              json.dumps(
+                  {
+                      "schemaVersion": 1,
+                      "sourceSha": source_sha,
+                      "jobs": results,
+                  },
+                  sort_keys=True,
+                  separators=(",", ":"),
+              ) + "\n",
+              encoding="utf-8",
+          )
+          size = evidence_path.stat().st_size
+          if not 0 < size <= 1024 or evidence_path.is_symlink():
+              raise SystemExit("invalid evidence artifact")
+          PY
+
+      - name: Upload bounded status evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-ci-evidence
+          path: ci-evidence/summary.json
+          if-no-files-found: error
+          retention-days: 30
 
   docker-build:
     runs-on: ubuntu-latest
