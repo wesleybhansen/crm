@@ -44,9 +44,8 @@ function getClientUrl(): string {
   return url
 }
 
-function sortModules(mods: ModuleEntry[]): ModuleEntry[] {
-  // Sort modules alphabetically since they are now isomorphic
-  return mods.slice().sort((a, b) => a.id.localeCompare(b.id))
+export function orderModulesForMigration(mods: ModuleEntry[]): ModuleEntry[] {
+  return mods.slice()
 }
 
 /**
@@ -86,6 +85,43 @@ export function validateTableName(tableName: string): void {
 
 export function makeConstraintDropsIdempotent(sql: string): string {
   return sql.replace(/alter table\s+("[^"]+"|\S+)\s+drop constraint\s+("[^"]+"|\S+);/gi, 'alter table $1 drop constraint if exists $2;')
+}
+
+export function resolveGeneratedMigrationPath(migrationsPath: string, fileName: string): string {
+  const migrationRoot = path.resolve(migrationsPath)
+  const resolvedPath = path.resolve(path.isAbsolute(fileName) ? fileName : path.join(migrationRoot, fileName))
+  const relativePath = path.relative(migrationRoot, resolvedPath)
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error('Generated migration path escaped its module migration directory')
+  }
+  return resolvedPath
+}
+
+export type MigrationReconciliation = {
+  id: string
+  sql: string
+}
+
+export function normalizeMigrationReconciliations(value: unknown): MigrationReconciliation[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error('Migration reconciliations must be an array')
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('Migration reconciliation must be an object')
+    }
+    const record = entry as Record<string, unknown>
+    const keys = Object.keys(record).sort()
+    if (keys.length !== 2 || keys[0] !== 'id' || keys[1] !== 'sql') {
+      throw new Error('Migration reconciliation must contain only id and sql')
+    }
+    if (typeof record.id !== 'string' || !/^[a-z][a-z0-9_]*$/.test(record.id)) {
+      throw new Error('Migration reconciliation id is invalid')
+    }
+    if (typeof record.sql !== 'string' || record.sql.trim().length === 0) {
+      throw new Error('Migration reconciliation sql is invalid')
+    }
+    return { id: record.id, sql: record.sql }
+  })
 }
 
 let tsxLoaderRegistered = false
@@ -152,6 +188,56 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
   return []
 }
 
+async function loadModuleMigrationReconciliations(
+  entry: ModuleEntry,
+  resolver: PackageResolver,
+): Promise<MigrationReconciliation[]> {
+  const migrationsPath = getMigrationsPath(entry, resolver)
+  const extension = resolver.isMonorepo() ? 'ts' : 'js'
+  const reconciliationPath = path.join(
+    path.dirname(migrationsPath),
+    `migration-reconcile.${extension}`,
+  )
+  if (!fs.existsSync(reconciliationPath)) return []
+  const loadedModule = resolver.isMonorepo()
+    ? await importWithTypeScriptFile(reconciliationPath)
+    : await import(pathToFileURL(reconciliationPath).href)
+  return normalizeMigrationReconciliations(loadedModule.migrationReconciliations)
+}
+
+async function runPostModuleMigrationReconciliations(
+  ordered: ModuleEntry[],
+  resolver: PackageResolver,
+): Promise<number> {
+  const reconciliations: MigrationReconciliation[] = []
+  const ids = new Set<string>()
+  for (const entry of ordered) {
+    for (const reconciliation of await loadModuleMigrationReconciliations(entry, resolver)) {
+      if (ids.has(reconciliation.id)) throw new Error('Duplicate migration reconciliation id')
+      ids.add(reconciliation.id)
+      reconciliations.push(reconciliation)
+    }
+  }
+  if (reconciliations.length === 0) return 0
+
+  const { Client } = await import('pg')
+  const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
+  await client.connect()
+  try {
+    await client.query('BEGIN')
+    for (const reconciliation of reconciliations) {
+      await client.query(reconciliation.sql)
+    }
+    await client.query('COMMIT')
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    await client.end()
+  }
+  return reconciliations.length
+}
+
 function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): string {
   const roots = resolver.getModulePaths(entry)
 
@@ -184,7 +270,7 @@ export interface GreenfieldOptions extends DbOptions {
 
 export async function dbGenerate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
   const modules = resolver.loadEnabledModules()
-  const ordered = sortModules(modules)
+  const ordered = orderModulesForMigration(modules)
   const results: string[] = []
 
   for (const entry of ordered) {
@@ -238,7 +324,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     const diff = await migrator.createMigration()
     if (diff && diff.fileName) {
       try {
-        const orig = diff.fileName
+        const orig = resolveGeneratedMigrationPath(migrationsPath, diff.fileName)
         const base = path.basename(orig)
         const dir = path.dirname(orig)
         const ext = path.extname(base)
@@ -256,8 +342,8 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         fs.writeFileSync(newPath, content, 'utf8')
         if (newPath !== orig) fs.unlinkSync(orig)
         results.push(formatResult(modId, `generated ${newBase}`, ''))
-      } catch {
-        results.push(formatResult(modId, `generated ${path.basename(diff.fileName)} (rename failed)`, ''))
+      } catch (error) {
+        throw new Error(`Failed to finalize generated migration for ${modId}`, { cause: error })
       }
     } else {
       results.push(formatResult(modId, 'no changes', ''))
@@ -271,7 +357,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
 
 export async function dbMigrate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
   const modules = resolver.loadEnabledModules()
-  const ordered = sortModules(modules)
+  const ordered = orderModulesForMigration(modules)
   const results: string[] = []
 
   for (const entry of ordered) {
@@ -354,6 +440,17 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
     await orm.close(true)
   }
 
+  const reconciliationCount = await runPostModuleMigrationReconciliations(ordered, resolver)
+  if (reconciliationCount > 0) {
+    results.push(
+      formatResult(
+        'post-module',
+        `${reconciliationCount} reconciliation${reconciliationCount === 1 ? '' : 's'} applied`,
+        '',
+      ),
+    )
+  }
+
   console.log(results.join('\n'))
 }
 
@@ -366,7 +463,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   console.log('Cleaning up migrations and snapshots for greenfield setup...')
 
   const modules = resolver.loadEnabledModules()
-  const ordered = sortModules(modules)
+  const ordered = orderModulesForMigration(modules)
   const results: string[] = []
   const outputDir = resolver.getOutputDir()
 
