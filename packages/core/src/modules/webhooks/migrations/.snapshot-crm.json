@@ -16,8 +16,17 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "name": {
-          "name": "name",
+        "subscription_id": {
+          "name": "subscription_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "event": {
+          "name": "event",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -25,15 +34,62 @@
           "nullable": false,
           "mappedType": "text"
         },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "true",
-          "mappedType": "boolean"
+          "mappedType": "json"
+        },
+        "status_code": {
+          "name": "status_code",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "response_body": {
+          "name": "response_body",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "1",
+          "mappedType": "integer"
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "failed_at": {
+          "name": "failed_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
         },
         "created_at": {
           "name": "created_at",
@@ -43,34 +99,26 @@
           "primary": false,
           "nullable": false,
           "length": 6,
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
+          "default": "now()",
           "mappedType": "datetime"
         }
       },
-      "name": "tenants",
+      "name": "webhook_deliveries",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "tenants_pkey",
+          "keyName": "webhook_deliveries_sub_idx",
+          "columnNames": [
+            "subscription_id",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "webhook_deliveries_pkey",
           "columnNames": [
             "id"
           ],
@@ -105,8 +153,17 @@
           "nullable": false,
           "mappedType": "uuid"
         },
-        "name": {
-          "name": "name",
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "event": {
+          "name": "event",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -114,17 +171,17 @@
           "nullable": false,
           "mappedType": "text"
         },
-        "slug": {
-          "name": "slug",
+        "target_url": {
+          "name": "target_url",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": true,
+          "nullable": false,
           "mappedType": "text"
         },
-        "noli_org_id": {
-          "name": "noli_org_id",
+        "secret": {
+          "name": "secret",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -142,73 +199,6 @@
           "default": "true",
           "mappedType": "boolean"
         },
-        "parent_id": {
-          "name": "parent_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "root_id": {
-          "name": "root_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "tree_path": {
-          "name": "tree_path",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "depth": {
-          "name": "depth",
-          "type": "int",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "0",
-          "mappedType": "integer"
-        },
-        "ancestor_ids": {
-          "name": "ancestor_ids",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "'[]'",
-          "mappedType": "json"
-        },
-        "child_ids": {
-          "name": "child_ids",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "'[]'",
-          "mappedType": "json"
-        },
-        "descendant_ids": {
-          "name": "descendant_ids",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "'[]'",
-          "mappedType": "json"
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -217,6 +207,7 @@
           "primary": false,
           "nullable": false,
           "length": 6,
+          "default": "now()",
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -227,45 +218,26 @@
           "primary": false,
           "nullable": false,
           "length": 6,
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
+          "default": "now()",
           "mappedType": "datetime"
         }
       },
-      "name": "organizations",
+      "name": "webhook_subscriptions",
       "schema": "public",
       "indexes": [
         {
+          "keyName": "webhook_subs_org_idx",
           "columnNames": [
-            "noli_org_id"
-          ],
-          "composite": false,
-          "keyName": "organizations_noli_org_id_uniq",
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
-          "keyName": "organizations_tenant_slug_uniq",
-          "columnNames": [
-            "tenant_id",
-            "slug"
+            "organization_id",
+            "event"
           ],
           "composite": true,
-          "constraint": true,
+          "constraint": false,
           "primary": false,
-          "unique": true
+          "unique": false
         },
         {
-          "keyName": "organizations_pkey",
+          "keyName": "webhook_subscriptions_pkey",
           "columnNames": [
             "id"
           ],
@@ -276,20 +248,7 @@
         }
       ],
       "checks": [],
-      "foreignKeys": {
-        "organizations_tenant_id_foreign": {
-          "constraintName": "organizations_tenant_id_foreign",
-          "columnNames": [
-            "tenant_id"
-          ],
-          "localTableName": "public.organizations",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.tenants",
-          "updateRule": "cascade"
-        }
-      },
+      "foreignKeys": {},
       "nativeEnums": {}
     }
   ],

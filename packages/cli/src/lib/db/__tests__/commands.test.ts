@@ -1,7 +1,11 @@
+import path from 'node:path'
 import {
   sanitizeModuleId,
   validateTableName,
   makeConstraintDropsIdempotent,
+  orderModulesForMigration,
+  resolveGeneratedMigrationPath,
+  normalizeMigrationReconciliations,
   dbGreenfield,
 } from '../commands'
 
@@ -128,6 +132,69 @@ describe('makeConstraintDropsIdempotent', () => {
     const result = makeConstraintDropsIdempotent(sql)
 
     expect(result).toBe(sql)
+  })
+})
+
+describe('orderModulesForMigration', () => {
+  it('preserves the application-declared dependency order', () => {
+    const modules = [
+      { id: 'directory' },
+      { id: 'auth' },
+      { id: 'customers' },
+      { id: 'email', from: '@app' },
+    ]
+
+    expect(orderModulesForMigration(modules)).toEqual(modules)
+  })
+
+  it('does not mutate the application module registry', () => {
+    const modules = [{ id: 'directory' }, { id: 'auth' }]
+
+    expect(orderModulesForMigration(modules)).not.toBe(modules)
+  })
+})
+
+describe('resolveGeneratedMigrationPath', () => {
+  const migrationRoot = path.join('/tmp', 'open-mercato', 'auth', 'migrations')
+
+  it('resolves a generator basename beneath the module migration directory', () => {
+    expect(resolveGeneratedMigrationPath(migrationRoot, 'Migration20260803000000.ts')).toBe(
+      path.join(migrationRoot, 'Migration20260803000000.ts')
+    )
+  })
+
+  it('preserves an absolute generated path inside the module migration directory', () => {
+    const generatedPath = path.join(migrationRoot, 'Migration20260803000000.ts')
+
+    expect(resolveGeneratedMigrationPath(migrationRoot, generatedPath)).toBe(generatedPath)
+  })
+
+  it('refuses a generated path outside the module migration directory', () => {
+    expect(() => resolveGeneratedMigrationPath(migrationRoot, '../Migration20260803000000.ts')).toThrow(
+      'Generated migration path escaped its module migration directory'
+    )
+  })
+})
+
+describe('normalizeMigrationReconciliations', () => {
+  it('accepts exact finite reconciliation records in declared order', () => {
+    const reconciliations = [
+      { id: 'auth_gdpr_triggers', sql: 'select 1' },
+      { id: 'search_gdpr_triggers', sql: 'select 2' },
+    ]
+
+    expect(normalizeMigrationReconciliations(reconciliations)).toEqual(reconciliations)
+  })
+
+  it.each([
+    null,
+    {},
+    [{ id: 'auth_gdpr_triggers' }],
+    [{ id: 'auth_gdpr_triggers', sql: '' }],
+    [{ id: 'Auth-Gdpr', sql: 'select 1' }],
+    [{ id: 'auth_gdpr_triggers', sql: 'select 1', extra: true }],
+  ])('refuses malformed reconciliation input', (value) => {
+    expect(() => normalizeMigrationReconciliations(value)).toThrow()
   })
 })
 

@@ -7,8 +7,9 @@ export type ModuleEntry = { id: string; from?: '@open-mercato/core' | '@app' | s
 
 export const enabledModules: ModuleEntry[] = [
   // ── Core infrastructure ──
-  { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
+  { id: 'auth', from: '@open-mercato/core' },
+  { id: 'planner', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },
   { id: 'configs', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -24,7 +25,6 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'events', from: '@open-mercato/events' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
   { id: 'progress', from: '@open-mercato/core' },
-  { id: 'planner', from: '@open-mercato/core' },      // required by staff module
 
   // ── CRM ──
   { id: 'customers', from: '@open-mercato/core' },

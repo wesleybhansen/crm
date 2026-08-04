@@ -618,6 +618,15 @@
           "nullable": true,
           "mappedType": "boolean"
         },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "is_primary": {
           "name": "is_primary",
           "type": "boolean",
@@ -675,11 +684,12 @@
       "schema": "public",
       "indexes": [
         {
-          "keyName": "email_conn_org_user_provider_idx",
+          "keyName": "email_conn_org_user_provider_purpose_idx",
           "columnNames": [
             "organization_id",
             "user_id",
-            "provider"
+            "provider",
+            "purpose"
           ],
           "composite": true,
           "constraint": false,
