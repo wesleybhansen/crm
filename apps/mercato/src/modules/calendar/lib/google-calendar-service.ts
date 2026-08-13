@@ -6,7 +6,7 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-interface CalendarConnection {
+export interface CalendarConnection {
   id: string
   access_token: string
   refresh_token: string
@@ -15,7 +15,9 @@ interface CalendarConnection {
   google_email: string
 }
 
-async function refreshTokenIfNeeded(connection: CalendarConnection): Promise<string> {
+/** Exported for the internal calendar-events endpoint, which performs Google
+ *  operations on behalf of the Chief of Staff so no token leaves the CRM. */
+export async function refreshTokenIfNeeded(connection: CalendarConnection): Promise<string> {
   const expiry = new Date(connection.token_expiry)
   if (expiry > new Date(Date.now() + 5 * 60 * 1000)) {
     return connection.access_token // Still valid
