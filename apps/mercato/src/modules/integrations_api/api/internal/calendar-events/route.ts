@@ -22,9 +22,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
  * calendar the user never connected.
  *
  * Ops:
- *   list   { syncToken?, updatedMinMs? } -> { items, nextSyncToken, expired }
+ *   list   { syncToken?, updatedMinMs?, pageToken? }
+ *            -> { items, nextPageToken, nextSyncToken, expired }
  *          `expired: true` replaces Google's 410 for a stale syncToken, so the
- *          caller can resync without parsing error strings.
+ *          caller can resync without parsing error strings. Pagination is
+ *          passed through rather than resolved here: the caller owns the page
+ *          cap and the "no sync token mid-pagination" invariant (LG-16), so
+ *          those guarantees stay in one place instead of being duplicated.
  *   upsert { externalId?, event }        -> { id }
  */
 export const metadata = {
@@ -40,6 +44,7 @@ type Body = {
   op?: unknown
   syncToken?: unknown
   updatedMinMs?: unknown
+  pageToken?: unknown
   externalId?: unknown
   event?: unknown
 }
@@ -103,6 +108,8 @@ export async function POST(req: Request) {
         maxResults: '250',
         showDeleted: 'true',
       })
+      const pageToken = typeof body.pageToken === 'string' && body.pageToken ? body.pageToken : null
+      if (pageToken) params.set('pageToken', pageToken)
       const syncToken = typeof body.syncToken === 'string' && body.syncToken ? body.syncToken : null
       if (syncToken) {
         params.set('syncToken', syncToken)
@@ -120,7 +127,13 @@ export async function POST(req: Request) {
       if (r.status === 410) {
         // Stale syncToken. Surface it as a typed outcome rather than an error
         // string the caller has to pattern-match.
-        return NextResponse.json({ ok: true, expired: true, items: [], nextSyncToken: null })
+        return NextResponse.json({
+          ok: true,
+          expired: true,
+          items: [],
+          nextPageToken: null,
+          nextSyncToken: null,
+        })
       }
       if (!r.ok) {
         return NextResponse.json(
@@ -130,12 +143,17 @@ export async function POST(req: Request) {
       }
       const d = (await r.json()) as {
         items?: Array<Record<string, unknown>>
+        nextPageToken?: string
         nextSyncToken?: string
       }
+      // Relayed verbatim, including the ABSENCE of a token. The caller
+      // distinguishes "no more pages" from "truncated" by these being null vs
+      // present, so do not substitute defaults for missing fields.
       return NextResponse.json({
         ok: true,
         expired: false,
         items: d.items ?? [],
+        nextPageToken: d.nextPageToken ?? null,
         nextSyncToken: d.nextSyncToken ?? null,
       })
     }
