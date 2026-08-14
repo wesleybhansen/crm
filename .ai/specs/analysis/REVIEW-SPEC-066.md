@@ -2,7 +2,7 @@
 
 ## Summary
 
-The change adds tenant-safe internal CRM contracts, deterministic route and credential regressions, a production-backed reply-prompt seam, a 28-case offline quality harness, bounded optional scoring, independently visible CI wiring, dependency-safe disposable-database migration ordering, and delivery documentation. The in-scope diff has no unresolved architecture, security, compatibility, or test finding; the repository review cannot pass for merge because mandatory repository-wide gates are already red on the recorded base.
+The change adds tenant-safe internal CRM contracts, deterministic route and credential regressions, a production-backed reply-prompt seam, a 28-case offline quality harness, bounded optional scoring, independently visible CI wiring, dependency-safe disposable-database migration ordering, a generated email greenfield migration, and delivery documentation. Repository i18n, typecheck, and unit-test gates now pass. Remaining work requires repository-owned credentials or a pinned live QA deployment rather than additional local code.
 
 ## CI/CD Verification
 
@@ -11,10 +11,10 @@ The change adds tenant-safe internal CRM contracts, deterministic route and cred
 | `yarn build:packages`           | PASS   | 16/16 package builds succeeded.                                                                                                              |
 | `yarn generate`                 | PASS   | All generators completed; generated OpenAPI remained unchanged.                                                                              |
 | `yarn build:packages` (rebuild) | PASS   | 16/16 package builds succeeded after generation.                                                                                             |
-| `yarn i18n:check-sync`          | FAIL   | Existing baseline reports 28 locale-sync issues across eight modules; this change adds no locale or UI string.                               |
+| `yarn i18n:check-sync`          | PASS   | 47 modules and 309 keys are synchronized; the prior 28-item drift is repaired.                                                              |
 | `yarn i18n:check-usage`         | WARN   | Existing baseline reports 49 missing and 3,649 unused keys; CI marks this step `continue-on-error`.                                          |
-| `yarn typecheck`                | FAIL   | The CLI environment type is repaired and CLI typecheck passes; repository typecheck retains generated disabled-module and core diagnostics. |
-| `yarn test`                     | FAIL   | Shared/UI stale assertions are repaired; the repository run retains core generated-module and `server-only` Jest baseline failures.          |
+| `yarn typecheck`                | PASS   | All 16 workspace typecheck tasks pass, including app, core, CLI, and UI.                                                                     |
+| `yarn test`                     | PASS   | All 16 workspace test tasks pass; core completed 222 suites and 2,142 tests.                                                                 |
 | `yarn build:app`                | PASS   | Next.js production build completed; it retained the existing unsupported `next.config.ts` ESLint warning.                                    |
 
 Additional evidence:
@@ -29,21 +29,22 @@ Additional evidence:
 - `yarn lint`: FAIL because the existing app script invokes removed Next.js 16 `next lint` behavior and resolves `apps/mercato/lint` as a directory.
 - `yarn template:sync`: FAIL on an existing 585-file app/template drift set. Automatic synchronization would be broad, unrelated, and would incorrectly copy app-specific Noli code into the generic template.
 - Playwright discovery: PASS, 665 tests in 264 files. Spec mapping: 89/97 scenarios (91.75%) and CRM 20/20.
-- Focused disposable customer integration: local execution is blocked because no Docker CLI/runtime is installed. Hosted reruns confirmed the `directory`/`auth` repair and optional meeting-prep guard, then stopped in the app email module because `Migration20260409195545` alters `email_campaigns` although no module migration creates the entity table on greenfield.
-- Initial PR snapshot publish: FAIL with npm `ENEEDAUTH`; this is an external workflow credential/configuration issue, not a CRM regression failure.
+- Focused disposable customer integration: local Docker execution is unavailable, but the complete enabled migration graph passes against a fresh local PostgreSQL cluster. A second migration pass is clean and email-only generation reports no diff. Hosted CI still needs to confirm the containerized path.
+- Snapshot workflow authentication is configured through setup-node, `NODE_AUTH_TOKEN`/`YARN_NPM_AUTH_TOKEN`, and an explicit `npm whoami` preflight. Publishing remains blocked until a repository owner provisions `NPM_TOKEN`.
 
 ## Findings
 
 ### Critical
 
-1. **Repository-wide typecheck gate is red.** The in-scope CLI diagnostic is fixed, but generated disabled-module and existing core diagnostics remain. The code-review gate prohibits a passing or merge-ready conclusion until the repository baseline is repaired.
-2. **Repository-wide unit-test gate is red.** The stale shared/UI assertions and CRM credential time dependency are fixed, while core generated-module and `server-only` Jest configuration failures remain. They remain merge blockers under repository review policy.
-3. **Repository-wide i18n synchronization gate is red.** The 28 existing issues are outside this non-UI change, but the mandatory gate still prevents a passing review.
-4. **Template parity gate is red.** The existing 585-file drift cannot be safely repaired inside this narrowly isolated Noli lane; broad template mutation would violate task scope.
-5. **Snapshot publishing lacks npm authentication.** The PR workflow cannot publish its snapshot without the repository-owned npm credential/configuration.
-6. **Disposable integration is blocked by incomplete email schema ownership.** The SPEC-061 email module exposes `EmailCampaign`, but its migration assumes a legacy setup-SQL table. Repository rules require a proper generated module migration and prohibit hand-writing that schema or restoring the frozen setup table, so this belongs in the email migration lane.
+No in-scope critical code finding remains.
 
-No High, Medium, or Low finding remains in the in-scope diff.
+### External prerequisites
+
+1. **Snapshot publishing needs an authorized token.** Workflow wiring and failure diagnostics are complete; the repository has no `NPM_TOKEN`, and no local npm session is authenticated.
+2. **Real scored evaluation needs its dedicated non-production key.** `CRM_AI_QUALITY_API_KEY` is absent locally and from repository secrets, so only the zero-call machine-readable skip can run.
+3. **Pinned live Noli validation needs an immutable deployment record.** No reserved QA slot, deployment marker, exact image tag/digest, or synthetic sandbox identities are recorded. The handoff must abort rather than infer or replace shared state.
+
+The existing broad template parity drift and removed Next.js `next lint` script behavior are outside this CRM regression finish-line change and are not part of the normal CI test job.
 
 ## Backward Compatibility
 
@@ -68,7 +69,7 @@ No High, Medium, or Low finding remains in the in-scope diff.
 - [x] Tenant isolation: every touched query filters by both `organization_id` and `tenant_id`
 - [x] No new user-facing UI strings
 - [x] CRUD factory is not applicable to these existing internal projection/provider routes
-- [x] No event, worker, subscriber, custom-field, entity, migration, cross-module relationship, ACL, search, form, table, or UI mutation
+- [x] The new email migration is generator-owned, additive, and verified on fresh and repeat migration paths; frozen setup SQL remains untouched
 - [x] `yarn generate` completed after file additions
 - [x] Existing DI/request-container pattern is preserved
 - [x] Behavior changes have exact deterministic Jest coverage
@@ -78,4 +79,4 @@ No High, Medium, or Low finding remains in the in-scope diff.
 
 ## Recommendation
 
-Keep the pull request in draft. The scoped CRM implementation and its independent hosted check are green and suitable for review, but repository policy prohibits calling it merge-ready until the email greenfield migration, baseline gates, and workflow credential are resolved in their owning lanes.
+The repository-side CRM regression build is ready for hosted CI review. Do not call the scored/live acceptance complete until an owner supplies the dedicated evaluation key, npm token, and immutable QA deployment record.

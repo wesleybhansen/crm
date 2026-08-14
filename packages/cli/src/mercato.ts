@@ -939,11 +939,17 @@ export async function run(argv = process.argv) {
     cli: [
       {
         command: 'generate',
-        run: async () => {
+        run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
           const { dbGenerate } = await import('./lib/db')
           const resolver = createResolver()
-          await dbGenerate(resolver)
+          const adoptionArg = args.find((arg) => arg.startsWith('--adopt-existing-tables='))
+          const adoptExistingTables = adoptionArg
+            ?.slice('--adopt-existing-tables='.length)
+            .split(',')
+            .map((tableName) => tableName.trim())
+            .filter(Boolean)
+          await dbGenerate(resolver, { adoptExistingTables })
         },
       },
       {

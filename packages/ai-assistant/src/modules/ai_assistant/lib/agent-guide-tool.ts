@@ -46,20 +46,22 @@ Quick reference:
 - **Rate-limit headers:** \`RateLimit-Limit\`, \`RateLimit-Remaining\`, \`RateLimit-Reset\`, \`Retry-After\` on 429
 `
 
-export const agentGuideTool: McpToolDefinition = {
+const agentGuideInputSchema = z.object({
+  section: z
+    .string()
+    .optional()
+    .describe(
+      'Optional. Filter to a single H2 section by case-insensitive substring (e.g. "webhooks", "mcp quickstart", "common recipes"). Omit to get the full guide.',
+    ),
+})
+
+export const agentGuideTool: McpToolDefinition<z.infer<typeof agentGuideInputSchema>> = {
   name: 'get_agent_guide',
   description:
     'Return the LaunchCRM agent integration guide — the single reference for how to authenticate, call the REST API, use MCP tools, subscribe to webhooks, and handle rate limits / scopes / tenant encryption. Call this first if you are a new agent talking to this CRM for the first time. The guide is plain markdown; you can render it or parse sections.',
-  inputSchema: z.object({
-    section: z
-      .string()
-      .optional()
-      .describe(
-        'Optional. Filter to a single H2 section by case-insensitive substring (e.g. "webhooks", "mcp quickstart", "common recipes"). Omit to get the full guide.',
-      ),
-  }),
+  inputSchema: agentGuideInputSchema,
   requiredFeatures: [], // Available to every authenticated agent
-  handler: async ({ section }: { section?: string }) => {
+  handler: async ({ section }) => {
     const guidePath = findGuidePath()
     const raw = guidePath ? readFileSync(guidePath, 'utf-8') : FALLBACK
 

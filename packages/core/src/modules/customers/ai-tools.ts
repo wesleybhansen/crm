@@ -63,6 +63,9 @@ function commandCtx(ctx: ToolContext) {
       orgId: ctx.organizationId,
       sub: ctx.userId,
     } as any,
+    organizationScope: null,
+    selectedOrganizationId: ctx.organizationId,
+    organizationIds: ctx.organizationId ? [ctx.organizationId] : null,
     request: undefined,
   }
 }

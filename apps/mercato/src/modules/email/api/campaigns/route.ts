@@ -13,7 +13,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { EmailCampaign } from '../../data/schema'
 import { E } from '@/.mercato/generated/entities.ids.generated'
-import { emailCampaignCreateSchema, emailCampaignUpdateSchema } from '../../data/validators'
+import { emailCampaignCreateSchema, emailCampaignDeleteSchema, emailCampaignUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import { wrapCrudListForLegacyShape, withLegacyOk } from '../legacyShape'
@@ -118,7 +118,7 @@ const crud = makeCrudRoute({
           parsed?.query?.id ??
           (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
         if (!id) throw new CrudHttpError(400, { error: translate('email.errors.campaign_id_required', 'Campaign id is required') })
-        return { id, organizationId: ctx.organizationId, tenantId: ctx.tenantId }
+        return emailCampaignDeleteSchema.parse(withScopedPayload({ id }, ctx, translate))
       },
       response: () => withLegacyOk({}),
     },

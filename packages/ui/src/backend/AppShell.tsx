@@ -82,6 +82,7 @@ export type AppShellProps = {
   profileSectionTitle?: string
   profilePathPrefixes?: string[]
   mobileSidebarSlot?: React.ReactNode
+  hideCustomizeSidebar?: boolean
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -356,7 +357,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
+export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, hideCustomizeSidebar = false }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
@@ -1422,7 +1423,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             })()
           )}
         </div>
-        {!customizing && (
+        {!customizing && !hideCustomizeSidebar && (
           <>
           {shouldRenderSidebarInjectionSpots ? (
             <StatusBadgeInjectionSpot

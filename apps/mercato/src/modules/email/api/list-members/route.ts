@@ -53,6 +53,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
   try {
+    const scope = { tenantId: auth.tenantId, orgId: auth.orgId }
     const url = new URL(req.url)
     const listId = url.searchParams.get('listId')
     if (!listId) return NextResponse.json({ ok: false, error: 'listId is required' }, { status: 400 })
@@ -63,7 +64,7 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
 
-    const list = await resolveList(em, listId, auth)
+    const list = await resolveList(em, listId, scope)
     if (!list) return NextResponse.json({ ok: false, error: 'List not found' }, { status: 404 })
 
     // Get member rows
@@ -123,7 +124,9 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
 
-    const list = await resolveList(em, listId, auth)
+    const scope = { tenantId: auth.tenantId, orgId: auth.orgId }
+
+    const list = await resolveList(em, listId, scope)
     if (!list) return NextResponse.json({ ok: false, error: 'List not found' }, { status: 404 })
 
     // Use knex for bulk upsert (ON CONFLICT IGNORE) — more efficient than ORM for bulk
@@ -173,7 +176,9 @@ export async function DELETE(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
 
-    const list = await resolveList(em, listId, auth)
+    const scope = { tenantId: auth.tenantId, orgId: auth.orgId }
+
+    const list = await resolveList(em, listId, scope)
     if (!list) return NextResponse.json({ ok: false, error: 'List not found' }, { status: 404 })
 
     // Soft-delete matching members

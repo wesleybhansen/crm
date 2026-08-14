@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "plugins": [{ "name": "next" }],
-    "typeRoots": ["./types", "./node_modules/@types"],
+    "typeRoots": ["./types", "../../node_modules/@types"],
     "verbatimModuleSyntax": false,
     "paths": {
       "@/*": ["./src/*"],

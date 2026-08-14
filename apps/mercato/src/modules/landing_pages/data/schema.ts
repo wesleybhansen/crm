@@ -1,5 +1,5 @@
 import { Entity, Property, PrimaryKey, ManyToOne, OneToMany, Collection, Index } from '@mikro-orm/core'
-import { v4 as uuid } from 'uuid'
+import { randomUUID as uuid } from 'node:crypto'
 
 @Entity({ tableName: 'landing_pages' })
 @Index({ properties: ['organizationId', 'slug'], name: 'landing_pages_org_slug_idx' })

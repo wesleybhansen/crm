@@ -12,8 +12,17 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { requireProcessAuth } from '@/lib/cron-auth'
 
 export const openApi: OpenApiRouteDoc = {
-  GET: { summary: 'Get relationship decay alerts for current org', tags: ['AI', 'Relationship Decay'] },
-  POST: { summary: 'Cron: detect decaying relationships and draft follow-ups', tags: ['AI', 'Relationship Decay'] },
+  summary: 'Relationship decay alerts',
+  methods: {
+    GET: {
+      summary: 'Get relationship decay alerts for current org',
+      tags: ['AI', 'Relationship Decay'],
+    },
+    POST: {
+      summary: 'Cron: detect decaying relationships and draft follow-ups',
+      tags: ['AI', 'Relationship Decay'],
+    },
+  },
 }
 
 export const metadata = { path: '/ai/relationship-decay',

@@ -135,6 +135,7 @@
     "@types/jest": "^30.0.0",
     "@types/mailparser": "^3",
     "@types/node": "^20.0.0",
+    "@types/nodemailer": "^7.0.0",
     "@types/pg": "^8.16.0",
     "@types/react": "^19.0.0",
     "@types/react-big-calendar": "^1.16.3",

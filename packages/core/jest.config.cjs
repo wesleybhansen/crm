@@ -6,6 +6,7 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^server-only$': '<rootDir>/jest.mocks/server-only.js',
     '^#generated/(.*)$': '<rootDir>/generated/$1',
     '^@open-mercato/core/generated/(.*)$': '<rootDir>/generated/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/src/$1',

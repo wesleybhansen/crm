@@ -11,8 +11,9 @@ import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 // POST: Send email to all registered attendees of an event
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.orgId || !auth.tenantId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
+    const tenantId = auth.tenantId
     const { id: eventId } = await params
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
@@ -41,7 +42,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       </div>`
 
       try {
-        const result = await sendEmailByPurpose(knex, auth.orgId, auth.tenantId || '', 'marketing', {
+        const result = await sendEmailByPurpose(knex, auth.orgId, tenantId, 'marketing', {
           to: att.attendee_email,
           subject,
           htmlBody: html,
@@ -55,7 +56,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             try {
               const { logTimelineEvent } = await import('@/lib/timeline')
               await logTimelineEvent(knex, {
-                tenantId: auth.tenantId,
+                tenantId,
                 organizationId: auth.orgId,
                 contactId: att.contact_id,
                 eventType: 'event_email',

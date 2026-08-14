@@ -19,6 +19,7 @@ jobs:
     # Skip PRs from forks (no access to secrets)
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
@@ -31,16 +32,19 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+          registry-url: https://registry.npmjs.org
+          scope: '@open-mercato'
 
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Configure npm authentication
+      - name: Verify npm authentication
         run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
-          echo "access=public" >> .npmrc
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::Repository secret NPM_TOKEN is required for Snapshot Release"
+            exit 1
+          fi
+          npm whoami --registry=https://registry.npmjs.org
 
       - name: Install dependencies
         run: yarn install --immutable

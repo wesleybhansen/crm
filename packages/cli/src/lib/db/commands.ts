@@ -93,15 +93,34 @@ export function makeConstraintDropsIdempotent(sql: string): string {
   return sql.replace(/alter table\s+("[^"]+"|\S+)\s+drop constraint\s+("[^"]+"|\S+);/gi, 'alter table $1 drop constraint if exists $2;')
 }
 
+export function makeTableAdoptionIdempotent(sql: string, tableNames: string[]): string {
+  const adoptedTables = new Set(tableNames)
+  for (const tableName of adoptedTables) validateTableName(tableName)
+
+  return sql
+    .replace(/create table (?!if not exists)("([^"]+)")/gi, (statement, quotedTable, tableName) =>
+      adoptedTables.has(tableName) ? `create table if not exists ${quotedTable}` : statement,
+    )
+    .replace(
+      /create (unique )?index (?!if not exists)("[^"]+") on "([^"]+)"/gi,
+      (statement, unique, quotedIndex, tableName) =>
+        adoptedTables.has(tableName)
+          ? `create ${unique || ''}index if not exists ${quotedIndex} on "${tableName}"`
+          : statement,
+    )
+}
+
 let tsxLoaderRegistered = false
 
 async function importWithTypeScriptFile(filePath: string): Promise<any> {
   const fileUrl = pathToFileURL(filePath).href
-  let tsImportFn: ((fileUrl: string, cwd: string) => Promise<any>) | undefined
+  let tsImportFn: ((fileUrl: string, options: { parentURL: string; tsconfig: string }) => Promise<any>) | undefined
   try {
     const { register, tsImport } = await import('tsx/esm/api')
+    const rootTsconfig = path.resolve(process.cwd(), 'tsconfig.base.json')
+    const tsconfig = fs.existsSync(rootTsconfig) ? rootTsconfig : path.resolve(process.cwd(), 'tsconfig.json')
     if (!tsxLoaderRegistered) {
-      register()
+      register({ tsconfig })
       tsxLoaderRegistered = true
     }
     tsImportFn = tsImport
@@ -110,7 +129,11 @@ async function importWithTypeScriptFile(filePath: string): Promise<any> {
   }
 
   if (tsImportFn) {
-    return await tsImportFn(fileUrl, pathToFileURL(process.cwd() + '/').href)
+    const rootTsconfig = path.resolve(process.cwd(), 'tsconfig.base.json')
+    return await tsImportFn(fileUrl, {
+      parentURL: pathToFileURL(process.cwd() + '/').href,
+      tsconfig: fs.existsSync(rootTsconfig) ? rootTsconfig : path.resolve(process.cwd(), 'tsconfig.json'),
+    })
   }
 
   return import(fileUrl)
@@ -181,6 +204,7 @@ function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): strin
 
 export interface DbOptions {
   quiet?: boolean
+  adoptExistingTables?: string[]
 }
 
 export interface GreenfieldOptions extends DbOptions {
@@ -243,7 +267,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     const diff = await migrator.createMigration()
     if (diff && diff.fileName) {
       try {
-        const orig = diff.fileName
+        const orig = path.isAbsolute(diff.fileName) ? diff.fileName : path.join(migrationsPath, diff.fileName)
         const base = path.basename(orig)
         const dir = path.dirname(orig)
         const ext = path.extname(base)
@@ -253,10 +277,11 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         const newPath = path.join(dir, newBase)
         let content = fs.readFileSync(orig, 'utf8')
         content = makeConstraintDropsIdempotent(content)
+        content = makeTableAdoptionIdempotent(content, options.adoptExistingTables ?? [])
         // Rename class to ensure uniqueness as well
         content = content.replace(
           /export class (Migration\d+)/,
-          `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`
+          `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`,
         )
         fs.writeFileSync(newPath, content, 'utf8')
         if (newPath !== orig) fs.unlinkSync(orig)

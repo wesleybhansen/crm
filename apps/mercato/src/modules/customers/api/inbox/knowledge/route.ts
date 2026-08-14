@@ -40,7 +40,6 @@ async function extractDocumentText(buf: Buffer, name: string, mime: string): Pro
   if (isPdf) {
     // Import the inner module directly so pdf-parse does not run its debug-mode
     // test-file read on package-root import. The package ships no types.
-    // @ts-expect-error no declaration file for the inner pdf-parse module
     const { default: pdfParse } = await import('pdf-parse/lib/pdf-parse.js')
     const parsed = await pdfParse(buf)
     return parsed.text || ''

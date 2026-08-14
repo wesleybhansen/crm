@@ -1,10 +1,16 @@
 import { Pool } from 'pg'
 
-let _pool: Pool | null = null
+function createPool() {
+  return new Pool({ connectionString: process.env.DATABASE_URL, max: 5 })
+}
 
-function getPool(): Pool {
+type PoolInstance = ReturnType<typeof createPool>
+
+let _pool: PoolInstance | null = null
+
+function getPool(): PoolInstance {
   if (!_pool) {
-    _pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 })
+    _pool = createPool()
   }
   return _pool
 }

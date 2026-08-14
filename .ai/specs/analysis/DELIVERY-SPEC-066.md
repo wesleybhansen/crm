@@ -19,6 +19,9 @@ This draft adds focused Noli CRM boundary coverage without retesting the complet
 - Added an optional synthetic-only scored mode with a dedicated secret, at most 20 cases, two calls per case, 512 output tokens per call, 30-second request timeouts, and explicit zero-call credential-missing skips.
 - Added a 50-test focused CRM command plus the credential-free quality gate ahead of unrelated repository-wide gates in standard CI, and a separate manual/weekly scored workflow with always-uploaded results.
 - Restored the documented fresh-database module order (`directory`, `auth`, then alphabetical) after the first hosted disposable run exposed an alphabetical-order startup failure.
+- Generated the missing email campaign/recipient/message migration through a bounded CLI legacy-adoption option and verified the complete enabled migration graph on fresh PostgreSQL.
+- Repaired the 28-item i18n sync drift and the generated catalog/sales, `server-only`, and app/core typecheck baselines.
+- Added explicit Snapshot Release npm authentication plus a preflight that identifies a missing repository secret before publishing.
 
 ## Verification
 
@@ -35,13 +38,19 @@ Passing:
 - Shared model-default helper: 8 tests; UI AppShell: 4 tests
 - Targeted ESLint and workflow YAML parsing
 - `yarn build:app`
+- `yarn i18n:check-sync`
+- `yarn typecheck`: 16/16 workspace tasks
+- `yarn test`: 16/16 workspace tasks; core 222 suites/2,142 tests
+- Fresh PostgreSQL `yarn db:migrate`, clean second migration pass, and email-only no-diff generation
 - Playwright discovery: 665 tests in 264 files
 - Spec coverage mapping: 89/97 (91.75%), CRM 20/20
 
-Blocked or baseline-red:
+External follow-up:
 
-- Disposable customer integration could not run locally because the machine has no Docker CLI/runtime. Hosted runs confirmed the repaired directory/auth order and optional meeting-prep compatibility guard, then exposed the separate SPEC-061 email gap: `email_campaigns` has an entity but no greenfield table-creation migration. That schema must be generated in the email module lane; frozen setup SQL and hand-written migrations remain off limits.
-- Repository `yarn typecheck`, `yarn test`, `yarn i18n:check-sync`, `yarn lint`, and `yarn template:sync` retain failures outside the CRM gate. Snapshot publishing also lacks npm authentication. Exact evidence and merge-blocker classification are in `.ai/specs/analysis/REVIEW-SPEC-066.md`.
+- The machine has no Docker CLI/runtime, so the focused containerized integration remains a hosted-CI confirmation. The underlying migration graph now passes on a fresh local PostgreSQL cluster without frozen setup SQL.
+- Snapshot workflow wiring is complete, but the repository has no `NPM_TOKEN` secret and the local npm client is unauthenticated.
+- The dedicated non-production `CRM_AI_QUALITY_API_KEY` is absent, so the real scored evaluation cannot run; its machine-readable missing-key path makes zero calls.
+- No QA deployment marker, exact image tag/digest, or reserved slot is recorded, so the pinned live Noli handoff must not start.
 
 ## Important deferred findings
 

@@ -188,7 +188,14 @@ export async function PUT(req: Request) {
         contactId: parsed.contactId,
         score: parsed.score,
       },
-      ctx: { container, auth, request: req },
+      ctx: {
+        container,
+        auth,
+        organizationScope: null,
+        selectedOrganizationId: auth.orgId,
+        organizationIds: [auth.orgId],
+        request: req,
+      },
     })
     return NextResponse.json({ ok: true })
   } catch (err: any) {

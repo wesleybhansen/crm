@@ -90,10 +90,12 @@ export async function PUT(req: Request) {
         autoAdvanceStage: body.auto_advance_stage,
       },
       ctx: {
-        tenantId: auth.tenantId,
-        organizationId: auth.orgId,
-        userId: auth.sub,
         container,
+        auth,
+        organizationScope: null,
+        selectedOrganizationId: auth.orgId,
+        organizationIds: [auth.orgId],
+        request: req,
       },
     })
 

@@ -9,9 +9,10 @@ import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 // Send invoice via email to contact — uses connected email provider first, falls back to Resend
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await getAuthFromCookies()
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.orgId || !auth.tenantId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   try {
+    const tenantId = auth.tenantId
     const { id: invoiceId } = await params
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
@@ -173,7 +174,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       try {
         const { logTimelineEvent } = await import('@/lib/timeline')
         await logTimelineEvent(knex, {
-          tenantId: auth.tenantId,
+          tenantId,
           organizationId: auth.orgId,
           contactId: invoice.contact_id,
           eventType: 'invoice_sent',

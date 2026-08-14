@@ -1,4 +1,5 @@
 {
+  "appShell.productName": "Noli CRM",
   "auth.accessDenied.dashboard": "Zum Dashboard",
   "auth.accessDenied.home": "Zur Startseite",
   "auth.accessDenied.message": "Du hast keine Berechtigung, diese Seite anzuzeigen. Bitte wende dich an deinen Administrator.",

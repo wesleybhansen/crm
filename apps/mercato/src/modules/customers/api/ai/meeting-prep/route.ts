@@ -75,7 +75,8 @@ async function refreshCalendarToken(knex: ReturnType<EntityManager['getKnex']>, 
     throw new Error('Token refresh failed')
   }
 
-  await knex('google_calendar_connections').where('id', connection.id).update({
+  await knex('google_calendar_connections')
+    .where('id', String(connection.id)).update({
     access_token: tokens.access_token,
     token_expiry: new Date(Date.now() + (tokens.expires_in || 3600) * 1000),
     updated_at: new Date(),

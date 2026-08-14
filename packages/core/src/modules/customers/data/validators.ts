@@ -473,7 +473,7 @@ export const engagementEventCreateSchema = scopedSchema.extend({
   contactId: uuid(),
   eventType: z.string().trim().min(1).max(100),
   points: z.number().int(),
-  metadata: z.record(z.unknown()).optional().nullable(),
+  metadata: z.record(z.string(), z.unknown()).optional().nullable(),
 })
 
 export type EngagementEventCreateInput = z.infer<typeof engagementEventCreateSchema>
@@ -530,7 +530,7 @@ export const taskTemplateCreateSchema = scopedSchema.extend({
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(10_000).optional().nullable(),
   triggerType: z.string().trim().min(1).max(100).optional(),
-  triggerConfig: z.record(z.unknown()).optional().nullable(),
+  triggerConfig: z.record(z.string(), z.unknown()).optional().nullable(),
   tasks: z.array(taskTemplateTaskSchema).optional(),
 })
 
@@ -541,7 +541,7 @@ export const taskTemplateUpdateSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   description: z.string().trim().max(10_000).optional().nullable(),
   triggerType: z.string().trim().min(1).max(100).optional(),
-  triggerConfig: z.record(z.unknown()).optional().nullable(),
+  triggerConfig: z.record(z.string(), z.unknown()).optional().nullable(),
   tasks: z.array(taskTemplateTaskSchema).optional(),
 })
 
@@ -572,8 +572,8 @@ export const businessProfileUpsertSchema = scopedSchema.extend({
   aiPersonaStyle: z.string().trim().max(200).optional().nullable(),
   aiCustomInstructions: z.string().trim().max(20_000).optional().nullable(),
   websiteUrl: z.string().trim().max(2000).optional().nullable(),
-  brandColors: z.record(z.unknown()).optional().nullable(),
-  socialLinks: z.record(z.unknown()).optional().nullable(),
+  brandColors: z.record(z.string(), z.unknown()).optional().nullable(),
+  socialLinks: z.record(z.string(), z.unknown()).optional().nullable(),
   detectedServices: z.unknown().optional().nullable(),
   pipelineMode: z.enum(['deals', 'contacts', 'journey']).optional().nullable(),
   digestFrequency: z.enum(['daily', 'weekly', 'monthly']).optional().nullable(),
@@ -581,7 +581,7 @@ export const businessProfileUpsertSchema = scopedSchema.extend({
   emailIntakeMode: z.enum(['suggest', 'auto', 'off']).optional().nullable(),
   interfaceMode: z.enum(['simple', 'advanced']).optional().nullable(),
   onboardingComplete: z.boolean().optional().nullable(),
-  brandVoiceProfile: z.record(z.unknown()).optional().nullable(),
+  brandVoiceProfile: z.record(z.string(), z.unknown()).optional().nullable(),
   brandVoiceUpdatedAt: z.coerce.date().optional().nullable(),
   brandVoiceSource: z.string().trim().max(200).optional().nullable(),
 })

@@ -406,6 +406,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Submit form response',
   methods: {
     POST: { summary: 'Submit a form response', tags: ['Forms (Public)'] },
-    OPTIONS: { summary: 'CORS preflight', tags: ['Forms (Public)'] },
   },
 }

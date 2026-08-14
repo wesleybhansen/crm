@@ -23,6 +23,25 @@ export interface EntityIdsOptions {
   quiet?: boolean
 }
 
+function discoverPackageModuleEntries(resolver: PackageResolver): ModuleEntry[] {
+  return resolver.discoverPackages().flatMap((packageInfo) => {
+    if (!fs.existsSync(packageInfo.modulesPath)) return []
+    return fs
+      .readdirSync(packageInfo.modulesPath, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => ({ id: entry.name, from: packageInfo.name }))
+  })
+}
+
+function discoverAppModuleEntries(resolver: PackageResolver): ModuleEntry[] {
+  const modulesPath = path.join(resolver.getAppDir(), 'src', 'modules')
+  if (!fs.existsSync(modulesPath)) return []
+  return fs
+    .readdirSync(modulesPath, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => ({ id: entry.name, from: '@app' }))
+}
+
 /**
  * Extract exported class names from a TypeScript source file without dynamic import.
  * This is used for @app modules since Node.js can't import TypeScript files directly.
@@ -164,7 +183,18 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
   const outFile = path.join(outputDir, 'entities.ids.generated.ts')
   const checksumFile = path.join(outputDir, 'entities.ids.generated.checksum')
 
-  const entries = resolver.loadEnabledModules()
+  const enabledEntries = resolver.loadEnabledModules()
+  const enabledKeys = new Set(enabledEntries.map((entry) => `${entry.from || '@open-mercato/core'}:${entry.id}`))
+  const packageEntries = [...discoverPackageModuleEntries(resolver), ...discoverAppModuleEntries(resolver)]
+
+  const entries = [...enabledEntries]
+  const discoveredKeys = new Set(enabledKeys)
+  for (const entry of packageEntries) {
+    const key = `${entry.from || '@open-mercato/core'}:${entry.id}`
+    if (discoveredKeys.has(key)) continue
+    discoveredKeys.add(key)
+    entries.push(entry)
+  }
 
   const consolidated: Record<string, Record<string, string>> = {}
   const grouped: Record<GroupKey, Record<string, Record<string, string>>> = {}
@@ -172,6 +202,7 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
   const groupedModulesDict: Record<GroupKey, Record<string, string>> = {}
 
   const fieldsByGroup: Record<GroupKey, Record<string, EntityFieldMap>> = {}
+  const enabledFieldsByGroup: Record<GroupKey, Record<string, EntityFieldMap>> = {}
 
   for (const entry of entries) {
     const modId = entry.id
@@ -179,6 +210,8 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     const imps = resolver.getModuleImportBase(entry)
     const group: GroupKey = (entry.from as GroupKey) || '@open-mercato/core'
     const isAppModule = entry.from === '@app'
+    const isEnabled = enabledKeys.has(`${entry.from || '@open-mercato/core'}:${modId}`)
+    const includeInAppOutput = isEnabled || isAppModule
 
     // Locate entities definition file (prefer app override)
     const appData = path.join(roots.appBase, 'data')
@@ -206,7 +239,7 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
 
     // No entities file found -> still register module id
     if (!filePath) {
-      modulesDict[modId] = modId
+      if (includeInAppOutput) modulesDict[modId] = modId
       groupedModulesDict[group] = groupedModulesDict[group] || {}
       groupedModulesDict[group][modId] = modId
       continue
@@ -221,16 +254,16 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
       .filter((k, idx, arr) => arr.indexOf(k) === idx)
 
     // Build dictionaries
-    modulesDict[modId] = modId
+    if (includeInAppOutput) modulesDict[modId] = modId
     groupedModulesDict[group] = groupedModulesDict[group] || {}
     groupedModulesDict[group][modId] = modId
 
-    consolidated[modId] = consolidated[modId] || {}
+    if (includeInAppOutput) consolidated[modId] = consolidated[modId] || {}
     grouped[group] = grouped[group] || {}
     grouped[group][modId] = grouped[group][modId] || {}
 
     for (const en of entityNames) {
-      consolidated[modId][en] = `${modId}:${en}`
+      if (includeInAppOutput) consolidated[modId][en] = `${modId}:${en}`
       grouped[group][modId][en] = `${modId}:${en}`
     }
 
@@ -238,6 +271,10 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     const entityFieldMap = parseEntityFieldsFromFile(filePath, exportNames)
     fieldsByGroup[group] = fieldsByGroup[group] || {}
     fieldsByGroup[group][modId] = entityFieldMap
+    if (includeInAppOutput) {
+      enabledFieldsByGroup[group] = enabledFieldsByGroup[group] || {}
+      enabledFieldsByGroup[group][modId] = entityFieldMap
+    }
   }
 
   // Write consolidated output
@@ -306,7 +343,7 @@ export type KnownEntities = typeof E
 
   // Write combined entity fields to root generated/ folder
   const combinedAll: EntityFieldMap = {}
-  for (const groupFields of Object.values(fieldsByGroup)) {
+  for (const groupFields of Object.values(enabledFieldsByGroup)) {
     for (const mMap of Object.values(groupFields)) {
       for (const [entity, fields] of Object.entries(mMap)) {
         combinedAll[entity] = Array.from(new Set([...(combinedAll[entity] || []), ...fields]))

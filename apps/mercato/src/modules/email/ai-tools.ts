@@ -129,8 +129,8 @@ Returns: { total, messages: [{ id, subject, fromEmail, toEmail, direction, statu
     return {
       total: messages.length,
       messages: messages.map(m => ({
-        id: m.id, subject: m.subject, fromEmail: m.fromEmail,
-        toEmail: m.toEmail, direction: m.direction, status: m.status,
+        id: m.id, subject: m.subject, fromEmail: m.fromAddress,
+        toEmail: m.toAddress, direction: m.direction, status: m.status,
         sentAt: m.sentAt, createdAt: m.createdAt,
       })),
     }
