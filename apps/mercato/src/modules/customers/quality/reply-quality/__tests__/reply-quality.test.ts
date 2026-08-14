@@ -197,6 +197,13 @@ describe("reply-quality baseline and scored-mode isolation", () => {
     expect(prompt).toContain(
       "Human-edited replies, proactive follow-ups, and automation-generated drafts are never auto-send safe",
     );
+    expect(
+      composeReplyPromptV1(
+        fixtureById("rq-v1-proactive-followup-draft").promptInput,
+      ),
+    ).toContain(
+      "This is a proactive follow-up draft. Human approval is required, so auto_send_safe must be false.",
+    );
   });
 
   it("matches the checked-in deterministic baseline with zero deltas", () => {
