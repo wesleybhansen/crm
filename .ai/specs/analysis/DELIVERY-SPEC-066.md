@@ -17,7 +17,8 @@ This draft adds focused Noli CRM boundary coverage without retesting the complet
 - Extracted the production CRM reply prompt into a pure seam and added conservative grounding, consent, cross-customer, secret, unsupported-commitment, approval, and structured-output rules.
 - Added 28 versioned synthetic reply fixtures, 18 explicit deterministic criteria, checked-in thresholds/baselines, per-case JSON diagnostics, and regression deltas.
 - Added an optional synthetic-only scored mode with a dedicated secret, at most 20 cases, two calls per case, 512 output tokens per call, 30-second request timeouts, and explicit zero-call credential-missing skips.
-- Added the credential-free quality gate to standard CI and a separate manual/weekly scored workflow with always-uploaded results.
+- Added a 50-test focused CRM command plus the credential-free quality gate ahead of unrelated repository-wide gates in standard CI, and a separate manual/weekly scored workflow with always-uploaded results.
+- Restored the documented fresh-database module order (`directory`, `auth`, then alphabetical) after the first hosted disposable run exposed an alphabetical-order startup failure.
 
 ## Verification
 
@@ -27,9 +28,11 @@ Passing:
 - `yarn build:packages` before and after generation: 16/16
 - `yarn generate`
 - App Jest: 19 suites, 156 tests
-- Focused changed suite: 37 tests
+- `yarn test:crm-regression`: 50 tests across six suites
 - `yarn test:crm-quality`: 28/28 fixtures, 18 criteria, 100%, delta 0
 - Missing-key `yarn test:crm-quality:scored`: `credential_missing`, zero calls
+- CLI migration command suite: 22 tests
+- Shared model-default helper: 8 tests; UI AppShell: 4 tests
 - Targeted ESLint and workflow YAML parsing
 - `yarn build:app`
 - Playwright discovery: 665 tests in 264 files
@@ -37,8 +40,8 @@ Passing:
 
 Blocked or baseline-red:
 
-- Disposable customer integration could not start because the local machine has no Docker CLI/runtime. No shared test environment was used.
-- Repository `yarn typecheck`, `yarn test`, `yarn i18n:check-sync`, `yarn lint`, and `yarn template:sync` retain failures outside this diff. Exact evidence and merge-blocker classification are in `.ai/specs/analysis/REVIEW-SPEC-066.md`.
+- Disposable customer integration could not run locally because the machine has no Docker CLI/runtime. Its first hosted run found the now-repaired migration ordering defect; a fresh hosted run is required for confirmation.
+- Repository `yarn typecheck`, `yarn test`, `yarn i18n:check-sync`, `yarn lint`, and `yarn template:sync` retain failures outside the CRM gate. Snapshot publishing also lacks npm authentication. Exact evidence and merge-blocker classification are in `.ai/specs/analysis/REVIEW-SPEC-066.md`.
 
 ## Important deferred findings
 

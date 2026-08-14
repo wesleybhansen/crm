@@ -153,7 +153,7 @@ This is additive test infrastructure/documentation plus narrow failure fixes. No
 
 ### Phase D — CI/delivery
 
-1. Add dry-run after unit tests in normal CI and always upload diagnostics.
+1. Add a focused deterministic CRM gate and dry-run before unrelated repository-wide gates in normal CI, then always upload diagnostics.
 2. Add a separate manual/scheduled scored workflow.
 3. Document commands, fixture extension, ownership, limitations, and handoff.
 4. Verify, review, commit logically, push only this branch, and open a draft PR.
@@ -213,13 +213,16 @@ No blocking questions. Deferred consequential-action defects require dedicated s
 Completed on 2026-08-13/14 against the recorded base SHA:
 
 - App Jest: 19 suites and 156 tests passed, including 25 route/prompt regressions and 12 reply-quality harness tests.
+- Focused CI command: 50 deterministic tests passed across the app-owned CRM contracts and core user-scoped credential contract.
 - Dry quality gate: 28/28 fixtures passed, 18/18 criteria remained at their baseline, overall pass rate 100%, delta 0.
 - Missing-credential scored path: explicit `credential_missing` skip, zero model calls.
 - Scored-path mock: production-prompt generation, deterministic gates, and judge completed in two calls with a 512-token per-call cap.
 - Package builds: 16/16 succeeded before and after module generation; production app build succeeded.
+- CLI migration ordering tests passed and now enforce the documented dependency order (`directory`, then `auth`, then remaining modules), repairing fresh-database startup before the next hosted disposable run.
 - Targeted ESLint and workflow YAML parsing passed; Playwright discovery listed 665 tests in 264 files; spec coverage reported 89/97 scenarios (91.75%) and CRM 20/20.
 - Disposable customer integration execution could not start because Docker CLI/runtime is absent. No shared environment fallback was attempted.
-- Repository-wide typecheck, test, i18n, lint, and template-sync commands retain unrelated baseline failures documented in the pull request; no failure names a changed file, and the complete app Jest suite plus production build are green.
+- The first hosted run exposed that the normal test job stopped at pre-existing i18n drift before reaching CRM checks, so the focused deterministic and dry-quality gates now run and publish evidence first. The same run exposed the dependency-order migration defect now covered by the CLI regression.
+- Repository-wide typecheck, test, i18n, lint, and template-sync commands retain unrelated baseline failures documented in the pull request; the focused CRM command, quality gate, package builds, complete app Jest suite, and production build are green.
 
 ## Changelog
 
@@ -228,3 +231,9 @@ Completed on 2026-08-13/14 against the recorded base SHA:
 - Added audit matrix, route scope, reply-quality design, CI plan, risk/compatibility review, and live ownership boundary.
 - Created the AUG-04 specification with no blocking questions.
 - Recorded the implemented 28-case/18-criterion harness, deterministic route fixes, and local verification results.
+
+### 2026-08-14
+
+- Added a single 50-test CRM regression command and made it an independently visible CI gate.
+- Restored dependency-safe fresh-database migration ordering and added deterministic coverage for it.
+- Removed time dependence from the legacy credential transition test and aligned two stale repository assertions with their shipped model and shell contracts.
