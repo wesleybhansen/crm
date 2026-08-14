@@ -1,6 +1,9 @@
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { internalCalendarEventsRequestSchema } from '../../../data/validators'
 
 /*
  * Internal server-to-server endpoint: Google Calendar event operations, run
@@ -36,17 +39,24 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Internal Integrations',
+  summary: 'Operate a user-scoped CRM calendar connection',
+  methods: {
+    POST: {
+      summary: 'List or upsert calendar events without exposing provider credentials',
+      tags: ['Internal Integrations'],
+    },
+  },
+}
+
 const CAL = 'https://www.googleapis.com/calendar/v3'
 const WINDOW_MS = 7 * 86_400_000
 
-type Body = {
-  noliUserId?: unknown
-  op?: unknown
-  syncToken?: unknown
-  updatedMinMs?: unknown
-  pageToken?: unknown
-  externalId?: unknown
-  event?: unknown
+function readProviderEventId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const id = (value as Record<string, unknown>).id
+  return typeof id === 'string' && id.trim() ? id : null
 }
 
 export async function POST(req: Request) {
@@ -61,15 +71,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body = (await req.json().catch(() => ({}))) as Body
-  const noliUserId = typeof body.noliUserId === 'string' ? body.noliUserId.trim() : ''
-  const op = typeof body.op === 'string' ? body.op : ''
-  if (!noliUserId) {
-    return NextResponse.json({ ok: false, error: 'noliUserId required' }, { status: 400 })
+  const bodyResult = internalCalendarEventsRequestSchema.safeParse(
+    await readJsonSafe<unknown>(req, {}),
+  )
+  if (!bodyResult.success) {
+    const missingNoliUserId = bodyResult.error.issues.some(
+      (issue) => issue.path[0] === 'noliUserId',
+    )
+    if (missingNoliUserId) {
+      return NextResponse.json(
+        { ok: false, error: 'noliUserId required' },
+        { status: 400 },
+      )
+    }
+    return NextResponse.json(
+      { ok: false, error: 'op must be list or upsert' },
+      { status: 400 },
+    )
   }
-  if (op !== 'list' && op !== 'upsert') {
-    return NextResponse.json({ ok: false, error: 'op must be list or upsert' }, { status: 400 })
-  }
+  const body = bodyResult.data
+  const { noliUserId, op } = body
 
   try {
     const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
@@ -80,16 +101,21 @@ export async function POST(req: Request) {
 
     const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
     const auth = await resolveClerkUserToAuthContext(noliUser.clerk_user_id)
-    if (!auth?.userId) {
+    if (!auth?.userId || !auth.orgId || !auth.tenantId) {
       return NextResponse.json({ ok: false, error: 'not_connected' }, { status: 409 })
     }
+    const userId = String(auth.userId)
+    const orgId = String(auth.orgId)
+    const tenantId = String(auth.tenantId)
 
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
     const connection = await knex('google_calendar_connections')
-      .where('user_id', auth.userId as string)
+      .where('user_id', userId)
+      .where('organization_id', orgId)
+      .where('tenant_id', tenantId)
       .where('is_active', true)
       .first()
     if (!connection) {
@@ -180,8 +206,24 @@ export async function POST(req: Request) {
         { status: r.status >= 500 ? 502 : 400 },
       )
     }
-    const d = (await r.json()) as { id?: string }
-    return NextResponse.json({ ok: true, id: d.id ?? externalId ?? null })
+    let providerBody: unknown
+    try {
+      providerBody = await r.json()
+    } catch {
+      return NextResponse.json(
+        { ok: false, error: 'google_invalid_response' },
+        { status: 502 },
+      )
+    }
+    const providerId = readProviderEventId(providerBody)
+    const eventId = providerId ?? externalId
+    if (!eventId) {
+      return NextResponse.json(
+        { ok: false, error: 'google_invalid_response' },
+        { status: 502 },
+      )
+    }
+    return NextResponse.json({ ok: true, id: eventId })
   } catch (err) {
     console.error('[internal.calendar-events]', err)
     return NextResponse.json({ ok: false, error: 'Calendar operation failed' }, { status: 500 })
