@@ -17,7 +17,7 @@ type EphemeralRuntimeOptions = {
   forceRebuild?: boolean
   reuseExisting?: boolean
   requiredExistingSource?: string
-  environmentOverrides?: NodeJS.ProcessEnv
+  environmentOverrides?: Partial<NodeJS.ProcessEnv>
 }
 
 export type EphemeralEnvironmentHandle = {

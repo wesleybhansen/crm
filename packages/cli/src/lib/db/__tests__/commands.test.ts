@@ -2,6 +2,7 @@ import {
   sanitizeModuleId,
   validateTableName,
   makeConstraintDropsIdempotent,
+  sortModulesForMigration,
   dbGreenfield,
 } from '../commands'
 
@@ -132,6 +133,30 @@ describe('makeConstraintDropsIdempotent', () => {
 })
 
 describe('db commands', () => {
+  describe('sortModulesForMigration', () => {
+    it('runs directory then auth before alphabetically ordered modules', () => {
+      const modules = [
+        { id: 'customers', from: '@open-mercato/core' as const },
+        { id: 'auth', from: '@open-mercato/core' as const },
+        { id: 'billing', from: '@app' as const },
+        { id: 'directory', from: '@open-mercato/core' as const },
+      ]
+
+      expect(sortModulesForMigration(modules).map((module) => module.id)).toEqual([
+        'directory',
+        'auth',
+        'billing',
+        'customers',
+      ])
+      expect(modules.map((module) => module.id)).toEqual([
+        'customers',
+        'auth',
+        'billing',
+        'directory',
+      ])
+    })
+  })
+
   describe('dbGreenfield', () => {
     it('should require --yes flag', async () => {
       // Mock console.error and process.exit

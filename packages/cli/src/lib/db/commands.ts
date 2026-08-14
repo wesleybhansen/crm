@@ -44,9 +44,14 @@ function getClientUrl(): string {
   return url
 }
 
-function sortModules(mods: ModuleEntry[]): ModuleEntry[] {
-  // Sort modules alphabetically since they are now isomorphic
-  return mods.slice().sort((a, b) => a.id.localeCompare(b.id))
+export function sortModulesForMigration(modules: ModuleEntry[]): ModuleEntry[] {
+  return modules.slice().sort((left, right) => {
+    if (left.id === 'directory') return right.id === 'directory' ? 0 : -1
+    if (right.id === 'directory') return 1
+    if (left.id === 'auth') return right.id === 'auth' ? 0 : -1
+    if (right.id === 'auth') return 1
+    return left.id.localeCompare(right.id)
+  })
 }
 
 /**
@@ -184,7 +189,7 @@ export interface GreenfieldOptions extends DbOptions {
 
 export async function dbGenerate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
   const modules = resolver.loadEnabledModules()
-  const ordered = sortModules(modules)
+  const ordered = sortModulesForMigration(modules)
   const results: string[] = []
 
   for (const entry of ordered) {
@@ -271,7 +276,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
 
 export async function dbMigrate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
   const modules = resolver.loadEnabledModules()
-  const ordered = sortModules(modules)
+  const ordered = sortModulesForMigration(modules)
   const results: string[] = []
 
   for (const entry of ordered) {
@@ -366,7 +371,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   console.log('Cleaning up migrations and snapshots for greenfield setup...')
 
   const modules = resolver.loadEnabledModules()
-  const ordered = sortModules(modules)
+  const ordered = sortModulesForMigration(modules)
   const results: string[] = []
   const outputDir = resolver.getOutputDir()
 
