@@ -1,4 +1,10 @@
 {
+  "funnels.actions.create": "Nuevo embudo",
+  "funnels.create.title": "Crear embudo",
+  "funnels.edit.title": "Editar embudo",
+  "funnels.empty": "Aún no hay embudos. Crea el primero para empezar a convertir visitantes.",
+  "funnels.subtitle": "Conecta páginas de destino en embudos de conversión de varios pasos",
+  "funnels.title": "Embudos",
   "landing_pages.actions.delete": "Delete",
   "landing_pages.actions.preview": "Preview",
   "landing_pages.actions.publish": "Publish",

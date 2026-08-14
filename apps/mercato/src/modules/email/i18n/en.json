@@ -7,6 +7,8 @@
   "email.campaigns.create": "New Campaign",
   "email.campaigns.empty": "No campaigns yet",
   "email.campaigns.title": "Campaigns",
+  "email.errors.campaign_id_required": "Campaign id is required",
+  "email.errors.list_id_required": "Email list id is required",
   "email.flash.sendFailed": "Failed to send email",
   "email.flash.sent": "Email sent",
   "email.messages.columns.from": "From",

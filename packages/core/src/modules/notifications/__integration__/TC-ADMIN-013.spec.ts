@@ -53,7 +53,7 @@ async function hasNotificationBatchEvent(
 test.describe('TC-ADMIN-013: Notifications SSE', () => {
   test('delivers notifications.notification.created to target user without polling', async ({ page, request }) => {
     await login(page, 'superadmin')
-    await page.goto('/backend')
+    await page.goto('/backend/profile/change-password')
     await page.waitForLoadState('domcontentloaded')
     await installOmEventCollector(page)
 
@@ -78,7 +78,7 @@ test.describe('TC-ADMIN-013: Notifications SSE', () => {
 
   test('delivers notifications.notification.batch_created when batch notification is created', async ({ page, request }) => {
     await login(page, 'superadmin')
-    await page.goto('/backend')
+    await page.goto('/backend/profile/change-password')
     await page.waitForLoadState('domcontentloaded')
     await installOmEventCollector(page)
 

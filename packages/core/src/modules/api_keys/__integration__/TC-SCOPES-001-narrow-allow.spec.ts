@@ -20,6 +20,7 @@ test.describe('TC-SCOPES-001: narrow key allow/deny', () => {
       token: adminToken,
       data: {
         name: `scopes-narrow-${Date.now()}`,
+        roles: ['admin'],
         rateLimitTier: 'unlimited',
         scopes: ['customers.people.view'],
       },

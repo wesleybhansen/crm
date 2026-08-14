@@ -1,4 +1,10 @@
 {
+  "funnels.actions.create": "New Funnel",
+  "funnels.create.title": "Create Funnel",
+  "funnels.edit.title": "Edit Funnel",
+  "funnels.empty": "No funnels yet. Create your first funnel to start converting visitors.",
+  "funnels.subtitle": "Chain landing pages into multi-step conversion funnels",
+  "funnels.title": "Funnels",
   "landing_pages.actions.delete": "Delete",
   "landing_pages.actions.preview": "Preview",
   "landing_pages.actions.publish": "Publish",

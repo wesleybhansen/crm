@@ -20,7 +20,7 @@ test.describe('TC-RATELIMIT-001: API-key burst', () => {
     adminToken = await getAuthToken(request)
     const res = await apiRequest(request, 'POST', '/api/api_keys/keys', {
       token: adminToken,
-      data: { name: `ratelimit-burst-${Date.now()}`, rateLimitTier: 'default' },
+      data: { name: `ratelimit-burst-${Date.now()}`, roles: ['admin'], rateLimitTier: 'default' },
     })
     expect(res.ok()).toBeTruthy()
     const body = await res.json()

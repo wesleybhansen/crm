@@ -16,7 +16,7 @@ test.describe('TC-SCOPES-002: null scope preserves v1 behavior', () => {
     adminToken = await getAuthToken(request)
     const res = await apiRequest(request, 'POST', '/api/api_keys/keys', {
       token: adminToken,
-      data: { name: `scopes-null-${Date.now()}`, rateLimitTier: 'unlimited' },
+      data: { name: `scopes-null-${Date.now()}`, roles: ['admin'], rateLimitTier: 'unlimited' },
     })
     expect(res.ok()).toBeTruthy()
     const body = await res.json()

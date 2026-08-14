@@ -10,7 +10,7 @@ test.describe('TC-AUTH-005: Password Reset Request', () => {
     if (noliResetPage?.status() === 404) {
       await page.goto('/reset');
     }
-    await expect(page.getByText(/reset password/i).first()).toBeVisible();
+    await expect(page.getByText(/reset (?:your )?password/i).first()).toBeVisible();
 
     await page.getByLabel('Email').fill('admin@acme.com');
     await page.getByRole('button', { name: /send reset link/i }).click();

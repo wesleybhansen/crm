@@ -225,6 +225,7 @@ export async function GET(req: Request): Promise<Response> {
         close: () => controller.close(),
       }
       connections.add(connection)
+      controller.enqueue(encoder.encode(': connected\n\n'))
 
       // Start heartbeat to keep connection alive
       heartbeatTimer = setInterval(() => {

@@ -18,6 +18,7 @@ test.describe('TC-SCOPES-003: wildcard scope', () => {
       token: adminToken,
       data: {
         name: `scopes-wildcard-${Date.now()}`,
+        roles: ['admin'],
         rateLimitTier: 'unlimited',
         scopes: ['customers.*'],
       },

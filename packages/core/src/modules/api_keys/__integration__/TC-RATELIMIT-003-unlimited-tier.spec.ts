@@ -17,7 +17,7 @@ test.describe('TC-RATELIMIT-003: unlimited tier', () => {
     adminToken = await getAuthToken(request)
     const res = await apiRequest(request, 'POST', '/api/api_keys/keys', {
       token: adminToken,
-      data: { name: `ratelimit-unlimited-${Date.now()}`, rateLimitTier: 'unlimited' },
+      data: { name: `ratelimit-unlimited-${Date.now()}`, roles: ['admin'], rateLimitTier: 'unlimited' },
     })
     expect(res.ok()).toBeTruthy()
     const body = await res.json()

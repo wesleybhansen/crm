@@ -1,4 +1,7 @@
 {
+  "common.email": "Correo electrónico",
+  "common.inactive": "Inactivo",
+  "common.status": "Estado",
   "customer_accounts.admin.actions.activate": "Activate",
   "customer_accounts.admin.actions.createUser": "Crear usuario",
   "customer_accounts.admin.actions.deactivate": "Deactivate",
@@ -172,5 +175,14 @@
   "customer_accounts.notifications.user.locked.body": "Customer account was locked due to too many failed login attempts.",
   "customer_accounts.notifications.user.locked.title": "Customer account locked",
   "customer_accounts.notifications.user.signup.body": "A new customer account was created.",
-  "customer_accounts.notifications.user.signup.title": "New customer signup"
+  "customer_accounts.notifications.user.signup.title": "New customer signup",
+  "customer_accounts.search.badge.customerRole": "Rol de cliente",
+  "customer_accounts.search.badge.customerUser": "Usuario cliente",
+  "customer_accounts.widgets.accountStatus": "Cuenta del portal",
+  "customer_accounts.widgets.emailVerified": "Correo verificado",
+  "customer_accounts.widgets.lastLogin": "Último acceso",
+  "customer_accounts.widgets.noAccount": "No hay una cuenta del portal vinculada",
+  "customer_accounts.widgets.noUsers": "No hay usuarios del portal para esta empresa",
+  "customer_accounts.widgets.portalUsers": "Usuarios del portal",
+  "customer_accounts.widgets.viewAccount": "Ver detalles de la cuenta →"
 }

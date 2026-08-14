@@ -1,4 +1,10 @@
 {
+  "funnels.actions.create": "Nowy lejek",
+  "funnels.create.title": "Utwórz lejek",
+  "funnels.edit.title": "Edytuj lejek",
+  "funnels.empty": "Brak lejków. Utwórz pierwszy lejek, aby zacząć pozyskiwać klientów.",
+  "funnels.subtitle": "Połącz strony docelowe w wieloetapowe lejki konwersji",
+  "funnels.title": "Lejki",
   "landing_pages.actions.delete": "Delete",
   "landing_pages.actions.preview": "Preview",
   "landing_pages.actions.publish": "Publish",
