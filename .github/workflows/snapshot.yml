@@ -40,7 +40,7 @@ jobs:
 
       - name: Verify npm authentication
         run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+          if [ -z "${YARN_NPM_AUTH_TOKEN}" ]; then
             echo "::error::Repository secret NPM_TOKEN is required for Snapshot Release"
             exit 1
           fi

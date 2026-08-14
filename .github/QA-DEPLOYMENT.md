@@ -95,11 +95,13 @@ The environment is ready when the URL returns the login page. Refresh until it l
 
 ## Finding the QA URL After Deployment
 
-If you provided a **PR number**, the workflow posts a comment on the PR with the slot and deployed image:
+If you provided a **PR number**, the workflow posts a comment on the PR with the slot, checked-out commit, deployed image, and immutable registry digest:
 
 ```
 🚀 Deployed to qa1
+- Commit: a1b2c3d4e5f6789012345678901234567890abcd
 - Image: ghcr.io/org/repo:qa1-a1b2c3d
+- Digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 - Branch: feat/my-feature
 ```
 

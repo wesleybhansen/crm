@@ -78,18 +78,20 @@ jobs:
           set -euo pipefail
 
           SLOT="${{ github.event.inputs.slot }}"
-          SHA="${GITHUB_SHA}"
+          SHA="$(git rev-parse HEAD)"
           SHORT_SHA="${SHA:0:7}"
 
           TAG="${SLOT}-${SHORT_SHA}"
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
 
           echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "image_full=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.BUILD_CONTEXT }}
@@ -100,6 +102,24 @@ jobs:
             ${{ steps.meta.outputs.image_full }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify built image identity
+        shell: bash
+        env:
+          COMMIT_SHA: ${{ steps.meta.outputs.sha }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          if ! [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid checked-out commit SHA: $COMMIT_SHA"
+            exit 1
+          fi
+
+          if ! [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Invalid image digest: $IMAGE_DIGEST"
+            exit 1
+          fi
 
       - name: Resolve Dokploy applicationId
         id: app
@@ -185,12 +205,16 @@ jobs:
 
             // Marker format: DO NOT change lightly (cleanup workflow parses it)
             const marker = `<!-- dokploy-qa slot=${slot} image=${image} -->`;
+            const commit = "${{ steps.meta.outputs.sha }}";
+            const digest = "${{ steps.build.outputs.digest }}";
 
             const body = [
               marker,
               `🚀 Deployed to **${slot}**`,
               ``,
+              `- Commit: \`${commit}\``,
               `- Image: \`${image}\``,
+              `- Digest: \`${digest}\``,
               `- Branch: \`${branch}\``,
             ].join("\n");
 
