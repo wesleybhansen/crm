@@ -204,6 +204,13 @@ describe("reply-quality baseline and scored-mode isolation", () => {
     ).toContain(
       "This is a proactive follow-up draft. Human approval is required, so auto_send_safe must be false.",
     );
+    expect(
+      composeReplyPromptV1(
+        fixtureById("rq-v1-human-edited-approval").promptInput,
+      ),
+    ).toContain(
+      'Preserve this human-approved edit exactly: "A seven-day trial extension requires account team review."',
+    );
   });
 
   it("matches the checked-in deterministic baseline with zero deltas", () => {

@@ -398,6 +398,8 @@ const fixtureDefinitions: FixtureDefinition[] = [
     preserveEditedText:
       "seven-day trial extension requires account team review",
     requiresApproval: true,
+    flagSection:
+      'Preserve this human-approved edit exactly: "A seven-day trial extension requires account team review." The draft is still pending final approval, so auto_send_safe must be false.',
   },
   {
     id: "automated-no-reply",
