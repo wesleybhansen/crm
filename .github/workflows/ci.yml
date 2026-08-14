@@ -61,6 +61,17 @@ jobs:
       - name: Test
         run: yarn test
 
+      - name: Run credential-free CRM reply quality
+        run: yarn test:crm-quality
+
+      - name: Upload CRM reply-quality dry-run result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-reply-quality-dry-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ai/qa/test-results/crm-quality/dry-run.json
+          if-no-files-found: warn
+
       - name: Build
         run: yarn build:app
 
