@@ -61,7 +61,41 @@ jobs:
       - name: Test
         run: yarn test
 
+      - name: Build
+        run: yarn build:app
+
+  crm-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Prepare generated modules
+        run: yarn generate
+
+      - name: Rebuild packages with generated files
+        run: yarn build:packages
+
+      - name: Run CRM deterministic regressions
+        run: yarn test:crm-regression
+
       - name: Run credential-free CRM reply quality
+        if: always()
         run: yarn test:crm-quality
 
       - name: Upload CRM reply-quality dry-run result
@@ -70,10 +104,7 @@ jobs:
         with:
           name: crm-reply-quality-dry-run-${{ github.run_id }}-${{ github.run_attempt }}
           path: .ai/qa/test-results/crm-quality/dry-run.json
-          if-no-files-found: warn
-
-      - name: Build
-        run: yarn build:app
+          if-no-files-found: error
 
   ephemeral-integration:
     runs-on: ubuntu-latest

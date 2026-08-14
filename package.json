@@ -22,6 +22,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:crm-regression": "yarn workspace @open-mercato/app test --runInBand --runTestsByPath src/modules/integrations_api/api/internal/calendar-events/__tests__/route.test.ts src/modules/integrations_api/api/internal/setup-status/__tests__/route.test.ts src/modules/integrations_api/api/internal/contact-context/__tests__/route.test.ts src/modules/customers/lib/__tests__/reply-prompt-contract.test.ts src/modules/customers/quality/reply-quality/__tests__/reply-quality.test.ts && yarn workspace @open-mercato/core test --runInBand --runTestsByPath src/modules/api_keys/services/__tests__/platformAutoKeyService.test.ts",
     "test:crm-quality": "tsx apps/mercato/src/modules/customers/quality/reply-quality/cli.ts --mode=dry --output=.ai/qa/test-results/crm-quality/dry-run.json",
     "test:crm-quality:scored": "tsx apps/mercato/src/modules/customers/quality/reply-quality/cli.ts --mode=scored --output=.ai/qa/test-results/crm-quality/scored.json",
     "start": "turbo run start --filter=@open-mercato/app",

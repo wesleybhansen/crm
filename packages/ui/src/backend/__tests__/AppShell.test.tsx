@@ -224,7 +224,7 @@ describe('AppShell', () => {
 
     const getBreadcrumbText = () => {
       const allNavs = screen.getAllByRole('navigation')
-      const breadcrumbNav = allNavs.find((nav) => nav.classList.contains('text-sm'))
+      const breadcrumbNav = allNavs.find((nav) => nav.closest('header'))
       return breadcrumbNav?.textContent ?? ''
     }
 
@@ -285,7 +285,7 @@ describe('AppShell', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'User Entities' })).toHaveClass('bg-background')
+      expect(screen.getByRole('link', { name: 'User Entities' })).toHaveClass('bg-foreground/[.04]')
       expect(screen.getByRole('link', { name: 'Calendar Entity' })).toBeInTheDocument()
     })
   })

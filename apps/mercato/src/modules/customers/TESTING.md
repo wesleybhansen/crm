@@ -18,6 +18,9 @@ Generic Open Mercato customer, message, and inbox-operation suites remain the so
 # App-owned Jest regressions
 yarn workspace @open-mercato/app test --runInBand
 
+# Focused CI-equivalent CRM route, credential, prompt, and quality regressions
+yarn test:crm-regression
+
 # One focused Jest file
 yarn workspace @open-mercato/app test --runInBand --runTestsByPath <test-file>
 
