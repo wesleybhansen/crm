@@ -262,6 +262,7 @@ export const ScoredCaseResultSchema = z
     error: z.string().max(500).nullable(),
     deterministicFailures: z.array(z.string().min(1).max(200)).max(30),
     callsMade: z.number().int().min(0).max(2),
+    candidate: ReplyCandidateV1Schema.nullable(),
   })
   .strict();
 
