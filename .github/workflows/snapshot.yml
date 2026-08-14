@@ -16,8 +16,10 @@ jobs:
     outputs:
       snapshot_version: ${{ steps.release.outputs.version }}
     runs-on: ubuntu-latest
-    # Skip PRs from forks (no access to secrets)
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Canonical package publishing is upstream-only; also exclude upstream fork PRs.
+    if: >-
+      github.repository == 'open-mercato/open-mercato' &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
     env:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
