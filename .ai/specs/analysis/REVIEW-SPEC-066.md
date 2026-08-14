@@ -29,7 +29,7 @@ Additional evidence:
 - `yarn lint`: FAIL because the existing app script invokes removed Next.js 16 `next lint` behavior and resolves `apps/mercato/lint` as a directory.
 - `yarn template:sync`: FAIL on an existing 585-file app/template drift set. Automatic synchronization would be broad, unrelated, and would incorrectly copy app-specific Noli code into the generic template.
 - Playwright discovery: PASS, 665 tests in 264 files. Spec mapping: 89/97 scenarios (91.75%) and CRM 20/20.
-- Focused disposable customer integration: local execution is blocked because no Docker CLI/runtime is installed. The first hosted run failed because alphabetical migration order ran `auth` before `directory`; the order is repaired and awaits the fresh hosted rerun.
+- Focused disposable customer integration: local execution is blocked because no Docker CLI/runtime is installed. Hosted reruns confirmed the `directory`/`auth` repair and optional meeting-prep guard, then stopped in the app email module because `Migration20260409195545` alters `email_campaigns` although no module migration creates the entity table on greenfield.
 - Initial PR snapshot publish: FAIL with npm `ENEEDAUTH`; this is an external workflow credential/configuration issue, not a CRM regression failure.
 
 ## Findings
@@ -41,6 +41,7 @@ Additional evidence:
 3. **Repository-wide i18n synchronization gate is red.** The 28 existing issues are outside this non-UI change, but the mandatory gate still prevents a passing review.
 4. **Template parity gate is red.** The existing 585-file drift cannot be safely repaired inside this narrowly isolated Noli lane; broad template mutation would violate task scope.
 5. **Snapshot publishing lacks npm authentication.** The PR workflow cannot publish its snapshot without the repository-owned npm credential/configuration.
+6. **Disposable integration is blocked by incomplete email schema ownership.** The SPEC-061 email module exposes `EmailCampaign`, but its migration assumes a legacy setup-SQL table. Repository rules require a proper generated module migration and prohibit hand-writing that schema or restoring the frozen setup table, so this belongs in the email migration lane.
 
 No High, Medium, or Low finding remains in the in-scope diff.
 
@@ -77,4 +78,4 @@ No High, Medium, or Low finding remains in the in-scope diff.
 
 ## Recommendation
 
-Keep the pull request in draft until the hosted disposable rerun confirms the migration-order repair. The scoped implementation is verified and suitable for review, but repository policy prohibits calling it merge-ready until the remaining baseline and workflow-credential blockers above are resolved in their owning lanes.
+Keep the pull request in draft. The scoped CRM implementation and its independent hosted check are green and suitable for review, but repository policy prohibits calling it merge-ready until the email greenfield migration, baseline gates, and workflow credential are resolved in their owning lanes.

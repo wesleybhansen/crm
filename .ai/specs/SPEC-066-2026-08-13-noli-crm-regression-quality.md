@@ -218,10 +218,10 @@ Completed on 2026-08-13/14 against the recorded base SHA:
 - Missing-credential scored path: explicit `credential_missing` skip, zero model calls.
 - Scored-path mock: production-prompt generation, deterministic gates, and judge completed in two calls with a 512-token per-call cap.
 - Package builds: 16/16 succeeded before and after module generation; production app build succeeded.
-- CLI migration ordering tests passed and now enforce the documented dependency order (`directory`, then `auth`, then remaining modules), repairing fresh-database startup before the next hosted disposable run.
+- CLI migration ordering tests passed and now enforce the documented dependency order (`directory`, then `auth`, then remaining modules). Hosted fresh-database runs confirmed that repair and the legacy meeting-prep compatibility guard.
 - Targeted ESLint and workflow YAML parsing passed; Playwright discovery listed 665 tests in 264 files; spec coverage reported 89/97 scenarios (91.75%) and CRM 20/20.
 - Disposable customer integration execution could not start because Docker CLI/runtime is absent. No shared environment fallback was attempted.
-- The first hosted run exposed that the normal test job stopped at pre-existing i18n drift before reaching CRM checks, so the focused deterministic and dry-quality gates now run and publish evidence first. The same run exposed the dependency-order migration defect now covered by the CLI regression.
+- The first hosted run exposed that the normal test job stopped at pre-existing i18n drift before reaching CRM checks, so a separate focused deterministic and dry-quality job now publishes an independent result and artifact. Hosted disposable reruns progressed past the repaired directory/auth order and optional meeting-prep table guard, then stopped at the pre-existing SPEC-061 email migration gap: `email_campaigns` is an entity but has no greenfield table-creation migration.
 - Repository-wide typecheck, test, i18n, lint, and template-sync commands retain unrelated baseline failures documented in the pull request; the focused CRM command, quality gate, package builds, complete app Jest suite, and production build are green.
 
 ## Changelog
@@ -237,3 +237,4 @@ Completed on 2026-08-13/14 against the recorded base SHA:
 - Added a single 50-test CRM regression command and made it an independently visible CI gate.
 - Restored dependency-safe fresh-database migration ordering and added deterministic coverage for it.
 - Removed time dependence from the legacy credential transition test and aligned two stale repository assertions with their shipped model and shell contracts.
+- Made the old optional meeting-prep column migration tolerate a table that is intentionally absent from module-managed schema; recorded the separate generated email-migration blocker without editing frozen setup SQL or hand-writing schema.

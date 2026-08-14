@@ -40,7 +40,7 @@ Passing:
 
 Blocked or baseline-red:
 
-- Disposable customer integration could not run locally because the machine has no Docker CLI/runtime. Its first hosted run found the now-repaired migration ordering defect; a fresh hosted run is required for confirmation.
+- Disposable customer integration could not run locally because the machine has no Docker CLI/runtime. Hosted runs confirmed the repaired directory/auth order and optional meeting-prep compatibility guard, then exposed the separate SPEC-061 email gap: `email_campaigns` has an entity but no greenfield table-creation migration. That schema must be generated in the email module lane; frozen setup SQL and hand-written migrations remain off limits.
 - Repository `yarn typecheck`, `yarn test`, `yarn i18n:check-sync`, `yarn lint`, and `yarn template:sync` retain failures outside the CRM gate. Snapshot publishing also lacks npm authentication. Exact evidence and merge-blocker classification are in `.ai/specs/analysis/REVIEW-SPEC-066.md`.
 
 ## Important deferred findings
