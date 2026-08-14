@@ -66,10 +66,12 @@ export function PostHogProvider({
   children,
   posthogKey,
   posthogHost,
+  clerkIdentityEnabled,
 }: {
   children: React.ReactNode
   posthogKey?: string
   posthogHost?: string
+  clerkIdentityEnabled: boolean
 }) {
   useEffect(() => {
     if (!posthogKey) return
@@ -94,7 +96,7 @@ export function PostHogProvider({
       <Suspense fallback={null}>
         <PostHogPageview />
       </Suspense>
-      <PostHogIdentify />
+      {clerkIdentityEnabled ? <PostHogIdentify /> : null}
       {children}
     </>
   )

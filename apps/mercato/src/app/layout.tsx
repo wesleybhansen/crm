@@ -37,6 +37,11 @@ export const metadata: Metadata = {
 // rendering is a non-issue here.
 export const dynamic = 'force-dynamic'
 
+function ClerkBoundary({ children, enabled }: Readonly<{ children: React.ReactNode; enabled: boolean }>) {
+  if (!enabled) return children
+  return <ClerkProvider appearance={noliClerkAppearance}>{children}</ClerkProvider>
+}
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -49,8 +54,9 @@ export default async function RootLayout({
   // provider as props — the Docker build has no NEXT_PUBLIC_* vars to inline.
   const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY
   const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST
+  const clerkIdentityEnabled = process.env.OM_TEST_MODE !== '1'
   return (
-    <ClerkProvider appearance={noliClerkAppearance}>
+    <ClerkBoundary enabled={clerkIdentityEnabled}>
       <html lang={locale} suppressHydrationWarning>
         <head>
           <link
@@ -100,11 +106,11 @@ export default async function RootLayout({
           />
         </head>
         <body className={`${jetbrainsMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
-          <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled} posthogKey={posthogKey} posthogHost={posthogHost}>
+          <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled} posthogKey={posthogKey} posthogHost={posthogHost} clerkIdentityEnabled={clerkIdentityEnabled}>
             {children}
           </AppProviders>
         </body>
       </html>
-    </ClerkProvider>
-  );
+    </ClerkBoundary>
+  )
 }

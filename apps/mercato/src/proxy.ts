@@ -1,5 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import {
   applyBrowserSecurityHeaders,
   COMPANY_LEGAL_REDIRECTS,
@@ -64,7 +64,7 @@ function withBrowserSecurityHeaders<T extends Response>(
   return response
 }
 
-export default clerkMiddleware(async (auth, req) => {
+async function handleProxyRequest(req: NextRequest, resolveUserId: () => Promise<string | null>) {
   // 0. Custom-domain landing pages: nginx passes the original Host through,
   //    so any host that isn't ours serves exactly one published landing page
   //    at '/' (rewritten to the public by-domain route) and 404s elsewhere.
@@ -122,7 +122,7 @@ export default clerkMiddleware(async (auth, req) => {
   //    longer serve a local copy. Logged-out visitors are redirected to the
   //    marketing page; signed-in users go straight to the CRM app.
   if (req.nextUrl.pathname === '/') {
-    const { userId } = await auth()
+    const userId = await resolveUserId()
     if (!userId) {
       return withBrowserSecurityHeaders(
         NextResponse.redirect(`https://noliai.com/crm${req.nextUrl.search}`),
@@ -157,9 +157,11 @@ export default clerkMiddleware(async (auth, req) => {
   // 5. MCP edge — separate container, API-key gated at nginx + service.
   if (req.nextUrl.pathname.startsWith('/mcp')) return passThrough
 
+  if (process.env.OM_TEST_MODE === '1') return passThrough
+
   // 6. Page navigations: enforce sign-in by bouncing unauthed visitors
   //    to the Noli hub. Hub is the single sign-in surface for the suite.
-  const { userId } = await auth()
+  const userId = await resolveUserId()
   if (!userId) {
     // Behind nginx, req.url reads as http://0.0.0.0:3000/... because Next's
     // standalone server doesn't trust the proxy's X-Forwarded-* headers by
@@ -178,7 +180,13 @@ export default clerkMiddleware(async (auth, req) => {
   }
 
   return passThrough
-})
+}
+
+const proxy = process.env.OM_TEST_MODE === '1'
+  ? (req: NextRequest) => handleProxyRequest(req, async () => null)
+  : clerkMiddleware(async (auth, req) => handleProxyRequest(req, async () => (await auth()).userId))
+
+export default proxy
 
 export const config = {
   matcher: [
