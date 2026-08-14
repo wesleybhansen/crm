@@ -14,6 +14,7 @@ import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload } from '../.
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isMissingDatabaseRelation } from './lib/postgres-errors'
 
 type CliProgressBar = {
   update(completed: number): void
@@ -463,6 +464,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
   const resetCoverageFlag = flagOpt(args, 'resetCoverage') === true
   const skipResetCoverageFlag = flagOpt(args, 'skipResetCoverage', 'noResetCoverage') === true
   const skipPurgeFlag = flagOpt(args, 'skipPurge', 'noPurge') === true
+  const skipMissingTablesFlag = flagOpt(args, 'skipMissingTables') === true
   const purgeFlag = flagOpt(args, 'purge', 'purgeFirst')
 
   const container = await createRequestContainer()
@@ -708,6 +710,18 @@ async function reindexCommand(rest: string[]): Promise<void> {
     }
 
     const defaultPurge = purgeFlag === true && !skipPurgeFlag
+    const runReindexWithMissingTablePolicy = async (
+      targetEntityId: string,
+      purgeFirst: boolean,
+    ) => {
+      try {
+        return await runReindex(targetEntityId, purgeFirst)
+      } catch (error) {
+        if (!skipMissingTablesFlag || !isMissingDatabaseRelation(error)) throw error
+        console.warn(`Skipping ${targetEntityId}: its database table has not been migrated.`)
+        return 0
+      }
+    }
 
     if (entityId) {
       if (!enabledEntities.has(entityId)) {
@@ -715,7 +729,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
         return
       }
       const purgeFirst = defaultPurge
-      await runReindex(entityId, purgeFirst)
+      await runReindexWithMissingTablePolicy(entityId, purgeFirst)
       console.log('Vector reindex completed.')
       return
     }
@@ -730,7 +744,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
     for (let idx = 0; idx < entityIds.length; idx += 1) {
       const id = entityIds[idx]!
       console.log(`[${idx + 1}/${entityIds.length}] Preparing ${id}...`)
-      processedOverall += await runReindex(id, defaultPurge)
+      processedOverall += await runReindexWithMissingTablePolicy(id, defaultPurge)
     }
     console.log(`Vector reindex completed. Total processed rows: ${processedOverall.toLocaleString()}`)
   } catch (error) {
@@ -763,6 +777,7 @@ const reindexHelpCli: ModuleCli = {
     console.log('  --force                 Force reindex even if another job is running.')
     console.log('  --purgeFirst            Purge vector rows before reindexing (defaults to skip).')
     console.log('  --skipPurge             Explicitly skip purging vector rows.')
+    console.log('  --skipMissingTables     Skip legacy search entities whose tables are not migrated.')
     console.log('  --skipResetCoverage     Keep existing coverage snapshots.')
   },
 }

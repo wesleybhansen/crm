@@ -102,7 +102,7 @@ function parseSections(html: string): Array<{ id: string; type: string; fields: 
     else if (h3) fields.subheadline = h3[1].replace(/<[^>]+>/g, '').trim()
 
     if (ps.length > 0) {
-      const firstP = ps[0].replace(/<[^>]+>/g, '').trim()
+      const firstP = ps[0]!.replace(/<[^>]+>/g, '').trim()
       if (firstP.length > 10) fields.description = firstP
     }
 

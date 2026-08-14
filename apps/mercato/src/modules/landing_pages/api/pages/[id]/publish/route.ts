@@ -216,15 +216,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     // Fallback: use existing published_html (from AI generation) and just update form handler
-    if (!html && page.published_html) {
-      html = page.published_html
+    const publishedHtml = page.published_html
+
+    // Fallback: use existing published_html (from AI generation) and just update form handler
+    if (!html && publishedHtml) {
+      let fallbackHtml = publishedHtml
       // Ensure form handler points to correct URL
-      if (!html.includes(formAction)) {
+      if (!fallbackHtml.includes(formAction)) {
         const formScript = `<script>
 (function(){document.querySelectorAll('form').forEach(function(f){f.addEventListener('submit',function(e){e.preventDefault();var d={};new FormData(f).forEach(function(v,k){d[k]=v});var b=f.querySelector('[type="submit"]');if(b){b.disabled=true;b.textContent='Sending...';}fetch('${formAction}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:d})}).then(function(r){return r.json()}).then(function(r){if(r.ok){if(r.redirectUrl){window.location.href=r.redirectUrl}else{f.innerHTML='<div style="text-align:center;padding:24px"><h3>Thank you!</h3><p>'+(r.message||"We will be in touch.")+'</p></div>'}}}).catch(function(){if(b){b.disabled=false;b.textContent='Try Again'}})})})})();
 </script>`
-        html = html.replace('</body>', formScript + '\n</body>')
+        fallbackHtml = fallbackHtml.replace('</body>', formScript + '\n</body>')
       }
+      html = fallbackHtml
     }
 
     // Fallback: read template directly

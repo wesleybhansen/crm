@@ -8,7 +8,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const openApi: OpenApiRouteDoc = {
-  POST: { summary: 'Apply a task template to a contact', tags: ['Task Templates'] },
+  summary: 'Apply a task template',
+  methods: {
+    POST: {
+      summary: 'Apply a task template to a contact',
+      tags: ['Task Templates'],
+    },
+  },
 }
 
 interface TemplateTask {

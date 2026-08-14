@@ -14,9 +14,10 @@ export async function POST(req: Request) {
   const blastId = url.searchParams.get('id')
   if (!blastId) return NextResponse.json({ ok: false, error: 'id query param required' }, { status: 400 })
   const auth = await getAuthFromCookies()
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.orgId || !auth.tenantId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   try {
+    const tenantId = auth.tenantId
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
@@ -149,7 +150,7 @@ export async function POST(req: Request) {
       // Store message
       await knex('email_messages').insert({
         id: require('crypto').randomUUID(),
-        tenant_id: auth.tenantId || null,
+        tenant_id: tenantId,
         organization_id: auth.orgId,
         direction: 'outbound',
         from_address: process.env.EMAIL_FROM || 'noreply@localhost',
@@ -165,7 +166,7 @@ export async function POST(req: Request) {
 
       // Send via email router
       try {
-        const result = await sendEmailByPurpose(knex, auth.orgId, auth.tenantId || '', 'marketing', {
+        const result = await sendEmailByPurpose(knex, auth.orgId, tenantId, 'marketing', {
           to: toEmail,
           subject: personalizedSubject,
           htmlBody: html,
@@ -182,7 +183,7 @@ export async function POST(req: Request) {
             try {
               const { logTimelineEvent } = await import('@/lib/timeline')
               await logTimelineEvent(knex, {
-                tenantId: auth.tenantId,
+                tenantId,
                 organizationId: auth.orgId,
                 contactId: contact.id,
                 eventType: 'campaign_sent',

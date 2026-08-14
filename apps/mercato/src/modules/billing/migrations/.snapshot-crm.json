@@ -35,13 +35,13 @@
         },
         "balance": {
           "name": "balance",
-          "type": "numeric(10,0)",
+          "type": "numeric(10,4)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "precision": 10,
-          "scale": 0,
+          "scale": 4,
           "default": "'0'",
           "mappedType": "decimal"
         },
@@ -117,24 +117,24 @@
         },
         "credit_amount": {
           "name": "credit_amount",
-          "type": "numeric(10,0)",
+          "type": "numeric(10,4)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "precision": 10,
-          "scale": 0,
+          "scale": 4,
           "mappedType": "decimal"
         },
         "price": {
           "name": "price",
-          "type": "numeric(10,0)",
+          "type": "numeric(10,2)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "precision": 10,
-          "scale": 0,
+          "scale": 2,
           "mappedType": "decimal"
         },
         "stripe_price_id": {
@@ -227,13 +227,13 @@
         },
         "amount": {
           "name": "amount",
-          "type": "numeric(10,0)",
+          "type": "numeric(10,4)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "precision": 10,
-          "scale": 0,
+          "scale": 4,
           "mappedType": "decimal"
         },
         "type": {

@@ -2,6 +2,8 @@ import {
   sanitizeModuleId,
   validateTableName,
   makeConstraintDropsIdempotent,
+  makeTableAdoptionIdempotent,
+  sortModulesForMigration,
   dbGreenfield,
 } from '../commands'
 
@@ -131,7 +133,48 @@ describe('makeConstraintDropsIdempotent', () => {
   })
 })
 
+describe('makeTableAdoptionIdempotent', () => {
+  it('guards generated tables and indexes selected for legacy adoption', () => {
+    const sql = [
+      'this.addSql(`create table "email_campaigns" ("id" uuid not null);`);',
+      'this.addSql(`create unique index "campaign_name_idx" on "email_campaigns" ("name");`);',
+      'this.addSql(`create index "users_email_idx" on "users" ("email");`);',
+    ].join('\n')
+
+    expect(makeTableAdoptionIdempotent(sql, ['email_campaigns'])).toBe(
+      [
+        'this.addSql(`create table if not exists "email_campaigns" ("id" uuid not null);`);',
+        'this.addSql(`create unique index if not exists "campaign_name_idx" on "email_campaigns" ("name");`);',
+        'this.addSql(`create index "users_email_idx" on "users" ("email");`);',
+      ].join('\n'),
+    )
+  })
+
+  it('rejects unsafe table names', () => {
+    expect(() => makeTableAdoptionIdempotent('select 1', ['email; drop table users'])).toThrow(/Invalid table name/)
+  })
+})
+
 describe('db commands', () => {
+  describe('sortModulesForMigration', () => {
+    it('runs directory then auth before alphabetically ordered modules', () => {
+      const modules = [
+        { id: 'customers', from: '@open-mercato/core' as const },
+        { id: 'auth', from: '@open-mercato/core' as const },
+        { id: 'billing', from: '@app' as const },
+        { id: 'directory', from: '@open-mercato/core' as const },
+      ]
+
+      expect(sortModulesForMigration(modules).map((module) => module.id)).toEqual([
+        'directory',
+        'auth',
+        'billing',
+        'customers',
+      ])
+      expect(modules.map((module) => module.id)).toEqual(['customers', 'auth', 'billing', 'directory'])
+    })
+  })
+
   describe('dbGreenfield', () => {
     it('should require --yes flag', async () => {
       // Mock console.error and process.exit
@@ -149,9 +192,7 @@ describe('db commands', () => {
 
       await expect(dbGreenfield(mockResolver, { yes: false })).rejects.toThrow('process.exit called')
 
-      expect(mockConsoleError).toHaveBeenCalledWith(
-        'This command will DELETE all data. Use --yes to confirm.'
-      )
+      expect(mockConsoleError).toHaveBeenCalledWith('This command will DELETE all data. Use --yes to confirm.')
 
       mockConsoleError.mockRestore()
       mockExit.mockRestore()
@@ -167,7 +208,7 @@ describe('db commands', () => {
         '../../../etc/passwd',
       ]
 
-      dangerousIds.forEach(id => {
+      dangerousIds.forEach((id) => {
         const sanitized = sanitizeModuleId(id)
         const tableName = `mikro_orm_migrations_${sanitized}`
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Calendar as BigCalendar, dateFnsLocalizer, type View } from 'react-big-calendar'
+import { Calendar as BigCalendar, dateFnsLocalizer, type SlotInfo, type View } from 'react-big-calendar'
 import {
   format, parse, startOfWeek, getDay, startOfDay, endOfDay,
   startOfMonth, endOfMonth, addDays, subDays, isSameDay, isToday, isPast,
@@ -1350,14 +1350,14 @@ export default function CalendarPage() {
                   toolbar={false}
                   selectable
                   popup
-                  onView={(v) => setCalView(v as CalendarView)}
-                  onNavigate={(date) => setCurrentDate(date)}
-                  onSelectSlot={(slot) => {
+                  onView={(view: View) => setCalView(view as CalendarView)}
+                  onNavigate={(date: Date) => setCurrentDate(date)}
+                  onSelectSlot={(slot: SlotInfo) => {
                     setNewEventDate(slot.start)
                     setNewDate(format(slot.start, 'yyyy-MM-dd'))
                     setShowNewEvent(true)
                   }}
-                  onSelectEvent={(event) => setSelectedEvent(event as CalendarEvent)}
+                  onSelectEvent={(event: CalendarEvent) => setSelectedEvent(event)}
                   eventPropGetter={eventPropGetter as never}
                   min={new Date(2020, 0, 1, 7, 0)}
                   max={new Date(2020, 0, 1, 20, 0)}
@@ -1772,7 +1772,7 @@ export default function CalendarPage() {
                   <div>
                     <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Event Type</label>
                     <div className="flex flex-wrap gap-1.5">
-                      {(Object.entries(EVENT_TYPE_META) as [EventType, typeof EVENT_TYPE_META[string]][]).map(([key, meta]) => {
+                      {(Object.entries(EVENT_TYPE_META) as [EventType, (typeof EVENT_TYPE_META)[string]][]).map(([key, meta]) => {
                         const MtIcon = meta.icon
                         const isSelected = newEventType === key
                         return (

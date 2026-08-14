@@ -132,7 +132,14 @@ export async function PUT(req: Request) {
       'customers.business_profile.upsert',
       {
         input,
-        ctx: { container, auth, request: req },
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId: auth.orgId,
+          organizationIds: [auth.orgId],
+          request: req,
+        },
       },
     )
     const em = (container.resolve('em') as EntityManager).fork()

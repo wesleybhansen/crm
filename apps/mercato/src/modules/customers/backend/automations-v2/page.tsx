@@ -16,7 +16,7 @@ import {
   LayoutGrid, Filter, History, Info, Wand2, ChevronUp, ChevronDown, Timer,
   CalendarClock, RotateCcw, Briefcase, Heart, Star, Phone, Gift, RefreshCw,
   MessageCircle, Send, Bot, FlaskConical, CheckCircle2, XCircle,
-  SkipForward, ChevronRight,
+  SkipForward, ChevronRight, type LucideIcon,
 } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
@@ -119,7 +119,9 @@ function StatTile({ icon: Icon, label, value, color, series }: {
 // Constants
 // ---------------------------------------------------------------------------
 
-const TRIGGER_TYPE_GROUPS = [
+type TriggerType = { id: string; label: string; icon: LucideIcon }
+
+const TRIGGER_TYPE_GROUPS: Array<{ label: string; items: TriggerType[] }> = [
   {
     label: 'Contacts',
     items: [
@@ -165,7 +167,7 @@ const TRIGGER_TYPE_GROUPS = [
       { id: 'course_enrolled', label: 'Course Enrolled', icon: GraduationCap },
     ],
   },
-] as const
+]
 
 const TRIGGER_TYPES = TRIGGER_TYPE_GROUPS.flatMap(group => group.items)
 

@@ -1,4 +1,5 @@
 import type { Knex } from 'knex'
+import { composeReplyPromptV1 } from './reply-prompt-contract'
 
 /**
  * Shared reply-drafting logic for the inbox. Factored out of
@@ -366,40 +367,19 @@ ${ts.summary}`
     }
   }
 
-  const systemPrompt = `You are a helpful AI assistant drafting a reply for a ${channel || 'message'} conversation on behalf of ${businessName || 'a business'}.
-
-${businessDesc ? `About the business: ${businessDesc}` : ''}
-${knowledgeBase ? `Knowledge base:
-${knowledgeBase}` : ''}
-${knowledgeSection ? `
-${knowledgeSection}` : ''}
-${customInstructions ? `Special instructions: ${customInstructions}` : ''}
-${contactInfo ? `
-${contactInfo}` : ''}
-${threadSummarySection ? `
-${threadSummarySection}` : ''}
-
-${voiceSection}
-${flagSection ? `
-${flagSection}
-` : ''}
-CRITICAL RULES:
-- Write the COMPLETE reply from start to finish. Do NOT stop mid-sentence. Finish every thought.
-- Do NOT include a subject line. The subject is already handled separately
-- Do NOT start with "Subject:" or "Re:". Just write the message body
-- Match the channel: ${channel === 'sms' ? 'keep it brief, under 300 chars' : channel === 'chat' ? 'conversational, 2-4 sentences' : 'professional email, max 6 paragraphs'}
-- Use information from the knowledge base when relevant. If you do not have the answer, say you will check and follow up
-- ${channel === 'email' ? 'Start with a greeting (Hi/Hello [name]) and end with a sign-off and your name' : 'No greeting or sign-off needed'}
-- Address every question the customer asked. Do not skip any
-- Sound natural and human, not robotic or generic
-- The "body" field must contain ONLY the message body text. No labels, no "Subject:", no meta-commentary
-
-You also assess whether this reply could be sent to the customer WITHOUT a human reviewing it first. Return two extra signals:
-- "confidence": a number from 0 to 1 for how fully and correctly the reply answers the customer's inquiry using the information actually available to you. Use a low value when you are guessing, the knowledge base lacks the answer, or you are promising to follow up rather than answering.
-- "auto_send_safe": a boolean. Return false (NOT safe to auto-send) for ANYTHING sensitive: refunds, cancellations, returns, complaints, legal matters, billing or payment disputes, an angry or upset customer, anything that commits money or promises, or anywhere you are guessing or unsure. Only return true when the reply is a clear, correct, low-risk answer you would be comfortable sending unreviewed.
-
-Respond with ONLY a single JSON object, no markdown fences, no commentary, in exactly this shape:
-{"body": "the full reply body text", "confidence": 0.0, "auto_send_safe": false, "matched_scenarios": []}`
+  const replyPrompt = composeReplyPromptV1({
+    channel,
+    businessName,
+    businessDescription: businessDesc,
+    knowledgeBase,
+    knowledgeSection,
+    customInstructions,
+    contactInfo,
+    threadSummarySection,
+    voiceSection,
+    flagSection,
+    transcript,
+  })
 
   const aiRes = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${DRAFT_MODEL}:generateContent`,
@@ -407,12 +387,7 @@ Respond with ONLY a single JSON object, no markdown fences, no commentary, in ex
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: `${systemPrompt}
-
-Conversation:
-${transcript}
-
-Return the JSON object now:` }] }],
+        contents: [{ parts: [{ text: replyPrompt }] }],
         generationConfig: { maxOutputTokens: 10000, temperature: 0.7, responseMimeType: 'application/json' },
       }),
     },

@@ -101,10 +101,11 @@ const crud = makeCrudRoute({
         try {
           const em = ctx?.container.resolve('em') as any
           const knex = em?.getKnex?.()
-          if (knex && ctx?.auth?.orgId && ctx?.auth?.tenantId) {
+          const auth = ctx?.auth
+          if (knex && auth?.orgId && auth?.tenantId) {
             const needle = String(query.search).toLowerCase()
             const rows = await knex('customer_entities')
-              .where('organization_id', ctx.auth.orgId)
+              .where('organization_id', auth.orgId)
               .where('kind', 'company')
               .whereNull('deleted_at')
               .limit(2000)
@@ -121,8 +122,8 @@ const crud = makeCrudRoute({
                     const dec = await svc.decryptEntityPayload(
                       'customers:customer_entity',
                       { display_name: r.display_name, primary_email: r.primary_email, primary_phone: r.primary_phone },
-                      ctx.auth.tenantId,
-                      ctx.auth.orgId,
+                      auth.tenantId,
+                      auth.orgId,
                     )
                     return { id: r.id, display_name: dec.display_name as string, primary_email: dec.primary_email as string, primary_phone: dec.primary_phone as string }
                   } catch { return r }

@@ -90,4 +90,10 @@ export async function GET(req: Request, ctx: any) {
 export const openApi: OpenApiRouteDoc = {
   tag: 'External API',
   summary: 'Marketing-attributed Stripe revenue (AMS-sourced contacts)',
+  methods: {
+    GET: {
+      summary: 'Read marketing-attributed revenue',
+      tags: ['External API'],
+    },
+  },
 }

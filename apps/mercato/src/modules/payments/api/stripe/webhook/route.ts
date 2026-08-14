@@ -59,7 +59,7 @@ export async function POST(req: Request) {
         }
       }
 
-      if (!orgId) {
+      if (!orgId || !tenantId) {
         console.warn('[stripe.webhook] Could not resolve org for event', event.id)
         return NextResponse.json({ received: true })
       }

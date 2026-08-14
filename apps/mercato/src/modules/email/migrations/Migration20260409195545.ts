@@ -134,29 +134,28 @@ export class Migration20260409195545 extends Migration {
     this.addSql(`do $$ begin if not exists (select 1 from pg_indexes where indexname = 'esp_sender_addr_org_email_idx') then create unique index "esp_sender_addr_org_email_idx" on "esp_sender_addresses" ("organization_id", "sender_email"); end if; end $$;`);
 
     // ----- email_campaigns: schema additions -----
-    // category, scheduled_for, and updated_at all already exist on prod
-    // (added via earlier ALTERs the entity didn't know about). IF NOT EXISTS
-    // makes these no-ops. Greenfield will get them via the ALTER on the
-    // table that the existing tier 0 / pre-tier-1 migrations created.
-    this.addSql(`alter table "email_campaigns" add column if not exists "category" text null;`);
-    this.addSql(`alter table "email_campaigns" add column if not exists "scheduled_for" timestamptz null;`);
-    this.addSql(`alter table "email_campaigns" add column if not exists "updated_at" timestamptz null;`);
+    // Existing legacy installs receive these additions here. On greenfield
+    // this block is a no-op and the later generated adoption migration creates
+    // the complete table from the module entity.
+    this.addSql(`alter table if exists "email_campaigns" add column if not exists "category" text null;`);
+    this.addSql(`alter table if exists "email_campaigns" add column if not exists "scheduled_for" timestamptz null;`);
+    this.addSql(`alter table if exists "email_campaigns" add column if not exists "updated_at" timestamptz null;`);
 
     // ----- email_campaign_recipients: multi-tenant safety fix -----
     // tenant_id and organization_id NOT NULL adds are safe because verified
     // prod row count is 0. created_at, updated_at have defaults so they
     // would also work on a populated table.
-    this.addSql(`alter table "email_campaign_recipients" add column if not exists "tenant_id" uuid not null;`);
-    this.addSql(`alter table "email_campaign_recipients" add column if not exists "organization_id" uuid not null;`);
-    this.addSql(`alter table "email_campaign_recipients" add column if not exists "created_at" timestamptz not null default now();`);
-    this.addSql(`alter table "email_campaign_recipients" add column if not exists "updated_at" timestamptz not null default now();`);
-    this.addSql(`alter table "email_campaign_recipients" add column if not exists "deleted_at" timestamptz null;`);
+    this.addSql(`alter table if exists "email_campaign_recipients" add column if not exists "tenant_id" uuid not null;`);
+    this.addSql(`alter table if exists "email_campaign_recipients" add column if not exists "organization_id" uuid not null;`);
+    this.addSql(`alter table if exists "email_campaign_recipients" add column if not exists "created_at" timestamptz not null default now();`);
+    this.addSql(`alter table if exists "email_campaign_recipients" add column if not exists "updated_at" timestamptz not null default now();`);
+    this.addSql(`alter table if exists "email_campaign_recipients" add column if not exists "deleted_at" timestamptz null;`);
 
     // ----- email_messages: schema additions -----
     // sentiment already exists on prod, IF NOT EXISTS no-ops it.
-    this.addSql(`alter table "email_messages" add column if not exists "sentiment" text null;`);
-    this.addSql(`alter table "email_messages" add column if not exists "updated_at" timestamptz not null default now();`);
-    this.addSql(`alter table "email_messages" add column if not exists "deleted_at" timestamptz null;`);
+    this.addSql(`alter table if exists "email_messages" add column if not exists "sentiment" text null;`);
+    this.addSql(`alter table if exists "email_messages" add column if not exists "updated_at" timestamptz not null default now();`);
+    this.addSql(`alter table if exists "email_messages" add column if not exists "deleted_at" timestamptz null;`);
   }
 
   override async down(): Promise<void> {
@@ -165,9 +164,9 @@ export class Migration20260409195545 extends Migration {
     // those tables predate this migration (created by setup-tables.sql or
     // lazy ENSURE_TABLE) and dropping them would lose pre-tier-1 data.
     // Use the labeled checkpoint backup for full recovery.
-    this.addSql(`alter table "email_campaigns" drop column if exists "category", drop column if exists "scheduled_for", drop column if exists "updated_at";`);
-    this.addSql(`alter table "email_campaign_recipients" drop column if exists "tenant_id", drop column if exists "organization_id", drop column if exists "created_at", drop column if exists "updated_at", drop column if exists "deleted_at";`);
-    this.addSql(`alter table "email_messages" drop column if exists "sentiment", drop column if exists "updated_at", drop column if exists "deleted_at";`);
+    this.addSql(`alter table if exists "email_campaigns" drop column if exists "category", drop column if exists "scheduled_for", drop column if exists "updated_at";`);
+    this.addSql(`alter table if exists "email_campaign_recipients" drop column if exists "tenant_id", drop column if exists "organization_id", drop column if exists "created_at", drop column if exists "updated_at", drop column if exists "deleted_at";`);
+    this.addSql(`alter table if exists "email_messages" drop column if exists "sentiment", drop column if exists "updated_at", drop column if exists "deleted_at";`);
   }
 
 }

@@ -15,6 +15,18 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/translationProvider', () => 
   translateProposalContent: (...args: unknown[]) => mockTranslateProposalContent(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/inbox_ops/lib/llmProvider', () => ({
+  resolveExtractionProviderId: () => 'openai',
+}))
+
+jest.mock('@open-mercato/shared/lib/noli/allowance', () => ({
+  checkOrgAiAllowance: jest.fn(async () => ({ allowed: true })),
+}))
+
+jest.mock('@open-mercato/shared/lib/noli/ai-usage', () => ({
+  logCrmAiUsage: jest.fn(async () => undefined),
+}))
+
 const authResult = {
   sub: 'user-1',
   tenantId: 'tenant-1',
@@ -26,7 +38,8 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 const mockFlush = jest.fn()
-const mockEm = { fork: jest.fn(), flush: mockFlush }
+const mockFindOne = jest.fn()
+const mockEm = { fork: jest.fn(), flush: mockFlush, findOne: mockFindOne }
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -52,6 +65,7 @@ describe('POST /api/inbox_ops/proposals/[id]/translate', () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
     mockFlush.mockResolvedValue(undefined)
+    mockFindOne.mockResolvedValue(null)
     mockFindWithDecryption.mockResolvedValue([])
   })
 
@@ -112,6 +126,7 @@ describe('POST /api/inbox_ops/proposals/[id]/translate', () => {
       actionDescriptions: { 'a-1': 'Create order', 'a-2': 'Create contact' },
       sourceLanguage: 'en',
       targetLocale: 'pl',
+      apiKeyOverride: undefined,
     })
     expect(mockFlush).toHaveBeenCalled()
   })

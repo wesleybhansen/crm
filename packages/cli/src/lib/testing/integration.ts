@@ -17,7 +17,7 @@ type EphemeralRuntimeOptions = {
   forceRebuild?: boolean
   reuseExisting?: boolean
   requiredExistingSource?: string
-  environmentOverrides?: NodeJS.ProcessEnv
+  environmentOverrides?: Partial<NodeJS.ProcessEnv>
 }
 
 export type EphemeralEnvironmentHandle = {
@@ -2519,6 +2519,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',
       NODE_NO_WARNINGS: '1',
+      NEW_RELIC_ENABLED: 'false',
       PORT: String(applicationPort),
       PW_CAPTURE_SCREENSHOTS: options.captureScreenshots ? '1' : '0',
       ...(options.environmentOverrides ?? {}),

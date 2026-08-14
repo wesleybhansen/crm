@@ -192,7 +192,8 @@ async function fetchMessagesFromFolder(
    try {
     for await (const msg of config.fetch(toFetch.slice(ci, ci + CHUNK), { envelope: true, source: true }, { uid: true })) {
     try {
-      const parsed = await simpleParser(msg.source)
+          if (!msg.source) continue
+      const parsed = await simpleParser(msg.source, {})
 
       const fromAddr = parsed.from?.value?.[0]
       const fromEmail = fromAddr?.address?.toLowerCase() || ''

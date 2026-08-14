@@ -46,8 +46,8 @@ describe('opencode provider helpers', () => {
   it('resolves default model when no overrides are set', () => {
     const model = resolveOpenCodeModel('openai', { env: {} })
     expect(model).toEqual({
-      modelId: 'gpt-4o-mini',
-      modelWithProvider: 'openai/gpt-4o-mini',
+      modelId: 'gpt-5-mini',
+      modelWithProvider: 'openai/gpt-5-mini',
       source: 'default',
     })
   })

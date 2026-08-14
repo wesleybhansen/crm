@@ -1,7 +1,5 @@
 {
-  "namespaces": [
-    "public"
-  ],
+  "namespaces": ["public"],
   "name": "public",
   "tables": [
     {
@@ -117,9 +115,7 @@
       "indexes": [
         {
           "keyName": "email_accounts_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -300,9 +296,7 @@
       "indexes": [
         {
           "keyName": "email_campaigns_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -447,10 +441,7 @@
       "indexes": [
         {
           "keyName": "email_campaign_recipients_idx",
-          "columnNames": [
-            "campaign_id",
-            "contact_id"
-          ],
+          "columnNames": ["campaign_id", "contact_id"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -458,9 +449,7 @@
         },
         {
           "keyName": "email_campaign_recipients_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -618,6 +607,15 @@
           "nullable": true,
           "mappedType": "boolean"
         },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "is_primary": {
           "name": "is_primary",
           "type": "boolean",
@@ -675,12 +673,8 @@
       "schema": "public",
       "indexes": [
         {
-          "keyName": "email_conn_org_user_provider_idx",
-          "columnNames": [
-            "organization_id",
-            "user_id",
-            "provider"
-          ],
+          "keyName": "email_conn_org_user_provider_purpose_idx",
+          "columnNames": ["organization_id", "user_id", "provider", "purpose"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -688,9 +682,7 @@
         },
         {
           "keyName": "email_connections_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -883,9 +875,7 @@
       "indexes": [
         {
           "keyName": "email_intelligence_settings_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -1009,9 +999,7 @@
       "indexes": [
         {
           "keyName": "email_lists_org_idx",
-          "columnNames": [
-            "organization_id"
-          ],
+          "columnNames": ["organization_id"],
           "composite": false,
           "constraint": false,
           "primary": false,
@@ -1019,9 +1007,7 @@
         },
         {
           "keyName": "email_lists_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -1128,9 +1114,7 @@
       "indexes": [
         {
           "keyName": "email_list_members_list_idx",
-          "columnNames": [
-            "list_id"
-          ],
+          "columnNames": ["list_id"],
           "composite": false,
           "constraint": false,
           "primary": false,
@@ -1138,9 +1122,7 @@
         },
         {
           "keyName": "email_list_members_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -1412,9 +1394,7 @@
       "indexes": [
         {
           "keyName": "email_messages_tracking_idx",
-          "columnNames": [
-            "tracking_id"
-          ],
+          "columnNames": ["tracking_id"],
           "composite": false,
           "constraint": false,
           "primary": false,
@@ -1422,10 +1402,7 @@
         },
         {
           "keyName": "email_messages_org_contact_idx",
-          "columnNames": [
-            "organization_id",
-            "contact_id"
-          ],
+          "columnNames": ["organization_id", "contact_id"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -1433,9 +1410,7 @@
         },
         {
           "keyName": "email_messages_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -1541,11 +1516,7 @@
       "indexes": [
         {
           "keyName": "email_pref_contact_cat_idx",
-          "columnNames": [
-            "contact_id",
-            "organization_id",
-            "category_slug"
-          ],
+          "columnNames": ["contact_id", "organization_id", "category_slug"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -1553,9 +1524,7 @@
         },
         {
           "keyName": "email_preferences_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -1670,10 +1639,7 @@
       "indexes": [
         {
           "keyName": "pref_cat_org_slug_idx",
-          "columnNames": [
-            "organization_id",
-            "slug"
-          ],
+          "columnNames": ["organization_id", "slug"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -1681,9 +1647,7 @@
         },
         {
           "keyName": "email_preference_categories_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -1806,10 +1770,7 @@
       "indexes": [
         {
           "keyName": "email_routing_org_purpose_idx",
-          "columnNames": [
-            "organization_id",
-            "purpose"
-          ],
+          "columnNames": ["organization_id", "purpose"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -1817,9 +1778,7 @@
         },
         {
           "keyName": "email_routing_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -1953,10 +1912,7 @@
       "indexes": [
         {
           "keyName": "email_templates_org_idx",
-          "columnNames": [
-            "organization_id",
-            "category"
-          ],
+          "columnNames": ["organization_id", "category"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -1964,9 +1920,7 @@
         },
         {
           "keyName": "email_style_templates_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -2081,9 +2035,7 @@
       "indexes": [
         {
           "keyName": "email_templates_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -2158,10 +2110,7 @@
       "indexes": [
         {
           "keyName": "email_unsubscribes_org_email_idx",
-          "columnNames": [
-            "organization_id",
-            "email"
-          ],
+          "columnNames": ["organization_id", "email"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -2169,9 +2118,7 @@
         },
         {
           "keyName": "email_unsubscribes_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -2304,10 +2251,7 @@
       "indexes": [
         {
           "keyName": "esp_conn_org_provider_idx",
-          "columnNames": [
-            "organization_id",
-            "provider"
-          ],
+          "columnNames": ["organization_id", "provider"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -2315,9 +2259,7 @@
         },
         {
           "keyName": "esp_connections_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -2432,10 +2374,7 @@
       "indexes": [
         {
           "keyName": "esp_sender_addr_org_email_idx",
-          "columnNames": [
-            "organization_id",
-            "sender_email"
-          ],
+          "columnNames": ["organization_id", "sender_email"],
           "composite": true,
           "constraint": false,
           "primary": false,
@@ -2443,9 +2382,7 @@
         },
         {
           "keyName": "esp_sender_addresses_pkey",
-          "columnNames": [
-            "id"
-          ],
+          "columnNames": ["id"],
           "composite": false,
           "constraint": true,
           "primary": true,

@@ -49,6 +49,8 @@ yarn db:migrate    # Apply all pending migrations (ordered, directory first)
 
 **Never hand-write migration files.** Update ORM entities in `data/entities.ts`, then run `yarn db:generate` to emit SQL and keep snapshots in sync.
 
+When adopting specific tables that may already exist from legacy bootstrap SQL, use `yarn mercato db generate --adopt-existing-tables=table_a,table_b`. This additive option validates the names and makes only those generated table/index creations idempotent. Do not use it as a blanket flag, hand-edit the generated schema, or restore frozen setup SQL.
+
 ## Standalone App Considerations
 
 In standalone apps, generators scan `node_modules/@open-mercato/*/dist/modules/` for compiled `.js` files (not `.ts` source). Ensure packages are built before publishing.

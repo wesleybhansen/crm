@@ -281,7 +281,7 @@ const createEmailTemplateCommand: CommandHandler<EmailTemplateCreateInput, { tem
     tenantId: (snapshots.after as EmailTemplateSnapshot | undefined)?.tenantId ?? null,
     organizationId: (snapshots.after as EmailTemplateSnapshot | undefined)?.organizationId ?? null,
     snapshotAfter: snapshots.after ?? null,
-    payload: { undo: { after: snapshots.after ?? null } satisfies EmailTemplateUndoPayload },
+    payload: { undo: { after: (snapshots.after as EmailTemplateSnapshot | null | undefined) ?? null } satisfies EmailTemplateUndoPayload },
   }),
   undo: async ({ logEntry, ctx }) => {
     const id = logEntry?.resourceId ?? null
@@ -333,7 +333,7 @@ const updateEmailTemplateCommand: CommandHandler<EmailTemplateUpdateInput, { tem
       resourceId: before.id,
       tenantId: before.tenantId, organizationId: before.organizationId,
       snapshotBefore: before, snapshotAfter: snapshots.after ?? null,
-      payload: { undo: { before, after: snapshots.after ?? null } satisfies EmailTemplateUndoPayload },
+      payload: { undo: { before, after: (snapshots.after as EmailTemplateSnapshot | null | undefined) ?? null } satisfies EmailTemplateUndoPayload },
     }
   },
   undo: async ({ logEntry, ctx }) => {

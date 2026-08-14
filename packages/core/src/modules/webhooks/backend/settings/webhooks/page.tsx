@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -48,13 +48,13 @@ export default function WebhooksSettingsPage() {
     setLoading(true)
     try {
       const [subsRes, eventsRes, deliveriesRes] = await Promise.all([
-        apiCall<{ data: Subscription[] }>('/api/webhooks/subscriptions', undefined, { fallback: { data: [] } }),
-        apiCall<{ data: EventDef[] }>('/api/webhooks/events', undefined, { fallback: { data: [] } }),
-        apiCall<{ data: Delivery[] }>('/api/webhooks/deliveries?pageSize=20', undefined, { fallback: { data: [] } }),
+        readApiResultOrThrow<{ data: Subscription[] }>('/api/webhooks/subscriptions'),
+        readApiResultOrThrow<{ data: EventDef[] }>('/api/webhooks/events'),
+        readApiResultOrThrow<{ data: Delivery[] }>('/api/webhooks/deliveries?pageSize=20'),
       ])
-      setSubs(subsRes?.data ?? [])
-      setEvents(eventsRes?.data ?? [])
-      setDeliveries(deliveriesRes?.data ?? [])
+      setSubs(subsRes.data)
+      setEvents(eventsRes.data)
+      setDeliveries(deliveriesRes.data)
     } finally {
       setLoading(false)
     }
@@ -109,7 +109,7 @@ export default function WebhooksSettingsPage() {
 
   async function handleRotate(sub: Subscription) {
     if (!confirm('Rotate the signing secret? The old secret will stop working immediately.')) return
-    const res = await apiCallOrThrow<{ data: { secret: string } }>(`/api/webhooks/subscriptions/${sub.id}/rotate-secret`, { method: 'POST' })
+    const res = await readApiResultOrThrow<{ data: { secret: string } }>(`/api/webhooks/subscriptions/${sub.id}/rotate-secret`, { method: 'POST' })
     alert(`New secret:\n\n${res.data.secret}\n\nStore this securely — it won't be shown again this way.`)
     await loadAll()
   }
@@ -117,7 +117,7 @@ export default function WebhooksSettingsPage() {
   async function handleTest(sub: Subscription) {
     setMessage(`Sending test to ${sub.targetUrl}…`)
     try {
-      const res = await apiCallOrThrow<{ data: { ok: boolean; status: number | null; body: string; error?: string } }>(
+      const res = await readApiResultOrThrow<{ data: { ok: boolean; status: number | null; body: string; error?: string } }>(
         `/api/webhooks/subscriptions/${sub.id}/test`,
         { method: 'POST' },
       )

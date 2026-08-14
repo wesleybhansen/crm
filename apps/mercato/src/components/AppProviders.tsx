@@ -14,16 +14,17 @@ type AppProvidersProps = {
   locale: Locale
   dict: Dict
   demoModeEnabled: boolean
+  clerkIdentityEnabled: boolean
   // PostHog key/host are read server-side at runtime in the layout (the
   // Docker build has no NEXT_PUBLIC_* vars) and threaded down here.
   posthogKey?: string
   posthogHost?: string
 }
 
-export function AppProviders({ children, locale, dict, demoModeEnabled, posthogKey, posthogHost }: AppProvidersProps) {
+export function AppProviders({ children, locale, dict, demoModeEnabled, clerkIdentityEnabled, posthogKey, posthogHost }: AppProvidersProps) {
   return (
     <I18nProvider locale={locale} dict={dict}>
-      <PostHogProvider posthogKey={posthogKey} posthogHost={posthogHost}>
+      <PostHogProvider posthogKey={posthogKey} posthogHost={posthogHost} clerkIdentityEnabled={clerkIdentityEnabled}>
         <ClientBootstrapProvider>
           <ThemeProvider>
             <QueryProvider>

@@ -6,6 +6,15 @@ import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy, Inbox
 const mockRunExtraction = jest.fn()
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/llmProvider', () => ({
   runExtractionWithConfiguredProvider: (...args: unknown[]) => mockRunExtraction(...args),
+  resolveExtractionProviderId: () => 'openai',
+}))
+
+jest.mock('@open-mercato/shared/lib/noli/allowance', () => ({
+  checkOrgAiAllowance: jest.fn(async () => ({ allowed: true })),
+}))
+
+jest.mock('@open-mercato/shared/lib/noli/ai-usage', () => ({
+  logCrmAiUsage: jest.fn(async () => undefined),
 }))
 
 const mockMatchContacts = jest.fn()

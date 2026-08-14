@@ -463,13 +463,19 @@ export async function run(argv = process.argv) {
 
       console.log('🧠 Building search indexes...')
       const vectorArgs = tenantId
-        ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : [])]
-        : ['--purgeFirst=false']
+        ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : []), '--skipMissingTables']
+        : ['--purgeFirst=false', '--skipMissingTables']
       await runModuleCommand(allModules, 'search', 'reindex', vectorArgs, { optional: true })
       console.log('✅ Search indexes built\n')
 
       console.log('🔍 Rebuilding query indexes...')
-      const queryIndexArgs = ['--force', ...(tenantId ? ['--tenant', tenantId] : [])]
+      const enabledModuleIds = Array.from(new Set(allModules.map((module) => module.id))).sort()
+      const queryIndexArgs = [
+        '--force',
+        ...(tenantId ? ['--tenant', tenantId] : []),
+        '--modules',
+        enabledModuleIds.join(','),
+      ]
       await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs, { optional: true })
       console.log('✅ Query indexes rebuilt\n')
 
@@ -939,11 +945,17 @@ export async function run(argv = process.argv) {
     cli: [
       {
         command: 'generate',
-        run: async () => {
+        run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
           const { dbGenerate } = await import('./lib/db')
           const resolver = createResolver()
-          await dbGenerate(resolver)
+          const adoptionArg = args.find((arg) => arg.startsWith('--adopt-existing-tables='))
+          const adoptExistingTables = adoptionArg
+            ?.slice('--adopt-existing-tables='.length)
+            .split(',')
+            .map((tableName) => tableName.trim())
+            .filter(Boolean)
+          await dbGenerate(resolver, { adoptExistingTables })
         },
       },
       {

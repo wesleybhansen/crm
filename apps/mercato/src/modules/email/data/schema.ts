@@ -1,8 +1,9 @@
-import { Entity, Property, PrimaryKey, Index } from '@mikro-orm/core'
-import { v4 as uuid } from 'uuid'
+import { Entity, Property, PrimaryKey, Index, OptionalProps } from '@mikro-orm/core'
+import { randomUUID as uuid } from 'node:crypto'
 
 @Entity({ tableName: 'email_accounts' })
 export class EmailAccount {
+  [OptionalProps]?: 'provider' | 'isDefault' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -41,6 +42,7 @@ export class EmailAccount {
 @Index({ properties: ['organizationId', 'contactId'], name: 'email_messages_org_contact_idx' })
 @Index({ properties: ['trackingId'], name: 'email_messages_tracking_idx' })
 export class EmailMessage {
+  [OptionalProps]?: 'status' | 'trackingId' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -125,6 +127,7 @@ export class EmailMessage {
 
 @Entity({ tableName: 'email_templates' })
 export class EmailTemplate {
+  [OptionalProps]?: 'category' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -158,6 +161,7 @@ export class EmailTemplate {
 
 @Entity({ tableName: 'email_campaigns' })
 export class EmailCampaign {
+  [OptionalProps]?: 'status' | 'stats' | 'createdAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -213,6 +217,7 @@ export class EmailCampaign {
 @Entity({ tableName: 'email_campaign_recipients' })
 @Index({ properties: ['campaignId', 'contactId'], name: 'email_campaign_recipients_idx' })
 export class EmailCampaignRecipient {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -261,6 +266,7 @@ export class EmailCampaignRecipient {
 @Entity({ tableName: 'email_unsubscribes' })
 @Index({ properties: ['organizationId', 'email'], name: 'email_unsubscribes_org_email_idx' })
 export class EmailUnsubscribe {
+  [OptionalProps]?: 'createdAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -318,6 +324,7 @@ export class EmailUnsubscribe {
 @Entity({ tableName: 'email_preference_categories' })
 @Index({ properties: ['organizationId', 'slug'], name: 'pref_cat_org_slug_idx' })
 export class EmailPreferenceCategory {
+  [OptionalProps]?: 'isDefault' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -352,6 +359,7 @@ export class EmailPreferenceCategory {
 @Entity({ tableName: 'email_preferences' })
 @Index({ properties: ['contactId', 'organizationId', 'categorySlug'], name: 'email_pref_contact_cat_idx' })
 export class EmailPreference {
+  [OptionalProps]?: 'optedIn' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -384,6 +392,7 @@ export class EmailPreference {
 @Entity({ tableName: 'email_style_templates' })
 @Index({ properties: ['organizationId', 'category'], name: 'email_templates_org_idx' })
 export class EmailStyleTemplate {
+  [OptionalProps]?: 'isDefault' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -424,6 +433,7 @@ export class EmailStyleTemplate {
 @Entity({ tableName: 'email_connections' })
 @Index({ properties: ['organizationId', 'userId', 'provider', 'purpose'], name: 'email_conn_org_user_provider_purpose_idx' })
 export class EmailConnection {
+  [OptionalProps]?: 'purpose' | 'isPrimary' | 'isActive' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -499,6 +509,7 @@ export class EmailConnection {
 @Entity({ tableName: 'esp_connections' })
 @Index({ properties: ['organizationId', 'provider'], name: 'esp_conn_org_provider_idx' })
 export class EspConnection {
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -543,6 +554,7 @@ export class EspConnection {
 @Entity({ tableName: 'esp_sender_addresses' })
 @Index({ properties: ['organizationId', 'senderEmail'], name: 'esp_sender_addr_org_email_idx' })
 export class EspSenderAddress {
+  [OptionalProps]?: 'isDefault' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -577,6 +589,7 @@ export class EspSenderAddress {
 @Entity({ tableName: 'email_lists' })
 @Index({ properties: ['organizationId'], name: 'email_lists_org_idx' })
 export class EmailList {
+  [OptionalProps]?: 'memberCount' | 'createdAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -616,6 +629,7 @@ export class EmailList {
 @Entity({ tableName: 'email_list_members' })
 @Index({ properties: ['listId'], name: 'email_list_members_list_idx' })
 export class EmailListMember {
+  [OptionalProps]?: 'addedAt' | 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -648,6 +662,7 @@ export class EmailListMember {
 @Entity({ tableName: 'email_routing' })
 @Index({ properties: ['organizationId', 'purpose'], name: 'email_routing_org_purpose_idx' })
 export class EmailRouting {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 
@@ -686,6 +701,16 @@ export class EmailRouting {
 
 @Entity({ tableName: 'email_intelligence_settings' })
 export class EmailIntelligenceSettings {
+  [OptionalProps]?:
+    | 'isEnabled'
+    | 'autoCreateContacts'
+    | 'autoUpdateTimeline'
+    | 'autoUpdateEngagement'
+    | 'autoAdvanceStage'
+    | 'emailsProcessedTotal'
+    | 'contactsCreatedTotal'
+    | 'createdAt'
+    | 'updatedAt'
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()
 

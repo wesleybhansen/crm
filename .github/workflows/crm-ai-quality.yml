@@ -1,0 +1,76 @@
+name: CRM AI Reply Quality
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Optional low-cost model override"
+        required: false
+        type: string
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-ai-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CRM_AI_QUALITY_API_KEY: ${{ secrets.CRM_AI_QUALITY_API_KEY }}
+      CRM_AI_QUALITY_MODEL: ${{ inputs.model || vars.CRM_AI_QUALITY_MODEL || '' }}
+      CRM_AI_QUALITY_MAX_CASES: "20"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run credential-free dry-run first
+        run: yarn test:crm-quality
+
+      - name: Detect dedicated scored-evaluation credential
+        id: credential
+        shell: bash
+        env:
+          QUALITY_API_KEY: ${{ secrets.CRM_AI_QUALITY_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${QUALITY_API_KEY}" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "available=false" >> "$GITHUB_OUTPUT"
+
+      - name: Record credential-missing scored result
+        if: steps.credential.outputs.available == 'false'
+        run: yarn test:crm-quality:scored
+
+      - name: Run bounded scored evaluation
+        if: steps.credential.outputs.available == 'true'
+        run: yarn test:crm-quality:scored
+
+      - name: Upload CRM reply-quality results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-ai-reply-quality-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ai/qa/test-results/crm-quality/
+          if-no-files-found: warn
+          retention-days: 30

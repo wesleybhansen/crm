@@ -20,6 +20,7 @@ type Event = {
   virtual_link: string | null; start_time: string; end_time: string; timezone: string
   is_recurring: boolean; capacity: number | null; price: string | null; is_free: boolean
   registration_fields: any; preapproved_emails: any; landing_copy: any; landing_style: string
+  recurrence_rule: string | { frequency?: string; until?: string } | null
   terms_text: string | null; reminder_config: any; attendee_count: number; created_at: string
 }
 
@@ -177,7 +178,7 @@ export default function EventsPage() {
     setView('create')
   }
 
-  function applyTemplate(tpl: typeof TEMPLATES[0]) {
+  function applyTemplate(tpl: (typeof TEMPLATES)[0]) {
     setTitle(tpl.name); setDescription(tpl.desc); setEventType(tpl.type)
     setCapacity(tpl.capacity?.toString() || ''); setIsFree(tpl.isFree); setPrice((tpl as any).price || '')
     setRegistrationFields(tpl.fields || [])

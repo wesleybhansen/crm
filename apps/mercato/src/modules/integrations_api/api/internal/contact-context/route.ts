@@ -2,6 +2,9 @@ import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { internalContactContextRequestSchema } from '../../../data/validators'
 
 /* Internal service endpoint (shared NOLI_INTERNAL_SERVICE_SECRET) that returns
  * the whole relationship for one contact — the CRM record plus their recent
@@ -12,6 +15,17 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 export const metadata = {
   path: '/internal/contact-context',
   POST: { requireAuth: false },
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Internal Integrations',
+  summary: 'Read scoped CRM contact correspondence context',
+  methods: {
+    POST: {
+      summary: 'Return a contact and recent email/SMS history for one Noli user',
+      tags: ['Internal Integrations'],
+    },
+  },
 }
 
 function safeEq(a: string, b: string): boolean {
@@ -34,9 +48,6 @@ async function resolveAuth(noliUserId: string): Promise<Auth | null> {
   return { userId: String(a.userId), orgId: String(a.orgId), tenantId: String(a.tenantId) }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Knex = any
-
 export async function POST(req: Request) {
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
   const authHeader = (req.headers.get('authorization') || '').trim()
@@ -44,16 +55,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }
 
-  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
-  const noliUserId = typeof body.noliUserId === 'string' ? body.noliUserId.trim() : ''
-  const contactId = typeof body.contactId === 'string' ? body.contactId.trim() : ''
-  if (!noliUserId || !contactId) return NextResponse.json({ ok: false, error: 'noliUserId and contactId are required' }, { status: 400 })
+  const bodyResult = internalContactContextRequestSchema.safeParse(
+    await readJsonSafe<unknown>(req, {}),
+  )
+  if (!bodyResult.success) {
+    return NextResponse.json(
+      { ok: false, error: 'noliUserId and contactId are required' },
+      { status: 400 },
+    )
+  }
+  const { noliUserId, contactId } = bodyResult.data
 
   try {
     const auth = await resolveAuth(noliUserId)
     if (!auth) return NextResponse.json({ ok: false, error: 'no CRM account for this user' }, { status: 404 })
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex() as Knex
+    const knex = (container.resolve('em') as EntityManager).getKnex()
 
     // Contact must belong to the caller's org + tenant.
     const contact = await knex('customer_entities')
@@ -106,8 +123,8 @@ export async function POST(req: Request) {
         contact: {
           id: contact.id,
           name: contact.display_name || null,
-          email: contact.email || null,
-          phone: contact.phone || null,
+          email: contact.primary_email || null,
+          phone: contact.primary_phone || null,
           status: contact.status || null,
         },
         thread: thread.slice(0, 25),

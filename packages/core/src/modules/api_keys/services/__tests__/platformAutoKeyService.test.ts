@@ -137,6 +137,10 @@ describe('platform-auto CRM credentials', () => {
     mockIsEntitled.mockResolvedValue(true)
   })
 
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
   it('derives a stable scoped secret and round-trips v2 metadata', () => {
     const name = platformAutoKeyName(userId, 'cos', 7)
     expect(parsePlatformAutoKeyName(name)).toEqual({
@@ -335,6 +339,7 @@ describe('platform-auto CRM credentials', () => {
   })
 
   it('validates legacy keys through their exact local creator', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(DEFAULT_PLATFORM_AUTO_LEGACY_CUTOFF_MS - 1)
     const { em, users, organizations } = createMockEm()
     users.push(
       Object.assign(new User(), {

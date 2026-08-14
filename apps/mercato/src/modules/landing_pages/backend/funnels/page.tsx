@@ -82,8 +82,8 @@ export default function FunnelsPage() {
   const [editId, setEditId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [steps, setSteps] = useState<FunnelStep[]>([
-    { stepOrder: 1, stepType: 'page', pageId: null, config: {} },
-    { stepOrder: 2, stepType: 'thank_you', pageId: null, config: { message: 'Thank you for signing up!' } },
+    { stepOrder: 1, stepType: 'page', pageId: null, productId: null, name: 'Landing Page', onAcceptStepId: null, onDeclineStepId: null, config: {} },
+    { stepOrder: 2, stepType: 'thank_you', pageId: null, productId: null, name: 'Thank You', onAcceptStepId: null, onDeclineStepId: null, config: { message: 'Thank you for signing up!' } },
   ])
   const [analytics, setAnalytics] = useState<StepAnalytics[]>([])
 
@@ -153,8 +153,8 @@ export default function FunnelsPage() {
       }
     } catch {
       setSteps([
-        { stepOrder: 1, stepType: 'page', pageId: null, config: {} },
-        { stepOrder: 2, stepType: 'thank_you', pageId: null, config: { message: 'Thank you!' } },
+        { stepOrder: 1, stepType: 'page', pageId: null, productId: null, name: 'Landing Page', onAcceptStepId: null, onDeclineStepId: null, config: {} },
+        { stepOrder: 2, stepType: 'thank_you', pageId: null, productId: null, name: 'Thank You', onAcceptStepId: null, onDeclineStepId: null, config: { message: 'Thank you!' } },
       ])
     }
 
@@ -169,7 +169,7 @@ export default function FunnelsPage() {
 
   function addStep() {
     const maxOrder = steps.reduce((max, s) => Math.max(max, s.stepOrder), 0)
-    setSteps([...steps, { stepOrder: maxOrder + 1, stepType: 'page', pageId: null, config: {} }])
+    setSteps([...steps, { stepOrder: maxOrder + 1, stepType: 'page', pageId: null, productId: null, name: 'Landing Page', onAcceptStepId: null, onDeclineStepId: null, config: {} }])
   }
 
   function removeStep(index: number) {
@@ -832,22 +832,6 @@ export default function FunnelsPage() {
                       </div>
                     )}
 
-                    {false && analytics.length > 0 && (() => {
-                      const stepAnalytics = analytics.find((a) => a.stepOrder === step.stepOrder)
-                      if (!stepAnalytics) return null
-                      return (
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
-                          <span className="flex items-center gap-1">
-                            <BarChart3 className="size-3" /> {stepAnalytics.visits} visits
-                          </span>
-                          {stepAnalytics.dropOffRate > 0 && (
-                            <span className="text-[#b91c1c] dark:text-[#f87171]">
-                              {stepAnalytics.dropOffRate}% drop-off
-                            </span>
-                          )}
-                        </div>
-                      )
-                    })()}
                   </div>
 
                   <div className="flex flex-col gap-0.5">

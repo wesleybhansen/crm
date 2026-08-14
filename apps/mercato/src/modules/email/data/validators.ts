@@ -27,7 +27,7 @@ export const emailAccountCreateSchema = scopedSchema.extend({
   emailAddress: z.string().trim().email().max(320),
   displayName: z.string().trim().max(200).optional().nullable(),
   provider: z.enum(['resend', 'smtp']).optional(),
-  config: z.record(z.unknown()).optional().nullable(),
+  config: z.record(z.string(), z.unknown()).optional().nullable(),
   isDefault: z.boolean().optional(),
   sendingDomain: z.string().trim().max(253).optional().nullable(),
 })
@@ -39,7 +39,7 @@ export const emailAccountUpdateSchema = z.object({
   emailAddress: z.string().trim().email().max(320).optional(),
   displayName: z.string().trim().max(200).optional().nullable(),
   provider: z.enum(['resend', 'smtp']).optional(),
-  config: z.record(z.unknown()).optional().nullable(),
+  config: z.record(z.string(), z.unknown()).optional().nullable(),
   isDefault: z.boolean().optional(),
   sendingDomain: z.string().trim().max(253).optional().nullable(),
 })
@@ -78,7 +78,7 @@ export const emailMessageCreateSchema = scopedSchema.extend({
   dealId: uuid().optional().nullable(),
   campaignId: uuid().optional().nullable(),
   status: emailMessageStatusEnum.optional(),
-  metadata: z.record(z.unknown()).optional().nullable(),
+  metadata: z.record(z.string(), z.unknown()).optional().nullable(),
   sentiment: z.string().trim().max(50).optional().nullable(),
 })
 
@@ -92,7 +92,7 @@ export const emailMessageUpdateSchema = z.object({
   bouncedAt: z.coerce.date().optional().nullable(),
   sentAt: z.coerce.date().optional().nullable(),
   sentiment: z.string().trim().max(50).optional().nullable(),
-  metadata: z.record(z.unknown()).optional().nullable(),
+  metadata: z.record(z.string(), z.unknown()).optional().nullable(),
 })
 
 export const emailMessageDeleteSchema = z.object({
@@ -148,7 +148,7 @@ export const emailCampaignSegmentFilterSchema = z.object({
   type: z.enum(['list', 'tag', 'all', 'custom']),
   listId: uuid().optional(),
   tag: z.string().trim().max(100).optional(),
-  custom: z.record(z.unknown()).optional(),
+  custom: z.record(z.string(), z.unknown()).optional(),
 }).passthrough()
 
 export const emailCampaignCreateSchema = scopedSchema.extend({
@@ -176,7 +176,7 @@ export const emailCampaignUpdateSchema = z.object({
   category: z.string().trim().max(100).optional().nullable(),
   scheduledAt: z.coerce.date().optional().nullable(),
   scheduledFor: z.coerce.date().optional().nullable(),
-  stats: z.record(z.unknown()).optional(),
+  stats: z.record(z.string(), z.unknown()).optional(),
   sentAt: z.coerce.date().optional().nullable(),
 })
 

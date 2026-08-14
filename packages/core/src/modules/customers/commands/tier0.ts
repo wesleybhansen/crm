@@ -325,7 +325,7 @@ const createTaskCommand: CommandHandler<TaskCreateInput, { taskId: string }> = {
     tenantId: (snapshots.after as TaskSnapshot | undefined)?.tenantId ?? null,
     organizationId: (snapshots.after as TaskSnapshot | undefined)?.organizationId ?? null,
     snapshotAfter: snapshots.after ?? null,
-    payload: { undo: { after: snapshots.after ?? null } satisfies TaskUndoPayload },
+    payload: { undo: { after: (snapshots.after as TaskSnapshot | null | undefined) ?? null } satisfies TaskUndoPayload },
   }),
   undo: async ({ logEntry, ctx }) => {
     const id = logEntry?.resourceId ?? null
@@ -392,7 +392,7 @@ const updateTaskCommand: CommandHandler<TaskUpdateInput, { taskId: string }> = {
       snapshotBefore: before,
       snapshotAfter: snapshots.after ?? null,
       payload: {
-        undo: { before, after: snapshots.after ?? null } satisfies TaskUndoPayload,
+        undo: { before, after: (snapshots.after as TaskSnapshot | null | undefined) ?? null } satisfies TaskUndoPayload,
       },
     }
   },
@@ -530,7 +530,7 @@ const createNoteCommand: CommandHandler<ContactNoteCreateInput, { noteId: string
     tenantId: (snapshots.after as NoteSnapshot | undefined)?.tenantId ?? null,
     organizationId: (snapshots.after as NoteSnapshot | undefined)?.organizationId ?? null,
     snapshotAfter: snapshots.after ?? null,
-    payload: { undo: { after: snapshots.after ?? null } satisfies NoteUndoPayload },
+    payload: { undo: { after: (snapshots.after as NoteSnapshot | null | undefined) ?? null } satisfies NoteUndoPayload },
   }),
   undo: async ({ logEntry, ctx }) => {
     const id = logEntry?.resourceId ?? null
@@ -587,7 +587,7 @@ const updateNoteCommand: CommandHandler<ContactNoteUpdateInput, { noteId: string
       organizationId: before.organizationId,
       snapshotBefore: before,
       snapshotAfter: snapshots.after ?? null,
-      payload: { undo: { before, after: snapshots.after ?? null } satisfies NoteUndoPayload },
+      payload: { undo: { before, after: (snapshots.after as NoteSnapshot | null | undefined) ?? null } satisfies NoteUndoPayload },
     }
   },
   undo: async ({ logEntry, ctx }) => {
@@ -721,7 +721,7 @@ const createAttachmentCommand: CommandHandler<ContactAttachmentCreateInput, { at
     tenantId: (snapshots.after as AttachmentSnapshot | undefined)?.tenantId ?? null,
     organizationId: (snapshots.after as AttachmentSnapshot | undefined)?.organizationId ?? null,
     snapshotAfter: snapshots.after ?? null,
-    payload: { undo: { after: snapshots.after ?? null } satisfies AttachmentUndoPayload },
+    payload: { undo: { after: (snapshots.after as AttachmentSnapshot | null | undefined) ?? null } satisfies AttachmentUndoPayload },
   }),
   undo: async ({ logEntry, ctx }) => {
     const id = logEntry?.resourceId ?? null
@@ -846,7 +846,7 @@ const createReminderCommand: CommandHandler<ReminderCreateInput, { reminderId: s
     tenantId: (snapshots.after as ReminderSnapshot | undefined)?.tenantId ?? null,
     organizationId: (snapshots.after as ReminderSnapshot | undefined)?.organizationId ?? null,
     snapshotAfter: snapshots.after ?? null,
-    payload: { undo: { after: snapshots.after ?? null } satisfies ReminderUndoPayload },
+    payload: { undo: { after: (snapshots.after as ReminderSnapshot | null | undefined) ?? null } satisfies ReminderUndoPayload },
   }),
   undo: async ({ logEntry, ctx }) => {
     const id = logEntry?.resourceId ?? null
@@ -910,7 +910,7 @@ const updateReminderCommand: CommandHandler<ReminderUpdateInput, { reminderId: s
       organizationId: before.organizationId,
       snapshotBefore: before,
       snapshotAfter: snapshots.after ?? null,
-      payload: { undo: { before, after: snapshots.after ?? null } satisfies ReminderUndoPayload },
+      payload: { undo: { before, after: (snapshots.after as ReminderSnapshot | null | undefined) ?? null } satisfies ReminderUndoPayload },
     }
   },
   undo: async ({ logEntry, ctx }) => {
@@ -1046,7 +1046,7 @@ const createTaskTemplateCommand: CommandHandler<TaskTemplateCreateInput, { taskT
     tenantId: (snapshots.after as TaskTemplateSnapshot | undefined)?.tenantId ?? null,
     organizationId: (snapshots.after as TaskTemplateSnapshot | undefined)?.organizationId ?? null,
     snapshotAfter: snapshots.after ?? null,
-    payload: { undo: { after: snapshots.after ?? null } satisfies TaskTemplateUndoPayload },
+    payload: { undo: { after: (snapshots.after as TaskTemplateSnapshot | null | undefined) ?? null } satisfies TaskTemplateUndoPayload },
   }),
   undo: async ({ logEntry, ctx }) => {
     const id = logEntry?.resourceId ?? null
@@ -1107,7 +1107,7 @@ const updateTaskTemplateCommand: CommandHandler<TaskTemplateUpdateInput, { taskT
       organizationId: before.organizationId,
       snapshotBefore: before,
       snapshotAfter: snapshots.after ?? null,
-      payload: { undo: { before, after: snapshots.after ?? null } satisfies TaskTemplateUndoPayload },
+      payload: { undo: { before, after: (snapshots.after as TaskTemplateSnapshot | null | undefined) ?? null } satisfies TaskTemplateUndoPayload },
     }
   },
   undo: async ({ logEntry, ctx }) => {

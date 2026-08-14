@@ -879,7 +879,7 @@ export default function AffiliatesPage() {
             <div className="px-6 py-5">
               {/* Stats */}
               <div className="grid grid-cols-2 gap-3 mb-5">
-                {[
+                {([
                   { label: 'Referral Code', value: detailAff.stripe_promo_code || detailAff.affiliate_code, mono: true },
                   (() => {
                     const tier = currentTier(detailAff, campaigns)
@@ -889,7 +889,7 @@ export default function AffiliatesPage() {
                   })(),
                   { label: 'Referrals / Conv.', value: `${detailAff.total_referrals} / ${detailAff.total_conversions}` },
                   { label: 'Total Earned', value: fmt(detailAff.total_earned), green: true },
-                ].map(s => (
+                ] as Array<{ label: string; value: string; mono?: boolean; green?: boolean }>).map(s => (
                   <div key={s.label} className="bg-muted/50 rounded-lg p-3">
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</p>
                     <p className={`text-sm font-bold mt-1 ${s.mono ? 'font-mono' : ''} ${s.green ? 'text-[#047857] dark:text-[#34d399]' : ''}`}>{s.value}</p>

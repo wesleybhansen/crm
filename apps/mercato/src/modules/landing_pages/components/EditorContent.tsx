@@ -27,6 +27,7 @@ type PageData = {
   status: string
   template_id: string | null
   published_html: string | null
+  config: Record<string, unknown> | string | null
 }
 
 const SECTION_TYPES = [
@@ -223,7 +224,7 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
   // Live preview for v2 pages — fetch rendered HTML when sections change
   async function refreshV2Preview() {
     if (!isV2 || !page) return
-    const config = typeof page.config === 'string' ? JSON.parse(page.config) : (page as any).config
+    const config = typeof page.config === 'string' ? JSON.parse(page.config) : page.config
     if (!config?.styleId) return
     try {
       const generatedSections = sections.map(s => ({ type: s.type, ...s.fields }))
