@@ -306,6 +306,7 @@ describe("reply-quality baseline and scored-mode isolation", () => {
           passed: true,
           deterministicFailures: [],
           callsMade: 2,
+          candidate: recordedCandidate,
         },
       ],
     });
@@ -360,6 +361,7 @@ describe("reply-quality baseline and scored-mode isolation", () => {
           status: "error",
           error: "model_finish_max_tokens",
           callsMade: 1,
+          candidate: null,
         },
       ],
     });

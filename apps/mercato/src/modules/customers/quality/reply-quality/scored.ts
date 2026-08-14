@@ -368,9 +368,10 @@ export async function runScoredReplyQuality(
 
   for (const fixture of fixtures) {
     let callsMade = 0;
+    let candidate: ReplyCandidateV1 | null = null;
     try {
       callsMade += 1;
-      const candidate = await generateCandidate(
+      candidate = await generateCandidate(
         fixture,
         apiKey,
         model,
@@ -392,6 +393,7 @@ export async function runScoredReplyQuality(
           error: "deterministic_gate_failed",
           deterministicFailures,
           callsMade,
+          candidate,
         });
         continue;
       }
@@ -415,6 +417,7 @@ export async function runScoredReplyQuality(
         error: null,
         deterministicFailures: [],
         callsMade,
+        candidate,
       });
     } catch (error) {
       const message =
@@ -428,6 +431,7 @@ export async function runScoredReplyQuality(
         error: message.slice(0, 500),
         deterministicFailures: [],
         callsMade,
+        candidate,
       });
     }
   }
