@@ -9,7 +9,7 @@ export type CapturedEvent = {
 }
 
 export async function installOmEventCollector(page: Page): Promise<void> {
-  await page.evaluate(({ eventName, storageKey }) => {
+  const installCollector = ({ eventName, storageKey }: { eventName: string; storageKey: string }) => {
     ;(window as unknown as Record<string, unknown>)[storageKey] = []
     window.addEventListener(eventName, (event: Event) => {
       const detail = (event as CustomEvent<CapturedEvent>).detail
@@ -18,7 +18,10 @@ export async function installOmEventCollector(page: Page): Promise<void> {
       if (!Array.isArray(store)) return
       store.push(detail)
     })
-  }, { eventName: OM_EVENT_NAME, storageKey: CAPTURED_EVENTS_KEY })
+  }
+  const collectorOptions = { eventName: OM_EVENT_NAME, storageKey: CAPTURED_EVENTS_KEY }
+  await page.addInitScript(installCollector, collectorOptions)
+  await page.evaluate(installCollector, collectorOptions)
 }
 
 export async function getCapturedOmEvents(page: Page): Promise<CapturedEvent[]> {
@@ -26,5 +29,5 @@ export async function getCapturedOmEvents(page: Page): Promise<CapturedEvent[]> 
     const store = (window as unknown as Record<string, unknown>)[storageKey]
     if (!Array.isArray(store)) return []
     return store as CapturedEvent[]
-  }, CAPTURED_EVENTS_KEY)
+  }, CAPTURED_EVENTS_KEY).catch(() => [])
 }

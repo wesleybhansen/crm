@@ -19,7 +19,7 @@ test.describe('TC-CRM-001: Company Creation', () => {
       await login(page, 'admin');
       await page.goto('/backend/customers/companies');
 
-      await page.getByRole('link', { name: /Create Company/i }).first().click();
+      await page.getByRole('link', { name: /(?:Create|New) Company/i }).first().click();
       await page.locator('form').getByRole('textbox').first().fill(companyName);
       await page.getByPlaceholder('https://example.com').fill('https://example.com');
       await page.locator('form').getByRole('button', { name: /Create Company/i }).click();

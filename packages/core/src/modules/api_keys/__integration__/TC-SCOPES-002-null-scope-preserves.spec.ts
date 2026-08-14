@@ -14,7 +14,7 @@ test.describe('TC-SCOPES-002: null scope preserves v1 behavior', () => {
 
   test.beforeAll(async ({ request }) => {
     adminToken = await getAuthToken(request)
-    const res = await apiRequest(request, 'POST', '/api/api-keys', {
+    const res = await apiRequest(request, 'POST', '/api/api_keys/keys', {
       token: adminToken,
       data: { name: `scopes-null-${Date.now()}`, rateLimitTier: 'unlimited' },
     })
@@ -25,7 +25,7 @@ test.describe('TC-SCOPES-002: null scope preserves v1 behavior', () => {
   })
 
   test.afterAll(async ({ request }) => {
-    if (apiKeyId) await apiRequest(request, 'DELETE', `/api/api-keys?id=${apiKeyId}`, { token: adminToken }).catch(() => {})
+    if (apiKeyId) await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${apiKeyId}`, { token: adminToken }).catch(() => {})
   })
 
   test('GET /api/customers/people returns 200 (full role access)', async ({ request }) => {

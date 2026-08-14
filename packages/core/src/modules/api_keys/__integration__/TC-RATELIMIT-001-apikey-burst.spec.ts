@@ -18,7 +18,7 @@ test.describe('TC-RATELIMIT-001: API-key burst', () => {
 
   test.beforeAll(async ({ request }) => {
     adminToken = await getAuthToken(request)
-    const res = await apiRequest(request, 'POST', '/api/api-keys', {
+    const res = await apiRequest(request, 'POST', '/api/api_keys/keys', {
       token: adminToken,
       data: { name: `ratelimit-burst-${Date.now()}`, rateLimitTier: 'default' },
     })
@@ -30,7 +30,7 @@ test.describe('TC-RATELIMIT-001: API-key burst', () => {
   })
 
   test.afterAll(async ({ request }) => {
-    if (apiKeyId) await apiRequest(request, 'DELETE', `/api/api-keys?id=${apiKeyId}`, { token: adminToken }).catch(() => {})
+    if (apiKeyId) await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${apiKeyId}`, { token: adminToken }).catch(() => {})
   })
 
   test('62 rapid calls produce at least one 429 with headers', async ({ request }) => {
