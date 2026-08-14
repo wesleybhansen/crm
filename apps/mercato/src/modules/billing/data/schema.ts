@@ -13,7 +13,7 @@ export class CreditBalance {
   @Property({ name: 'organization_id', type: 'uuid', unique: true })
   organizationId!: string
 
-  @Property({ type: 'numeric(10,4)', default: '0' })
+  @Property({ type: 'numeric', precision: 10, scale: 4, default: '0' })
   balance: string = '0'
 
   @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
@@ -32,7 +32,7 @@ export class CreditTransaction {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  @Property({ type: 'numeric(10,4)' })
+  @Property({ type: 'numeric', precision: 10, scale: 4 })
   amount!: string
 
   @Property({ type: 'text' })
@@ -59,10 +59,10 @@ export class CreditPackage {
   @Property({ type: 'text' })
   name!: string
 
-  @Property({ name: 'credit_amount', type: 'numeric(10,4)' })
+  @Property({ name: 'credit_amount', type: 'numeric', precision: 10, scale: 4 })
   creditAmount!: string
 
-  @Property({ type: 'numeric(10,2)' })
+  @Property({ type: 'numeric', precision: 10, scale: 2 })
   price!: string
 
   @Property({ name: 'stripe_price_id', type: 'text', nullable: true })

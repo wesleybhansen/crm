@@ -201,10 +201,10 @@ No blocking questions. Deferred consequential-action defects require dedicated s
 
 - [x] Required sections, phases, risks, integration matrix, and changelog are present.
 - [x] All 13 compatibility surfaces are addressed; no breaking change is planned.
-- [x] Code stays in the existing app module; no module/schema is added.
+- [x] Regression code stays in the existing app module; fresh-bootstrap repairs are additive, generator-owned migrations for already-declared entities.
 - [x] New queries require both `organization_id` and `tenant_id`.
 - [x] Fixtures are runtime validated; no new `any` is planned.
-- [x] No raw app API, setup SQL, migration, event, ACL, notification, widget, or generated file changes.
+- [x] No raw app API, frozen setup SQL, event, ACL, notification, or widget contracts are changed; generated migrations follow the bounded legacy-adoption path.
 - [x] Test scenarios are self-contained and exclude production/shared data and services.
 - [x] External patterns were compared with [Promptfoo assertions](https://www.promptfoo.dev/docs/configuration/expected-outputs/), [machine outputs](https://www.promptfoo.dev/docs/configuration/outputs/), and [DeepEval datasets](https://deepeval.com/docs/evaluation-datasets); no dependency is added.
 
@@ -218,12 +218,13 @@ Completed on 2026-08-13/14 against the recorded base SHA:
 - Missing-credential scored path: explicit `credential_missing` skip, zero model calls.
 - Scored-path mock: production-prompt generation, deterministic gates, and judge completed in two calls with a 512-token per-call cap.
 - Package builds: 16/16 succeeded before and after module generation; production app build succeeded.
-- Repository gates: `yarn i18n:check-sync`, `yarn typecheck`, and `yarn test` now pass. The test run completed all 16 workspace tasks, including 222 core suites and 2,142 core tests.
+- Repository gates: `yarn i18n:check-sync`, `yarn typecheck`, and `yarn test` now pass. The latest test run completed all 16 workspace tasks, including 224 core suites and 2,146 core tests.
 - CLI migration ordering tests passed and now enforce the documented dependency order (`directory`, then `auth`, then remaining modules). Hosted fresh-database runs confirmed that repair and the legacy meeting-prep compatibility guard.
-- A generator-owned email migration now creates the three missing campaign/message tables with bounded legacy adoption. A fresh local PostgreSQL cluster applied every enabled migration, a second pass had no pending work, and email-only generation reported no schema diff.
+- Generator-owned email migrations now create the missing campaign/message/account/template/unsubscribe tables with bounded legacy adoption. Missing billing, landing-page, and webhook entity tables also have generated additive migrations, including corrected billing numeric precision.
+- Fresh initialization without frozen setup SQL applies every enabled migration, seeds workflows without requiring the disabled business-rules module, skips only SQLSTATE `42P01` legacy vector relations during init, rebuilds 122 enabled query-index entities, and completes. A second migration pass has no pending work.
 - Targeted ESLint and workflow YAML parsing passed; Playwright discovery listed 665 tests in 264 files; spec coverage reported 89/97 scenarios (91.75%) and CRM 20/20.
 - Disposable customer integration execution could not start because Docker CLI/runtime is absent. No shared environment fallback was attempted.
-- The first hosted run exposed that the normal test job stopped at i18n drift before reaching CRM checks, so a separate focused deterministic and dry-quality job publishes an independent result and artifact. The 28-item locale drift and the generated catalog/sales plus `server-only` Jest/typecheck baselines are now repaired; the next hosted run must confirm the new email migration in the disposable workflow.
+- The first hosted run exposed that the normal test job stopped at i18n drift before reaching CRM checks, so a separate focused deterministic and dry-quality job publishes an independent result and artifact. The 28-item locale drift and the generated catalog/sales plus `server-only` Jest/typecheck baselines are repaired. A later hosted disposable run exposed optional workflow seeding against disabled metadata; the local fresh-bootstrap proof now covers that repair and the complete generated migration graph.
 - Snapshot publishing now has explicit npm registry/token wiring and an authentication preflight. The repository still requires an authorized owner to provision `NPM_TOKEN`; no credential was available locally or in repository secrets.
 
 ## Changelog
@@ -240,6 +241,7 @@ Completed on 2026-08-13/14 against the recorded base SHA:
 - Restored dependency-safe fresh-database migration ordering and added deterministic coverage for it.
 - Removed time dependence from the legacy credential transition test and aligned two stale repository assertions with their shipped model and shell contracts.
 - Made the old optional meeting-prep column migration tolerate a table that is intentionally absent from module-managed schema; recorded the separate generated email-migration blocker without editing frozen setup SQL or hand-writing schema.
-- Generated the missing email campaign/recipient/message migration through a bounded CLI adoption option; verified it against fresh disposable PostgreSQL and a no-diff follow-up generation.
-- Repaired the 28-item i18n sync drift, disabled-module entity generation, `server-only` Jest mapping, and the repository typecheck/unit-test diagnostics they exposed.
+- Generated the missing email campaign/recipient/message/account/template/unsubscribe migrations through a bounded CLI adoption option, plus missing billing, landing-page, and webhook migrations; verified them against fresh disposable PostgreSQL and a clean second pass.
+- Repaired the 28-item i18n sync drift, generated-symbol/typecheck boundary, enabled-module query-index filtering, `server-only` Jest mapping, and the repository diagnostics they exposed.
+- Made workflow example seeding metadata-aware and limited init-only vector missing-table tolerance to PostgreSQL SQLSTATE `42P01`; all other search failures remain fail-loud.
 - Added Snapshot Release npm authentication wiring and a clear missing-secret preflight; live secret provisioning remains repository-owner work.

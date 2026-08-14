@@ -13,10 +13,11 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
+          "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "tenant_id": {
-          "name": "tenant_id",
+        "subscription_id": {
+          "name": "subscription_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
@@ -24,29 +25,74 @@
           "nullable": false,
           "mappedType": "uuid"
         },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
+        "event": {
+          "name": "event",
+          "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "mappedType": "uuid"
+          "mappedType": "text"
         },
-        "balance": {
-          "name": "balance",
-          "type": "numeric(10,4)",
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "precision": 10,
-          "scale": 4,
-          "default": "'0'",
-          "mappedType": "decimal"
+          "mappedType": "json"
         },
-        "updated_at": {
-          "name": "updated_at",
+        "status_code": {
+          "name": "status_code",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "response_body": {
+          "name": "response_body",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "1",
+          "mappedType": "integer"
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "failed_at": {
+          "name": "failed_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamptz",
           "unsigned": false,
           "autoincrement": false,
@@ -57,31 +103,22 @@
           "mappedType": "datetime"
         }
       },
-      "name": "credit_balances",
+      "name": "webhook_deliveries",
       "schema": "public",
       "indexes": [
         {
+          "keyName": "webhook_deliveries_sub_idx",
           "columnNames": [
-            "organization_id"
+            "subscription_id",
+            "created_at"
           ],
-          "composite": false,
-          "keyName": "credit_balances_organization_id_unique",
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
-          "keyName": "credit_balances_org_idx",
-          "columnNames": [
-            "organization_id"
-          ],
-          "composite": false,
+          "composite": true,
           "constraint": false,
           "primary": false,
           "unique": false
         },
         {
-          "keyName": "credit_balances_pkey",
+          "keyName": "webhook_deliveries_pkey",
           "columnNames": [
             "id"
           ],
@@ -104,10 +141,29 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
+          "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "name": {
-          "name": "name",
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "event": {
+          "name": "event",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -115,30 +171,17 @@
           "nullable": false,
           "mappedType": "text"
         },
-        "credit_amount": {
-          "name": "credit_amount",
-          "type": "numeric(10,4)",
+        "target_url": {
+          "name": "target_url",
+          "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "precision": 10,
-          "scale": 4,
-          "mappedType": "decimal"
+          "mappedType": "text"
         },
-        "price": {
-          "name": "price",
-          "type": "numeric(10,2)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "precision": 10,
-          "scale": 2,
-          "mappedType": "decimal"
-        },
-        "stripe_price_id": {
-          "name": "stripe_price_id",
+        "secret": {
+          "name": "secret",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -156,16 +199,6 @@
           "default": "true",
           "mappedType": "boolean"
         },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "int",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "0",
-          "mappedType": "integer"
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -176,104 +209,9 @@
           "length": 6,
           "default": "now()",
           "mappedType": "datetime"
-        }
-      },
-      "name": "credit_packages",
-      "schema": "public",
-      "indexes": [
-        {
-          "keyName": "credit_packages_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {},
-      "nativeEnums": {}
-    },
-    {
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
         },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "amount": {
-          "name": "amount",
-          "type": "numeric(10,4)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "precision": 10,
-          "scale": 4,
-          "mappedType": "decimal"
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "service": {
-          "name": "service",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "reference_id": {
-          "name": "reference_id",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "created_at": {
-          "name": "created_at",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamptz",
           "unsigned": false,
           "autoincrement": false,
@@ -284,14 +222,14 @@
           "mappedType": "datetime"
         }
       },
-      "name": "credit_transactions",
+      "name": "webhook_subscriptions",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "credit_transactions_org_date_idx",
+          "keyName": "webhook_subs_org_idx",
           "columnNames": [
             "organization_id",
-            "created_at"
+            "event"
           ],
           "composite": true,
           "constraint": false,
@@ -299,7 +237,7 @@
           "unique": false
         },
         {
-          "keyName": "credit_transactions_pkey",
+          "keyName": "webhook_subscriptions_pkey",
           "columnNames": [
             "id"
           ],

@@ -19,7 +19,8 @@ This draft adds focused Noli CRM boundary coverage without retesting the complet
 - Added an optional synthetic-only scored mode with a dedicated secret, at most 20 cases, two calls per case, 512 output tokens per call, 30-second request timeouts, and explicit zero-call credential-missing skips.
 - Added a 50-test focused CRM command plus the credential-free quality gate ahead of unrelated repository-wide gates in standard CI, and a separate manual/weekly scored workflow with always-uploaded results.
 - Restored the documented fresh-database module order (`directory`, `auth`, then alphabetical) after the first hosted disposable run exposed an alphabetical-order startup failure.
-- Generated the missing email campaign/recipient/message migration through a bounded CLI legacy-adoption option and verified the complete enabled migration graph on fresh PostgreSQL.
+- Generated the missing email campaign/recipient/message/account/template/unsubscribe migrations through a bounded CLI legacy-adoption option, plus missing billing, landing-page, and webhook migrations.
+- Made optional workflow examples metadata-aware, limited init-only vector missing-table tolerance to PostgreSQL undefined-table errors, and restricted query-index initialization to enabled modules.
 - Repaired the 28-item i18n sync drift and the generated catalog/sales, `server-only`, and app/core typecheck baselines.
 - Added explicit Snapshot Release npm authentication plus a preflight that identifies a missing repository secret before publishing.
 
@@ -40,8 +41,8 @@ Passing:
 - `yarn build:app`
 - `yarn i18n:check-sync`
 - `yarn typecheck`: 16/16 workspace tasks
-- `yarn test`: 16/16 workspace tasks; core 222 suites/2,142 tests
-- Fresh PostgreSQL `yarn db:migrate`, clean second migration pass, and email-only no-diff generation
+- `yarn test`: 16/16 workspace tasks; core 224 suites/2,146 tests
+- Fresh PostgreSQL initialization through all seed/search/query-index stages, clean second migration pass, and 122 enabled query-index entities
 - Playwright discovery: 665 tests in 264 files
 - Spec coverage mapping: 89/97 (91.75%), CRM 20/20
 

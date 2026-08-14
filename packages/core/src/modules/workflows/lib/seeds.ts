@@ -4,6 +4,7 @@ import * as path from 'path'
 import { fileURLToPath } from 'node:url'
 import { WorkflowDefinition, type WorkflowDefinitionData } from '../data/entities'
 import { BusinessRule, type RuleType } from '@open-mercato/core/modules/business_rules/data/entities'
+import { selectExampleWorkflowSeedPlan } from './seed-plan'
 
 const __esmDirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -175,10 +176,11 @@ async function seedGuardRules(
 }
 
 export async function seedExampleWorkflows(em: EntityManager, scope: WorkflowSeedScope): Promise<void> {
-  await seedWorkflowDefinition(em, scope, 'checkout-demo-definition.json')
-  await seedGuardRules(em, scope, 'guard-rules-example.json')
-  await seedWorkflowDefinition(em, scope, 'sales-pipeline-definition.json')
-  await seedWorkflowDefinition(em, scope, 'simple-approval-definition.json')
-  await seedGuardRules(em, scope, 'order-approval-guard-rules.json')
-  await seedWorkflowDefinition(em, scope, 'order-approval-definition.json')
+  for (const operation of selectExampleWorkflowSeedPlan(em)) {
+    if (operation.kind === 'workflow') {
+      await seedWorkflowDefinition(em, scope, operation.fileName)
+    } else {
+      await seedGuardRules(em, scope, operation.fileName)
+    }
+  }
 }

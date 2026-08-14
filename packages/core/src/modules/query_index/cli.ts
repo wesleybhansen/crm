@@ -19,6 +19,7 @@ import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import type { VectorIndexService } from '@open-mercato/search/vector'
+import { filterEntityIdsByModules } from './lib/entity-selection'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -539,6 +540,7 @@ const reindex: ModuleCli = {
     const resetCoverageFlag = flagEnabled(args, 'resetCoverage')
     const skipResetCoverageFlag = flagEnabled(args, 'skipResetCoverage', 'noResetCoverage')
     const skipPurge = flagEnabled(args, 'skipPurge', 'noPurge')
+    const moduleIds = stringOption(args, 'modules')?.split(',')
 
     const container = await createRequestContainer()
     const baseEm = (container.resolve('em') as EntityManager)
@@ -703,7 +705,10 @@ const reindex: ModuleCli = {
       }
 
       const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
-      const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
+      const entityIds = filterEntityIdsByModules(
+        flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>),
+        moduleIds,
+      )
       if (!entityIds.length) {
         console.log('No entity definitions registered for query indexing.')
         return

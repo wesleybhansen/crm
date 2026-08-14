@@ -463,13 +463,19 @@ export async function run(argv = process.argv) {
 
       console.log('🧠 Building search indexes...')
       const vectorArgs = tenantId
-        ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : [])]
-        : ['--purgeFirst=false']
+        ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : []), '--skipMissingTables']
+        : ['--purgeFirst=false', '--skipMissingTables']
       await runModuleCommand(allModules, 'search', 'reindex', vectorArgs, { optional: true })
       console.log('✅ Search indexes built\n')
 
       console.log('🔍 Rebuilding query indexes...')
-      const queryIndexArgs = ['--force', ...(tenantId ? ['--tenant', tenantId] : [])]
+      const enabledModuleIds = Array.from(new Set(allModules.map((module) => module.id))).sort()
+      const queryIndexArgs = [
+        '--force',
+        ...(tenantId ? ['--tenant', tenantId] : []),
+        '--modules',
+        enabledModuleIds.join(','),
+      ]
       await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs, { optional: true })
       console.log('✅ Query indexes rebuilt\n')
 
