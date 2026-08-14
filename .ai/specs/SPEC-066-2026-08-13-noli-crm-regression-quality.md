@@ -78,7 +78,7 @@ The harness lives under `apps/mercato/src/modules/customers/quality/reply-qualit
 
 ## Data Models
 
-No production database changes. Fixture objects plus baseline and result documents are versioned and validated with Zod. Generated JSON results are ignored.
+No new production entity is introduced. Fixture objects plus baseline and result documents are versioned and validated with Zod. Generated JSON results are ignored. Fresh databases receive the generated additive `api_keys.rate_limit_tier` and `api_keys.scopes` migration required by the already-declared `ApiKey` entity.
 
 ## API Contracts
 
@@ -123,7 +123,7 @@ This is additive test infrastructure/documentation plus narrow failure fixes. No
 | Event IDs                  | None                                               |
 | Widget spots               | None                                               |
 | API URLs                   | Same URLs/methods/success shapes                   |
-| Database schema            | None                                               |
+| Database schema            | Additive generated API-key columns                 |
 | DI names                   | None                                               |
 | ACL IDs                    | None                                               |
 | Notification IDs           | None                                               |
@@ -191,7 +191,7 @@ Deferred high-risk findings: server-enforced MCP confirmation, atomic approval/s
 - CI fails on thresholds or deterministic safety regressions.
 - Scored CI skips truthfully without a credential and remains bounded with one.
 - Route tests prove org+tenant scope and truthful failure.
-- No production schema, deployment, or shared environment changes.
+- No destructive production schema, deployment, or shared environment changes.
 
 ## Open Questions and Future Work
 
@@ -218,11 +218,11 @@ Completed on 2026-08-13/14 against the recorded base SHA:
 - Missing-credential scored path: explicit `credential_missing` skip, zero model calls.
 - Scored-path mock: production-prompt generation, deterministic gates, and judge completed in two calls with a 512-token per-call cap.
 - Package builds: 16/16 succeeded before and after module generation; production app build succeeded.
-- Repository gates: `yarn i18n:check-sync`, `yarn typecheck`, and `yarn test` now pass. The latest test run completed all 16 workspace tasks, including 224 core suites and 2,146 core tests.
+- Repository gates: `yarn i18n:check`, `yarn lint`, `yarn typecheck`, and `yarn test` now pass. The latest test run completed all 16 workspace tasks, including 224 core suites and 2,146 core tests.
 - CLI migration ordering tests passed and now enforce the documented dependency order (`directory`, then `auth`, then remaining modules). Hosted fresh-database runs confirmed that repair and the legacy meeting-prep compatibility guard.
 - Generator-owned email migrations now create the missing campaign/message/account/template/unsubscribe tables with bounded legacy adoption. Missing billing, landing-page, and webhook entity tables also have generated additive migrations, including corrected billing numeric precision.
 - Fresh initialization without frozen setup SQL applies every enabled migration, seeds workflows without requiring the disabled business-rules module, skips only SQLSTATE `42P01` legacy vector relations during init, rebuilds 122 enabled query-index entities, and completes. A second migration pass has no pending work.
-- Targeted ESLint and workflow YAML parsing passed; Playwright discovery listed 665 tests in 264 files; spec coverage reported 89/97 scenarios (91.75%) and CRM 20/20.
+- Targeted ESLint and workflow YAML parsing passed; enabled-module Playwright discovery listed 190 tests in 127 files; spec coverage reported 89/97 scenarios (91.75%) and CRM 20/20.
 - Disposable customer integration execution could not start because Docker CLI/runtime is absent. No shared environment fallback was attempted.
 - The first hosted run exposed that the normal test job stopped at i18n drift before reaching CRM checks, so a separate focused deterministic and dry-quality job publishes an independent result and artifact. The 28-item locale drift and the generated catalog/sales plus `server-only` Jest/typecheck baselines are repaired. A later hosted disposable run exposed optional workflow seeding against disabled metadata; the local fresh-bootstrap proof now covers that repair and the complete generated migration graph.
 - Snapshot publishing now has explicit npm registry/token wiring and an authentication preflight. The repository still requires an authorized owner to provision `NPM_TOKEN`; no credential was available locally or in repository secrets.
@@ -245,3 +245,6 @@ Completed on 2026-08-13/14 against the recorded base SHA:
 - Repaired the 28-item i18n sync drift, generated-symbol/typecheck boundary, enabled-module query-index filtering, `server-only` Jest mapping, and the repository diagnostics they exposed.
 - Made workflow example seeding metadata-aware and limited init-only vector missing-table tolerance to PostgreSQL SQLSTATE `42P01`; all other search failures remain fail-loud.
 - Added Snapshot Release npm authentication wiring and a clear missing-secret preflight; live secret provisioning remains repository-owner work.
+- Generated the missing additive API-key rate-limit/scope migration and repaired its integration fixtures to request the admin role they exercise.
+- Flushed an immediate SSE connection frame, stabilized browser collection on an authenticated route, and closed the password-reset copy variant exposed by hosted disposable tests.
+- Closed the remaining 49-key translation-usage drift across app navigation, CRM APIs, customer accounts, email, landing-page funnels, and sales returns.

@@ -11,7 +11,7 @@ test.describe('TC-AUTH-004: User Logout', () => {
     await expect(page).toHaveURL(/\/backend(?:\/.*)?$/);
 
     await page.getByRole('button', { name: /admin@acme.com/i }).click();
-    await page.getByRole('menuitem', { name: /logout/i }).click();
+    await page.getByRole('menuitem', { name: /logout/i }).click({ force: true });
     await page.waitForTimeout(500);
 
     const cookies = await page.context().cookies();

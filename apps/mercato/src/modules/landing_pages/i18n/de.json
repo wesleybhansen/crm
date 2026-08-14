@@ -1,4 +1,10 @@
 {
+  "funnels.actions.create": "Neuer Funnel",
+  "funnels.create.title": "Funnel erstellen",
+  "funnels.edit.title": "Funnel bearbeiten",
+  "funnels.empty": "Noch keine Funnels vorhanden. Erstellen Sie den ersten Funnel, um Besucher zu konvertieren.",
+  "funnels.subtitle": "Landingpages zu mehrstufigen Conversion-Funnels verknüpfen",
+  "funnels.title": "Funnels",
   "landing_pages.actions.delete": "Delete",
   "landing_pages.actions.preview": "Preview",
   "landing_pages.actions.publish": "Publish",

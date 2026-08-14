@@ -265,6 +265,9 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts <path-to-test-fil
 
 Use optional metadata to skip tests when required modules are not enabled.
 
+- The module owning a module-local `__integration__` directory is an implicit dependency. Its tests are discovered only when that module is enabled in the active app's `src/modules.ts`.
+- Use metadata for additional cross-module dependencies; do not repeat the owning module.
+
 - Folder-level metadata:
   - Add `meta.ts` or `index.ts` under any `__integration__/` subfolder
   - Supported keys: `dependsOnModules`, `requiredModules`, `requiresModules`

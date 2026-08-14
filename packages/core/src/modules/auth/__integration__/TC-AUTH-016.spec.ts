@@ -1,6 +1,19 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+
+async function postPasswordReset(
+  request: APIRequestContext,
+  email: string,
+  headers: Record<string, string>,
+): Promise<APIResponse> {
+  const noliResponse = await request.post('/api/auth/forgot-password', {
+    headers: { ...headers, 'content-type': 'application/json' },
+    data: { email },
+  });
+  if (noliResponse.status() !== 404) return noliResponse;
+  return postForm(request, '/api/auth/reset', { email }, { headers });
+}
 
 /**
  * TC-AUTH-016: Rate Limiting on Authentication Endpoints
@@ -65,9 +78,7 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
     let lastResponse;
 
     for (let i = 0; i < attempts; i++) {
-      lastResponse = await postForm(request, '/api/auth/reset', {
-        email,
-      }, { headers: rateLimitHeaders });
+      lastResponse = await postPasswordReset(request, email, rateLimitHeaders);
     }
 
     expect(lastResponse!.status()).toBe(429);

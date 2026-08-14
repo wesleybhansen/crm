@@ -16,10 +16,11 @@ test.describe('TC-SCOPES-001: narrow key allow/deny', () => {
 
   test.beforeAll(async ({ request }) => {
     adminToken = await getAuthToken(request)
-    const res = await apiRequest(request, 'POST', '/api/api-keys', {
+    const res = await apiRequest(request, 'POST', '/api/api_keys/keys', {
       token: adminToken,
       data: {
         name: `scopes-narrow-${Date.now()}`,
+        roles: ['admin'],
         rateLimitTier: 'unlimited',
         scopes: ['customers.people.view'],
       },
@@ -31,7 +32,7 @@ test.describe('TC-SCOPES-001: narrow key allow/deny', () => {
   })
 
   test.afterAll(async ({ request }) => {
-    if (apiKeyId) await apiRequest(request, 'DELETE', `/api/api-keys?id=${apiKeyId}`, { token: adminToken }).catch(() => {})
+    if (apiKeyId) await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${apiKeyId}`, { token: adminToken }).catch(() => {})
   })
 
   test('GET on the scoped feature returns 200', async ({ request }) => {

@@ -115,6 +115,24 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "rate_limit_tier": {
+          "name": "rate_limit_tier",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "scopes": {
+          "name": "scopes",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "last_used_at": {
           "name": "last_used_at",
           "type": "timestamptz",

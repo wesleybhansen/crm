@@ -29,20 +29,8 @@ export function Step4AboutOffer({ wizard }: Props) {
   const [products, setProducts] = useState<Product[]>([])
   const [loadingProducts, setLoadingProducts] = useState(false)
 
-  if (!pageType || !subType) return null
-
-  const allQuestions = OFFER_QUESTIONS[pageType]?.[subType] || OFFER_QUESTIONS.general.general
-  const subTypeLabel = SUB_TYPES[pageType]?.find((s) => s.id === subType)?.label || ''
   const isBookingPage = pageType === 'book-a-call'
   const isSellPage = pageType === 'sell-digital' || pageType === 'sell-physical' || pageType === 'sell-service'
-
-  const SKIP_KEYS = new Set(['mainBenefit', 'whatTheyLearn', 'whatTheyGet'])
-  const questions = allQuestions.filter((q) => !SKIP_KEYS.has(q.key))
-
-  const canProceed = questions
-    .filter((q) => q.required && q.key !== 'offerName')
-    .every((q) => businessContext.offerAnswers[q.key]?.trim())
-    && (!isBookingPage || state.bookingPageSlug)
 
   // Fetch booking pages (for book-a-call)
   useEffect(() => {
@@ -57,7 +45,6 @@ export function Step4AboutOffer({ wizard }: Props) {
       })
       .catch(() => {})
       .finally(() => setLoadingBookings(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBookingPage])
 
   // Fetch products + courses (for sell pages)
@@ -108,6 +95,18 @@ export function Step4AboutOffer({ wizard }: Props) {
     }).finally(() => setLoadingProducts(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSellPage])
+
+  if (!pageType || !subType) return null
+
+  const allQuestions = OFFER_QUESTIONS[pageType]?.[subType] || OFFER_QUESTIONS.general.general
+  const subTypeLabel = SUB_TYPES[pageType]?.find((s) => s.id === subType)?.label || ''
+  const SKIP_KEYS = new Set(['mainBenefit', 'whatTheyLearn', 'whatTheyGet'])
+  const questions = allQuestions.filter((q) => !SKIP_KEYS.has(q.key))
+
+  const canProceed = questions
+    .filter((q) => q.required && q.key !== 'offerName')
+    .every((q) => businessContext.offerAnswers[q.key]?.trim())
+    && (!isBookingPage || state.bookingPageSlug)
 
   const handleNext = () => {
     updateFrameworkFromPrice()

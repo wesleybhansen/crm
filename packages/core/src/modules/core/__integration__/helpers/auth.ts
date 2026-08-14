@@ -126,6 +126,11 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
       return hasBackendUrl();
     }
   };
+  const settleBackendNavigation = async (): Promise<void> => {
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await page.waitForTimeout(1_000);
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+  };
 
   await acknowledgeGlobalNotices(page);
   const apiLoginForm = new URLSearchParams();
@@ -162,7 +167,10 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
       await page.context().addCookies(cookies);
     }
     await page.goto('/backend', { waitUntil: 'domcontentloaded' });
-    if (await waitForBackend(8_000)) return;
+    if (await waitForBackend(8_000)) {
+      await settleBackendNavigation();
+      return;
+    }
   }
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -187,7 +195,10 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
     await submitButton.click();
   }
 
-  if (await waitForBackend(7_000)) return;
+  if (await waitForBackend(7_000)) {
+    await settleBackendNavigation();
+    return;
+  }
 
   const loginForm = page.locator('form').first();
   if (await loginForm.isVisible().catch(() => false)) {
@@ -196,13 +207,19 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
       form.requestSubmit()
     }).catch(() => {})
   }
-  if (await waitForBackend(5_000)) return;
+  if (await waitForBackend(5_000)) {
+    await settleBackendNavigation();
+    return;
+  }
 
   const loginButton = page.getByRole('button', { name: /login|sign in|continue with sso/i }).first();
   if (await loginButton.isVisible().catch(() => false)) {
     await loginButton.click({ force: true });
   }
-  if (await waitForBackend(8_000)) return;
+  if (await waitForBackend(8_000)) {
+    await settleBackendNavigation();
+    return;
+  }
 
   throw new Error(`Login did not reach backend for role: ${role}; current URL: ${page.url()}`);
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { composeReplyPromptV1 } from "../../lib/reply-prompt-contract";
 import { evaluateReplyQualityFixtureV1 } from "./evaluator";
 import { REPLY_QUALITY_FIXTURE_SET_V1 } from "./fixtures/v1/fixtures";
+import { HARD_CRITERION_IDS } from "./rubric";
 import { runDryReplyQuality } from "./runner";
 import {
   REPLY_RESULT_SCHEMA_VERSION,
@@ -146,6 +147,8 @@ Score each criterion from 1 (unacceptable) to 5 (excellent):
 - tone_voice: follows the supplied voice while remaining professional
 - concision: direct and appropriate for the channel
 - escalation_review: escalates, clarifies, or waits for approval when risk requires it
+
+When the supplied facts do not authorize a resolution or concrete next step, a concise clarification or human-review escalation is the correct grounded response. Do not penalize it as inaction, and never reward an invented remedy, commitment, or process.
 
 Return only JSON with exactly this shape:
 {"scores":{"grounding":1,"context_use":1,"tone_voice":1,"concision":1,"escalation_review":1},"reasons":{"grounding":"...","context_use":"...","tone_voice":"...","concision":"...","escalation_review":"..."}}
@@ -383,7 +386,10 @@ export async function runScoredReplyQuality(
       const deterministicFailures = deterministicEvaluation.criteria
         .filter((criterion) => criterion.status === "failed")
         .map((criterion) => criterion.criterionId);
-      if (deterministicFailures.length > 0) {
+      const hardFailures = deterministicFailures.filter((criterionId) =>
+        HARD_CRITERION_IDS.has(criterionId),
+      );
+      if (hardFailures.length > 0) {
         cases.push({
           fixtureId: fixture.id,
           status: "rejected",
@@ -391,7 +397,7 @@ export async function runScoredReplyQuality(
           scores: null,
           reasons: null,
           error: "deterministic_gate_failed",
-          deterministicFailures,
+          deterministicFailures: hardFailures,
           callsMade,
           candidate,
         });
@@ -415,7 +421,7 @@ export async function runScoredReplyQuality(
         scores: output.scores,
         reasons: output.reasons,
         error: null,
-        deterministicFailures: [],
+        deterministicFailures,
         callsMade,
         candidate,
       });

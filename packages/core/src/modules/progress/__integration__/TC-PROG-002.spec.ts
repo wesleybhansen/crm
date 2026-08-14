@@ -23,7 +23,7 @@ async function hasEvent(
 test.describe('TC-PROG-002: Progress SSE events', () => {
   test('emits progress.job.updated to authenticated user via SSE bridge', async ({ page, request }) => {
     await login(page, 'admin')
-    await page.goto('/backend')
+    await page.goto('/backend/profile/change-password')
     await page.waitForLoadState('domcontentloaded')
     await installOmEventCollector(page)
 

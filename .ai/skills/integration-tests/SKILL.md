@@ -134,6 +134,8 @@ export const integrationMeta = {
 ```
 
 - Evaluation model:
+  - The module owning a module-local `__integration__` directory is required implicitly and is resolved from the active app's `src/modules.ts`.
+  - Use metadata only for additional module dependencies.
   - Dependencies inherit from `__integration__/` root through nested subfolders and then per-test metadata is applied.
   - If any required module is not enabled in the app, matching tests are skipped automatically (excluded from discovery/run).
 

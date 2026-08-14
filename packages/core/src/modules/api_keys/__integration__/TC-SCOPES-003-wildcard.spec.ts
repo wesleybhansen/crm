@@ -14,10 +14,11 @@ test.describe('TC-SCOPES-003: wildcard scope', () => {
 
   test.beforeAll(async ({ request }) => {
     adminToken = await getAuthToken(request)
-    const res = await apiRequest(request, 'POST', '/api/api-keys', {
+    const res = await apiRequest(request, 'POST', '/api/api_keys/keys', {
       token: adminToken,
       data: {
         name: `scopes-wildcard-${Date.now()}`,
+        roles: ['admin'],
         rateLimitTier: 'unlimited',
         scopes: ['customers.*'],
       },
@@ -29,7 +30,7 @@ test.describe('TC-SCOPES-003: wildcard scope', () => {
   })
 
   test.afterAll(async ({ request }) => {
-    if (apiKeyId) await apiRequest(request, 'DELETE', `/api/api-keys?id=${apiKeyId}`, { token: adminToken }).catch(() => {})
+    if (apiKeyId) await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${apiKeyId}`, { token: adminToken }).catch(() => {})
   })
 
   test('any customers.* feature is allowed', async ({ request }) => {
