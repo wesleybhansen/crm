@@ -340,6 +340,12 @@ describe("reply-quality baseline and scored-mode isolation", () => {
         }),
       );
     }
+    const judgeRequestBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    ) as { contents?: Array<{ parts?: Array<{ text?: string }> }> };
+    expect(judgeRequestBody.contents?.[0]?.parts?.[0]?.text).toContain(
+      "Do not penalize it as inaction, and never reward an invented remedy",
+    );
   });
 
   it("sends advisory deterministic quality misses to the judge", async () => {

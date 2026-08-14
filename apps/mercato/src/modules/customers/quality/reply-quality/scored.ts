@@ -148,6 +148,8 @@ Score each criterion from 1 (unacceptable) to 5 (excellent):
 - concision: direct and appropriate for the channel
 - escalation_review: escalates, clarifies, or waits for approval when risk requires it
 
+When the supplied facts do not authorize a resolution or concrete next step, a concise clarification or human-review escalation is the correct grounded response. Do not penalize it as inaction, and never reward an invented remedy, commitment, or process.
+
 Return only JSON with exactly this shape:
 {"scores":{"grounding":1,"context_use":1,"tone_voice":1,"concision":1,"escalation_review":1},"reasons":{"grounding":"...","context_use":"...","tone_voice":"...","concision":"...","escalation_review":"..."}}
 
