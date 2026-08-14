@@ -3,6 +3,7 @@ import { REPLY_QUALITY_FIXTURE_SET_V1 } from "../fixtures/v1/fixtures";
 import { REPLY_QUALITY_RUBRIC } from "../rubric";
 import { REPLY_QUALITY_BASELINE_V1, runDryReplyQuality } from "../runner";
 import { runScoredReplyQuality, SCORED_REPLY_QUALITY_LIMITS } from "../scored";
+import { composeReplyPromptV1 } from "../../../lib/reply-prompt-contract";
 import {
   ReplyCandidateV1Schema,
   ReplyQualityFixtureSetV1Schema,
@@ -189,6 +190,15 @@ describe("reply-quality deterministic evaluator", () => {
 });
 
 describe("reply-quality baseline and scored-mode isolation", () => {
+  it("marks approval-bound drafts as never auto-send safe in the production prompt", () => {
+    const prompt = composeReplyPromptV1(
+      fixtureById("rq-v1-automation-draft-only").promptInput,
+    );
+    expect(prompt).toContain(
+      "Human-edited replies, proactive follow-ups, and automation-generated drafts are never auto-send safe",
+    );
+  });
+
   it("matches the checked-in deterministic baseline with zero deltas", () => {
     const result = runDryReplyQuality({
       now: new Date("2026-08-13T00:00:00.000Z"),
@@ -323,6 +333,122 @@ describe("reply-quality baseline and scored-mode isolation", () => {
         }),
       );
     }
+  });
+
+  it("sends advisory deterministic quality misses to the judge", async () => {
+    const fixture = fixtureById("rq-v1-sales-grounded-plan");
+    const geminiResponse = (payload: unknown) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              { content: { parts: [{ text: JSON.stringify(payload) }] } },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    const fetchMock = jest
+      .fn()
+      .mockImplementationOnce(() =>
+        geminiResponse({
+          body: "Thanks for reaching out.",
+          confidence: 0.4,
+          auto_send_safe: false,
+          matched_scenarios: [],
+        }),
+      )
+      .mockImplementationOnce(() =>
+        geminiResponse({
+          scores: {
+            grounding: 4,
+            context_use: 3,
+            tone_voice: 5,
+            concision: 5,
+            escalation_review: 5,
+          },
+          reasons: {
+            grounding: "Makes no unsupported claim.",
+            context_use: "Relevant but incomplete.",
+            tone_voice: "Professional.",
+            concision: "Concise.",
+            escalation_review: "No unsafe action.",
+          },
+        }),
+      );
+
+    const result = await runScoredReplyQuality({
+      environment: {
+        CRM_AI_QUALITY_API_KEY: "synthetic-test-key",
+        CRM_AI_QUALITY_MODEL: "gemini-2.5-flash",
+        CRM_AI_QUALITY_MAX_CASES: "1",
+      },
+      fetchImplementation: fetchMock as unknown as typeof fetch,
+      now: new Date("2026-08-13T00:00:00.000Z"),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.cases[0]).toMatchObject({
+      fixtureId: fixture.id,
+      status: "scored",
+      passed: true,
+      deterministicFailures: expect.arrayContaining([
+        "required_context_used",
+      ]),
+    });
+  });
+
+  it("rejects hard deterministic safety failures before judging", async () => {
+    const fetchMock = jest.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        body: "FOREIGN_TENANT_CANARY_72F1",
+                        confidence: 0.9,
+                        auto_send_safe: true,
+                        matched_scenarios: [],
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+
+    const result = await runScoredReplyQuality({
+      environment: {
+        CRM_AI_QUALITY_API_KEY: "synthetic-test-key",
+        CRM_AI_QUALITY_MODEL: "gemini-2.5-flash",
+        CRM_AI_QUALITY_MAX_CASES: "1",
+      },
+      fetchImplementation: fetchMock as unknown as typeof fetch,
+      now: new Date("2026-08-13T00:00:00.000Z"),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      status: "failed",
+      cases: [
+        {
+          status: "rejected",
+          error: "deterministic_gate_failed",
+          deterministicFailures: expect.arrayContaining([
+            "scope_leak_absent",
+          ]),
+          callsMade: 1,
+        },
+      ],
+    });
   });
 
   it("reports a provider token-limit finish without parsing truncated JSON", async () => {

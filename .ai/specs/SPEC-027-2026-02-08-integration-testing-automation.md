@@ -590,6 +590,11 @@ npx playwright install chromium
 
 ## Changelog
 
+### 2026-08-14
+- Made each module-local integration suite implicitly depend on its owning module as enabled by the active app's `src/modules.ts`; metadata remains available for additional dependencies.
+- Anchored Playwright's discovered file matchers to exact absolute paths so generated `.mercato` standalone copies cannot run as duplicate tests.
+- Added discovery tests for disabled modules and generated integration copies.
+
 ### 2026-02-08
 - Initial specification
 - Added `integration-tests` skill for auto-generating QA tests from specs

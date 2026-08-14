@@ -70,7 +70,7 @@ CRITICAL RULES:
 
 Assess whether this draft could be sent WITHOUT human review. Return:
 - "confidence": 0 to 1 for how fully and correctly the reply answers the inquiry using supplied information. Use a low value when information is absent, contradictory, or uncertain.
-- "auto_send_safe": false for refunds, cancellations, returns, complaints, legal matters, billing or payment disputes, upset customers, sensitive data, consent changes, commitments, guesses, or uncertainty. It may be true only for a clear, grounded, low-risk answer.
+- "auto_send_safe": false for refunds, cancellations, returns, complaints, legal matters, billing or payment disputes, upset customers, sensitive data, consent changes, commitments, guesses, uncertainty, or any draft that still requires human approval. Human-edited replies, proactive follow-ups, and automation-generated drafts are never auto-send safe unless the supplied context explicitly says approval is complete. It may be true only for a clear, grounded, low-risk answer.
 
 Respond with ONLY one JSON object, no markdown or commentary, in exactly this shape:
 {"body": "the full reply body text", "confidence": 0.0, "auto_send_safe": false, "matched_scenarios": []}

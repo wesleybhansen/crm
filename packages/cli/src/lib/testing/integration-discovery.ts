@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
+import { createResolver } from '../resolver'
 
 export type IntegrationSpecDiscoveryItem = {
   path: string
@@ -13,6 +14,7 @@ const DISCOVERY_IGNORED_DIRS = new Set([
   'node_modules',
   '.git',
   '.next',
+  '.mercato',
   'dist',
   '.turbo',
   'coverage',
@@ -84,45 +86,12 @@ function collectSpecFilesFromDirectory(directoryPath: string): string[] {
   return collected
 }
 
-function collectDirectDirectoryNames(directoryPath: string): string[] {
-  let entries
-  try {
-    entries = readdirSync(directoryPath, { withFileTypes: true, encoding: 'utf8' })
-  } catch {
-    return []
-  }
-  return entries
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-    .map((entry) => entry.name)
-}
-
 function resolveEnabledModuleIds(projectRoot: string): Set<string> {
-  const enabledModules = new Set<string>()
-  const appsRoot = path.join(projectRoot, 'apps')
-  const packagesRoot = path.join(projectRoot, 'packages')
-  const enterpriseEnabled = isEnterpriseModulesEnabled()
-
-  for (const appName of collectDirectDirectoryNames(appsRoot)) {
-    const moduleRoot = path.join(appsRoot, appName, 'src', 'modules')
-    for (const moduleName of collectDirectDirectoryNames(moduleRoot)) {
-      enabledModules.add(normalizeModuleId(moduleName))
-    }
-  }
-  for (const packageName of collectDirectDirectoryNames(packagesRoot)) {
-    if (packageName === 'enterprise' && !enterpriseEnabled) {
-      continue
-    }
-    const moduleRoot = path.join(packagesRoot, packageName, 'src', 'modules')
-    for (const moduleName of collectDirectDirectoryNames(moduleRoot)) {
-      enabledModules.add(normalizeModuleId(moduleName))
-    }
-  }
-  const createAppTemplateModulesRoot = path.join(projectRoot, 'packages', 'create-app', 'template', 'src', 'modules')
-  for (const moduleName of collectDirectDirectoryNames(createAppTemplateModulesRoot)) {
-    enabledModules.add(normalizeModuleId(moduleName))
-  }
-
-  return enabledModules
+  return new Set(
+    createResolver(projectRoot)
+      .loadEnabledModules()
+      .map((entry) => normalizeModuleId(entry.id)),
+  )
 }
 
 function extractModuleNameFromIntegrationPath(relativePath: string): string | null {
@@ -253,16 +222,13 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
 
   const discovered = Array.from(discoveredByPath.values())
   const enabledModules = resolveEnabledModuleIds(projectRoot)
-  const enabledModuleNames = new Set<string>()
-  for (const file of discovered) {
-    if (!file.isOverlay && file.moduleName) {
-      enabledModuleNames.add(file.moduleName)
-    }
-  }
 
   return discovered
     .filter((file) => {
       if (file.requiredModules.some((moduleId) => !enabledModules.has(normalizeModuleId(moduleId)))) {
+        return false
+      }
+      if (file.moduleName && !enabledModules.has(normalizeModuleId(file.moduleName))) {
         return false
       }
       if (!file.isOverlay) {
@@ -272,9 +238,6 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
         return false
       }
       if (!file.moduleName) {
-        return true
-      }
-      if (enabledModuleNames.has(file.moduleName)) {
         return true
       }
       return enabledModules.has(normalizeModuleId(file.moduleName))

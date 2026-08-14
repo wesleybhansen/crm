@@ -67,6 +67,11 @@ describe('integration discovery', () => {
   })
 
   it('loads enterprise integration tests only when enterprise modules are enabled', async () => {
+    await writeTestFile(
+      tempRoot,
+      'apps/mercato/src/modules.ts',
+      "export const enabledModules = [{ id: 'sales' }, { id: 'record_locks' }]\n",
+    )
     await writeTestFile(tempRoot, 'packages/core/src/modules/sales/.gitkeep')
     await writeTestFile(
       tempRoot,
@@ -101,12 +106,42 @@ describe('integration discovery', () => {
   it('discovers tests from create-app template modules', async () => {
     await writeTestFile(
       tempRoot,
+      'apps/mercato/src/modules.ts',
+      "export const enabledModules = [{ id: 'auth' }]\n",
+    )
+    await writeTestFile(
+      tempRoot,
       'packages/create-app/template/src/modules/auth/__integration__/TC-AUTH-001.spec.ts',
       'export {}\n',
     )
     const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
     expect(discovered.map((entry) => entry.path)).toEqual([
       'packages/create-app/template/src/modules/auth/__integration__/TC-AUTH-001.spec.ts',
+    ])
+  })
+
+  it('skips disabled module specs and generated integration copies', async () => {
+    await writeTestFile(
+      tempRoot,
+      'apps/mercato/src/modules.ts',
+      "export const enabledModules = [{ id: 'customers' }]\n",
+    )
+    await writeTestFile(
+      tempRoot,
+      'packages/core/src/modules/customers/__integration__/TC-CRM-001.spec.ts',
+    )
+    await writeTestFile(
+      tempRoot,
+      'packages/core/src/modules/catalog/__integration__/TC-CAT-001.spec.ts',
+    )
+    await writeTestFile(
+      tempRoot,
+      'apps/mercato/.mercato/next/standalone/packages/core/src/modules/customers/__integration__/TC-CRM-001.spec.ts',
+    )
+
+    const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toEqual([
+      'packages/core/src/modules/customers/__integration__/TC-CRM-001.spec.ts',
     ])
   })
 })

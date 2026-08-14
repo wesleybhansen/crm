@@ -7,16 +7,19 @@ const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const qaTestResultsRoot = path.join(projectRoot, '.ai', 'qa', 'test-results');
 const normalizePath = (value: string) => value.split(path.sep).join('/');
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const STATIC_TEST_IGNORES = [
   `${normalizePath(path.join(projectRoot, '.claude'))}/**`,
   `${normalizePath(path.join(projectRoot, '.codex'))}/**`,
 ];
 const discoveredSpecs = discoverIntegrationSpecFiles(projectRoot, path.join(projectRoot, '.ai', 'qa', 'tests'));
-const discoveredSpecPaths = discoveredSpecs.map((entry) => entry.path);
+const discoveredSpecPatterns = discoveredSpecs.map((entry) => (
+  new RegExp(`^${escapeRegExp(normalizePath(path.join(projectRoot, entry.path)))}$`)
+));
 
 export default defineConfig({
   testDir: projectRoot,
-  testMatch: discoveredSpecPaths.length > 0 ? discoveredSpecPaths : ['.ai/qa/tests/__no_tests__/*.spec.ts'],
+  testMatch: discoveredSpecPatterns.length > 0 ? discoveredSpecPatterns : ['.ai/qa/tests/__no_tests__/*.spec.ts'],
   testIgnore: [
     ...STATIC_TEST_IGNORES,
   ],

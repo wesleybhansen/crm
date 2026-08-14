@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ArrowRight, PenLine } from 'lucide-react'
 import { SUB_TYPES, PAGE_TYPES } from '../constants'
@@ -17,9 +17,7 @@ export function Step2SubType({ wizard }: Props) {
   const [customDescription, setCustomDescription] = useState('')
   const [showCustom, setShowCustom] = useState(false)
 
-  if (!pageType) return null
-
-  const options = SUB_TYPES[pageType] || []
+  const options = useMemo(() => pageType ? SUB_TYPES[pageType] || [] : [], [pageType])
   const pageLabel = PAGE_TYPES.find((p) => p.id === pageType)?.label || ''
 
   // If only one subtype (e.g., general), auto-advance via effect
@@ -29,6 +27,8 @@ export function Step2SubType({ wizard }: Props) {
       wizard.setSubType(options[0].id as SubType)
     }
   }, [shouldAutoAdvance, options, wizard])
+
+  if (!pageType) return null
 
   // Show a brief loading state instead of null to prevent layout flicker
   if (shouldAutoAdvance) {

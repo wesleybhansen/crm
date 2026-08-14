@@ -2,6 +2,7 @@ import { z } from "zod";
 import { composeReplyPromptV1 } from "../../lib/reply-prompt-contract";
 import { evaluateReplyQualityFixtureV1 } from "./evaluator";
 import { REPLY_QUALITY_FIXTURE_SET_V1 } from "./fixtures/v1/fixtures";
+import { HARD_CRITERION_IDS } from "./rubric";
 import { runDryReplyQuality } from "./runner";
 import {
   REPLY_RESULT_SCHEMA_VERSION,
@@ -383,7 +384,10 @@ export async function runScoredReplyQuality(
       const deterministicFailures = deterministicEvaluation.criteria
         .filter((criterion) => criterion.status === "failed")
         .map((criterion) => criterion.criterionId);
-      if (deterministicFailures.length > 0) {
+      const hardFailures = deterministicFailures.filter((criterionId) =>
+        HARD_CRITERION_IDS.has(criterionId),
+      );
+      if (hardFailures.length > 0) {
         cases.push({
           fixtureId: fixture.id,
           status: "rejected",
@@ -391,7 +395,7 @@ export async function runScoredReplyQuality(
           scores: null,
           reasons: null,
           error: "deterministic_gate_failed",
-          deterministicFailures,
+          deterministicFailures: hardFailures,
           callsMade,
           candidate,
         });
@@ -415,7 +419,7 @@ export async function runScoredReplyQuality(
         scores: output.scores,
         reasons: output.reasons,
         error: null,
-        deterministicFailures: [],
+        deterministicFailures,
         callsMade,
         candidate,
       });
