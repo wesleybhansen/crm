@@ -24,17 +24,73 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const MINIMUM_CRITERION_SCORE = 3 as const;
 const MINIMUM_CASE_AVERAGE = 4 as const;
 
+const GENERATED_REPLY_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    body: { type: "string" },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    auto_send_safe: { type: "boolean" },
+    matched_scenarios: {
+      type: "array",
+      items: { type: "string" },
+    },
+  },
+  required: ["body", "confidence", "auto_send_safe"],
+  additionalProperties: false,
+  propertyOrdering: [
+    "body",
+    "confidence",
+    "auto_send_safe",
+    "matched_scenarios",
+  ],
+} as const;
+
+const SCORED_JUDGE_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    scores: {
+      type: "object",
+      properties: Object.fromEntries(
+        ScoredCriterionSchema.options.map((criterionId) => [
+          criterionId,
+          { type: "integer", minimum: 1, maximum: 5 },
+        ]),
+      ),
+      required: ScoredCriterionSchema.options,
+      additionalProperties: false,
+      propertyOrdering: ScoredCriterionSchema.options,
+    },
+    reasons: {
+      type: "object",
+      properties: Object.fromEntries(
+        ScoredCriterionSchema.options.map((criterionId) => [
+          criterionId,
+          { type: "string" },
+        ]),
+      ),
+      required: ScoredCriterionSchema.options,
+      additionalProperties: false,
+      propertyOrdering: ScoredCriterionSchema.options,
+    },
+  },
+  required: ["scores", "reasons"],
+  additionalProperties: false,
+  propertyOrdering: ["scores", "reasons"],
+} as const;
+
 const GeminiResponseSchema = z
   .object({
     candidates: z
       .array(
         z
           .object({
+            finishReason: z.string().optional(),
             content: z
               .object({
                 parts: z.array(z.object({ text: z.string() }).passthrough()),
               })
-              .passthrough(),
+              .passthrough()
+              .optional(),
           })
           .passthrough(),
       )
@@ -105,14 +161,24 @@ function cleanJsonText(value: string): string {
     .trim();
 }
 
+function thinkingConfigForModel(
+  model: string,
+): { thinkingBudget: 0 } | undefined {
+  return /^gemini-2\.5-(?:flash|flash-lite)(?:-|$)/i.test(model)
+    ? { thinkingBudget: 0 }
+    : undefined;
+}
+
 async function callModel(
   prompt: string,
   apiKey: string,
   model: string,
   fetchImplementation: typeof fetch,
+  responseJsonSchema: Readonly<Record<string, unknown>>,
 ): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const thinkingConfig = thinkingConfigForModel(model);
   try {
     const response = await fetchImplementation(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -128,6 +194,8 @@ async function callModel(
             temperature: 0,
             maxOutputTokens: MAX_OUTPUT_TOKENS,
             responseMimeType: "application/json",
+            responseJsonSchema,
+            ...(thinkingConfig ? { thinkingConfig } : {}),
           },
         }),
         signal: controller.signal,
@@ -135,7 +203,13 @@ async function callModel(
     );
     if (!response.ok) throw new Error(`judge_http_${response.status}`);
     const envelope = GeminiResponseSchema.parse(await response.json());
-    const text = envelope.candidates[0]?.content.parts[0]?.text;
+    const candidate = envelope.candidates[0];
+    if (candidate?.finishReason && candidate.finishReason !== "STOP") {
+      throw new Error(
+        `model_finish_${candidate.finishReason.toLowerCase()}`.slice(0, 200),
+      );
+    }
+    const text = candidate?.content?.parts.map((part) => part.text).join("");
     if (!text) throw new Error("model_empty_response");
     return text;
   } finally {
@@ -154,6 +228,7 @@ async function generateCandidate(
     apiKey,
     model,
     fetchImplementation,
+    GENERATED_REPLY_JSON_SCHEMA,
   );
   const envelope = GeneratedReplyEnvelopeSchema.parse(
     JSON.parse(cleanJsonText(raw)) as unknown,
@@ -181,6 +256,7 @@ async function judgeCandidate(
     apiKey,
     model,
     fetchImplementation,
+    SCORED_JUDGE_JSON_SCHEMA,
   );
   return ScoredJudgeOutputSchema.parse(
     JSON.parse(cleanJsonText(raw)) as unknown,

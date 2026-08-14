@@ -287,7 +287,7 @@ describe("reply-quality baseline and scored-mode isolation", () => {
     const result = await runScoredReplyQuality({
       environment: {
         CRM_AI_QUALITY_API_KEY: "synthetic-test-key",
-        CRM_AI_QUALITY_MODEL: "synthetic-test-model",
+        CRM_AI_QUALITY_MODEL: "gemini-2.5-flash",
         CRM_AI_QUALITY_MAX_CASES: "1",
       },
       fetchImplementation,
@@ -313,7 +313,55 @@ describe("reply-quality baseline and scored-mode isolation", () => {
       const requestBody = JSON.parse(String(call[1]?.body)) as {
         generationConfig?: { maxOutputTokens?: number };
       };
-      expect(requestBody.generationConfig?.maxOutputTokens).toBe(512);
+      expect(requestBody.generationConfig).toEqual(
+        expect.objectContaining({
+          maxOutputTokens: 512,
+          responseMimeType: "application/json",
+          responseJsonSchema: expect.objectContaining({ type: "object" }),
+          thinkingConfig: { thinkingBudget: 0 },
+        }),
+      );
     }
+  });
+
+  it("reports a provider token-limit finish without parsing truncated JSON", async () => {
+    const fetchImplementation = jest.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                finishReason: "MAX_TOKENS",
+                content: { parts: [{ text: '{"body":' }] },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    ) as unknown as typeof fetch;
+
+    const result = await runScoredReplyQuality({
+      environment: {
+        CRM_AI_QUALITY_API_KEY: "synthetic-test-key",
+        CRM_AI_QUALITY_MODEL: "gemini-2.5-flash",
+        CRM_AI_QUALITY_MAX_CASES: "1",
+      },
+      fetchImplementation,
+      now: new Date("2026-08-13T00:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      callsMade: 1,
+      summary: { scoredCases: 0, errorCases: 1 },
+      cases: [
+        {
+          status: "error",
+          error: "model_finish_max_tokens",
+          callsMade: 1,
+        },
+      ],
+    });
   });
 });
