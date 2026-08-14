@@ -22,6 +22,8 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:crm-quality": "tsx apps/mercato/src/modules/customers/quality/reply-quality/cli.ts --mode=dry --output=.ai/qa/test-results/crm-quality/dry-run.json",
+    "test:crm-quality:scored": "tsx apps/mercato/src/modules/customers/quality/reply-quality/cli.ts --mode=scored --output=.ai/qa/test-results/crm-quality/scored.json",
     "start": "turbo run start --filter=@open-mercato/app",
     "generate": "turbo run generate --filter=@open-mercato/app",
     "reinstall": "turbo run reinstall --filter=@open-mercato/app",
