@@ -4,6 +4,7 @@ import { registerMcpTool, getToolRegistry } from './tool-registry'
 import type { McpToolDefinition, McpToolContext } from './types'
 import { ToolSearchService } from './tool-search'
 import { loadApiDiscoveryTools } from './api-discovery-tools'
+import { importRuntimeModule } from './runtime-module-import'
 
 /**
  * Module tool definition as exported from ai-tools.ts files.
@@ -194,9 +195,9 @@ export async function loadAllModuleTools(): Promise<void> {
 
       // Import the compiled JavaScript
       const fileUrl = pathToFileURL(jsPath).href
-      const { aiToolConfigEntries } = (await import(fileUrl)) as {
+      const { aiToolConfigEntries } = await importRuntimeModule<{
         aiToolConfigEntries: Array<{ moduleId: string; tools: unknown[] }>
-      }
+      }>(fileUrl)
 
       let totalTools = 0
       for (const { moduleId, tools } of aiToolConfigEntries) {
