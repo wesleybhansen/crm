@@ -5,6 +5,7 @@ import type { McpToolDefinition, McpToolContext } from './types'
 import { ToolSearchService } from './tool-search'
 import { loadApiDiscoveryTools } from './api-discovery-tools'
 import { importRuntimeModule } from './runtime-module-import'
+import { RUNTIME_TOOL_TSCONFIG } from './runtime-tool-compiler'
 
 /**
  * Module tool definition as exported from ai-tools.ts files.
@@ -187,6 +188,7 @@ export async function loadAllModuleTools(): Promise<void> {
           format: 'esm',
           platform: 'node',
           target: 'node18',
+          tsconfigRaw: RUNTIME_TOOL_TSCONFIG,
           plugins: [aliasPlugin, externalNonJsonPlugin],
           loader: { '.json': 'json' },
         })

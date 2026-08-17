@@ -1034,6 +1034,12 @@ if (tool.requiredFeatures?.length) {
 
 ## Changelog
 
+### 2026-08-17 - Standalone Runtime Tool Decorators
+
+**Lesson learned:** Runtime-generated tool bundles MUST pass the legacy TypeScript decorator settings directly to esbuild. Next.js standalone output does not contain the root `tsconfig.base.json`, so relying on automatic tsconfig discovery changes decorator semantics and breaks entity initialization.
+
+**Verification requirement:** Keep the runtime compiler test in the package suite and confirm the signed-in web app loads all auto-discovered tools without a decorator or missing-tsconfig error after a standalone production build.
+
 ### 2026-08-17 - Runtime Module Imports in Next.js Standalone
 
 **Lesson learned:** Generated module URLs that only exist at runtime MUST be loaded through `importRuntimeModule()`. A direct `import(variable)` is rewritten by the Next.js standalone bundler into a webpack context and cannot resolve the generated `.mjs` file in production.
