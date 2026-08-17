@@ -1034,6 +1034,12 @@ if (tool.requiredFeatures?.length) {
 
 ## Changelog
 
+### 2026-08-17 - Runtime Module Imports in Next.js Standalone
+
+**Lesson learned:** Generated module URLs that only exist at runtime MUST be loaded through `importRuntimeModule()`. A direct `import(variable)` is rewritten by the Next.js standalone bundler into a webpack context and cannot resolve the generated `.mjs` file in production.
+
+**Verification requirement:** Keep the runtime import unit test in the package suite and confirm the web app's `/api/tools` path loads auto-discovered module tools after a standalone production build.
+
 ### 2026-07-21 - Listener-First HTTP Startup
 
 **Lesson learned:** Optional discovery indexing must not delay MCP health or request handling. The production HTTP server binds first, schedules indexing in the background, shares one run per container, and cancels the background lifecycle during shutdown.
