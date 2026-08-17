@@ -1,0 +1,11 @@
+[Unit]
+Description=Create a daily encrypted Noli CRM Vault snapshot
+
+[Timer]
+OnBootSec=10m
+OnCalendar=daily
+Persistent=true
+Unit=noli-vault-backup.service
+
+[Install]
+WantedBy=timers.target

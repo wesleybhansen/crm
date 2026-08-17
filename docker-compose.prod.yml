@@ -1,4 +1,25 @@
 services:
+  vault:
+    image: hashicorp/vault:2.0.4@sha256:5be49781ecf78bfe775c5309c6a4d9f4e9e040b6c885c99eb2b12fb69855e1a2
+    container_name: launchos-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    command: ["server", "-config=/vault/config/vault.hcl"]
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+    volumes:
+      - ./ops/vault/vault.hcl:/vault/config/vault.hcl:ro
+      - vault_data:/vault/data
+      - vault_logs:/vault/logs
+    healthcheck:
+      test: ["CMD-SHELL", "vault status >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - launchos-network
+
   app:
     build:
       context: .
@@ -97,6 +118,10 @@ volumes:
     name: launchos-postgres-data
   uploads_data:
     name: launchos-uploads-data
+  vault_data:
+    name: launchos-vault-data
+  vault_logs:
+    name: launchos-vault-logs
   attachments_storage:
     name: launchos-attachments-storage
 
