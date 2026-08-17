@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up the Noli CRM Vault Raft state
+Requires=docker.service
+After=docker.service noli-vault-unseal.service
+
+[Service]
+Type=oneshot
+ExecStart=/root/open-mercato/ops/vault/backup.sh

@@ -1,0 +1,11 @@
+[Unit]
+Description=Unseal the Noli CRM Vault instance
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/root/open-mercato/ops/vault/unseal.sh
+
+[Install]
+WantedBy=multi-user.target
