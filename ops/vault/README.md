@@ -10,7 +10,7 @@ After seeding, restart every application and MCP replica to clear in-memory DEK 
 
 ## Recovery and backups
 
-Production keeps unseal shares under `/root/.noli-vault/recovery` with mode `0400`. The unseal timer retries after host or container restarts. A least-privilege snapshot token is stored separately at `/root/.noli-vault/backup-token`; the backup timer writes encrypted Raft snapshots to `/root/noli-vault-backups` and keeps 30 days.
+Production keeps unseal shares under `/root/.noli-vault/recovery` with mode `0400`. The unseal timer retries after host or container restarts. Least-privilege application and snapshot tokens are stored separately under `/root/.noli-vault`; a daily timer renews the periodic tokens. The backup timer writes encrypted Raft snapshots to `/root/noli-vault-backups` and keeps 30 days.
 
 Install the units after copying this checkout into `/root/open-mercato`:
 
@@ -19,8 +19,10 @@ install -m 0644 ops/vault/noli-vault-unseal.service /etc/systemd/system/
 install -m 0644 ops/vault/noli-vault-unseal.timer /etc/systemd/system/
 install -m 0644 ops/vault/noli-vault-backup.service /etc/systemd/system/
 install -m 0644 ops/vault/noli-vault-backup.timer /etc/systemd/system/
+install -m 0644 ops/vault/noli-vault-renew-tokens.service /etc/systemd/system/
+install -m 0644 ops/vault/noli-vault-renew-tokens.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now noli-vault-unseal.timer noli-vault-backup.timer
+systemctl enable --now noli-vault-unseal.timer noli-vault-backup.timer noli-vault-renew-tokens.timer
 ```
 
 Do not commit recovery shares, root tokens, application tokens, snapshots, or `.env.production`.

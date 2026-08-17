@@ -1,0 +1,11 @@
+[Unit]
+Description=Renew Noli CRM Vault service tokens daily
+
+[Timer]
+OnBootSec=5m
+OnCalendar=daily
+Persistent=true
+Unit=noli-vault-renew-tokens.service
+
+[Install]
+WantedBy=timers.target

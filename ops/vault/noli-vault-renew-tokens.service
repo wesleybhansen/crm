@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew the Noli CRM Vault service tokens
+Requires=docker.service
+After=docker.service noli-vault-unseal.service
+
+[Service]
+Type=oneshot
+ExecStart=/root/open-mercato/ops/vault/renew-tokens.sh
