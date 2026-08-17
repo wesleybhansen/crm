@@ -15,5 +15,5 @@ for token_file in "$token_dir"/app-token "$token_dir"/backup-token; do
   docker exec \
     -e VAULT_ADDR=http://127.0.0.1:8200 \
     -e VAULT_TOKEN="$token" \
-    "$container" vault token renew -self >/dev/null
+    "$container" vault token renew >/dev/null
 done
