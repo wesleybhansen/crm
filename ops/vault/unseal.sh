@@ -28,7 +28,7 @@ for key_file in "$recovery_dir"/unseal-key-1 "$recovery_dir"/unseal-key-2 "$reco
     echo "Missing required unseal key file: $key_file" >&2
     exit 1
   fi
-  docker exec -i "$container" vault operator unseal >/dev/null < "$key_file"
+  docker exec -i "$container" sh -c 'IFS= read -r key; exec vault operator unseal "$key"' >/dev/null < "$key_file"
 done
 
 sealed=$(docker exec "$container" vault status -format=json 2>/dev/null | sed -n 's/.*"sealed"[[:space:]]*:[[:space:]]*\([^,}]*\).*/\1/p' || true)
