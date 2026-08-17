@@ -22,7 +22,7 @@ services:
     depends_on:
       vault-permissions:
         condition: service_completed_successfully
-    command: ["server", "-config=/vault/config/vault.hcl"]
+    command: ["server"]
     environment:
       VAULT_ADDR: http://127.0.0.1:8200
     volumes:
