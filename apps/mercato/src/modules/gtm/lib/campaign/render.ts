@@ -1,6 +1,12 @@
 import crypto from 'crypto'
-import type { CampaignEm, CampaignTemplate, GtmCtx } from './build'
-import { parseStoredAiDrafts, type StoredAiDraft } from './build'
+import type { CampaignEm, CampaignTemplate, GtmCtx, StepSpec } from './build'
+import {
+  MAX_EMAIL_BODY_WORDS,
+  MIN_EMAIL_BODY_WORDS,
+  parseStoredAiDrafts,
+  templateForEmailStep,
+  type StoredAiDraft,
+} from './build'
 import { GtmCampaign, GtmCandidate, GtmEvidence, GtmPlay } from '../../data/entities'
 
 /*
@@ -46,12 +52,16 @@ import { GtmCampaign, GtmCandidate, GtmEvidence, GtmPlay } from '../../data/enti
 
 export type RenderedPreview = {
   candidateId: string
+  stepKey: string
+  stepOrder: number
   subject: string
   bodyHtml: string
   bodyText: string
   contentHash: string
   needsReview: boolean
   missingFields: string[]
+  wordCount: number
+  qualityIssues: string[]
   // How the copy was produced: the deterministic merge template, or an AI
   // draft written in the workspace's locked voice (lib/campaign/ai-draft.ts).
   // Both freeze identically; provenance is display metadata for the reviewer.
@@ -72,8 +82,49 @@ export function substituteUnsubscribeUrl(content: string, url: string): string {
   return content.split(UNSUBSCRIBE_URL_TOKEN).join(url)
 }
 
-export function messageContentHash(subject: string, bodyHtml: string): string {
-  return crypto.createHash('sha256').update(`${subject}\n${bodyHtml}`).digest('hex')
+export function messageContentHash(
+  subject: string,
+  bodyHtml: string,
+  bodyText = '',
+  stepKey = 'email_1',
+): string {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ schema: 'gtm-message-v2', step_key: stepKey, subject, body_html: bodyHtml, body_text: bodyText }))
+    .digest('hex')
+}
+
+export function countMessageWords(value: string): number {
+  return value.trim().split(/\s+/).filter(Boolean).length
+}
+
+function normalizedWordSet(value: string): Set<string> {
+  return new Set(
+    value
+      .toLowerCase()
+      .replace(/\[\[[^\]]+\]\]/g, ' ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter((word) => word.length > 2),
+  )
+}
+
+export function messageSimilarity(left: string, right: string): number {
+  const a = normalizedWordSet(left)
+  const b = normalizedWordSet(right)
+  if (a.size === 0 && b.size === 0) return 1
+  let intersection = 0
+  for (const word of a) if (b.has(word)) intersection += 1
+  return intersection / Math.max(1, a.size + b.size - intersection)
+}
+
+export function messagesAreMateriallyDistinct(left: string, right: string): boolean {
+  const leftCore = left.split('\n\n--\n')[0]
+  const rightCore = right.split('\n\n--\n')[0]
+  const normalizedLeft = leftCore.replace(/\s+/g, ' ').trim().toLowerCase()
+  const normalizedRight = rightCore.replace(/\s+/g, ' ').trim().toLowerCase()
+  return normalizedLeft !== normalizedRight && messageSimilarity(leftCore, rightCore) < 0.72
 }
 
 // Candidate-sourced text is data, never template: strip anything that could
@@ -117,6 +168,7 @@ function substitute(
 // the core copy was produced.
 function finalizeRender(
   candidateId: string,
+  step: Pick<StepSpec, 'key' | 'order'>,
   subject: string,
   bodyTextCore: string,
   bodyHtmlCore: string,
@@ -133,15 +185,24 @@ function finalizeRender(
   // Unsupported {{...}} tokens left in the output (typed into the template or,
   // for AI copy, defensively neutralized upstream) force a human review pass.
   const unresolved = ANY_TOKEN.test(subject) || ANY_TOKEN.test(bodyText)
+  const wordCount = countMessageWords(bodyTextCore)
+  const qualityIssues: string[] = []
+  if (wordCount < MIN_EMAIL_BODY_WORDS) qualityIssues.push('body_too_short')
+  if (wordCount > MAX_EMAIL_BODY_WORDS) qualityIssues.push('body_too_long')
+  if (unresolved) qualityIssues.push('unresolved_template_token')
 
   return {
     candidateId,
+    stepKey: step.key,
+    stepOrder: step.order,
     subject,
     bodyHtml,
     bodyText,
-    contentHash: messageContentHash(subject, bodyHtml),
-    needsReview: missing.size > 0 || unresolved,
+    contentHash: messageContentHash(subject, bodyHtml, bodyText, step.key),
+    needsReview: missing.size > 0 || qualityIssues.length > 0,
     missingFields: [...missing].sort(),
+    wordCount,
+    qualityIssues,
     provenance,
   }
 }
@@ -151,6 +212,7 @@ export function renderForCandidate(
   values: MergeValues,
   candidateId: string,
   postalAddress: string | null = null,
+  step: Pick<StepSpec, 'key' | 'order'> = { key: 'email_1', order: 1 },
 ): RenderedPreview {
   const missing = new Set<string>()
   const identity = (value: string) => value
@@ -162,7 +224,7 @@ export function renderForCandidate(
     /\n/g,
     '<br/>',
   )
-  return finalizeRender(candidateId, subject, bodyText, bodyHtml, postalAddress, missing, 'template')
+  return finalizeRender(candidateId, step, subject, bodyText, bodyHtml, postalAddress, missing, 'template')
 }
 
 // Render a stored AI draft (lib/campaign/ai-draft.ts). The stored body_text is
@@ -173,12 +235,13 @@ export function renderAiDraftForCandidate(
   draft: StoredAiDraft,
   candidateId: string,
   postalAddress: string | null = null,
+  step: Pick<StepSpec, 'key' | 'order'> = { key: 'email_1', order: 1 },
 ): RenderedPreview {
   const missing = new Set<string>()
   const subject = draft.subject.replace(/[{}]/g, '')
   const bodyTextCore = draft.body_text.replace(/[{}]/g, '')
   const bodyHtmlCore = escapeHtml(bodyTextCore).replace(/\n/g, '<br/>')
-  return finalizeRender(candidateId, subject, bodyTextCore, bodyHtmlCore, postalAddress, missing, 'ai')
+  return finalizeRender(candidateId, step, subject, bodyTextCore, bodyHtmlCore, postalAddress, missing, 'ai')
 }
 
 export async function renderMessages(
@@ -190,6 +253,16 @@ export async function renderMessages(
   // The sending org's business postal address from workspace settings
   // (lib/workspace-settings.ts), passed in by the caller.
   postalAddress: string | null = null,
+  steps: StepSpec[] = [{
+    key: 'email_1',
+    order: 1,
+    channel: 'email',
+    mode: 'automated_email',
+    delay_days: 0,
+    depends_on_key: null,
+    dependency_kind: 'none',
+    social_action: null,
+  }],
 ): Promise<RenderedPreview[]> {
   const play = await em.findOne(GtmPlay, {
     id: campaign.playId,
@@ -224,11 +297,11 @@ export async function renderMessages(
     }
   }
 
-  return candidates.map((candidate) => {
-    const stored = aiDrafts[candidate.id]
-    if (stored) {
-      return renderAiDraftForCandidate(stored, candidate.id, postalAddress)
-    }
+  const emailSteps = steps
+    .filter((step) => step.mode === 'automated_email' && step.channel === 'email')
+    .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
+  const rendered: RenderedPreview[] = []
+  for (const candidate of candidates) {
     const identity = (candidate.identity ?? {}) as Record<string, unknown>
     const name = sanitizeMergeValue(identity.name)
     const values: MergeValues = {
@@ -239,6 +312,30 @@ export async function renderMessages(
       signal: sanitizeMergeValue(topClaim.get(candidate.id)?.claim ?? null),
       why_now: whyNow,
     }
-    return renderForCandidate(template, values, candidate.id, postalAddress)
-  })
+    const candidateRows = emailSteps.map((step) => {
+      const stored = aiDrafts[candidate.id]?.[step.key]
+      if (stored) {
+        return renderAiDraftForCandidate(stored, candidate.id, postalAddress, step)
+      }
+      return renderForCandidate(
+        templateForEmailStep(template, step),
+        values,
+        candidate.id,
+        postalAddress,
+        step,
+      )
+    })
+    for (let left = 0; left < candidateRows.length; left += 1) {
+      for (let right = left + 1; right < candidateRows.length; right += 1) {
+        if (messagesAreMateriallyDistinct(candidateRows[left].bodyText, candidateRows[right].bodyText)) continue
+        const issue = `step_not_distinct:${candidateRows[left].stepKey}:${candidateRows[right].stepKey}`
+        if (!candidateRows[left].qualityIssues.includes(issue)) candidateRows[left].qualityIssues.push(issue)
+        if (!candidateRows[right].qualityIssues.includes(issue)) candidateRows[right].qualityIssues.push(issue)
+        candidateRows[left].needsReview = true
+        candidateRows[right].needsReview = true
+      }
+    }
+    rendered.push(...candidateRows)
+  }
+  return rendered
 }

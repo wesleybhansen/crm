@@ -164,6 +164,22 @@ describe('draftReplyWithAi', () => {
     expect(calls).toHaveLength(1)
   })
 
+  it('falls back honestly when a model reply exceeds the deterministic 120-word ceiling', async () => {
+    const em = new FakeEm()
+    const { reply } = await fixtureWithReply(em)
+    await lockVoice(em)
+    const model = jsonModel('Re: onboarding', Array.from({ length: 121 }, () => 'word').join(' '))
+    const { meter, calls } = makeMeterSpy()
+
+    const result = await draftReplyWithAi(em, ctx, { model, meter }, { replyId: reply.id })
+
+    expect(result).toMatchObject({ provenance: 'template', reason: 'draft_failed' })
+    expect((reply.draftResponse as Record<string, unknown>).body).toContain(
+      'Thanks for getting back to me',
+    )
+    expect(calls).toHaveLength(1)
+  })
+
   it('dedupes a same-key repeat: no second model call, no second meter, same draft', async () => {
     const em = new FakeEm()
     const { reply } = await fixtureWithReply(em)

@@ -1,5 +1,5 @@
 import { FakeEm } from './support/fake-em'
-import { ctx, ORG } from './support/campaign-fixtures'
+import { ctx, ORG, TENANT } from './support/campaign-fixtures'
 import {
   FakeTransport,
   LAUNCH_ISO,
@@ -10,6 +10,7 @@ import {
   applyUnsubscribe,
   buildUnsubscribeUrl,
   signUnsubscribeToken,
+  signScopedUnsubscribeToken,
   verifyUnsubscribeToken,
 } from '../unsubscribe'
 import { hashAddress } from '../campaign/exclusions'
@@ -26,6 +27,10 @@ const TICK_ISO = '2026-07-22T16:30:00.000Z'
 describe('unsubscribe token + one-click suppress-and-stop (SPEC-066 section 8)', () => {
   beforeAll(() => {
     process.env.GTM_UNSUBSCRIBE_SECRET = 'test-unsubscribe-secret'
+    process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({
+      test: 'test-versioned-unsubscribe-secret',
+    })
+    process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'test'
     process.env.GTM_PUBLIC_BASE_URL = 'https://crm.fixture.example'
   })
 
@@ -36,6 +41,7 @@ describe('unsubscribe token + one-click suppress-and-stop (SPEC-066 section 8)',
     const token = signUnsubscribeToken(ENROLLMENT, HASH)
     expect(token).toBeTruthy()
     expect(verifyUnsubscribeToken(token)).toEqual({
+      version: 'v1',
       enrollmentId: ENROLLMENT,
       addressHash: HASH,
     })
@@ -61,13 +67,83 @@ describe('unsubscribe token + one-click suppress-and-stop (SPEC-066 section 8)',
   })
 
   it('the List-Unsubscribe URL embeds a verifiable token', () => {
-    const url = buildUnsubscribeUrl(ENROLLMENT, HASH)!
+    const url = buildUnsubscribeUrl({
+      organizationId: ORG,
+      tenantId: TENANT,
+      enrollmentId: ENROLLMENT,
+      addressHash: HASH,
+    })!
     expect(url.startsWith('https://crm.fixture.example/api/gtm/unsubscribe?token=')).toBe(true)
     const token = decodeURIComponent(url.split('token=')[1])
     expect(verifyUnsubscribeToken(token)).toEqual({
+      version: 'v2',
+      organizationId: ORG,
+      tenantId: TENANT,
       enrollmentId: ENROLLMENT,
       addressHash: HASH,
     })
+  })
+
+  it('does not mint a new signed link from the verify-only legacy secret', () => {
+    delete process.env.GTM_UNSUBSCRIBE_KEYRING
+    delete process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID
+    expect(
+      buildUnsubscribeUrl({
+        organizationId: ORG,
+        tenantId: TENANT,
+        enrollmentId: ENROLLMENT,
+        addressHash: HASH,
+      }),
+    ).toBeNull()
+    process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({
+      test: 'test-versioned-unsubscribe-secret',
+    })
+    process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'test'
+  })
+
+  it('rotates versioned signing keys without invalidating retained tokens', () => {
+    process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({
+      k1: 'retained-key-secret-0001',
+      k2: 'active-key-secret-0000002',
+    })
+    process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'k1'
+    const oldToken = signScopedUnsubscribeToken({
+      organizationId: ORG,
+      tenantId: TENANT,
+      enrollmentId: ENROLLMENT,
+      addressHash: HASH,
+    })!
+    expect(oldToken.startsWith('v2.k1.')).toBe(true)
+
+    process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'k2'
+    const newToken = signScopedUnsubscribeToken({
+      organizationId: ORG,
+      tenantId: TENANT,
+      enrollmentId: ENROLLMENT,
+      addressHash: HASH,
+    })!
+    expect(newToken.startsWith('v2.k2.')).toBe(true)
+    expect(verifyUnsubscribeToken(oldToken)).toMatchObject({
+      version: 'v2',
+      organizationId: ORG,
+      tenantId: TENANT,
+      enrollmentId: ENROLLMENT,
+      addressHash: HASH,
+    })
+    expect(verifyUnsubscribeToken(newToken)).toMatchObject({
+      version: 'v2',
+      organizationId: ORG,
+      tenantId: TENANT,
+      enrollmentId: ENROLLMENT,
+      addressHash: HASH,
+    })
+
+    process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({ k2: 'active-key-secret-0000002' })
+    expect(verifyUnsubscribeToken(oldToken)).toBeNull()
+    process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({
+      test: 'test-versioned-unsubscribe-secret',
+    })
+    process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'test'
   })
 
   it('one-click POST: suppression + enrollment stop + attempt cancel + audit in one transaction', async () => {

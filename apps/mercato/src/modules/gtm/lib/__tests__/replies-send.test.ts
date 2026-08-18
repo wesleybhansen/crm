@@ -18,6 +18,10 @@ const SEND_ISO = '2026-07-22T17:00:00.000Z'
 describe('approveAndSendReply (approved-draft SEND path)', () => {
   beforeAll(() => {
     process.env.GTM_UNSUBSCRIBE_SECRET = 'test-unsubscribe-secret'
+    process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({
+      test: 'test-versioned-unsubscribe-secret',
+    })
+    process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'test'
     process.env.GTM_PUBLIC_BASE_URL = 'https://crm.fixture.example'
   })
 
@@ -111,6 +115,31 @@ describe('approveAndSendReply (approved-draft SEND path)', () => {
 
     // A reply send NEVER reopens the stopped enrollment.
     expect(enrollment.status).toBe('stopped')
+  })
+
+  it('omits one-click POST semantics when no rotatable signing key is configured', async () => {
+    const { em, reply } = await prepare()
+    const transport = new FakeTransport()
+    delete process.env.GTM_UNSUBSCRIBE_KEYRING
+    delete process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID
+    try {
+      const result = await approveAndSendReply(
+        em,
+        ctx,
+        { replyId: reply.id },
+        { executionEnabled: true, transport, clock: fixedClock(SEND_ISO) },
+      )
+      expect(result.outcome).toBe('accepted')
+      expect(transport.calls[0].headers['List-Unsubscribe']).toBe(
+        `<mailto:${SENDER_ADDRESS}?subject=unsubscribe>`,
+      )
+      expect(transport.calls[0].headers['List-Unsubscribe-Post']).toBeUndefined()
+    } finally {
+      process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({
+        test: 'test-versioned-unsubscribe-secret',
+      })
+      process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'test'
+    }
   })
 
   it('is idempotent: re-approving after a send returns the existing attempt and sends nothing new', async () => {

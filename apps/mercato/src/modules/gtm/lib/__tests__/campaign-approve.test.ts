@@ -98,6 +98,12 @@ describe('approveCampaign (immutable freeze)', () => {
     expect(rendered).toHaveLength(4)
     const emailStepIds = new Set(steps.filter((s) => s.mode === 'automated_email').map((s) => s.id))
     expect(rendered.every((row) => emailStepIds.has(row.stepId))).toBe(true)
+    for (const enrollment of enrollments) {
+      const sequence = rendered.filter((row) => row.enrollmentId === enrollment.id)
+      expect(sequence).toHaveLength(2)
+      expect(new Set(sequence.map((row) => row.contentHash)).size).toBe(2)
+      expect(new Set(sequence.map((row) => row.subject)).size).toBe(2)
+    }
 
     // Snapshot carries the canonical draft plus created row ids.
     const snapshot = result.version.snapshot as Record<string, unknown>
@@ -107,6 +113,9 @@ describe('approveCampaign (immutable freeze)', () => {
     expect(ids.steps).toHaveLength(4)
     expect(ids.enrollments).toHaveLength(2)
     expect(ids.rendered).toHaveLength(4)
+    expect(
+      (snapshot.rendered as Array<Record<string, unknown>>).map((row) => row.step_key),
+    ).toEqual(expect.arrayContaining(['email_1', 'email_2']))
 
     const audit = em.table(GtmAuditEvent).filter((row) => row.action === 'gtm.campaign.approved')
     expect(audit).toHaveLength(1)
@@ -125,6 +134,26 @@ describe('approveCampaign (immutable freeze)', () => {
     ).rejects.toMatchObject({ code: 'stale_draft' })
     expect(em.table(GtmCampaignVersion)).toHaveLength(0)
     expect(em.table(GtmCampaign)[0].status).toBe('draft')
+  })
+
+  it('rejects approval when any step artifact is outside the word-quality envelope', async () => {
+    const { em, campaign } = await setup({ candidates: 1, linkedin: false })
+    await updateCampaignTemplate(em, ctx, campaign.id, {
+      subject: 'Brief note for {{company}}',
+      body: 'Hi {{first_name}}, quick question?',
+    })
+    const draft = await computeDraftState(em, ctx, campaign)
+    expect(draft.rendered.find((row) => row.stepKey === 'email_1')).toMatchObject({
+      needsReview: true,
+      qualityIssues: expect.arrayContaining(['body_too_short']),
+    })
+    await expect(
+      approveCampaign(em, ctx, {
+        campaignId: campaign.id,
+        expectedContentHash: draft.contentHash,
+      }),
+    ).rejects.toMatchObject({ code: 'message_review_required' })
+    expect(em.table(GtmCampaignVersion)).toHaveLength(0)
   })
 
   it('double-approve with the live hash returns the existing version idempotently', async () => {

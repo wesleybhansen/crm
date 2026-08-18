@@ -1,23 +1,29 @@
+import crypto from 'crypto'
 import type { GtmCtx } from '../campaign/build'
 import type { Clock, ExecutionEm } from '../execute/schedule'
 import { GtmExecutionError } from '../execute/schedule'
 import { keywordClassifier, classifyReply, type ReplyClassifier } from './classify'
+import { hashAddress } from '../campaign/exclusions'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import {
   GtmAuditEvent,
   GtmContactPoint,
   GtmEnrollment,
+  GtmInboundEvent,
   GtmReply,
   GtmSendAttempt,
   GtmStep,
+  GtmSuppression,
 } from '../../data/entities'
 import { EmailMessage } from '../../../email/data/schema'
 
 /*
  * Reply correlation + THE atomic stop (SPEC-066 sections 9, 3.3, Tranche 6).
  *
- * Constraint honored here: nothing outside modules/gtm is edited, so there
- * is no inbox-ingest hook. Correlation instead SCANS recent inbound
- * email_messages rows (org+tenant scoped, direction 'inbound'):
+ * Provider ingestion persists fenced mailbox cursors separately; this
+ * compatibility processor consumes durable inbound email rows within an
+ * explicitly bounded lookback. Every provider event is first deduplicated in
+ * gtm_inbound_events before any delivery, suppression, or stop side effect:
  *
  *   1. Header match: candidate Message-IDs parsed from
  *      metadata.headers['in-reply-to'] / ['references'] (when the ingest
@@ -102,6 +108,9 @@ export type AtomicStopInput = {
   sendAttemptId?: string | null
   stepId?: string | null
   emailMessageId?: string | null
+  inboundEventId?: string | null
+  eventKind?: 'human_reply' | 'social_reply'
+  correlationConfidence?: 'exact_header' | 'provider_message_id' | 'mailbox_counterparty' | 'user_recorded'
   note?: string | null
   actorUserId?: string | null
   requestId?: string | null
@@ -137,6 +146,8 @@ export async function atomicStopWithReply(
         state: 'failed',
         failureReason: 'stopped',
         claimToken: null,
+        claimExpiresAt: null,
+        capacitySlotKey: null,
         failedAt: now,
         updatedAt: now,
       },
@@ -150,6 +161,11 @@ export async function atomicStopWithReply(
       channel: input.channel,
       direction: 'inbound',
       emailMessageId: input.emailMessageId ?? null,
+      inboundEventId: input.inboundEventId ?? null,
+      eventKind: input.eventKind ?? (input.stopReason === 'social_reply' ? 'social_reply' : 'human_reply'),
+      correlationConfidence:
+        input.correlationConfidence ??
+        (input.stopReason === 'social_reply' ? 'user_recorded' : null),
       classification: null,
       classificationSource: null,
       draftResponse: input.note ? { note: input.note } : null,
@@ -171,6 +187,9 @@ export async function atomicStopWithReply(
           stop_reason: input.stopReason,
           channel: input.channel,
           email_message_id: input.emailMessageId ?? null,
+          inbound_event_id: input.inboundEventId ?? null,
+          event_kind: input.eventKind ?? null,
+          correlation_confidence: input.correlationConfidence ?? null,
           step_id: input.stepId ?? null,
         },
       }),
@@ -186,11 +205,481 @@ export type CorrelatedReply = {
   attemptId: string
   enrollmentId: string
   emailMessageId: string
+  inboundEventId: string
+  eventKind: InboundEventKind
 }
 
 export type CorrelateResult = {
   scanned: number
   matched: CorrelatedReply[]
+  systemEvents: number
+  unmatched: number
+  failed: number
+}
+
+export type InboundEventKind =
+  | 'human_reply'
+  | 'delivered'
+  | 'soft_bounce'
+  | 'hard_bounce'
+  | 'complaint'
+  | 'out_of_office'
+  | 'auto_reply'
+  | 'unsubscribe'
+  | 'unknown'
+
+const EVENT_KINDS = new Set<InboundEventKind>([
+  'human_reply',
+  'delivered',
+  'soft_bounce',
+  'hard_bounce',
+  'complaint',
+  'out_of_office',
+  'auto_reply',
+  'unsubscribe',
+  'unknown',
+])
+
+function messageMetadata(message: EmailMessage): Record<string, unknown> {
+  return (message.metadata ?? {}) as Record<string, unknown>
+}
+
+function messageHeaders(message: EmailMessage): Record<string, string> {
+  const headers = messageMetadata(message).headers
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) return {}
+  return Object.fromEntries(
+    Object.entries(headers as Record<string, unknown>)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+      .map(([key, value]) => [key.toLowerCase(), value]),
+  )
+}
+
+/** Classify delivery-system dispositions before any stop side effect. */
+export function detectInboundEventKind(message: EmailMessage): InboundEventKind {
+  const metadata = messageMetadata(message)
+  const explicit = metadata.event_kind
+  if (typeof explicit === 'string' && EVENT_KINDS.has(explicit as InboundEventKind)) {
+    return explicit as InboundEventKind
+  }
+  const headers = messageHeaders(message)
+  const from = (message.fromAddress ?? '').toLowerCase()
+  const subject = (message.subject ?? '').toLowerCase()
+  const autoSubmitted = (headers['auto-submitted'] ?? '').toLowerCase()
+  if (
+    headers['feedback-type'] ||
+    headers['x-complaint-type'] ||
+    metadata.complaint === true
+  ) {
+    return 'complaint'
+  }
+  if (
+    metadata.soft_bounce === true ||
+    metadata.bounce_type === 'soft'
+  ) {
+    return 'soft_bounce'
+  }
+  if (
+    metadata.bounce === true ||
+    /(^|[<@])(mailer-daemon|postmaster)[@>]/.test(from) ||
+    /\b(undeliverable|delivery (status notification|failure)|mail delivery failed|returned mail)\b/.test(
+      subject,
+    )
+  ) {
+    return 'hard_bounce'
+  }
+  if (
+    headers['x-autoreply'] ||
+    headers['x-autorespond'] ||
+    /\b(out of (the )?office|away from (the )?office|on (annual )?leave|vacation reply)\b/.test(
+      subject,
+    )
+  ) {
+    return 'out_of_office'
+  }
+  if (
+    (autoSubmitted && autoSubmitted !== 'no') ||
+    /\b(auto(matic)? reply|auto.?response)\b/.test(subject)
+  ) {
+    return 'auto_reply'
+  }
+  return 'human_reply'
+}
+
+function providerEventId(message: EmailMessage): { provider: string; id: string } {
+  const metadata = messageMetadata(message)
+  const provider =
+    typeof metadata.provider === 'string' && metadata.provider.trim()
+      ? metadata.provider.trim().toLowerCase()
+      : 'email_message'
+  const candidate = metadata.event_id ?? metadata.provider_event_id ?? metadata.provider_message_id
+  return {
+    provider,
+    id: typeof candidate === 'string' && candidate.trim() ? candidate.trim() : `email:${message.id}`,
+  }
+}
+
+function inboundDedupeKey(
+  message: EmailMessage,
+  identity: { provider: string; id: string },
+): string {
+  return crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify({
+        provider: identity.provider,
+        mailbox: message.accountId ?? 'unknown',
+        event: identity.id,
+      }),
+      'utf8',
+    )
+    .digest('hex')
+}
+
+function referencedProviderMessageId(message: EmailMessage): string | null {
+  const metadata = messageMetadata(message)
+  for (const key of [
+    'original_provider_message_id',
+    'in_reply_to_provider_message_id',
+    'sent_provider_message_id',
+  ]) {
+    const value = metadata[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return null
+}
+
+async function persistInboundEvent(
+  em: ExecutionEm,
+  ctx: GtmCtx,
+  message: EmailMessage,
+  kind: InboundEventKind,
+  now: Date,
+): Promise<GtmInboundEvent> {
+  const identity = providerEventId(message)
+  const dedupeKey = inboundDedupeKey(message, identity)
+  const existing = await em.findOne(GtmInboundEvent, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    dedupeKey,
+    deletedAt: null,
+  })
+  if (existing) return existing
+  const event = em.create(GtmInboundEvent, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    mailboxConnectionId: message.accountId ?? null,
+    provider: identity.provider,
+    providerEventId: identity.id,
+    dedupeKey,
+    eventKind: kind,
+    providerMessageId: referencedProviderMessageId(message),
+    rfcMessageId: parseReplyCandidateIds(message)[0] ?? null,
+    emailMessageId: message.id,
+    evidenceRedacted: {
+      source: 'email_message',
+      has_reply_reference: parseReplyCandidateIds(message).length > 0,
+      header_names: Object.keys(messageHeaders(message)).sort(),
+    },
+    occurredAt: message.createdAt ?? now,
+    processingState: 'pending',
+  })
+  em.persist(event)
+  try {
+    await em.flush()
+    return event
+  } catch (error) {
+    if (!(error instanceof UniqueConstraintViolationException)) throw error
+    const winner = await em.findOne(GtmInboundEvent, {
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      dedupeKey,
+      deletedAt: null,
+    })
+    if (!winner) throw error
+    return winner
+  }
+}
+
+async function claimInboundEvent(
+  em: ExecutionEm,
+  event: GtmInboundEvent,
+  now: Date,
+): Promise<{ token: string; fence: number } | null> {
+  if (event.processingState === 'processed' || event.processingState === 'unmatched') return null
+  const token = crypto.randomUUID()
+  const nextFence = event.processingFence + 1
+  const claimed = await em.nativeUpdate(
+    GtmInboundEvent,
+    {
+      id: event.id,
+      organizationId: event.organizationId,
+      tenantId: event.tenantId,
+      processingState: { $in: ['pending', 'failed', 'processing'] },
+      processingFence: event.processingFence,
+      $or: [
+        { processingClaimToken: null },
+        { processingClaimExpiresAt: null },
+        { processingClaimExpiresAt: { $lte: now } },
+      ],
+    },
+    {
+      processingState: 'processing',
+      processingClaimToken: token,
+      processingClaimExpiresAt: new Date(now.getTime() + 5 * 60 * 1000),
+      processingFence: nextFence,
+      lastError: null,
+      updatedAt: now,
+    },
+  )
+  return claimed === 1 ? { token, fence: nextFence } : null
+}
+
+async function finishInboundEvent(
+  em: ExecutionEm,
+  event: GtmInboundEvent,
+  claim: { token: string; fence: number },
+  input: { state: 'processed' | 'unmatched' | 'failed'; now: Date; error?: string | null },
+): Promise<void> {
+  await em.nativeUpdate(
+    GtmInboundEvent,
+    {
+      id: event.id,
+      organizationId: event.organizationId,
+      tenantId: event.tenantId,
+      processingState: 'processing',
+      processingClaimToken: claim.token,
+      processingFence: claim.fence,
+    },
+    {
+      processingState: input.state,
+      processingClaimToken: null,
+      processingClaimExpiresAt: null,
+      processedAt: input.state === 'failed' ? null : input.now,
+      lastError: input.error?.slice(0, 500) ?? null,
+      updatedAt: input.now,
+    },
+  )
+}
+
+type AttemptCorrelation = {
+  attempt: GtmSendAttempt | null
+  method: 'header' | 'provider_message_id' | 'fallback' | null
+  confidence: 'exact_header' | 'provider_message_id' | 'mailbox_counterparty' | 'ambiguous' | 'none'
+}
+
+async function correlateAttempt(
+  em: ExecutionEm,
+  ctx: GtmCtx,
+  message: EmailMessage,
+): Promise<AttemptCorrelation> {
+  if (!message.accountId) {
+    return { attempt: null, method: null, confidence: 'none' }
+  }
+  const mailboxMatches = (attempt: GtmSendAttempt) =>
+    attempt.mailboxConnectionId === message.accountId
+
+  const candidateIds = parseReplyCandidateIds(message)
+  if (candidateIds.length > 0) {
+    const forms = candidateIds.flatMap((id) => [id, `<${id}>`])
+    const matches = (
+      await em.find(GtmSendAttempt, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        rfcMessageId: { $in: forms },
+        deletedAt: null,
+      })
+    ).filter(mailboxMatches)
+    if (matches.length === 1) {
+      return { attempt: matches[0], method: 'header', confidence: 'exact_header' }
+    }
+    if (matches.length > 1) {
+      return { attempt: null, method: 'header', confidence: 'ambiguous' }
+    }
+  }
+
+  const providerReference = referencedProviderMessageId(message)
+  if (providerReference) {
+    const matches = (
+      await em.find(GtmSendAttempt, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        providerMessageId: providerReference,
+        deletedAt: null,
+      })
+    ).filter(mailboxMatches)
+    if (matches.length === 1) {
+      return {
+        attempt: matches[0],
+        method: 'provider_message_id',
+        confidence: 'provider_message_id',
+      }
+    }
+    if (matches.length > 1) {
+      return { attempt: null, method: 'provider_message_id', confidence: 'ambiguous' }
+    }
+  }
+
+  if (message.accountId && message.fromAddress) {
+    const fallback = await fallbackMatch(em, ctx, message)
+    if (fallback.ambiguous) {
+      return { attempt: null, method: 'fallback', confidence: 'ambiguous' }
+    }
+    if (fallback.attempt) {
+      return {
+        attempt: fallback.attempt,
+        method: 'fallback',
+        confidence: 'mailbox_counterparty',
+      }
+    }
+  }
+  return { attempt: null, method: null, confidence: 'none' }
+}
+
+async function resolveAttemptAddress(
+  em: ExecutionEm,
+  attempt: GtmSendAttempt,
+): Promise<string | null> {
+  const enrollment = await em.findOne(GtmEnrollment, {
+    id: attempt.enrollmentId,
+    organizationId: attempt.organizationId,
+    tenantId: attempt.tenantId,
+    deletedAt: null,
+  })
+  if (!enrollment) return null
+  const points = await em.find(GtmContactPoint, {
+    organizationId: attempt.organizationId,
+    tenantId: attempt.tenantId,
+    candidateId: enrollment.candidateId,
+    channel: 'email',
+    verificationState: 'verified',
+    deletedAt: null,
+  })
+  return points[0]?.value?.trim().toLowerCase() ?? null
+}
+
+async function deferAutomatedResponse(
+  em: ExecutionEm,
+  enrollment: GtmEnrollment,
+  now: Date,
+  days: number,
+): Promise<void> {
+  const notBefore = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
+  const attempts = await em.find(GtmSendAttempt, {
+    organizationId: enrollment.organizationId,
+    tenantId: enrollment.tenantId,
+    enrollmentId: enrollment.id,
+    state: { $in: ['planned', 'rendered', 'reviewed', 'approved', 'claimed'] },
+    deletedAt: null,
+  })
+  for (const attempt of attempts) {
+    if (!attempt.scheduledFor || attempt.scheduledFor < notBefore) attempt.scheduledFor = notBefore
+    if (attempt.state === 'claimed') {
+      attempt.state = 'approved'
+      attempt.claimToken = null
+      attempt.claimExpiresAt = null
+    }
+    attempt.capacitySlotKey = null
+    attempt.updatedAt = now
+    em.persist(attempt)
+  }
+  await em.flush()
+}
+
+async function stopForSystemEvent(
+  em: ExecutionEm,
+  enrollment: GtmEnrollment,
+  attempt: GtmSendAttempt,
+  event: GtmInboundEvent,
+  kind: 'hard_bounce' | 'complaint' | 'unsubscribe',
+  now: Date,
+): Promise<void> {
+  const address = await resolveAttemptAddress(em, attempt)
+  await em.transactional(async (tem) => {
+    if (enrollment.status === 'active') {
+      enrollment.status = 'stopped'
+      enrollment.stopReason = kind
+      enrollment.stoppedAt = now
+      tem.persist(enrollment)
+    }
+    await tem.nativeUpdate(
+      GtmSendAttempt,
+      {
+        organizationId: enrollment.organizationId,
+        tenantId: enrollment.tenantId,
+        enrollmentId: enrollment.id,
+        id: { $ne: attempt.id },
+        state: { $in: NON_TERMINAL_CANCELABLE },
+      },
+      {
+        state: 'failed',
+        failureReason: 'stopped',
+        claimToken: null,
+        claimExpiresAt: null,
+        capacitySlotKey: null,
+        failedAt: now,
+        updatedAt: now,
+      },
+    )
+    const targetState = kind === 'complaint' ? 'complained' : kind === 'hard_bounce' ? 'bounced' : 'replied'
+    await tem.nativeUpdate(
+      GtmSendAttempt,
+      {
+        id: attempt.id,
+        organizationId: enrollment.organizationId,
+        tenantId: enrollment.tenantId,
+        state: { $in: PROVIDER_CONTACTED_STATES },
+      },
+      {
+        state: targetState,
+        ...(kind === 'complaint'
+          ? { complainedAt: now }
+          : kind === 'hard_bounce'
+            ? { bouncedAt: now }
+            : { repliedAt: now }),
+        updatedAt: now,
+      },
+    )
+    if (address) {
+      const addressHash = hashAddress(address)
+      const existing = await tem.findOne(GtmSuppression, {
+        organizationId: enrollment.organizationId,
+        channel: 'email',
+        addressHash,
+        deletedAt: null,
+      })
+      if (!existing) {
+        tem.persist(
+          tem.create(GtmSuppression, {
+            organizationId: enrollment.organizationId,
+            tenantId: enrollment.tenantId,
+            scope: 'org',
+            channel: 'email',
+            addressHash,
+            addressDisplay: null,
+            reason: kind,
+            source: { via: 'inbound_event', inbound_event_id: event.id },
+            expiresAt: null,
+          }),
+        )
+      }
+      event.addressHash = addressHash
+      tem.persist(event)
+    }
+    tem.persist(
+      tem.create(GtmAuditEvent, {
+        organizationId: enrollment.organizationId,
+        tenantId: enrollment.tenantId,
+        actor: 'system',
+        actorUserId: null,
+        action: `gtm.delivery.${kind}`,
+        objectType: 'gtm_inbound_event',
+        objectId: event.id,
+        requestId: null,
+        metadata: { enrollment_id: enrollment.id, send_attempt_id: attempt.id },
+      }),
+    )
+    await tem.flush()
+  })
 }
 
 export async function correlateReplies(
@@ -211,97 +700,141 @@ export async function correlateReplies(
   })
 
   const matched: CorrelatedReply[] = []
+  let systemEvents = 0
+  let unmatched = 0
+  let failed = 0
   for (const message of messages) {
-    // Idempotency: one GtmReply per inbound message, ever.
-    const existing = await em.findOne(GtmReply, {
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      emailMessageId: message.id,
-    })
-    if (existing) continue
-
-    let attempt: GtmSendAttempt | null = null
-    let matchedBy: 'header' | 'fallback' = 'header'
-
-    // 1. Header/thread exact match against rfc_message_id (indexed lookup).
-    const candidateIds = parseReplyCandidateIds(message)
-    if (candidateIds.length > 0) {
-      const forms = candidateIds.flatMap((id) => [id, `<${id}>`])
-      const matches = await em.find(GtmSendAttempt, {
+    const kind = detectInboundEventKind(message)
+    const event = await persistInboundEvent(em, ctx, message, kind, now)
+    const claim = await claimInboundEvent(em, event, now)
+    if (!claim) continue
+    try {
+      const correlation = await correlateAttempt(em, ctx, message)
+      event.correlationMethod = correlation.method
+      event.correlationConfidence = correlation.confidence
+      if (!correlation.attempt) {
+        em.persist(event)
+        await em.flush()
+        await finishInboundEvent(em, event, claim, { state: 'unmatched', now })
+        unmatched += 1
+        continue
+      }
+      const attempt = correlation.attempt
+      const enrollment = await em.findOne(GtmEnrollment, {
+        id: attempt.enrollmentId,
         organizationId: ctx.organizationId,
         tenantId: ctx.tenantId,
-        rfcMessageId: { $in: forms },
         deletedAt: null,
       })
-      attempt = matches[0] ?? null
+      if (!enrollment) {
+        await finishInboundEvent(em, event, claim, { state: 'unmatched', now })
+        unmatched += 1
+        continue
+      }
+      event.sendAttemptId = attempt.id
+      event.enrollmentId = enrollment.id
+      const address = await resolveAttemptAddress(em, attempt)
+      event.addressHash = address ? hashAddress(address) : null
+      em.persist(event)
+      await em.flush()
+
+      if (kind === 'delivered') {
+        await em.nativeUpdate(
+          GtmSendAttempt,
+          {
+            id: attempt.id,
+            organizationId: ctx.organizationId,
+            tenantId: ctx.tenantId,
+            state: 'accepted',
+          },
+          { state: 'delivered', deliveredAt: now, updatedAt: now },
+        )
+        systemEvents += 1
+      } else if (kind === 'hard_bounce' || kind === 'complaint' || kind === 'unsubscribe') {
+        await stopForSystemEvent(em, enrollment, attempt, event, kind, now)
+        systemEvents += 1
+      } else if (kind === 'out_of_office' || kind === 'auto_reply') {
+        await deferAutomatedResponse(em, enrollment, now, 7)
+        systemEvents += 1
+      } else if (kind === 'soft_bounce') {
+        // One transient failure does not permanently suppress; apply a
+        // bounded one-day deferral and retain the event for threshold policy.
+        await deferAutomatedResponse(em, enrollment, now, 1)
+        systemEvents += 1
+      } else if (kind === 'unknown') {
+        await finishInboundEvent(em, event, claim, { state: 'unmatched', now })
+        unmatched += 1
+        continue
+      } else {
+        let reply = await em.findOne(GtmReply, {
+          organizationId: ctx.organizationId,
+          tenantId: ctx.tenantId,
+          inboundEventId: event.id,
+        })
+        if (!reply) {
+          reply = await atomicStopWithReply(em, {
+            enrollment,
+            stopReason: 'email_reply',
+            channel: 'email',
+            sendAttemptId: attempt.id,
+            emailMessageId: message.id,
+            inboundEventId: event.id,
+            eventKind: 'human_reply',
+            correlationConfidence:
+              correlation.confidence === 'ambiguous' || correlation.confidence === 'none'
+                ? 'mailbox_counterparty'
+                : correlation.confidence,
+            requestId: ctx.requestId ?? null,
+            now,
+          })
+          await em.nativeUpdate(
+            GtmSendAttempt,
+            {
+              id: attempt.id,
+              organizationId: ctx.organizationId,
+              tenantId: ctx.tenantId,
+              state: { $in: ['accepted', 'delivered'] },
+            },
+            { state: 'replied', repliedAt: now, updatedAt: now },
+          )
+          await classifyReply(
+            em,
+            ctx,
+            { replyId: reply.id },
+            { classifier: input.classifier ?? keywordClassifier, clock: input.clock },
+          )
+        }
+        matched.push({
+          reply,
+          matchedBy: correlation.method === 'fallback' ? 'fallback' : 'header',
+          attemptId: attempt.id,
+          enrollmentId: enrollment.id,
+          emailMessageId: message.id,
+          inboundEventId: event.id,
+          eventKind: kind,
+        })
+      }
+      await finishInboundEvent(em, event, claim, { state: 'processed', now })
+    } catch (error) {
+      failed += 1
+      await finishInboundEvent(em, event, claim, {
+        state: 'failed',
+        now,
+        error: error instanceof Error ? error.message : 'inbound_event_failed',
+      })
     }
-
-    // 2. Fallback: same mailbox + counterparty address of a live enrollment.
-    if (!attempt && message.accountId && message.fromAddress) {
-      attempt = await fallbackMatch(em, ctx, message)
-      matchedBy = 'fallback'
-    }
-    if (!attempt) continue
-
-    const enrollment = await em.findOne(GtmEnrollment, {
-      id: attempt.enrollmentId,
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      deletedAt: null,
-    })
-    if (!enrollment) continue
-
-    const reply = await atomicStopWithReply(em, {
-      enrollment,
-      stopReason: 'email_reply',
-      channel: 'email',
-      sendAttemptId: attempt.id,
-      emailMessageId: message.id,
-      requestId: ctx.requestId ?? null,
-      now,
-    })
-
-    // Post-send transition on the matched attempt: accepted/delivered ->
-    // replied (state-conditional, so terminal/failed rows are untouched).
-    await em.nativeUpdate(
-      GtmSendAttempt,
-      {
-        id: attempt.id,
-        organizationId: ctx.organizationId,
-        tenantId: ctx.tenantId,
-        state: { $in: ['accepted', 'delivered'] },
-      },
-      { state: 'replied', repliedAt: now, updatedAt: now },
-    )
-
-    // Classification runs after the stop committed (section 9); an
-    // unsubscribe classification suppresses in its own transaction.
-    await classifyReply(
-      em,
-      ctx,
-      { replyId: reply.id },
-      { classifier: input.classifier ?? keywordClassifier, clock: input.clock },
-    )
-
-    matched.push({
-      reply,
-      matchedBy,
-      attemptId: attempt.id,
-      enrollmentId: enrollment.id,
-      emailMessageId: message.id,
-    })
   }
 
-  return { scanned: messages.length, matched }
+  return { scanned: messages.length, matched, systemEvents, unmatched, failed }
 }
 
 async function fallbackMatch(
   em: ExecutionEm,
   ctx: GtmCtx,
   message: EmailMessage,
-): Promise<GtmSendAttempt | null> {
+): Promise<{ attempt: GtmSendAttempt | null; ambiguous: boolean }> {
   const address = message.fromAddress.trim().toLowerCase()
-  if (!address) return null
+  if (!address) return { attempt: null, ambiguous: false }
   const points = (
     await em.find(GtmContactPoint, {
       organizationId: ctx.organizationId,
@@ -311,7 +844,7 @@ async function fallbackMatch(
       deletedAt: null,
     })
   ).filter((point) => point.value.trim().toLowerCase() === address)
-  if (points.length === 0) return null
+  if (points.length === 0) return { attempt: null, ambiguous: false }
   const candidateIds = [...new Set(points.map((point) => point.candidateId))]
   const enrollments = (
     await em.find(GtmEnrollment, {
@@ -321,7 +854,7 @@ async function fallbackMatch(
       deletedAt: null,
     })
   ).filter((row) => row.status === 'active')
-  if (enrollments.length === 0) return null
+  if (enrollments.length === 0) return { attempt: null, ambiguous: false }
   const enrollmentIds = enrollments.map((row) => row.id)
   const attempts = (
     await em.find(GtmSendAttempt, {
@@ -332,13 +865,16 @@ async function fallbackMatch(
       deletedAt: null,
     })
   ).filter((row) => row.mailboxConnectionId === message.accountId)
-  if (attempts.length === 0) return null
+  if (attempts.length === 0) return { attempt: null, ambiguous: false }
+  if (new Set(attempts.map((row) => row.enrollmentId)).size !== 1) {
+    return { attempt: null, ambiguous: true }
+  }
   attempts.sort(
     (a, b) =>
       (b.sentAt?.getTime() ?? b.updatedAt?.getTime() ?? 0) -
       (a.sentAt?.getTime() ?? a.updatedAt?.getTime() ?? 0),
   )
-  return attempts[0]
+  return { attempt: attempts[0], ambiguous: false }
 }
 
 // -----------------------------------------------------------------------

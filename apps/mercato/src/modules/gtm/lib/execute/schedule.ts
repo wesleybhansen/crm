@@ -1,11 +1,11 @@
 import crypto from 'crypto'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { CampaignEm, GtmCtx, SendWindow } from '../campaign/build'
 import {
-  DEFAULT_DAILY_CAP,
-  DEFAULT_JITTER_MINUTES,
-  DEFAULT_SEND_WINDOW,
+  DAILY_CAP_CEILING,
+  isValidTimeZone,
 } from '../campaign/build'
+import { approvalEnvelopeMatches, canonicalHash } from '../campaign/approve'
 import {
   GtmAuditEvent,
   GtmCampaign,
@@ -15,6 +15,7 @@ import {
   GtmSendAttempt,
   GtmStep,
 } from '../../data/entities'
+import { EmailConnection } from '../../../email/data/schema'
 
 /*
  * Send-attempt materialization + launch (SPEC-066 sections 4, 6 rule 6,
@@ -51,7 +52,11 @@ export interface ExecutionEm {
   persist(entity: object): unknown
   flush(): Promise<void>
   find<T extends object>(entityClass: new () => T, where: Record<string, unknown>): Promise<T[]>
-  findOne<T extends object>(entityClass: new () => T, where: Record<string, unknown>): Promise<T | null>
+  findOne<T extends object>(
+    entityClass: new () => T,
+    where: Record<string, unknown>,
+    options?: { lockMode?: LockMode },
+  ): Promise<T | null>
   nativeUpdate<T extends object>(
     entityClass: new () => T,
     where: Record<string, unknown>,
@@ -72,6 +77,7 @@ export class GtmExecutionError extends Error {
       | 'version_invalidated'
       | 'stale_approval'
       | 'no_sender'
+      | 'sender_changed'
       | 'attempt_not_claimed'
       | 'enrollment_not_found'
       | 'step_not_found'
@@ -133,34 +139,51 @@ export function parseVersionSettings(version: GtmCampaignVersion): FrozenSendSet
   const snapshot = (version.snapshot ?? {}) as Record<string, unknown>
   const settings = (snapshot.settings ?? {}) as Record<string, unknown>
   const windowRaw = (settings.send_window ?? {}) as Record<string, unknown>
-  return {
+  const parsed: FrozenSendSettings = {
     daily_cap:
       typeof settings.daily_cap === 'number' && Number.isInteger(settings.daily_cap)
         ? (settings.daily_cap as number)
-        : DEFAULT_DAILY_CAP,
+        : Number.NaN,
     send_window: {
       start_hour:
         typeof windowRaw.start_hour === 'number'
           ? (windowRaw.start_hour as number)
-          : DEFAULT_SEND_WINDOW.start_hour,
+          : Number.NaN,
       end_hour:
         typeof windowRaw.end_hour === 'number'
           ? (windowRaw.end_hour as number)
-          : DEFAULT_SEND_WINDOW.end_hour,
+          : Number.NaN,
       timezone:
         typeof windowRaw.timezone === 'string' && windowRaw.timezone
           ? (windowRaw.timezone as string)
-          : DEFAULT_SEND_WINDOW.timezone,
+          : '',
     },
     jitter_minutes:
       typeof settings.jitter_minutes === 'number' && Number.isInteger(settings.jitter_minutes)
         ? (settings.jitter_minutes as number)
-        : DEFAULT_JITTER_MINUTES,
+        : Number.NaN,
     sender_mailbox_id:
       typeof settings.sender_mailbox_id === 'string' && settings.sender_mailbox_id
         ? (settings.sender_mailbox_id as string)
         : null,
   }
+  if (
+    !Number.isInteger(parsed.daily_cap)
+    || parsed.daily_cap < 1
+    || parsed.daily_cap > DAILY_CAP_CEILING
+    || !Number.isInteger(parsed.send_window.start_hour)
+    || !Number.isInteger(parsed.send_window.end_hour)
+    || parsed.send_window.start_hour < 0
+    || parsed.send_window.end_hour > 24
+    || parsed.send_window.end_hour <= parsed.send_window.start_hour
+    || !Number.isInteger(parsed.jitter_minutes)
+    || parsed.jitter_minutes < 0
+    || parsed.jitter_minutes > 120
+    || !isValidTimeZone(parsed.send_window.timezone)
+  ) {
+    throw new GtmExecutionError('stale_approval', 'The approved capacity envelope is invalid')
+  }
+  return parsed
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +246,27 @@ export function zonedParts(
   return out
 }
 
+export function zonedDayKey(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const values = new Map(parts.map((part) => [part.type, part.value]))
+  return `${values.get('year')}-${values.get('month')}-${values.get('day')}`
+}
+
+export function isWithinBusinessWindow(date: Date, window: SendWindow): boolean {
+  const parts = zonedParts(date, window.timezone)
+  return (
+    parts.weekday >= 1
+    && parts.weekday <= 5
+    && parts.hour >= window.start_hour
+    && parts.hour < window.end_hour
+  )
+}
+
 // Deterministic jitter in [0, maxMinutes], seeded from the enrollment and
 // step ids (sha256, no Math.random) so re-materialization is reproducible.
 export function deterministicJitterMinutes(seed: string, maxMinutes: number): number {
@@ -269,6 +313,126 @@ export function computeScheduledFor(
   return clampToBusinessWindow(base, window)
 }
 
+export function allocateDailyCapacitySlot(
+  candidate: Date,
+  settings: Pick<FrozenSendSettings, 'daily_cap' | 'send_window'>,
+  reservationsByDay: Map<string, number>,
+): Date {
+  let slot = clampToBusinessWindow(candidate, settings.send_window)
+  for (let day = 0; day < 370; day += 1) {
+    const key = zonedDayKey(slot, settings.send_window.timezone)
+    const reserved = reservationsByDay.get(key) ?? 0
+    if (reserved < settings.daily_cap) {
+      reservationsByDay.set(key, reserved + 1)
+      return slot
+    }
+    slot = clampToBusinessWindow(
+      new Date(slot.getTime() + 24 * 3600 * 1000),
+      settings.send_window,
+    )
+  }
+  throw new GtmExecutionError('invalid_state', 'No mailbox capacity is available in the scheduling horizon')
+}
+
+export const CAPACITY_RESERVED_STATES = [
+  'approved',
+  'claimed',
+  'provider_started',
+  'accepted',
+  'delivered',
+  'bounced',
+  'complained',
+  'replied',
+  'ambiguous',
+] as const
+
+export function capacityTimestamp(attempt: GtmSendAttempt): Date | null {
+  if (
+    attempt.state === 'provider_started'
+    || attempt.state === 'accepted'
+    || attempt.state === 'delivered'
+    || attempt.state === 'bounced'
+    || attempt.state === 'complained'
+    || attempt.state === 'replied'
+    || attempt.state === 'ambiguous'
+  ) {
+    return attempt.sentAt ?? attempt.ambiguousAt ?? attempt.updatedAt ?? attempt.scheduledFor ?? null
+  }
+  return attempt.scheduledFor ?? null
+}
+
+export function buildCapacityReservations(
+  attempts: GtmSendAttempt[],
+  timezone: string,
+  excludeAttemptId?: string,
+): Map<string, number> {
+  const reservations = new Map<string, number>()
+  for (const attempt of attempts) {
+    if (attempt.id === excludeAttemptId) continue
+    const timestamp = capacityTimestamp(attempt)
+    if (!timestamp) continue
+    const key = zonedDayKey(timestamp, timezone)
+    reservations.set(key, (reservations.get(key) ?? 0) + 1)
+  }
+  return reservations
+}
+
+const CAPACITY_SLOT_SCHEMA = 'v1'
+
+/**
+ * Allocate one durable ordinal within a mailbox-local day. The mailbox row is
+ * locked by launch/send callers before this helper runs; the database unique
+ * constraint is the final fence if a caller ever violates that lock order.
+ * Legacy rows without keys consume the lowest available ordinals so they
+ * cannot be ignored during an additive schema upgrade.
+ */
+export function allocateCapacitySlotKey(
+  mailboxConnectionId: string,
+  scheduledFor: Date,
+  settings: Pick<FrozenSendSettings, 'daily_cap' | 'send_window'>,
+  attempts: GtmSendAttempt[],
+  options: { excludeAttemptId?: string; preferredKey?: string | null } = {},
+): string {
+  const day = zonedDayKey(scheduledFor, settings.send_window.timezone)
+  const prefix = `${CAPACITY_SLOT_SCHEMA}:${mailboxConnectionId}:${day}:`
+  const occupied = new Set<number>()
+  let legacyRows = 0
+  for (const attempt of attempts) {
+    if (attempt.id === options.excludeAttemptId) continue
+    const timestamp = capacityTimestamp(attempt)
+    if (!timestamp || zonedDayKey(timestamp, settings.send_window.timezone) !== day) continue
+    const raw = attempt.capacitySlotKey
+    if (typeof raw === 'string' && raw.startsWith(prefix)) {
+      const ordinal = Number(raw.slice(prefix.length))
+      if (Number.isInteger(ordinal) && ordinal >= 1 && ordinal <= settings.daily_cap) {
+        occupied.add(ordinal)
+        continue
+      }
+    }
+    legacyRows += 1
+  }
+  for (let ordinal = 1; ordinal <= settings.daily_cap && legacyRows > 0; ordinal += 1) {
+    if (occupied.has(ordinal)) continue
+    occupied.add(ordinal)
+    legacyRows -= 1
+  }
+  if (options.preferredKey?.startsWith(prefix)) {
+    const preferredOrdinal = Number(options.preferredKey.slice(prefix.length))
+    if (
+      Number.isInteger(preferredOrdinal)
+      && preferredOrdinal >= 1
+      && preferredOrdinal <= settings.daily_cap
+      && !occupied.has(preferredOrdinal)
+    ) {
+      return options.preferredKey
+    }
+  }
+  for (let ordinal = 1; ordinal <= settings.daily_cap; ordinal += 1) {
+    if (!occupied.has(ordinal)) return `${prefix}${ordinal}`
+  }
+  throw new GtmExecutionError('invalid_state', 'No durable mailbox capacity slot is available')
+}
+
 // ---------------------------------------------------------------------------
 // Materialization
 // ---------------------------------------------------------------------------
@@ -295,6 +459,39 @@ export async function materializeSendAttempts(
       'The approved version has no sender mailbox; set mailbox_connection_id and re-approve',
     )
   }
+  if (!approvalEnvelopeMatches(campaignVersion.snapshot, campaignVersion.contentHash)) {
+    throw new GtmExecutionError('stale_approval', 'The approved campaign envelope no longer matches its hash')
+  }
+  const snapshot = campaignVersion.snapshot as Record<string, unknown>
+  const snapshotSettings = (snapshot.settings ?? {}) as Record<string, unknown>
+  const approvedSender = snapshotSettings.sender as Record<string, unknown> | null | undefined
+  const connection = await em.findOne(
+    EmailConnection,
+    {
+      id: settings.sender_mailbox_id,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      deletedAt: null,
+    },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+  )
+  if (!connection || !connection.isActive || !approvedSender) {
+    throw new GtmExecutionError('no_sender', 'The approved sender is missing or inactive')
+  }
+  const senderMaterial = {
+    mailbox_connection_id: connection.id,
+    provider: connection.provider,
+    email_address: connection.emailAddress.trim().toLowerCase(),
+    user_id: connection.userId,
+    purpose: connection.purpose ?? null,
+    updated_at: connection.updatedAt.toISOString(),
+  }
+  if (
+    approvedSender.mailbox_connection_id !== connection.id
+    || approvedSender.fingerprint !== canonicalHash(senderMaterial)
+  ) {
+    throw new GtmExecutionError('sender_changed', 'The approved sender changed before launch')
+  }
   const launchAt = deps.launchAt ?? deps.clock?.now() ?? new Date()
 
   const steps = (
@@ -308,14 +505,14 @@ export async function materializeSendAttempts(
   // Manual social steps are tasks (Tranche 7), never send attempts.
   const emailSteps = steps.filter((step) => step.mode === 'automated_email')
 
-  const enrollments = await em.find(GtmEnrollment, {
+  const enrollments = (await em.find(GtmEnrollment, {
     organizationId: ctx.organizationId,
     tenantId: ctx.tenantId,
     campaignId: campaignVersion.campaignId,
     campaignVersionId: campaignVersion.id,
     status: 'active',
     deletedAt: null,
-  })
+  })).sort((a, b) => a.id.localeCompare(b.id))
 
   const renderedRows = await em.find(GtmRenderedMessage, {
     organizationId: ctx.organizationId,
@@ -329,37 +526,44 @@ export async function materializeSendAttempts(
 
   const created: GtmSendAttempt[] = []
   const existing: GtmSendAttempt[] = []
+  const reservedAttempts = await em.find(GtmSendAttempt, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    mailboxConnectionId: settings.sender_mailbox_id,
+    state: { $in: [...CAPACITY_RESERVED_STATES] },
+    deletedAt: null,
+  })
+  const reservations = buildCapacityReservations(
+    reservedAttempts,
+    settings.send_window.timezone,
+  )
+  const intents: Array<{
+    enrollment: GtmEnrollment
+    step: GtmStep
+    rendered: GtmRenderedMessage
+    idempotencyKey: string
+    earliest: Date
+  }> = []
   for (const enrollment of enrollments) {
     for (const step of emailSteps) {
       const rendered = renderedByEnrollmentStep.get(`${enrollment.id}:${step.id}`)
-      // No frozen message means the pair was never approved; nothing to send.
       if (!rendered) continue
       const idempotencyKey = buildSendIdempotencyKey(enrollment.id, readStepKey(step), 1)
       const already = await em.findOne(GtmSendAttempt, {
         organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
         idempotencyKey,
       })
       if (already) {
         existing.push(already)
         continue
       }
-      const attempt = em.create(GtmSendAttempt, {
-        id: crypto.randomUUID(),
-        organizationId: ctx.organizationId,
-        tenantId: ctx.tenantId,
-        enrollmentId: enrollment.id,
-        stepId: step.id,
-        renderedMessageId: rendered.id,
-        campaignVersionId: campaignVersion.id,
-        mailboxConnectionId: settings.sender_mailbox_id,
-        state: 'approved',
-        claimToken: null,
-        claimExpiresAt: null,
-        fence: 0,
-        attemptNo: 1,
+      intents.push({
+        enrollment,
+        step,
+        rendered,
         idempotencyKey,
-        rfcMessageId: null,
-        scheduledFor: computeScheduledFor(
+        earliest: computeScheduledFor(
           launchAt,
           step.delayDays,
           settings.send_window,
@@ -367,9 +571,42 @@ export async function materializeSendAttempts(
           `${enrollment.id}:${step.id}`,
         ),
       })
-      em.persist(attempt)
-      created.push(attempt)
     }
+  }
+  intents.sort((left, right) =>
+    left.earliest.getTime() - right.earliest.getTime()
+    || left.idempotencyKey.localeCompare(right.idempotencyKey),
+  )
+  for (const intent of intents) {
+    const scheduledFor = allocateDailyCapacitySlot(intent.earliest, settings, reservations)
+    const capacitySlotKey = allocateCapacitySlotKey(
+      settings.sender_mailbox_id,
+      scheduledFor,
+      settings,
+      reservedAttempts,
+    )
+    const attempt = em.create(GtmSendAttempt, {
+      id: crypto.randomUUID(),
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      enrollmentId: intent.enrollment.id,
+      stepId: intent.step.id,
+      renderedMessageId: intent.rendered.id,
+      campaignVersionId: campaignVersion.id,
+      mailboxConnectionId: settings.sender_mailbox_id,
+      state: 'approved',
+      claimToken: null,
+      claimExpiresAt: null,
+      fence: 0,
+      attemptNo: 1,
+      idempotencyKey: intent.idempotencyKey,
+      rfcMessageId: null,
+      scheduledFor,
+      capacitySlotKey,
+    })
+    em.persist(attempt)
+    created.push(attempt)
+    reservedAttempts.push(attempt)
   }
   return { created, existing }
 }

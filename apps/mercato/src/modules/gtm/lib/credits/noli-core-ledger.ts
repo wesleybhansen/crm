@@ -10,6 +10,11 @@ import {
   type GtmSettleOutcome,
   type GtmStartResult,
 } from './ledger'
+import type {
+  GtmCanonicalOperatorReconciler,
+  GtmCanonicalOperatorReconciliationRequest,
+  GtmCanonicalOperatorReconciliationResult,
+} from '../reconciliation/operator'
 
 /*
  * NoliCoreRpcLedger (SPEC-066 section 11.2, Tranche 4): the REAL
@@ -129,7 +134,7 @@ function parseStatus(operation: string, row: RpcRow): GtmLedgerStatus {
 }
 
 export class NoliCoreRpcLedger implements GtmCreditLedger {
-  private clientFactory: () => Promise<NoliCoreRpcClient>
+  protected clientFactory: () => Promise<NoliCoreRpcClient>
 
   constructor(client?: NoliCoreRpcClient | (() => Promise<NoliCoreRpcClient>)) {
     if (typeof client === 'function') {
@@ -146,7 +151,7 @@ export class NoliCoreRpcLedger implements GtmCreditLedger {
     }
   }
 
-  private async rpc(operation: string, fn: string, args: Record<string, unknown>): Promise<RpcRow> {
+  protected async rpc(operation: string, fn: string, args: Record<string, unknown>): Promise<RpcRow> {
     let data: unknown
     let error: { message?: string } | null
     try {
@@ -234,6 +239,73 @@ export class NoliCoreRpcLedger implements GtmCreditLedger {
       p_operation_id: operationId,
     })
     return parseStatus('release', row)
+  }
+}
+
+export class NoliCoreOperatorReconciler
+  extends NoliCoreRpcLedger
+  implements GtmCanonicalOperatorReconciler
+{
+  async reconcile(
+    request: GtmCanonicalOperatorReconciliationRequest,
+  ): Promise<GtmCanonicalOperatorReconciliationResult> {
+    const row = await this.rpc('operatorReconcile', 'provider_op_reconcile', {
+      p_org: request.organizationId,
+      p_actor: request.actorUserId,
+      p_operation_id: request.operationId,
+      p_previous_status: request.previousStatus,
+      p_outcome: request.outcome,
+      p_charged_credits: request.chargedCredits,
+      p_receipt: request.receipt,
+      p_binding: request.binding,
+    })
+    const operationId = row.operation_id
+    if (typeof operationId !== 'string' || operationId.length === 0) {
+      throw new NoliCoreLedgerTransportError(
+        'operatorReconcile',
+        'RPC response missing operation_id',
+      )
+    }
+    const chargedCredits = row.charged_credits
+    if (!Number.isSafeInteger(chargedCredits) || (chargedCredits as number) < 0) {
+      throw new NoliCoreLedgerTransportError(
+        'operatorReconcile',
+        'RPC response missing charged_credits',
+      )
+    }
+    const rawBinding = row.binding
+    let binding: GtmCanonicalOperatorReconciliationResult['binding'] = null
+    if (rawBinding != null) {
+      if (!rawBinding || typeof rawBinding !== 'object' || Array.isArray(rawBinding)) {
+        throw new NoliCoreLedgerTransportError(
+          'operatorReconcile',
+          'RPC response has invalid binding',
+        )
+      }
+      const value = rawBinding as Record<string, unknown>
+      for (const key of [
+        'schemaVersion',
+        'idempotencyKey',
+        'auditEventId',
+        'evidenceHash',
+        'decisionHash',
+        'decidedAt',
+      ]) {
+        if (typeof value[key] !== 'string' || value[key] === '') {
+          throw new NoliCoreLedgerTransportError(
+            'operatorReconcile',
+            `RPC response has invalid binding.${key}`,
+          )
+        }
+      }
+      binding = value as unknown as GtmCanonicalOperatorReconciliationResult['binding']
+    }
+    return {
+      operationId,
+      status: parseStatus('operatorReconcile', row),
+      chargedCredits: chargedCredits as number,
+      binding,
+    }
   }
 }
 

@@ -1,9 +1,14 @@
-import crypto from 'crypto'
 import { FakeEm } from './support/fake-em'
 import { ctx, POSTAL_ADDRESS, seedCandidate, seedPlay, seedRun, WORKSPACE } from './support/campaign-fixtures'
-import { createCampaign } from '../campaign/build'
+import {
+  MAX_EMAIL_BODY_WORDS,
+  MIN_EMAIL_BODY_WORDS,
+  buildSteps,
+  createCampaign,
+} from '../campaign/build'
 import {
   messageContentHash,
+  messagesAreMateriallyDistinct,
   renderMessages,
   sanitizeMergeValue,
   substituteUnsubscribeUrl,
@@ -70,10 +75,36 @@ describe('renderMessages (deterministic per-recipient rendering)', () => {
     const [first] = await renderMessages(em, ctx, campaign, [candidate], TEMPLATE, POSTAL_ADDRESS)
     const [second] = await renderMessages(em, ctx, campaign, [candidate], TEMPLATE, POSTAL_ADDRESS)
     expect(first.contentHash).toBe(second.contentHash)
-    expect(first.contentHash).toBe(
-      crypto.createHash('sha256').update(`${first.subject}\n${first.bodyHtml}`).digest('hex'),
+    expect(
+      messageContentHash(first.subject, first.bodyHtml, first.bodyText, first.stepKey),
+    ).toBe(first.contentHash)
+  })
+
+  it('renders one materially distinct, bounded artifact per email step', async () => {
+    const { em, run, campaign } = await setup()
+    const candidate = await seedCandidate(em, run, {
+      name: 'Ada Synthetic',
+      company: 'Looply Labs',
+      evidenceClaim: 'the team added three revenue operations roles this month',
+    })
+    const rows = await renderMessages(
+      em,
+      ctx,
+      campaign,
+      [candidate],
+      TEMPLATE,
+      POSTAL_ADDRESS,
+      buildSteps({ emails: 3 }),
     )
-    expect(messageContentHash(first.subject, first.bodyHtml)).toBe(first.contentHash)
+
+    expect(rows.map((row) => row.stepKey)).toEqual(['email_1', 'email_2', 'email_3'])
+    expect(new Set(rows.map((row) => row.contentHash)).size).toBe(3)
+    expect(rows.every((row) => !row.needsReview)).toBe(true)
+    expect(rows.every(
+      (row) => row.wordCount >= MIN_EMAIL_BODY_WORDS && row.wordCount <= MAX_EMAIL_BODY_WORDS,
+    )).toBe(true)
+    expect(messagesAreMateriallyDistinct(rows[0].bodyText, rows[1].bodyText)).toBe(true)
+    expect(messagesAreMateriallyDistinct(rows[1].bodyText, rows[2].bodyText)).toBe(true)
   })
 
   it('treats candidate-sourced text as data: a {{evil}} value is never expanded', async () => {
@@ -156,7 +187,9 @@ describe('compliance footer (CAN-SPAM sender address + unsubscribe token)', () =
     const [withB] = await renderMessages(em, ctx, campaign, [candidate], TEMPLATE, '1 Other Rd, Reno, NV 89501')
     expect(withA.contentHash).not.toBe(withB.contentHash)
     // The hash is over the footer-carrying body, token included.
-    expect(withA.contentHash).toBe(messageContentHash(withA.subject, withA.bodyHtml))
+    expect(
+      messageContentHash(withA.subject, withA.bodyHtml, withA.bodyText, withA.stepKey),
+    ).toBe(withA.contentHash)
     expect(withA.bodyHtml).toContain(UNSUBSCRIBE_URL_TOKEN)
   })
 

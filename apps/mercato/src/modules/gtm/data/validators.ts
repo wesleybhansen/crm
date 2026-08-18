@@ -318,6 +318,11 @@ export const gtmExecutionBodySchema = z.discriminatedUnion('op', [
     sinceMinutes: z.number().int().min(1).max(60 * 24 * 30).optional(),
   }),
   z.object({
+    op: z.literal('cursor-status'),
+    noliUserId: idString,
+    mailboxConnectionId: idString.optional(),
+  }),
+  z.object({
     op: z.literal('status'),
     noliUserId: idString,
     campaignId: idString,
@@ -394,6 +399,47 @@ export const gtmInboxBodySchema = z.discriminatedUnion('op', [
 ])
 
 export type GtmInboxBody = z.infer<typeof gtmInboxBodySchema>
+
+export const gtmPrivacyBodySchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('status'),
+    noliUserId: idString,
+    requestId: idString,
+  }),
+])
+
+export type GtmPrivacyBody = z.infer<typeof gtmPrivacyBodySchema>
+
+const reconciliationEvidenceSchema = z.object({
+  source: z.string().trim().min(1).max(100),
+  reference: z.string().trim().min(1).max(500),
+  observedAt: z.string().datetime({ offset: true }),
+  summary: z.string().trim().min(1).max(2000),
+  details: z.record(z.string(), z.unknown()),
+})
+
+const reconciliationDecisionSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('release') }),
+  z.object({ outcome: z.literal('refunded'), chargedCredits: z.literal(0).optional() }),
+  z.object({
+    outcome: z.enum(['charged', 'partially_charged']),
+    chargedCredits: z.number().int().min(0),
+  }),
+])
+
+export const gtmReconciliationBodySchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('list'), noliUserId: idString }),
+  z.object({
+    op: z.literal('apply'),
+    noliUserId: idString,
+    operationId: idString,
+    idempotencyKey: z.string().trim().min(8).max(200),
+    decision: reconciliationDecisionSchema,
+    evidence: reconciliationEvidenceSchema,
+  }),
+])
+
+export type GtmReconciliationBody = z.infer<typeof gtmReconciliationBodySchema>
 
 // ---------------------------------------------------------------------------
 // Tranche 7: manual social tasks + campaign timeline (SPEC-066 sections 9,

@@ -799,6 +799,7 @@ export class GtmRenderedMessage {
 @Index({ name: 'gtm_send_attempts_org_tenant_state_due_idx', properties: ['organizationId', 'tenantId', 'state', 'scheduledFor'] })
 @Index({ name: 'gtm_send_attempts_rfc_message_id_idx', properties: ['rfcMessageId'] })
 @Unique({ name: 'gtm_send_attempts_org_idempotency_unique', properties: ['organizationId', 'idempotencyKey'] })
+@Unique({ name: 'gtm_send_attempts_org_capacity_slot_unique', properties: ['organizationId', 'capacitySlotKey'] })
 export class GtmSendAttempt {
   [OptionalProps]?: 'id' | 'state' | 'fence' | 'attemptNo' | 'createdAt' | 'updatedAt'
 
@@ -875,6 +876,11 @@ export class GtmSendAttempt {
   @Property({ name: 'scheduled_for', type: 'timestamptz', nullable: true })
   scheduledFor?: Date | null
 
+  // v1:mailbox-id:local-date:ordinal, allocated transactionally. Nullable for
+  // manual-social and pre-C1 rows; Postgres permits multiple nulls in UNIQUE.
+  @Property({ name: 'capacity_slot_key', type: 'text', nullable: true })
+  capacitySlotKey?: string | null
+
   @Property({ name: 'sent_at', type: 'timestamptz', nullable: true })
   sentAt?: Date | null
 
@@ -910,6 +916,9 @@ export class GtmSendAttempt {
 @Entity({ tableName: 'gtm_replies' })
 @Index({ name: 'gtm_replies_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'gtm_replies_org_tenant_enrollment_idx', properties: ['organizationId', 'tenantId', 'enrollmentId'] })
+@Unique({ name: 'gtm_replies_org_tenant_event_unique', properties: ['organizationId', 'tenantId', 'inboundEventId'] })
+@Unique({ name: 'gtm_replies_org_tenant_message_unique', properties: ['organizationId', 'tenantId', 'emailMessageId'] })
+@Unique({ name: 'gtm_replies_org_tenant_social_step_unique', properties: ['organizationId', 'tenantId', 'enrollmentId', 'stepId'] })
 export class GtmReply {
   [OptionalProps]?: 'id' | 'direction' | 'draftStatus' | 'createdAt' | 'updatedAt'
 
@@ -949,6 +958,18 @@ export class GtmReply {
   // -> email_messages.id (cross-module, plain uuid)
   @Property({ name: 'email_message_id', type: 'uuid', nullable: true })
   emailMessageId?: string | null
+
+  // -> gtm_inbound_events.id; nullable for legacy/user-recorded social replies.
+  @Property({ name: 'inbound_event_id', type: 'uuid', nullable: true })
+  inboundEventId?: string | null
+
+  // human_reply | social_reply. Delivery-system events never create a reply.
+  @Property({ name: 'event_kind', type: 'text', nullable: true })
+  eventKind?: string | null
+
+  // exact_header | provider_message_id | mailbox_counterparty | user_recorded
+  @Property({ name: 'correlation_confidence', type: 'text', nullable: true })
+  correlationConfidence?: string | null
 
   // interested | neutral_question | not_now | referral | unsubscribe | wrong_person | negative
   @Property({ type: 'text', nullable: true })
@@ -1079,6 +1100,349 @@ export class GtmProviderOperation {
 
   @Property({ name: 'settled_at', type: 'timestamptz', nullable: true })
   settledAt?: Date | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gtm_provider_reconciliation_actions' })
+@Index({ name: 'gtm_provider_reconciliation_actions_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'gtm_provider_reconciliation_actions_operation_idx', properties: ['organizationId', 'tenantId', 'providerOperationId'] })
+@Unique({ name: 'gtm_provider_reconciliation_actions_org_key_unique', properties: ['organizationId', 'idempotencyKey'] })
+export class GtmProviderReconciliationAction {
+  [OptionalProps]?: 'id' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => GtmProviderOperation, { fieldName: 'provider_operation_id', mapToPk: true })
+  providerOperationId!: string
+
+  @Property({ name: 'idempotency_key', type: 'text' })
+  idempotencyKey!: string
+
+  // release | charged | partially_charged | refunded
+  @Property({ type: 'text' })
+  decision!: string
+
+  @Property({ name: 'expected_status', type: 'text' })
+  expectedStatus!: string
+
+  @Property({ name: 'resulting_status', type: 'text', nullable: true })
+  resultingStatus?: string | null
+
+  @Property({ name: 'charged_credits', type: 'bigint', nullable: true })
+  chargedCredits?: number | null
+
+  @Property({ name: 'evidence_hash', type: 'text' })
+  evidenceHash!: string
+
+  @Property({ name: 'evidence_redacted', type: 'jsonb' })
+  evidenceRedacted!: Record<string, unknown>
+
+  @Property({ name: 'actor_user_id', type: 'uuid' })
+  actorUserId!: string
+
+  // pending -> completed | rejected
+  @Property({ type: 'text', default: 'pending' })
+  status: string = 'pending'
+
+  @Property({ name: 'failure_reason', type: 'text', nullable: true })
+  failureReason?: string | null
+
+  @Property({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt?: Date | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gtm_mailbox_cursors' })
+@Index({ name: 'gtm_mailbox_cursors_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'gtm_mailbox_cursors_mailbox_provider_kind_unique', properties: ['organizationId', 'tenantId', 'mailboxConnectionId', 'provider', 'cursorKind'] })
+export class GtmMailboxCursor {
+  [OptionalProps]?: 'id' | 'fence' | 'status' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  // -> email_connections.id (cross-module, plain uuid)
+  @Property({ name: 'mailbox_connection_id', type: 'uuid' })
+  mailboxConnectionId!: string
+
+  @Property({ type: 'text' })
+  provider!: string
+
+  @Property({ name: 'cursor_kind', type: 'text' })
+  cursorKind!: string
+
+  @Property({ name: 'cursor_hash', type: 'text', nullable: true })
+  cursorHash?: string | null
+
+  // Tenant-encrypted/codec-sealed opaque value only; never plaintext provider URLs.
+  @Property({ name: 'sealed_cursor', type: 'text', nullable: true })
+  sealedCursor?: string | null
+
+  @Property({ name: 'last_occurred_at', type: 'timestamptz', nullable: true })
+  lastOccurredAt?: Date | null
+
+  @Property({ name: 'last_message_id', type: 'uuid', nullable: true })
+  lastMessageId?: string | null
+
+  @Property({ name: 'lease_token', type: 'uuid', nullable: true })
+  leaseToken?: string | null
+
+  @Property({ name: 'lease_expires_at', type: 'timestamptz', nullable: true })
+  leaseExpiresAt?: Date | null
+
+  @Property({ type: 'integer', default: 0 })
+  fence: number = 0
+
+  // idle | running | error | resync_required
+  @Property({ type: 'text', default: 'idle' })
+  status: string = 'idle'
+
+  @Property({ name: 'last_success_at', type: 'timestamptz', nullable: true })
+  lastSuccessAt?: Date | null
+
+  @Property({ name: 'last_error', type: 'text', nullable: true })
+  lastError?: string | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gtm_inbound_events' })
+@Index({ name: 'gtm_inbound_events_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'gtm_inbound_events_attempt_idx', properties: ['organizationId', 'tenantId', 'sendAttemptId'] })
+@Unique({ name: 'gtm_inbound_events_org_tenant_dedupe_unique', properties: ['organizationId', 'tenantId', 'dedupeKey'] })
+export class GtmInboundEvent {
+  [OptionalProps]?: 'id' | 'processingState' | 'processingFence' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'mailbox_connection_id', type: 'uuid', nullable: true })
+  mailboxConnectionId?: string | null
+
+  @Property({ type: 'text' })
+  provider!: string
+
+  @Property({ name: 'provider_event_id', type: 'text' })
+  providerEventId!: string
+
+  // SHA-256(provider, mailbox stream, kind, provider event/message identity).
+  @Property({ name: 'dedupe_key', type: 'text' })
+  dedupeKey!: string
+
+  // delivered | soft_bounce | hard_bounce | complaint | out_of_office |
+  // auto_reply | human_reply | unsubscribe | unknown
+  @Property({ name: 'event_kind', type: 'text' })
+  eventKind!: string
+
+  @Property({ name: 'provider_message_id', type: 'text', nullable: true })
+  providerMessageId?: string | null
+
+  @Property({ name: 'rfc_message_id', type: 'text', nullable: true })
+  rfcMessageId?: string | null
+
+  @Property({ name: 'email_message_id', type: 'uuid', nullable: true })
+  emailMessageId?: string | null
+
+  @ManyToOne(() => GtmSendAttempt, { fieldName: 'send_attempt_id', mapToPk: true, nullable: true })
+  sendAttemptId?: string | null
+
+  @ManyToOne(() => GtmEnrollment, { fieldName: 'enrollment_id', mapToPk: true, nullable: true })
+  enrollmentId?: string | null
+
+  @Property({ name: 'correlation_method', type: 'text', nullable: true })
+  correlationMethod?: string | null
+
+  @Property({ name: 'correlation_confidence', type: 'text', nullable: true })
+  correlationConfidence?: string | null
+
+  @Property({ name: 'address_hash', type: 'text', nullable: true })
+  addressHash?: string | null
+
+  @Property({ name: 'evidence_redacted', type: 'jsonb', nullable: true })
+  evidenceRedacted?: Record<string, unknown> | null
+
+  // pending -> processed | unmatched | failed
+  @Property({ name: 'processing_state', type: 'text', default: 'pending' })
+  processingState: string = 'pending'
+
+  @Property({ name: 'occurred_at', type: 'timestamptz' })
+  occurredAt!: Date
+
+  @Property({ name: 'processed_at', type: 'timestamptz', nullable: true })
+  processedAt?: Date | null
+
+  @Property({ name: 'last_error', type: 'text', nullable: true })
+  lastError?: string | null
+
+  @Property({ name: 'processing_claim_token', type: 'uuid', nullable: true })
+  processingClaimToken?: string | null
+
+  @Property({ name: 'processing_claim_expires_at', type: 'timestamptz', nullable: true })
+  processingClaimExpiresAt?: Date | null
+
+  @Property({ name: 'processing_fence', type: 'integer', default: 0 })
+  processingFence: number = 0
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gtm_deletion_requests' })
+@Index({ name: 'gtm_deletion_requests_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'gtm_deletion_requests_org_key_unique', properties: ['organizationId', 'idempotencyKey'] })
+export class GtmDeletionRequest {
+  [OptionalProps]?: 'id' | 'status' | 'legalHold' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'idempotency_key', type: 'text' })
+  idempotencyKey!: string
+
+  @Property({ type: 'text' })
+  scope!: string
+
+  @Property({ name: 'address_hash', type: 'text' })
+  addressHash!: string
+
+  // pending -> processing -> completed | partial | blocked_legal_hold | failed
+  @Property({ type: 'text', default: 'pending' })
+  status: string = 'pending'
+
+  @Property({ name: 'legal_hold', type: 'boolean', default: false })
+  legalHold: boolean = false
+
+  @Property({ name: 'legal_hold_reason', type: 'text', nullable: true })
+  legalHoldReason?: string | null
+
+  @Property({ name: 'requested_at', type: 'timestamptz' })
+  requestedAt!: Date
+
+  @Property({ name: 'due_at', type: 'timestamptz', nullable: true })
+  dueAt?: Date | null
+
+  @Property({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt?: Date | null
+
+  @Property({ name: 'result_counts', type: 'jsonb', nullable: true })
+  resultCounts?: Record<string, unknown> | null
+
+  @Property({ name: 'last_error', type: 'text', nullable: true })
+  lastError?: string | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gtm_dsr_operations' })
+@Index({ name: 'gtm_dsr_operations_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'gtm_dsr_operations_request_org_provider_kind_unique', properties: ['deletionRequestId', 'organizationId', 'provider', 'kind'] })
+export class GtmDsrOperation {
+  [OptionalProps]?: 'id' | 'status' | 'attemptCount' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => GtmDeletionRequest, { fieldName: 'deletion_request_id', mapToPk: true })
+  deletionRequestId!: string
+
+  @Property({ type: 'text' })
+  provider!: string
+
+  // local_anonymize | provider_delete
+  @Property({ type: 'text' })
+  kind!: string
+
+  @Property({ name: 'idempotency_key', type: 'text' })
+  idempotencyKey!: string
+
+  // pending | blocked_authority | in_progress | completed | not_supported | failed
+  @Property({ type: 'text', default: 'pending' })
+  status: string = 'pending'
+
+  @Property({ name: 'attempt_count', type: 'integer', default: 0 })
+  attemptCount: number = 0
+
+  @Property({ name: 'next_attempt_at', type: 'timestamptz', nullable: true })
+  nextAttemptAt?: Date | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  receipt?: Record<string, unknown> | null
+
+  @Property({ name: 'last_error', type: 'text', nullable: true })
+  lastError?: string | null
+
+  @Property({ name: 'started_at', type: 'timestamptz', nullable: true })
+  startedAt?: Date | null
+
+  @Property({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt?: Date | null
 
   @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
   createdAt: Date = new Date()

@@ -27,6 +27,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
  *                       (never re-sent, section 6 rule 5)
  * - 'correlate-replies' scan recent inbound email_messages, atomic-stop +
  *                       reply rows (section 9)
+ * - 'cursor-status'     redacted mailbox cursor health (never cursor values)
  * - 'status'            per-state send-attempt counts for a campaign
  *
  * Auth/identity mirrors internal/campaigns: shared-secret bearer, noliUserId
@@ -192,6 +193,41 @@ export async function POST(req: Request) {
           send_attempt_id: row.attemptId,
           email_message_id: row.emailMessageId,
           matched_by: row.matchedBy,
+          inbound_event_id: row.inboundEventId,
+          event_kind: row.eventKind,
+          correlation_confidence: row.reply.correlationConfidence ?? null,
+        })),
+        system_events: result.systemEvents,
+        unmatched: result.unmatched,
+        failed: result.failed,
+      })
+    }
+
+    if (body.op === 'cursor-status') {
+      if (body.mailboxConnectionId && !isUuid(body.mailboxConnectionId)) return opaqueNotFound()
+      const entities = await import('../../../data/entities')
+      const cursors = await em.find(entities.GtmMailboxCursor, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        ...(body.mailboxConnectionId
+          ? { mailboxConnectionId: body.mailboxConnectionId }
+          : {}),
+        deletedAt: null,
+      })
+      return NextResponse.json({
+        ok: true,
+        cursors: cursors.map((cursor) => ({
+          id: cursor.id,
+          mailbox_connection_id: cursor.mailboxConnectionId,
+          provider: cursor.provider,
+          cursor_kind: cursor.cursorKind,
+          status: cursor.status,
+          fence: cursor.fence,
+          has_cursor: Boolean(cursor.cursorHash),
+          last_occurred_at: cursor.lastOccurredAt ?? null,
+          last_success_at: cursor.lastSuccessAt ?? null,
+          last_error: cursor.lastError ?? null,
+          lease_expires_at: cursor.leaseExpiresAt ?? null,
         })),
       })
     }

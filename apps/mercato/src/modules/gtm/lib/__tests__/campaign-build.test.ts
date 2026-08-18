@@ -91,6 +91,12 @@ describe('normalizeSettings (daily cap, send window, jitter)', () => {
       normalizeSettings({ send_window: { start_hour: 17, end_hour: 9 } }),
     ).toThrow(expect.objectContaining({ code: 'invalid_settings' }))
   })
+
+  it('rejects an unknown timezone instead of silently scheduling in UTC', () => {
+    expect(() =>
+      normalizeSettings({ send_window: { timezone: 'Mars/Olympus_Mons' } }),
+    ).toThrow(expect.objectContaining({ code: 'invalid_settings' }))
+  })
 })
 
 describe('createCampaign (draft creation, ladder boundary)', () => {

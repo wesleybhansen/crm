@@ -8,7 +8,17 @@ import {
   normalizeRemovalEmail,
 } from '../removal-request'
 import { computeExclusions, hashAddress } from '../campaign/exclusions'
-import { GtmAuditEvent, GtmEnrollment, GtmSendAttempt, GtmSuppression } from '../../data/entities'
+import {
+  GtmAuditEvent,
+  GtmContactPoint,
+  GtmDeletionRequest,
+  GtmDsrOperation,
+  GtmEnrollment,
+  GtmEvidence,
+  GtmRenderedMessage,
+  GtmSendAttempt,
+  GtmSuppression,
+} from '../../data/entities'
 
 /*
  * Public prospect-removal request (privacy policy 3.8). Every address here is
@@ -57,9 +67,11 @@ describe('prospect removal request', () => {
 
   it('the global row excludes the address in an unrelated org', async () => {
     const em = new FakeEm()
+    // Suppress first, then simulate the same address being sourced later.
+    // The permanent hash must survive anonymization and prevent re-entry.
+    await applyRemovalRequest(em, { email: ADDRESS })
     const run = await seedRun(em, await seedPlay(em))
     const candidate = await seedCandidate(em, run, { email: ADDRESS })
-    await applyRemovalRequest(em, { email: ADDRESS })
 
     const result = await computeExclusions(em, ctx, {
       workspaceId: run.workspaceId,
@@ -71,6 +83,23 @@ describe('prospect removal request', () => {
       reason: 'removal_request',
       source: 'gtm_suppression',
     })
+  })
+
+  it('anonymizes a row re-sourced after an earlier empty removal completed', async () => {
+    const em = new FakeEm()
+    const first = await applyRemovalRequest(em, { email: ADDRESS })
+    expect(first.deletionStatus).toBe('completed')
+
+    const run = await seedRun(em, await seedPlay(em))
+    const candidate = await seedCandidate(em, run, { email: ADDRESS })
+    const point = (await em.find(GtmContactPoint, { candidateId: candidate.id }))[0]
+
+    const replay = await applyRemovalRequest(em, { email: ADDRESS })
+
+    expect(replay.suppressionCreated).toBe(false)
+    expect(replay.recordsAnonymized).toBeGreaterThan(0)
+    expect(candidate.identity).toMatchObject({ removed: true })
+    expect(point.deletedAt).toBeInstanceOf(Date)
   })
 
   it('is idempotent: a repeat request is a no-op success, still one suppression row', async () => {
@@ -231,5 +260,87 @@ describe('prospect removal request', () => {
     expect(claimed.failureReason).toBe('stopped')
     expect(claimed.claimToken).toBeNull()
     expect(enrollment.status).toBe('stopped')
+  })
+
+  it('fans out tenant-scoped deletion work, anonymizes the local graph, and retains only billing-safe receipt fields', async () => {
+    const em = new FakeEm()
+    const clock = fixedClock(LAUNCH_ISO)
+    const fixture = await seedLaunchedCampaign(em, { clock, recipients: 1, emails: 1 })
+    const enrollment = fixture.enrollments[0]
+    const candidate = fixture.candidates[0]
+    const address = fixture.addressFor(enrollment)
+    const attempt = fixture.attempts[0]
+    attempt.providerReceipt = {
+      status: 'accepted',
+      cost_usd: 0.01,
+      recipient: address,
+      provider_response: 'synthetic receipt detail',
+    }
+
+    const result = await applyRemovalRequest(em, { email: address }, { clock })
+
+    expect(result).toMatchObject({ deletionStatus: 'completed' })
+    expect(result.recordsAnonymized).toBeGreaterThan(0)
+    expect(candidate.identity).toMatchObject({ removed: true })
+    expect(candidate.promotedContactId).toBeNull()
+    const evidence = await em.find(GtmEvidence, { candidateId: candidate.id })
+    expect(evidence[0]).toMatchObject({ claim: '[removed]', sourceUrl: null, providerRef: null })
+    const points = await em.find(GtmContactPoint, { candidateId: candidate.id })
+    expect(points[0].value).toMatch(/^removed:/)
+    expect(points[0].deletedAt).toBeInstanceOf(Date)
+    const rendered = await em.find(GtmRenderedMessage, { enrollmentId: enrollment.id })
+    expect(rendered[0]).toMatchObject({ subject: null, bodyHtml: null, bodyText: null })
+    expect(attempt.providerReceipt).toMatchObject({ redacted: true, status: 'accepted', cost_usd: 0.01 })
+    expect(JSON.stringify(attempt.providerReceipt)).not.toContain(address)
+
+    const requests = await em.find(GtmDeletionRequest, {})
+    expect(requests).toHaveLength(2)
+    const tenantRequest = requests.find((row) => row.scope === 'tenant_email')!
+    expect(tenantRequest).toMatchObject({ organizationId: ORG, tenantId: TENANT, status: 'completed' })
+    expect(tenantRequest.organizationId).not.toBe(GLOBAL_SUPPRESSION_ORG_ID)
+    const operations = await em.find(GtmDsrOperation, { deletionRequestId: tenantRequest.id })
+    expect(operations).toHaveLength(1)
+    expect(operations[0]).toMatchObject({ provider: 'gtm_local', status: 'completed' })
+
+    for (const row of [...requests, ...operations, ...(await em.find(GtmAuditEvent, {}))]) {
+      expect(JSON.stringify(row)).not.toContain(address)
+    }
+  })
+
+  it('honors a tenant-scoped legal hold while still suppressing and stopping immediately', async () => {
+    const em = new FakeEm()
+    const clock = fixedClock(LAUNCH_ISO)
+    const fixture = await seedLaunchedCampaign(em, { clock, recipients: 1, emails: 1 })
+    const enrollment = fixture.enrollments[0]
+    const candidate = fixture.candidates[0]
+    const address = fixture.addressFor(enrollment)
+    const addressHash = hashAddress(address)
+    em.persist(
+      em.create(GtmDeletionRequest, {
+        organizationId: ORG,
+        tenantId: TENANT,
+        idempotencyKey: `tenant-email:${TENANT}:${addressHash}`,
+        scope: 'tenant_email',
+        addressHash,
+        status: 'pending',
+        legalHold: true,
+        legalHoldReason: 'synthetic_litigation_hold',
+        requestedAt: clock.now(),
+      }),
+    )
+    await em.flush()
+
+    const result = await applyRemovalRequest(em, { email: address }, { clock })
+
+    expect(result.deletionStatus).toBe('partial')
+    expect(enrollment).toMatchObject({ status: 'stopped', stopReason: 'removal_request' })
+    expect(candidate.identity).not.toMatchObject({ removed: true })
+    const held = await em.findOne(GtmDeletionRequest, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      scope: 'tenant_email',
+    })
+    expect(held).toMatchObject({ status: 'blocked_legal_hold', legalHold: true })
+    expect(await em.find(GtmSuppression, { scope: 'global', addressHash })).toHaveLength(1)
   })
 })

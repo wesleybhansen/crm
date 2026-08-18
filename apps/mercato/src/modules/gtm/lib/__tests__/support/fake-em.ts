@@ -4,8 +4,14 @@ import {
   GtmCampaignVersion,
   GtmCandidate,
   GtmChatMessage,
+  GtmDeletionRequest,
+  GtmDsrOperation,
   GtmEnrollment,
   GtmIcpVersion,
+  GtmInboundEvent,
+  GtmMailboxCursor,
+  GtmProviderReconciliationAction,
+  GtmReply,
   GtmRenderedMessage,
   GtmSendAttempt,
   GtmSuppression,
@@ -199,6 +205,16 @@ export class FakeEm implements ResearchEm, RetentionEm, CampaignEm, ExecutionEm,
             row.idempotencyKey === entity.idempotencyKey,
           'gtm_send_attempts_org_idempotency_unique',
         )
+        if (entity.capacitySlotKey) {
+          this.assertUnique(
+            entity,
+            GtmSendAttempt,
+            (row) =>
+              row.organizationId === entity.organizationId &&
+              row.capacitySlotKey === entity.capacitySlotKey,
+            'gtm_send_attempts_org_capacity_slot_unique',
+          )
+        }
       }
       if (entity instanceof GtmSuppression) {
         this.assertUnique(
@@ -209,6 +225,98 @@ export class FakeEm implements ResearchEm, RetentionEm, CampaignEm, ExecutionEm,
             row.channel === entity.channel &&
             row.addressHash === entity.addressHash,
           'gtm_suppressions_org_channel_address_unique',
+        )
+      }
+      if (entity instanceof GtmProviderReconciliationAction) {
+        this.assertUnique(
+          entity,
+          GtmProviderReconciliationAction,
+          (row) =>
+            row.organizationId === entity.organizationId &&
+            row.idempotencyKey === entity.idempotencyKey,
+          'gtm_provider_reconciliation_actions_org_key_unique',
+        )
+      }
+      if (entity instanceof GtmMailboxCursor) {
+        this.assertUnique(
+          entity,
+          GtmMailboxCursor,
+          (row) =>
+            row.organizationId === entity.organizationId &&
+            row.tenantId === entity.tenantId &&
+            row.mailboxConnectionId === entity.mailboxConnectionId &&
+            row.provider === entity.provider &&
+            row.cursorKind === entity.cursorKind,
+          'gtm_mailbox_cursors_mailbox_provider_kind_unique',
+        )
+      }
+      if (entity instanceof GtmInboundEvent) {
+        this.assertUnique(
+          entity,
+          GtmInboundEvent,
+          (row) =>
+            row.organizationId === entity.organizationId &&
+            row.tenantId === entity.tenantId &&
+            row.dedupeKey === entity.dedupeKey,
+          'gtm_inbound_events_org_tenant_dedupe_unique',
+        )
+      }
+      if (entity instanceof GtmReply) {
+        if (entity.inboundEventId) {
+          this.assertUnique(
+            entity,
+            GtmReply,
+            (row) =>
+              row.organizationId === entity.organizationId &&
+              row.tenantId === entity.tenantId &&
+              row.inboundEventId === entity.inboundEventId,
+            'gtm_replies_org_tenant_event_unique',
+          )
+        }
+        if (entity.emailMessageId) {
+          this.assertUnique(
+            entity,
+            GtmReply,
+            (row) =>
+              row.organizationId === entity.organizationId &&
+              row.tenantId === entity.tenantId &&
+              row.emailMessageId === entity.emailMessageId,
+            'gtm_replies_org_tenant_message_unique',
+          )
+        }
+        if (entity.stepId) {
+          this.assertUnique(
+            entity,
+            GtmReply,
+            (row) =>
+              row.organizationId === entity.organizationId &&
+              row.tenantId === entity.tenantId &&
+              row.enrollmentId === entity.enrollmentId &&
+              row.stepId === entity.stepId,
+            'gtm_replies_org_tenant_social_step_unique',
+          )
+        }
+      }
+      if (entity instanceof GtmDeletionRequest) {
+        this.assertUnique(
+          entity,
+          GtmDeletionRequest,
+          (row) =>
+            row.organizationId === entity.organizationId &&
+            row.idempotencyKey === entity.idempotencyKey,
+          'gtm_deletion_requests_org_key_unique',
+        )
+      }
+      if (entity instanceof GtmDsrOperation) {
+        this.assertUnique(
+          entity,
+          GtmDsrOperation,
+          (row) =>
+            row.deletionRequestId === entity.deletionRequestId &&
+            row.organizationId === entity.organizationId &&
+            row.provider === entity.provider &&
+            row.kind === entity.kind,
+          'gtm_dsr_operations_request_org_provider_kind_unique',
         )
       }
     }
@@ -308,6 +416,10 @@ function matchesWhere(row: object, where: Record<string, unknown>): boolean {
       if ('$gte' in ops) {
         const cmp = compareBound(value, ops.$gte)
         if (cmp === null || cmp < 0) return false
+      }
+      if ('$gt' in ops) {
+        const cmp = compareBound(value, ops.$gt)
+        if (cmp === null || cmp <= 0) return false
       }
       if ('$ilike' in ops) {
         if (!ilikeMatches(value, ops.$ilike)) return false

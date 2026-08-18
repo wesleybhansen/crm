@@ -75,6 +75,8 @@ export async function POST(req: Request) {
       ok: true,
       suppressed: true,
       enrollments_stopped: result.enrollmentsStopped,
+      deletion_request_id: result.deletionRequestId,
+      deletion_status: result.deletionStatus,
     })
   } catch (err) {
     // Never interpolate the address into a log line.

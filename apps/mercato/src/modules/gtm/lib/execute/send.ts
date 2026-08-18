@@ -1,14 +1,25 @@
 import crypto from 'crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { GtmCtx } from '../campaign/build'
 import { hashAddress } from '../campaign/exclusions'
-import { canonicalHash } from '../campaign/approve'
+import { approvalEnvelopeMatches, canonicalHash } from '../campaign/approve'
 import { computeExecutionEligibility } from '../eligibility'
 import type { Clock, ExecutionEm } from './schedule'
-import { GtmExecutionError, parseVersionSettings } from './schedule'
+import {
+  allocateDailyCapacitySlot,
+  allocateCapacitySlotKey,
+  buildCapacityReservations,
+  CAPACITY_RESERVED_STATES,
+  clampToBusinessWindow,
+  GtmExecutionError,
+  isWithinBusinessWindow,
+  parseVersionSettings,
+  readStepKey,
+} from './schedule'
 import type { GtmSendTransport } from './transport'
 import { GtmSendTimeoutError } from './transport'
 import { buildUnsubscribeUrl } from '../unsubscribe'
-import { substituteUnsubscribeUrl } from '../campaign/render'
+import { messageContentHash, substituteUnsubscribeUrl } from '../campaign/render'
 import { readWorkspacePostalAddress } from '../workspace-settings'
 import {
   GtmCampaign,
@@ -19,6 +30,7 @@ import {
   GtmRenderedMessage,
   GtmSendAttempt,
   GtmSuppression,
+  GtmStep,
   GtmWorkspace,
 } from '../../data/entities'
 import { EmailConnection, EmailUnsubscribe } from '../../../email/data/schema'
@@ -49,21 +61,16 @@ import { EmailConnection, EmailUnsubscribe } from '../../../email/data/schema'
  *      parked forever for reconciliation, never auto-retried.
  */
 
-// States that consumed provider capacity for the daily-cap count.
-const CAP_COUNTED_STATES = [
-  'provider_started',
-  'accepted',
-  'delivered',
-  'bounced',
-  'complained',
-  'replied',
-  'ambiguous',
-]
-
 export type ExecuteOutcome =
   | { outcome: 'accepted'; attemptId: string }
   | { outcome: 'failed'; attemptId: string; reason: string }
   | { outcome: 'ambiguous'; attemptId: string; reason: string }
+  | {
+      outcome: 'rescheduled'
+      attemptId: string
+      reason: 'outside_send_window' | 'daily_cap_reached'
+      scheduledFor: Date
+    }
   | { outcome: 'fenced'; attemptId: string }
 
 export type ExecuteDeps = {
@@ -71,17 +78,21 @@ export type ExecuteDeps = {
   clock?: Clock
 }
 
-function dayKey(date: Date, timezone: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(date)
-  } catch {
-    return date.toISOString().slice(0, 10)
-  }
+function recordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter(
+        (entry): entry is Record<string, unknown> =>
+          entry != null && typeof entry === 'object' && !Array.isArray(entry),
+      )
+    : []
+}
+
+function exactlyOne(
+  rows: Array<Record<string, unknown>>,
+  predicate: (row: Record<string, unknown>) => boolean,
+): Record<string, unknown> | null {
+  const matches = rows.filter(predicate)
+  return matches.length === 1 ? matches[0] : null
 }
 
 export async function executeClaimedAttempt(
@@ -115,18 +126,26 @@ export async function executeClaimedAttempt(
   const now = () => deps.clock?.now() ?? new Date()
 
   // Every write presents the claim token + fence (rule 5).
-  const fencedUpdate = async (
+  const fencedUpdateOn = async (
+    targetEm: ExecutionEm,
     extraWhere: Record<string, unknown>,
     data: Record<string, unknown>,
   ): Promise<number> =>
-    em.nativeUpdate(
+    targetEm.nativeUpdate(
       GtmSendAttempt,
       { id: attemptId, claimToken, fence, ...extraWhere },
       { ...data, updatedAt: now() },
     )
+  const fencedUpdate = async (
+    extraWhere: Record<string, unknown>,
+    data: Record<string, unknown>,
+  ): Promise<number> => fencedUpdateOn(em, extraWhere, data)
 
   const fail = async (reason: string): Promise<ExecuteOutcome> => {
-    const n = await fencedUpdate({}, { state: 'failed', failureReason: reason, failedAt: now() })
+    const n = await fencedUpdate(
+      {},
+      { state: 'failed', failureReason: reason, failedAt: now(), capacitySlotKey: null },
+    )
     return n === 1 ? { outcome: 'failed', attemptId, reason } : { outcome: 'fenced', attemptId }
   }
 
@@ -160,6 +179,9 @@ export async function executeClaimedAttempt(
   if (!campaign) return fail('campaign_not_found')
   if (campaign.status !== 'active') return fail('campaign_not_active')
   if (campaign.currentVersionId !== attempt.campaignVersionId) return fail('version_superseded')
+  if (enrollment.campaignVersionId !== attempt.campaignVersionId) {
+    return fail('enrollment_version_mismatch')
+  }
   const version = await em.findOne(GtmCampaignVersion, {
     id: attempt.campaignVersionId,
     organizationId: ctx.organizationId,
@@ -168,6 +190,11 @@ export async function executeClaimedAttempt(
   if (!version) return fail('version_missing')
   if (version.invalidatedAt) return fail('version_invalidated')
   if (!version.approvedAt) return fail('version_not_approved')
+  if (!approvalEnvelopeMatches(version.snapshot, version.contentHash)) {
+    return fail('approval_envelope_changed')
+  }
+  const snapshot = (version.snapshot ?? {}) as Record<string, unknown>
+  if (snapshot.campaign_id !== campaign.id) return fail('approval_campaign_mismatch')
 
   // Play eligibility recomputed from the play row's current state
   // (section 7 boundary 6).
@@ -178,11 +205,15 @@ export async function executeClaimedAttempt(
     deletedAt: null,
   })
   if (!play) return fail('play_not_found')
+  if (snapshot.play_id !== play.id) return fail('approval_play_mismatch')
   const eligibility = computeExecutionEligibility({
     market_type: play.marketType ?? null,
     geography: play.geography ?? null,
   })
   if (eligibility.execution_eligibility !== 'executable') return fail('play_not_executable')
+  if (snapshot.eligibility !== eligibility.execution_eligibility) {
+    return fail('approval_eligibility_mismatch')
+  }
 
   // CAN-SPAM defense in depth: approval already required the org's postal
   // address, but the workspace setting may have been cleared since. The
@@ -194,7 +225,6 @@ export async function executeClaimedAttempt(
     tenantId: ctx.tenantId,
     deletedAt: null,
   })
-  const snapshot = (version.snapshot ?? {}) as Record<string, unknown>
   const snapshotSettings = (snapshot.settings ?? {}) as Record<string, unknown>
   const approvedPostalAddress = typeof snapshotSettings.postal_address === 'string'
     ? snapshotSettings.postal_address
@@ -208,6 +238,9 @@ export async function executeClaimedAttempt(
   const mailboxConnectionId = attempt.mailboxConnectionId
   const renderedMessageId = attempt.renderedMessageId
   if (!mailboxConnectionId || !renderedMessageId) return fail('attempt_binding_missing')
+  if (snapshotSettings.sender_mailbox_id !== mailboxConnectionId) {
+    return fail('attempt_sender_mismatch')
+  }
 
   // Sender connection exists, belongs to this org/tenant, and is active.
   const connection = await em.findOne(EmailConnection, {
@@ -237,10 +270,9 @@ export async function executeClaimedAttempt(
   }
 
   // Recipient address (current verified contact point) + suppression.
-  const approvedRecipients = Array.isArray(snapshot.recipients)
-    ? snapshot.recipients as Array<Record<string, unknown>>
-    : []
-  const approvedRecipient = approvedRecipients.find(
+  const approvedRecipients = recordArray(snapshot.recipients)
+  const approvedRecipient = exactlyOne(
+    approvedRecipients,
     (row) => row.candidate_id === enrollment.candidateId,
   )
   if (
@@ -250,6 +282,17 @@ export async function executeClaimedAttempt(
   ) {
     return fail('recipient_not_approved')
   }
+  if ((approvedRecipient.contact_id ?? null) !== (enrollment.contactId ?? null)) {
+    return fail('recipient_contact_mismatch')
+  }
+  const runtimeIds = (snapshot.ids ?? {}) as Record<string, unknown>
+  const approvedEnrollment = exactlyOne(
+    recordArray(runtimeIds.enrollments),
+    (row) =>
+      row.candidate_id === enrollment.candidateId
+      && row.enrollment_id === enrollment.id,
+  )
+  if (!approvedEnrollment) return fail('enrollment_not_approved')
   const point = await em.findOne(GtmContactPoint, {
     id: approvedRecipient.contact_point_id,
     organizationId: ctx.organizationId,
@@ -273,31 +316,90 @@ export async function executeClaimedAttempt(
     return fail('legacy_unsubscribe')
   }
 
-  // Daily cap headroom for this mailbox within the send-window day.
-  const settings = parseVersionSettings(version)
-  const windowTz = settings.send_window.timezone
-  const today = dayKey(now(), windowTz)
-  const counted = await em.find(GtmSendAttempt, {
+  let settings: ReturnType<typeof parseVersionSettings>
+  try {
+    settings = parseVersionSettings(version)
+  } catch {
+    return fail('approval_capacity_invalid')
+  }
+  const step = await em.findOne(GtmStep, {
+    id: attempt.stepId,
     organizationId: ctx.organizationId,
     tenantId: ctx.tenantId,
-    mailboxConnectionId,
-    state: { $in: CAP_COUNTED_STATES },
+    campaignVersionId: version.id,
     deletedAt: null,
   })
-  const sentToday = counted.filter((row) => {
-    const ts = row.sentAt ?? row.ambiguousAt ?? row.updatedAt
-    return ts != null && dayKey(ts, windowTz) === today
-  }).length
-  if (sentToday >= settings.daily_cap) return fail('daily_cap_reached')
+  if (!step || step.mode !== 'automated_email' || step.channel !== 'email') {
+    return fail('step_not_approved_email')
+  }
+  const stepKey = readStepKey(step)
+  const approvedStep = exactlyOne(
+    recordArray(snapshot.steps),
+    (row) => row.key === stepKey,
+  )
+  const approvedStepId = exactlyOne(
+    recordArray(runtimeIds.steps),
+    (row) => row.key === stepKey && row.id === step.id,
+  )
+  if (!approvedStep || !approvedStepId) return fail('step_not_approved')
+  const stepWindow = (step.sendWindow ?? {}) as Record<string, unknown>
+  if (
+    approvedStep.order !== step.order
+    || approvedStep.channel !== step.channel
+    || approvedStep.mode !== step.mode
+    || approvedStep.delay_days !== step.delayDays
+    || approvedStep.dependency_kind !== step.dependencyKind
+    || (approvedStep.social_action ?? null) !== (stepWindow.social_action ?? null)
+    || (approvedStepId.depends_on_step_id ?? null) !== (step.dependsOnStepId ?? null)
+  ) {
+    return fail('step_changed')
+  }
+  if (
+    stepWindow.step_key !== stepKey
+    || stepWindow.start_hour !== settings.send_window.start_hour
+    || stepWindow.end_hour !== settings.send_window.end_hour
+    || stepWindow.timezone !== settings.send_window.timezone
+    || stepWindow.jitter_minutes !== settings.jitter_minutes
+  ) {
+    return fail('step_window_changed')
+  }
 
-  // Frozen message content.
   const rendered = await em.findOne(GtmRenderedMessage, {
     id: renderedMessageId,
     organizationId: ctx.organizationId,
     tenantId: ctx.tenantId,
+    campaignVersionId: version.id,
+    enrollmentId: enrollment.id,
+    stepId: step.id,
     deletedAt: null,
   })
   if (!rendered) return fail('rendered_message_missing')
+  const approvedRendered = exactlyOne(
+    recordArray(snapshot.rendered),
+    (row) => row.candidate_id === enrollment.candidateId && row.step_key === stepKey,
+  )
+  const approvedRenderedId = exactlyOne(
+    recordArray(runtimeIds.rendered),
+    (row) =>
+      row.enrollment_id === enrollment.id
+      && row.step_id === step.id
+      && row.step_key === stepKey
+      && row.rendered_message_id === rendered.id,
+  )
+  if (!approvedRendered || !approvedRenderedId) return fail('rendered_message_not_approved')
+  const computedContentHash = messageContentHash(
+    rendered.subject ?? '',
+    rendered.bodyHtml ?? '',
+    rendered.bodyText ?? '',
+    stepKey,
+  )
+  if (
+    rendered.contentHash !== computedContentHash
+    || approvedRendered.content_hash !== computedContentHash
+    || approvedRenderedId.content_hash !== computedContentHash
+  ) {
+    return fail('rendered_message_changed')
+  }
 
   // -------------------------------------------------------------------------
   // Rule 3: mint + persist rfc_message_id, go 'provider_started' durably
@@ -305,15 +407,113 @@ export async function executeClaimedAttempt(
   // -------------------------------------------------------------------------
   const senderDomain = (connection.emailAddress || '').split('@')[1] || 'invalid.local'
   const rfcMessageId = `<${crypto.randomUUID()}@${senderDomain}>`
-  const started = await fencedUpdate(
-    { state: 'claimed' },
-    { state: 'provider_started', rfcMessageId },
-  )
-  if (started !== 1) return { outcome: 'fenced', attemptId }
+  const startDecision = await em.transactional(async (tem) => {
+    const lockedConnection = await tem.findOne(
+      EmailConnection,
+      {
+        id: mailboxConnectionId,
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    )
+    const lockedSenderMaterial = lockedConnection && lockedConnection.isActive
+      ? {
+          mailbox_connection_id: lockedConnection.id,
+          provider: lockedConnection.provider,
+          email_address: lockedConnection.emailAddress.trim().toLowerCase(),
+          user_id: lockedConnection.userId,
+          purpose: lockedConnection.purpose ?? null,
+          updated_at: lockedConnection.updatedAt.toISOString(),
+        }
+      : null
+    if (
+      !lockedSenderMaterial
+      || approvedSender.mailbox_connection_id !== lockedConnection?.id
+      || approvedSender.fingerprint !== canonicalHash(lockedSenderMaterial)
+    ) {
+      const updated = await fencedUpdateOn(
+        tem,
+        { state: 'claimed' },
+        {
+          state: 'failed',
+          failureReason: 'sender_changed',
+          failedAt: now(),
+          capacitySlotKey: null,
+        },
+      )
+      return updated === 1
+        ? ({ outcome: 'failed', attemptId, reason: 'sender_changed' } as const)
+        : ({ outcome: 'fenced', attemptId } as const)
+    }
+
+    const capacityRows = await tem.find(GtmSendAttempt, {
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      mailboxConnectionId,
+      state: { $in: [...CAPACITY_RESERVED_STATES] },
+      deletedAt: null,
+    })
+    const reservations = buildCapacityReservations(
+      capacityRows,
+      settings.send_window.timezone,
+      attemptId,
+    )
+    const capacityNow = now()
+    const withinWindow = isWithinBusinessWindow(capacityNow, settings.send_window)
+    const candidateSlot = withinWindow
+      ? capacityNow
+      : clampToBusinessWindow(capacityNow, settings.send_window)
+    const scheduledFor = allocateDailyCapacitySlot(candidateSlot, settings, reservations)
+    const capacitySlotKey = allocateCapacitySlotKey(
+      mailboxConnectionId,
+      scheduledFor,
+      settings,
+      capacityRows,
+      { excludeAttemptId: attemptId, preferredKey: attempt.capacitySlotKey },
+    )
+    const mustReschedule = !withinWindow || scheduledFor.getTime() !== capacityNow.getTime()
+    if (mustReschedule) {
+      const reason = withinWindow ? 'daily_cap_reached' : 'outside_send_window'
+      const updated = await fencedUpdateOn(
+        tem,
+        { state: 'claimed' },
+        {
+          state: 'approved',
+          claimToken: null,
+          claimExpiresAt: null,
+          scheduledFor,
+          capacitySlotKey,
+          failureReason: null,
+          failedAt: null,
+        },
+      )
+      return updated === 1
+        ? ({ outcome: 'rescheduled', attemptId, reason, scheduledFor } as const)
+        : ({ outcome: 'fenced', attemptId } as const)
+    }
+
+    const started = await fencedUpdateOn(
+      tem,
+      { state: 'claimed' },
+      { state: 'provider_started', rfcMessageId, capacitySlotKey },
+    )
+    return started === 1
+      ? ({ outcome: 'started' } as const)
+      : ({ outcome: 'fenced', attemptId } as const)
+  })
+  if (startDecision.outcome !== 'started') return startDecision
+  attempt.state = 'provider_started'
   attempt.rfcMessageId = rfcMessageId
 
   // RFC 8058 one-click headers on every GTM send (section 8).
-  const unsubscribeUrl = buildUnsubscribeUrl(enrollment.id, addressHash)
+  const unsubscribeUrl = buildUnsubscribeUrl({
+    organizationId: enrollment.organizationId,
+    tenantId: enrollment.tenantId,
+    enrollmentId: enrollment.id,
+    addressHash,
+  })
   const headers: Record<string, string> = {
     'List-Unsubscribe': unsubscribeUrl
       ? `<mailto:${connection.emailAddress}?subject=unsubscribe>, <${unsubscribeUrl}>`
@@ -377,7 +577,7 @@ export async function executeClaimedAttempt(
     const reason = `transport_error: ${(err as Error)?.message ?? 'unknown'}`
     const n = await fencedUpdate(
       { state: 'provider_started' },
-      { state: 'failed', failureReason: reason, failedAt: now() },
+      { state: 'failed', failureReason: reason, failedAt: now(), capacitySlotKey: null },
     )
     return n === 1 ? { outcome: 'failed', attemptId, reason } : { outcome: 'fenced', attemptId }
   }

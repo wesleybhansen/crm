@@ -26,7 +26,11 @@ export function campaignFeatureForOp(op: string): GtmFeature {
 }
 
 export function executionFeatureForOp(op: string): GtmFeature {
-  return op === 'status' ? 'gtm.view' : 'gtm.launch'
+  return op === 'status' || op === 'cursor-status' ? 'gtm.view' : 'gtm.launch'
+}
+
+export function reconciliationFeatureForOp(op: string): GtmFeature {
+  return op === 'list' ? 'gtm.view' : 'gtm.approve'
 }
 
 /** Server-side RBAC for shared-secret GTM routes. The service secret proves

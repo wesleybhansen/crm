@@ -29,6 +29,8 @@ const TICK_ISO = '2026-07-22T16:30:00.000Z'
 describe('executeClaimedAttempt (SPEC-066 section 6 rules 2-5, section 8)', () => {
   beforeAll(() => {
     process.env.GTM_UNSUBSCRIBE_SECRET = 'test-unsubscribe-secret'
+    process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({ test: 'test-unsubscribe-secret' })
+    process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'test'
     process.env.GTM_PUBLIC_BASE_URL = 'https://crm.fixture.example'
   })
 
@@ -104,6 +106,25 @@ describe('executeClaimedAttempt (SPEC-066 section 6 rules 2-5, section 8)', () =
     expect(claimed.providerReceipt).toEqual({ response: '250 OK' })
     expect(claimed.sentAt).toBeInstanceOf(Date)
     expect(claimed.acceptedAt).toBeInstanceOf(Date)
+  })
+
+  it('uses mailto-only unsubscribe and omits RFC 8058 POST when the v2 keyring is absent', async () => {
+    const { em, clock, claimed, transport } = await prepare()
+    delete process.env.GTM_UNSUBSCRIBE_KEYRING
+    delete process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID
+    try {
+      const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
+      expect(outcome.outcome).toBe('accepted')
+      expect(transport.calls[0].headers['List-Unsubscribe']).toBe(
+        `<mailto:${SENDER_ADDRESS}?subject=unsubscribe>`,
+      )
+      expect(transport.calls[0].headers['List-Unsubscribe-Post']).toBeUndefined()
+    } finally {
+      process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({
+        test: 'test-unsubscribe-secret',
+      })
+      process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'test'
+    }
   })
 
   it('a thrown transport error maps to failed (retry would be a NEW attempt row)', async () => {
@@ -268,7 +289,13 @@ describe('executeClaimedAttempt (SPEC-066 section 6 rules 2-5, section 8)', () =
       )
       await em.flush()
       const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
-      expect(outcome).toMatchObject({ outcome: 'failed', reason: 'daily_cap_reached' })
+      expect(outcome).toMatchObject({ outcome: 'rescheduled', reason: 'daily_cap_reached' })
+      expect(claimed.state).toBe('approved')
+      expect(claimed.claimToken).toBeNull()
+      expect(claimed.claimExpiresAt).toBeNull()
+      expect(claimed.failedAt).toBeNull()
+      expect(claimed.scheduledFor!.getTime()).toBeGreaterThan(clock.now().getTime())
+      expect(claimed.capacitySlotKey).toMatch(/^v1:.*:2026-07-23:1$/)
       expect(transport.calls).toHaveLength(0)
     })
 
@@ -294,10 +321,52 @@ describe('executeClaimedAttempt (SPEC-066 section 6 rules 2-5, section 8)', () =
       const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
       expect(outcome.outcome).toBe('accepted')
     })
+
+    it('reschedules a claimed attempt that is processed outside the frozen send window', async () => {
+      const { em, clock, claimed, transport } = await prepare()
+      clock.set('2026-07-22T22:30:00.000Z')
+      const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
+      expect(outcome).toMatchObject({ outcome: 'rescheduled', reason: 'outside_send_window' })
+      expect(claimed.state).toBe('approved')
+      expect(claimed.claimToken).toBeNull()
+      expect(claimed.claimExpiresAt).toBeNull()
+      expect(claimed.scheduledFor!.toISOString()).toBe('2026-07-23T13:00:00.000Z')
+      expect(claimed.capacitySlotKey).toMatch(/^v1:.*:2026-07-23:1$/)
+      expect(transport.calls).toHaveLength(0)
+    })
+  })
+
+  it('fails closed when the canonical approved snapshot is changed after approval', async () => {
+    const { em, clock, fixture, claimed, transport } = await prepare()
+    const snapshot = fixture.version.snapshot as Record<string, unknown>
+    snapshot.eligibility = 'strategy_only'
+    const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
+    expect(outcome).toMatchObject({ outcome: 'failed', reason: 'approval_envelope_changed' })
+    expect(transport.calls).toHaveLength(0)
+  })
+
+  it('binds the approved hash to subject, HTML, plain text, and logical step', async () => {
+    const { em, clock, claimed, transport } = await prepare()
+    const rendered = (await em.findOne(GtmRenderedMessage, { id: claimed.renderedMessageId }))!
+    rendered.bodyText = `${rendered.bodyText}\nmutated after approval`
+    const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
+    expect(outcome).toMatchObject({ outcome: 'failed', reason: 'rendered_message_changed' })
+    expect(transport.calls).toHaveLength(0)
+  })
+
+  it('rejects an attempt whose rendered tuple is absent from the approved runtime ids', async () => {
+    const { em, clock, fixture, claimed, transport } = await prepare()
+    const snapshot = fixture.version.snapshot as Record<string, unknown>
+    const ids = snapshot.ids as Record<string, unknown>
+    const renderedIds = ids.rendered as Array<Record<string, unknown>>
+    renderedIds[0].rendered_message_id = crypto.randomUUID()
+    const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
+    expect(outcome).toMatchObject({ outcome: 'failed', reason: 'rendered_message_not_approved' })
+    expect(transport.calls).toHaveLength(0)
   })
 
   it('substitutes the per-enrollment unsubscribe URL on the outbound COPY; the frozen row keeps the token', async () => {
-    const { em, clock, claimed, transport } = await prepare()
+    const { em, clock, fixture, claimed, transport } = await prepare()
     const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
     expect(outcome.outcome).toBe('accepted')
 
@@ -315,7 +384,14 @@ describe('executeClaimedAttempt (SPEC-066 section 6 rules 2-5, section 8)', () =
     expect(stored.bodyHtml).toContain(UNSUBSCRIBE_URL_TOKEN)
     expect(stored.bodyText).toContain(UNSUBSCRIBE_URL_TOKEN)
     expect(stored.bodyHtml).not.toMatch(urlPattern)
-    expect(messageContentHash(stored.subject ?? '', stored.bodyHtml ?? '')).toBe(
+    const step = fixture.steps.find((row) => row.id === claimed.stepId)!
+    const stepKey = (step.sendWindow as Record<string, unknown>).step_key as string
+    expect(messageContentHash(
+      stored.subject ?? '',
+      stored.bodyHtml ?? '',
+      stored.bodyText ?? '',
+      stepKey,
+    )).toBe(
       stored.contentHash,
     )
 

@@ -17,6 +17,7 @@ import {
   computeScheduledFor,
   deterministicJitterMinutes,
   launchCampaign,
+  zonedDayKey,
 } from '../execute/schedule'
 import { GtmSendAttempt } from '../../data/entities'
 
@@ -60,6 +61,9 @@ describe('materializeSendAttempts + launchCampaign (SPEC-066 section 6 rule 6)',
       )
       expect(attempt.idempotencyKey).not.toContain(fixture.version.id)
       expect(attempt.scheduledFor).toBeInstanceOf(Date)
+      expect(attempt.capacitySlotKey).toMatch(
+        new RegExp(`^v1:${MAILBOX}:\\d{4}-\\d{2}-\\d{2}:\\d+$`),
+      )
     }
     expect(fixture.campaign.status).toBe('active')
   })
@@ -102,6 +106,52 @@ describe('materializeSendAttempts + launchCampaign (SPEC-066 section 6 rule 6)',
     // Launch + 3 days = Saturday 2026-07-25 12:00 ET; the clamp rolls it to
     // Monday 2026-07-27 09:00 ET = 13:00Z.
     expect(second.scheduledFor!.toISOString()).toBe('2026-07-27T13:00:00.000Z')
+  })
+
+  it('allocates mailbox capacity deterministically across business days', async () => {
+    const em = new FakeEm()
+    const fixture = await seedLaunchedCampaign(em, {
+      clock: fixedClock(LAUNCH_ISO),
+      recipients: 5,
+      emails: 1,
+      dailyCap: 2,
+    })
+    const counts = new Map<string, number>()
+    for (const attempt of fixture.attempts) {
+      const key = zonedDayKey(attempt.scheduledFor!, WINDOW.timezone)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    expect([...counts.entries()]).toEqual([
+      ['2026-07-22', 2],
+      ['2026-07-23', 2],
+      ['2026-07-24', 1],
+    ])
+    expect(new Set(fixture.attempts.map((attempt) => attempt.capacitySlotKey)).size).toBe(5)
+    for (const [day, count] of counts) {
+      const ordinals = fixture.attempts
+        .filter((attempt) => zonedDayKey(attempt.scheduledFor!, WINDOW.timezone) === day)
+        .map((attempt) => Number(attempt.capacitySlotKey!.split(':').at(-1)))
+        .sort((left, right) => left - right)
+      expect(ordinals).toEqual(Array.from({ length: count }, (_, index) => index + 1))
+    }
+    const stableOrder = [...fixture.attempts]
+      .sort((left, right) => left.scheduledFor!.getTime() - right.scheduledFor!.getTime())
+      .map((attempt) => attempt.idempotencyKey)
+    expect(stableOrder).toEqual([...stableOrder].sort())
+  })
+
+  it('capacity spill from Friday skips the weekend', async () => {
+    const em = new FakeEm()
+    const fixture = await seedLaunchedCampaign(em, {
+      clock: fixedClock('2026-07-24T20:00:00.000Z'),
+      recipients: 3,
+      emails: 1,
+      dailyCap: 1,
+    })
+    const days = fixture.attempts
+      .map((attempt) => zonedDayKey(attempt.scheduledFor!, WINDOW.timezone))
+      .sort()
+    expect(days).toEqual(['2026-07-24', '2026-07-27', '2026-07-28'])
   })
 
   it('jitter is deterministic (seeded, no Math.random) and bounded', () => {

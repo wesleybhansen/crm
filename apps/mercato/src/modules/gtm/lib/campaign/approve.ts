@@ -78,6 +78,19 @@ export function canonicalHash(value: unknown): string {
   return crypto.createHash('sha256').update(canonicalize(value)).digest('hex')
 }
 
+export function approvalCanonicalSnapshot(snapshot: unknown): Record<string, unknown> | null {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null
+  const canonical = { ...(snapshot as Record<string, unknown>) }
+  delete canonical.ids
+  delete canonical.version
+  return canonical
+}
+
+export function approvalEnvelopeMatches(snapshot: unknown, contentHash: string): boolean {
+  const canonical = approvalCanonicalSnapshot(snapshot)
+  return canonical != null && canonicalHash(canonical) === contentHash
+}
+
 // ---------------------------------------------------------------------------
 // Draft state (shared by the draft-state preview op and the approval freeze)
 // ---------------------------------------------------------------------------
@@ -260,6 +273,7 @@ export async function computeDraftState(
     recipientCandidates,
     mix.template,
     postalAddress,
+    mix.steps,
   )
   const assetRefs = parseAssetRefs(campaign)
   const projectedCredits = projectCampaignCredits({
@@ -301,12 +315,20 @@ export async function computeDraftState(
       contact_point_id: recipient.contactPointId,
     })),
     rendered: [...rendered]
-      .sort((a, b) => (a.candidateId < b.candidateId ? -1 : 1))
+      .sort((a, b) =>
+        a.candidateId.localeCompare(b.candidateId)
+        || a.stepOrder - b.stepOrder
+        || a.stepKey.localeCompare(b.stepKey),
+      )
       .map((row) => ({
         candidate_id: row.candidateId,
+        step_key: row.stepKey,
+        step_order: row.stepOrder,
         content_hash: row.contentHash,
         needs_review: row.needsReview,
         missing_fields: row.missingFields,
+        word_count: row.wordCount,
+        quality_issues: row.qualityIssues,
       })),
     exclusions: exclusions.entries
       .filter((entry) => entry.excluded)
@@ -432,7 +454,23 @@ export async function approveCampaign(
     throw new GtmCampaignError('no_recipients', 'No eligible recipients remain after exclusions')
   }
 
-  const renderedByCandidate = new Map(draft.rendered.map((row) => [row.candidateId, row]))
+  if (!draft.postalAddress) {
+    throw new GtmCampaignError(
+      'postal_address_required',
+      'Set your business postal address in workspace settings before approving outreach (required by CAN-SPAM)',
+    )
+  }
+  const reviewRequired = draft.rendered.filter((row) => row.needsReview)
+  if (reviewRequired.length > 0) {
+    throw new GtmCampaignError(
+      'message_review_required',
+      `${reviewRequired.length} rendered email step artifacts are outside the approved quality envelope`,
+    )
+  }
+
+  const renderedByCandidateStep = new Map(
+    draft.rendered.map((row) => [`${row.candidateId}:${row.stepKey}`, row]),
+  )
   const now = new Date()
 
   const version = await em.transactional(async (tem) => {
@@ -589,14 +627,29 @@ export async function approveCampaign(
 
     // Frozen rendered messages: one row per (enrollment, email step).
     const emailSteps = stepRows.filter((step) => step.mode === 'automated_email')
+    const stepKeyById = new Map(
+      emailSteps.map((step) => [
+        step.id,
+        (step.sendWindow as Record<string, unknown> | null)?.step_key as string,
+      ]),
+    )
     const renderedIds: Array<Record<string, unknown>> = []
     for (const recipient of draft.recipients) {
       const enrollment = enrollmentByCandidate.get(recipient.candidateId)
-      const preview = renderedByCandidate.get(recipient.candidateId)
-      if (!enrollment || !preview) continue
+      if (!enrollment) continue
       // A stopped enrollment gets no new frozen messages.
       if (enrollment.status !== 'active') continue
       for (const step of emailSteps) {
+        const stepKey = stepKeyById.get(step.id)
+        const preview = stepKey
+          ? renderedByCandidateStep.get(`${recipient.candidateId}:${stepKey}`)
+          : null
+        if (!stepKey || !preview) {
+          throw new GtmCampaignError(
+            'message_review_required',
+            'An approved recipient-step artifact is missing from the reviewed envelope',
+          )
+        }
         const messageRow = tem.create(GtmRenderedMessage, {
           id: crypto.randomUUID(),
           organizationId: ctx.organizationId,
@@ -614,6 +667,7 @@ export async function approveCampaign(
         renderedIds.push({
           enrollment_id: enrollment.id,
           step_id: step.id,
+          step_key: stepKey,
           rendered_message_id: messageRow.id,
           content_hash: preview.contentHash,
         })

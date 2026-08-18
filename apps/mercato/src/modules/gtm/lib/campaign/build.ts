@@ -50,6 +50,7 @@ export class GtmCampaignError extends Error {
       | 'workspace_not_found'
       | 'postal_address_required'
       | 'sender_changed'
+      | 'message_review_required'
       | 'stale_draft'
       | 'daily_cap_exceeds_ceiling'
       | 'invalid_settings'
@@ -80,6 +81,15 @@ export const DEFAULT_SEND_WINDOW = {
 } as const
 
 export type SendWindow = { start_hour: number; end_hour: number; timezone: string }
+
+export function isValidTimeZone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date(0))
+    return true
+  } catch {
+    return false
+  }
+}
 
 export type CampaignSettings = {
   daily_cap: number
@@ -125,7 +135,8 @@ export function normalizeSettings(input?: CampaignSettingsInput | null): Campaig
     window.end_hour < 1 ||
     window.end_hour > 24 ||
     window.end_hour <= window.start_hour ||
-    !window.timezone
+    !window.timezone ||
+    !isValidTimeZone(window.timezone)
   ) {
     throw new GtmCampaignError('invalid_settings', 'send_window must satisfy 0 <= start_hour < end_hour <= 24 with a timezone')
   }
@@ -236,6 +247,9 @@ export function buildSteps(channelMix?: ChannelMixInput | null): StepSpec[] {
 
 export type CampaignTemplate = { subject: string; body: string }
 
+export const MIN_EMAIL_BODY_WORDS = 12
+export const MAX_EMAIL_BODY_WORDS = 130
+
 // Merge fields are grounded only: identity fields plus evidence/play facts.
 // A missing field renders an honest review token, never an invented value
 // (lib/campaign/render.ts).
@@ -246,6 +260,29 @@ export const DEFAULT_TEMPLATE: CampaignTemplate = {
     'I noticed {{signal}}.\n\n' +
     '{{why_now}}\n\n' +
     'Worth a quick look? Happy to share how teams like {{company}} use it.',
+}
+
+export function templateForEmailStep(
+  template: CampaignTemplate,
+  step: Pick<StepSpec, 'key' | 'order'>,
+): CampaignTemplate {
+  if (step.order <= 1 || step.key === 'email_1') return template
+  if (step.order === 2 || step.key === 'email_2') {
+    return {
+      subject: 'A different angle for {{company}}',
+      body:
+        'Hi {{first_name}},\n\n' +
+        'One different angle from my first note: {{why_now}}\n\n' +
+        'The specific signal I had in mind was {{signal}}. Would a short example for {{company}} be useful?',
+    }
+  }
+  return {
+    subject: 'Close the loop, {{first_name}}?',
+    body:
+      'Hi {{first_name}},\n\n' +
+      'I will close the loop after this note. {{signal}}\n\n' +
+      'If {{why_now}} is relevant at {{company}}, I can send a concise outline. If it is not a priority, no reply is needed.',
+  }
 }
 
 export type CampaignDraftMix = {
@@ -297,24 +334,52 @@ export type StoredAiDraft = {
   subject: string
   body_text: string
   provenance: Record<string, unknown> | null
+  step_key?: string
+  step_order?: number
 }
 
-export function parseStoredAiDrafts(campaign: GtmCampaign): Record<string, StoredAiDraft> {
+export type StoredAiDraftSequence = StoredAiDraft & {
+  steps?: Record<string, StoredAiDraft>
+}
+
+export function parseStoredAiDrafts(
+  campaign: GtmCampaign,
+): Record<string, Record<string, StoredAiDraft>> {
   const raw = (campaign.channelMix ?? {}) as Record<string, unknown>
   const drafts = raw.ai_drafts
   if (!drafts || typeof drafts !== 'object' || Array.isArray(drafts)) return {}
-  const out: Record<string, StoredAiDraft> = {}
+  const out: Record<string, Record<string, StoredAiDraft>> = {}
   for (const [candidateId, value] of Object.entries(drafts as Record<string, unknown>)) {
     if (!value || typeof value !== 'object') continue
     const record = value as Record<string, unknown>
     const subject = typeof record.subject === 'string' ? record.subject : ''
     const bodyText = typeof record.body_text === 'string' ? record.body_text : ''
     if (!subject || !bodyText) continue
-    out[candidateId] = {
+    const first: StoredAiDraft = {
       subject,
       body_text: bodyText,
       provenance: (record.provenance ?? null) as Record<string, unknown> | null,
+      step_key: typeof record.step_key === 'string' ? record.step_key : 'email_1',
+      step_order: typeof record.step_order === 'number' ? record.step_order : 1,
     }
+    const sequence: Record<string, StoredAiDraft> = { [first.step_key ?? 'email_1']: first }
+    const steps = record.steps
+    if (steps && typeof steps === 'object' && !Array.isArray(steps)) {
+      for (const [stepKey, stepValue] of Object.entries(steps as Record<string, unknown>)) {
+        if (!stepValue || typeof stepValue !== 'object') continue
+        const stepRecord = stepValue as Record<string, unknown>
+        if (typeof stepRecord.subject !== 'string' || typeof stepRecord.body_text !== 'string') continue
+        if (!stepRecord.subject || !stepRecord.body_text) continue
+        sequence[stepKey] = {
+          subject: stepRecord.subject,
+          body_text: stepRecord.body_text,
+          provenance: (stepRecord.provenance ?? null) as Record<string, unknown> | null,
+          step_key: stepKey,
+          step_order: typeof stepRecord.step_order === 'number' ? stepRecord.step_order : undefined,
+        }
+      }
+    }
+    out[candidateId] = sequence
   }
   return out
 }

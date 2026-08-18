@@ -329,12 +329,19 @@ async function executeReplyAttempt(
   attempt.rfcMessageId = rfcMessageId
 
   // RFC 8058 one-click headers on the reply send too (section 8).
-  const unsubscribeUrl = buildUnsubscribeUrl(opts.enrollment.id, addressHash)
+  const unsubscribeUrl = buildUnsubscribeUrl({
+    organizationId: opts.enrollment.organizationId,
+    tenantId: opts.enrollment.tenantId,
+    enrollmentId: opts.enrollment.id,
+    addressHash,
+  })
   const headers: Record<string, string> = {
     'List-Unsubscribe': unsubscribeUrl
       ? `<mailto:${connection.emailAddress}?subject=unsubscribe>, <${unsubscribeUrl}>`
       : `<mailto:${connection.emailAddress}?subject=unsubscribe>`,
-    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  }
+  if (unsubscribeUrl?.startsWith('https://')) {
+    headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
   }
 
   try {

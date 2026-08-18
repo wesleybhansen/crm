@@ -9,6 +9,15 @@ import {
   GtmSendAttempt,
   GtmSuppression,
 } from '../data/entities'
+import { executeRemovalDeletion } from './privacy/deletion'
+export {
+  GLOBAL_SUPPRESSION_ORG_ID,
+  GLOBAL_SUPPRESSION_TENANT_ID,
+} from './privacy/constants'
+import {
+  GLOBAL_SUPPRESSION_ORG_ID,
+  GLOBAL_SUPPRESSION_TENANT_ID,
+} from './privacy/constants'
 
 /*
  * Public prospect-removal request (privacy policy section 3.8).
@@ -60,9 +69,6 @@ import {
 // gtm_suppressions.organization_id / tenant_id are NOT NULL but meaningless
 // for scope='global' rows (no reader filters on them). The nil UUID is the
 // inert placeholder; never treat it as a real organization.
-export const GLOBAL_SUPPRESSION_ORG_ID = '00000000-0000-0000-0000-000000000000'
-export const GLOBAL_SUPPRESSION_TENANT_ID = '00000000-0000-0000-0000-000000000000'
-
 export const REMOVAL_REQUEST_REASON = 'removal_request'
 
 const NON_TERMINAL_CANCELABLE = ['planned', 'rendered', 'reviewed', 'approved', 'claimed']
@@ -86,6 +92,10 @@ export type RemovalRequestResult = {
   suppressionCreated: boolean
   enrollmentsStopped: number
   attemptsCancelled: number
+  deletionRequestId: string
+  deletionStatus: string
+  recordsAnonymized: number
+  dsrOperations: number
 }
 
 /** Normalizes the submitted address exactly as the suppression code does
@@ -140,6 +150,15 @@ export async function applyRemovalRequest(
     }
   }
 
+  // Suppression and stop are immediate; the same request then drives a
+  // resumable, idempotent local anonymization/DSR record. The raw address is
+  // transient and is never written to a deletion, DSR, or audit row.
+  const deletion = await executeRemovalDeletion(
+    em,
+    { addressHash, normalizedAddress: address, points },
+    { clock: deps.clock },
+  )
+
   return {
     ok: true,
     suppressed: true,
@@ -147,6 +166,15 @@ export async function applyRemovalRequest(
     suppressionCreated,
     enrollmentsStopped,
     attemptsCancelled,
+    deletionRequestId: deletion.request.id,
+    deletionStatus: deletion.request.status,
+    recordsAnonymized:
+      deletion.candidatesAnonymized +
+      deletion.evidenceAnonymized +
+      deletion.contactPointsAnonymized +
+      deletion.renderedMessagesAnonymized +
+      deletion.repliesAnonymized,
+    dsrOperations: deletion.dsrOperations,
   }
 }
 
@@ -239,6 +267,8 @@ async function stopEnrollment(
         state: 'failed',
         failureReason: 'stopped',
         claimToken: null,
+        claimExpiresAt: null,
+        capacitySlotKey: null,
         failedAt: args.now,
         updatedAt: args.now,
       },

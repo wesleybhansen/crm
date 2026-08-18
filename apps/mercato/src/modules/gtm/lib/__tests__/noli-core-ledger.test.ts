@@ -2,6 +2,7 @@ import { FixtureLedger, GtmCreditLedgerError } from '../credits/ledger'
 import {
   NoliCoreLedgerTransportError,
   NoliCoreLedgerConfigurationError,
+  NoliCoreOperatorReconciler,
   NoliCoreRpcLedger,
   getLedger,
   mapRpcErrorToLedgerError,
@@ -36,6 +37,107 @@ const reserveInput = {
   unitCostSnapshot: { unit: 'contact_point', quoted_credits_per_unit: 2 },
   fingerprint: { candidate_id: 'cand-1' },
 }
+
+describe('NoliCoreOperatorReconciler', () => {
+  it('calls the binding-aware canonical reconciliation RPC and validates the exact echo', async () => {
+    const binding = {
+      schemaVersion: 'gtm.operator_reconciliation.v1' as const,
+      idempotencyKey: 'operator-1',
+      auditEventId: 'aaaaaaaa-1111-4111-8111-111111111111',
+      evidenceHash: 'a'.repeat(64),
+      decisionHash: 'b'.repeat(64),
+      decidedAt: '2026-08-18T05:30:00.000Z',
+    }
+    const rpc = jest.fn().mockResolvedValue(
+      ok({ operation_id: OP, status: 'charged', charged_credits: 4, binding }),
+    )
+    const reconciler = new NoliCoreOperatorReconciler(client(rpc))
+    await expect(
+      reconciler.reconcile({
+        organizationId: ORG,
+        actorUserId: USER,
+        operationId: OP,
+        previousStatus: 'reconciliation_required',
+        outcome: 'charged',
+        chargedCredits: 4,
+        receipt: { operator_reconciliation: { decision_hash: binding.decisionHash } },
+        binding,
+      }),
+    ).resolves.toEqual({ operationId: OP, status: 'charged', chargedCredits: 4, binding })
+    expect(rpc).toHaveBeenCalledWith('provider_op_reconcile', {
+      p_org: ORG,
+      p_actor: USER,
+      p_operation_id: OP,
+      p_previous_status: 'reconciliation_required',
+      p_outcome: 'charged',
+      p_charged_credits: 4,
+      p_receipt: { operator_reconciliation: { decision_hash: binding.decisionHash } },
+      p_binding: binding,
+    })
+  })
+
+  it('preserves null binding so the service can reject a same-status foreign decision', async () => {
+    const rpc = jest.fn().mockResolvedValue(
+      ok({ operation_id: OP, status: 'charged', charged_credits: 4, binding: null }),
+    )
+    const reconciler = new NoliCoreOperatorReconciler(client(rpc))
+    const result = await reconciler.reconcile({
+      organizationId: ORG,
+      actorUserId: USER,
+      operationId: OP,
+      previousStatus: 'reconciliation_required',
+      outcome: 'charged',
+      chargedCredits: 4,
+      receipt: {},
+      binding: {
+        schemaVersion: 'gtm.operator_reconciliation.v1',
+        idempotencyKey: 'operator-2',
+        auditEventId: 'aaaaaaaa-1111-4111-8111-111111111112',
+        evidenceHash: 'c'.repeat(64),
+        decisionHash: 'd'.repeat(64),
+        decidedAt: '2026-08-18T05:31:00.000Z',
+      },
+    })
+    expect(result.binding).toBeNull()
+  })
+
+  it('rejects a canonical echo that omits the decision timestamp', async () => {
+    const rpc = jest.fn().mockResolvedValue(
+      ok({
+        operation_id: OP,
+        status: 'charged',
+        charged_credits: 4,
+        binding: {
+          schemaVersion: 'gtm.operator_reconciliation.v1',
+          idempotencyKey: 'operator-3',
+          auditEventId: 'aaaaaaaa-1111-4111-8111-111111111113',
+          evidenceHash: 'e'.repeat(64),
+          decisionHash: 'f'.repeat(64),
+        },
+      }),
+    )
+    const reconciler = new NoliCoreOperatorReconciler(client(rpc))
+    await expect(
+      reconciler.reconcile({
+        organizationId: ORG,
+        actorUserId: USER,
+        operationId: OP,
+        previousStatus: 'reconciliation_required',
+        outcome: 'charged',
+        chargedCredits: 4,
+        receipt: {},
+        binding: {
+          schemaVersion: 'gtm.operator_reconciliation.v1',
+          idempotencyKey: 'operator-3',
+          auditEventId: 'aaaaaaaa-1111-4111-8111-111111111113',
+          evidenceHash: 'e'.repeat(64),
+          decisionHash: 'f'.repeat(64),
+          decidedAt: '2026-08-18T05:32:00.000Z',
+        },
+      }),
+    ).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+  })
+})
 
 describe('NoliCoreRpcLedger', () => {
   it('maps reserve onto provider_op_reserve with the exact frozen arguments and p_app crm', async () => {

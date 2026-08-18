@@ -28,7 +28,10 @@ const PLAY = {
 
 describe('draftMessageForRecipient', () => {
   it('produces a voice-grounded message with the expected shape and provenance', async () => {
-    const model = jsonModel('A quick idea for Acme', 'Hi Dana,\n\nSaw you are hiring.\n\nWorth a chat?')
+    const model = jsonModel(
+      'A quick idea for Acme',
+      'Hi Dana,\n\nSaw you are hiring the operations team this quarter. I have one relevant idea. Worth a short chat?',
+    )
     const { meter, calls } = makeMeterSpy()
     const drafted = await draftMessageForRecipient(
       { model, meter },
@@ -49,7 +52,7 @@ describe('draftMessageForRecipient', () => {
   })
 
   it('meters exactly once per successful draft', async () => {
-    const model = jsonModel('S', 'B')
+    const model = jsonModel('S', 'This grounded message contains enough useful words for a concise first outreach note today.')
     const { meter, calls } = makeMeterSpy()
     await draftMessageForRecipient({ model, meter }, {
       play: PLAY,
@@ -61,8 +64,26 @@ describe('draftMessageForRecipient', () => {
     expect(calls).toHaveLength(1)
   })
 
+  it('rejects copy outside the enforced body word bounds after metering the spent call', async () => {
+    const model = jsonModel('Too brief', 'Only two')
+    const { meter, calls } = makeMeterSpy()
+    await expect(
+      draftMessageForRecipient({ model, meter }, {
+        play: PLAY,
+        icpVersion: null,
+        voiceVersion: VOICE,
+        candidate: { entityKind: 'person', identity: { name: 'Dana' } },
+        evidence: evidence([]),
+      }),
+    ).rejects.toMatchObject({ code: 'draft_failed' })
+    expect(calls).toHaveLength(1)
+  })
+
   it('is injection-safe: candidate/evidence text is DATA, brace tokens stripped, instructions not honored', async () => {
-    const model = jsonModel('Subject {{first_name}}', 'Body with {{evil}} token and {{signal}}')
+    const model = jsonModel(
+      'Subject {{first_name}}',
+      'Body with {{evil}} token and {{signal}} plus enough grounded context for a useful short outreach note.',
+    )
     const { meter } = makeMeterSpy()
     const drafted = await draftMessageForRecipient({ model, meter }, {
       play: PLAY,
@@ -122,7 +143,7 @@ describe('draftMessageForRecipient', () => {
 })
 
 describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)', () => {
-  async function setup() {
+  async function setup(options: { emails?: number } = {}) {
     const em = new FakeEm()
     const play = await seedPlay(em)
     const run = await seedRun(em, play)
@@ -132,7 +153,7 @@ describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)',
       workspaceId: WORKSPACE,
       playId: play.id,
       name: 'AI draft test',
-      channelMix: { emails: 1 },
+      channelMix: { emails: options.emails ?? 1 },
     })
     return { em, campaign, a, b }
   }
@@ -165,7 +186,13 @@ describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)',
     const result = await regenerateMessageForCandidate(
       em,
       ctx,
-      { model: jsonModel('Voiced subject', 'Voiced body line one.\nLine two.'), meter },
+      {
+        model: jsonModel(
+          'Voiced subject',
+          'Voiced body line one explains the grounded signal clearly. Line two offers a useful, low-friction next step.',
+        ),
+        meter,
+      },
       { campaignId: campaign.id, candidateId: a.id },
     )
     expect(result.provenance).toBe('ai')
@@ -177,17 +204,89 @@ describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)',
     const rowB = draft.rendered.find((r) => r.candidateId === b.id)!
     expect(rowA.provenance).toBe('ai')
     expect(rowA.subject).toBe('Voiced subject')
-    expect(rowA.bodyText).toContain('Voiced body line one.')
+    expect(rowA.bodyText).toContain('Voiced body line one explains the grounded signal')
     // The CAN-SPAM footer is still appended to the AI body.
     expect(rowA.bodyText).toContain('Unsubscribe:')
     expect(rowB.provenance).toBe('template')
+  })
+
+  it('drafts a step-specific, materially distinct three-email sequence', async () => {
+    const { em, campaign, a } = await setup({ emails: 3 })
+    await lockVoice(em)
+    const outputs = [
+      {
+        subject: 'A ramp idea for Alpha',
+        body: 'Hi Alpha, I noticed your team posted three operations roles. I can share a practical way to shorten ramp time. Open to it?',
+      },
+      {
+        subject: 'An onboarding angle',
+        body: 'Your hiring signal also suggests process documentation may be stretched. Would a two-page onboarding example help your new managers?',
+      },
+      {
+        subject: 'Closing the loop',
+        body: 'I will close the loop here. If improving handoffs becomes a priority, I can send a concise checklist; otherwise, no reply is needed.',
+      },
+    ]
+    const model = new FakeModel(() => ({
+      text: JSON.stringify(outputs[model.calls.length - 1]),
+      model: 'fake-gemini',
+      tokensIn: 120,
+      tokensOut: 60,
+    }))
+    const { meter, calls } = makeMeterSpy()
+
+    const result = await regenerateMessageForCandidate(em, ctx, { model, meter }, {
+      campaignId: campaign.id,
+      candidateId: a.id,
+      idempotencyKey: 'sequence-1',
+    })
+
+    expect(result.provenance).toBe('ai')
+    expect(model.calls).toHaveLength(3)
+    expect(calls).toHaveLength(3)
+    expect(model.calls[0].prompt).toContain('first touch (1 of 3)')
+    expect(model.calls[1].prompt).toContain('follow-up (2 of 3)')
+    expect(model.calls[1].prompt).toContain('PREVIOUS SEQUENCE COPY')
+    expect(model.calls[2].prompt).toContain('final close-the-loop note (3 of 3)')
+    const sequence = (result as { draft: { steps: Record<string, unknown> } }).draft.steps
+    expect(Object.keys(sequence)).toEqual(['email_1', 'email_2', 'email_3'])
+
+    const draft = await computeDraftState(em, ctx, campaign)
+    const rows = draft.rendered.filter((row) => row.candidateId === a.id)
+    expect(rows).toHaveLength(3)
+    expect(rows.map((row) => row.stepKey)).toEqual(['email_1', 'email_2', 'email_3'])
+    expect(new Set(rows.map((row) => row.contentHash)).size).toBe(3)
+    expect(rows.every((row) => row.provenance === 'ai' && !row.needsReview)).toBe(true)
+  })
+
+  it('falls back without storing a sequence when the model repeats a prior step', async () => {
+    const { em, campaign, a } = await setup({ emails: 2 })
+    await lockVoice(em)
+    const model = jsonModel(
+      'Repeated subject',
+      'This repeated message uses one grounded signal and offers a concise low-friction next step for the recipient.',
+    )
+    const { meter, calls } = makeMeterSpy()
+
+    const result = await regenerateMessageForCandidate(em, ctx, { model, meter }, {
+      campaignId: campaign.id,
+      candidateId: a.id,
+    })
+
+    expect(result).toMatchObject({ provenance: 'template', reason: 'draft_failed' })
+    expect(model.calls).toHaveLength(2)
+    expect(calls).toHaveLength(2)
+    expect(((campaign.channelMix ?? {}) as Record<string, unknown>).ai_drafts).toBeUndefined()
   })
 
   it('dedupes a same-key repeat: no second model call, no second meter, same draft', async () => {
     const { em, campaign, a } = await setup()
     await lockVoice(em)
     const { meter, calls } = makeMeterSpy()
-    const model = jsonModel('Voiced subject', 'Voiced body.')
+    const model = jsonModel(
+      'Voiced subject',
+      'This voiced message uses a grounded signal and offers one concise, low-friction next step today.',
+    )
 
     const first = await regenerateMessageForCandidate(em, ctx, { model, meter }, {
       campaignId: campaign.id,
@@ -213,7 +312,10 @@ describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)',
     const { em, campaign, a } = await setup()
     await lockVoice(em)
     const { meter, calls } = makeMeterSpy()
-    const model = jsonModel('Voiced subject', 'Voiced body.')
+    const model = jsonModel(
+      'Voiced subject',
+      'This voiced message uses a grounded signal and offers one concise, low-friction next step today.',
+    )
 
     await regenerateMessageForCandidate(em, ctx, { model, meter }, {
       campaignId: campaign.id,
@@ -244,7 +346,13 @@ describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)',
     const regen = await regenerateMessageForCandidate(
       em,
       ctx,
-      { model: jsonModel('Frozen AI subject', 'Frozen AI body.'), meter: makeMeterSpy().meter },
+      {
+        model: jsonModel(
+          'Frozen AI subject',
+          'This frozen AI message uses the approved evidence and offers one specific, low-friction next step today.',
+        ),
+        meter: makeMeterSpy().meter,
+      },
       { campaignId: campaign.id, candidateId: a.id },
     )
     expect(regen.provenance).toBe('ai')
@@ -264,6 +372,6 @@ describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)',
       .filter((r) => r.campaignVersionId === second.version.id)
     const frozenA = frozen.find((r) => r.subject === 'Frozen AI subject')
     expect(frozenA).toBeTruthy()
-    expect(frozenA!.bodyText).toContain('Frozen AI body.')
+    expect(frozenA!.bodyText).toContain('This frozen AI message uses the approved evidence')
   })
 })

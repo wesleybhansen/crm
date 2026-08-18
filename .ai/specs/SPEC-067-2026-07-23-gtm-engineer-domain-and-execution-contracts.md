@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0 current-main integration in progress. The module remains inert: no provider call, production migration, deployment, outreach, or customer exposure is authorized by this spec.
+**Status:** C1 inert lifecycle closeout implemented and locally verified. The module remains inert: no provider call, production migration, deployment, outreach, or customer exposure is authorized by this spec.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -223,11 +223,75 @@ Migration application to production remains a separately authorized manual psql 
 
 - **Plaintext mailbox/ESP credentials (§3.1)** predate GTM; GTM increases their blast radius. Mitigation queued as a cross-cutting hardening item (progress doc); GTM does not add new plaintext secret columns.
 - **Registry/migration operational risk:** new module routes do not exist until a no-cache rebuild; migrations are manual. Both are existing repo invariants; every GTM tranche exit includes registry + schema verification.
-- **Ambiguous-outcome inventory growth:** `ambiguous`/`reconciliation_required` rows require an operator surface (Usage/admin) - included in Tranche 6 scope; no automatic expiry, mirroring the OpenCode ambiguous-lease decision.
-- **Residual:** reply correlation via headers is best-effort against mail clients that strip References; fallback matching (§9) narrows but cannot eliminate misses - accepted for V1 and surfaced honestly in the inbox.
+- **Ambiguous-outcome inventory growth:** `ambiguous`/`reconciliation_required` rows require explicit operator evidence and canonical Noli Core reconciliation. C1 adds the protected boundary, but its flag-off local verification is not release authority or production reconciliation proof.
+- **Residual:** exact reply correlation still depends on provider/RFC identifiers. Mailbox-and-counterparty fallback refuses ambiguity but cannot eliminate unmatched mail; unmatched confidence remains visible and causes no stop side effect.
 
-## 16. Changelog
+## 16. C1 inert lifecycle closeout (approved 2026-08-17)
+
+### 16.1 Extension and release decision
+
+C1 remains an app-level `apps/mercato/src/modules/gtm` module extension. It does not move GTM into Open Mercato core. Existing CRM routes, status values, fields, and imports remain valid; CRM database work is additive and generator-owned. The coordinated Noli Core change is one additive service-role-only canonical reconciliation RPC and decision binding. C1 authorizes local implementation and local commits only. Provider access, email transport, shared or production migrations, flags, deployment, prospect data, and customer exposure remain separately gated.
+
+### 16.2 Sequence, sender, and capacity contract
+
+- Every automated email step has its own authored artifact. The model receives the frozen step order, purpose, prior-step summaries, and approved evidence; the stored subject/body/content hash must be step-specific. Identical normalized bodies across two automated steps fail approval.
+- Generated email bodies are deterministically bounded to 130 words and replies to 120 words. A model or template result outside the bound is degraded or rejected, never silently presented as approved-quality work.
+- Approval binds recipient contact-point id and normalized-address hash; mailbox id, provider kind, normalized from address, owning user, purpose, connection-update version and fingerprint; postal footer; unsubscribe mode; campaign/version/step; and each rendered content hash. The current EmailConnection contract has no separate reply-to/display-name/health-generation fields, so C1 does not claim them.
+- Claim-time execution revalidates the frozen sender envelope and recipient address. Any drift fails closed before `provider_started`.
+- Scheduling allocates mailbox capacity by local business day and send window. Capacity exhaustion reschedules to the next eligible window rather than failing an attempt. Claim-time capacity is reserved with a durable slot key so concurrent workers cannot exceed the mailbox/day limit.
+
+### 16.3 Provider reconciliation contract
+
+- `gtm_provider_reconciliation_actions` is tenant-scoped with immutable decision identity and a one-way pending-to-completed/rejected lifecycle. It records a unique operator idempotency key, expected canonical status, decision, evidence hash, redacted evidence, actor, and resulting canonical status.
+- A local shadow never changes balance truth. Resolving an actionable operation calls the atomic `provider_op_reconcile` RPC on the original Noli Core operation with the full decision/evidence/audit/timestamp binding. A reserved operation may be explicitly released; a proven no-charge post-start outcome settles as `refunded` with zero credits. Missing or contradictory evidence remains unresolved.
+- Repeated decisions with the same key return and reverify the canonical recorded result; conflicting decisions, amounts, evidence, actors, timestamps, or stale expected states fail closed. Canonical success is recorded before the local action is finalized.
+
+### 16.4 Durable inbound and delivery contract
+
+- `gtm_mailbox_cursors` stores per-mailbox provider cursor metadata, cursor hash, optional tenant-encrypted sealed cursor, and a fenced lease. Cursor advancement is compare-and-set and monotonic; a losing/replayed worker cannot skip or regress events.
+- `gtm_inbound_events` is the dedupe and evidence boundary for replies, delivered, hard-bounce, complaint, out-of-office, and auto-reply events. The durable key binds organization, tenant, mailbox, provider and provider-event identity; evidence is redacted and body content stays in `email_messages`.
+- Event disposition is determined before enrollment stop. Human replies stop atomically and may be classified/drafted. Hard bounces and complaints suppress and stop without creating a reply draft. Out-of-office and auto-reply events do not masquerade as human replies; they defer eligible future attempts and never create a CTA draft.
+- Correlation persists `exact_header`, `provider_message_id`, `mailbox_counterparty`, or `unmatched` confidence. Low-confidence fallback never binds when more than one live enrollment is eligible.
+
+### 16.5 Removal, retention, DSR, and key rotation contract
+
+- `gtm_deletion_requests` is the durable removal lifecycle. It records only normalized hashes and redacted scope, tracks legal hold, and is idempotent per request key.
+- Local execution anonymizes/deletes reachable candidate, evidence, contact-point, rendered-message, reply, and chat payload data while retaining the minimum suppression hash, count-only audit, immutable money/approval evidence required by policy, and records blocked legal-hold rows explicitly.
+- `gtm_dsr_operations` tracks one idempotent provider/local erasure operation per deletion request and adapter. Unsupported provider deletion is an explicit `not_supported`/owner-review outcome, not success. Retries retain receipts and never call a provider without separate provider authority.
+- Unsubscribe tokens carry a key id. A configured keyring verifies current and retained prior keys; legacy single-secret tokens remain verifiable during the documented bridge. Rotation never invalidates a still-valid issued token merely because the active signing key changed.
+
+### 16.6 Additive API operations
+
+- Execution adds inert mailbox-event reconciliation operations and cursor status without enabling a mailbox provider call.
+- Inbox responses expose event kind and correlation confidence additively.
+- A protected reconciliation endpoint lists ambiguous provider shadows and applies an exact, idempotent operator decision.
+- Removal status exposes deletion/DSR state by opaque request id; it never returns an address or provider credential.
+
+### 16.7 C1 acceptance gates
+
+- Three email steps produce three materially distinct bodies and hashes; repeat generation with one idempotency key does not re-meter.
+- Sender/from/reply-to/footer/recipient/credential-generation drift fails before provider contact; concurrent claims cannot exceed mailbox/day capacity; exhausted capacity reschedules.
+- Ambiguous provider operation settles exactly once from authoritative evidence; stale/conflicting decisions fail; zero-charge requires an explicit refunded receipt.
+- Cursor lease overlap, restart at each boundary, duplicate provider event, cursor regression, ambiguous fallback, and event replay cannot skip, duplicate, or misbind an inbound event.
+- Human reply, bounce, complaint, OOO, and auto-reply each take their distinct stop/suppress/defer/draft path.
+- Removal is idempotent, preserves suppression, respects legal hold, anonymizes the local graph, and records provider DSR unsupported/retry/receipt truthfully.
+- Current-main full migrations plus the generated GTM migration apply on an empty disposable database; a second migrate and generator run report no drift.
+- Unit, route-contract, module typecheck, whole-repository typecheck, lint, and diff checks pass with all external adapters and transports faked or disabled.
+
+### 16.8 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| C1-A - Sequence/sender/capacity | Done locally | 2026-08-17 | Distinct step artifacts, exact approval binding, mailbox lock + durable local-day slots; execution remains hard-off |
+| C1-B - Provider reconciliation | Done locally | 2026-08-17 | Full canonical decision binding and operator evidence; no provider calls |
+| C1-C - Durable inbound/delivery | Done locally | 2026-08-17 | Fenced cursor/event/reply fixtures only; no mailbox provider ingestion enabled |
+| C1-D - Removal/DSR/key rotation | Done locally | 2026-08-17 | Local graph anonymization and explicit unsupported/blocked DSR states; no live DSR calls |
+| C1-E - Migration/eval/closeout | Done locally | 2026-08-17 | Empty disposable CRM migration/reapply/no-drift plus disposable Noli RPC exact-replay rehearsal |
+
+## 17. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
 - 2026-08-17: Renumbered from SPEC-066 to SPEC-067 on the C0 current-main integration base (`7abd37f32da83c55c4eb46e68735e45a0fce62ed`). C0 is an inert integrity tranche only; it does not authorize provider access, sending, migration application, deployment, or customer exposure.
+- 2026-08-17: Added the approved C1 inert lifecycle closeout for distinct sequences, sender/capacity binding, provider reconciliation, durable inbound/delivery events, deletion/DSR, and unsubscribe key rotation. External effects remain disabled and separately gated.
+- 2026-08-17: Completed the local C1 implementation and disposable verification. Added generated CRM migration `Migration20260818052128_gtm`, additive Noli Core `provider_op_reconcile`, and 25-table GTM schema verification. No external effect or release gate was opened.

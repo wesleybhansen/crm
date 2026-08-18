@@ -2,6 +2,7 @@ import {
   campaignFeatureForOp,
   executionFeatureForOp,
   hasGtmFeature,
+  reconciliationFeatureForOp,
 } from '../authorize'
 
 const ctx = {
@@ -31,9 +32,15 @@ describe('GTM server-side feature authorization', () => {
 
   it('reserves every execution mutation for launch-capable users', () => {
     expect(executionFeatureForOp('status')).toBe('gtm.view')
+    expect(executionFeatureForOp('cursor-status')).toBe('gtm.view')
     for (const op of ['launch', 'tick', 'recover-stuck', 'correlate-replies']) {
       expect(executionFeatureForOp(op)).toBe('gtm.launch')
     }
+  })
+
+  it('makes provider reconciliation readable by viewers and mutable only by approvers', () => {
+    expect(reconciliationFeatureForOp('list')).toBe('gtm.view')
+    expect(reconciliationFeatureForOp('apply')).toBe('gtm.approve')
   })
 
   it('checks the represented user in the exact tenant and organization scope', async () => {
