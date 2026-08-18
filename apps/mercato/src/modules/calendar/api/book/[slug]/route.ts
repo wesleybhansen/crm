@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -13,7 +14,8 @@ export async function GET(req: Request, ctx: any) {
 
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     const page = await knex('booking_pages').where('slug', slug).where('is_active', true).first()
     if (!page) return new NextResponse('Booking page not found', { status: 404, headers: { 'Content-Type': 'text/html' } })
@@ -64,7 +66,18 @@ export async function GET(req: Request, ctx: any) {
     let prefillContact: { name?: string; email?: string; phone?: string } | null = null
     if (contactId) {
       try {
-        const contact = await knex('customer_entities').where('id', contactId).first()
+        // Scoped to the page's org: this is a PUBLIC route and the contact id
+        // comes from the query string, so an unscoped lookup would prefill
+        // another organization's contact into the form.
+        const contact = await knex('customer_entities')
+          .where('id', contactId)
+          .where('organization_id', page.organization_id)
+          .first()
+        if (contact) {
+          // Raw knex skips the decrypting subscriber — otherwise the booking
+          // form greets the visitor with ciphertext in the name/email fields.
+          await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['display_name', 'primary_email', 'primary_phone'], page.tenant_id, page.organization_id)
+        }
         if (contact) {
           prefillContact = {
             name: contact.display_name || '',
