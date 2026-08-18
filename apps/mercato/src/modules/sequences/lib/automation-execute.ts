@@ -229,6 +229,13 @@ async function executeAction(
       } catch {
         // Fallback to raw knex
         const contact = await knex('customer_entities').where('id', context.contactId).first()
+        // This fallback read raw, so the ':v1' guard below then dropped the send.
+        if (contact) {
+          const { decryptRowFields, CONTACT_ENTITY_KEY } = await import('@open-mercato/shared/lib/encryption/decryptRows')
+          const fallbackEm = knex.client?.em
+            || (await (await import('@open-mercato/shared/lib/di/container')).createRequestContainer()).resolve('em')
+          await decryptRowFields(fallbackEm, CONTACT_ENTITY_KEY, [contact], ['primary_email', 'display_name'], tenantId, orgId)
+        }
         contactEmail = contact?.primary_email || null
         contactName = contact?.display_name || ''
       }
