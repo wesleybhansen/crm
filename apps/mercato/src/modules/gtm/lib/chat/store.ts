@@ -1,6 +1,11 @@
 import crypto from 'crypto'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { GtmAuditEvent, GtmChatMessage, GtmChatThread, GtmWorkspace } from '../../data/entities'
+import {
+  chatContentIsBounded,
+  GTM_CHAT_CONTENT_MAX_BYTES,
+  GTM_CHAT_MESSAGE_READ_CAP,
+} from '../../data/chat-contract'
 import type { CampaignEm, GtmCtx } from '../campaign/build'
 
 /*
@@ -25,6 +30,7 @@ import type { CampaignEm, GtmCtx } from '../campaign/build'
  */
 
 export const GTM_CHAT_THREAD_LIST_CAP = 50
+export { GTM_CHAT_CONTENT_MAX_BYTES, GTM_CHAT_MESSAGE_READ_CAP }
 const APPEND_MAX_RETRIES = 3
 
 export const GTM_CHAT_ROLES = ['user', 'assistant', 'tool'] as const
@@ -60,6 +66,12 @@ function assertRole(role: string): GtmChatRole {
 function assertContent(content: unknown): Record<string, unknown> {
   if (!content || typeof content !== 'object' || Array.isArray(content)) {
     throw new GtmChatError('invalid_content', 'Message content must be a JSON object')
+  }
+  if (!chatContentIsBounded(content)) {
+    throw new GtmChatError(
+      'invalid_content',
+      `Message content must be serializable and at most ${GTM_CHAT_CONTENT_MAX_BYTES} bytes`,
+    )
   }
   return content as Record<string, unknown>
 }
@@ -178,9 +190,17 @@ export async function listThreads(em: CampaignEm, ctx: GtmCtx, workspaceId: stri
 }
 
 // Thread-scoped message history, chronological (seq ascending).
-export async function getMessages(em: CampaignEm, ctx: GtmCtx, threadId: string): Promise<GtmChatMessage[]> {
+export async function getMessages(
+  em: CampaignEm,
+  ctx: GtmCtx,
+  threadId: string,
+  input: { limit?: number } = {},
+): Promise<GtmChatMessage[]> {
   await requireThread(em, ctx, threadId)
-  return (em as ListEm).find(
+  const limit = Number.isInteger(input.limit)
+    ? Math.max(1, Math.min(GTM_CHAT_MESSAGE_READ_CAP, input.limit as number))
+    : GTM_CHAT_MESSAGE_READ_CAP
+  const newestFirst = await (em as ListEm).find(
     GtmChatMessage,
     {
       organizationId: ctx.organizationId,
@@ -188,8 +208,9 @@ export async function getMessages(em: CampaignEm, ctx: GtmCtx, threadId: string)
       threadId,
       deletedAt: null,
     },
-    { orderBy: { seq: 'asc' } },
+    { orderBy: { seq: 'desc' }, limit },
   )
+  return newestFirst.reverse()
 }
 
 async function nextSeq(em: CampaignEm, ctx: GtmCtx, threadId: string): Promise<number> {

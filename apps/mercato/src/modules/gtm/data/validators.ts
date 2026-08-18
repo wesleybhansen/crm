@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { chatContentIsBounded, GTM_CHAT_MESSAGE_READ_CAP } from './chat-contract'
 
 const optionalText = z
   .string()
@@ -661,7 +662,9 @@ export type GtmStrategyBody = z.infer<typeof gtmStrategyBodySchema>
 // Turn payload is an arbitrary JSON object (message text plus, for assistant
 // turns, the structured proposed actions the UI renders as confirm buttons).
 // The store guards object-ness; shape is product-defined.
-const chatContentSchema = z.record(z.string(), z.unknown())
+const chatContentSchema = z.record(z.string(), z.unknown()).refine(chatContentIsBounded, {
+  message: 'chat content exceeds the 64 KiB serialized limit',
+})
 
 export const gtmChatBodySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('thread-list'), noliUserId: idString, workspaceId: idString }),
@@ -671,7 +674,12 @@ export const gtmChatBodySchema = z.discriminatedUnion('op', [
     workspaceId: idString,
     title: z.string().trim().max(200).optional().nullable(),
   }),
-  z.object({ op: z.literal('messages'), noliUserId: idString, threadId: idString }),
+  z.object({
+    op: z.literal('messages'),
+    noliUserId: idString,
+    threadId: idString,
+    limit: z.number().int().min(1).max(GTM_CHAT_MESSAGE_READ_CAP).optional(),
+  }),
   z.object({
     op: z.literal('append-message'),
     noliUserId: idString,

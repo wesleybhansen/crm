@@ -503,7 +503,29 @@ C4 closes two local release blockers without enabling execution: a user with `gt
 | C6-A - queue contract and dark worker | Completed locally | 2026-08-18 | No schedule, schema, provider, or mailbox effect |
 | C6-B - complete validation and freeze | Completed locally | 2026-08-18 | 66 suites/702 deterministic tests; TypeScript, lint, and diff checks green; all external-effect gates remain off |
 
-## 22. Changelog
+## 22. C7 bounded Strategist context (approved 2026-08-18)
+
+### 22.1 Persistence and read bounds
+
+- CRM rejects a chat content object whose serialized UTF-8 representation exceeds 64 KiB. The internal route validator and chat store both enforce the same shared constant, so a direct service caller cannot bypass the boundary.
+- Thread message reads select the newest requested window and return it in chronological order. The default and hard maximum are 200 rows; Hub requests its smaller model-context window.
+- Durable history is not deleted, summarized, or rewritten by this limit. Older rows remain available to a separately designed paginated archive surface.
+
+### 22.2 Model-context and tool bounds
+
+- Each turn uses at most 24 prior user/assistant rows, 8,000 characters per row, and 32,000 prior-history characters total. The current user message remains capped at 20,000 characters.
+- Tool results are framed as untrusted data and capped at 8,000 characters. Across the existing maximum six model iterations, at most eight model-requested tools may execute. Excess requests receive an explicit non-executing `tool_limit_reached` event.
+- The final assistant text is capped at 20,000 characters before persistence. C7 does not add a summarizer call, change the model, or alter token metering; actual provider token usage remains the observational truth.
+
+### 22.3 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| C7-A - CRM persistence/read bounds | Completed locally | 2026-08-18 | Code/test/spec only; no schema |
+| C7-B - Hub model/tool bounds | Completed locally | 2026-08-18 | Deterministic fake-model coverage; no model or provider call |
+| C7-C - complete validation and freeze | Completed locally | 2026-08-18 | CRM 66 suites/704 tests; Hub 919 top-level/1,105 total tests; TypeScript, lint, builds, and diff checks green |
+
+## 23. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -520,3 +542,5 @@ C4 closes two local release blockers without enabling execution: a user with `gt
 - 2026-08-18: Completed C5 locally. Exact replay-safe completion now requires terminal current-version email attempts and explicit terminal outcomes for every derived manual-social task, completes active enrollments transactionally, and preserves ambiguous/in-flight work as a blocking truth state. Full GTM verification passed 65 suites/694 deterministic tests with TypeScript, lint, and diff checks green; no schema, provider, mailbox, deployment, or exposure action occurred.
 - 2026-08-18: Approved C6 to register a hard-gated execution queue target without creating a schedule or changing any flag. Both GTM and execution gates must be true before payload/dependency access; C6 grants no provider, mailbox, migration, deployment, or customer authority.
 - 2026-08-18: Completed C6 locally. Registered a single-concurrency execution queue target that returns before payload/dependency access unless both gates are true, parks expired post-dispatch work as ambiguous, and sequentially reuses the existing database claim/fence and transport boundaries. Full GTM verification passed 66 suites/702 deterministic tests with TypeScript, lint, and diff checks green; no schedule or external effect was created.
+- 2026-08-18: Approved C7 to bound Strategist persistence, history, tool results, and tool-call fanout deterministically. C7 adds no schema, model call, provider call, flag, deployment, or customer authority.
+- 2026-08-18: Completed C7 locally. CRM now enforces shared 64 KiB chat-content and 200-row read limits; Hub caps cumulative history, per-message/tool content, final output, and total tool requests without an extra model call. CRM passed 66 suites/704 tests and Hub passed 919 top-level/1,105 total tests plus TypeScript, lint, production build, and diff checks; every external-effect gate remained off.

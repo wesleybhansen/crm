@@ -7,6 +7,8 @@ import {
   GtmChatError,
   listThreads,
   GTM_CHAT_THREAD_LIST_CAP,
+  GTM_CHAT_CONTENT_MAX_BYTES,
+  GTM_CHAT_MESSAGE_READ_CAP,
 } from '../chat/store'
 import { GtmAuditEvent, GtmChatMessage, GtmChatThread } from '../../data/entities'
 
@@ -131,7 +133,44 @@ describe('Strategist chat store (threads + append-only messages)', () => {
     ).rejects.toMatchObject({ code: 'invalid_content' })
   })
 
+  it('rejects oversized or non-serializable content before persistence', async () => {
+    const em = new FakeEm()
+    await seedWorkspace(em)
+    const thread = await createThread(em, ctx, { workspaceId: WORKSPACE })
+    await expect(
+      appendMessage(em, ctx, {
+        threadId: thread.id,
+        role: 'user',
+        content: { text: 'x'.repeat(GTM_CHAT_CONTENT_MAX_BYTES) },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_content' })
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    await expect(
+      appendMessage(em, ctx, { threadId: thread.id, role: 'user', content: circular }),
+    ).rejects.toMatchObject({ code: 'invalid_content' })
+    expect(em.table(GtmChatMessage)).toHaveLength(0)
+  })
+
+  it('bounds reads to the newest requested rows and returns them chronologically', async () => {
+    const em = new FakeEm()
+    await seedWorkspace(em)
+    const thread = await createThread(em, ctx, { workspaceId: WORKSPACE })
+    for (let index = 1; index <= 5; index += 1) {
+      await appendMessage(em, ctx, {
+        threadId: thread.id,
+        role: 'user',
+        content: { text: `message-${index}` },
+      })
+    }
+    const rows = await getMessages(em, ctx, thread.id, { limit: 2 })
+    expect(rows.map((row) => row.seq)).toEqual([4, 5])
+    expect(rows.map((row) => row.content.text)).toEqual(['message-4', 'message-5'])
+  })
+
   it('exposes a thread list cap', () => {
     expect(GTM_CHAT_THREAD_LIST_CAP).toBe(50)
+    expect(GTM_CHAT_MESSAGE_READ_CAP).toBe(200)
+    expect(GTM_CHAT_CONTENT_MAX_BYTES).toBe(64 * 1024)
   })
 })

@@ -111,8 +111,12 @@ export async function POST(req: Request) {
 
     if (body.op === 'messages') {
       if (!isUuid(body.threadId)) return opaqueNotFound()
-      const rows = await store.getMessages(em, ctx, body.threadId)
-      return NextResponse.json({ ok: true, messages: rows.map((row) => store.messageShape(row)) })
+      const rows = await store.getMessages(em, ctx, body.threadId, { limit: body.limit })
+      return NextResponse.json({
+        ok: true,
+        messages: rows.map((row) => store.messageShape(row)),
+        cap: store.GTM_CHAT_MESSAGE_READ_CAP,
+      })
     }
 
     // append-message
