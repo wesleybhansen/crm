@@ -19,6 +19,9 @@ import { createKmsService } from './kms'
  * than failing the whole page.
  */
 export async function decryptRowFields<T extends Record<string, any>>(
+  /** Pass the request EntityManager when you have one. Many call sites only
+   *  hold a knex handle (helpers that take `knex` and nothing else), so pass
+   *  null/undefined and one is resolved from the request container instead. */
   em: unknown,
   entityKey: string,
   rows: T[],
@@ -28,7 +31,19 @@ export async function decryptRowFields<T extends Record<string, any>>(
 ): Promise<T[]> {
   if (!rows?.length || !tenantId || !isTenantDataEncryptionEnabled()) return rows
 
-  const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+  let manager = em
+  if (!manager) {
+    try {
+      const { createRequestContainer } = await import('../di/container')
+      manager = (await createRequestContainer()).resolve('em')
+    } catch {
+      // No request container in this execution context. Returning the rows
+      // untouched keeps the caller working exactly as it did before this helper
+      // existed, rather than turning a display problem into a 500.
+      return rows
+    }
+  }
+  const svc = new TenantDataEncryptionService(manager as any, { kms: createKmsService() })
   for (const row of rows) {
     if (!row) continue
     const payload: Record<string, unknown> = {}

@@ -10,6 +10,7 @@ import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
+import { decryptRowFields, CONTACT_ENTITY_KEY, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export const metadata = { path: '/ai/digest',
   POST: { requireAuth: false },
@@ -30,18 +31,24 @@ async function gatherDigestData(knex: ReturnType<EntityManager['getKnex']>, orgI
     .orderBy('created_at', 'desc')
     .limit(20)
 
+  // Raw knex skips the decrypting subscriber, so the digest handed the model
+  // ciphertext for every name, address and deal title.
+  await decryptRowFields(null, CONTACT_ENTITY_KEY, newContacts, ['display_name', 'primary_email'], tenantId, orgId)
+
   // Deals won/lost
   const dealsWon = await knex('customer_deals')
     .where(w).whereNull('deleted_at')
     .where('status', 'win')
     .where('updated_at', '>=', periodStart)
     .select('title', 'value_amount')
+  await decryptRowFields(null, DEAL_ENTITY_KEY, dealsWon, ['title'], tenantId, orgId)
 
   const dealsLost = await knex('customer_deals')
     .where(w).whereNull('deleted_at')
     .where('status', 'lost')
     .where('updated_at', '>=', periodStart)
     .select('title', 'value_amount')
+  await decryptRowFields(null, DEAL_ENTITY_KEY, dealsLost, ['title'], tenantId, orgId)
 
   // Emails sent + open rate
   let emailsSent = 0
