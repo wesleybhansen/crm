@@ -1,5 +1,6 @@
 import './commands/campaign'
 import './commands/reconciliation'
+import './commands/mailbox'
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {

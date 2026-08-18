@@ -33,13 +33,15 @@ describe('GTM server-side feature authorization', () => {
   it('reserves every execution mutation for launch-capable users', () => {
     expect(executionFeatureForOp('status')).toBe('gtm.view')
     expect(executionFeatureForOp('cursor-status')).toBe('gtm.view')
-    for (const op of ['launch', 'tick', 'recover-stuck', 'correlate-replies']) {
+    for (const op of ['launch', 'tick', 'recover-stuck', 'correlate-replies', 'clear-mailbox-pause', 'enqueue-mailbox-ingestion']) {
       expect(executionFeatureForOp(op)).toBe('gtm.launch')
     }
   })
 
   it('makes provider reconciliation readable by viewers and mutable only by approvers', () => {
     expect(reconciliationFeatureForOp('list')).toBe('gtm.view')
+    expect(reconciliationFeatureForOp('history')).toBe('gtm.view')
+    expect(reconciliationFeatureForOp('ai-telemetry')).toBe('gtm.view')
     expect(reconciliationFeatureForOp('apply')).toBe('gtm.approve')
   })
 

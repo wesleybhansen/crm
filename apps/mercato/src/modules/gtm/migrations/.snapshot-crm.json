@@ -91,6 +91,16 @@
           "default": "0",
           "mappedType": "integer"
         },
+        "token_usage_known": {
+          "name": "token_usage_known",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
         "component_estimates": {
           "name": "component_estimates",
           "type": "jsonb",

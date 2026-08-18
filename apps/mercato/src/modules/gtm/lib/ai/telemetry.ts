@@ -19,6 +19,7 @@ export type GtmAiTelemetryInput = {
   status: 'succeeded' | 'failed'
   tokensIn: number
   tokensOut: number
+  tokenUsageKnown?: boolean
   componentEstimates?: Record<string, number> | null
   latencyMs?: number | null
   retryCount?: number
@@ -47,11 +48,12 @@ function costEstimate(tokensIn: number, tokensOut: number): {
   if (!version || !Number.isFinite(inputRate) || inputRate < 0 || !Number.isFinite(outputRate) || outputRate < 0) {
     return { estimatedCostMicrousd: null, rateCardVersion: null }
   }
-  return {
-    // USD / 1M tokens converted to micro-USD cancels the 1M divisor.
-    estimatedCostMicrousd: Math.round(tokensIn * inputRate + tokensOut * outputRate),
-    rateCardVersion: version.slice(0, 200),
+  // USD / 1M tokens converted to micro-USD cancels the 1M divisor.
+  const estimate = Math.round(tokensIn * inputRate + tokensOut * outputRate)
+  if (!Number.isSafeInteger(estimate) || estimate < 0) {
+    return { estimatedCostMicrousd: null, rateCardVersion: null }
   }
+  return { estimatedCostMicrousd: estimate, rateCardVersion: version.slice(0, 200) }
 }
 
 export async function recordGtmAiTelemetry(
@@ -69,7 +71,10 @@ export async function recordGtmAiTelemetry(
   if (existing) return existing
   const tokensIn = boundedInteger(input.tokensIn, 100_000_000) ?? 0
   const tokensOut = boundedInteger(input.tokensOut, 100_000_000) ?? 0
-  const cost = costEstimate(tokensIn, tokensOut)
+  const tokenUsageKnown = input.tokenUsageKnown !== false
+  const cost = tokenUsageKnown
+    ? costEstimate(tokensIn, tokensOut)
+    : { estimatedCostMicrousd: null, rateCardVersion: null }
   const row = em.create(GtmAiTelemetry, {
     organizationId: ctx.organizationId,
     tenantId: ctx.tenantId,
@@ -79,6 +84,7 @@ export async function recordGtmAiTelemetry(
     status: input.status,
     tokensIn,
     tokensOut,
+    tokenUsageKnown,
     componentEstimates: normalizeComponents(input.componentEstimates),
     latencyMs: boundedInteger(input.latencyMs, 24 * 60 * 60 * 1000),
     retryCount: boundedInteger(input.retryCount, 100) ?? 0,
@@ -120,6 +126,7 @@ export function createGtmTelemetryMeter(input: {
       status: usage.status ?? 'succeeded',
       tokensIn: usage.tokensIn,
       tokensOut: usage.tokensOut,
+      tokenUsageKnown: usage.tokenUsageKnown,
       componentEstimates: usage.componentEstimates ?? null,
       latencyMs: usage.latencyMs ?? null,
       retryCount: usage.retryCount ?? 0,

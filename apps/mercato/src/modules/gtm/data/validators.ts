@@ -323,6 +323,23 @@ export const gtmExecutionBodySchema = z.discriminatedUnion('op', [
     mailboxConnectionId: idString.optional(),
   }),
   z.object({
+    op: z.literal('clear-mailbox-pause'),
+    noliUserId: idString,
+    mailboxConnectionId: idString,
+    expectedFence: z.number().int().min(0),
+    reason: z.enum([
+      'false_positive',
+      'sender_remediated',
+      'provider_feedback_resolved',
+      'manual_investigation_complete',
+    ]),
+  }).strict(),
+  z.object({
+    op: z.literal('enqueue-mailbox-ingestion'),
+    noliUserId: idString,
+    mailboxConnectionId: idString,
+  }).strict(),
+  z.object({
     op: z.literal('status'),
     noliUserId: idString,
     campaignId: idString,
@@ -430,6 +447,7 @@ const reconciliationDecisionSchema = z.discriminatedUnion('outcome', [
 export const gtmReconciliationBodySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('list'), noliUserId: idString }),
   z.object({ op: z.literal('history'), noliUserId: idString }),
+  z.object({ op: z.literal('ai-telemetry'), noliUserId: idString }).strict(),
   z.object({
     op: z.literal('apply'),
     noliUserId: idString,

@@ -170,14 +170,32 @@ export async function POST(req: Request) {
     const { createGeminiDraftModel } = await import('../../../lib/ai/model')
     const { deriveVoiceDraft } = await import('../../../lib/voice-derive')
     const model = createGeminiDraftModel(apiKey)
-    const canonicalMeter = async (usage: { model: string; tokensIn: number; tokensOut: number; feature: string }) => {
+    const canonicalMeter = async (usage: {
+      model: string
+      tokensIn: number
+      tokensOut: number
+      tokenUsageKnown?: boolean
+      feature: string
+      status?: 'succeeded' | 'failed'
+      failureCode?: string | null
+      retryCount?: number
+    }) => {
       await meterCustomersAi({ orgId: ctx.organizationId }, {
-        ...usage,
+        model: usage.model,
+        tokensIn: usage.tokensIn,
+        tokensOut: usage.tokensOut,
+        feature: usage.feature,
         byoKey: !!gate.byoApiKey,
         idempotencyKey: body.idempotency_key
           ? `gtm:voice-derive:${ctx.organizationId}:${body.workspaceId}:${body.idempotency_key}`
           : null,
-        metadata: { status: 'completed', attempt: 1 },
+        metadata: {
+          status: usage.status === 'failed' ? 'failed' : 'completed',
+          attempt: 1,
+          token_usage_known: usage.tokenUsageKnown !== false,
+          failure_code: usage.failureCode ?? null,
+          retry_count: usage.retryCount ?? 0,
+        },
       })
     }
     const { createGtmTelemetryMeter } = await import('../../../lib/ai/telemetry')

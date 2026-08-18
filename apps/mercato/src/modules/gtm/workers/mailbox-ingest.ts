@@ -11,8 +11,12 @@ import { ingestMailbox } from '../lib/inbound/ingest'
 import { createGmailMailboxReader } from '../lib/inbound/providers/gmail'
 import { createImapMailboxReader, createProductionImapPageSource } from '../lib/inbound/providers/imap'
 import { createOutlookMailboxReader } from '../lib/inbound/providers/outlook'
+import {
+  GTM_MAILBOX_INGEST_QUEUE,
+  type GtmMailboxIngestJob,
+} from '../lib/inbound/queue-contract'
 
-export const GTM_MAILBOX_INGEST_QUEUE = 'gtm-mailbox-ingest'
+export { GTM_MAILBOX_INGEST_QUEUE } from '../lib/inbound/queue-contract'
 
 export const metadata: WorkerMeta = {
   queue: GTM_MAILBOX_INGEST_QUEUE,
@@ -20,13 +24,12 @@ export const metadata: WorkerMeta = {
   concurrency: 5,
 }
 
-const payloadSchema = z.object({
+const payloadSchema: z.ZodType<GtmMailboxIngestJob> = z.object({
   organizationId: z.string().uuid(),
   tenantId: z.string().uuid(),
   mailboxConnectionId: z.string().uuid(),
   requestedByUserId: z.string().uuid(),
 })
-export type GtmMailboxIngestJob = z.infer<typeof payloadSchema>
 
 type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T

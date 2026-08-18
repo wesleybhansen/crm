@@ -37,6 +37,7 @@ describe('GTM AI telemetry', () => {
       model: 'model-1',
       tokensIn: 100,
       tokensOut: 20,
+      tokenUsageKnown: true,
       feature: 'gtm-reply-draft',
       status: 'succeeded' as const,
       latencyMs: 240,
@@ -97,6 +98,9 @@ describe('GTM AI telemetry', () => {
   })
 
   it('records provider failure and retry metadata idempotently without changing token truth', async () => {
+    process.env.GTM_AI_RATE_CARD_VERSION = 'fixture-v1'
+    process.env.GTM_AI_INPUT_USD_PER_MILLION_TOKENS = '1.25'
+    process.env.GTM_AI_OUTPUT_USD_PER_MILLION_TOKENS = '5'
     const em = new FakeEm()
     const canonicalMeter = jest.fn(async () => {})
     const meter = createGtmTelemetryMeter({
@@ -110,6 +114,7 @@ describe('GTM AI telemetry', () => {
       model: 'gemini-2.5-flash',
       tokensIn: 0,
       tokensOut: 0,
+      tokenUsageKnown: false,
       feature: 'gtm-message-draft',
       status: 'failed' as const,
       latencyMs: 501,
@@ -126,9 +131,12 @@ describe('GTM AI telemetry', () => {
       status: 'failed',
       tokensIn: 0,
       tokensOut: 0,
+      tokenUsageKnown: false,
       latencyMs: 501,
       retryCount: 2,
       failureCode: 'model_provider_failure',
+      estimatedCostMicrousd: null,
+      rateCardVersion: null,
     })
   })
 })

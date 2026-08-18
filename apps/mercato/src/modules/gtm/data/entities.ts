@@ -1314,7 +1314,7 @@ export class GtmMailboxHealth {
 @Index({ name: 'gtm_ai_telemetry_org_tenant_surface_idx', properties: ['organizationId', 'tenantId', 'surface', 'createdAt'] })
 @Unique({ name: 'gtm_ai_telemetry_org_operation_unique', properties: ['organizationId', 'operationKey'] })
 export class GtmAiTelemetry {
-  [OptionalProps]?: 'id' | 'status' | 'tokensIn' | 'tokensOut' | 'retryCount' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'id' | 'status' | 'tokensIn' | 'tokensOut' | 'tokenUsageKnown' | 'retryCount' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1343,6 +1343,11 @@ export class GtmAiTelemetry {
 
   @Property({ name: 'tokens_out', type: 'integer', default: 0 })
   tokensOut: number = 0
+
+  // False means the provider failed before returning authoritative usage.
+  // In that state zero tokens is an unknown value, never evidence of no cost.
+  @Property({ name: 'token_usage_known', type: 'boolean', default: true })
+  tokenUsageKnown: boolean = true
 
   // Counts only: system, tools, history, evidence, provider rows, summary.
   @Property({ name: 'component_estimates', type: 'jsonb', nullable: true })

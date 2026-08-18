@@ -124,6 +124,74 @@ describePostgres('GTM real PostgreSQL concurrency contracts', () => {
     expect(event.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
   })
 
+  it('allows exactly one fenced operator clear of a paused mailbox', async () => {
+    const mailboxId = randomUUID()
+    const healthId = randomUUID()
+    await pool.query(
+      `insert into gtm_mailbox_health
+        (id, organization_id, tenant_id, mailbox_connection_id, rolling_window_started_at,
+         status, pause_reason, fence, complaint_count)
+       values ($1, $2, $3, $4, now() - interval '7 days', 'paused', 'complaint', 7, 1)`,
+      [healthId, organizationId, tenantId, mailboxId],
+    )
+    const clears = await Promise.all(Array.from({ length: 12 }, async () => pool.query(
+      `update gtm_mailbox_health
+          set status = 'warning', pause_reason = null, pause_until = null,
+              fence = fence + 1, updated_at = now()
+        where id = $1 and organization_id = $2 and tenant_id = $3
+          and mailbox_connection_id = $4 and status = 'paused' and fence = 7
+        returning fence`,
+      [healthId, organizationId, tenantId, mailboxId],
+    )))
+    expect(clears.filter((result) => result.rowCount === 1)).toHaveLength(1)
+    const stored = await pool.query(
+      `select status, pause_reason, fence, complaint_count
+         from gtm_mailbox_health where id = $1`,
+      [healthId],
+    )
+    expect(stored.rows[0]).toMatchObject({
+      status: 'warning',
+      pause_reason: null,
+      fence: 8,
+      complaint_count: 1,
+    })
+  })
+
+  it('persists token-usage truth and deduplicates telemetry under concurrency', async () => {
+    const operationKey = `pg-telemetry:${randomUUID()}`
+    const inserts = await Promise.allSettled(Array.from({ length: 10 }, async () => pool.query(
+      `insert into gtm_ai_telemetry
+        (id, organization_id, tenant_id, operation_key, surface, model, status,
+         tokens_in, tokens_out, token_usage_known, estimated_cost_microusd)
+       values ($1,$2,$3,$4,'message_draft','fixture-model','failed',0,0,false,null)`,
+      [randomUUID(), organizationId, tenantId, operationKey],
+    )))
+    expect(inserts.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    const unknown = await pool.query(
+      `select token_usage_known, estimated_cost_microusd
+         from gtm_ai_telemetry where organization_id = $1 and operation_key = $2`,
+      [organizationId, operationKey],
+    )
+    expect(unknown.rows[0]).toMatchObject({
+      token_usage_known: false,
+      estimated_cost_microusd: null,
+    })
+
+    const knownKey = `pg-telemetry-known:${randomUUID()}`
+    await pool.query(
+      `insert into gtm_ai_telemetry
+        (id, organization_id, tenant_id, operation_key, surface, status, tokens_in, tokens_out)
+       values ($1,$2,$3,$4,'voice_derive','succeeded',10,4)`,
+      [randomUUID(), organizationId, tenantId, knownKey],
+    )
+    const known = await pool.query(
+      `select token_usage_known from gtm_ai_telemetry
+        where organization_id = $1 and operation_key = $2`,
+      [organizationId, knownKey],
+    )
+    expect(known.rows[0].token_usage_known).toBe(true)
+  })
+
   it('enforces one capacity slot across concurrently inserted attempts', async () => {
     const workspaceId = randomUUID()
     const playId = randomUUID()

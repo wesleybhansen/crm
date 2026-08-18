@@ -9,6 +9,13 @@ import { gtmExecutionBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
 import { GtmExecutionError, type ExecutionEm, type LaunchResult } from '../../../lib/execute/schedule'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { GtmMailboxControlError } from '../../../lib/reputation/mailbox-control'
+import type {
+  ClearMailboxPauseCommandInput,
+  EnqueueMailboxIngestionCommandInput,
+} from '../../../commands/mailbox'
+import type { ClearMailboxPauseResult } from '../../../lib/reputation/mailbox-control'
+import type { MailboxIngestionEnqueueResult } from '../../../lib/inbound/enqueue'
 
 /*
  * Internal GTM execution (SPEC-066 sections 5, 6, 9, 14 Tranche 6).
@@ -28,6 +35,8 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
  * - 'correlate-replies' scan recent inbound email_messages, atomic-stop +
  *                       reply rows (section 9)
  * - 'cursor-status'     redacted mailbox cursor health (never cursor values)
+ * - 'clear-mailbox-pause' fenced operator recovery after investigation
+ * - 'enqueue-mailbox-ingestion' queue one exact mailbox behind its own gate
  * - 'status'            per-state send-attempt counts for a campaign
  *
  * Auth/identity mirrors internal/campaigns: shared-secret bearer, noliUserId
@@ -255,6 +264,76 @@ export async function POST(req: Request) {
       })
     }
 
+    if (body.op === 'clear-mailbox-pause') {
+      if (!isUuid(body.mailboxConnectionId)) return opaqueNotFound()
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const executed = await commandBus.execute<
+        ClearMailboxPauseCommandInput,
+        ClearMailboxPauseResult
+      >('gtm.mailboxes.clear-pause', {
+        input: {
+          mailboxConnectionId: body.mailboxConnectionId,
+          expectedFence: body.expectedFence,
+          reason: body.reason,
+        },
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId: ctx.organizationId,
+          organizationIds: [ctx.organizationId],
+          request: req,
+        },
+      })
+      return NextResponse.json({
+        ok: true,
+        mailbox_connection_id: executed.result.health.mailboxConnectionId,
+        status: executed.result.health.status,
+        fence: executed.result.health.fence,
+      })
+    }
+
+    if (body.op === 'enqueue-mailbox-ingestion') {
+      if (!isUuid(body.mailboxConnectionId)) return opaqueNotFound()
+      // Check both switches before the command can construct a queue or
+      // resolve Redis configuration. Gate-off is an explicit no-op.
+      if (process.env.GTM_MAILBOX_INGESTION_ENABLED !== 'true') {
+        return NextResponse.json({
+          ok: true,
+          queued: false,
+          reason: 'GTM_MAILBOX_INGESTION_ENABLED is not true; no job was written',
+        })
+      }
+      if (process.env.QUEUE_STRATEGY !== 'async') {
+        return NextResponse.json(
+          { ok: false, error: 'Mailbox ingestion requires the async queue strategy' },
+          { status: 503 },
+        )
+      }
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const executed = await commandBus.execute<
+        EnqueueMailboxIngestionCommandInput,
+        MailboxIngestionEnqueueResult
+      >('gtm.mailboxes.enqueue-ingestion', {
+        input: { mailboxConnectionId: body.mailboxConnectionId },
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId: ctx.organizationId,
+          organizationIds: [ctx.organizationId],
+          request: req,
+        },
+      })
+      return NextResponse.json({
+        ok: true,
+        queued: true,
+        job_id: executed.result.jobId,
+        mailbox_connection_id: executed.result.mailboxConnectionId,
+        provider: executed.result.provider,
+      })
+    }
+
     // status
     if (!isUuid(body.campaignId)) return opaqueNotFound()
     const entities = await import('../../../data/entities')
@@ -291,6 +370,18 @@ export async function POST(req: Request) {
       attempts: { total: attempts.length, by_state: byState },
     })
   } catch (err) {
+    if (err instanceof GtmMailboxControlError) {
+      if (err.code === 'mailbox_not_found' || err.code === 'pause_not_found') {
+        return opaqueNotFound()
+      }
+      const status =
+        err.code === 'stale_fence' || err.code === 'mailbox_not_paused'
+          ? 409
+          : err.code === 'async_queue_required' || err.code === 'queue_unavailable'
+            ? 503
+            : 422
+      return NextResponse.json({ ok: false, error: err.message, code: err.code }, { status })
+    }
     if (err instanceof GtmExecutionError) {
       return executionErrorResponse(err)
     }

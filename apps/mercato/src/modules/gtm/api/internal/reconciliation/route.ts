@@ -72,6 +72,13 @@ export async function POST(req: Request) {
       const history = await getProviderHistoryDiagnostics(em, ctx)
       return NextResponse.json({ ok: true, history })
     }
+    if (parsed.data.op === 'ai-telemetry') {
+      const { getAiTelemetryDiagnostics } = await import(
+        '../../../lib/diagnostics/ai-telemetry'
+      )
+      const telemetry = await getAiTelemetryDiagnostics(em, ctx)
+      return NextResponse.json({ ok: true, telemetry })
+    }
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const executed = await commandBus.execute<

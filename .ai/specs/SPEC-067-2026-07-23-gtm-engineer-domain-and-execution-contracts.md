@@ -365,7 +365,63 @@ Execution gains additive operations for one gated mailbox-ingestion page and mai
 - `TC-GTM-C2-004`: non-admin diagnostics are view-only, cross-tenant ids are opaque, and every response remains redacted.
 - `TC-GTM-C2-005`: telemetry replay and failure paths produce one observational receipt and do not change the Noli Core ledger shadow.
 
-## 18. Changelog
+## 18. C3 dark operator controls and telemetry truth (approved 2026-08-17)
+
+### 18.1 Extension and release decision
+
+C3 closes the operator-control gaps left by C2 without enabling a customer release. It adds only protected, tenant-scoped control and diagnostic surfaces: an explicit fenced mailbox-pause clear, an explicitly requested asynchronous mailbox-ingestion enqueue, and bounded observational AI telemetry diagnostics. `GTM_EXECUTION_ENABLED`, `GTM_MAILBOX_INGESTION_ENABLED`, every provider adapter, customer exposure, and all shared or production schema remain off and separately authorized.
+
+### 18.2 Mailbox pause recovery contract
+
+- A pause can be cleared only through a registered command invoked by a represented user with `gtm.launch`.
+- The command locks the exact `(organization_id, tenant_id, mailbox_connection_id)` health row and requires the operator to echo its current `fence`. A stale fence, foreign row, inactive mailbox, or non-paused row fails closed and does not mutate state.
+- The command records a bounded operator reason in the command audit log but does not store credentials, recipient data, message content, or raw provider responses.
+- A successful clear changes `paused -> warning`, clears the active pause reason/time, increments the fence, and leaves the rolling counts intact. A later refresh or new complaint/bounce may immediately pause the mailbox again; clearing is never a policy exemption.
+
+### 18.3 Manual mailbox-ingestion enqueue contract
+
+- A protected execution operation may enqueue one exact active Gmail, Microsoft/Outlook, IMAP, or SMTP mailbox for the represented organization and tenant. Unsupported, inactive, foreign, or deleted mailboxes are opaque.
+- Enqueue requires both `GTM_MAILBOX_INGESTION_ENABLED === 'true'` and `QUEUE_STRATEGY === 'async'`. When either is absent, no queue is constructed and no job is written.
+- The operation places only `{organizationId, tenantId, mailboxConnectionId, requestedByUserId}` on `gtm-mailbox-ingest`; credentials are never loaded by the route or placed in the job. The worker re-resolves the connection and credentials under the same scope.
+- Enqueue is an operator request, not evidence that ingestion or provider access succeeded. It returns only the opaque queue job id and never calls a mailbox provider inline.
+
+### 18.4 AI token-usage truth and diagnostics contract
+
+- Every GTM AI receipt carries `token_usage_known`. Provider exceptions before an authoritative usage response set it false; successful provider responses and local validation failures after a response set it true. Zero tokens with `token_usage_known=false` means unknown, never free.
+- Estimated cost is null when token usage is unknown or the configured versioned rate card is incomplete. Telemetry remains observational and cannot alter Noli Core credit truth.
+- A `gtm.view` diagnostic operation returns bounded, tenant-scoped aggregates by surface/model/status: operations, known/unknown usage counts, known input/output tokens, failed operations, retries, latency, configured estimated cost, and a truncated-window marker. It returns no prompts, completions, evidence, provider rows, operation keys, request ids, or credential material.
+
+### 18.5 Additive schema and compatibility
+
+- Add `gtm_ai_telemetry.token_usage_known boolean NOT NULL DEFAULT true` with a generator-owned migration and synchronized snapshot.
+- Existing C2 receipts remain truthful under the default because all committed C2 success/local-validation paths had authoritative model responses; only new provider-exception writes explicitly store false.
+- Existing API operations and response fields remain unchanged. The new execution and reconciliation operations are additive.
+
+### 18.6 C3 acceptance gates
+
+- Unit and route-contract tests prove RBAC separation, tenant opacity, gate-before-queue behavior, supported-provider validation, queue close on success/failure, pause-clear fencing, and re-pause behavior.
+- Telemetry tests prove unknown usage cannot acquire a cost, diagnostics are bounded/redacted, duplicate operation receipts remain idempotent, and known tokens aggregate without content.
+- A disposable PostgreSQL database applies current-main plus C0/C1/C2/C3 migrations, re-applies with no pending migration, and proves stale pause-clear fences and telemetry uniqueness/usage truth under real constraints.
+- Full GTM, typecheck, lint, build, generated-contract, security, diff, and custody checks pass with external effects disabled.
+
+### 18.7 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| C3-A - pause recovery command | Completed locally | 2026-08-17 | Fenced, audited, launch-authorized operator action; no policy exemption |
+| C3-B - manual ingestion enqueue | Completed locally | 2026-08-17 | Async queue only; separate ingestion gate remains off by default |
+| C3-C - telemetry truth and diagnostics | Completed locally | 2026-08-17 | Observational, bounded, content-free, canonical ledger unchanged |
+| C3-D - migration and closeout | Completed locally | 2026-08-17 | Generator-owned migration; 63 suites/684 unit tests and 6/6 disposable PostgreSQL cases |
+
+### 18.8 Integration scenarios
+
+- `TC-GTM-C3-001`: a launch-authorized operator clears exactly the paused mailbox at the echoed fence; stale, foreign, inactive, and replayed clears do not mutate it.
+- `TC-GTM-C3-002`: an operator clear restores only a warning state; the next complaint refresh re-latches an indefinite pause before provider dispatch.
+- `TC-GTM-C3-003`: ingestion gate-off and local-queue configurations construct no queue; gate-on async mode enqueues one scoped credential-free payload and closes the queue.
+- `TC-GTM-C3-004`: provider failure records unknown token usage and null cost; known local-validation failure records authoritative tokens; diagnostics expose aggregates only.
+- `TC-GTM-C3-005`: non-launch users cannot enqueue or clear, view users can read redacted diagnostics, and cross-tenant mailbox ids remain opaque.
+
+## 19. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -374,3 +430,5 @@ Execution gains additive operations for one gated mailbox-ingestion page and mai
 - 2026-08-17: Completed the local C1 implementation and disposable verification. Added generated CRM migration `Migration20260818052128_gtm`, additive Noli Core `provider_op_reconcile`, and 25-table GTM schema verification. No external effect or release gate was opened.
 - 2026-08-17: Added the approved C2 dark mailbox-lifecycle contract for Gmail/Graph MIME transport, incremental cursors, an idempotent gated worker, reputation pauses, redacted diagnostics, observational token/cost telemetry, GTM AUG-04 fixtures, and disposable PostgreSQL race evidence. No external effect is authorized.
 - 2026-08-17: Completed the local C2 implementation and verification: 58 GTM suites/671 unit tests plus four disposable PostgreSQL cases, full CRM typecheck/lint/build/generate/i18n gates, and Noli Hub 1098 tests/typecheck. Added generator-owned `Migration20260818061808_gtm`. Gmail/Graph/provider fixtures were network-injected; no external provider, mailbox, email, or shared database was contacted.
+- 2026-08-17: Approved the C3 dark operator-control tranche: fenced mailbox-pause recovery, gate-before-queue manual ingestion, explicit token-usage truth, and bounded AI telemetry diagnostics. No execution, ingestion, provider, migration, deployment, or customer authority was opened.
+- 2026-08-17: Completed C3 locally. Added generator-owned `Migration20260818064623_gtm`, five deterministic operator/telemetry suites, five QA scenarios, and two additional PostgreSQL race/truth cases. The disposable database applied the migration once, re-migrated with nothing pending, and generated no GTM drift; all external-effect gates remained off.

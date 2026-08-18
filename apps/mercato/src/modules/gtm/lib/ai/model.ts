@@ -14,6 +14,7 @@ export type GtmModelResult = {
   model: string
   tokensIn: number
   tokensOut: number
+  tokenUsageKnown?: boolean
 }
 
 export interface GtmDraftModel {
@@ -26,6 +27,7 @@ export type GtmAiMeter = (usage: {
   model: string
   tokensIn: number
   tokensOut: number
+  tokenUsageKnown?: boolean
   feature: string
   status?: 'succeeded' | 'failed'
   componentEstimates?: Record<string, number> | null
@@ -74,11 +76,15 @@ export function createGeminiDraftModel(apiKey: string, model: string = GTM_DRAFT
         throw new Error(`model_provider_http_${res.status}`)
       }
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
+      const tokenUsageKnown =
+        typeof data?.usageMetadata?.promptTokenCount === 'number'
+        && typeof data?.usageMetadata?.candidatesTokenCount === 'number'
       return {
         text,
         model,
         tokensIn: data?.usageMetadata?.promptTokenCount ?? 0,
         tokensOut: data?.usageMetadata?.candidatesTokenCount ?? 0,
+        tokenUsageKnown,
       }
     },
   }
