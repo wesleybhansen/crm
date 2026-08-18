@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { internalContactContextRequestSchema } from '../../../data/validators'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 /* Internal service endpoint (shared NOLI_INTERNAL_SERVICE_SECRET) that returns
  * the whole relationship for one contact — the CRM record plus their recent
@@ -70,7 +71,8 @@ export async function POST(req: Request) {
     const auth = await resolveAuth(noliUserId)
     if (!auth) return NextResponse.json({ ok: false, error: 'no CRM account for this user' }, { status: 404 })
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     // Contact must belong to the caller's org + tenant.
     const contact = await knex('customer_entities')
@@ -79,6 +81,11 @@ export async function POST(req: Request) {
       .where('tenant_id', auth.tenantId)
       .first()
     if (!contact) return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
+
+    // Read via raw knex, which skips the decrypting subscriber. This endpoint
+    // feeds contact context to the Chief of Staff, so without this the
+    // assistant is handed ciphertext as the person's name and email.
+    await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['display_name', 'primary_email', 'primary_phone'], auth.tenantId, auth.orgId)
 
     const [emails, texts] = await Promise.all([
       knex('email_messages')
