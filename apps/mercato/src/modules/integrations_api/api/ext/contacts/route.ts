@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 
 export const metadata = {
   path: '/ext/contacts',
@@ -43,6 +46,33 @@ export async function GET(req: Request, ctx: any) {
 
     const [{ count }] = await query.clone().count()
     const contacts = await query.select('*').orderBy('created_at', 'desc').limit(pageSize).offset((page - 1) * pageSize)
+
+    // display_name/primary_email/primary_phone are encrypted at rest for contacts
+    // written through the ORM path. This route reads via raw knex, which skips the
+    // subscriber that decrypts them, so without this some rows come back as
+    // `iv:ct:tag:v1` ciphertext while others look fine.
+    if (isTenantDataEncryptionEnabled() && scope.tenantId) {
+      const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+      for (const contact of contacts) {
+        try {
+          const dec = await svc.decryptEntityPayload(
+            'customers:customer_entity',
+            {
+              display_name: contact.display_name,
+              primary_email: contact.primary_email,
+              primary_phone: contact.primary_phone,
+            },
+            scope.tenantId,
+            scope.orgId,
+          )
+          contact.display_name = dec.display_name ?? contact.display_name
+          contact.primary_email = dec.primary_email ?? contact.primary_email
+          contact.primary_phone = dec.primary_phone ?? contact.primary_phone
+        } catch {
+          /* leave the stored value alone: one unreadable row must not fail the page */
+        }
+      }
+    }
 
     return NextResponse.json({ ok: true, data: contacts, pagination: { page, pageSize, total: Number(count) } })
   } catch (error) {
