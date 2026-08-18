@@ -4,6 +4,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 
 export const metadata = {
@@ -25,7 +26,8 @@ export async function POST(req: Request, ctx: any) {
     }
 
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     // Look up the booking page
     const bookingPage = await knex('booking_pages')
@@ -47,6 +49,10 @@ export async function POST(req: Request, ctx: any) {
     if (!contact) {
       return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
     }
+
+    // Read via raw knex, which skips the decrypting subscriber — without this
+    // the invite is addressed to ciphertext and the name renders as ciphertext.
+    await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['primary_email', 'display_name'], auth.tenantId, auth.orgId)
 
     if (!contact.primary_email) {
       return NextResponse.json({ ok: false, error: 'Contact does not have an email address' }, { status: 400 })

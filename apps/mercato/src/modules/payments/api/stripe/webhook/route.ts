@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { findOrMergeContact } from '@/modules/customers/lib/dedup'
 
 export const metadata = { POST: { requireAuth: false } }
 
@@ -122,10 +123,17 @@ export async function POST(req: Request) {
       // Auto-create contact from customer email and link to payment record
       let resolvedContactId: string | null = null
       if (customerEmail && orgId) {
-        let contactEntity = await knex('customer_entities')
-          .where('primary_email', customerEmail)
-          .where('organization_id', orgId)
-          .whereNull('deleted_at').first()
+        // primary_email is encrypted at rest for ORM-written contacts, so a
+        // plaintext WHERE could never match them: every checkout by such a
+        // customer fell through to the insert below and created a DUPLICATE
+        // contact — storing the address as plaintext, since a raw knex insert
+        // also skips the encrypting subscriber. findOrMergeContact does the
+        // plaintext match first and then decrypt-matches candidates.
+        const dedup = await findOrMergeContact(
+          knex, orgId, tenantId as string, customerEmail,
+          session.customer_details?.name || undefined, undefined, em,
+        )
+        let contactEntity: { id: string } | null = dedup.existing
 
         if (!contactEntity) {
           const newId = require('crypto').randomUUID()
