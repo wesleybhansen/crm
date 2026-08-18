@@ -41,4 +41,22 @@ describe('GTM C3 operator API contracts', () => {
       noliUserId: USER,
     }).success).toBe(true)
   })
+
+  it('requires exact hashes and rejects extra fields for lifecycle controls', () => {
+    for (const op of ['pause-campaign', 'resume-campaign', 'stop-campaign'] as const) {
+      expect(gtmExecutionBodySchema.safeParse({
+        op,
+        noliUserId: USER,
+        campaignId: '00000000-0000-4000-8000-000000000003',
+        expectedContentHash: 'a'.repeat(64),
+      }).success).toBe(true)
+      expect(gtmExecutionBodySchema.safeParse({
+        op,
+        noliUserId: USER,
+        campaignId: '00000000-0000-4000-8000-000000000003',
+        expectedContentHash: 'short',
+        force: true,
+      }).success).toBe(false)
+    }
+  })
 })

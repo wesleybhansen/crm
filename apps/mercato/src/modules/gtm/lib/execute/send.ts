@@ -26,6 +26,7 @@ import {
   GtmCampaignVersion,
   GtmContactPoint,
   GtmEnrollment,
+  GtmMailboxPolicy,
   GtmPlay,
   GtmRenderedMessage,
   GtmSendAttempt,
@@ -35,6 +36,10 @@ import {
 } from '../../data/entities'
 import { EmailConnection, EmailUnsubscribe } from '../../../email/data/schema'
 import { readMailboxSendPermission } from '../reputation/mailbox-health'
+import {
+  mailboxPolicyMatchesSettings,
+  settingsFromMailboxPolicy,
+} from './mailbox-policy'
 
 /*
  * Claimed-attempt execution (SPEC-066 section 6 rules 2-5, section 8).
@@ -79,10 +84,12 @@ export type ExecuteOutcome =
       retryAt: Date
     }
   | { outcome: 'fenced'; attemptId: string }
+  | { outcome: 'campaign_paused'; attemptId: string }
 
 export type ExecuteDeps = {
   transport: GtmSendTransport
   clock?: Clock
+  beforeProviderStartTransaction?: () => void | Promise<void>
 }
 
 function recordArray(value: unknown): Array<Record<string, unknown>> {
@@ -120,7 +127,11 @@ export async function executeClaimedAttempt(
   // abort the rest of this tick's sends. (A reclaim by another worker needs
   // no special case: the row is still 'claimed' with a rotated token, so the
   // conditional writes below match 0 rows and return 'fenced' anyway.)
-  if (attempt.state === 'failed' && attempt.failureReason === 'stopped') {
+  if (
+    attempt.state === 'paused'
+    || (attempt.state === 'failed'
+      && (attempt.failureReason === 'stopped' || attempt.failureReason === 'campaign_stopped'))
+  ) {
     return { outcome: 'fenced', attemptId }
   }
   // Anything else not under claim is genuine misuse of this function.
@@ -414,6 +425,7 @@ export async function executeClaimedAttempt(
   // -------------------------------------------------------------------------
   const senderDomain = (connection.emailAddress || '').split('@')[1] || 'invalid.local'
   const rfcMessageId = `<${crypto.randomUUID()}@${senderDomain}>`
+  await deps.beforeProviderStartTransaction?.()
   const startDecision = await em.transactional(async (tem) => {
     const lockedConnection = await tem.findOne(
       EmailConnection,
@@ -454,6 +466,69 @@ export async function executeClaimedAttempt(
         ? ({ outcome: 'failed', attemptId, reason: 'sender_changed' } as const)
         : ({ outcome: 'fenced', attemptId } as const)
     }
+
+    const lockedCampaign = await tem.findOne(
+      GtmCampaign,
+      {
+        id: campaign.id,
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_READ },
+    )
+    if (lockedCampaign?.status === 'paused') {
+      const updated = await fencedUpdateOn(
+        tem,
+        { state: 'claimed' },
+        {
+          state: 'paused',
+          claimToken: null,
+          claimExpiresAt: null,
+          capacitySlotKey: null,
+          failureReason: null,
+          failedAt: null,
+        },
+      )
+      return updated === 1
+        ? ({ outcome: 'campaign_paused', attemptId } as const)
+        : ({ outcome: 'fenced', attemptId } as const)
+    }
+    if (
+      !lockedCampaign
+      || lockedCampaign.status !== 'active'
+      || lockedCampaign.currentVersionId !== version.id
+    ) {
+      const updated = await fencedUpdateOn(
+        tem,
+        { state: 'claimed' },
+        { state: 'failed', failureReason: 'campaign_not_active', failedAt: now(), capacitySlotKey: null },
+      )
+      return updated === 1
+        ? ({ outcome: 'failed', attemptId, reason: 'campaign_not_active' } as const)
+        : ({ outcome: 'fenced', attemptId } as const)
+    }
+    const mailboxPolicy = await tem.findOne(
+      GtmMailboxPolicy,
+      {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        mailboxConnectionId,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_READ },
+    )
+    if (!mailboxPolicy || !mailboxPolicyMatchesSettings(mailboxPolicy, settings)) {
+      const updated = await fencedUpdateOn(
+        tem,
+        { state: 'claimed' },
+        { state: 'failed', failureReason: 'mailbox_policy_conflict', failedAt: now(), capacitySlotKey: null },
+      )
+      return updated === 1
+        ? ({ outcome: 'failed', attemptId, reason: 'mailbox_policy_conflict' } as const)
+        : ({ outcome: 'fenced', attemptId } as const)
+    }
+    const capacitySettings = settingsFromMailboxPolicy(mailboxPolicy)
 
     const healthNow = now()
     const sendPermission = await readMailboxSendPermission(
@@ -497,19 +572,19 @@ export async function executeClaimedAttempt(
     })
     const reservations = buildCapacityReservations(
       capacityRows,
-      settings.send_window.timezone,
+      capacitySettings.send_window.timezone,
       attemptId,
     )
     const capacityNow = now()
-    const withinWindow = isWithinBusinessWindow(capacityNow, settings.send_window)
+    const withinWindow = isWithinBusinessWindow(capacityNow, capacitySettings.send_window)
     const candidateSlot = withinWindow
       ? capacityNow
-      : clampToBusinessWindow(capacityNow, settings.send_window)
-    const scheduledFor = allocateDailyCapacitySlot(candidateSlot, settings, reservations)
+      : clampToBusinessWindow(capacityNow, capacitySettings.send_window)
+    const scheduledFor = allocateDailyCapacitySlot(candidateSlot, capacitySettings, reservations)
     const capacitySlotKey = allocateCapacitySlotKey(
       mailboxConnectionId,
       scheduledFor,
-      settings,
+      capacitySettings,
       capacityRows,
       { excludeAttemptId: attemptId, preferredKey: attempt.capacitySlotKey },
     )

@@ -23,6 +23,7 @@ import {
   GtmCampaignVersion,
   GtmCandidate,
   GtmEnrollment,
+  GtmMailboxPolicy,
   GtmPlay,
   GtmRenderedMessage,
   GtmResearchRun,
@@ -30,6 +31,7 @@ import {
   GtmWorkspace,
 } from '../../data/entities'
 import { EmailConnection } from '../../../email/data/schema'
+import { mailboxPolicyMatchesSettings } from '../execute/mailbox-policy'
 
 /*
  * Immutable batch approval (SPEC-066 sections 4, 7, 8, 12, 14 Tranche 5).
@@ -520,6 +522,18 @@ export async function approveCampaign(
         throw new GtmCampaignError(
           'sender_changed',
           'The selected sender changed or became inactive; reload and review the draft again',
+        )
+      }
+      const mailboxPolicy = await tem.findOne(GtmMailboxPolicy, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        mailboxConnectionId: draft.settings.mailbox_connection_id,
+        deletedAt: null,
+      })
+      if (mailboxPolicy && !mailboxPolicyMatchesSettings(mailboxPolicy, draft.settings)) {
+        throw new GtmCampaignError(
+          'mailbox_policy_conflict',
+          'The campaign capacity settings conflict with the selected mailbox policy',
         )
       }
     }

@@ -17,6 +17,7 @@ import { messageContentHash, UNSUBSCRIBE_URL_TOKEN } from '../campaign/render'
 import {
   GtmContactPoint,
   GtmMailboxHealth,
+  GtmMailboxPolicy,
   GtmRenderedMessage,
   GtmSendAttempt,
   GtmSuppression,
@@ -24,6 +25,7 @@ import {
 } from '../../data/entities'
 import type { Clock } from '../execute/schedule'
 import { EmailUnsubscribe } from '../../../email/data/schema'
+import { transitionCampaignLifecycle } from '../execute/lifecycle'
 
 const TICK_ISO = '2026-07-22T16:30:00.000Z'
 
@@ -107,6 +109,36 @@ describe('executeClaimedAttempt (SPEC-066 section 6 rules 2-5, section 8)', () =
     expect(claimed.providerReceipt).toEqual({ response: '250 OK' })
     expect(claimed.sentAt).toBeInstanceOf(Date)
     expect(claimed.acceptedAt).toBeInstanceOf(Date)
+  })
+
+  it('rechecks campaign state under lock immediately before provider start', async () => {
+    const { em, clock, fixture, claimed, transport } = await prepare()
+    const outcome = await executeClaimedAttempt(em, ctx, claimed, {
+      transport,
+      clock,
+      beforeProviderStartTransaction: async () => {
+        await transitionCampaignLifecycle(em, ctx, {
+          campaignId: fixture.campaign.id,
+          expectedContentHash: fixture.version.contentHash,
+          action: 'pause',
+        }, { clock })
+      },
+    })
+    expect(outcome.outcome).toBe('fenced')
+    expect(transport.calls).toHaveLength(0)
+    expect(claimed.state).toBe('paused')
+  })
+
+  it('fails before transport when the canonical mailbox policy drifts', async () => {
+    const { em, clock, claimed, transport } = await prepare()
+    const policy = em.table(GtmMailboxPolicy)[0]
+    policy.dailyCap += 1
+    const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
+    expect(outcome).toMatchObject({
+      outcome: 'failed',
+      reason: 'mailbox_policy_conflict',
+    })
+    expect(transport.calls).toHaveLength(0)
   })
 
   it('uses mailto-only unsubscribe and omits RFC 8058 POST when the v2 keyring is absent', async () => {

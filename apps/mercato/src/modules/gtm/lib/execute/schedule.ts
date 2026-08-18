@@ -16,6 +16,7 @@ import {
   GtmStep,
 } from '../../data/entities'
 import { EmailConnection } from '../../../email/data/schema'
+import { bindCanonicalMailboxPolicy, GtmMailboxPolicyError } from './mailbox-policy'
 
 /*
  * Send-attempt materialization + launch (SPEC-066 sections 4, 6 rule 6,
@@ -84,7 +85,8 @@ export class GtmExecutionError extends Error {
       | 'reply_not_found'
       | 'invalid_state'
       | 'invalid_token'
-      | 'not_configured',
+      | 'not_configured'
+      | 'mailbox_policy_conflict',
     message: string,
   ) {
     super(message)
@@ -492,6 +494,18 @@ export async function materializeSendAttempts(
   ) {
     throw new GtmExecutionError('sender_changed', 'The approved sender changed before launch')
   }
+  try {
+    await bindCanonicalMailboxPolicy(em, ctx, {
+      mailboxConnectionId: connection.id,
+      campaignVersionId: campaignVersion.id,
+      settings,
+    })
+  } catch (error) {
+    if (error instanceof GtmMailboxPolicyError) {
+      throw new GtmExecutionError('mailbox_policy_conflict', error.message)
+    }
+    throw error
+  }
   const launchAt = deps.launchAt ?? deps.clock?.now() ?? new Date()
 
   const steps = (
@@ -690,12 +704,29 @@ export async function launchCampaign(
   }
 
   try {
-    const attempts = await em.transactional(async (tem) => {
+    const launched = await em.transactional(async (tem) => {
+      const lockedCampaign = await tem.findOne(
+        GtmCampaign,
+        {
+          id: campaign.id,
+          organizationId: ctx.organizationId,
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+        },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (
+        !lockedCampaign
+        || lockedCampaign.status !== 'approved'
+        || lockedCampaign.currentVersionId !== version.id
+      ) {
+        throw new GtmExecutionError('not_approved', 'Campaign is no longer approved for launch')
+      }
       // Materialize BEFORE flipping status so a validation failure (for
       // example a missing sender) leaves the campaign 'approved' untouched.
       const result = await materializeSendAttempts(tem, ctx, version, deps)
-      campaign.status = 'active'
-      tem.persist(campaign)
+      lockedCampaign.status = 'active'
+      tem.persist(lockedCampaign)
       const audit = tem.create(GtmAuditEvent, {
         organizationId: ctx.organizationId,
         tenantId: ctx.tenantId,
@@ -714,15 +745,29 @@ export async function launchCampaign(
       })
       tem.persist(audit)
       await tem.flush()
-      return [...result.existing, ...result.created]
+      return {
+        campaign: lockedCampaign,
+        attempts: [...result.existing, ...result.created],
+      }
     })
-    return { campaign, version, attempts, alreadyLaunched: false }
+    return {
+      campaign: launched.campaign,
+      version,
+      attempts: launched.attempts,
+      alreadyLaunched: false,
+    }
   } catch (err) {
     if (!(err instanceof UniqueConstraintViolationException)) throw err
     // A concurrent launch won the idempotency-key race: its rows are the
     // durable truth. Return them unchanged.
-    campaign.status = 'active'
+    const winnerCampaign = await em.findOne(GtmCampaign, {
+      id: campaign.id,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      deletedAt: null,
+    })
+    if (!winnerCampaign || winnerCampaign.status !== 'active') throw err
     const attempts = await loadVersionAttempts(em, ctx, version.id)
-    return { campaign, version, attempts, alreadyLaunched: true }
+    return { campaign: winnerCampaign, version, attempts, alreadyLaunched: true }
   }
 }

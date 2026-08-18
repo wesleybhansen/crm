@@ -192,6 +192,36 @@ describePostgres('GTM real PostgreSQL concurrency contracts', () => {
     expect(known.rows[0].token_usage_known).toBe(true)
   })
 
+  it('binds exactly one canonical policy per mailbox under concurrent first launches', async () => {
+    const mailboxId = randomUUID()
+    const versionIds = Array.from({ length: 12 }, () => randomUUID())
+    const policies = await Promise.allSettled(versionIds.map(async (versionId, index) => pool.query(
+      `insert into gtm_mailbox_policies
+        (id, organization_id, tenant_id, mailbox_connection_id, daily_cap,
+         send_window_start_hour, send_window_end_hour, timezone,
+         bound_by_campaign_version_id)
+       values ($1,$2,$3,$4,$5,9,17,$6,$7)`,
+      [
+        randomUUID(),
+        organizationId,
+        tenantId,
+        mailboxId,
+        index % 2 === 0 ? 25 : 50,
+        index % 2 === 0 ? 'America/New_York' : 'America/Los_Angeles',
+        versionId,
+      ],
+    )))
+    expect(policies.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    const stored = await pool.query(
+      `select count(*)::int as count, min(daily_cap)::int as daily_cap
+         from gtm_mailbox_policies
+        where organization_id = $1 and tenant_id = $2 and mailbox_connection_id = $3`,
+      [organizationId, tenantId, mailboxId],
+    )
+    expect(stored.rows[0].count).toBe(1)
+    expect([25, 50]).toContain(stored.rows[0].daily_cap)
+  })
+
   it('enforces one capacity slot across concurrently inserted attempts', async () => {
     const workspaceId = randomUUID()
     const playId = randomUUID()

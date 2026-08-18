@@ -798,6 +798,7 @@ export class GtmRenderedMessage {
 @Index({ name: 'gtm_send_attempts_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'gtm_send_attempts_org_tenant_state_due_idx', properties: ['organizationId', 'tenantId', 'state', 'scheduledFor'] })
 @Index({ name: 'gtm_send_attempts_rfc_message_id_idx', properties: ['rfcMessageId'] })
+@Index({ name: 'gtm_send_attempts_mailbox_capacity_idx', properties: ['organizationId', 'tenantId', 'mailboxConnectionId', 'state', 'scheduledFor'] })
 @Unique({ name: 'gtm_send_attempts_org_idempotency_unique', properties: ['organizationId', 'idempotencyKey'] })
 @Unique({ name: 'gtm_send_attempts_org_capacity_slot_unique', properties: ['organizationId', 'capacitySlotKey'] })
 export class GtmSendAttempt {
@@ -836,8 +837,8 @@ export class GtmSendAttempt {
   @Property({ name: 'mailbox_connection_id', type: 'uuid', nullable: true })
   mailboxConnectionId?: string | null
 
-  // SPEC-066 section 6 machine:
-  // planned -> rendered -> reviewed -> approved -> claimed -> provider_started
+  // SPEC-067 sections 6/19 machine:
+  // planned -> rendered -> reviewed -> approved <-> paused -> claimed -> provider_started
   //   -> accepted | failed | ambiguous, then accepted -> delivered | bounced | complained | replied
   @Property({ type: 'text', default: 'planned' })
   state: string = 'planned'
@@ -1305,6 +1306,42 @@ export class GtmMailboxHealth {
   @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gtm_mailbox_policies' })
+@Index({ name: 'gtm_mailbox_policies_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'gtm_mailbox_policies_org_tenant_mailbox_unique', properties: ['organizationId', 'tenantId', 'mailboxConnectionId'] })
+export class GtmMailboxPolicy {
+  [OptionalProps]?: 'id' | 'policyVersion' | 'dailyCap' | 'sendWindowStartHour' | 'sendWindowEndHour' | 'timezone' | 'fence' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+  @Property({ name: 'mailbox_connection_id', type: 'uuid' })
+  mailboxConnectionId!: string
+  @Property({ name: 'policy_version', type: 'text', default: 'mailbox-capacity-v1' })
+  policyVersion: string = 'mailbox-capacity-v1'
+  @Property({ name: 'daily_cap', type: 'integer', default: 25 })
+  dailyCap: number = 25
+  @Property({ name: 'send_window_start_hour', type: 'integer', default: 9 })
+  sendWindowStartHour: number = 9
+  @Property({ name: 'send_window_end_hour', type: 'integer', default: 17 })
+  sendWindowEndHour: number = 17
+  @Property({ type: 'text', default: 'America/New_York' })
+  timezone: string = 'America/New_York'
+  @Property({ name: 'bound_by_campaign_version_id', type: 'uuid' })
+  boundByCampaignVersionId!: string
+  @Property({ type: 'integer', default: 0 })
+  fence: number = 0
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
   @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt?: Date | null
 }

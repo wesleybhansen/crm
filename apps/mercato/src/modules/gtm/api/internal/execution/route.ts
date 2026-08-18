@@ -16,6 +16,8 @@ import type {
 } from '../../../commands/mailbox'
 import type { ClearMailboxPauseResult } from '../../../lib/reputation/mailbox-control'
 import type { MailboxIngestionEnqueueResult } from '../../../lib/inbound/enqueue'
+import type { CampaignLifecycleCommandInput } from '../../../commands/campaign'
+import type { CampaignLifecycleResult } from '../../../lib/execute/lifecycle'
 
 /*
  * Internal GTM execution (SPEC-066 sections 5, 6, 9, 14 Tranche 6).
@@ -24,6 +26,8 @@ import type { MailboxIngestionEnqueueResult } from '../../../lib/inbound/enqueue
  * - 'launch'            flips an approved campaign to 'active' and
  *                       materializes the send attempts in one transaction
  *                       (idempotent under double-click and concurrency)
+ * - 'pause-campaign' / 'resume-campaign' / 'stop-campaign' fenced lifecycle
+ *                       controls bound to the exact approved content hash
  * - 'tick'              claim due attempts (DB-time CAS + lease + fence) and
  *                       execute them through the production SMTP transport.
  *                       HARD SAFETY: unless GTM_EXECUTION_ENABLED === 'true'
@@ -140,6 +144,46 @@ export async function POST(req: Request) {
         campaign_version_id: result.version.id,
         attempts: result.attempts.length,
         already_launched: result.alreadyLaunched,
+      })
+    }
+
+    if (
+      body.op === 'pause-campaign'
+      || body.op === 'resume-campaign'
+      || body.op === 'stop-campaign'
+    ) {
+      if (!isUuid(body.campaignId)) return opaqueNotFound()
+      const action = body.op === 'pause-campaign'
+        ? 'pause'
+        : body.op === 'resume-campaign'
+          ? 'resume'
+          : 'stop'
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const executed = await commandBus.execute<
+        CampaignLifecycleCommandInput,
+        CampaignLifecycleResult
+      >(`gtm.campaigns.${action}`, {
+        input: {
+          campaignId: body.campaignId,
+          expectedContentHash: body.expectedContentHash,
+        },
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId: ctx.organizationId,
+          organizationIds: [ctx.organizationId],
+          request: req,
+        },
+      })
+      return NextResponse.json({
+        ok: true,
+        campaign_id: executed.result.campaign.id,
+        status: executed.result.campaign.status,
+        campaign_version_id: executed.result.version.id,
+        attempts_changed: executed.result.attemptsChanged,
+        enrollments_stopped: executed.result.enrollmentsStopped,
+        already_in_state: executed.result.alreadyInState,
       })
     }
 

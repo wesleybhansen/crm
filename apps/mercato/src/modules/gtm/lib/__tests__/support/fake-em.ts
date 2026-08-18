@@ -12,6 +12,7 @@ import {
   GtmInboundEvent,
   GtmMailboxCursor,
   GtmMailboxHealth,
+  GtmMailboxPolicy,
   GtmProviderReconciliationAction,
   GtmReply,
   GtmRenderedMessage,
@@ -261,6 +262,17 @@ export class FakeEm implements ResearchEm, RetentionEm, CampaignEm, ExecutionEm,
             row.tenantId === entity.tenantId &&
             row.mailboxConnectionId === entity.mailboxConnectionId,
           'gtm_mailbox_health_org_tenant_mailbox_unique',
+        )
+      }
+      if (entity instanceof GtmMailboxPolicy) {
+        this.assertUnique(
+          entity,
+          GtmMailboxPolicy,
+          (row) =>
+            row.organizationId === entity.organizationId &&
+            row.tenantId === entity.tenantId &&
+            row.mailboxConnectionId === entity.mailboxConnectionId,
+          'gtm_mailbox_policies_org_tenant_mailbox_unique',
         )
       }
       if (entity instanceof GtmAiTelemetry) {

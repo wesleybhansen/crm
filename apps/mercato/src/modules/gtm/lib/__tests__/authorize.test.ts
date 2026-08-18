@@ -33,7 +33,17 @@ describe('GTM server-side feature authorization', () => {
   it('reserves every execution mutation for launch-capable users', () => {
     expect(executionFeatureForOp('status')).toBe('gtm.view')
     expect(executionFeatureForOp('cursor-status')).toBe('gtm.view')
-    for (const op of ['launch', 'tick', 'recover-stuck', 'correlate-replies', 'clear-mailbox-pause', 'enqueue-mailbox-ingestion']) {
+    for (const op of [
+      'launch',
+      'pause-campaign',
+      'resume-campaign',
+      'stop-campaign',
+      'tick',
+      'recover-stuck',
+      'correlate-replies',
+      'clear-mailbox-pause',
+      'enqueue-mailbox-ingestion',
+    ]) {
       expect(executionFeatureForOp(op)).toBe('gtm.launch')
     }
   })

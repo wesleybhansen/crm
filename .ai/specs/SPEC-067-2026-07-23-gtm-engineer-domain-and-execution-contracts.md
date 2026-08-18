@@ -421,7 +421,44 @@ C3 closes the operator-control gaps left by C2 without enabling a customer relea
 - `TC-GTM-C3-004`: provider failure records unknown token usage and null cost; known local-validation failure records authoritative tokens; diagnostics expose aggregates only.
 - `TC-GTM-C3-005`: non-launch users cannot enqueue or clear, view users can read redacted diagnostics, and cross-tenant mailbox ids remain opaque.
 
-## 19. Changelog
+## 19. C4 campaign control and canonical mailbox capacity (approved 2026-08-17)
+
+### 19.1 Safety decision
+
+C4 closes two local release blockers without enabling execution: a user with `gtm.launch` needs durable pause/resume/stop controls, and one mailbox must not apply conflicting campaign-local daily-cap or timezone policies. These controls are enforced in CRM state and remain reachable only through the existing dark internal execution surface. They do not grant mailbox, provider, send, migration, deployment, or customer authority.
+
+### 19.2 Canonical mailbox policy
+
+- Add one `gtm_mailbox_policies` row per `(organization_id, tenant_id, mailbox_connection_id)` with policy version, daily cap, send-window hours, timezone, fence, and the first binding campaign version.
+- The first launch under the locked mailbox binds the canonical policy from the exact approved envelope. Every later approval, launch, scheduling allocation, and send-time provider-start boundary must match it exactly or fail closed with `mailbox_policy_conflict`.
+- Capacity slot keys continue to bind mailbox + canonical local day + ordinal. Because every campaign on that mailbox uses one timezone and daily cap, different campaigns cannot manufacture independent local days or larger ordinal ranges.
+- Add a mailbox/state/scheduled-time index for bounded capacity scans. The policy is additive and inert; C4 adds no API for widening it. A future policy change requires a separately designed fenced migration of pending schedules and approvals.
+
+### 19.3 Campaign lifecycle commands
+
+- `pause-campaign`, `resume-campaign`, and `stop-campaign` require `gtm.launch`, the exact current campaign id, and the exact approved content hash.
+- Every command pessimistically locks the campaign, revalidates org/tenant/version/hash, is idempotent only when the requested target state already holds with the same version, and writes a bounded command audit.
+- Pause changes `active -> paused`, moves not-started `approved` and `claimed` attempts to `paused`, clears claims/capacity reservations, and increments their fences. A `provider_started` attempt is never rewritten or presented as cancelled.
+- Resume changes `paused -> active`, returns paused attempts to `approved` with no capacity reservation, and lets the send-time canonical allocator choose a current valid slot.
+- Stop changes `approved|active|paused -> stopped`, stops active enrollments with `campaign_stopped`, and fails every not-started attempt. Provider-started/terminal/ambiguous truth is preserved for reconciliation.
+- Immediately before `provider_started`, the send transaction takes a read lock on the campaign and rechecks `active`, current version/hash, and canonical mailbox policy. If pause/stop won the lock race, transport is never contacted; if provider-start won, the later lifecycle command preserves that in-flight truth.
+
+### 19.4 C4 acceptance gates
+
+- Unit tests prove exact hash binding, RBAC, state/idempotency rules, pause/resume/stop transitions, fence invalidation, enrollment stop, and preservation of provider-started rows.
+- Deterministic race tests prove pause/stop before provider-start prevents the injected transport and a stale claimed writer is fenced out.
+- Real PostgreSQL proves one canonical policy row and one mailbox-local capacity namespace under concurrency.
+- The generator emits only the new policy table/index and the capacity-scan index; full current-main+C0-C4 migrations apply/reapply with no GTM drift.
+
+### 19.5 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| C4-A - canonical mailbox policy | Completed locally | 2026-08-18 | First-launch binding; immutable in C4 |
+| C4-B - campaign lifecycle commands | Completed locally | 2026-08-18 | Pause/resume/stop only; execution stays dark |
+| C4-C - race and migration proof | Completed locally | 2026-08-18 | Deterministic plus seven disposable PostgreSQL cases |
+
+## 20. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -432,3 +469,5 @@ C3 closes the operator-control gaps left by C2 without enabling a customer relea
 - 2026-08-17: Completed the local C2 implementation and verification: 58 GTM suites/671 unit tests plus four disposable PostgreSQL cases, full CRM typecheck/lint/build/generate/i18n gates, and Noli Hub 1098 tests/typecheck. Added generator-owned `Migration20260818061808_gtm`. Gmail/Graph/provider fixtures were network-injected; no external provider, mailbox, email, or shared database was contacted.
 - 2026-08-17: Approved the C3 dark operator-control tranche: fenced mailbox-pause recovery, gate-before-queue manual ingestion, explicit token-usage truth, and bounded AI telemetry diagnostics. No execution, ingestion, provider, migration, deployment, or customer authority was opened.
 - 2026-08-17: Completed C3 locally. Added generator-owned `Migration20260818064623_gtm`, five deterministic operator/telemetry suites, five QA scenarios, and two additional PostgreSQL race/truth cases. The disposable database applied the migration once, re-migrated with nothing pending, and generated no GTM drift; all external-effect gates remained off.
+- 2026-08-17: Approved C4 to close the remaining local campaign-control and cross-campaign mailbox-capacity gaps. C4 remains an inert code/schema tranche and grants no external-effect authority.
+- 2026-08-18: Completed C4 locally. Added generator-owned `Migration20260818070046_gtm`, exact-hash pause/resume/stop commands, pre-dispatch lifecycle fencing, and one immutable policy/capacity namespace per mailbox. All 65 normal GTM suites (693 tests) and seven disposable PostgreSQL cases passed; migration replay reported no pending work and the generator reported no GTM drift. External-effect gates remained off.

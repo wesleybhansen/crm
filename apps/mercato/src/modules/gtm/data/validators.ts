@@ -304,6 +304,24 @@ export const gtmExecutionBodySchema = z.discriminatedUnion('op', [
     expectedContentHash: z.string().regex(/^[a-f0-9]{64}$/),
   }),
   z.object({
+    op: z.literal('pause-campaign'),
+    noliUserId: idString,
+    campaignId: idString,
+    expectedContentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict(),
+  z.object({
+    op: z.literal('resume-campaign'),
+    noliUserId: idString,
+    campaignId: idString,
+    expectedContentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict(),
+  z.object({
+    op: z.literal('stop-campaign'),
+    noliUserId: idString,
+    campaignId: idString,
+    expectedContentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict(),
+  z.object({
     op: z.literal('tick'),
     noliUserId: idString,
     limit: z.number().int().min(1).max(100).optional(),

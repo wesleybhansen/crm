@@ -4,9 +4,18 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { approveCampaign, type ApproveCampaignResult } from '../lib/campaign/approve'
 import type { CampaignEm, GtmCtx } from '../lib/campaign/build'
 import { launchCampaign, type ExecutionEm, type LaunchResult } from '../lib/execute/schedule'
+import {
+  transitionCampaignLifecycle,
+  type CampaignLifecycleAction,
+  type CampaignLifecycleResult,
+} from '../lib/execute/lifecycle'
 
 type ApproveInput = { campaignId: string; expectedContentHash: string }
 type LaunchInput = { campaignId: string; expectedContentHash: string }
+export type CampaignLifecycleCommandInput = {
+  campaignId: string
+  expectedContentHash: string
+}
 
 function resolveGtmContext(ctx: CommandRuntimeContext): GtmCtx {
   const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
@@ -64,5 +73,35 @@ const launchCommand: CommandHandler<LaunchInput, LaunchResult> = {
   }),
 }
 
+function lifecycleCommand(
+  action: CampaignLifecycleAction,
+): CommandHandler<CampaignLifecycleCommandInput, CampaignLifecycleResult> {
+  return {
+    id: `gtm.campaigns.${action}`,
+    async execute(input, runtime) {
+      const em = runtime.container.resolve('em') as EntityManager as unknown as ExecutionEm
+      return transitionCampaignLifecycle(em, resolveGtmContext(runtime), { ...input, action })
+    },
+    buildLog: ({ result }) => ({
+      actionLabel: `${action[0]?.toUpperCase()}${action.slice(1)} GTM campaign`,
+      resourceKind: 'gtm.campaign',
+      resourceId: result.campaign.id,
+      organizationId: result.campaign.organizationId,
+      tenantId: result.campaign.tenantId,
+      snapshotAfter: {
+        version_id: result.version.id,
+        content_hash: result.version.contentHash,
+        status: result.campaign.status,
+        attempts_changed: result.attemptsChanged,
+        enrollments_stopped: result.enrollmentsStopped,
+        already_in_state: result.alreadyInState,
+      },
+    }),
+  }
+}
+
 registerCommand(approveCommand)
 registerCommand(launchCommand)
+registerCommand(lifecycleCommand('pause'))
+registerCommand(lifecycleCommand('resume'))
+registerCommand(lifecycleCommand('stop'))

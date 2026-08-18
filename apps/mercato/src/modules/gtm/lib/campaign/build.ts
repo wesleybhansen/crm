@@ -60,6 +60,7 @@ export class GtmCampaignError extends Error {
       | 'invalid_settings'
       | 'invalid_channel_mix'
       | 'no_recipients'
+      | 'mailbox_policy_conflict'
       // a launched campaign cannot be re-approved; invalidate it first
       | 'campaign_not_editable',
     message: string,

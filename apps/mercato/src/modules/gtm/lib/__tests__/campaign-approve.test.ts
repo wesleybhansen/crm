@@ -26,12 +26,14 @@ import {
   GtmCampaign,
   GtmCampaignVersion,
   GtmEnrollment,
+  GtmMailboxPolicy,
   GtmPlay,
   GtmRenderedMessage,
   GtmResearchRun,
   GtmStep,
   GtmSuppression,
 } from '../../data/entities'
+import { MAILBOX, seedMailbox } from './support/execution-fixtures'
 
 async function setup(options: { candidates?: number; linkedin?: boolean } = {}) {
   const em = new FakeEm()
@@ -153,6 +155,34 @@ describe('approveCampaign (immutable freeze)', () => {
         expectedContentHash: draft.contentHash,
       }),
     ).rejects.toMatchObject({ code: 'message_review_required' })
+    expect(em.table(GtmCampaignVersion)).toHaveLength(0)
+  })
+
+  it('rejects an approval envelope that conflicts with the canonical mailbox policy', async () => {
+    const { em, campaign } = await setup({ candidates: 1, linkedin: false })
+    await seedMailbox(em)
+    campaign.settings = {
+      ...(campaign.settings as Record<string, unknown>),
+      mailbox_connection_id: MAILBOX,
+      daily_cap: 50,
+      send_window: { start_hour: 8, end_hour: 16, timezone: 'America/Los_Angeles' },
+    }
+    em.persist(em.create(GtmMailboxPolicy, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      mailboxConnectionId: MAILBOX,
+      dailyCap: 25,
+      sendWindowStartHour: 9,
+      sendWindowEndHour: 17,
+      timezone: 'America/New_York',
+      boundByCampaignVersionId: '00000000-0000-4000-8000-000000000099',
+    }))
+    await em.flush()
+    const draft = await computeDraftState(em, ctx, campaign)
+    await expect(approveCampaign(em, ctx, {
+      campaignId: campaign.id,
+      expectedContentHash: draft.contentHash,
+    })).rejects.toMatchObject({ code: 'mailbox_policy_conflict' })
     expect(em.table(GtmCampaignVersion)).toHaveLength(0)
   })
 
