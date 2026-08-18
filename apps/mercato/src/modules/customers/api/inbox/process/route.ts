@@ -20,6 +20,7 @@ import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 // Recurring personal-Inbox drafting engine. Mirrors the Customer Service
 // processor (customer-service/process) but is scoped to inbound EMAIL + SMS in
@@ -190,6 +191,11 @@ export async function POST(req: Request) {
               .where('id', contactId)
               .where('organization_id', orgId)
               .first()
+            // Raw knex skips the decrypting subscriber. Ciphertext is truthy, so
+            // it would be used as the reply address without ever falling back.
+            if (contact) {
+              await decryptRowFields(null, CONTACT_ENTITY_KEY, [contact], ['primary_email', 'display_name'], tenantId, orgId)
+            }
             const toEmail: string | null = contact?.primary_email || conv.avatar_email || inbound.from_address || null
             if (!toEmail) { await markDrafted(knex, conv.id, orgId); skipped++; continue }
 
