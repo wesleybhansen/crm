@@ -1242,6 +1242,140 @@ export class GtmMailboxCursor {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'gtm_mailbox_health' })
+@Index({ name: 'gtm_mailbox_health_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'gtm_mailbox_health_org_tenant_mailbox_unique', properties: ['organizationId', 'tenantId', 'mailboxConnectionId'] })
+export class GtmMailboxHealth {
+  [OptionalProps]?: 'id' | 'policyVersion' | 'status' | 'acceptedCount' | 'deliveredCount' | 'softBounceCount' | 'hardBounceCount' | 'complaintCount' | 'fence' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  // -> email_connections.id (cross-module, plain uuid)
+  @Property({ name: 'mailbox_connection_id', type: 'uuid' })
+  mailboxConnectionId!: string
+
+  @Property({ name: 'policy_version', type: 'text', default: 'mailbox-health-v1' })
+  policyVersion: string = 'mailbox-health-v1'
+
+  // healthy | warning | paused
+  @Property({ type: 'text', default: 'healthy' })
+  status: string = 'healthy'
+
+  @Property({ name: 'rolling_window_started_at', type: 'timestamptz' })
+  rollingWindowStartedAt!: Date
+
+  @Property({ name: 'accepted_count', type: 'integer', default: 0 })
+  acceptedCount: number = 0
+
+  @Property({ name: 'delivered_count', type: 'integer', default: 0 })
+  deliveredCount: number = 0
+
+  @Property({ name: 'soft_bounce_count', type: 'integer', default: 0 })
+  softBounceCount: number = 0
+
+  @Property({ name: 'hard_bounce_count', type: 'integer', default: 0 })
+  hardBounceCount: number = 0
+
+  @Property({ name: 'complaint_count', type: 'integer', default: 0 })
+  complaintCount: number = 0
+
+  @Property({ name: 'pause_reason', type: 'text', nullable: true })
+  pauseReason?: string | null
+
+  // Null means an operator must explicitly clear the pause.
+  @Property({ name: 'pause_until', type: 'timestamptz', nullable: true })
+  pauseUntil?: Date | null
+
+  @Property({ name: 'last_event_at', type: 'timestamptz', nullable: true })
+  lastEventAt?: Date | null
+
+  @Property({ type: 'integer', default: 0 })
+  fence: number = 0
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gtm_ai_telemetry' })
+@Index({ name: 'gtm_ai_telemetry_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'gtm_ai_telemetry_org_tenant_surface_idx', properties: ['organizationId', 'tenantId', 'surface', 'createdAt'] })
+@Unique({ name: 'gtm_ai_telemetry_org_operation_unique', properties: ['organizationId', 'operationKey'] })
+export class GtmAiTelemetry {
+  [OptionalProps]?: 'id' | 'status' | 'tokensIn' | 'tokensOut' | 'retryCount' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'operation_key', type: 'text' })
+  operationKey!: string
+
+  @Property({ type: 'text' })
+  surface!: string
+
+  @Property({ type: 'text', nullable: true })
+  model?: string | null
+
+  // succeeded | failed
+  @Property({ type: 'text', default: 'succeeded' })
+  status: string = 'succeeded'
+
+  @Property({ name: 'tokens_in', type: 'integer', default: 0 })
+  tokensIn: number = 0
+
+  @Property({ name: 'tokens_out', type: 'integer', default: 0 })
+  tokensOut: number = 0
+
+  // Counts only: system, tools, history, evidence, provider rows, summary.
+  @Property({ name: 'component_estimates', type: 'jsonb', nullable: true })
+  componentEstimates?: Record<string, unknown> | null
+
+  @Property({ name: 'latency_ms', type: 'integer', nullable: true })
+  latencyMs?: number | null
+
+  @Property({ name: 'retry_count', type: 'integer', default: 0 })
+  retryCount: number = 0
+
+  @Property({ name: 'estimated_cost_microusd', type: 'bigint', nullable: true })
+  estimatedCostMicrousd?: number | null
+
+  @Property({ name: 'rate_card_version', type: 'text', nullable: true })
+  rateCardVersion?: string | null
+
+  @Property({ name: 'failure_code', type: 'text', nullable: true })
+  failureCode?: string | null
+
+  @Property({ name: 'request_id', type: 'text', nullable: true })
+  requestId?: string | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'gtm_inbound_events' })
 @Index({ name: 'gtm_inbound_events_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'gtm_inbound_events_attempt_idx', properties: ['organizationId', 'tenantId', 'sendAttemptId'] })

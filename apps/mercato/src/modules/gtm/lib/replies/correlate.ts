@@ -4,6 +4,7 @@ import type { Clock, ExecutionEm } from '../execute/schedule'
 import { GtmExecutionError } from '../execute/schedule'
 import { keywordClassifier, classifyReply, type ReplyClassifier } from './classify'
 import { hashAddress } from '../campaign/exclusions'
+import { refreshMailboxHealth } from '../reputation/mailbox-health'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import {
   GtmAuditEvent,
@@ -813,6 +814,15 @@ export async function correlateReplies(
           inboundEventId: event.id,
           eventKind: kind,
         })
+      }
+      if (
+        message.accountId
+        && (kind === 'delivered'
+          || kind === 'soft_bounce'
+          || kind === 'hard_bounce'
+          || kind === 'complaint')
+      ) {
+        await refreshMailboxHealth(em, ctx, message.accountId, { clock: input.clock })
       }
       await finishInboundEvent(em, event, claim, { state: 'processed', now })
     } catch (error) {

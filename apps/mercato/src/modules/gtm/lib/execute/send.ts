@@ -34,6 +34,7 @@ import {
   GtmWorkspace,
 } from '../../data/entities'
 import { EmailConnection, EmailUnsubscribe } from '../../../email/data/schema'
+import { readMailboxSendPermission } from '../reputation/mailbox-health'
 
 /*
  * Claimed-attempt execution (SPEC-066 section 6 rules 2-5, section 8).
@@ -70,6 +71,12 @@ export type ExecuteOutcome =
       attemptId: string
       reason: 'outside_send_window' | 'daily_cap_reached'
       scheduledFor: Date
+    }
+  | {
+      outcome: 'paused'
+      attemptId: string
+      reason: string
+      retryAt: Date
     }
   | { outcome: 'fenced'; attemptId: string }
 
@@ -445,6 +452,39 @@ export async function executeClaimedAttempt(
       )
       return updated === 1
         ? ({ outcome: 'failed', attemptId, reason: 'sender_changed' } as const)
+        : ({ outcome: 'fenced', attemptId } as const)
+    }
+
+    const healthNow = now()
+    const sendPermission = await readMailboxSendPermission(
+      tem,
+      ctx,
+      mailboxConnectionId,
+      healthNow,
+    )
+    if (!sendPermission.allowed) {
+      const retryAt = sendPermission.pauseUntil
+        ?? new Date(healthNow.getTime() + 24 * 60 * 60 * 1000)
+      const updated = await fencedUpdateOn(
+        tem,
+        { state: 'claimed' },
+        {
+          state: 'approved',
+          claimToken: null,
+          claimExpiresAt: null,
+          scheduledFor: retryAt,
+          capacitySlotKey: null,
+          failureReason: `mailbox_paused:${sendPermission.pauseReason}`,
+          failedAt: null,
+        },
+      )
+      return updated === 1
+        ? ({
+            outcome: 'paused',
+            attemptId,
+            reason: sendPermission.pauseReason,
+            retryAt,
+          } as const)
         : ({ outcome: 'fenced', attemptId } as const)
     }
 

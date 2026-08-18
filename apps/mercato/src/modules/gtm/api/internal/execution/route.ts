@@ -158,12 +158,12 @@ export async function POST(req: Request) {
         })
       }
       const { executeClaimedAttempt } = await import('../../../lib/execute/send')
-      const { smtpTransport } = await import('../../../lib/execute/transport')
+      const { mailboxTransport } = await import('../../../lib/execute/transport')
       const claimResult = await claimDueAttempts(em, ctx, { limit: body.limit })
       const outcomes = []
       for (const claimed of claimResult.claimed) {
         outcomes.push(
-          await executeClaimedAttempt(em, ctx, claimed.attempt, { transport: smtpTransport }),
+          await executeClaimedAttempt(em, ctx, claimed.attempt, { transport: mailboxTransport }),
         )
       }
       return NextResponse.json({
@@ -214,6 +214,14 @@ export async function POST(req: Request) {
           : {}),
         deletedAt: null,
       })
+      const health = await em.find(entities.GtmMailboxHealth, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        ...(body.mailboxConnectionId
+          ? { mailboxConnectionId: body.mailboxConnectionId }
+          : {}),
+        deletedAt: null,
+      })
       return NextResponse.json({
         ok: true,
         cursors: cursors.map((cursor) => ({
@@ -228,6 +236,21 @@ export async function POST(req: Request) {
           last_success_at: cursor.lastSuccessAt ?? null,
           last_error: cursor.lastError ?? null,
           lease_expires_at: cursor.leaseExpiresAt ?? null,
+        })),
+        mailbox_health: health.map((row) => ({
+          mailbox_connection_id: row.mailboxConnectionId,
+          policy_version: row.policyVersion,
+          status: row.status,
+          rolling_window_started_at: row.rollingWindowStartedAt,
+          accepted_count: row.acceptedCount,
+          delivered_count: row.deliveredCount,
+          soft_bounce_count: row.softBounceCount,
+          hard_bounce_count: row.hardBounceCount,
+          complaint_count: row.complaintCount,
+          pause_reason: row.pauseReason ?? null,
+          pause_until: row.pauseUntil ?? null,
+          last_event_at: row.lastEventAt ?? null,
+          fence: row.fence,
         })),
       })
     }

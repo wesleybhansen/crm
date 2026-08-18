@@ -269,7 +269,7 @@ export async function POST(req: Request) {
       const { createGeminiDraftModel } = await import('../../../lib/ai/model')
       const { draftReplyWithAi } = await import('../../../lib/replies/ai-reply')
       const model = createGeminiDraftModel(apiKey)
-      const meter = async (usage: { model: string; tokensIn: number; tokensOut: number; feature: string }) => {
+      const canonicalMeter = async (usage: { model: string; tokensIn: number; tokensOut: number; feature: string }) => {
         await meterCustomersAi({ orgId: ctx.organizationId }, {
           ...usage,
           byoKey: !!gate.byoApiKey,
@@ -279,6 +279,16 @@ export async function POST(req: Request) {
           metadata: { status: 'completed', attempt: 1 },
         })
       }
+      const { createGtmTelemetryMeter } = await import('../../../lib/ai/telemetry')
+      const meter = createGtmTelemetryMeter({
+        em,
+        ctx,
+        surface: 'reply_draft',
+        operationKey: body.idempotency_key
+          ? `gtm:reply-draft:${ctx.organizationId}:${body.replyId}:${body.idempotency_key}`
+          : `gtm:reply-draft:${ctx.organizationId}:${body.replyId}:${crypto.randomUUID()}`,
+        canonicalMeter,
+      })
       const result = await draftReplyWithAi(em, ctx, { model, meter }, {
         replyId: body.replyId,
         idempotencyKey: body.idempotency_key ?? null,

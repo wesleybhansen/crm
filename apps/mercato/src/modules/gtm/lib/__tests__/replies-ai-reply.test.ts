@@ -139,7 +139,7 @@ describe('draftReplyWithAi', () => {
     },
   )
 
-  it('falls back to a template (metering nothing) when the model call throws', async () => {
+  it('falls back to a template and records a zero-token failed attempt when the model call throws', async () => {
     const em = new FakeEm()
     const { reply } = await fixtureWithReply(em)
     await lockVoice(em)
@@ -148,7 +148,13 @@ describe('draftReplyWithAi', () => {
     const result = await draftReplyWithAi(em, ctx, { model: throwingModel(), meter }, { replyId: reply.id })
     expect(result).toMatchObject({ provenance: 'template', reason: 'draft_failed' })
     expect(reply.draftStatus).toBe('drafted')
-    expect(calls).toHaveLength(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      tokensIn: 0,
+      tokensOut: 0,
+      status: 'failed',
+      failureCode: 'model_provider_failure',
+    })
   })
 
   it('falls back to a template (metering the spent call) when the model output is unparseable', async () => {
@@ -162,6 +168,7 @@ describe('draftReplyWithAi', () => {
     expect(result).toMatchObject({ provenance: 'template', reason: 'draft_failed' })
     // The model was invoked and tokens were spent, so exactly one meter fired.
     expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ status: 'failed', failureCode: 'invalid_model_output' })
   })
 
   it('falls back honestly when a model reply exceeds the deterministic 120-word ceiling', async () => {
@@ -178,6 +185,7 @@ describe('draftReplyWithAi', () => {
       'Thanks for getting back to me',
     )
     expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ status: 'failed', failureCode: 'output_too_long' })
   })
 
   it('dedupes a same-key repeat: no second model call, no second meter, same draft', async () => {

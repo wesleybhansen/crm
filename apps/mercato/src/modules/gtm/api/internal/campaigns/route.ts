@@ -341,7 +341,7 @@ export async function POST(req: Request) {
       const { createGeminiDraftModel } = await import('../../../lib/ai/model')
       const { regenerateMessageForCandidate } = await import('../../../lib/campaign/ai-draft')
       const model = createGeminiDraftModel(apiKey)
-      const meter = async (usage: { model: string; tokensIn: number; tokensOut: number; feature: string }) => {
+      const canonicalMeter = async (usage: { model: string; tokensIn: number; tokensOut: number; feature: string }) => {
         await meterCustomersAi({ orgId: ctx.organizationId }, {
           ...usage,
           byoKey: !!gate.byoApiKey,
@@ -351,6 +351,16 @@ export async function POST(req: Request) {
           metadata: { status: 'completed', attempt: 1 },
         })
       }
+      const { createGtmTelemetryMeter } = await import('../../../lib/ai/telemetry')
+      const meter = createGtmTelemetryMeter({
+        em,
+        ctx,
+        surface: 'campaign_message_draft',
+        operationKey: body.idempotency_key
+          ? `gtm:campaign-draft:${ctx.organizationId}:${body.campaignId}:${body.candidateId}:${body.idempotency_key}`
+          : `gtm:campaign-draft:${ctx.organizationId}:${body.campaignId}:${body.candidateId}:${crypto.randomUUID()}`,
+        canonicalMeter,
+      })
       const result = await regenerateMessageForCandidate(em, ctx, { model, meter }, {
         campaignId: body.campaignId,
         candidateId: body.candidateId,

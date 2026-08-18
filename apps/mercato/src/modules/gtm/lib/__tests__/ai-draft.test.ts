@@ -111,7 +111,7 @@ describe('draftMessageForRecipient', () => {
     expect(drafted.body_html).not.toContain('{{')
   })
 
-  it('throws GtmDraftError and does NOT meter when the model call fails', async () => {
+  it('throws GtmDraftError and records a zero-token failed attempt when the model call fails', async () => {
     const { meter, calls } = makeMeterSpy()
     await expect(
       draftMessageForRecipient({ model: throwingModel(), meter }, {
@@ -122,7 +122,14 @@ describe('draftMessageForRecipient', () => {
         evidence: evidence([]),
       }),
     ).rejects.toBeInstanceOf(GtmDraftError)
-    expect(calls).toHaveLength(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      model: 'fake-gemini',
+      tokensIn: 0,
+      tokensOut: 0,
+      status: 'failed',
+      failureCode: 'model_provider_failure',
+    })
   })
 
   it('throws GtmDraftError on unparseable model output (meters the spent call)', async () => {
@@ -139,6 +146,7 @@ describe('draftMessageForRecipient', () => {
     ).rejects.toBeInstanceOf(GtmDraftError)
     // The model was invoked and tokens were spent, so exactly one meter fired.
     expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ status: 'failed', failureCode: 'invalid_model_output' })
   })
 })
 

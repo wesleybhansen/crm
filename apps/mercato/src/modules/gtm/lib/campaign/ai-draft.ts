@@ -14,7 +14,7 @@ import {
 } from './build'
 import { getLatestLockedVersion } from '../versions'
 import type { CampaignEm, GtmCtx } from './build'
-import type { GtmAiMeter, GtmDraftModel } from '../ai/model'
+import { estimateModelTokens, type GtmAiMeter, type GtmDraftModel } from '../ai/model'
 import {
   GtmCandidate,
   GtmEvidence,
@@ -40,7 +40,7 @@ import {
  * again so a model that echoes "{{...}}" can never introduce a token that the
  * downstream deterministic renderer would try to expand.
  *
- * METERING: exactly one metered call per model invocation, through the
+ * METERING: exactly one awaited metering/telemetry call per model invocation, through the
  * injected meter (the route wires it to the existing CRM AI usage path,
  * @/lib/usage/meter). The model client itself never meters.
  *
@@ -220,38 +220,77 @@ export async function draftMessageForRecipient(
 ): Promise<DraftedMessage> {
   const system = SYSTEM_PROMPT
   const prompt = buildPrompt(args)
+  const startedAt = Date.now()
+  const historyTokens = estimateModelTokens(JSON.stringify(args.previousMessages ?? []))
+  const evidenceTokens = estimateModelTokens(JSON.stringify(args.evidence.map((row) => row.claim)))
+  const componentEstimates = {
+    system: estimateModelTokens(system),
+    tool_schema: 0,
+    history: historyTokens,
+    evidence: evidenceTokens,
+    provider_rows: 0,
+    durable_summary: estimateModelTokens(prompt) - historyTokens - evidenceTokens,
+  }
 
   let result
   try {
     result = await deps.model.generate({ system, prompt })
   } catch (err) {
-    // Provider/network failure: nothing was consumed we can attribute, so no
-    // meter. The caller falls back to the deterministic template.
+    await deps.meter?.({
+      model: deps.model.modelId ?? 'unknown',
+      tokensIn: 0,
+      tokensOut: 0,
+      feature: DRAFT_FEATURE,
+      status: 'failed',
+      latencyMs: Date.now() - startedAt,
+      retryCount: 0,
+      failureCode: 'model_provider_failure',
+      componentEstimates,
+    })
     throw new GtmDraftError(
       'draft_failed',
       err instanceof Error ? err.message : 'The drafting model call failed',
     )
   }
 
-  // Exactly one metered call per model invocation, regardless of parse outcome
-  // (the tokens were spent). Fire-and-forget; metering never breaks drafting.
+  let cleanSubject: string
+  let cleanBody: string
+  try {
+    const { subject, body } = parseDraft(result.text)
+    cleanSubject = neutralizeTokens(subject).replace(/\s+/g, ' ').trim()
+    cleanBody = neutralizeTokens(body).replace(/\r\n/g, '\n').trim()
+    const wordCount = countMessageWords(cleanBody)
+    if (wordCount < MIN_EMAIL_BODY_WORDS || wordCount > MAX_EMAIL_BODY_WORDS) {
+      throw new GtmDraftError(
+        'draft_failed',
+        `The model body had ${wordCount} words; expected ${MIN_EMAIL_BODY_WORDS}-${MAX_EMAIL_BODY_WORDS}`,
+      )
+    }
+  } catch (error) {
+    await deps.meter?.({
+      model: result.model,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      feature: DRAFT_FEATURE,
+      status: 'failed',
+      latencyMs: Date.now() - startedAt,
+      retryCount: 0,
+      failureCode: 'invalid_model_output',
+      componentEstimates,
+    })
+    throw error
+  }
+
   await deps.meter?.({
     model: result.model,
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
     feature: DRAFT_FEATURE,
+    status: 'succeeded',
+    latencyMs: Date.now() - startedAt,
+    retryCount: 0,
+    componentEstimates,
   })
-
-  const { subject, body } = parseDraft(result.text)
-  const cleanSubject = neutralizeTokens(subject).replace(/\s+/g, ' ').trim()
-  const cleanBody = neutralizeTokens(body).replace(/\r\n/g, '\n').trim()
-  const wordCount = countMessageWords(cleanBody)
-  if (wordCount < MIN_EMAIL_BODY_WORDS || wordCount > MAX_EMAIL_BODY_WORDS) {
-    throw new GtmDraftError(
-      'draft_failed',
-      `The model body had ${wordCount} words; expected ${MIN_EMAIL_BODY_WORDS}-${MAX_EMAIL_BODY_WORDS}`,
-    )
-  }
 
   return {
     subject: cleanSubject,

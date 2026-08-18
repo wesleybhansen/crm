@@ -28,7 +28,11 @@ export interface CampaignEm {
   create<T extends object>(entityClass: new () => T, data: object): T
   persist(entity: object): unknown
   flush(): Promise<void>
-  find<T extends object>(entityClass: new () => T, where: Record<string, unknown>): Promise<T[]>
+  find<T extends object>(
+    entityClass: new () => T,
+    where: Record<string, unknown>,
+    options?: { orderBy?: Record<string, 'asc' | 'desc'>; limit?: number },
+  ): Promise<T[]>
   findOne<T extends object>(entityClass: new () => T, where: Record<string, unknown>): Promise<T | null>
 }
 

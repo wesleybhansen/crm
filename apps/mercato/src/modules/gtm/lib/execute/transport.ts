@@ -24,6 +24,7 @@
  */
 
 import type { EmailConnection } from '../../../email/data/schema'
+import { buildGtmMimeMessage, encodeGmailRaw, encodeGraphMime } from './mime'
 
 export class GtmSendTimeoutError extends Error {
   constructor(message = 'transport outcome unknown (timeout)') {
@@ -141,3 +142,181 @@ export const smtpTransport: GtmSendTransport = {
     }
   },
 }
+
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
+type OAuthProvider = 'gmail' | 'microsoft'
+
+type AccessTokenResult = {
+  accessToken: string
+  source: 'stored' | 'refreshed_transiently'
+}
+
+function normalizeProvider(provider: string): 'gmail' | 'microsoft' | 'smtp' | null {
+  const normalized = provider.trim().toLowerCase()
+  if (normalized === 'gmail') return 'gmail'
+  if (normalized === 'microsoft' || normalized === 'outlook') return 'microsoft'
+  if (normalized === 'smtp' || normalized === 'imap') return 'smtp'
+  return null
+}
+
+function accessTokenIsFresh(connection: EmailConnection, now: Date): boolean {
+  return Boolean(
+    connection.accessToken
+      && (!connection.tokenExpiry || connection.tokenExpiry.getTime() > now.getTime() + 5 * 60 * 1000),
+  )
+}
+
+function oauthConfiguration(provider: OAuthProvider): {
+  url: string
+  body: URLSearchParams
+} {
+  if (provider === 'gmail') {
+    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID
+    if (!clientId) throw new Error('gmail oauth is not configured')
+    const body = new URLSearchParams({ client_id: clientId, grant_type: 'refresh_token' })
+    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET
+    if (clientSecret) body.set('client_secret', clientSecret)
+    return { url: 'https://oauth2.googleapis.com/token', body }
+  }
+  const clientId = process.env.MICROSOFT_CLIENT_ID
+  const clientSecret = process.env.MICROSOFT_CLIENT_SECRET
+  if (!clientId || !clientSecret) throw new Error('microsoft oauth is not configured')
+  return {
+    url: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+      scope: 'Mail.Send Mail.ReadWrite User.Read offline_access',
+    }),
+  }
+}
+
+export async function resolveMailboxAccessToken(
+  connection: EmailConnection,
+  provider: OAuthProvider,
+  fetchImpl: FetchLike,
+  now: Date,
+): Promise<AccessTokenResult> {
+  if (accessTokenIsFresh(connection, now)) {
+    return { accessToken: connection.accessToken as string, source: 'stored' }
+  }
+  if (!connection.refreshToken) throw new Error(`${provider} mailbox requires reconnection`)
+  const config = oauthConfiguration(provider)
+  config.body.set('refresh_token', connection.refreshToken)
+  let response: Response
+  try {
+    response = await fetchImpl(config.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: config.body,
+      signal: AbortSignal.timeout(30_000),
+    })
+  } catch {
+    throw new Error(`${provider} token refresh failed`)
+  }
+  if (!response.ok) throw new Error(`${provider} token refresh failed (${response.status})`)
+  const body = await response.json().catch(() => null) as { access_token?: unknown } | null
+  if (typeof body?.access_token !== 'string' || !body.access_token) {
+    throw new Error(`${provider} token refresh returned no access token`)
+  }
+  return { accessToken: body.access_token, source: 'refreshed_transiently' }
+}
+
+function outcomeIsAmbiguous(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+async function providerFetch(
+  fetchImpl: FetchLike,
+  url: string,
+  init: RequestInit,
+  provider: OAuthProvider,
+): Promise<Response> {
+  let response: Response
+  try {
+    response = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(60_000) })
+  } catch {
+    throw new GtmSendTimeoutError(`${provider} outcome unknown (transport error)`)
+  }
+  if (outcomeIsAmbiguous(response.status)) {
+    throw new GtmSendTimeoutError(`${provider} outcome unknown (HTTP ${response.status})`)
+  }
+  if (!response.ok) throw new Error(`${provider} send failed (HTTP ${response.status})`)
+  return response
+}
+
+export function createMailboxTransport(input: {
+  fetch?: FetchLike
+  now?: () => Date
+  smtp?: GtmSendTransport
+} = {}): GtmSendTransport {
+  const fetchImpl = input.fetch ?? fetch
+  const now = input.now ?? (() => new Date())
+  const smtp = input.smtp ?? smtpTransport
+  return {
+    async send(args): Promise<GtmTransportSendResult> {
+      const provider = normalizeProvider(args.connection.provider)
+      if (!provider) throw new Error('sender connection provider is unsupported')
+      if (provider === 'smtp') return smtp.send(args)
+      const mime = buildGtmMimeMessage(args)
+      const token = await resolveMailboxAccessToken(args.connection, provider, fetchImpl, now())
+      if (provider === 'gmail') {
+        const response = await providerFetch(
+          fetchImpl,
+          'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ raw: encodeGmailRaw(mime) }),
+          },
+          provider,
+        )
+        const body = await response.json().catch(() => null) as {
+          id?: unknown
+          threadId?: unknown
+        } | null
+        const providerMessageId = typeof body?.id === 'string' && body.id ? body.id : null
+        return {
+          ok: true,
+          providerMessageId,
+          receipt: {
+            provider: 'gmail',
+            http_status: response.status,
+            thread_id: typeof body?.threadId === 'string' ? body.threadId : null,
+            token_source: token.source,
+          },
+        }
+      }
+      const response = await providerFetch(
+        fetchImpl,
+        'https://graph.microsoft.com/v1.0/me/sendMail',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token.accessToken}`,
+            'Content-Type': 'text/plain',
+          },
+          body: encodeGraphMime(mime),
+        },
+        provider,
+      )
+      return {
+        ok: true,
+        providerMessageId: null,
+        receipt: {
+          provider: 'microsoft_graph',
+          http_status: response.status,
+          rfc_message_id: args.messageId,
+          token_source: token.source,
+        },
+      }
+    },
+  }
+}
+
+export const mailboxTransport = createMailboxTransport()

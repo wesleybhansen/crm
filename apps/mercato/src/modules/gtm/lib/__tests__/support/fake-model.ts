@@ -7,6 +7,7 @@ import type { GtmDraftModel, GtmModelResult } from '../../ai/model'
  */
 export class FakeModel implements GtmDraftModel {
   calls: { system: string; prompt: string }[] = []
+  readonly modelId = 'fake-gemini'
   constructor(private responder: (input: { system: string; prompt: string }) => GtmModelResult) {}
 
   async generate(input: { system: string; prompt: string }): Promise<GtmModelResult> {
@@ -38,8 +39,22 @@ export function throwingModel(message = 'provider exploded'): FakeModel {
 
 // A metering spy that records each call.
 export function makeMeterSpy() {
-  const calls: { model: string; tokensIn: number; tokensOut: number; feature: string }[] = []
-  const meter = (usage: { model: string; tokensIn: number; tokensOut: number; feature: string }) => {
+  const calls: Array<{
+    model: string
+    tokensIn: number
+    tokensOut: number
+    feature: string
+    status?: 'succeeded' | 'failed'
+    failureCode?: string | null
+  }> = []
+  const meter = (usage: {
+    model: string
+    tokensIn: number
+    tokensOut: number
+    feature: string
+    status?: 'succeeded' | 'failed'
+    failureCode?: string | null
+  }) => {
     calls.push(usage)
   }
   return { meter, calls }

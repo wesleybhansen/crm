@@ -17,6 +17,7 @@ export type GtmModelResult = {
 }
 
 export interface GtmDraftModel {
+  readonly modelId?: string
   generate(input: { system: string; prompt: string }): Promise<GtmModelResult>
 }
 
@@ -26,7 +27,16 @@ export type GtmAiMeter = (usage: {
   tokensIn: number
   tokensOut: number
   feature: string
+  status?: 'succeeded' | 'failed'
+  componentEstimates?: Record<string, number> | null
+  latencyMs?: number | null
+  retryCount?: number
+  failureCode?: string | null
 }) => void | Promise<void>
+
+export function estimateModelTokens(value: string): number {
+  return Math.ceil(Buffer.byteLength(value, 'utf8') / 4)
+}
 
 // Same Gemini model the CRM customer-service drafter uses (draft-reply.ts).
 export const GTM_DRAFT_MODEL = 'gemini-2.5-flash'
@@ -39,6 +49,7 @@ export const GTM_DRAFT_MODEL = 'gemini-2.5-flash'
  */
 export function createGeminiDraftModel(apiKey: string, model: string = GTM_DRAFT_MODEL): GtmDraftModel {
   return {
+    modelId: model,
     async generate({ system, prompt }) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -59,6 +70,9 @@ export function createGeminiDraftModel(apiKey: string, model: string = GTM_DRAFT
         candidates?: { content?: { parts?: { text?: string }[] } }[]
         usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
       } | null
+      if (!res.ok) {
+        throw new Error(`model_provider_http_${res.status}`)
+      }
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
       return {
         text,

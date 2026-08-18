@@ -3,7 +3,7 @@ import { sanitizeMergeValue } from './campaign/render'
 import { GtmDraftError } from './campaign/ai-draft'
 import type { CampaignEm, GtmCtx } from './campaign/build'
 import type { GtmVoiceVersion } from '../data/entities'
-import type { GtmAiMeter, GtmDraftModel } from './ai/model'
+import { estimateModelTokens, type GtmAiMeter, type GtmDraftModel } from './ai/model'
 
 /*
  * Voice Profile derivation (SPEC-066 section 4.3).
@@ -99,17 +99,63 @@ export async function deriveVoiceDraft(
 
   const system = SYSTEM_PROMPT
   const prompt = buildPrompt(input.sources)
-  const result = await deps.model.generate({ system, prompt })
+  const startedAt = Date.now()
+  const componentEstimates = {
+    system: estimateModelTokens(system),
+    tool_schema: 0,
+    history: 0,
+    evidence: estimateModelTokens(prompt),
+    provider_rows: 0,
+    durable_summary: 0,
+  }
+  let result
+  try {
+    result = await deps.model.generate({ system, prompt })
+  } catch (error) {
+    await deps.meter?.({
+      model: deps.model.modelId ?? 'unknown',
+      tokensIn: 0,
+      tokensOut: 0,
+      feature: VOICE_DERIVE_FEATURE,
+      status: 'failed',
+      latencyMs: Date.now() - startedAt,
+      retryCount: 0,
+      failureCode: 'model_provider_failure',
+      componentEstimates,
+    })
+    throw new GtmDraftError(
+      'draft_failed',
+      error instanceof Error ? error.message : 'The voice model call failed',
+    )
+  }
 
-  // Exactly one metered call per model invocation.
+  let content: Record<string, unknown>
+  try {
+    content = parseProfile(result.text)
+  } catch (error) {
+    await deps.meter?.({
+      model: result.model,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      feature: VOICE_DERIVE_FEATURE,
+      status: 'failed',
+      latencyMs: Date.now() - startedAt,
+      retryCount: 0,
+      failureCode: 'invalid_model_output',
+      componentEstimates,
+    })
+    throw error
+  }
   await deps.meter?.({
     model: result.model,
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
     feature: VOICE_DERIVE_FEATURE,
+    status: 'succeeded',
+    latencyMs: Date.now() - startedAt,
+    retryCount: 0,
+    componentEstimates,
   })
-
-  const content = parseProfile(result.text)
 
   const derivedFrom: Record<string, unknown> = {
     method: 'ai_derive',

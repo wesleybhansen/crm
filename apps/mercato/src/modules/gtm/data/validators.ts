@@ -429,6 +429,7 @@ const reconciliationDecisionSchema = z.discriminatedUnion('outcome', [
 
 export const gtmReconciliationBodySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('list'), noliUserId: idString }),
+  z.object({ op: z.literal('history'), noliUserId: idString }),
   z.object({
     op: z.literal('apply'),
     noliUserId: idString,

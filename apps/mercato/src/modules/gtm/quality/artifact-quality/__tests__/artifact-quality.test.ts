@@ -1,0 +1,48 @@
+import { evaluateGtmArtifact } from '../evaluator'
+import { GTM_ARTIFACT_FIXTURES_V1 } from '../fixtures/v1/fixtures'
+
+describe('GTM artifact quality v1', () => {
+  it('passes every checked-in excellent synthetic artifact', () => {
+    for (const fixture of GTM_ARTIFACT_FIXTURES_V1) {
+      expect(evaluateGtmArtifact(fixture)).toMatchObject({
+        fixtureId: fixture.id,
+        rubricVersion: 'gtm-artifact-quality-v1',
+        passed: true,
+        hardFailures: [],
+      })
+    }
+  })
+
+  it('gives hard safety precedence over a numeric score', () => {
+    const fixture = GTM_ARTIFACT_FIXTURES_V1.find((row) => row.kind === 'sequence')
+    expect(fixture).toBeDefined()
+    const mutation = {
+      ...fixture!,
+      artifact: {
+        ...fixture!.artifact,
+        tenant_note: fixture!.foreignCanary,
+      },
+    }
+    const result = evaluateGtmArtifact(mutation)
+    expect(result.score).toBeGreaterThanOrEqual(mutation.minimumScore)
+    expect(result.passed).toBe(false)
+    expect(result.hardFailures).toContain('foreign_scope_leakage')
+  })
+
+  it('rejects repeated sequence steps and false success on an ambiguous provider outcome', () => {
+    const sequence = GTM_ARTIFACT_FIXTURES_V1.find((row) => row.kind === 'sequence')!
+    const repeated = { ...sequence.artifact, steps: [
+      { key: 'email-1', body: 'This is the same sufficiently long message body for every sequence step.' },
+      { key: 'email-2', body: 'This is the same sufficiently long message body for every sequence step.' },
+    ] }
+    expect(evaluateGtmArtifact({ ...sequence, artifact: repeated }).hardFailures)
+      .toContain('sequence_steps_not_distinct')
+
+    const failure = GTM_ARTIFACT_FIXTURES_V1.find((row) => row.kind === 'failure_honesty')!
+    expect(evaluateGtmArtifact({
+      ...failure,
+      expectedDisposition: 'blocked',
+      artifact: { ...failure.artifact, disposition: 'deliver', messages: ['Send again'] },
+    }).hardFailures).toContain('wrong_disposition')
+  })
+})

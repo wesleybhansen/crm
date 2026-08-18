@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C1 inert lifecycle closeout implemented and locally verified. The module remains inert: no provider call, production migration, deployment, outreach, or customer exposure is authorized by this spec.
+**Status:** C1 inert lifecycle closeout and C2 dark mailbox lifecycle implemented and locally verified. The module remains inert: no provider call, shared or production migration, deployment, outreach, or customer exposure is authorized by this spec.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -288,10 +288,89 @@ C1 remains an app-level `apps/mercato/src/modules/gtm` module extension. It does
 | C1-D - Removal/DSR/key rotation | Done locally | 2026-08-17 | Local graph anonymization and explicit unsupported/blocked DSR states; no live DSR calls |
 | C1-E - Migration/eval/closeout | Done locally | 2026-08-17 | Empty disposable CRM migration/reapply/no-drift plus disposable Noli RPC exact-replay rehearsal |
 
-## 17. Changelog
+## 17. C2 dark mailbox lifecycle (approved 2026-08-17)
+
+### 17.1 Extension and release decision
+
+C2 continues the app-level `apps/mercato/src/modules/gtm` extension selected for C1. It adds no Open Mercato core contract and does not create a provider marketplace package. Gmail and Microsoft are implementations of the already-qualified per-user `email_connections` mailbox seam, not new sourcing providers. Existing SMTP, API, route, state, ACL, and import surfaces remain valid.
+
+C2 authorizes local implementation, deterministic tests, disposable PostgreSQL concurrency tests, generated CRM migration artifacts, local recovery patches, and local commits only. `GTM_EXECUTION_ENABLED`, the new `GTM_MAILBOX_INGESTION_ENABLED`, every sourcing-provider gate, and customer exposure remain off. No real mailbox/provider call, email send, shared migration, deployment, secret inspection, or production mutation is authorized.
+
+### 17.2 Gmail and Microsoft transport contract
+
+- One validated MIME builder freezes the approved `From`, `To`, `Subject`, `Message-ID`, `List-Unsubscribe`, `List-Unsubscribe-Post`, text, and HTML parts. It rejects CR/LF header injection, malformed message IDs, and provider/header drift before dispatch.
+- Gmail sends the RFC message as base64url in the `users.messages.send` `raw` field. Microsoft Graph sends the same RFC message as base64 MIME with `Content-Type: text/plain` to `/v1.0/me/sendMail`. Graph's `202 Accepted` is recorded as provider acceptance without inventing a provider message id; the pre-persisted RFC Message-ID remains the correlation key.
+- Both transports accept an injected HTTP client for deterministic tests. They classify an observed 4xx validation/auth response as a known failure. A timeout, aborted connection, 408, 429, or 5xx after dispatch is an unknown outcome and therefore `ambiguous`, never auto-retried.
+- OAuth access tokens are read only inside the gated transport. If a stored access token is near expiry, C2 may obtain a transient access token from the official token endpoint using the existing refresh token, but it does not mutate the mailbox connection or log/store any token. This avoids making routine access-token rotation invalidate the frozen sender envelope.
+- Historical mailbox labels `outlook` and `microsoft` both resolve to the Microsoft Graph adapter. SMTP remains available through the existing C1 transport. No ESP/Resend transport is added for GTM outreach.
+
+Official protocol sources checked 2026-08-17: Google Gmail raw MIME send and history-list documentation, and Microsoft Graph v1.0 MIME sendMail and inbox-message delta documentation.
+
+### 17.3 Incremental mailbox ingestion contract
+
+- Gmail consumes `users.history.list` pages after the sealed history id, fetches only referenced added inbox messages, and advances to the returned mailbox history id only after the page's messages and GTM dispositions commit. An expired/invalid history id (HTTP 404) sets `resync_required`; C2 never performs an unbounded full sync automatically.
+- Microsoft consumes the exact opaque `@odata.nextLink` until a page returns `@odata.deltaLink`; only the final delta link becomes the durable next-round cursor. Every cursor URL must be HTTPS on `graph.microsoft.com` and stay within `/v1.0/me/mailFolders/inbox/messages/delta`; arbitrary URLs and path changes fail closed.
+- Provider pages normalize only the message id, RFC/thread references, sender/recipient, subject, bounded text/HTML, event hints, and timestamps required by the C1 inbound-event pipeline. OAuth tokens and raw provider cursors never enter message metadata, logs, diagnostics, or audit events.
+- Queue `gtm-mailbox-ingest` processes one explicit organization/tenant/mailbox job at concurrency five. The handler re-resolves the fully scoped active mailbox, acquires the C1 fenced cursor lease, fetches one bounded page, persists deduped inbound mail/events, runs dispositions, then atomically advances or fails the cursor. Retry is idempotent.
+- The worker refuses all provider IO unless `GTM_MAILBOX_INGESTION_ENABLED === 'true'`. Fixture clients remain available when the gate is off; no scheduler, webhook subscription, Pub/Sub watch, or Graph subscription is enabled by C2.
+
+### 17.4 Mailbox reputation and operator diagnostics
+
+- New `gtm_mailbox_health` is unique per organization/tenant/mailbox and stores only policy version, status (`healthy|warning|paused`), bounded counters, rolling-window start, pause reason/until, last event, and a fence. It stores no credential or message content.
+- Health is evaluated from the tenant-scoped durable send/event history in a seven-day window. One complaint pauses indefinitely; three hard bounces pause, and a hard-bounce rate of at least five percent pauses once at least twenty accepted/delivered outcomes exist. Five soft bounces or a fifteen-percent soft-bounce rate at the same minimum volume creates a 24-hour pause. Delivery does not erase an existing complaint pause.
+- The send machine rechecks health under the mailbox lock immediately before `provider_started`. A temporary pause reschedules at or after `pause_until`; an indefinite complaint pause returns a non-sending blocked outcome. No automatic resume weakens an indefinite pause.
+- Existing protected internal routes add redacted, tenant-scoped diagnostics for mailbox health/cursor state, send outcomes, provider-operation yield/ambiguity/reconciliation state, and observational AI use. Responses expose counts, bounded reason codes, hashes, and timestamps, never prospect content, provider rows, cursor values, or secrets.
+
+### 17.5 GTM AI telemetry and AUG-04 quality contract
+
+- New `gtm_ai_telemetry` is observational, not a balance or invoice. A unique operation key makes retries idempotent. It stores surface, model, actual provider input/output tokens, estimated component breakdown (system, tool schema, history, evidence, provider rows, durable summary), latency, retries, success/failure, bounded failure code, optional configured rate-card version, optional estimated micro-USD, and request id. No prompt, model output, evidence text, provider row, or secret is stored.
+- Cost remains null unless an explicit versioned local rate card is configured. Noli Core remains the only canonical customer credit ledger. Telemetry failure cannot authorize or hide a model call; route-level metering and the local receipt are both awaited.
+- A versioned deterministic GTM quality harness covers Audience Play/lead-magnet structure, qualification explanations, research plans, multi-step outreach, reply drafts, and failure honesty. Hard safety for tenant/scope leakage, opt-out, unsupported claims/promises, credential leakage, insufficient evidence, and wrong-recipient handling takes precedence over a numeric score.
+- Checked-in fixtures are synthetic. Threshold or baseline changes require an intentional rubric-version change and recorded delta; a dry-run fixture does not claim current provider/model quality.
+
+### 17.6 Additive data model and API contract
+
+`GtmMailboxHealth` adds table `gtm_mailbox_health`; `GtmAiTelemetry` adds table `gtm_ai_telemetry`. Both use the standard UUID, organization, tenant, timestamps, soft-delete, and composite index contract. Existing entities receive only nullable/defaulted fields if generation proves them necessary. One generator-owned GTM migration and synchronized snapshot are required; no CRM migration is handwritten.
+
+Execution gains additive operations for one gated mailbox-ingestion page and mailbox diagnostics. Reconciliation gains an additive provider-history operation. AI-using routes write telemetry through an injected awaited sink. All inputs are additive Zod schemas in `data/validators.ts`, every query binds organization and tenant, and existing response fields remain present.
+
+### 17.7 C2 acceptance gates
+
+- Gmail and Graph fixture requests contain the exact approved RFC Message-ID and RFC 8058 headers; Graph uses MIME and never invents a provider id. Known failure and ambiguous outcome fixtures take distinct terminal paths.
+- Gmail history pagination/replay/404 and Graph next/delta/replay/foreign-URL cases cannot skip, duplicate, regress, or exfiltrate cursor state.
+- Local and async queue-strategy handler contracts are retry-idempotent with a network-denied fixture client.
+- Complaint, hard-bounce, soft-bounce, delivery, pause expiry, and concurrent reputation updates produce deterministic health and block/reschedule behavior.
+- Provider/mailbox/AI diagnostics are tenant-isolated and redact message, cursor, provider-row, and credential content.
+- Telemetry exact replay produces one receipt; success, parse failure, provider failure, and retry record honest tokens/latency/status without changing customer credit truth.
+- The versioned GTM quality fixtures pass hard-safety and threshold checks; intentional adversarial mutations fail the expected criterion.
+- Disposable PostgreSQL races prove one capacity claim, one cursor-page advancement, one inbound-event side effect, and one mailbox pause decision under concurrency.
+- Current-main plus C0/C1/C2 generated migrations apply to an empty disposable database; second migrate/generate reports no GTM drift.
+- Full unit, route-contract, queue-handler, typecheck, lint, build, contract, security, diff, and original-custody checks pass with network denied.
+
+### 17.8 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| C2-A - MIME/OAuth transports | Completed locally | 2026-08-17 | Gmail/Graph/SMTP fixture coverage only; execution gate remains off |
+| C2-B - Incremental ingestion worker | Completed locally | 2026-08-17 | Message, disposition, and sealed cursor commit atomically; separate ingestion gate remains off; no scheduler/subscription |
+| C2-C - Reputation and diagnostics | Completed locally | 2026-08-17 | Send-time mailbox pause and bounded/redacted provider/cursor/health diagnostics |
+| C2-D - Telemetry and quality | Completed locally | 2026-08-17 | Awaited observational success/failure receipts and synthetic versioned CRM/Noli fixtures only |
+| C2-E - PostgreSQL races and closeout | Completed locally | 2026-08-17 | Full migration apply/reapply and four disposable PostgreSQL race/atomicity cases; no shared database touched |
+
+### 17.9 Integration scenarios
+
+- `TC-GTM-C2-001`: Gmail page replay and worker retry preserve one email/event/disposition and advance the cursor once.
+- `TC-GTM-C2-002`: Graph next-link replay and final delta-link restart preserve order and reject foreign cursor URLs.
+- `TC-GTM-C2-003`: concurrent capacity claim, inbound reply, and complaint pause prevent a later provider dispatch.
+- `TC-GTM-C2-004`: non-admin diagnostics are view-only, cross-tenant ids are opaque, and every response remains redacted.
+- `TC-GTM-C2-005`: telemetry replay and failure paths produce one observational receipt and do not change the Noli Core ledger shadow.
+
+## 18. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
 - 2026-08-17: Renumbered from SPEC-066 to SPEC-067 on the C0 current-main integration base (`7abd37f32da83c55c4eb46e68735e45a0fce62ed`). C0 is an inert integrity tranche only; it does not authorize provider access, sending, migration application, deployment, or customer exposure.
 - 2026-08-17: Added the approved C1 inert lifecycle closeout for distinct sequences, sender/capacity binding, provider reconciliation, durable inbound/delivery events, deletion/DSR, and unsubscribe key rotation. External effects remain disabled and separately gated.
 - 2026-08-17: Completed the local C1 implementation and disposable verification. Added generated CRM migration `Migration20260818052128_gtm`, additive Noli Core `provider_op_reconcile`, and 25-table GTM schema verification. No external effect or release gate was opened.
+- 2026-08-17: Added the approved C2 dark mailbox-lifecycle contract for Gmail/Graph MIME transport, incremental cursors, an idempotent gated worker, reputation pauses, redacted diagnostics, observational token/cost telemetry, GTM AUG-04 fixtures, and disposable PostgreSQL race evidence. No external effect is authorized.
+- 2026-08-17: Completed the local C2 implementation and verification: 58 GTM suites/671 unit tests plus four disposable PostgreSQL cases, full CRM typecheck/lint/build/generate/i18n gates, and Noli Hub 1098 tests/typecheck. Added generator-owned `Migration20260818061808_gtm`. Gmail/Graph/provider fixtures were network-injected; no external provider, mailbox, email, or shared database was contacted.

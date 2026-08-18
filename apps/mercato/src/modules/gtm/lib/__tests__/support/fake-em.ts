@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import {
   GtmCampaignVersion,
+  GtmAiTelemetry,
   GtmCandidate,
   GtmChatMessage,
   GtmDeletionRequest,
@@ -10,6 +11,7 @@ import {
   GtmIcpVersion,
   GtmInboundEvent,
   GtmMailboxCursor,
+  GtmMailboxHealth,
   GtmProviderReconciliationAction,
   GtmReply,
   GtmRenderedMessage,
@@ -248,6 +250,27 @@ export class FakeEm implements ResearchEm, RetentionEm, CampaignEm, ExecutionEm,
             row.provider === entity.provider &&
             row.cursorKind === entity.cursorKind,
           'gtm_mailbox_cursors_mailbox_provider_kind_unique',
+        )
+      }
+      if (entity instanceof GtmMailboxHealth) {
+        this.assertUnique(
+          entity,
+          GtmMailboxHealth,
+          (row) =>
+            row.organizationId === entity.organizationId &&
+            row.tenantId === entity.tenantId &&
+            row.mailboxConnectionId === entity.mailboxConnectionId,
+          'gtm_mailbox_health_org_tenant_mailbox_unique',
+        )
+      }
+      if (entity instanceof GtmAiTelemetry) {
+        this.assertUnique(
+          entity,
+          GtmAiTelemetry,
+          (row) =>
+            row.organizationId === entity.organizationId &&
+            row.operationKey === entity.operationKey,
+          'gtm_ai_telemetry_org_operation_unique',
         )
       }
       if (entity instanceof GtmInboundEvent) {

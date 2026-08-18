@@ -170,7 +170,7 @@ export async function POST(req: Request) {
     const { createGeminiDraftModel } = await import('../../../lib/ai/model')
     const { deriveVoiceDraft } = await import('../../../lib/voice-derive')
     const model = createGeminiDraftModel(apiKey)
-    const meter = async (usage: { model: string; tokensIn: number; tokensOut: number; feature: string }) => {
+    const canonicalMeter = async (usage: { model: string; tokensIn: number; tokensOut: number; feature: string }) => {
       await meterCustomersAi({ orgId: ctx.organizationId }, {
         ...usage,
         byoKey: !!gate.byoApiKey,
@@ -180,6 +180,16 @@ export async function POST(req: Request) {
         metadata: { status: 'completed', attempt: 1 },
       })
     }
+    const { createGtmTelemetryMeter } = await import('../../../lib/ai/telemetry')
+    const meter = createGtmTelemetryMeter({
+      em,
+      ctx,
+      surface: 'voice_derive',
+      operationKey: body.idempotency_key
+        ? `gtm:voice-derive:${ctx.organizationId}:${body.workspaceId}:${body.idempotency_key}`
+        : `gtm:voice-derive:${ctx.organizationId}:${body.workspaceId}:${crypto.randomUUID()}`,
+      canonicalMeter,
+    })
 
     const version = await deriveVoiceDraft(em, ctx, { model, meter }, {
       workspaceId: body.workspaceId,

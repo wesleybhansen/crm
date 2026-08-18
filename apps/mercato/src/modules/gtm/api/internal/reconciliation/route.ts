@@ -65,6 +65,13 @@ export async function POST(req: Request) {
       const operations = await listProviderOperationsForReconciliation(em, ctx)
       return NextResponse.json({ ok: true, operations })
     }
+    if (parsed.data.op === 'history') {
+      const { getProviderHistoryDiagnostics } = await import(
+        '../../../lib/diagnostics/provider-history'
+      )
+      const history = await getProviderHistoryDiagnostics(em, ctx)
+      return NextResponse.json({ ok: true, history })
+    }
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const executed = await commandBus.execute<

@@ -16,6 +16,7 @@ import { hashAddress } from '../campaign/exclusions'
 import { messageContentHash, UNSUBSCRIBE_URL_TOKEN } from '../campaign/render'
 import {
   GtmContactPoint,
+  GtmMailboxHealth,
   GtmRenderedMessage,
   GtmSendAttempt,
   GtmSuppression,
@@ -223,6 +224,31 @@ describe('executeClaimedAttempt (SPEC-066 section 6 rules 2-5, section 8)', () =
       fixture.connection.updatedAt = new Date(fixture.connection.updatedAt.getTime() + 1000)
       const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
       expect(outcome).toMatchObject({ outcome: 'failed', reason: 'sender_changed' })
+      expect(transport.calls).toHaveLength(0)
+    })
+
+    it('a paused mailbox releases the claim without contacting the transport', async () => {
+      const { em, clock, claimed, transport } = await prepare()
+      em.persist(em.create(GtmMailboxHealth, {
+        organizationId: ORG,
+        tenantId: TENANT,
+        mailboxConnectionId: MAILBOX,
+        status: 'paused',
+        rollingWindowStartedAt: new Date('2026-07-15T16:30:00.000Z'),
+        pauseReason: 'complaint_received',
+        pauseUntil: null,
+      }))
+      await em.flush()
+
+      const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
+
+      expect(outcome).toMatchObject({ outcome: 'paused', reason: 'complaint_received' })
+      expect(claimed.state).toBe('approved')
+      expect(claimed.claimToken).toBeNull()
+      expect(claimed.claimExpiresAt).toBeNull()
+      expect(claimed.capacitySlotKey).toBeNull()
+      expect(claimed.failureReason).toBe('mailbox_paused:complaint_received')
+      expect(claimed.scheduledFor!.toISOString()).toBe('2026-07-23T16:30:00.000Z')
       expect(transport.calls).toHaveLength(0)
     })
 

@@ -1,5 +1,5 @@
 import { FakeEm } from './support/fake-em'
-import { FakeModel, jsonModel, makeMeterSpy } from './support/fake-model'
+import { FakeModel, jsonModel, makeMeterSpy, throwingModel } from './support/fake-model'
 import { ctx, seedWorkspace, WORKSPACE } from './support/campaign-fixtures'
 import { deriveVoiceDraft, VOICE_DERIVE_FEATURE } from '../voice-derive'
 import { createVersion, setVersionLock } from '../versions'
@@ -134,5 +134,24 @@ describe('deriveVoiceDraft (metered AI voice profile)', () => {
         sources: { website: null, samples: ['a sample'] },
       }),
     ).rejects.toBeInstanceOf(GtmDraftError)
+  })
+
+  it('records a zero-token failed attempt when the model provider throws', async () => {
+    const em = new FakeEm()
+    await seedWorkspace(em)
+    const { meter, calls } = makeMeterSpy()
+    await expect(
+      deriveVoiceDraft(em, ctx, { model: throwingModel(), meter }, {
+        workspaceId: WORKSPACE,
+        sources: { website: null, samples: ['a sample'] },
+      }),
+    ).rejects.toBeInstanceOf(GtmDraftError)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      status: 'failed',
+      failureCode: 'model_provider_failure',
+      tokensIn: 0,
+      tokensOut: 0,
+    })
   })
 })

@@ -3,7 +3,7 @@ import type { Clock, ExecutionEm } from '../execute/schedule'
 import { GtmExecutionError } from '../execute/schedule'
 import { getLatestLockedVersion } from '../versions'
 import { countMessageWords, sanitizeMergeValue } from '../campaign/render'
-import type { GtmAiMeter, GtmDraftModel } from '../ai/model'
+import { estimateModelTokens, type GtmAiMeter, type GtmDraftModel } from '../ai/model'
 import {
   GtmAuditEvent,
   GtmCampaign,
@@ -30,8 +30,8 @@ import { EmailMessage } from '../../../email/data/schema'
  * untrusted; the generated output is brace-neutralized so it can never carry a
  * merge token downstream.
  *
- * METERING: exactly one metered call per model invocation, regardless of parse
- * outcome (the tokens were spent). A provider/network throw meters nothing.
+ * METERING: exactly one awaited metering/telemetry call per model invocation,
+ * including provider and invalid-output failures.
  *
  * FALLBACK: this never hard-fails. With no locked voice, or when the model
  * call/parse fails, an honest minimal template is stored as the draft so the
@@ -288,12 +288,33 @@ export async function draftReplyWithAi(
 
   const inboundText = await resolveInboundText(em, ctx, reply)
   const prompt = buildPrompt({ voice, classification: reply.classification ?? null, inboundText, outbound })
+  const historyTokens = estimateModelTokens(JSON.stringify(outbound ?? {}))
+  const evidenceTokens = estimateModelTokens(inboundText)
+  const componentEstimates = {
+    system: estimateModelTokens(SYSTEM_PROMPT),
+    tool_schema: 0,
+    history: historyTokens,
+    evidence: evidenceTokens,
+    provider_rows: 0,
+    durable_summary: estimateModelTokens(prompt) - historyTokens - evidenceTokens,
+  }
 
   let result
+  const startedAt = Date.now()
   try {
     result = await deps.model.generate({ system: SYSTEM_PROMPT, prompt })
   } catch {
-    // Provider/network failure: nothing attributable, no meter. Template.
+    await deps.meter?.({
+      model: deps.model.modelId ?? 'unknown',
+      tokensIn: 0,
+      tokensOut: 0,
+      feature: REPLY_DRAFT_FEATURE,
+      status: 'failed',
+      latencyMs: Date.now() - startedAt,
+      retryCount: 0,
+      failureCode: 'model_provider_failure',
+      componentEstimates,
+    })
     const template = minimalTemplate(outbound)
     const stored = await storeDraft(
       em,
@@ -310,18 +331,21 @@ export async function draftReplyWithAi(
     return { provenance: 'template', reason: 'draft_failed', reply: stored }
   }
 
-  // Exactly one metered call per model invocation (the tokens were spent).
-  await deps.meter?.({
-    model: result.model,
-    tokensIn: result.tokensIn,
-    tokensOut: result.tokensOut,
-    feature: REPLY_DRAFT_FEATURE,
-  })
-
   let parsed: { subject: string; body: string }
   try {
     parsed = parseDraft(result.text)
   } catch {
+    await deps.meter?.({
+      model: result.model,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      feature: REPLY_DRAFT_FEATURE,
+      status: 'failed',
+      latencyMs: Date.now() - startedAt,
+      retryCount: 0,
+      failureCode: 'invalid_model_output',
+      componentEstimates,
+    })
     const template = minimalTemplate(outbound)
     const stored = await storeDraft(
       em,
@@ -341,6 +365,17 @@ export async function draftReplyWithAi(
   const subject = neutralizeTokens(parsed.subject).replace(/\s+/g, ' ').trim()
   const body = neutralizeTokens(parsed.body).replace(/\r\n/g, '\n').trim()
   if (countMessageWords(body) > MAX_REPLY_BODY_WORDS) {
+    await deps.meter?.({
+      model: result.model,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      feature: REPLY_DRAFT_FEATURE,
+      status: 'failed',
+      latencyMs: Date.now() - startedAt,
+      retryCount: 0,
+      failureCode: 'output_too_long',
+      componentEstimates,
+    })
     const template = minimalTemplate(outbound)
     const stored = await storeDraft(
       em,
@@ -356,6 +391,16 @@ export async function draftReplyWithAi(
     )
     return { provenance: 'template', reason: 'draft_failed', reply: stored }
   }
+  await deps.meter?.({
+    model: result.model,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+    feature: REPLY_DRAFT_FEATURE,
+    status: 'succeeded',
+    latencyMs: Date.now() - startedAt,
+    retryCount: 0,
+    componentEstimates,
+  })
   const stored = await storeDraft(
     em,
     ctx,

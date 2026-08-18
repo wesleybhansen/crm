@@ -30,7 +30,7 @@ export function executionFeatureForOp(op: string): GtmFeature {
 }
 
 export function reconciliationFeatureForOp(op: string): GtmFeature {
-  return op === 'list' ? 'gtm.view' : 'gtm.approve'
+  return op === 'list' || op === 'history' ? 'gtm.view' : 'gtm.approve'
 }
 
 /** Server-side RBAC for shared-secret GTM routes. The service secret proves
