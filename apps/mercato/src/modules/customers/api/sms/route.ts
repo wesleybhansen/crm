@@ -5,6 +5,8 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findContactByPhone } from '@/modules/customers/lib/dedup'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -30,7 +32,8 @@ export async function POST(req: Request) {
   if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
     const body = await req.json()
     const { to, message, contactId } = body
 
@@ -102,11 +105,23 @@ export async function POST(req: Request) {
       let displayName = to
       let avatarEmail: string | null = null
       if (!resolvedContactId) {
-        const contact = await knex('customer_entities').where('primary_phone', to).where('organization_id', auth.orgId).whereNull('deleted_at').first()
-        if (contact) { resolvedContactId = contact.id; displayName = contact.display_name; avatarEmail = contact.primary_email }
+        // primary_phone is encrypted at rest on the ORM write path, so the old
+        // plaintext WHERE could never match those contacts: the message was
+        // filed against no contact and the conversation showed the raw number
+        // instead of a name. findContactByPhone matches plaintext first, then
+        // decrypt-matches candidates, comparing digits only.
+        const found = await findContactByPhone(knex, auth.orgId, auth.tenantId, to, em)
+        if (found.existing) {
+          resolvedContactId = found.existing.id
+          displayName = found.existing.display_name || displayName
+          avatarEmail = found.existing.primary_email || null
+        }
       } else {
         const contact = await knex('customer_entities').where('id', contactId).first()
-        if (contact) { displayName = contact.display_name; avatarEmail = contact.primary_email }
+        if (contact) {
+          await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['display_name', 'primary_email'], auth.tenantId, auth.orgId)
+          displayName = contact.display_name; avatarEmail = contact.primary_email
+        }
       }
       upsertInboxConversation(knex, auth.orgId, auth.tenantId, {
         contactId: resolvedContactId,
