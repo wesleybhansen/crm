@@ -481,7 +481,29 @@ C4 closes two local release blockers without enabling execution: a user with `gt
 | C5-A - exact completion service | Completed locally | 2026-08-18 | Code/test/spec only; no schema |
 | C5-B - complete validation and freeze | Completed locally | 2026-08-18 | 65 suites/694 deterministic tests; TypeScript, lint, and diff checks green; all external-effect gates remain off |
 
-## 21. Changelog
+## 21. C6 hard-gated execution queue target (approved 2026-08-18)
+
+### 21.1 Queue contract
+
+- Register `gtm-execution-tick` as a queue target only. C6 does not create a scheduler row, recurring job, provider subscription, deployment, or flag change.
+- The worker returns before payload validation, ORM/dependency resolution, claiming, or transport construction unless both `GTM_ENGINEER_ENABLED=true` and `GTM_EXECUTION_ENABLED=true`.
+- The payload requires exact organization, tenant, and requesting-user UUIDs, accepts the scheduler-injected `_idempotencyKey`, and caps each tick at 100 attempts.
+- Enabled processing first parks lease-expired `provider_started` rows as ambiguous, then reuses the existing DB-time CAS claim, fencing, exact approval/sender/suppression/capacity checks, and mailbox transport. Ambiguous rows are never retried. Attempts execute sequentially so one queue job cannot manufacture parallel pressure on a mailbox.
+- Multi-worker safety remains a database claim/fence property; queue concurrency is one per worker process and does not replace the canonical mailbox policy.
+
+### 21.2 C6 acceptance gates
+
+- Deterministic tests prove metadata, both-gates-first behavior, no dependency or payload access while dark, exact scope/limit forwarding, and sequential outcomes with an injected transport.
+- C6 adds no schema or migration. No schedule may be created and no real transport may be exercised during validation.
+
+### 21.3 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| C6-A - queue contract and dark worker | Completed locally | 2026-08-18 | No schedule, schema, provider, or mailbox effect |
+| C6-B - complete validation and freeze | Completed locally | 2026-08-18 | 66 suites/702 deterministic tests; TypeScript, lint, and diff checks green; all external-effect gates remain off |
+
+## 22. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -496,3 +518,5 @@ C4 closes two local release blockers without enabling execution: a user with `gt
 - 2026-08-18: Completed C4 locally. Added generator-owned `Migration20260818070046_gtm`, exact-hash pause/resume/stop commands, pre-dispatch lifecycle fencing, and one immutable policy/capacity namespace per mailbox. All 65 normal GTM suites (693 tests) and seven disposable PostgreSQL cases passed; migration replay reported no pending work and the generator reported no GTM drift. External-effect gates remained off.
 - 2026-08-18: Approved C5 to make the documented campaign `completed` state reachable only after exact-envelope, definitive email and explicit manual-task truth checks. C5 is code/test/spec only and grants no external-effect authority.
 - 2026-08-18: Completed C5 locally. Exact replay-safe completion now requires terminal current-version email attempts and explicit terminal outcomes for every derived manual-social task, completes active enrollments transactionally, and preserves ambiguous/in-flight work as a blocking truth state. Full GTM verification passed 65 suites/694 deterministic tests with TypeScript, lint, and diff checks green; no schema, provider, mailbox, deployment, or exposure action occurred.
+- 2026-08-18: Approved C6 to register a hard-gated execution queue target without creating a schedule or changing any flag. Both GTM and execution gates must be true before payload/dependency access; C6 grants no provider, mailbox, migration, deployment, or customer authority.
+- 2026-08-18: Completed C6 locally. Registered a single-concurrency execution queue target that returns before payload/dependency access unless both gates are true, parks expired post-dispatch work as ambiguous, and sequentially reuses the existing database claim/fence and transport boundaries. Full GTM verification passed 66 suites/702 deterministic tests with TypeScript, lint, and diff checks green; no schedule or external effect was created.
