@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { testImapConnection, getProviderPreset } from '@/modules/email/lib/imap-service'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 /* Internal service endpoint (shared NOLI_INTERNAL_SERVICE_SECRET) that lets the
  * hub's Unified Inbox manage a user's PERSONAL email mailboxes (purpose null)
@@ -318,6 +319,8 @@ export async function POST(req: Request) {
           .where('organization_id', auth.orgId)
           .whereIn('id', [...contactIds])
           .select('id', 'display_name')
+        // Otherwise every sender/recipient name in this feed is ciphertext.
+        await decryptRowFields(null, CONTACT_ENTITY_KEY, cs, ['display_name'], auth.tenantId, auth.orgId)
         for (const c of cs) names[c.id] = c.display_name || ''
       }
       const data = [...threads.values()].slice(0, limit).map((t) => ({
