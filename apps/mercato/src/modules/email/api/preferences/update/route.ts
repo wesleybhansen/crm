@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { verifyEmailToken } from '@/lib/email-token'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export const metadata = { POST: { requireAuth: false } }
 
@@ -21,6 +22,13 @@ export async function POST(req: Request) {
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
     const contact = await knex('customer_entities').where('id', parsed.contactId).first()
+    // primary_email is ciphertext for ORM-written contacts. email_unsubscribes is
+    // matched by plaintext address elsewhere (campaign sends), so writing the
+    // stored value here recorded an unsubscribe that could never be honoured.
+    if (contact) {
+      const em = container.resolve('em') as EntityManager
+      await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['primary_email'], contact.tenant_id, parsed.orgId)
+    }
     if (!contact || contact.organization_id !== parsed.orgId) {
       return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
     }
