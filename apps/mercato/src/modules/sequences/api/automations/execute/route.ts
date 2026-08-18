@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 /**
  * Execute automations for a deal stage change.
@@ -16,7 +17,8 @@ export async function POST(req: Request) {
 
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
     const body = await req.json()
     const { dealId, newStage } = body
     let contactId: string | null = body.contactId || null
@@ -64,6 +66,11 @@ export async function POST(req: Request) {
             if (contactId) {
               const contact = await knex('customer_entities').where('id', contactId)
                 .where('organization_id', auth.orgId).first()
+              // Raw knex skips the decrypting subscriber, so this addressed the
+              // automation email to ciphertext and greeted the person by it.
+              if (contact) {
+                await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['primary_email', 'display_name'], auth.tenantId, auth.orgId)
+              }
               if (contact?.primary_email) {
                 const subject = config.subject || `Update on your ${newStage}`
                 const htmlBody = config.body || `<p>Hi ${(contact.display_name || '').split(' ')[0] || 'there'},</p><p>Just wanted to let you know your status has been updated.</p>`

@@ -5,6 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { requireProcessAuth } from '@/lib/cron-auth'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -40,7 +41,8 @@ export async function POST(req: Request) {
 
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     const dueExecutions = await knex('sequence_step_executions as sse')
       .join('sequence_enrollments as se', 'se.id', 'sse.enrollment_id')
@@ -90,6 +92,12 @@ export async function POST(req: Request) {
         const contact = await knex('customer_entities')
           .where('id', execution.contact_id)
           .first()
+
+        // Same reason: without this the sequence email is sent to ciphertext and
+        // {{name}} renders as ciphertext in the body.
+        if (contact) {
+          await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['primary_email', 'display_name'], execution.tenant_id ?? null, execution.organization_id ?? null)
+        }
 
         if (!contact) {
           await knex('sequence_step_executions').where('id', execution.execution_id).update({
