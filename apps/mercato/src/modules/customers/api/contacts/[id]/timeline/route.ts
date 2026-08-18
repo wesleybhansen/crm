@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { decryptRowFields, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 
 type TimelineEvent = {
@@ -42,7 +43,8 @@ export async function GET(
 
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     // Verify the contact belongs to this organization
     const contact = await knex('customer_entities')
@@ -111,7 +113,13 @@ export async function GET(
       .orderBy('cd.created_at', 'desc')
       .limit(50)
 
+    // These are read through a raw join, which skips the decrypting subscriber.
+    // Previously an encrypted title was detected and the deal was SKIPPED, so a
+    // contact's timeline silently omitted their deals entirely. Decrypt instead.
+    await decryptRowFields(em, DEAL_ENTITY_KEY, dealLinks, ['title'], auth.tenantId, auth.orgId)
+
     for (const deal of dealLinks) {
+      // Anything still unreadable is dropped rather than shown as ciphertext.
       if (isEncrypted(deal.title)) continue
       const valuePart = deal.value_amount
         ? ` — ${deal.value_currency || '$'}${Number(deal.value_amount).toFixed(2)}`
