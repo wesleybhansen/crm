@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -17,7 +18,8 @@ export async function POST(req: Request) {
     if (!contactId && !email) return NextResponse.json({ ok: false, error: 'contactId or email required' }, { status: 400 })
 
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     // Load the rule
     const rule = await knex('automation_rules')
@@ -44,6 +46,12 @@ export async function POST(req: Request) {
         source: 'test',
         lifecycle_stage: null,
       }
+    }
+
+    // Raw knex skips the decrypting subscriber — otherwise the rule preview
+    // shows ciphertext for exactly the fields the customer is testing against.
+    if (contact?.id) {
+      await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['display_name', 'primary_email', 'primary_phone'], auth.tenantId, auth.orgId)
     }
 
     // Build context (same as what the executor would see)
