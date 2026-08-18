@@ -2,6 +2,7 @@
 export const metadata = { POST: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -66,6 +67,11 @@ export async function POST(req: Request) {
         .where('id', contactId)
         .where('organization_id', auth.orgId)
         .first()
+      // This fallback path reads raw, so it yielded ciphertext and the guard
+      // below then silently dropped the send (it tests for ':v1').
+      if (contact) {
+        await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['primary_email', 'display_name'], auth.tenantId, auth.orgId)
+      }
       contactEmail = contact?.primary_email || null
       contactName = contact?.display_name || ''
     }
