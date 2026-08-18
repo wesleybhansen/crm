@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export async function GET(
   _req: Request,
@@ -17,7 +18,8 @@ export async function GET(
   try {
     const { contactId } = await params
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     // Resolve inbox conversation — try by ID first, then by contact_id
     let inboxConv = await knex('inbox_conversations')
@@ -42,6 +44,9 @@ export async function GET(
         .where('organization_id', auth.orgId)
         .whereNull('deleted_at')
         .first()
+      if (entity) {
+        await decryptRowFields(em, CONTACT_ENTITY_KEY, [entity], ['display_name', 'primary_email', 'primary_phone'], auth.tenantId, auth.orgId)
+      }
       if (entity) {
         contact = {
           id: entity.id,
