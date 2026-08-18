@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findContactByPhone } from '@/modules/customers/lib/dedup'
 
 /* Internal receptionist endpoint for the Noli AI Receptionist (phone answering).
  *
@@ -90,7 +91,10 @@ export async function POST(req: Request) {
       if (digits.length < 7) return NextResponse.json({ ok: true, found: false })
       const last10 = digits.slice(-10)
       // Match on the last 10 digits so +1/1-/formatting differences don't miss.
-      const row = await knex('customer_entities')
+      // The SQL digit comparison below only works on plaintext. primary_phone is
+      // encrypted at rest on the ORM write path, so callers stored that way were
+      // never recognised and the receptionist treated them as strangers.
+      let row = await knex('customer_entities')
         .where('organization_id', String(auth.orgId))
         .where('tenant_id', String(auth.tenantId))
         .where('status', 'active')
@@ -98,6 +102,20 @@ export async function POST(req: Request) {
         .whereRaw("regexp_replace(primary_phone, '\\D', '', 'g') like ?", [`%${last10}`])
         .select('id', 'display_name', 'lifecycle_stage')
         .first()
+      if (!row) {
+        const found = await findContactByPhone(knex, String(auth.orgId), String(auth.tenantId), phone, em)
+        if (found.existing) {
+          const stage = await knex('customer_entities')
+            .where('id', found.existing.id)
+            .select('lifecycle_stage')
+            .first()
+          row = {
+            id: found.existing.id,
+            display_name: found.existing.display_name,
+            lifecycle_stage: stage?.lifecycle_stage ?? null,
+          }
+        }
+      }
       if (!row) return NextResponse.json({ ok: true, found: false })
       // Upcoming confirmed booking for this caller (so the receptionist can say
       // "are you calling about Thursday?").
