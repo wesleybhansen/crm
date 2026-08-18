@@ -1,0 +1,202 @@
+import crypto from 'crypto'
+import { NextResponse } from 'next/server'
+import { gtmInternalOpenApi } from '../../openapi'
+
+export const openApi = gtmInternalOpenApi('Manage scoped GTM strategy and voice')
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { gtmEnabled } from '../../../lib/flags'
+import { gtmStrategyBodySchema } from '../../../data/validators'
+import { isUuid } from '../../../lib/play-shape'
+import { GtmVersionError, versionShape, type VersionKind } from '../../../lib/versions'
+import { GtmDraftError } from '../../../lib/campaign/ai-draft'
+
+/*
+ * Internal GTM strategy: ICP + Voice Profile version CRUD, locks, revert, and
+ * AI voice derivation (SPEC-066 sections 4, 4.3, 5).
+ *
+ * Same server-to-server contract as the other internal GTM routes: the Noli
+ * hub calls this with the shared NOLI_INTERNAL_SERVICE_SECRET, identity is
+ * re-resolved (noliUserId -> Clerk -> Mercato auth context, gated on the 'crm'
+ * entitlement), and every query self-scopes by organization_id + tenant_id.
+ *
+ * Ops (body.op):
+ *   icp-list / voice-list       version history (newest first)
+ *   icp-get / voice-get         one version
+ *   icp-create / voice-create   next immutable version (edit = new version)
+ *   icp-lock / voice-lock       lock/unlock a version
+ *   icp-revert / voice-revert   NEW version copying an older one's content
+ *   voice-derive                metered AI draft Voice Profile from sources
+ *
+ * Public at the dispatcher level (requireAuth: false): authentication is the
+ * shared secret, mirroring internal/gtm/campaigns.
+ */
+export const metadata = {
+  path: '/internal/gtm/strategy',
+  POST: { requireAuth: false },
+}
+
+function opaqueNotFound() {
+  return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+}
+
+function kindOf(op: string): VersionKind {
+  return op.startsWith('voice') ? 'voice' : 'icp'
+}
+
+export async function POST(req: Request) {
+  // 0. Feature gate: fail closed when the GTM Engineer flag is off.
+  if (!gtmEnabled()) return opaqueNotFound()
+
+  // 1. Shared-secret auth (length-guarded constant-time compare).
+  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
+  const authHeader = (req.headers.get('authorization') || '').trim()
+  const expected = secret ? `Bearer ${secret}` : ''
+  if (
+    !secret ||
+    authHeader.length !== expected.length ||
+    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+  ) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // 2. Body.
+  const raw = await req.json().catch(() => ({}))
+  const parsed = gtmStrategyBodySchema.safeParse(raw)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    const where = first?.path?.length ? `${first.path.join('.')}: ` : ''
+    return NextResponse.json({ ok: false, error: `${where}${first?.message ?? 'Invalid body'}` }, { status: 400 })
+  }
+  const body = parsed.data
+
+  try {
+    // 3. noli-core user -> Clerk id.
+    const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
+    const noliUser = await findNoliUserById(body.noliUserId)
+    if (!noliUser?.clerk_user_id) {
+      return NextResponse.json({ ok: false, error: 'Noli user not found' }, { status: 404 })
+    }
+
+    // 4. Resolve to a Mercato auth context (gates on the 'crm' entitlement).
+    const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
+    const auth = await resolveClerkUserToAuthContext(noliUser.clerk_user_id)
+    if (!auth || !auth.userId || !auth.orgId || !auth.tenantId) {
+      return NextResponse.json({ ok: false, error: 'User has no CRM access' }, { status: 403 })
+    }
+    const ctx = {
+      organizationId: auth.orgId as string,
+      tenantId: auth.tenantId as string,
+      userId: auth.userId as string,
+      requestId: req.headers.get('x-request-id') || null,
+    }
+
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager as unknown as import('../../../lib/campaign/build').CampaignEm
+
+    // Malformed workspace id -> opaque 404 (same as a missing/foreign row).
+    if (!isUuid(body.workspaceId)) return opaqueNotFound()
+
+    const versions = await import('../../../lib/versions')
+
+    if (body.op === 'icp-list' || body.op === 'voice-list') {
+      const kind = kindOf(body.op)
+      const rows = await versions.listVersions(em, ctx, kind, body.workspaceId)
+      return NextResponse.json({ ok: true, versions: rows.map((row) => versionShape(kind, row)) })
+    }
+
+    if (body.op === 'icp-get' || body.op === 'voice-get') {
+      if (!isUuid(body.versionId)) return opaqueNotFound()
+      const kind = kindOf(body.op)
+      const row = await versions.getVersion(em, ctx, kind, body.workspaceId, body.versionId)
+      return NextResponse.json({ ok: true, version: versionShape(kind, row) })
+    }
+
+    if (body.op === 'icp-create' || body.op === 'voice-create') {
+      const kind = kindOf(body.op)
+      const row = await versions.createVersion(em, ctx, kind, {
+        workspaceId: body.workspaceId,
+        content: body.content,
+        author: body.author,
+        provenance: body.provenance,
+        derivedFrom: body.op === 'voice-create' ? body.derivedFrom ?? null : undefined,
+      })
+      return NextResponse.json({ ok: true, version: versionShape(kind, row) })
+    }
+
+    if (body.op === 'icp-lock' || body.op === 'voice-lock') {
+      if (!isUuid(body.versionId)) return opaqueNotFound()
+      const kind = kindOf(body.op)
+      const row = await versions.setVersionLock(em, ctx, kind, {
+        workspaceId: body.workspaceId,
+        versionId: body.versionId,
+        locked: body.locked,
+      })
+      return NextResponse.json({ ok: true, version: versionShape(kind, row) })
+    }
+
+    if (body.op === 'icp-revert' || body.op === 'voice-revert') {
+      if (!isUuid(body.sourceVersionId)) return opaqueNotFound()
+      const kind = kindOf(body.op)
+      const row = await versions.revertVersion(em, ctx, kind, {
+        workspaceId: body.workspaceId,
+        sourceVersionId: body.sourceVersionId,
+        author: body.author,
+      })
+      return NextResponse.json({ ok: true, version: versionShape(kind, row) })
+    }
+
+    // voice-derive: metered AI draft through the existing CRM AI usage path.
+    const website = body.sources.website ?? null
+    const samples = (body.sources.samples ?? []).filter((s) => s && s.trim())
+    if (!website && samples.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: 'Provide a website or at least one writing sample to derive a voice from', code: 'no_sources' },
+        { status: 400 },
+      )
+    }
+
+    const { checkCustomersAiAllowance } = await import('@/lib/usage/allowance')
+    const { meterCustomersAi } = await import('@/lib/usage/meter')
+    const gate = await checkCustomersAiAllowance({ orgId: ctx.organizationId })
+    if (!gate.allowed) {
+      return NextResponse.json({ ok: false, error: gate.message, code: 'ai_allowance' }, { status: 402 })
+    }
+    const apiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
+    if (!apiKey) {
+      return NextResponse.json({ ok: false, error: 'AI is not configured', code: 'ai_unconfigured' }, { status: 400 })
+    }
+
+    const { createGeminiDraftModel } = await import('../../../lib/ai/model')
+    const { deriveVoiceDraft } = await import('../../../lib/voice-derive')
+    const model = createGeminiDraftModel(apiKey)
+    const meter = async (usage: { model: string; tokensIn: number; tokensOut: number; feature: string }) => {
+      await meterCustomersAi({ orgId: ctx.organizationId }, {
+        ...usage,
+        byoKey: !!gate.byoApiKey,
+        idempotencyKey: body.idempotency_key
+          ? `gtm:voice-derive:${ctx.organizationId}:${body.workspaceId}:${body.idempotency_key}`
+          : null,
+        metadata: { status: 'completed', attempt: 1 },
+      })
+    }
+
+    const version = await deriveVoiceDraft(em, ctx, { model, meter }, {
+      workspaceId: body.workspaceId,
+      sources: { website, samples },
+      idempotencyKey: body.idempotency_key ?? null,
+    })
+    return NextResponse.json({ ok: true, version: versionShape('voice', version) })
+  } catch (err) {
+    if (err instanceof GtmVersionError) {
+      if (err.code === 'workspace_not_found' || err.code === 'version_not_found') return opaqueNotFound()
+      const status = err.code === 'locked_rejects_agent' ? 409 : 422
+      return NextResponse.json({ ok: false, error: err.message, code: err.code }, { status })
+    }
+    if (err instanceof GtmDraftError) {
+      return NextResponse.json({ ok: false, error: err.message, code: err.code }, { status: 502 })
+    }
+    console.error('[internal.gtm.strategy]', err)
+    return NextResponse.json({ ok: false, error: 'Strategy operation failed' }, { status: 500 })
+  }
+}

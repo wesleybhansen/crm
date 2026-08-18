@@ -16,7 +16,15 @@ import type { EntityManager } from '@mikro-orm/postgresql'
  */
 export async function meterCustomersAi(
   auth: { orgId?: string | null } | null | undefined,
-  args: { model: string; tokensIn: number; tokensOut: number; feature: string; byoKey?: boolean },
+  args: {
+    model: string
+    tokensIn: number
+    tokensOut: number
+    feature: string
+    byoKey?: boolean
+    idempotencyKey?: string | null
+    metadata?: Record<string, unknown>
+  },
 ): Promise<void> {
   try {
     if (!auth?.orgId || !args.model) return
@@ -31,6 +39,8 @@ export async function meterCustomersAi(
       tokensOut: Math.max(0, args.tokensOut || 0),
       feature: args.feature,
       byoKey: args.byoKey ?? false,
+      idempotencyKey: args.idempotencyKey ?? null,
+      metadata: args.metadata,
     })
   } catch {
     /* metering must never break the feature */
