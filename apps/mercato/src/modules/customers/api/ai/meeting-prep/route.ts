@@ -12,6 +12,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { listOpenCommitments, extractCommitmentsForContact, formatCommitmentsForBrief } from '../../../lib/commitments'
 import { requireProcessAuth } from '@/lib/cron-auth'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export const metadata = { path: '/ai/meeting-prep',
   POST: { requireAuth: false },
@@ -116,7 +117,7 @@ async function getUpcomingEvents(knex: ReturnType<EntityManager['getKnex']>, con
   return (data.items || []) as CalendarEvent[]
 }
 
-async function loadContactData(knex: ReturnType<EntityManager['getKnex']>, orgId: string, contactId: string) {
+async function loadContactData(knex: ReturnType<EntityManager['getKnex']>, orgId: string, contactId: string, tenantId: string) {
   const contact = await knex('customer_entities')
     .where('id', contactId)
     .where('organization_id', orgId)
@@ -125,6 +126,9 @@ async function loadContactData(knex: ReturnType<EntityManager['getKnex']>, orgId
     .first()
 
   if (!contact) return null
+
+  // Otherwise the meeting prep is written about ciphertext instead of a person.
+  await decryptRowFields(null, CONTACT_ENTITY_KEY, [contact], ['display_name', 'primary_email'], tenantId, orgId)
 
   // Load engagement score
   let engagementScore: number | null = null
@@ -311,7 +315,7 @@ export async function GET(req: Request) {
           }
         }
       } catch { /* non-fatal */ }
-      const contactData = await loadContactData(knex, auth.orgId, contactId)
+      const contactData = await loadContactData(knex, auth.orgId, contactId, auth.tenantId)
       if (!contactData) {
         return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
       }
@@ -378,7 +382,7 @@ export async function GET(req: Request) {
           .first()
 
         if (cached) {
-          const contactData = await loadContactData(knex, auth.orgId, mc.id)
+          const contactData = await loadContactData(knex, auth.orgId, mc.id, auth.tenantId)
           if (contactData) {
             briefs.push({
               contact: {
@@ -399,7 +403,7 @@ export async function GET(req: Request) {
           continue
         }
 
-        const contactData = await loadContactData(knex, auth.orgId, mc.id)
+        const contactData = await loadContactData(knex, auth.orgId, mc.id, auth.tenantId)
         if (!contactData) continue
 
         const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt, auth.orgId, gate.byoApiKey)
@@ -587,7 +591,7 @@ export async function POST(req: Request) {
               continue
             }
 
-            const contactData = await loadContactData(knex, connection.organization_id, mc.id)
+            const contactData = await loadContactData(knex, connection.organization_id, mc.id, connection.tenant_id)
             if (!contactData) continue
 
             const brief = await generateBrief(contactData, event.summary || 'Untitled Event', personaPrompt, connection.organization_id, capGate.byoApiKey)

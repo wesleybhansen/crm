@@ -8,6 +8,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 // GET — load saved summary (no generation)
 export async function GET(
@@ -30,6 +31,9 @@ export async function GET(
       .first()
 
     if (!contact) return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
+    // Raw knex skips the decrypting subscriber, so the summary was built from
+    // ciphertext for the contact's own name.
+    await decryptRowFields(null, CONTACT_ENTITY_KEY, [contact], ['display_name', 'primary_email'], auth.tenantId, auth.orgId)
 
     if (contact.ai_summary) {
       return NextResponse.json({
@@ -75,6 +79,9 @@ export async function POST(
       .first()
 
     if (!contact) return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
+    // Raw knex skips the decrypting subscriber, so the summary was built from
+    // ciphertext for the contact's own name.
+    await decryptRowFields(null, CONTACT_ENTITY_KEY, [contact], ['display_name', 'primary_email'], auth.tenantId, auth.orgId)
 
     // Fetch all interaction data sources in parallel
     const [
