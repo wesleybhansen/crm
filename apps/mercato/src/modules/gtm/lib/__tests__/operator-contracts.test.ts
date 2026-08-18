@@ -43,7 +43,12 @@ describe('GTM C3 operator API contracts', () => {
   })
 
   it('requires exact hashes and rejects extra fields for lifecycle controls', () => {
-    for (const op of ['pause-campaign', 'resume-campaign', 'stop-campaign'] as const) {
+    for (const op of [
+      'pause-campaign',
+      'resume-campaign',
+      'stop-campaign',
+      'complete-campaign',
+    ] as const) {
       expect(gtmExecutionBodySchema.safeParse({
         op,
         noliUserId: USER,

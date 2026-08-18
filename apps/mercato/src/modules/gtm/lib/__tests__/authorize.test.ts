@@ -38,6 +38,7 @@ describe('GTM server-side feature authorization', () => {
       'pause-campaign',
       'resume-campaign',
       'stop-campaign',
+      'complete-campaign',
       'tick',
       'recover-stuck',
       'correlate-replies',

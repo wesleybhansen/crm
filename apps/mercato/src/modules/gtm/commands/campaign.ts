@@ -94,6 +94,7 @@ function lifecycleCommand(
         status: result.campaign.status,
         attempts_changed: result.attemptsChanged,
         enrollments_stopped: result.enrollmentsStopped,
+        enrollments_completed: result.enrollmentsCompleted,
         already_in_state: result.alreadyInState,
       },
     }),
@@ -105,3 +106,4 @@ registerCommand(launchCommand)
 registerCommand(lifecycleCommand('pause'))
 registerCommand(lifecycleCommand('resume'))
 registerCommand(lifecycleCommand('stop'))
+registerCommand(lifecycleCommand('complete'))

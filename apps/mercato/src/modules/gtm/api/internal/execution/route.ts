@@ -26,8 +26,9 @@ import type { CampaignLifecycleResult } from '../../../lib/execute/lifecycle'
  * - 'launch'            flips an approved campaign to 'active' and
  *                       materializes the send attempts in one transaction
  *                       (idempotent under double-click and concurrency)
- * - 'pause-campaign' / 'resume-campaign' / 'stop-campaign' fenced lifecycle
- *                       controls bound to the exact approved content hash
+ * - 'pause-campaign' / 'resume-campaign' / 'stop-campaign' /
+ *   'complete-campaign' fenced lifecycle controls bound to the exact
+ *                       approved content hash
  * - 'tick'              claim due attempts (DB-time CAS + lease + fence) and
  *                       execute them through the production SMTP transport.
  *                       HARD SAFETY: unless GTM_EXECUTION_ENABLED === 'true'
@@ -151,13 +152,16 @@ export async function POST(req: Request) {
       body.op === 'pause-campaign'
       || body.op === 'resume-campaign'
       || body.op === 'stop-campaign'
+      || body.op === 'complete-campaign'
     ) {
       if (!isUuid(body.campaignId)) return opaqueNotFound()
       const action = body.op === 'pause-campaign'
         ? 'pause'
         : body.op === 'resume-campaign'
           ? 'resume'
-          : 'stop'
+          : body.op === 'stop-campaign'
+            ? 'stop'
+            : 'complete'
       const commandBus = container.resolve('commandBus') as CommandBus
       const executed = await commandBus.execute<
         CampaignLifecycleCommandInput,
@@ -183,6 +187,7 @@ export async function POST(req: Request) {
         campaign_version_id: executed.result.version.id,
         attempts_changed: executed.result.attemptsChanged,
         enrollments_stopped: executed.result.enrollmentsStopped,
+        enrollments_completed: executed.result.enrollmentsCompleted,
         already_in_state: executed.result.alreadyInState,
       })
     }

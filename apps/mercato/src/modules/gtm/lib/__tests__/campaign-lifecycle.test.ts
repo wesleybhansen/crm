@@ -121,4 +121,61 @@ describe('GTM campaign lifecycle controls', () => {
     expect(transport.calls).toHaveLength(0)
     expect(em.table(GtmSendAttempt)[0].state).toBe('paused')
   })
+
+  it('completes only after every email and active-enrollment manual task is terminal', async () => {
+    const em = new FakeEm()
+    const fixture = await seedLaunchedCampaign(em, {
+      clock: fixedClock(LAUNCH_ISO),
+      recipients: 1,
+      emails: 1,
+      linkedin: true,
+    })
+    const input = {
+      campaignId: fixture.campaign.id,
+      expectedContentHash: fixture.version.contentHash,
+      action: 'complete' as const,
+    }
+
+    await expect(transitionCampaignLifecycle(em, ctx, input))
+      .rejects.toMatchObject({ code: 'incomplete_campaign' })
+    fixture.attempts[0].state = 'ambiguous'
+    await expect(transitionCampaignLifecycle(em, ctx, input))
+      .rejects.toThrow('1 email attempt(s) are not terminal')
+    fixture.attempts[0].state = 'accepted'
+    await expect(transitionCampaignLifecycle(em, ctx, input))
+      .rejects.toThrow('2 manual task(s) are not terminal')
+
+    const manualSteps = fixture.steps.filter((row) => row.mode === 'manual_social')
+    expect(manualSteps).toHaveLength(2)
+    for (const manualStep of manualSteps) {
+      em.persist(em.create(GtmSendAttempt, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        enrollmentId: fixture.enrollments[0].id,
+        stepId: manualStep.id,
+        campaignVersionId: fixture.version.id,
+        renderedMessageId: null,
+        mailboxConnectionId: null,
+        idempotencyKey: `task:${fixture.version.id}:${fixture.enrollments[0].id}:${manualStep.id}`,
+        state: 'task_sent',
+      }))
+    }
+    await em.flush()
+
+    const completed = await transitionCampaignLifecycle(em, ctx, input)
+    expect(completed).toMatchObject({
+      alreadyInState: false,
+      attemptsChanged: 0,
+      enrollmentsStopped: 0,
+      enrollmentsCompleted: 1,
+    })
+    expect(fixture.campaign.status).toBe('completed')
+    expect(fixture.enrollments[0].status).toBe('completed')
+    expect(em.table(GtmAuditEvent).at(-1)?.action).toBe('gtm.campaign.completed')
+
+    await expect(transitionCampaignLifecycle(em, ctx, input)).resolves.toMatchObject({
+      alreadyInState: true,
+      enrollmentsCompleted: 0,
+    })
+  })
 })

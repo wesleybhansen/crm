@@ -458,7 +458,30 @@ C4 closes two local release blockers without enabling execution: a user with `gt
 | C4-B - campaign lifecycle commands | Completed locally | 2026-08-18 | Pause/resume/stop only; execution stays dark |
 | C4-C - race and migration proof | Completed locally | 2026-08-18 | Deterministic plus seven disposable PostgreSQL cases |
 
-## 20. Changelog
+## 20. C5 truthful campaign completion (approved 2026-08-18)
+
+### 20.1 Completion contract
+
+- `complete-campaign` requires `gtm.launch`, the exact current campaign id, and the exact approved content hash. It shares the C4 pessimistic campaign lock and command audit boundary.
+- Only `active -> completed` is legal. A paused, stopped, draft, invalidated, or stale-envelope campaign fails closed; an exact replay of an already-completed current envelope is idempotent.
+- Every current-version automated-email attempt must be definitive: `accepted|delivered|bounced|complained|replied|failed`. Pre-dispatch, claimed, `provider_started`, and `ambiguous` states block completion. An accepted provider handoff counts as send completion even if a later delivery event refines it.
+- For every active enrollment and every current-version manual-social step, the derived task row must contain the explicit user-recorded terminal state `task_sent` or `task_skipped`. Missing, requested, accepted, or locked tasks remain incomplete. Stopped enrollments keep their stopped truth and do not manufacture task outcomes.
+- A successful transaction changes active enrollments to `completed`, changes the campaign to `completed`, and records bounded counts. No attempt, provider receipt, reply, stopped enrollment, or suppression truth is rewritten.
+
+### 20.2 C5 acceptance gates
+
+- Strict validator and RBAC tests prove no privilege expansion or force field.
+- Deterministic lifecycle tests prove incomplete email/manual work and ambiguous outcomes cannot complete, while a fully terminal exact envelope transitions once and replays idempotently.
+- C5 adds no schema or migration. The complete GTM, TypeScript, lint, build, migration-replay, generator-drift, and security gates must remain green with execution, ingestion, providers, and exposure off.
+
+### 20.3 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| C5-A - exact completion service | Completed locally | 2026-08-18 | Code/test/spec only; no schema |
+| C5-B - complete validation and freeze | Completed locally | 2026-08-18 | 65 suites/694 deterministic tests; TypeScript, lint, and diff checks green; all external-effect gates remain off |
+
+## 21. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -471,3 +494,5 @@ C4 closes two local release blockers without enabling execution: a user with `gt
 - 2026-08-17: Completed C3 locally. Added generator-owned `Migration20260818064623_gtm`, five deterministic operator/telemetry suites, five QA scenarios, and two additional PostgreSQL race/truth cases. The disposable database applied the migration once, re-migrated with nothing pending, and generated no GTM drift; all external-effect gates remained off.
 - 2026-08-17: Approved C4 to close the remaining local campaign-control and cross-campaign mailbox-capacity gaps. C4 remains an inert code/schema tranche and grants no external-effect authority.
 - 2026-08-18: Completed C4 locally. Added generator-owned `Migration20260818070046_gtm`, exact-hash pause/resume/stop commands, pre-dispatch lifecycle fencing, and one immutable policy/capacity namespace per mailbox. All 65 normal GTM suites (693 tests) and seven disposable PostgreSQL cases passed; migration replay reported no pending work and the generator reported no GTM drift. External-effect gates remained off.
+- 2026-08-18: Approved C5 to make the documented campaign `completed` state reachable only after exact-envelope, definitive email and explicit manual-task truth checks. C5 is code/test/spec only and grants no external-effect authority.
+- 2026-08-18: Completed C5 locally. Exact replay-safe completion now requires terminal current-version email attempts and explicit terminal outcomes for every derived manual-social task, completes active enrollments transactionally, and preserves ambiguous/in-flight work as a blocking truth state. Full GTM verification passed 65 suites/694 deterministic tests with TypeScript, lint, and diff checks green; no schema, provider, mailbox, deployment, or exposure action occurred.

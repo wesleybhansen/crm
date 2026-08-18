@@ -86,6 +86,7 @@ export class GtmExecutionError extends Error {
       | 'invalid_state'
       | 'invalid_token'
       | 'not_configured'
+      | 'incomplete_campaign'
       | 'mailbox_policy_conflict',
     message: string,
   ) {

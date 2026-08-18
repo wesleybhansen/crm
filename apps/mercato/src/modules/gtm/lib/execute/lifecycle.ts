@@ -5,12 +5,13 @@ import {
   GtmCampaignVersion,
   GtmEnrollment,
   GtmSendAttempt,
+  GtmStep,
 } from '../../data/entities'
 import { approvalEnvelopeMatches } from '../campaign/approve'
 import type { GtmCtx } from '../campaign/build'
 import { GtmExecutionError, type Clock, type ExecutionEm } from './schedule'
 
-export type CampaignLifecycleAction = 'pause' | 'resume' | 'stop'
+export type CampaignLifecycleAction = 'pause' | 'resume' | 'stop' | 'complete'
 
 export type CampaignLifecycleResult = {
   campaign: GtmCampaign
@@ -19,22 +20,86 @@ export type CampaignLifecycleResult = {
   alreadyInState: boolean
   attemptsChanged: number
   enrollmentsStopped: number
+  enrollmentsCompleted: number
 }
 
 const NOT_STARTED_STATES = new Set(['planned', 'rendered', 'reviewed', 'approved', 'claimed', 'paused'])
+const COMPLETABLE_EMAIL_STATES = new Set([
+  'accepted',
+  'delivered',
+  'bounced',
+  'complained',
+  'replied',
+  'failed',
+])
+const COMPLETABLE_TASK_STATES = new Set(['task_sent', 'task_skipped'])
 
 function targetState(action: CampaignLifecycleAction): string {
-  return action === 'pause' ? 'paused' : action === 'resume' ? 'active' : 'stopped'
+  if (action === 'pause') return 'paused'
+  if (action === 'resume') return 'active'
+  return action === 'stop' ? 'stopped' : 'completed'
 }
 
 function auditAction(action: CampaignLifecycleAction): string {
-  return action === 'pause' ? 'paused' : action === 'resume' ? 'resumed' : 'stopped'
+  if (action === 'pause') return 'paused'
+  if (action === 'resume') return 'resumed'
+  return action === 'stop' ? 'stopped' : 'completed'
 }
 
 function transitionAllowed(current: string, action: CampaignLifecycleAction): boolean {
   if (action === 'pause') return current === 'active'
   if (action === 'resume') return current === 'paused'
-  return current === 'approved' || current === 'active' || current === 'paused'
+  if (action === 'stop') return current === 'approved' || current === 'active' || current === 'paused'
+  return current === 'active'
+}
+
+async function assertCampaignCompletable(
+  em: ExecutionEm,
+  ctx: GtmCtx,
+  campaign: GtmCampaign,
+  version: GtmCampaignVersion,
+  attempts: GtmSendAttempt[],
+): Promise<GtmEnrollment[]> {
+  const unfinishedEmail = attempts.filter((row) =>
+    !row.idempotencyKey.startsWith('task:') && !COMPLETABLE_EMAIL_STATES.has(row.state),
+  )
+  if (unfinishedEmail.length > 0) {
+    throw new GtmExecutionError(
+      'incomplete_campaign',
+      `${unfinishedEmail.length} email attempt(s) are not terminal`,
+    )
+  }
+
+  const enrollments = await em.find(GtmEnrollment, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    campaignId: campaign.id,
+    campaignVersionId: version.id,
+    deletedAt: null,
+  })
+  const activeEnrollments = enrollments.filter((row) => row.status === 'active')
+  const manualSteps = (await em.find(GtmStep, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    campaignVersionId: version.id,
+    mode: 'manual_social',
+    deletedAt: null,
+  }))
+  const taskStateByKey = new Map(attempts.map((row) => [row.idempotencyKey, row.state]))
+  let unfinishedTasks = 0
+  for (const enrollment of activeEnrollments) {
+    for (const step of manualSteps) {
+      const state = taskStateByKey.get(`task:${version.id}:${enrollment.id}:${step.id}`)
+      if (!state || !COMPLETABLE_TASK_STATES.has(state)) unfinishedTasks += 1
+    }
+  }
+  if (unfinishedTasks > 0) {
+    throw new GtmExecutionError(
+      'incomplete_campaign',
+      `${unfinishedTasks} manual task(s) are not terminal`,
+    )
+  }
+  return activeEnrollments
 }
 
 export async function transitionCampaignLifecycle(
@@ -86,6 +151,7 @@ export async function transitionCampaignLifecycle(
         alreadyInState: true,
         attemptsChanged: 0,
         enrollmentsStopped: 0,
+        enrollmentsCompleted: 0,
       }
     }
     if (!transitionAllowed(campaign.status, input.action)) {
@@ -108,6 +174,9 @@ export async function transitionCampaignLifecycle(
       campaignVersionId: { $in: controlledVersionIds },
       deletedAt: null,
     })
+    const completingEnrollments = input.action === 'complete'
+      ? await assertCampaignCompletable(tem, ctx, campaign, version, attempts)
+      : []
     let attemptsChanged = 0
     for (const attempt of attempts) {
       if (input.action === 'pause' && (attempt.state === 'approved' || attempt.state === 'claimed')) {
@@ -147,6 +216,15 @@ export async function transitionCampaignLifecycle(
       }
       enrollmentsStopped = enrollments.length
     }
+    let enrollmentsCompleted = 0
+    if (input.action === 'complete') {
+      for (const enrollment of completingEnrollments) {
+        enrollment.status = 'completed'
+        enrollment.updatedAt = now
+        tem.persist(enrollment)
+      }
+      enrollmentsCompleted = completingEnrollments.length
+    }
     campaign.status = target
     campaign.updatedAt = now
     tem.persist(campaign)
@@ -165,6 +243,7 @@ export async function transitionCampaignLifecycle(
         content_hash: version.contentHash,
         attempts_changed: attemptsChanged,
         enrollments_stopped: enrollmentsStopped,
+        enrollments_completed: enrollmentsCompleted,
       },
     }))
     await tem.flush()
@@ -175,6 +254,7 @@ export async function transitionCampaignLifecycle(
       alreadyInState: false,
       attemptsChanged,
       enrollmentsStopped,
+      enrollmentsCompleted,
     }
   })
 }
