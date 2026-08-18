@@ -80,10 +80,21 @@ export async function POST(req: Request) {
     // contacts from every campaign — ciphertext contains no '@', so the filter
     // below dropped them — and made the unsubscribe check (plaintext emails)
     // unable to match them at all. Decrypt before either test runs.
+    // Keep the stored value too: historical email_unsubscribes rows were written
+    // with whatever was on the contact, so for encrypted contacts they hold
+    // CIPHERTEXT. Comparing only the decrypted address would miss those rows and
+    // mail someone who unsubscribed. Check both until those rows are cleaned up.
+    const storedEmailById = new Map<string, string>(
+      contacts.map((c: any) => [String(c.id), String(c.primary_email ?? '')]),
+    )
     await decryptRowFields(em, CONTACT_ENTITY_KEY, contacts, ['primary_email', 'display_name'], tenantId, auth.orgId)
     let recipients = contacts.filter((c: any) => {
       const email = c.primary_email?.trim()
-      return email && email.includes('@') && !unsubEmails.has(email.toLowerCase())
+      if (!email || !email.includes('@')) return false
+      if (unsubEmails.has(email.toLowerCase())) return false
+      const stored = storedEmailById.get(String(c.id))
+      if (stored && unsubEmails.has(stored.toLowerCase())) return false
+      return true
     })
 
     // Filter by category preferences if campaign has a category

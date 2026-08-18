@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { verifyEmailToken } from '@/lib/email-token'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export const metadata = { GET: { requireAuth: false } }
 
@@ -15,6 +16,12 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
     const contact = await knex('customer_entities').where('id', parsed.contactId).first()
+    // Otherwise the preferences page shows the recipient their own address as
+    // ciphertext, which reads as a broken or fraudulent page.
+    if (contact) {
+      const em = container.resolve('em') as EntityManager
+      await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['primary_email'], contact.tenant_id, parsed.orgId)
+    }
     if (!contact || contact.organization_id !== parsed.orgId) {
       return new NextResponse('Not found', { status: 404 })
     }
