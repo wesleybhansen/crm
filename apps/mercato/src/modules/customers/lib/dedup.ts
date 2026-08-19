@@ -6,6 +6,7 @@
  */
 
 import type { Knex } from 'knex'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 
 /**
  * Return the matched contact row (or null) so callers can use the
@@ -35,6 +36,17 @@ export async function findOrMergeContact(
     .whereNull('deleted_at')
     .first()
   if (plain) return { existing: { id: plain.id, primary_email: plain.primary_email } }
+
+  // 1b) Hash fast path: primary_email_hash is the sha256 of the normalized
+  // plaintext, written by the encryption subscriber and backfilled. This is
+  // what makes encrypted contacts O(1) instead of the decrypt-scan below —
+  // the scan stays only as a fallback for rows written before the hash existed.
+  const hashed = await knex('customer_entities')
+    .where('primary_email_hash', hashForLookup(normalized))
+    .where('organization_id', orgId)
+    .whereNull('deleted_at')
+    .first()
+  if (hashed) return { existing: { id: hashed.id, primary_email: hashed.primary_email } }
 
   // 2) Encrypted-email fallback: the ORM-write path stores primary_email as
   // ciphertext, so LOWER(primary_email) will never match a plaintext needle.
@@ -103,6 +115,14 @@ export async function findContactByPhone(
     .whereNull('deleted_at')
     .first()
   if (plain) return { existing: { id: plain.id, display_name: plain.display_name, primary_email: plain.primary_email } }
+
+  // Hash fast path (digits-normalized), same contract as the email one above.
+  const hashed = await knex('customer_entities')
+    .where('primary_phone_hash', hashForLookup(needle))
+    .where('organization_id', orgId)
+    .whereNull('deleted_at')
+    .first()
+  if (hashed) return { existing: { id: hashed.id, display_name: hashed.display_name, primary_email: hashed.primary_email } }
 
   try {
     if (!em) return { existing: null }
