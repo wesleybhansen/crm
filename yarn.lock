@@ -5778,6 +5778,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/shared@workspace:packages/shared"
   dependencies:
+    "@supabase/supabase-js": "npm:^2.105.4"
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"
     rate-limiter-flexible: "npm:^9.0.0"
