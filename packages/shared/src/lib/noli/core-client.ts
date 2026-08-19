@@ -1,4 +1,20 @@
-import 'server-only';
+/* Keep Next's client-bundle guard, but tolerate plain Node.
+ *
+ * `server-only` resolves to a module that throws unconditionally unless the
+ * `react-server` export condition is active. Next sets that condition; a plain
+ * Node process never does. This package is consumed by both, so a bare
+ * `import 'server-only'` is a false positive outside Next -- it took down the
+ * MCP server, which runs as a CLI process and only ever reached this module
+ * through a dynamic import.
+ *
+ * Same try/catch idiom already used in lib/di/container.ts and
+ * lib/i18n/server.ts, for the same reason. */
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('server-only');
+} catch {
+  // noop: allows CLI processes to use this module outside Next.
+}
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 /* Service-role client for the noli-core Supabase project. CRM keeps its own
