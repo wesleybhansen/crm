@@ -13,6 +13,7 @@ import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { checkApiKeyScopes } from '@open-mercato/core/modules/api_keys/lib/apiKeyScopes'
 import { MCP_BOOTSTRAP_INSTRUCTIONS } from './agent-guide-tool'
 import { createRunOncePerOwner, listenBeforeOptionalStartupTask } from './optional-startup-task'
 
@@ -83,6 +84,10 @@ async function resolveSessionContext(
       isSuperAdmin: acl.isSuperAdmin,
       // Use the decrypted session secret for API calls (not the MCP server key)
       apiKeySecret: sessionSecret,
+      /* The session key carries its own narrowing. Dropping it here would let a
+       * scoped session widen simply by arriving over MCP, which is the same
+       * hole this change closes for the server key. */
+      apiKeyScopes: (sessionKey as unknown as { scopes?: string[] | null }).scopes ?? null,
     }
   } catch (error) {
     if (debug) {
@@ -214,6 +219,31 @@ function createMcpServerForRequest(
                     type: 'text' as const,
                     text: JSON.stringify({
                       error: 'Session token required (_sessionToken parameter)',
+                      code: 'UNAUTHORIZED',
+                    }),
+                  },
+                ],
+                isError: true,
+              }
+            }
+          }
+
+          /* A key can be issued narrower than the roles behind it. The REST
+           * router enforces that narrowing; honour it here too, or the same
+           * credential is wider over MCP than over REST. Checked BEFORE the
+           * role check so a scope refusal cannot be masked by super-admin. */
+          if (tool.requiredFeatures?.length) {
+            const scopeCheck = checkApiKeyScopes(
+              effectiveContext.apiKeyScopes,
+              tool.requiredFeatures,
+            )
+            if (!scopeCheck.allowed) {
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      error: `API key scope does not cover "${scopeCheck.missingFeature}" for tool "${tool.name}".`,
                       code: 'UNAUTHORIZED',
                     }),
                   },
@@ -488,6 +518,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       userFeatures: keyAcl.features,
       isSuperAdmin: keyAcl.isSuperAdmin,
       apiKeySecret: providedApiKey,
+      apiKeyScopes: (apiKeyRecord as unknown as { scopes?: string[] | null }).scopes ?? null,
     }
 
     try {
