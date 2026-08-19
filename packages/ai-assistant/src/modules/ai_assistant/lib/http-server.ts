@@ -450,6 +450,34 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       console.error(`[MCP HTTP] Server-level auth passed (${req.method}) - API key: ${apiKeyRecord.keyPrefix}...`)
     }
 
+    /* Resolve what this API key is actually allowed to do.
+     *
+     * These were hardcoded to `[]` and `false`, on the assumption that every
+     * caller would also supply a `_sessionToken` and override them. Anything
+     * authenticating with only an API key therefore had no permissions at all,
+     * and every tool declaring `requiredFeatures` answered "Insufficient
+     * permissions" -- including the Chief of Staff's hands and the Noli agent
+     * gateway. The same key worked fine against the REST surface, which does
+     * resolve its roles, so the failure looked like a broken key rather than a
+     * missing lookup here.
+     *
+     * This grants the key exactly the ACL of the roles already stored on it,
+     * which is what provisioning intends ("the key has exactly the access the
+     * user does, nothing more") and what the REST dispatcher already enforces
+     * against the same features. It is parity, not an escalation. A session
+     * token still overrides with that user's own ACL, unchanged. */
+    const rbacService = container.resolve<RbacService>('rbacService')
+    const keyAcl = await rbacService.loadAcl(`api_key:${apiKeyRecord.id}`, {
+      tenantId: apiKeyRecord.tenantId ?? null,
+      organizationId: apiKeyRecord.organizationId ?? null,
+    })
+
+    if (config.debug) {
+      console.error(
+        `[MCP HTTP] API key ACL resolved: ${keyAcl.features.length} feature(s), superAdmin=${keyAcl.isSuperAdmin}`,
+      )
+    }
+
     // Create base tool context using API key's tenant/org scope
     // Session tokens can override with user-specific permissions
     const toolContext: McpToolContext = {
@@ -457,8 +485,8 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       organizationId: apiKeyRecord.organizationId ?? null,
       userId: apiKeyRecord.createdBy ?? null,
       container,
-      userFeatures: [],
-      isSuperAdmin: false,
+      userFeatures: keyAcl.features,
+      isSuperAdmin: keyAcl.isSuperAdmin,
       apiKeySecret: providedApiKey,
     }
 
