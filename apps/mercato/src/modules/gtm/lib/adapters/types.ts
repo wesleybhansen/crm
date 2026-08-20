@@ -51,6 +51,14 @@ export type AdapterConstraints = {
   license: AdapterLicenseConstraints
   rate_limits?: AdapterRateLimits
   max_batch: number
+  // Optional deterministic continuation contract. Offset pagination is
+  // frozen into the quoted plan; opaque cursors are deliberately excluded
+  // because they cannot be known before approval or replayed after a crash.
+  pagination?: {
+    mode: 'offset'
+    page_size: number
+    max_pages: number
+  }
 }
 
 export type AdapterCostModel = {
@@ -195,6 +203,9 @@ export type SourceSearchPlan = {
   query: string
   provider_query?: Record<string, unknown>
   max_candidates: number
+  // Frozen provider offset for a quoted continuation page. Never combine with
+  // an opaque cursor; it is part of the operation fingerprint.
+  offset?: number
   call_sequence?: number
   /*
    * Optional per-batch provider budget in USD, i.e. what the caller reserved

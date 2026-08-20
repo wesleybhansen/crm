@@ -398,6 +398,98 @@ describe('executeResearchRun', () => {
     }))
   })
 
+  it('continues the same source with the frozen offset when a full page misses the accepted target', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const adapter = spyAdapter('fixture-source')
+    const evidence = [{
+      claim: 'Matched a provider search',
+      source_url: 'https://source.example/result',
+      observed_at: '2026-08-01T12:00:00.000Z',
+      confidence: 0.9,
+    }]
+    adapter.search
+      .mockResolvedValueOnce({
+        status: 'ok', cost_units: 1, receipt: { provider_request_id: 'page-1', returned_people: 1 },
+        data: [{
+          entity_kind: 'company',
+          identity: { name: 'Poor Fit Agency', domain: 'poor-fit.example', industry: 'Advertising' },
+          evidence,
+        }],
+      })
+      .mockResolvedValueOnce({
+        status: 'ok', cost_units: 1, receipt: { provider_request_id: 'page-2', returned_people: 1 },
+        data: [{
+          entity_kind: 'company',
+          identity: { name: 'Strong Fit Software', domain: 'strong-fit.example', industry: 'Software' },
+          evidence,
+        }],
+      })
+    const first = {
+      ...plannedBatch('fixture-source', 1),
+      maxCandidates: 1,
+      providerUnits: 1,
+      continuationPage: 1,
+      continuationOffset: 0,
+    }
+    const second = {
+      ...plannedBatch('fixture-source', 1),
+      maxCandidates: 1,
+      providerUnits: 1,
+      continuationPage: 2,
+      continuationOffset: 1,
+    }
+    const run = makeRun(em, {
+      adapterPlan: [first, second],
+      query: 'software companies',
+      maxCandidates: 2,
+      maxCredits: 100,
+    })
+    run.limits = { targetAccepted: 1, maxRawCandidates: 2, maxCandidates: 2, maxCredits: 100 }
+
+    const result = await executeResearchRun({
+      ...deps(em, ledger, run, [adapter]),
+      play: { ...play, providerQuery: { industries: ['Software'] } },
+      now: () => new Date('2026-08-02T12:00:00.000Z'),
+    })
+
+    expect(adapter.search).toHaveBeenCalledTimes(2)
+    expect(adapter.search.mock.calls.map((call) => call[0].offset)).toEqual([0, 1])
+    expect(result.funnel).toEqual(expect.objectContaining({ accepted: 1, targetMet: true }))
+    expect(result.batches.map((batch) => batch.outcome)).toEqual(['ok', 'ok'])
+  })
+
+  it.each([
+    ['no_result', 'skipped_source_exhausted'],
+    ['ambiguous', 'skipped_source_unresolved'],
+  ])('does not dispatch a continuation after a %s first page', async (status, skippedOutcome) => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const adapter = spyAdapter('fixture-source')
+    adapter.search.mockResolvedValueOnce({
+      status,
+      cost_units: status === 'ambiguous' ? null : 0,
+      receipt: { provider_request_id: 'page-1', returned_people: 0 },
+      data: null,
+      ...(status === 'ambiguous' ? { error: 'provider outcome unknown' } : {}),
+    })
+    const run = makeRun(em, {
+      adapterPlan: [
+        { ...plannedBatch('fixture-source', 1), maxCandidates: 1, providerUnits: 1, continuationPage: 1, continuationOffset: 0 },
+        { ...plannedBatch('fixture-source', 1), maxCandidates: 1, providerUnits: 1, continuationPage: 2, continuationOffset: 1 },
+      ],
+      query: 'companies',
+      maxCandidates: 2,
+      maxCredits: 100,
+    })
+
+    const result = await executeResearchRun(deps(em, ledger, run, [adapter]))
+
+    expect(adapter.search).toHaveBeenCalledTimes(1)
+    expect(result.batches[1].outcome).toBe(skippedOutcome)
+    expect(ledger.listOperations()).toHaveLength(1)
+  })
+
   it('enforces maxCredits mid-run: stops before a reserve that would exceed the cap', async () => {
     const em = new FakeEm()
     const ledger = new FixtureLedger({ poolBalance: 100 })

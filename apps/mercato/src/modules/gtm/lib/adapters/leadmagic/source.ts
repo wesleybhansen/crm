@@ -77,10 +77,11 @@ export function leadMagicSourceDescriptor(env: LeadMagicEnv = process.env): Adap
         retention_days: 90,
       },
       rate_limits: { requests_per_minute: 300, concurrent: 5 },
-      // Cursor-backed V3 pages are capped at 50. This adapter intentionally
-      // performs one page per ledger operation until continuation support is
-      // added to the generic source contract.
+      // V3 pages are capped at 50. The planner may quote at most two frozen
+      // offset pages under the global 100-row raw ceiling; it never persists
+      // or replays an opaque cursor.
       max_batch: 50,
+      pagination: { mode: 'offset', page_size: 50, max_pages: 2 },
     },
     cost_model: {
       unit: 'returned_person',
@@ -255,6 +256,7 @@ function providerPayload(plan: SourceSearchPlan, maxBatch: number): Record<strin
   // planner already clamps, so this is defence in depth against a direct call.
   const limit = Math.max(1, Math.min(Math.floor(plan.max_candidates), maxBatch))
   const payload: Record<string, unknown> = { limit }
+  if (Number.isInteger(plan.offset) && (plan.offset ?? -1) >= 0) payload.offset = plan.offset
   for (const key of ALLOWED_QUERY_KEYS) {
     if (source[key] !== undefined) payload[key] = source[key]
   }
