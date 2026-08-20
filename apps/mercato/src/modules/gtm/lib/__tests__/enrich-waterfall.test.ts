@@ -286,6 +286,65 @@ describe('runEnrichmentWaterfall', () => {
     expect(ledger.listOperations()).toHaveLength(1)
   })
 
+  it('verifies a normalized address once and reuses the terminal result for duplicate rows', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const verify = spyVerify()
+    const firstCandidate = await makeCandidate(em, { name: 'First Holder' })
+    const secondCandidate = await makeCandidate(em, { name: 'Second Holder' })
+    const first = await makePoint(em, firstCandidate, 'alex.example@example-dynamics.example')
+    const duplicate = await makePoint(em, secondCandidate, ' ALEX.EXAMPLE@example-dynamics.example ')
+
+    const summary = await runEnrichmentWaterfall(deps(em, ledger, [], [verify]))
+
+    expect(verify.verify).toHaveBeenCalledTimes(1)
+    expect(ledger.listOperations()).toHaveLength(1)
+    expect(first.verificationState).toBe('verified')
+    expect(duplicate.verificationState).toBe('verified')
+    expect(duplicate.provenance).toEqual(expect.objectContaining({
+      verification: expect.objectContaining({
+        deduplicated: true,
+        reused_from_contact_point_id: first.id,
+      }),
+    }))
+    expect(summary.verified).toBe(2)
+    expect(summary.credits).toBe(2)
+  })
+
+  it('refuses to reuse a conflicting historical terminal state', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const verify = spyVerify()
+    const verifiedCandidate = await makeCandidate(em, { name: 'Verified Holder' })
+    const rejectedCandidate = await makeCandidate(em, { name: 'Rejected Holder' })
+    const pendingCandidate = await makeCandidate(em, { name: 'Pending Holder' })
+    const duplicatePendingCandidate = await makeCandidate(em, { name: 'Duplicate Pending Holder' })
+    await makePoint(em, verifiedCandidate, 'alex.example@example-dynamics.example', 'verified')
+    await makePoint(em, rejectedCandidate, 'alex.example@example-dynamics.example', 'not_found')
+    const pending = await makePoint(em, pendingCandidate, 'alex.example@example-dynamics.example')
+    const duplicatePending = await makePoint(
+      em,
+      duplicatePendingCandidate,
+      'ALEX.EXAMPLE@example-dynamics.example',
+    )
+
+    await runEnrichmentWaterfall(deps(em, ledger, [], [verify]))
+
+    expect(verify.verify).toHaveBeenCalledTimes(1)
+    expect(ledger.listOperations()).toHaveLength(1)
+    expect(pending.verificationState).toBe('verified')
+    expect(duplicatePending.verificationState).toBe('verified')
+    expect(pending.provenance).not.toEqual(expect.objectContaining({
+      verification: expect.objectContaining({ deduplicated: true }),
+    }))
+    expect(duplicatePending.provenance).toEqual(expect.objectContaining({
+      verification: expect.objectContaining({
+        deduplicated: true,
+        reused_from_contact_point_id: pending.id,
+      }),
+    }))
+  })
+
   it('is idempotent per candidate: a re-run neither re-reserves nor re-calls for verified candidates', async () => {
     const em = new FakeEm()
     const ledger = new FixtureLedger({ poolBalance: 100 })

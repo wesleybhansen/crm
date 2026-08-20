@@ -26,7 +26,7 @@ describe('immutable enrichment quote', () => {
     expect(plan.plan_hash).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('counts every found email point, not one per candidate', () => {
+  it('counts every unidentified found row, not one per candidate', () => {
     // c-2 carries two found addresses; the waterfall verifies both, so the
     // quote has to reserve for both or the run stops inside its own ceiling.
     const plan = buildEnrichmentPlan(
@@ -46,6 +46,54 @@ describe('immutable enrichment quote', () => {
       expect.objectContaining({ adapter_id: 'fixture-enrich', max_units: 1 }),
       expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 3 }),
     ])
+  })
+
+  it('quotes one verification for duplicate normalized addresses', () => {
+    const plan = buildEnrichmentPlan(
+      [{ id: 'c-1' }, { id: 'c-2' }],
+      [
+        { id: 'point-1', candidateId: 'c-1', channel: 'email', value: 'Same@Example.com', verificationState: 'found' },
+        { id: 'point-2', candidateId: 'c-2', channel: 'email', value: ' same@example.com ', verificationState: 'found' },
+      ],
+      [],
+      [fixtureVerifyAdapter],
+      2,
+    )
+    expect(plan.emails_needing_verification).toBe(1)
+    expect(plan.providers).toEqual([
+      expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 1 }),
+    ])
+  })
+
+  it('reuses an existing terminal result without quoting another provider call', () => {
+    const plan = buildEnrichmentPlan(
+      [{ id: 'c-1' }, { id: 'c-2' }],
+      [
+        { id: 'point-1', candidateId: 'c-1', channel: 'email', value: 'same@example.com', verificationState: 'verified' },
+        { id: 'point-2', candidateId: 'c-2', channel: 'email', value: 'SAME@example.com', verificationState: 'found' },
+      ],
+      [],
+      [fixtureVerifyAdapter],
+      2,
+    )
+    expect(plan.emails_needing_verification).toBe(0)
+    expect(plan.maximum_credits).toBe(0)
+  })
+
+  it('does not reuse conflicting historical terminal results', () => {
+    const plan = buildEnrichmentPlan(
+      [{ id: 'c-1' }, { id: 'c-2' }, { id: 'c-3' }],
+      [
+        { id: 'point-1', candidateId: 'c-1', channel: 'email', value: 'same@example.com', verificationState: 'verified' },
+        { id: 'point-2', candidateId: 'c-2', channel: 'email', value: 'same@example.com', verificationState: 'not_found' },
+        { id: 'point-3', candidateId: 'c-3', channel: 'email', value: 'same@example.com', verificationState: 'found' },
+      ],
+      [],
+      [fixtureVerifyAdapter],
+      2,
+    )
+    expect(plan.emails_needing_verification).toBe(1)
+    expect(plan.maximum_credits).toBeGreaterThan(0)
   })
 
   it('drops a provider whose frozen terms version is missing', () => {
@@ -87,7 +135,7 @@ describe('immutable enrichment quote', () => {
       [fixtureEnrichAdapter],
       [fixtureVerifyAdapter],
     )
-    expect(first.schema_version).toBe('2')
+    expect(first.schema_version).toBe('3')
     expect(changedIdentity.plan_hash).not.toBe(first.plan_hash)
   })
 })

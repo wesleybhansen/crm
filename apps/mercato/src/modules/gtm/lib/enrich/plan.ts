@@ -11,6 +11,20 @@ type ContactPointRow = {
   verificationState: string
 }
 
+const TERMINAL_VERIFICATION_STATES = new Set([
+  'verified',
+  'risky',
+  'catch_all',
+  'not_found',
+  'unknown',
+  'provider_ambiguous',
+])
+
+function normalizedEmail(value?: string): string | null {
+  const normalized = value?.trim().toLowerCase() ?? ''
+  return normalized || null
+}
+
 export type EnrichmentProviderQuote = {
   adapter_id: string
   layer: 'enrich' | 'verify'
@@ -25,7 +39,7 @@ export type EnrichmentProviderQuote = {
 }
 
 export type EnrichmentPlan = {
-  schema_version: '2'
+  schema_version: '3'
   plan_hash: string
   candidates_considered: number
   candidates_needing_enrichment: number
@@ -69,16 +83,34 @@ export function buildEnrichmentPlan(
   const needingEnrichment = unresolved.filter(
     (candidate) => !(emailByCandidate.get(candidate.id)?.length),
   )
-  // The waterfall verifies every found POINT, not one per candidate, so the
-  // ceiling has to count points. Quoting per candidate under-reserves whenever
-  // a candidate carries more than one found address, and the run then stops
-  // early on budget_exhausted instead of finishing inside its own quote.
-  const pointsNeedingVerification = unresolved.reduce(
-    (total, candidate) =>
-      total +
-      (emailByCandidate.get(candidate.id) ?? []).filter((point) => point.verificationState === 'found').length,
-    0,
-  )
+  // Verification is address-scoped, not row-scoped. One normalized address is
+  // verified once and the terminal result is reused for duplicate contact
+  // rows. This mirrors provider duplicate-credit semantics and prevents two
+  // candidate rows carrying the same address from authorizing duplicate spend.
+  const terminalByAddress = new Map<string, string | null>()
+  for (const point of contactPoints) {
+    if (point.channel !== 'email' || !TERMINAL_VERIFICATION_STATES.has(point.verificationState)) continue
+    const address = normalizedEmail(point.value)
+    if (!address) continue
+    const prior = terminalByAddress.get(address)
+    if (prior === undefined) terminalByAddress.set(address, point.verificationState)
+    else if (prior !== point.verificationState) terminalByAddress.set(address, null)
+  }
+  const verificationIdentities = new Set<string>()
+  let unidentifiedPointSequence = 0
+  for (const candidate of unresolved) {
+    for (const point of emailByCandidate.get(candidate.id) ?? []) {
+      if (point.verificationState !== 'found') continue
+      const address = normalizedEmail(point.value)
+      if (address && terminalByAddress.get(address)) continue
+      verificationIdentities.add(
+        address
+          ? `email:${address}`
+          : `point:${point.id ?? `${candidate.id}:${unidentifiedPointSequence++}`}`,
+      )
+    }
+  }
+  const pointsNeedingVerification = verificationIdentities.size
   // A newly enriched candidate can yield one email that also needs verifying.
   const verificationCeiling = pointsNeedingVerification + needingEnrichment.length
   const providers: EnrichmentProviderQuote[] = []
@@ -103,7 +135,7 @@ export function buildEnrichmentPlan(
   for (const adapter of verifyAdapters) add(adapter, verificationCeiling)
 
   const frozen = {
-    schema_version: '2' as const,
+    schema_version: '3' as const,
     candidate_ids: unresolved.map((candidate) => candidate.id).sort(),
     contact_identities: contactPoints
       .filter((point) => point.channel === 'email')

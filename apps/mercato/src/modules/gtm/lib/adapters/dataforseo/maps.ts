@@ -10,6 +10,11 @@ import {
 export const DATAFORSEO_MAPS_ADAPTER_ID = 'dataforseo-google-maps'
 export const DATAFORSEO_MAPS_URL = 'https://api.dataforseo.com/v3/serp/google/maps/live/advanced'
 export const DATAFORSEO_DEFAULT_USD_PER_100_RESULTS = 0.002
+export const DATAFORSEO_DEFAULT_MAX_DEPTH = 100
+export const DATAFORSEO_PROVIDER_MAX_DEPTH = 700
+export const DATAFORSEO_MAX_KEYWORD_CHARS = 700
+const PRICE_MULTIPLYING_QUERY_OPERATOR =
+  /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|define|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
 const RECEIPT_FIELDS = [
   'provider_request_id',
   'provider_status',
@@ -48,6 +53,16 @@ function usdPerBlock(env: DataForSeoEnv): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DATAFORSEO_DEFAULT_USD_PER_100_RESULTS
 }
 
+function maxDepth(env: DataForSeoEnv): number {
+  const parsed = Number(envValue(env, 'GTM_DATAFORSEO_MAX_DEPTH'))
+  if (!Number.isInteger(parsed) || parsed < 1) return DATAFORSEO_DEFAULT_MAX_DEPTH
+  return Math.min(parsed, DATAFORSEO_PROVIDER_MAX_DEPTH)
+}
+
+function keywordLength(value: string): number {
+  return Array.from(value).length
+}
+
 export function dataForSeoDescriptor(env: DataForSeoEnv = process.env): AdapterDescriptor {
   const approved = dataForSeoApproved(env)
   return {
@@ -72,7 +87,7 @@ export function dataForSeoDescriptor(env: DataForSeoEnv = process.env): AdapterD
         retention_days: 90,
       },
       rate_limits: { requests_per_minute: 120, concurrent: 5 },
-      max_batch: 700,
+      max_batch: maxDepth(env),
     },
     cost_model: {
       unit: 'maps_100_results',
@@ -154,7 +169,7 @@ export function createDataForSeoMapsAdapter(deps: {
   return {
     descriptor,
     quote(plan) {
-      const maxCandidates = Math.max(0, Math.min(Math.floor(plan.max_candidates), 700))
+      const maxCandidates = Math.max(0, Math.min(Math.floor(plan.max_candidates), maxDepth(env)))
       const providerUnits = Math.ceil(maxCandidates / 100)
       return {
         max_candidates: maxCandidates,
@@ -166,7 +181,8 @@ export function createDataForSeoMapsAdapter(deps: {
       }
     },
     async search(plan): Promise<AdapterResult<Candidate[]>> {
-      const blocks = Math.ceil(Math.max(1, plan.max_candidates) / 100)
+      const maxCandidates = Math.max(0, Math.min(Math.floor(plan.max_candidates), maxDepth(env)))
+      const blocks = Math.ceil(Math.max(1, maxCandidates) / 100)
       const baseReceipt = (status: string, task: Record<string, unknown> = {}, count = 0) => ({
         provider_request_id: task.id ?? null,
         provider_status: status,
@@ -187,12 +203,21 @@ export function createDataForSeoMapsAdapter(deps: {
       if (!keyword) {
         return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('bad_request'), error: 'bad_request: a local-business keyword is required' }
       }
+      if (maxCandidates < 1) {
+        return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('bad_request'), error: 'bad_request: DataForSEO requires at least one authorized result' }
+      }
+      if (keywordLength(keyword) > DATAFORSEO_MAX_KEYWORD_CHARS) {
+        return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('bad_request'), error: 'bad_request: DataForSEO keyword exceeds 700 characters' }
+      }
+      if (PRICE_MULTIPLYING_QUERY_OPERATOR.test(keyword)) {
+        return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('unpriced_query_operator'), error: 'unpriced_query_operator: DataForSEO query would multiply the frozen base price' }
+      }
       try {
         const authorization = Buffer.from(`${envValue(env, 'GTM_DATAFORSEO_LOGIN')}:${envValue(env, 'GTM_DATAFORSEO_PASSWORD')}`).toString('base64')
         const response = await fetchImpl(DATAFORSEO_MAPS_URL, {
           method: 'POST',
           headers: { authorization: `Basic ${authorization}`, 'content-type': 'application/json' },
-          body: JSON.stringify([{ keyword, location_name: location, language_code: 'en', depth: Math.min(plan.max_candidates, 700) }]),
+          body: JSON.stringify([{ keyword, location_name: location, language_code: 'en', depth: maxCandidates }]),
           signal: AbortSignal.timeout(30_000),
         })
         let payload: unknown
@@ -245,7 +270,7 @@ export function createDataForSeoMapsAdapter(deps: {
           }
         }
         const observedAt = stringValue(objectValue(Array.isArray(task.result) ? task.result[0] : {}).datetime) ?? now().toISOString()
-        const items = mapItems(task).slice(0, plan.max_candidates)
+        const items = mapItems(task).slice(0, maxCandidates)
         const candidates = items.map((item): Candidate | null => {
           const name = stringValue(item.title)
           const sourceUrl = mapsUrl(item)
