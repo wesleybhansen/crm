@@ -40,8 +40,8 @@ export function estimateModelTokens(value: string): number {
   return Math.ceil(Buffer.byteLength(value, 'utf8') / 4)
 }
 
-// Same Gemini model the CRM customer-service drafter uses (draft-reply.ts).
-export const GTM_DRAFT_MODEL = 'gemini-2.5-flash'
+// GTM-only drafting model. Other CRM AI surfaces retain their own contracts.
+export const GTM_DRAFT_MODEL = 'gemini-3.7-flash'
 
 /*
  * Real Gemini client: one raw generativelanguage call, JSON response mode,
@@ -62,20 +62,28 @@ export function createGeminiDraftModel(apiKey: string, model: string = GTM_DRAFT
             contents: [{ parts: [{ text: `${system}\n\n${prompt}` }] }],
             generationConfig: {
               maxOutputTokens: 4000,
-              temperature: 0.8,
               responseMimeType: 'application/json',
+              thinkingConfig: { thinkingLevel: 'low' },
             },
           }),
         },
       )
       const data = (await res.json().catch(() => null)) as {
-        candidates?: { content?: { parts?: { text?: string }[] } }[]
-        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
+        candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[]
+        usageMetadata?: {
+          promptTokenCount?: number
+          candidatesTokenCount?: number
+          thoughtsTokenCount?: number
+        }
       } | null
       if (!res.ok) {
         throw new Error(`model_provider_http_${res.status}`)
       }
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
+      const text = data?.candidates?.[0]?.content?.parts
+        ?.filter((part) => !part.thought)
+        .map((part) => part.text ?? '')
+        .join('')
+        .trim() ?? ''
       const tokenUsageKnown =
         typeof data?.usageMetadata?.promptTokenCount === 'number'
         && typeof data?.usageMetadata?.candidatesTokenCount === 'number'
@@ -83,7 +91,9 @@ export function createGeminiDraftModel(apiKey: string, model: string = GTM_DRAFT
         text,
         model,
         tokensIn: data?.usageMetadata?.promptTokenCount ?? 0,
-        tokensOut: data?.usageMetadata?.candidatesTokenCount ?? 0,
+        tokensOut:
+          (data?.usageMetadata?.candidatesTokenCount ?? 0)
+          + (data?.usageMetadata?.thoughtsTokenCount ?? 0),
         tokenUsageKnown,
       }
     },
