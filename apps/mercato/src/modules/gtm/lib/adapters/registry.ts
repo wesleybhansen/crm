@@ -11,8 +11,9 @@ import { createDataForSeoMapsAdapter, dataForSeoEnabled } from './dataforseo/map
  * Adapter registries (SPEC-066 Tranches 3/4).
  *
  * Deterministic fixture adapters are test-only by default. Local development
- * can opt in with GTM_FIXTURE_ADAPTERS_ENABLED=true, but production can never
- * register them. Missing real-provider configuration therefore produces an
+ * can opt in with GTM_FIXTURE_ADAPTERS_ENABLED=true. A production-mode build
+ * may register them only inside the explicit ephemeral OM_TEST_MODE harness;
+ * normal production can never register them. Missing real-provider configuration therefore produces an
  * empty registry and an honest unsupported-plan response, never synthetic
  * customer data.
  *
@@ -25,7 +26,9 @@ export function fixtureAdaptersEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   if (env.NODE_ENV === 'test') return true
-  return env.NODE_ENV !== 'production' && env.GTM_FIXTURE_ADAPTERS_ENABLED === 'true'
+  if (env.GTM_FIXTURE_ADAPTERS_ENABLED !== 'true') return false
+  if (env.NODE_ENV === 'production') return env.OM_TEST_MODE === '1'
+  return true
 }
 
 export function sourceAdapterRegistry(): Record<string, SourceAdapter> {

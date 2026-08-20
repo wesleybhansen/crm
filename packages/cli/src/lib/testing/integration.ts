@@ -8,6 +8,11 @@ import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { createResolver } from '../resolver'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
+import {
+  NOLI_CORE_FIXTURE_SERVICE_KEY,
+  NOLI_CORE_FIXTURE_USER_ID,
+  startNoliCoreFixtureServer,
+} from './noli-core-fixture'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
 type EphemeralRuntimeOptions = {
@@ -1269,6 +1274,8 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
     OM_TEST_MODE: '1',
+    NOLI_INTERNAL_SERVICE_SECRET: 'om-ephemeral-gtm-internal-secret',
+    OM_GTM_FIXTURE_NOLI_USER_ID: NOLI_CORE_FIXTURE_USER_ID,
     ENABLE_CRUD_API_CACHE: 'true',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
@@ -2493,6 +2500,13 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databaseHost = databaseContainer.getHost()
     const databasePort = databaseContainer.getMappedPort(5432)
     const databaseUrl = `postgres://${databaseUser}:${databasePassword}@${databaseHost}:${databasePort}/${databaseName}`
+    let noliCoreFixture: Awaited<ReturnType<typeof startNoliCoreFixtureServer>>
+    try {
+      noliCoreFixture = await startNoliCoreFixtureServer()
+    } catch (error) {
+      await databaseContainer.stop()
+      throw error
+    }
     const commandEnvironment = buildEnvironment({
       DATABASE_URL: databaseUrl,
       BASE_URL: applicationBaseUrl,
@@ -2509,6 +2523,19 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
+      NOLI_INTERNAL_SERVICE_SECRET: 'om-ephemeral-gtm-internal-secret',
+      NOLI_CORE_SUPABASE_URL: noliCoreFixture.baseUrl,
+      NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY: NOLI_CORE_FIXTURE_SERVICE_KEY,
+      OM_GTM_FIXTURE_NOLI_USER_ID: NOLI_CORE_FIXTURE_USER_ID,
+      GTM_ENGINEER_ENABLED: 'true',
+      GTM_EXECUTION_ENABLED: 'false',
+      GTM_MAILBOX_INGESTION_ENABLED: 'false',
+      GTM_FIXTURE_ADAPTERS_ENABLED: 'true',
+      GTM_LEDGER: 'fixture',
+      GTM_APIFY_ENABLED: 'false',
+      GTM_LEADMAGIC_ENABLED: 'false',
+      GTM_DATAFORSEO_ENABLED: 'false',
+      GTM_BOUNCER_ENABLED: 'false',
       ENABLE_CRUD_API_CACHE: 'true',
       NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
@@ -2533,6 +2560,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       if (applicationProcess && !applicationProcess.killed) {
         applicationProcess.kill('SIGTERM')
       }
+      await noliCoreFixture.stop()
       await databaseContainer.stop()
       await clearEphemeralEnvironmentState()
     }
