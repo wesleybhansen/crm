@@ -78,6 +78,8 @@ export type SourcePlanBatch = {
   termsVersion: string
   descriptorHash: string
   providerQuery: Record<string, unknown> | null
+  continuationPage?: number
+  continuationOffset?: number | null
   adaptiveOrder: number
   stopWhenTargetAccepted: boolean
 }
@@ -102,7 +104,7 @@ export type SourcePlanFailure = {
 
 export type SourcePlanSuccess = {
   ok: true
-  schemaVersion: '4'
+  schemaVersion: '5'
   planHash: string
   adapterPlan: SourcePlanBatch[]
   estimatedCredits: number
@@ -283,44 +285,56 @@ export function buildSourcePlan(
     // quote is a maximum while later lanes are adaptive shortfall refills.
     const lanesRemaining = eligibleAdapters.length - index
     const fairShare = Math.ceil(remaining / Math.max(1, lanesRemaining))
-    const requestedCandidates = Math.min(fairShare, descriptor.constraints.max_batch)
-    if (requestedCandidates <= 0) continue
-    const quote = adapter.quote({
-      signal_kind: signalKind,
-      entity_unit: entityUnit,
-      geography: geographyCode,
-      query,
-      provider_query: play.providerQuery ?? undefined,
-      max_candidates: requestedCandidates,
-    })
-    if (quote.max_candidates <= 0 || quote.provider_units <= 0) continue
-    adapterPlan.push({
-      adapter_id: descriptor.adapter_id,
-      capability: {
+    const pagination = descriptor.constraints.pagination
+    const pageSize = pagination
+      ? Math.min(descriptor.constraints.max_batch, pagination.page_size)
+      : descriptor.constraints.max_batch
+    const maxPages = pagination?.max_pages ?? 1
+    let adapterRemaining = fairShare
+    for (let page = 1; page <= maxPages && adapterRemaining > 0 && remaining > 0; page += 1) {
+      const requestedCandidates = Math.min(adapterRemaining, remaining, pageSize)
+      if (requestedCandidates <= 0) break
+      const quote = adapter.quote({
         signal_kind: signalKind,
         entity_unit: entityUnit,
-        entity_kind: entityKind,
         geography: geographyCode,
-      },
-      estimatedUnits: quote.provider_units,
-      providerUnits: quote.provider_units,
-      billableUnit: quote.billable_unit,
-      maxCandidates: quote.max_candidates,
-      expectedCandidates: quote.expected_candidates,
-      quotedCreditsPerUnit: quote.quoted_credits_per_unit,
-      estimatedCredits: creditsForUnits(
-        quote.provider_units,
-        quote.quoted_credits_per_unit,
-        markupMultiplier,
-      ),
-      priceVersion: descriptor.cost_model.price_version,
-      termsVersion: descriptor.constraints.license.terms_version,
-      descriptorHash: descriptorHash(descriptor),
-      providerQuery: play.providerQuery ?? null,
-      adaptiveOrder: adapterPlan.length + 1,
-      stopWhenTargetAccepted: true,
-    })
-    remaining -= quote.max_candidates
+        query,
+        provider_query: play.providerQuery ?? undefined,
+        max_candidates: requestedCandidates,
+      })
+      if (quote.max_candidates <= 0 || quote.provider_units <= 0) break
+      adapterPlan.push({
+        adapter_id: descriptor.adapter_id,
+        capability: {
+          signal_kind: signalKind,
+          entity_unit: entityUnit,
+          entity_kind: entityKind,
+          geography: geographyCode,
+        },
+        estimatedUnits: quote.provider_units,
+        providerUnits: quote.provider_units,
+        billableUnit: quote.billable_unit,
+        maxCandidates: quote.max_candidates,
+        expectedCandidates: quote.expected_candidates,
+        quotedCreditsPerUnit: quote.quoted_credits_per_unit,
+        estimatedCredits: creditsForUnits(
+          quote.provider_units,
+          quote.quoted_credits_per_unit,
+          markupMultiplier,
+        ),
+        priceVersion: descriptor.cost_model.price_version,
+        termsVersion: descriptor.constraints.license.terms_version,
+        descriptorHash: descriptorHash(descriptor),
+        providerQuery: play.providerQuery ?? null,
+        continuationPage: page,
+        continuationOffset: pagination ? (page - 1) * pageSize : null,
+        adaptiveOrder: adapterPlan.length + 1,
+        stopWhenTargetAccepted: true,
+      })
+      adapterRemaining -= quote.max_candidates
+      remaining -= quote.max_candidates
+      if (!pagination) break
+    }
   }
 
   // An empty adapter plan fails closed: never a silent empty run.
@@ -342,7 +356,7 @@ export function buildSourcePlan(
       : estimatedCredits
 
   const pricedPlan = {
-    schemaVersion: '4' as const,
+    schemaVersion: '5' as const,
     adapterPlan,
     estimatedCredits,
     plannedRawCapacity,

@@ -92,6 +92,8 @@ export type BatchOutcome = {
     | 'skipped_max_raw_candidates'
     | 'skipped_max_candidates'
     | 'skipped_max_credits'
+    | 'skipped_source_exhausted'
+    | 'skipped_source_unresolved'
     | 'blocked_insufficient_credits'
   ledgerStatus: string | null
   chargedCredits: number
@@ -204,6 +206,8 @@ export async function executeResearchRun(
 
   const batches: BatchOutcome[] = []
   const adapterBatchCounters = new Map<string, number>()
+  const exhaustedAdapters = new Set<string>()
+  const unresolvedAdapters = new Set<string>()
   let candidatesInserted = 0
   let duplicatesSkipped = 0
   let evidenceInserted = 0
@@ -248,6 +252,15 @@ export async function executeResearchRun(
     }
     if (limits.maxRawCandidates > 0 && rawCandidatesFound >= limits.maxRawCandidates) {
       batches.push({ ...base, outcome: 'skipped_max_raw_candidates' })
+      continue
+    }
+    const continuationPage = planned.continuationPage ?? 1
+    if (continuationPage > 1 && unresolvedAdapters.has(planned.adapter_id)) {
+      batches.push({ ...base, outcome: 'skipped_source_unresolved' })
+      continue
+    }
+    if (continuationPage > 1 && exhaustedAdapters.has(planned.adapter_id)) {
+      batches.push({ ...base, outcome: 'skipped_source_exhausted' })
       continue
     }
 
@@ -308,6 +321,8 @@ export async function executeResearchRun(
           geography: planned.capability.geography,
           query,
           provider_query: planned.providerQuery ?? null,
+          continuation_page: continuationPage,
+          continuation_offset: planned.continuationOffset ?? null,
           max_candidates: requestCandidates,
           provider_units: providerUnits,
           billable_unit: planned.billableUnit ?? 'candidate',
@@ -318,6 +333,7 @@ export async function executeResearchRun(
       if (reserved.status !== 'reserved') {
         if (reserved.status === 'provider_started' || reserved.status === 'reconciliation_required') {
           reconciliationRequired = true
+          unresolvedAdapters.add(planned.adapter_id)
         }
         batches.push({
           ...base,
@@ -381,6 +397,7 @@ export async function executeResearchRun(
     })
     if (!started.startedNow) {
       reconciliationRequired = true
+      unresolvedAdapters.add(planned.adapter_id)
       batches.push({
         ...base,
         operationId,
@@ -408,6 +425,7 @@ export async function executeResearchRun(
       query,
       provider_query: planned.providerQuery ?? undefined,
       max_candidates: requestCandidates,
+      offset: planned.continuationOffset ?? undefined,
       max_charge_usd: maxChargeUsd,
     })
 
@@ -451,13 +469,29 @@ export async function executeResearchRun(
         receipt,
       })
       reconciliationRequired = true
+      unresolvedAdapters.add(planned.adapter_id)
       batchFailure = result.error ?? 'ambiguous provider outcome'
     } else {
       // Definitive error: refund the reservation, record the failure, and
       // continue with the remaining batches.
       ledgerStatus = await ledger.settle(operationId, 'refunded', 0, receipt)
       outstandingReserved -= batchEstimatedCredits
+      exhaustedAdapters.add(planned.adapter_id)
       batchFailure = result.error ?? 'provider error'
+    }
+
+    if (result.status === 'no_result') {
+      exhaustedAdapters.add(planned.adapter_id)
+    } else if (result.status === 'ok' || result.status === 'partial') {
+      const returnedRaw = Number(receipt?.returned_people)
+      const returnedForContinuation = Number.isFinite(returnedRaw)
+        ? Math.max(0, Math.floor(returnedRaw))
+        : Array.isArray(result.data)
+          ? result.data.length
+          : 0
+      if (returnedForContinuation < requestCandidates) {
+        exhaustedAdapters.add(planned.adapter_id)
+      }
     }
 
     // 5. Mirror the outcome on the shadow row (jsonb receipt carries the

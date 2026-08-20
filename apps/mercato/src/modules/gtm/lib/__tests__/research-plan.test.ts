@@ -129,7 +129,39 @@ describe('buildSourcePlan pricing and limits', () => {
         ['fixture-source-b', 15],
       ])
       expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
-      expect(plan.schemaVersion).toBe('4')
+      expect(plan.schemaVersion).toBe('5')
+    }
+  })
+
+  it('quotes bounded deterministic offset pages when one source needs continuation', () => {
+    const paginated: SourceAdapter = {
+      descriptor: {
+        ...fixtureSourceDescriptor,
+        adapter_id: 'fixture-paginated',
+        constraints: {
+          ...fixtureSourceDescriptor.constraints,
+          max_batch: 25,
+          pagination: { mode: 'offset', page_size: 25, max_pages: 2 },
+        },
+      },
+      quote: fixtureSourceAdapter.quote,
+      search: fixtureSourceAdapter.search,
+    }
+    const plan = buildSourcePlan(executablePlay, [paginated], {
+      targetAccepted: 10,
+      maxRawCandidates: 50,
+    })
+    expect(plan.ok).toBe(true)
+    if (plan.ok) {
+      expect(plan.adapterPlan.map((batch) => ({
+        units: batch.maxCandidates,
+        page: batch.continuationPage,
+        offset: batch.continuationOffset,
+      }))).toEqual([
+        { units: 25, page: 1, offset: 0 },
+        { units: 25, page: 2, offset: 25 },
+      ])
+      expect(plan.plannedRawCapacity).toBe(50)
     }
   })
 

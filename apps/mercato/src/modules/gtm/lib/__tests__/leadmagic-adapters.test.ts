@@ -36,6 +36,24 @@ describe('LeadMagic provider adapters', () => {
     expect(body.include_mobile).toBe(false)
   })
 
+  it('sends only the frozen non-negative continuation offset', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      credits_consumed: 0, people: [],
+    }), { status: 200 }))
+    const adapter = createLeadMagicSourceAdapter({ env: approvedEnv, fetchImpl })
+    await adapter.search({
+      signal_kind: 'firmographic_match',
+      entity_unit: 'people',
+      geography: 'US',
+      query: 'revenue leaders',
+      max_candidates: 50,
+      offset: 50,
+    })
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))
+    expect(body).toEqual(expect.objectContaining({ limit: 50, offset: 50 }))
+    expect(body).not.toHaveProperty('cursor')
+  })
+
   it('reads the prefixed company field spellings so enrichment is not blocked', async () => {
     const fetchImpl = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       credits_consumed: 1,
