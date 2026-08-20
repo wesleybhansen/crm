@@ -1,0 +1,369 @@
+import crypto from 'crypto'
+import { capabilityCovers, type AdapterDescriptor, type SourceAdapter } from '../adapters/types'
+import { computeExecutionEligibility } from '../eligibility'
+import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
+import { compileQualificationProfile, type QualificationProfile } from './qualify'
+
+/*
+ * Pure research-run planning (SPEC-066 sections 7 and 11.1). No ORM, no
+ * framework imports, no side effects: the route persists what this returns.
+ *
+ * Fail-closed rules implemented here:
+ * - Boundary 1 of the section 7 ladder: a non-executable play can never be
+ *   priced or planned. Eligibility is RECOMPUTED from the play's own market
+ *   and geography fields; the stored value and the caller's claims are never
+ *   trusted.
+ * - A requested dimension with no covering adapter capability surfaces as an
+ *   unsupportedDimensions entry BEFORE any spend (section 11.1).
+ * - An empty adapter plan is a typed plan error, never a silent empty run.
+ */
+
+// Accepted leads are the product outcome. Raw candidates remain a separate,
+// user-visible spend and volume ceiling used to refill shortfalls.
+export const DEFAULT_MAX_CANDIDATES = 25
+export const MAX_CANDIDATES_HARD_CAP = 100
+export const DEFAULT_TARGET_ACCEPTED = 25
+export const DEFAULT_MAX_RAW_CANDIDATES = 100
+
+export type PlanPlayInput = {
+  id?: string
+  marketType?: string | null
+  geography?: string | null
+  signal?: string | null
+  signalKind?: string | null
+  entityUnit?: string | null
+  audience?: string | null
+  providerQuery?: Record<string, unknown> | null
+  recencyWindow?: string | null
+}
+
+export type ResearchLimitsInput = {
+  targetAccepted?: number | null
+  maxRawCandidates?: number | null
+  // Backward-compatible alias for maxRawCandidates.
+  maxCandidates?: number | null
+  maxCredits?: number | null
+}
+
+export type ResearchLimits = {
+  targetAccepted: number
+  maxRawCandidates: number
+  // Backward-compatible response alias for old Hub and API consumers.
+  maxCandidates: number
+  maxCredits: number
+}
+
+export type SourcePlanBatch = {
+  adapter_id: string
+  capability: {
+    signal_kind: string
+    entity_unit: string
+    entity_kind: 'person' | 'company'
+    geography: string
+  }
+  // Provider-native billable units. Kept under the old key too while the
+  // execution wrapper migrates, but it is never assumed to mean candidates.
+  estimatedUnits: number
+  providerUnits: number
+  billableUnit: string
+  maxCandidates: number
+  expectedCandidates: {
+    low: number
+    high: number
+    basis: 'contract' | 'historical' | 'provider_quote' | 'unknown'
+  }
+  quotedCreditsPerUnit: number
+  estimatedCredits: number
+  priceVersion: string
+  termsVersion: string
+  descriptorHash: string
+  providerQuery: Record<string, unknown> | null
+  adaptiveOrder: number
+  stopWhenTargetAccepted: boolean
+}
+
+export type UnsupportedDimension = {
+  adapter_id: string
+  dimension: string
+  reason: string
+}
+
+export type SourcePlanErrorCode =
+  | 'play_not_executable'
+  | 'missing_play_dimensions'
+  | 'empty_adapter_plan'
+
+export type SourcePlanFailure = {
+  ok: false
+  code: SourcePlanErrorCode
+  reason: string
+  unsupportedDimensions: UnsupportedDimension[]
+}
+
+export type SourcePlanSuccess = {
+  ok: true
+  schemaVersion: '4'
+  planHash: string
+  adapterPlan: SourcePlanBatch[]
+  estimatedCredits: number
+  plannedRawCapacity: number
+  unsupportedDimensions: UnsupportedDimension[]
+  limits: ResearchLimits
+  qualificationProfile: QualificationProfile
+  // deterministic provider query derived from the play at plan time; frozen
+  // into the run's input snapshot so execution replays the exact plan
+  query: string
+  // Exact normalized play geography bound into the quote hash. The adapter
+  // capability remains country-level US, but CA and TX are not interchangeable
+  // priced plans.
+  geography: string
+  entityKind: 'person' | 'company'
+}
+
+export type SourcePlanResult = SourcePlanSuccess | SourcePlanFailure
+
+function clampPositive(requested: number | null | undefined, fallback: number, cap: number): number {
+  if (requested == null || !Number.isFinite(requested)) return fallback
+  const rounded = Math.floor(requested)
+  if (rounded < 1) return 1
+  return Math.min(rounded, cap)
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  return `{${Object.entries(value as Record<string, unknown>)
+    .filter(([, child]) => child !== undefined)
+    // Code-unit ordering is total and locale-independent. localeCompare can
+    // return 0 for distinct Unicode keys, making insertion order affect hashes.
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`)
+    .join(',')}}`
+}
+
+export function immutableHash(value: unknown): string {
+  return crypto.createHash('sha256').update(canonicalJson(value)).digest('hex')
+}
+
+export function descriptorHash(descriptor: AdapterDescriptor): string {
+  return immutableHash(descriptor)
+}
+
+function customerUseAllowed(descriptor: AdapterDescriptor): boolean {
+  const license = descriptor.constraints.license
+  return (
+    (license.status === 'approved' || license.status === 'test_only') &&
+    Boolean(license.terms_version) &&
+    license.export &&
+    license.customer_display &&
+    license.outreach_allowed
+  )
+}
+
+// Maps a capabilityCovers reason string onto the dimension it names, so the
+// caller can show which requested dimension is unsupported.
+function dimensionFromReason(reason: string): string {
+  const missing = reason.match(/^missing required dimension: (\w+)/)
+  if (missing) return missing[1]
+  const unsupported = reason.match(/^unsupported (\w+)/)
+  if (unsupported) return unsupported[1]
+  return 'unknown'
+}
+
+export function canonicalEntityKind(entityUnit: string): 'person' | 'company' | null {
+  const normalized = entityUnit.trim().toLowerCase().replace(/[\s_-]+/g, '')
+  if (['person', 'people', 'contact', 'contacts', 'employee', 'employees'].includes(normalized)) {
+    return 'person'
+  }
+  if (
+    ['company', 'companies', 'organization', 'organizations', 'business', 'businesses', 'location', 'locations'].includes(normalized)
+  ) {
+    return 'company'
+  }
+  return null
+}
+
+export function buildSourcePlan(
+  play: PlanPlayInput,
+  adapters: SourceAdapter[],
+  limits?: ResearchLimitsInput | null,
+  markupMultiplier: number = defaultMarkupMultiplier(),
+): SourcePlanResult {
+  // Boundary 1 (section 7): recompute eligibility server-side; anything other
+  // than 'executable' fails closed before any pricing.
+  const eligibility = computeExecutionEligibility({
+    market_type: play.marketType ?? null,
+    geography: play.geography ?? null,
+  })
+  if (eligibility.execution_eligibility !== 'executable') {
+    return {
+      ok: false,
+      code: 'play_not_executable',
+      reason: eligibility.eligibility_reason,
+      unsupportedDimensions: [],
+    }
+  }
+
+  const signalKind = (play.signalKind ?? play.signal ?? '').trim()
+  const entityUnit = (play.entityUnit ?? '').trim()
+  const entityKind = canonicalEntityKind(entityUnit)
+  if (!signalKind || !entityUnit || !entityKind) {
+    return {
+      ok: false,
+      code: 'missing_play_dimensions',
+      reason: `play is missing required dimensions for sourcing: ${[
+        !signalKind ? 'signal' : null,
+        !entityUnit || !entityKind ? 'entity_unit' : null,
+      ]
+        .filter(Boolean)
+        .join(', ')}`,
+      unsupportedDimensions: [],
+    }
+  }
+
+  // V1 is US-only and eligibility above has already proven a US geography, so
+  // the capability request uses the country code; the play's raw geography
+  // text stays in the query for the provider.
+  const geographyCode = 'US'
+
+  const maxRawCandidates = clampPositive(
+    limits?.maxRawCandidates ?? limits?.maxCandidates,
+    DEFAULT_MAX_RAW_CANDIDATES,
+    MAX_CANDIDATES_HARD_CAP,
+  )
+  const targetAccepted = Math.min(
+    clampPositive(limits?.targetAccepted, DEFAULT_TARGET_ACCEPTED, MAX_CANDIDATES_HARD_CAP),
+    maxRawCandidates,
+  )
+
+  const rawGeography = (play.geography ?? '').trim().replace(/\s+/g, ' ')
+  const query = [play.audience, play.signal, rawGeography]
+    .map((part) => (part ?? '').trim())
+    .filter(Boolean)
+    .join(' ')
+
+  const adapterPlan: SourcePlanBatch[] = []
+  const unsupportedDimensions: UnsupportedDimension[] = []
+  const eligibleAdapters: SourceAdapter[] = []
+
+  for (const adapter of adapters) {
+    const descriptor = adapter.descriptor
+    if (descriptor.layer !== 'source') continue
+    if (!customerUseAllowed(descriptor)) {
+      unsupportedDimensions.push({
+        adapter_id: descriptor.adapter_id,
+        dimension: 'license',
+        reason: `provider license is ${descriptor.constraints.license.status}`,
+      })
+      continue
+    }
+    const coverage = capabilityCovers(descriptor, {
+      signal_kind: signalKind,
+      entity_unit: entityUnit,
+      geography: geographyCode,
+    })
+    if (!coverage.covered) {
+      const reason = coverage.reason ?? 'not covered'
+      unsupportedDimensions.push({
+        adapter_id: descriptor.adapter_id,
+        dimension: dimensionFromReason(reason),
+        reason,
+      })
+      continue
+    }
+    eligibleAdapters.push(adapter)
+  }
+
+  let remaining = maxRawCandidates
+  for (const [index, adapter] of eligibleAdapters.entries()) {
+    const descriptor = adapter.descriptor
+    if (remaining <= 0) continue
+    // Divide the raw ceiling across every covering source. Execution calls
+    // them in order and stops as soon as the accepted target is met, so the
+    // quote is a maximum while later lanes are adaptive shortfall refills.
+    const lanesRemaining = eligibleAdapters.length - index
+    const fairShare = Math.ceil(remaining / Math.max(1, lanesRemaining))
+    const requestedCandidates = Math.min(fairShare, descriptor.constraints.max_batch)
+    if (requestedCandidates <= 0) continue
+    const quote = adapter.quote({
+      signal_kind: signalKind,
+      entity_unit: entityUnit,
+      geography: geographyCode,
+      query,
+      provider_query: play.providerQuery ?? undefined,
+      max_candidates: requestedCandidates,
+    })
+    if (quote.max_candidates <= 0 || quote.provider_units <= 0) continue
+    adapterPlan.push({
+      adapter_id: descriptor.adapter_id,
+      capability: {
+        signal_kind: signalKind,
+        entity_unit: entityUnit,
+        entity_kind: entityKind,
+        geography: geographyCode,
+      },
+      estimatedUnits: quote.provider_units,
+      providerUnits: quote.provider_units,
+      billableUnit: quote.billable_unit,
+      maxCandidates: quote.max_candidates,
+      expectedCandidates: quote.expected_candidates,
+      quotedCreditsPerUnit: quote.quoted_credits_per_unit,
+      estimatedCredits: creditsForUnits(
+        quote.provider_units,
+        quote.quoted_credits_per_unit,
+        markupMultiplier,
+      ),
+      priceVersion: descriptor.cost_model.price_version,
+      termsVersion: descriptor.constraints.license.terms_version,
+      descriptorHash: descriptorHash(descriptor),
+      providerQuery: play.providerQuery ?? null,
+      adaptiveOrder: adapterPlan.length + 1,
+      stopWhenTargetAccepted: true,
+    })
+    remaining -= quote.max_candidates
+  }
+
+  // An empty adapter plan fails closed: never a silent empty run.
+  if (adapterPlan.length === 0) {
+    return {
+      ok: false,
+      code: 'empty_adapter_plan',
+      reason: 'no adapter capability covers the requested play dimensions',
+      unsupportedDimensions,
+    }
+  }
+
+  const estimatedCredits = adapterPlan.reduce((sum, batch) => sum + batch.estimatedCredits, 0)
+  const plannedRawCapacity = adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)
+  const requestedMaxCredits = limits?.maxCredits
+  const maxCredits =
+    requestedMaxCredits != null && Number.isFinite(requestedMaxCredits) && requestedMaxCredits >= 1
+      ? Math.floor(requestedMaxCredits)
+      : estimatedCredits
+
+  const pricedPlan = {
+    schemaVersion: '4' as const,
+    adapterPlan,
+    estimatedCredits,
+    plannedRawCapacity,
+    unsupportedDimensions,
+    limits: {
+      targetAccepted,
+      maxRawCandidates,
+      maxCandidates: maxRawCandidates,
+      maxCredits,
+    },
+    qualificationProfile: compileQualificationProfile(
+      play,
+      entityKind,
+    ),
+    query,
+    geography: rawGeography,
+    entityKind,
+  }
+  return {
+    ok: true,
+    ...pricedPlan,
+    planHash: immutableHash(pricedPlan),
+  }
+}

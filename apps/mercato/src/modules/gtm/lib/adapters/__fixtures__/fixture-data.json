@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "comment": "Deterministic provider fixtures (SPEC-066 section 11.3). Synthetic identities only: every name, domain, and URL is invented and uses reserved .example domains. The fixed clock keeps all timestamps deterministic. Trigger tokens embedded in an input (query / candidate name / value) select the crafted failure case; inputs without a trigger take the normal path.",
+  "clock": "2026-07-23T12:00:00.000Z",
+  "triggers": {
+    "no_result": "fixture-no-result",
+    "partial": "fixture-partial",
+    "timeout": "fixture-timeout",
+    "invalid_schema": "fixture-invalid-schema",
+    "rate_limit": "fixture-rate-limit",
+    "provider_5xx": "fixture-5xx",
+    "delayed_completion": "fixture-delayed",
+    "webhook_replay": "fixture-webhook-replay",
+    "ambiguous_acceptance": "fixture-ambiguous-acceptance"
+  },
+  "source_candidates": [
+    {
+      "entity_kind": "company",
+      "identity": {
+        "name": "Example Dynamics LLC",
+        "domain": "example-dynamics.example",
+        "urls": ["https://example-dynamics.example"]
+      },
+      "evidence": [
+        {
+          "claim": "Posted a job opening for a revenue operations lead",
+          "source_url": "https://jobs.example-dynamics.example/rev-ops-lead",
+          "observed_at": "2026-07-20T09:00:00.000Z",
+          "confidence": 0.82
+        }
+      ]
+    },
+    {
+      "entity_kind": "company",
+      "identity": {
+        "name": "Sample Synthetics Inc",
+        "domain": "sample-synthetics.example",
+        "urls": ["https://sample-synthetics.example"]
+      },
+      "evidence": [
+        {
+          "claim": "Announced a synthetic seed round of $2M",
+          "source_url": "https://news.sample-synthetics.example/seed-round",
+          "observed_at": "2026-07-18T15:30:00.000Z",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "entity_kind": "company",
+      "identity": {
+        "name": "Test Harness Partners LLC",
+        "domain": "test-owned-domain.example",
+        "urls": ["https://test-owned-domain.example"]
+      },
+      "evidence": [
+        {
+          "claim": "Registered a new office lease in a synthetic county record",
+          "source_url": "https://records.test-owned-domain.example/lease-2026",
+          "observed_at": "2026-07-15T11:45:00.000Z",
+          "confidence": 0.71
+        }
+      ]
+    },
+    {
+      "entity_kind": "person",
+      "identity": {
+        "name": "Alex Example",
+        "company": "Example Dynamics LLC",
+        "title": "Head of Operations",
+        "domain": "example-dynamics.example",
+        "urls": ["https://social.example/in/alex-example-fixture"]
+      },
+      "evidence": [
+        {
+          "claim": "Listed as operations contact on a synthetic hiring post",
+          "source_url": "https://jobs.example-dynamics.example/rev-ops-lead",
+          "observed_at": "2026-07-20T09:00:00.000Z",
+          "confidence": 0.77
+        }
+      ]
+    },
+    {
+      "entity_kind": "person",
+      "identity": {
+        "name": "Jamie Fixture",
+        "company": "Sample Synthetics Inc",
+        "title": "Founder",
+        "domain": "sample-synthetics.example",
+        "urls": ["https://social.example/in/jamie-fixture"]
+      },
+      "evidence": [
+        {
+          "claim": "Quoted in the synthetic seed-round announcement",
+          "source_url": "https://news.sample-synthetics.example/seed-round",
+          "observed_at": "2026-07-18T15:30:00.000Z",
+          "confidence": 0.88
+        }
+      ]
+    }
+  ],
+  "enrich_contact_points": {
+    "Alex Example": [
+      {
+        "channel": "email",
+        "value": "alex.example@example-dynamics.example",
+        "provenance": { "method": "pattern_match", "pattern": "first.last" }
+      },
+      {
+        "channel": "linkedin",
+        "value": "https://social.example/in/alex-example-fixture",
+        "provenance": { "method": "profile_lookup" }
+      }
+    ],
+    "Jamie Fixture": [
+      {
+        "channel": "email",
+        "value": "jamie.fixture@sample-synthetics.example",
+        "provenance": { "method": "pattern_match", "pattern": "first.last" }
+      },
+      {
+        "channel": "linkedin",
+        "value": "https://social.example/in/jamie-fixture",
+        "provenance": { "method": "profile_lookup" }
+      }
+    ],
+    "Example Dynamics LLC": [
+      {
+        "channel": "email",
+        "value": "hello@example-dynamics.example",
+        "provenance": { "method": "domain_catch_all" }
+      }
+    ]
+  },
+  "verify_states": {
+    "alex.example@example-dynamics.example": "verified",
+    "jamie.fixture@sample-synthetics.example": "risky",
+    "hello@example-dynamics.example": "catch_all",
+    "unknown@test-owned-domain.example": "not_found"
+  }
+}

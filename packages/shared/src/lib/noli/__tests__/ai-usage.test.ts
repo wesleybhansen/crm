@@ -1,10 +1,12 @@
 var insertMock: jest.Mock
+var upsertMock: jest.Mock
 var organizationMembersMock: jest.Mock
 
 jest.mock('server-only', () => ({}))
 
 jest.mock('../core-client', () => {
   insertMock = jest.fn().mockResolvedValue({ error: null })
+  upsertMock = jest.fn().mockResolvedValue({ error: null })
   organizationMembersMock = jest.fn().mockResolvedValue({ data: [], error: null })
 
   return {
@@ -19,7 +21,7 @@ jest.mock('../core-client', () => {
           }
         }
 
-        if (table === 'ai_usage') return { insert: insertMock }
+        if (table === 'ai_usage') return { insert: insertMock, upsert: upsertMock }
         if (table === 'organization_members') {
           return {
             select: jest.fn(() => ({
@@ -45,6 +47,7 @@ describe('logCrmAiUsage cost attribution', () => {
       NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
     }
     insertMock.mockClear()
+    upsertMock.mockClear()
     organizationMembersMock.mockReset().mockResolvedValue({ data: [], error: null })
   })
 
@@ -83,6 +86,28 @@ describe('logCrmAiUsage cost attribution', () => {
     expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({
       cost_cents: 1,
       credits_consumed: 2_500,
+    }))
+  })
+
+  it('uses a stable, user-and-org-scoped insert-once receipt for retryable operations', async () => {
+    const base = {
+      model: 'gemini-2.5-flash',
+      tokensIn: 1_000,
+      tokensOut: 100,
+      idempotencyKey: 'gtm:voice-derive:operation-1',
+    }
+
+    await logCrmAiUsage({ ...base, noliUserId: 'user-1', noliOrgId: 'org-1' })
+    await logCrmAiUsage({ ...base, noliUserId: 'user-1', noliOrgId: 'org-1' })
+    await logCrmAiUsage({ ...base, noliUserId: 'user-2', noliOrgId: 'org-2' })
+
+    expect(insertMock).not.toHaveBeenCalled()
+    expect(upsertMock).toHaveBeenCalledTimes(3)
+    expect(upsertMock.mock.calls[0][1]).toEqual({ onConflict: 'id', ignoreDuplicates: true })
+    expect(upsertMock.mock.calls[0][0].id).toBe(upsertMock.mock.calls[1][0].id)
+    expect(upsertMock.mock.calls[0][0].id).not.toBe(upsertMock.mock.calls[2][0].id)
+    expect(upsertMock.mock.calls[0][0].metadata).toEqual(expect.objectContaining({
+      idempotency_key_present: true,
     }))
   })
 

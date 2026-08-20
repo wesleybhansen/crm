@@ -1,0 +1,93 @@
+import { fixtureEnrichAdapter, fixtureVerifyAdapter } from '../adapters/fixture'
+import { buildEnrichmentPlan } from '../enrich/plan'
+
+describe('immutable enrichment quote', () => {
+  const candidates = [{ id: 'c-1' }, { id: 'c-2' }, { id: 'c-3' }]
+
+  it('quotes only unresolved candidates and separates lookup from verification units', () => {
+    const plan = buildEnrichmentPlan(
+      candidates,
+      [
+        { candidateId: 'c-2', channel: 'email', verificationState: 'found' },
+        { candidateId: 'c-3', channel: 'email', verificationState: 'verified' },
+      ],
+      [fixtureEnrichAdapter],
+      [fixtureVerifyAdapter],
+      2,
+    )
+    expect(plan.candidates_considered).toBe(3)
+    expect(plan.candidates_needing_enrichment).toBe(1)
+    expect(plan.emails_needing_verification).toBe(2)
+    expect(plan.providers).toEqual([
+      expect.objectContaining({ adapter_id: 'fixture-enrich', max_units: 1, max_credits: 4 }),
+      expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 2, max_credits: 4 }),
+    ])
+    expect(plan.maximum_credits).toBe(8)
+    expect(plan.plan_hash).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it('counts every found email point, not one per candidate', () => {
+    // c-2 carries two found addresses; the waterfall verifies both, so the
+    // quote has to reserve for both or the run stops inside its own ceiling.
+    const plan = buildEnrichmentPlan(
+      candidates,
+      [
+        { candidateId: 'c-2', channel: 'email', verificationState: 'found' },
+        { candidateId: 'c-2', channel: 'email', verificationState: 'found' },
+        { candidateId: 'c-3', channel: 'email', verificationState: 'verified' },
+      ],
+      [fixtureEnrichAdapter],
+      [fixtureVerifyAdapter],
+      2,
+    )
+    expect(plan.candidates_needing_enrichment).toBe(1)
+    expect(plan.emails_needing_verification).toBe(3)
+    expect(plan.providers).toEqual([
+      expect.objectContaining({ adapter_id: 'fixture-enrich', max_units: 1 }),
+      expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 3 }),
+    ])
+  })
+
+  it('drops a provider whose frozen terms version is missing', () => {
+    const unapproved = {
+      ...fixtureVerifyAdapter,
+      descriptor: {
+        ...fixtureVerifyAdapter.descriptor,
+        constraints: {
+          ...fixtureVerifyAdapter.descriptor.constraints,
+          license: { ...fixtureVerifyAdapter.descriptor.constraints.license, terms_version: '' },
+        },
+      },
+    }
+    const plan = buildEnrichmentPlan(candidates, [], [fixtureEnrichAdapter], [unapproved])
+    expect(plan.providers.map((provider) => provider.adapter_id)).toEqual(['fixture-enrich'])
+  })
+
+  it('changes when a contact state changes so stale approval cannot run', () => {
+    const before = buildEnrichmentPlan(candidates, [], [fixtureEnrichAdapter], [fixtureVerifyAdapter])
+    const after = buildEnrichmentPlan(
+      candidates,
+      [{ candidateId: 'c-1', channel: 'email', verificationState: 'verified' }],
+      [fixtureEnrichAdapter],
+      [fixtureVerifyAdapter],
+    )
+    expect(after.plan_hash).not.toBe(before.plan_hash)
+  })
+
+  it('binds the selected contact-point id and normalized address into the quote', () => {
+    const first = buildEnrichmentPlan(
+      candidates,
+      [{ id: 'point-1', candidateId: 'c-1', channel: 'email', value: 'A@Example.com', verificationState: 'found' }],
+      [fixtureEnrichAdapter],
+      [fixtureVerifyAdapter],
+    )
+    const changedIdentity = buildEnrichmentPlan(
+      candidates,
+      [{ id: 'point-2', candidateId: 'c-1', channel: 'email', value: 'b@example.com', verificationState: 'found' }],
+      [fixtureEnrichAdapter],
+      [fixtureVerifyAdapter],
+    )
+    expect(first.schema_version).toBe('2')
+    expect(changedIdentity.plan_hash).not.toBe(first.plan_hash)
+  })
+})

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /* Keep Next's client-bundle guard, but tolerate plain Node.
  *
  * `server-only` resolves to a module that throws unconditionally unless the
@@ -181,6 +182,9 @@ export async function logCrmAiUsage(args: {
   feature?: string;
   byoKey?: boolean;
   metadata?: Record<string, unknown>;
+  // Optional insert-once key for retryable product operations. Callers must
+  // bind this to the exact feature operation, not merely a user or feature.
+  idempotencyKey?: string | null;
 }): Promise<void> {
   try {
     if (!process.env.NOLI_CORE_SUPABASE_URL || !process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY) return;
@@ -213,7 +217,24 @@ export async function logCrmAiUsage(args: {
     const creditsConsumed = Math.round(costDollars * DISPLAY_TOKENS_PER_DOLLAR);
 
     const supabase = getNoliCoreClient();
-    const { error } = await supabase.from('ai_usage').insert({
+    const normalizedKey = args.idempotencyKey?.trim() || null;
+    const receiptId = normalizedKey
+      ? (() => {
+          const digest = createHash('sha256')
+            .update(
+              `noli:crm-ai-usage:v2\0${userId}\0${orgId ?? ''}\0${normalizedKey}`,
+            )
+            .digest('hex')
+            .slice(0, 32)
+            .split('');
+          digest[12] = '5';
+          digest[16] = ((Number.parseInt(digest[16], 16) & 0x3) | 0x8).toString(16);
+          const value = digest.join('');
+          return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+        })()
+      : null;
+    const row = {
+      ...(receiptId ? { id: receiptId } : {}),
       user_id: userId,
       organization_id: orgId,
       app: 'crm',
@@ -223,8 +244,16 @@ export async function logCrmAiUsage(args: {
       credits_consumed: creditsConsumed,
       cost_cents: costCents,
       byo_key: args.byoKey ?? false,
-      metadata: { feature: args.feature ?? null, ...(args.metadata ?? {}) },
-    });
+      metadata: {
+        feature: args.feature ?? null,
+        idempotency_key_present: Boolean(normalizedKey),
+        ...(args.metadata ?? {}),
+      },
+    };
+    const query = normalizedKey
+      ? supabase.from('ai_usage').upsert(row, { onConflict: 'id', ignoreDuplicates: true })
+      : supabase.from('ai_usage').insert(row);
+    const { error } = await query;
     if (error) console.error('[crm ai_usage] insert failed', error);
   } catch (err) {
     console.error('[crm ai_usage] unexpected error', err);
