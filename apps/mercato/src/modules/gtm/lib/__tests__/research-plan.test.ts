@@ -129,7 +129,7 @@ describe('buildSourcePlan pricing and limits', () => {
         ['fixture-source-b', 15],
       ])
       expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
-      expect(plan.schemaVersion).toBe('5')
+      expect(plan.schemaVersion).toBe('6')
     }
   })
 
