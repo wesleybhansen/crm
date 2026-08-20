@@ -1,4 +1,8 @@
-import { createDataForSeoMapsAdapter, dataForSeoEnabled } from '../adapters/dataforseo/maps'
+import {
+  DATAFORSEO_DEFAULT_MAX_DEPTH,
+  createDataForSeoMapsAdapter,
+  dataForSeoEnabled,
+} from '../adapters/dataforseo/maps'
 
 const approvedEnv = {
   GTM_DATAFORSEO_ENABLED: 'true',
@@ -16,17 +20,63 @@ describe('DataForSEO Maps adapter', () => {
     })).toBe(false)
   })
 
-  it('quotes provider-native 100-result billing blocks', () => {
+  it('defaults to one 100-result billing block and requires an explicit lower-risk depth override', () => {
     const adapter = createDataForSeoMapsAdapter({ env: approvedEnv })
     const quote = adapter.quote({
       signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
       query: 'HVAC contractors', max_candidates: 250,
     })
     expect(quote).toEqual(expect.objectContaining({
-      max_candidates: 250,
-      provider_units: 3,
+      max_candidates: DATAFORSEO_DEFAULT_MAX_DEPTH,
+      provider_units: 1,
       billable_unit: 'maps_100_results',
     }))
+
+    const expanded = createDataForSeoMapsAdapter({
+      env: { ...approvedEnv, GTM_DATAFORSEO_MAX_DEPTH: '250' },
+    }).quote({
+      signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
+      query: 'HVAC contractors', max_candidates: 700,
+    })
+    expect(expanded).toEqual(expect.objectContaining({ max_candidates: 250, provider_units: 3 }))
+
+    const providerCapped = createDataForSeoMapsAdapter({
+      env: { ...approvedEnv, GTM_DATAFORSEO_MAX_DEPTH: '9999' },
+    }).quote({
+      signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
+      query: 'HVAC contractors', max_candidates: 9999,
+    })
+    expect(providerCapped).toEqual(expect.objectContaining({ max_candidates: 700, provider_units: 7 }))
+  })
+
+  it('sends the frozen default depth rather than the caller requested ceiling', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      status_code: 20000, cost: 0.002,
+      tasks: [{ status_code: 20000, cost: 0.002, result: [{ items: [] }] }],
+    }), { status: 200 })) as unknown as typeof fetch
+    const adapter = createDataForSeoMapsAdapter({ env: approvedEnv, fetchImpl })
+    await adapter.search({
+      signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
+      query: 'HVAC contractors', max_candidates: 700,
+    })
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))
+    expect(body[0].depth).toBe(DATAFORSEO_DEFAULT_MAX_DEPTH)
+  })
+
+  it.each([
+    ['overlong keyword', 'x'.repeat(701), 'bad_request'],
+    ['price-multiplying operator', 'site:example.com HVAC contractors', 'unpriced_query_operator'],
+    ['parenthesized price-multiplying operator', 'HVAC (site:example.com)', 'unpriced_query_operator'],
+  ])('rejects an %s before provider contact', async (_label, query, errorCode) => {
+    const fetchImpl = jest.fn() as unknown as typeof fetch
+    const adapter = createDataForSeoMapsAdapter({ env: approvedEnv, fetchImpl })
+    const result = await adapter.search({
+      signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
+      query, max_candidates: 25,
+    })
+    expect(result).toEqual(expect.objectContaining({ status: 'error', cost_units: 0 }))
+    expect(result.error).toContain(errorCode)
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 
   it('normalizes Maps rows with place-level source URLs and exact task cost receipts', async () => {

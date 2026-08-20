@@ -105,6 +105,34 @@ const GEOGRAPHY = 'US'
 const ENRICH_SIGNAL = 'contact_discovery'
 const VERIFY_SIGNAL = 'email_verification'
 const VERIFY_ENTITY_UNIT = 'contacts'
+const TERMINAL_VERIFICATION_STATES = new Set<VerificationState>([
+  'verified',
+  'risky',
+  'catch_all',
+  'not_found',
+  'unknown',
+  'provider_ambiguous',
+])
+
+type ReusableVerification = {
+  state: VerificationState
+  sourcePointId: string
+  verification: Record<string, unknown>
+}
+
+function normalizedAddress(point: GtmContactPoint): string | null {
+  const normalized = point.value.trim().toLowerCase()
+  return normalized || null
+}
+
+function verificationProvenance(point: GtmContactPoint): Record<string, unknown> {
+  const provenance = point.provenance
+  if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) return {}
+  const verification = (provenance as Record<string, unknown>).verification
+  return verification && typeof verification === 'object' && !Array.isArray(verification)
+    ? (verification as Record<string, unknown>)
+    : {}
+}
 
 function entityUnitFor(candidate: GtmCandidate): string {
   return candidate.entityKind === 'company' ? 'companies' : 'people'
@@ -378,6 +406,46 @@ export async function runEnrichmentWaterfall(
     pointsByCandidate.set(point.candidateId, list)
   }
 
+  // Reuse only an unambiguous terminal state for the exact normalized address
+  // inside the tenant. A conflicting historical state deliberately disables
+  // reuse so it cannot silently overwrite evidence that needs reconciliation.
+  const verificationByAddress = new Map<string, ReusableVerification | null>()
+  const freshVerificationByAddress = new Map<string, ReusableVerification>()
+  const addressKey = (point: GtmContactPoint): string | null => {
+    const address = normalizedAddress(point)
+    return address ? `${point.organizationId}:${point.tenantId}:${address}` : null
+  }
+  const reusableFromPoint = (
+    point: GtmContactPoint,
+    state: VerificationState,
+  ): ReusableVerification => ({
+    state,
+    sourcePointId: point.id,
+    verification: verificationProvenance(point),
+  })
+  const rememberVerification = (point: GtmContactPoint, state: VerificationState) => {
+    const key = addressKey(point)
+    if (!key) return
+    const prior = verificationByAddress.get(key)
+    if (prior === null) return
+    if (prior && prior.state !== state) {
+      verificationByAddress.set(key, null)
+      return
+    }
+    if (!prior) {
+      verificationByAddress.set(key, reusableFromPoint(point, state))
+    }
+  }
+  const rememberFreshVerification = (point: GtmContactPoint, state: VerificationState) => {
+    const key = addressKey(point)
+    if (key) freshVerificationByAddress.set(key, reusableFromPoint(point, state))
+  }
+  for (const point of deps.contactPoints) {
+    if (point.deletedAt || point.channel !== 'email') continue
+    const state = point.verificationState as VerificationState
+    if (TERMINAL_VERIFICATION_STATES.has(state)) rememberVerification(point, state)
+  }
+
   // Spec 4.1 step 6: enrichment runs over ACCEPTED candidates only.
   const accepted = deps.candidates.filter(
     (candidate) => candidate.fitStatus === 'accepted' && !candidate.deletedAt,
@@ -506,6 +574,36 @@ export async function runEnrichmentWaterfall(
     for (const point of emailPoints()) {
       if (point.verificationState !== 'found') continue
 
+      const key = addressKey(point)
+      const reusable = key
+        ? freshVerificationByAddress.get(key) ?? verificationByAddress.get(key)
+        : undefined
+      if (reusable) {
+        await em.transactional(async (tem) => {
+          point.verificationState = reusable.state
+          if (reusable.state === 'verified') point.verifiedAt = now()
+          point.provenance = {
+            ...(point.provenance ?? {}),
+            verification: {
+              ...reusable.verification,
+              state: reusable.state,
+              deduplicated: true,
+              reused_from_contact_point_id: reusable.sourcePointId,
+            },
+          }
+          tem.persist(point)
+          await tem.flush()
+        })
+        if (reusable.state === 'verified') summary.verified += 1
+        else if (reusable.state === 'risky') summary.risky += 1
+        else if (reusable.state === 'catch_all') summary.catch_all += 1
+        else if (reusable.state === 'not_found') summary.not_found += 1
+        else if (reusable.state === 'unknown') summary.unknown += 1
+        else if (reusable.state === 'provider_ambiguous') summary.ambiguous += 1
+        if (reusable.state === 'verified') continue candidateLoop
+        continue
+      }
+
       for (const adapter of deps.verifyAdapters) {
         const descriptor = adapter.descriptor
         if (!customerUseAllowed(descriptor)) continue
@@ -584,6 +682,10 @@ export async function runEnrichmentWaterfall(
           tem.persist(point)
           await tem.flush()
         })
+        // A fresh result is authoritative for the remaining duplicate rows in
+        // this run even when conflicting historical rows disabled old-result
+        // reuse. The old conflict remains intact for operator review.
+        rememberFreshVerification(point, state)
 
         if (state === 'verified') summary.verified += 1
         else if (state === 'risky') summary.risky += 1
