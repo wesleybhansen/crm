@@ -551,7 +551,21 @@ The harness starts a loopback-only, read-only synthetic Noli identity/entitlemen
 | R2-B - audience-to-launched no-send scenario | Completed locally | 2026-08-20 | Fresh PostgreSQL; no provider, mailbox, transport, or shared-service call |
 | R2-C - first-import persistence correction | Completed locally | 2026-08-20 | Workspace/play UUIDs are assigned before first flush; replay remains exact |
 
-## 24. Changelog
+## 24. R3 Gemini 3.7 drafting contract (approved 2026-08-20)
+
+### 24.1 Runtime and usage truth
+
+- GTM voice, campaign-message, and reply drafting use the GA `gemini-3.7-flash` model. This changes no non-GTM CRM AI surface.
+- Drafting uses low thinking for bounded-latency writing work, keeps structured JSON output and the existing 4,000-token response ceiling, and sends none of the deprecated `temperature`, `top_p`, `top_k`, or thinking-budget controls.
+- Provider output usage is `candidatesTokenCount + thoughtsTokenCount`; usage remains authoritative only when prompt and candidate counts are present. Thought parts are excluded from customer-visible JSON.
+- Observational cost remains null unless operators configure an explicit rate version plus both rates. The documented introductory standard rates are `$0.75 / 1M` input and `$3.75 / 1M` output through 2026-12-31 and must be revalidated before activation.
+
+### 24.2 Acceptance and release posture
+
+- Network-free tests freeze the default model id, low thinking level, deprecated-field absence, thought filtering, thinking-token accounting, known/unknown usage behavior, and HTTP failure honesty.
+- This is a dark code change only. It does not enable GTM, execution, mailbox ingestion, a provider adapter, a model call, or customer exposure.
+
+## 25. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -574,3 +588,4 @@ The harness starts a loopback-only, read-only synthetic Noli identity/entitlemen
 - 2026-08-19: Added R1c fit-v4 company-size semantics. Partial provider-bucket overlap now requires review, disjoint ranges reject, and plan schema v6 invalidates stale qualification approvals. Deterministic fixtures only.
 - 2026-08-18: Completed C7 locally. CRM now enforces shared 64 KiB chat-content and 200-row read limits; Hub caps cumulative history, per-message/tool content, final output, and total tool requests without an extra model call. CRM passed 66 suites/704 tests and Hub passed 919 top-level/1,105 total tests plus TypeScript, lint, production build, and diff checks; every external-effect gate remained off.
 - 2026-08-20: Added R2's executable synthetic no-send activation rehearsal and fixed first-import UUID visibility before the initial ORM flush. The disposable scenario passes Audience Play import through launched campaign state while the execution tick remains a dry run; all identities and provider rows are synthetic and every external-effect gate remains off.
+- 2026-08-20: Added the R3 Gemini 3.7 GTM-only drafting contract with low thinking, deprecated-parameter removal, thought-token accounting, and a dated observational price boundary. No flag or external-effect authority changed.

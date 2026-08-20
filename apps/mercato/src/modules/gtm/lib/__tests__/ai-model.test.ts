@@ -1,4 +1,4 @@
-import { createGeminiDraftModel } from '../ai/model'
+import { createGeminiDraftModel, GTM_DRAFT_MODEL } from '../ai/model'
 
 describe('GTM Gemini usage truth', () => {
   const originalFetch = global.fetch
@@ -8,16 +8,29 @@ describe('GTM Gemini usage truth', () => {
   })
 
   it('marks usage known only when both provider counts are authoritative', async () => {
-    global.fetch = jest.fn(async () => new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }],
-      usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 4 },
-    }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch
-    const model = createGeminiDraftModel('synthetic-key', 'fixture-model')
+    const fetchMock = jest.fn(async () => new Response(JSON.stringify({
+      candidates: [{ content: { parts: [
+        { text: 'internal summary', thought: true },
+        { text: '{"ok":true}' },
+      ] } }],
+      usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 4, thoughtsTokenCount: 3 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    global.fetch = fetchMock as typeof fetch
+    const model = createGeminiDraftModel('synthetic-key')
     await expect(model.generate({ system: 'system', prompt: 'prompt' })).resolves.toMatchObject({
+      text: '{"ok":true}',
+      model: GTM_DRAFT_MODEL,
       tokensIn: 12,
-      tokensOut: 4,
+      tokensOut: 7,
       tokenUsageKnown: true,
     })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(`https://generativelanguage.googleapis.com/v1beta/models/${GTM_DRAFT_MODEL}:generateContent`)
+    const body = JSON.parse(String(init.body)) as { generationConfig: Record<string, unknown> }
+    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'low' })
+    expect(body.generationConfig).not.toHaveProperty('temperature')
+    expect(body.generationConfig).not.toHaveProperty('topP')
+    expect(body.generationConfig).not.toHaveProperty('topK')
 
     global.fetch = jest.fn(async () => new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }],
