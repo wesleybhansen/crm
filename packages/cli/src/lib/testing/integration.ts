@@ -2530,6 +2530,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       GTM_ENGINEER_ENABLED: 'true',
       GTM_EXECUTION_ENABLED: 'false',
       GTM_MAILBOX_INGESTION_ENABLED: 'false',
+      GTM_PUBLIC_BASE_URL: applicationBaseUrl,
+      GTM_UNSUBSCRIBE_KEYRING: JSON.stringify({
+        ephemeral: 'om-ephemeral-gtm-unsubscribe-key-20260820',
+      }),
+      GTM_UNSUBSCRIBE_ACTIVE_KEY_ID: 'ephemeral',
       GTM_FIXTURE_ADAPTERS_ENABLED: 'true',
       GTM_LEDGER: 'fixture',
       GTM_APIFY_ENABLED: 'false',
