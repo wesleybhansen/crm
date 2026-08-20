@@ -19,6 +19,7 @@ const cursorSchema = z.object({
 type ImapSourcePage = {
   uidValidity: string
   messages: Array<NormalizedMailboxMessage & { uid: number }>
+  baselineUid?: number
 }
 
 const MAX_IMAP_SOURCE_BYTES = 512 * 1024
@@ -41,7 +42,7 @@ export function createImapMailboxReader(source: ImapPageSource): MailboxProvider
         throw new MailboxProviderCursorExpiredError('imap_uidvalidity_changed')
       }
       const sorted = [...page.messages].sort((a, b) => a.uid - b.uid)
-      const lastUid = sorted.at(-1)?.uid ?? parsed?.lastUid ?? 0
+      const lastUid = sorted.at(-1)?.uid ?? page.baselineUid ?? parsed?.lastUid ?? 0
       return {
         messages: sorted.map(({ uid: _uid, ...message }) => message),
         nextCursor: encodeCursor({ folder: 'INBOX', uidValidity: page.uidValidity, lastUid }),
@@ -58,7 +59,20 @@ function textHeader(value: unknown): string | null {
   return String(value).slice(0, 4096)
 }
 
-export function createProductionImapPageSource(connection: EmailConnection): ImapPageSource {
+export function imapIncrementalSearch(
+  afterUid: number,
+  inReplyTo?: string | null,
+): { uid: string; header?: Record<string, string> } {
+  return {
+    uid: `${afterUid + 1}:*`,
+    ...(inReplyTo ? { header: { 'In-Reply-To': inReplyTo } } : {}),
+  }
+}
+
+export function createProductionImapPageSource(
+  connection: EmailConnection,
+  options: { inReplyTo?: string | null } = {},
+): ImapPageSource {
   return async ({ afterUid, limit }) => {
     const host = connection.imapHost
     const user = connection.smtpUser || connection.emailAddress
@@ -76,12 +90,21 @@ export function createProductionImapPageSource(connection: EmailConnection): Ima
     try {
       const mailbox = await client.mailboxOpen('INBOX')
       const uidValidity = String(mailbox.uidValidity)
+      if (afterUid == null) {
+        // Align IMAP with the Gmail history contract: connecting a mailbox is
+        // a metadata-only baseline, never an implicit import of personal mail.
+        // UIDNEXT is the next UID the server will assign, so one less is the
+        // highest UID allocated at the baseline boundary.
+        const uidNext = Number(mailbox.uidNext)
+        const baselineUid = Number.isSafeInteger(uidNext) && uidNext > 0 ? uidNext - 1 : 0
+        return { uidValidity, baselineUid, messages: [] }
+      }
       const searchResult = await client.search(
-        afterUid == null ? { all: true } : { uid: `${afterUid + 1}:*` },
+        imapIncrementalSearch(afterUid, options.inReplyTo),
         { uid: true },
       )
       let uids = [...(searchResult === false ? [] : searchResult)].sort((a, b) => a - b)
-      const selected = afterUid == null ? uids.slice(-limit) : uids.slice(0, limit)
+      const selected = uids.slice(0, limit)
       const messages: ImapSourcePage['messages'] = []
       if (selected.length === 0) return { uidValidity, messages }
       for await (const raw of client.fetch(

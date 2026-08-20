@@ -365,6 +365,12 @@ export const gtmExecutionBodySchema = z.discriminatedUnion('op', [
     mailboxConnectionId: idString,
   }).strict(),
   z.object({
+    op: z.literal('r4-owned-mailbox-ingest'),
+    noliUserId: idString,
+    mailboxConnectionId: idString,
+    inReplyTo: z.string().regex(/^<[^<>\r\n]{1,990}>$/).optional(),
+  }).strict(),
+  z.object({
     op: z.literal('status'),
     noliUserId: idString,
     campaignId: idString,

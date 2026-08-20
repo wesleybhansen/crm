@@ -44,6 +44,7 @@ describe('GTM server-side feature authorization', () => {
       'correlate-replies',
       'clear-mailbox-pause',
       'enqueue-mailbox-ingestion',
+      'r4-owned-mailbox-ingest',
     ]) {
       expect(executionFeatureForOp(op)).toBe('gtm.launch')
     }

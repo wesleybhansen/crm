@@ -42,6 +42,21 @@ describe('GTM C3 operator API contracts', () => {
     }).success).toBe(true)
   })
 
+  it('bounds the R4 test-only ingestion request to an exact RFC reply header', () => {
+    expect(gtmExecutionBodySchema.safeParse({
+      op: 'r4-owned-mailbox-ingest',
+      noliUserId: USER,
+      mailboxConnectionId: MAILBOX,
+      inReplyTo: '<owned-send@example.com>',
+    }).success).toBe(true)
+    expect(gtmExecutionBodySchema.safeParse({
+      op: 'r4-owned-mailbox-ingest',
+      noliUserId: USER,
+      mailboxConnectionId: MAILBOX,
+      inReplyTo: 'owned-send@example.com\r\nBcc: someone@example.com',
+    }).success).toBe(false)
+  })
+
   it('requires exact hashes and rejects extra fields for lifecycle controls', () => {
     for (const op of [
       'pause-campaign',
