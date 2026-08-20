@@ -566,7 +566,37 @@ The harness starts a loopback-only, read-only synthetic Noli identity/entitlemen
 - Network-free tests freeze the default model id, low thinking level, deprecated-field absence, thought filtering, thinking-token accounting, known/unknown usage behavior, and HTTP failure honesty.
 - This is a dark code change only. It does not enable GTM, execution, mailbox ingestion, a provider adapter, a model call, or customer exposure.
 
-## 25. Changelog
+## 25. R4 owned-mailbox activation rehearsal (approved 2026-08-20)
+
+### 25.1 Authority and isolation
+
+- R4 may send exactly one campaign email from a user-owned Gmail mailbox to one user-owned Yahoo or Proton mailbox and ingest exactly one user-authored reply. This two-message ceiling is a hard stop, not a batch size.
+- The rehearsal runs only in a fresh loopback-only application and disposable PostgreSQL database. Production GTM remains dark; no shared-live lane, customer/prospect identity, production row, deployment flag, provider adapter, or paid sourcing call is used.
+- Mailbox credentials are entered by the owner into a loopback-only form, held only in process memory and the disposable database, never written to source, command history, logs, screenshots, traces, or test artifacts. The form submission is the action-time confirmation for the one outbound message.
+- All sourcing, enrichment, verification, and ledger activity remains deterministic fixture-only. The verified recipient contact point is replaced with the explicitly supplied owned recipient only inside the disposable rehearsal.
+- The harness is inert by default and requires `OM_GTM_OWNED_MAILBOX_E2E_ENABLED=1`. Normal CI and the standard integration command must skip it.
+
+### 25.2 Personal-inbox privacy boundary
+
+- A first IMAP cursor page establishes a metadata-only baseline at the mailbox's current `UIDVALIDITY` and highest allocated UID. It fetches and persists no historical message body, subject, sender, or recipient.
+- Only messages assigned a later UID are eligible after the baseline. The owner should use a dedicated or quiet Gmail inbox and reply immediately; any unrelated mail arriving inside that narrow window remains out of scope and aborts the rehearsal rather than being treated as GTM evidence.
+- Gmail API history and IMAP baselines have equivalent no-history semantics. Cursor advancement remains sealed, scoped, monotonic, and transactional.
+
+### 25.3 Acceptance and cleanup
+
+- `TC-GTM-002`: the harness proves one exact approved sender/recipient/footer/step/content envelope, one SMTP acceptance receipt and RFC Message-ID, one reply bearing the expected correlation header, durable inbound cursor advancement, exact reply correlation, and the transactionally coupled enrollment stop. Suppression, reputation, unsubscribe execution, and metering remain separate acceptance surfaces.
+- Before dispatch, the harness verifies one recipient, one due attempt, execution enabled only in the disposable process, and a zero send counter. It refuses any replay after the counter reaches one.
+- Cleanup runs in `finally`: the disposable application, fixture identity service, and database container stop; the in-memory credential object is released; no recovery patch or artifact may contain an address or secret.
+
+### 25.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R4-A - no-history IMAP baseline | Completed | 2026-08-20 | Metadata-only first cursor; no historical message parsing |
+| R4-B - guarded owned-mailbox harness | Completed | 2026-08-20 | Loopback form, explicit confirmation, no retries, disposable DB only |
+| R4-C - controlled lifecycle evidence | Completed | 2026-08-20 | Gmail SMTP accepted delivery to owned Yahoo; exact-header Yahoo reply produced one cursor, inbound event, reply, and atomic `email_reply` stop |
+
+## 26. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -591,3 +621,5 @@ The harness starts a loopback-only, read-only synthetic Noli identity/entitlemen
 - 2026-08-20: Added R2's executable synthetic no-send activation rehearsal and fixed first-import UUID visibility before the initial ORM flush. The disposable scenario passes Audience Play import through launched campaign state while the execution tick remains a dry run; all identities and provider rows are synthetic and every external-effect gate remains off.
 - 2026-08-20: Added the R3 Gemini 3.7 GTM-only drafting contract with low thinking, deprecated-parameter removal, thought-token accounting, and a dated observational price boundary. No flag or external-effect authority changed.
 - 2026-08-20: Verified one authorized synthetic DataForSEO Live Advanced request at an exact `$0.002` root/task charge and corrected the dark adapter contract to require explicit provider-retention truth before eligibility. No provider flag, customer-use approval, prospect data, outreach, deployment, or customer exposure changed.
+- 2026-08-20: Approved R4 for one user-owned Gmail-to-Yahoo/Proton campaign message and one owned reply in a disposable loopback environment. Added the no-history IMAP baseline and an opt-in, two-message rehearsal contract; production and shared-live posture remain dark.
+- 2026-08-20: Completed R4 with owner-confirmed Gmail-to-Yahoo delivery and a Yahoo reply. The second disposable run recorded one SMTP-accepted attempt, one sealed IMAP cursor, one exact-header inbound event, one durable reply, and the transactionally coupled `email_reply` enrollment stop. Two stale harness-only state labels (`sent` vs `accepted`, `reply` vs `email_reply`) were corrected; no production or shared-live state changed.

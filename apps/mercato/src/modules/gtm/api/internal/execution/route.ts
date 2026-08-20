@@ -383,6 +383,78 @@ export async function POST(req: Request) {
       })
     }
 
+    if (body.op === 'r4-owned-mailbox-ingest') {
+      // Deliberately unreachable outside the explicit disposable R4 harness.
+      // This avoids loading ORM-decorated app entities in Playwright while
+      // still executing the real scoped IMAP reader/cursor/correlation path
+      // inside the application process.
+      if (
+        process.env.OM_TEST_MODE !== '1'
+        || process.env.OM_GTM_OWNED_MAILBOX_E2E_ENABLED !== '1'
+      ) {
+        return opaqueNotFound()
+      }
+      if (!isUuid(body.mailboxConnectionId)) return opaqueNotFound()
+      const { EmailConnection } = await import('../../../../email/data/schema')
+      const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+      const connection = await findOneWithDecryption(
+        em as unknown as EntityManager,
+        EmailConnection,
+        {
+          id: body.mailboxConnectionId,
+          organizationId: ctx.organizationId,
+          tenantId: ctx.tenantId,
+          provider: 'smtp',
+          purpose: 'gtm_owned_mailbox_e2e',
+          isActive: true,
+          deletedAt: null,
+        },
+        undefined,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      )
+      if (!connection) return opaqueNotFound()
+      const encryption = container.resolve('tenantEncryptionService') as {
+        isEnabled(): boolean
+        getDek(tenantId: string): Promise<{ key: string } | null>
+      }
+      if (!encryption?.isEnabled()) {
+        return NextResponse.json({ ok: false, error: 'Tenant encryption is required' }, { status: 503 })
+      }
+      const dek = await encryption.getDek(ctx.tenantId)
+      if (!dek) {
+        return NextResponse.json({ ok: false, error: 'Tenant encryption key is unavailable' }, { status: 503 })
+      }
+      const { createTenantCursorCodec } = await import('../../../lib/inbound/codec')
+      const { ingestMailbox } = await import('../../../lib/inbound/ingest')
+      const {
+        createImapMailboxReader,
+        createProductionImapPageSource,
+      } = await import('../../../lib/inbound/providers/imap')
+      const result = await ingestMailbox(
+        em,
+        ctx,
+        {
+          mailboxConnectionId: connection.id,
+          provider: 'imap',
+          cursorKind: 'imap_uid',
+          reader: createImapMailboxReader(createProductionImapPageSource(connection, {
+            inReplyTo: body.inReplyTo,
+          })),
+          codec: createTenantCursorCodec(dek.key),
+          maxPages: 1,
+        },
+      )
+      return NextResponse.json({
+        ok: true,
+        pages: result.pages,
+        messages: result.messages,
+        matched: result.correlation.matched.length,
+        unmatched: result.correlation.unmatched,
+        failed: result.correlation.failed,
+        resync_required: result.resyncRequired,
+      })
+    }
+
     // status
     if (!isUuid(body.campaignId)) return opaqueNotFound()
     const entities = await import('../../../data/entities')

@@ -1,5 +1,5 @@
 import { createGmailMailboxReader } from '../inbound/providers/gmail'
-import { createImapMailboxReader } from '../inbound/providers/imap'
+import { createImapMailboxReader, imapIncrementalSearch } from '../inbound/providers/imap'
 import { createOutlookMailboxReader } from '../inbound/providers/outlook'
 import { MailboxProviderCursorExpiredError } from '../inbound/providers/types'
 
@@ -97,5 +97,31 @@ describe('cursor mailbox provider readers', () => {
     const reader = createImapMailboxReader(async () => ({ uidValidity: '2', messages: [] }))
     await expect(reader.readPage(JSON.stringify({ folder: 'INBOX', uidValidity: '1', lastUid: 7 })))
       .rejects.toEqual(new MailboxProviderCursorExpiredError('imap_uidvalidity_changed'))
+  })
+
+  it('baselines IMAP at provider metadata without importing historical messages', async () => {
+    const source = jest.fn(async () => ({
+      uidValidity: '42',
+      baselineUid: 918,
+      messages: [],
+    }))
+    const reader = createImapMailboxReader(source)
+
+    const baseline = await reader.readPage(null)
+
+    expect(source).toHaveBeenCalledWith({ afterUid: null, limit: 100 })
+    expect(baseline).toEqual({
+      messages: [],
+      nextCursor: JSON.stringify({ folder: 'INBOX', uidValidity: '42', lastUid: 918 }),
+      hasMore: false,
+    })
+  })
+
+  it('can constrain an owned-mailbox rehearsal to one exact reply header', () => {
+    expect(imapIncrementalSearch(918, '<owned-send@example.com>')).toEqual({
+      uid: '919:*',
+      header: { 'In-Reply-To': '<owned-send@example.com>' },
+    })
+    expect(imapIncrementalSearch(918)).toEqual({ uid: '919:*' })
   })
 })
