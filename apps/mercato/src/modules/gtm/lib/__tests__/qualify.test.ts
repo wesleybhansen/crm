@@ -133,7 +133,7 @@ describe('ruleBasedFitScorer', () => {
       strongEvidence,
     )
     expect(result.verdict).toBe('accepted')
-    expect(result.version).toBe('fit-v3')
+    expect(result.version).toBe('fit-v4')
     expect(result.criteria?.every((row) => row.status === 'pass')).toBe(true)
   })
 
@@ -163,6 +163,47 @@ describe('ruleBasedFitScorer', () => {
     expect(result.verdict).toBe('review')
     expect(result.reason).toBe(FIT_REASONS.criterionUnknown)
     expect(result.unknowns).toContain('account.employee_range')
+  })
+
+  it('routes a partially overlapping provider size bucket to review', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'company',
+        identity: {
+          name: 'Broad Bucket Company', domain: 'broad.example', industry: 'Software Development',
+          employee_range: '1 to 200', location: 'Austin, TX',
+        },
+      },
+      {
+        entityUnit: 'companies', geography: 'US',
+        providerQuery: { employee_ranges: ['51 to 200'] },
+      },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('review')
+    expect(result.reason).toBe(FIT_REASONS.criterionUnknown)
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'account.employee_range', status: 'unknown' }),
+    ]))
+  })
+
+  it('rejects a disjoint provider size bucket', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'company',
+        identity: {
+          name: 'Large Company', domain: 'large.example', industry: 'Software Development',
+          employee_range: '501 to 1000', location: 'Austin, TX',
+        },
+      },
+      {
+        entityUnit: 'companies', geography: 'US',
+        providerQuery: { employee_ranges: ['51 to 200'] },
+      },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.criterionMismatch)
   })
 
   it('rejects a candidate that matches an explicit exclusion', () => {

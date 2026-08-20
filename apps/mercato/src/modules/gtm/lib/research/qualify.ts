@@ -24,7 +24,7 @@ export type CriterionResult = {
 }
 
 export type QualificationProfile = {
-  version: 'qualification-profile-v1'
+  version: 'qualification-profile-v1' | 'qualification-profile-v2'
   criteria: Array<{
     id: string
     dimension: CriterionResult['dimension']
@@ -38,7 +38,7 @@ export type FitResult = {
   fitScore: number
   verdict: FitVerdict
   reason: string
-  version: 'fit-v2' | 'fit-v3'
+  version: 'fit-v2' | 'fit-v3' | 'fit-v4'
   breakdown: FitBreakdown
   unknowns: string[]
   contradictions: string[]
@@ -111,7 +111,7 @@ function result(
     fitScore: Math.max(0, Math.min(100, Math.round(fitScore))),
     verdict,
     reason,
-    version: 'fit-v3',
+    version: 'fit-v4',
     breakdown,
     unknowns,
     contradictions,
@@ -293,14 +293,33 @@ function parseRange(value: string): { min: number; max: number } | null {
   return null
 }
 
-function employeeRangeMatches(observed: string, expected: string): boolean {
-  if (wordsMatch(observed, expected)) return true
+type EmployeeRangeMatch = 'pass' | 'fail' | 'unknown'
+
+function employeeRangeMatch(observed: string, expected: string): EmployeeRangeMatch {
+  if (wordsMatch(observed, expected)) return 'pass'
   const desired = parseRange(expected)
-  if (!desired) return false
+  if (!desired) return 'fail'
   const count = Number(observed.replace(/,/g, ''))
-  if (Number.isFinite(count)) return count >= desired.min && count <= desired.max
+  if (Number.isFinite(count)) return count >= desired.min && count <= desired.max ? 'pass' : 'fail'
   const actual = parseRange(observed)
-  return Boolean(actual && actual.min <= desired.max && actual.max >= desired.min)
+  if (!actual) return 'fail'
+  if (actual.min >= desired.min && actual.max <= desired.max) return 'pass'
+  if (actual.max < desired.min || actual.min > desired.max) return 'fail'
+  // Provider buckets that only partially overlap the requested ICP do not
+  // prove either membership or contradiction for this specific company.
+  return 'unknown'
+}
+
+function employeeRangeStatus(observed: string[], expected: string[]): EmployeeRangeMatch {
+  let sawUnknown = false
+  for (const desired of expected) {
+    for (const actual of observed) {
+      const status = employeeRangeMatch(actual, desired)
+      if (status === 'pass') return 'pass'
+      if (status === 'unknown') sawUnknown = true
+    }
+  }
+  return sawUnknown ? 'unknown' : 'fail'
 }
 
 function recencyDays(value: string | null | undefined): number | null {
@@ -395,7 +414,7 @@ export function compileQualificationProfile(
   candidateKind: Candidate['entity_kind'],
 ): QualificationProfile {
   return {
-    version: 'qualification-profile-v1',
+    version: 'qualification-profile-v2',
     criteria: compileDefinitions(play, candidateKind).map(({ id, dimension, label, expected, hard }) => ({
       id, dimension, label, expected, hard,
     })),
@@ -434,11 +453,20 @@ function evaluateCriterion(
       expected: definition.expected, observed: [], status: 'unknown', hard: definition.hard,
     }
   }
-  const matches = definition.expected.some((expected) =>
-    observed.some((actual) => definition.employeeRange
-      ? employeeRangeMatches(actual, expected)
-      : wordsMatch(actual, expected)),
+  const rangeStatus = definition.employeeRange
+    ? employeeRangeStatus(observed, definition.expected)
+    : null
+  const matches = rangeStatus === 'pass' || (
+    rangeStatus === null && definition.expected.some((expected) =>
+      observed.some((actual) => wordsMatch(actual, expected)),
+    )
   )
+  if (rangeStatus === 'unknown') {
+    return {
+      id: definition.id, dimension: definition.dimension, label: definition.label,
+      expected: definition.expected, observed, status: 'unknown', hard: definition.hard,
+    }
+  }
   // Generic provider evidence proves the row was sourced, but a claim that
   // omits the criterion cannot prove a contradiction. Only exposed identity
   // fields can turn a non-match into a hard fail.
