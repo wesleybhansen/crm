@@ -529,7 +529,29 @@ C4 closes two local release blockers without enabling execution: a user with `gt
 | C7-B - Hub model/tool bounds | Completed locally | 2026-08-18 | Deterministic fake-model coverage; no model or provider call |
 | C7-C - complete validation and freeze | Completed locally | 2026-08-18 | CRM 66 suites/704 tests; Hub 919 top-level/1,105 total tests; TypeScript, lint, builds, and diff checks green |
 
-## 23. Changelog
+## 23. R2 synthetic no-send activation rehearsal (approved 2026-08-19)
+
+### 23.1 Release gate
+
+R2 adds one executable, disposable integration scenario that exercises the real CRM route, identity, tenancy, authorization, persistence, pricing, qualification, enrichment, immutable approval, scheduling, and execution-gate boundaries. It does not contact Noli Core, a sourcing or verification provider, a mailbox provider, or an email transport. It does not use shared services, customer or prospect data, credentials, or a production database.
+
+The harness starts a loopback-only, read-only synthetic Noli identity/entitlement service and enables the deterministic fixture source, enrichment, verification, and ledger only when both `OM_TEST_MODE=1` and the explicit fixture gate are present. Production deployment manifests fail security validation if test mode or fixture execution is configured. Every real provider flag remains false, mailbox ingestion remains false, and `GTM_EXECUTION_ENABLED` remains false.
+
+### 23.2 Acceptance scenario
+
+- `TC-GTM-001`: an unauthorized import is rejected; an authorized synthetic Audience Play import and exact replay resolve one durable workspace/play; stale research plan hashes fail; the confirmed plan sources, qualifies, and enriches at least one verified synthetic person; stale campaign approval fails; exact approval freezes recipient, sender, footer, step, and content truth; launch materializes scheduled attempts; execution tick reports `dry_run=true`; and every attempt remains approved with no transport dispatch.
+- The scenario runs against a freshly migrated disposable PostgreSQL database and cleans its synthetic GTM, mailbox, and represented-user state.
+- A newly created workspace and play must have application-visible UUIDs before the first flush, so the first import can bind the play to its workspace transactionally. Exact replay remains idempotent.
+
+### 23.3 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R2-A - isolated identity/fixture harness | Completed locally | 2026-08-20 | Loopback/read-only/synthetic; production manifests reject fixture posture |
+| R2-B - audience-to-launched no-send scenario | Completed locally | 2026-08-20 | Fresh PostgreSQL; no provider, mailbox, transport, or shared-service call |
+| R2-C - first-import persistence correction | Completed locally | 2026-08-20 | Workspace/play UUIDs are assigned before first flush; replay remains exact |
+
+## 24. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -551,3 +573,4 @@ C4 closes two local release blockers without enabling execution: a user with `gt
 - 2026-08-19: Added R1b deterministic same-provider continuation. Source plan schema v5 freezes bounded offsets and skips later pages after exhaustion or ambiguity; LeadMagic remains dark and no provider call was made.
 - 2026-08-19: Added R1c fit-v4 company-size semantics. Partial provider-bucket overlap now requires review, disjoint ranges reject, and plan schema v6 invalidates stale qualification approvals. Deterministic fixtures only.
 - 2026-08-18: Completed C7 locally. CRM now enforces shared 64 KiB chat-content and 200-row read limits; Hub caps cumulative history, per-message/tool content, final output, and total tool requests without an extra model call. CRM passed 66 suites/704 tests and Hub passed 919 top-level/1,105 total tests plus TypeScript, lint, production build, and diff checks; every external-effect gate remained off.
+- 2026-08-20: Added R2's executable synthetic no-send activation rehearsal and fixed first-import UUID visibility before the initial ORM flush. The disposable scenario passes Audience Play import through launched campaign state while the execution tick remains a dry run; all identities and provider rows are synthetic and every external-effect gate remains off.

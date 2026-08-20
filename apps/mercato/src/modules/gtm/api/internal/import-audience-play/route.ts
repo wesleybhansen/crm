@@ -117,6 +117,7 @@ export async function POST(req: Request) {
         )
         if (!workspace) {
           workspace = tem.create(GtmWorkspace, {
+            id: crypto.randomUUID(),
             organizationId,
             tenantId,
             name: 'Default workspace',
@@ -128,6 +129,7 @@ export async function POST(req: Request) {
 
         // 7. Insert the imported play with server-side recomputed eligibility.
         const play = tem.create(GtmPlay, {
+          id: crypto.randomUUID(),
           organizationId,
           tenantId,
           workspaceId: workspace.id,

@@ -287,10 +287,14 @@ describe('getLedger selection', () => {
   afterEach(() => {
     process.env.NODE_ENV = saved.NODE_ENV
     process.env.GTM_LEDGER = saved.GTM_LEDGER
+    process.env.OM_TEST_MODE = saved.OM_TEST_MODE
+    process.env.GTM_FIXTURE_ADAPTERS_ENABLED = saved.GTM_FIXTURE_ADAPTERS_ENABLED
     process.env.NOLI_CORE_SUPABASE_URL = saved.NOLI_CORE_SUPABASE_URL
     process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY = saved.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY
     for (const key of [
       'GTM_LEDGER',
+      'OM_TEST_MODE',
+      'GTM_FIXTURE_ADAPTERS_ENABLED',
       'NOLI_CORE_SUPABASE_URL',
       'NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY',
     ]) {
@@ -309,12 +313,25 @@ describe('getLedger selection', () => {
     expect(() => getLedger()).toThrow(NoliCoreLedgerConfigurationError)
   })
 
-  it('forbids fixture credits in production even when explicitly requested', () => {
+  it('forbids fixture credits in normal production even when explicitly requested', () => {
     process.env.NODE_ENV = 'production'
     process.env.GTM_LEDGER = 'fixture'
+    delete process.env.OM_TEST_MODE
+    delete process.env.GTM_FIXTURE_ADAPTERS_ENABLED
     process.env.NOLI_CORE_SUPABASE_URL = 'https://example.supabase.co'
     process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
     expect(() => getLedger()).toThrow(NoliCoreLedgerConfigurationError)
+  })
+
+  it('allows fixture credits only inside the explicit production-mode ephemeral harness', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.GTM_LEDGER = 'fixture'
+    process.env.OM_TEST_MODE = '1'
+    process.env.GTM_FIXTURE_ADAPTERS_ENABLED = 'true'
+    delete process.env.NOLI_CORE_SUPABASE_URL
+    delete process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY
+
+    expect(getLedger()).toBeInstanceOf(FixtureLedger)
   })
 
   it('allows an explicit fixture ledger in local development', () => {

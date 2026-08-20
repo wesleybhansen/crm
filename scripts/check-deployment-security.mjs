@@ -56,6 +56,15 @@ export function findDeploymentSecurityViolations(root) {
   }
 
   const productionCompose = read('docker-compose.prod.yml')
+  for (const [label, pattern] of [
+    ['OM_TEST_MODE', /\bOM_TEST_MODE\b/],
+    ['GTM_FIXTURE_ADAPTERS_ENABLED', /\bGTM_FIXTURE_ADAPTERS_ENABLED\b/],
+    ['GTM_LEDGER=fixture', /\bGTM_LEDGER\b\s*(?::|=)\s*["']?fixture\b/],
+  ]) {
+    if (pattern.test(productionCompose)) {
+      violations.push(`docker-compose.prod.yml: ${label} is forbidden in production`)
+    }
+  }
   if (!/["']127\.0\.0\.1:3000:3000["']/.test(productionCompose)) {
     violations.push('docker-compose.prod.yml: app port must be published only on 127.0.0.1')
   }

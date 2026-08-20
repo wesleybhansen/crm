@@ -10,6 +10,7 @@ function createFixture({
   productionPort = '127.0.0.1:3000:3000',
   extraProductionPort,
   includeOpenCode = false,
+  productionEnvironment = '',
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'deployment-security-'))
   mkdirSync(join(root, 'docker/opencode'), { recursive: true })
@@ -17,7 +18,7 @@ function createFixture({
   mkdirSync(join(root, 'ops/host-security'), { recursive: true })
   writeFileSync(
     join(root, 'docker-compose.prod.yml'),
-    `services:\n  app:\n    ports:\n      - "${productionPort}"${extraProductionPort ? `\n      - ${extraProductionPort}` : ''}\n  nginx:\n    ports:\n      - "80:80"\n      - "443:443"\n`,
+    `services:\n  app:\n    ports:\n      - "${productionPort}"${extraProductionPort ? `\n      - ${extraProductionPort}` : ''}${productionEnvironment ? `\n    environment:\n${productionEnvironment}` : ''}\n  nginx:\n    ports:\n      - "80:80"\n      - "443:443"\n`,
   )
   writeFileSync(
     join(root, 'docker-compose.yml'),
@@ -62,6 +63,21 @@ test('rejects a public application port and any Compose coding-agent service', (
     assert.match(violations, /unexpected published port 5000:5000/)
     assert.match(violations, /coding-agent service is forbidden/)
     assert.match(violations, /coding-agent image, container, or port reference is forbidden/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('rejects ephemeral GTM fixture switches in production Compose', () => {
+  const root = createFixture({
+    productionEnvironment:
+      '      OM_TEST_MODE: "1"\n      GTM_FIXTURE_ADAPTERS_ENABLED: "true"\n      GTM_LEDGER: fixture',
+  })
+  try {
+    const violations = findDeploymentSecurityViolations(root).violations.join('\n')
+    assert.match(violations, /OM_TEST_MODE is forbidden in production/)
+    assert.match(violations, /GTM_FIXTURE_ADAPTERS_ENABLED is forbidden in production/)
+    assert.match(violations, /GTM_LEDGER=fixture is forbidden in production/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

@@ -38,9 +38,10 @@ describe('adapter registry environment boundaries', () => {
     ])
   })
 
-  it('never registers fixture adapters in production, even when requested', () => {
+  it('never registers fixture adapters in normal production, even when requested', () => {
     process.env.NODE_ENV = 'production'
     process.env.GTM_FIXTURE_ADAPTERS_ENABLED = 'true'
+    delete process.env.OM_TEST_MODE
     delete process.env.GTM_APIFY_ENABLED
     delete process.env.GTM_APIFY_TOKEN
     delete process.env.APIFY_TOKEN
@@ -49,6 +50,17 @@ describe('adapter registry environment boundaries', () => {
     expect(sourceAdapterRegistry()).toEqual({})
     expect(enrichAdapterList()).toEqual([])
     expect(verifyAdapterList()).toEqual([])
+  })
+
+  it('allows fixtures in the explicit production-mode ephemeral harness only', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.OM_TEST_MODE = '1'
+    process.env.GTM_FIXTURE_ADAPTERS_ENABLED = 'true'
+
+    expect(fixtureAdaptersEnabled()).toBe(true)
+    expect(sourceAdapterRegistry()).toEqual({
+      [fixtureSourceAdapter.descriptor.adapter_id]: fixtureSourceAdapter,
+    })
   })
 
   it('registers only explicitly enabled real providers in production', () => {

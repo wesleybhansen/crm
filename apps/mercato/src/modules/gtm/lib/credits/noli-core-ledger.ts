@@ -312,15 +312,23 @@ export class NoliCoreOperatorReconciler
 /*
  * Ledger selection (Tranche 4 seam): tests always use the process fixture.
  * Local development may opt into it explicitly with GTM_LEDGER=fixture.
- * Production can never use fixture credits, and every non-test environment
- * without both noli-core credentials fails closed before provider spend.
+ * A production-mode build can use fixture credits only in the explicit
+ * ephemeral OM_TEST_MODE harness with fixture adapters enabled. Every normal
+ * non-test environment without noli-core credentials fails closed before
+ * provider spend.
  */
 export function getLedger(): GtmCreditLedger {
   const forced = (process.env.GTM_LEDGER ?? '').trim().toLowerCase()
   if (process.env.NODE_ENV === 'test') return getProcessFixtureLedger()
 
   if (forced === 'fixture') {
-    if (process.env.NODE_ENV === 'production') {
+    if (
+      process.env.NODE_ENV === 'production'
+      && !(
+        process.env.OM_TEST_MODE === '1'
+        && process.env.GTM_FIXTURE_ADAPTERS_ENABLED === 'true'
+      )
+    ) {
       throw new NoliCoreLedgerConfigurationError('GTM_LEDGER=fixture is forbidden in production')
     }
     return getProcessFixtureLedger()
