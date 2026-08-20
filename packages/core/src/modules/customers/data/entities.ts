@@ -66,6 +66,18 @@ export class CustomerEntity {
   @Property({ name: 'primary_phone', type: 'text', nullable: true })
   primaryPhone?: string | null
 
+  // Deterministic lookup hashes (sha256 of the normalized plaintext), written by
+  // the encryption subscriber alongside encryption. primary_email/primary_phone
+  // are encrypted at rest with a random IV, so the stored value can never be
+  // used in a WHERE — these columns give O(1) matching for webhook dedup, SMS
+  // contact resolution and receptionist caller lookup, replacing a decrypt-scan
+  // that costs ~10ms per row.
+  @Property({ name: 'primary_email_hash', type: 'text', nullable: true })
+  primaryEmailHash?: string | null
+
+  @Property({ name: 'primary_phone_hash', type: 'text', nullable: true })
+  primaryPhoneHash?: string | null
+
   @Property({ name: 'status', type: 'text', nullable: true })
   status?: string | null
 

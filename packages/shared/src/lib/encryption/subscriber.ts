@@ -5,6 +5,7 @@ import { TenantDataEncryptionService } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
+import { hashForLookup } from './aes'
 
 type Scoped = {
   tenantId?: string | null
@@ -16,6 +17,16 @@ type Scoped = {
 }
 
 type Scope = { tenantId: string | null; organizationId: string | null }
+
+/** Deterministic lookup-hash columns maintained alongside encryption, keyed by
+ *  entity id. The hash is of the normalized plaintext; a cleared source field
+ *  clears its hash. */
+const LOOKUP_HASH_RULES: Record<string, Array<{ source: string; target: string; normalize: (v: string) => string }>> = {
+  'customers:customer_entity': [
+    { source: 'primaryEmail', target: 'primaryEmailHash', normalize: (v) => v.toLowerCase().trim() },
+    { source: 'primaryPhone', target: 'primaryPhoneHash', normalize: (v) => v.replace(/\D/g, '') },
+  ],
+}
 
 function resolveScope(entity: Scoped): Scope {
   const tenantId = entity.tenantId ?? entity.tenant_id ?? entity.tenant?.id ?? null
@@ -153,6 +164,19 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       debug('⚪️ subscriber.skip', { reason: 'no-tenant', entityId })
       return
     }
+    // Lookup hashes must be computed from the PLAINTEXT, so this runs before
+    // encryption. Encrypted-at-rest values use a random IV and can never be
+    // matched in SQL; these deterministic hashes are what webhook dedup, SMS
+    // resolution and the receptionist match on instead of a decrypt-scan.
+    const hashRules = LOOKUP_HASH_RULES[entityId]
+    const hashUpdates: Record<string, unknown> = {}
+    if (hashRules) {
+      for (const rule of hashRules) {
+        const raw = (target as Record<string, unknown>)[rule.source]
+        const normalized = typeof raw === 'string' ? rule.normalize(raw) : ''
+        hashUpdates[rule.target] = normalized ? hashForLookup(normalized) : null
+      }
+    }
     const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
     const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
       ? resolvedMeta.properties
@@ -183,6 +207,12 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
 
     for (const [key, value] of Object.entries(encrypted)) {
+      const prop = (metaProps as Record<string, any>)[key]
+      if (!prop || typeof prop !== 'object') continue
+      if ((target as Record<string, unknown>)[key] === value) continue
+      updates[key] = value
+    }
+    for (const [key, value] of Object.entries(hashUpdates)) {
       const prop = (metaProps as Record<string, any>)[key]
       if (!prop || typeof prop !== 'object') continue
       if ((target as Record<string, unknown>)[key] === value) continue

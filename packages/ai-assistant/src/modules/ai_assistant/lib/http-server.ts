@@ -13,6 +13,7 @@ import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { checkApiKeyScopes } from '@open-mercato/core/modules/api_keys/lib/apiKeyScopes'
 import { MCP_BOOTSTRAP_INSTRUCTIONS } from './agent-guide-tool'
 import { createRunOncePerOwner, listenBeforeOptionalStartupTask } from './optional-startup-task'
 
@@ -83,6 +84,10 @@ async function resolveSessionContext(
       isSuperAdmin: acl.isSuperAdmin,
       // Use the decrypted session secret for API calls (not the MCP server key)
       apiKeySecret: sessionSecret,
+      /* The session key carries its own narrowing. Dropping it here would let a
+       * scoped session widen simply by arriving over MCP, which is the same
+       * hole this change closes for the server key. */
+      apiKeyScopes: (sessionKey as unknown as { scopes?: string[] | null }).scopes ?? null,
     }
   } catch (error) {
     if (debug) {
@@ -214,6 +219,31 @@ function createMcpServerForRequest(
                     type: 'text' as const,
                     text: JSON.stringify({
                       error: 'Session token required (_sessionToken parameter)',
+                      code: 'UNAUTHORIZED',
+                    }),
+                  },
+                ],
+                isError: true,
+              }
+            }
+          }
+
+          /* A key can be issued narrower than the roles behind it. The REST
+           * router enforces that narrowing; honour it here too, or the same
+           * credential is wider over MCP than over REST. Checked BEFORE the
+           * role check so a scope refusal cannot be masked by super-admin. */
+          if (tool.requiredFeatures?.length) {
+            const scopeCheck = checkApiKeyScopes(
+              effectiveContext.apiKeyScopes,
+              tool.requiredFeatures,
+            )
+            if (!scopeCheck.allowed) {
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      error: `API key scope does not cover "${scopeCheck.missingFeature}" for tool "${tool.name}".`,
                       code: 'UNAUTHORIZED',
                     }),
                   },
@@ -450,6 +480,34 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       console.error(`[MCP HTTP] Server-level auth passed (${req.method}) - API key: ${apiKeyRecord.keyPrefix}...`)
     }
 
+    /* Resolve what this API key is actually allowed to do.
+     *
+     * These were hardcoded to `[]` and `false`, on the assumption that every
+     * caller would also supply a `_sessionToken` and override them. Anything
+     * authenticating with only an API key therefore had no permissions at all,
+     * and every tool declaring `requiredFeatures` answered "Insufficient
+     * permissions" -- including the Chief of Staff's hands and the Noli agent
+     * gateway. The same key worked fine against the REST surface, which does
+     * resolve its roles, so the failure looked like a broken key rather than a
+     * missing lookup here.
+     *
+     * This grants the key exactly the ACL of the roles already stored on it,
+     * which is what provisioning intends ("the key has exactly the access the
+     * user does, nothing more") and what the REST dispatcher already enforces
+     * against the same features. It is parity, not an escalation. A session
+     * token still overrides with that user's own ACL, unchanged. */
+    const rbacService = container.resolve<RbacService>('rbacService')
+    const keyAcl = await rbacService.loadAcl(`api_key:${apiKeyRecord.id}`, {
+      tenantId: apiKeyRecord.tenantId ?? null,
+      organizationId: apiKeyRecord.organizationId ?? null,
+    })
+
+    if (config.debug) {
+      console.error(
+        `[MCP HTTP] API key ACL resolved: ${keyAcl.features.length} feature(s), superAdmin=${keyAcl.isSuperAdmin}`,
+      )
+    }
+
     // Create base tool context using API key's tenant/org scope
     // Session tokens can override with user-specific permissions
     const toolContext: McpToolContext = {
@@ -457,9 +515,10 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       organizationId: apiKeyRecord.organizationId ?? null,
       userId: apiKeyRecord.createdBy ?? null,
       container,
-      userFeatures: [],
-      isSuperAdmin: false,
+      userFeatures: keyAcl.features,
+      isSuperAdmin: keyAcl.isSuperAdmin,
       apiKeySecret: providedApiKey,
+      apiKeyScopes: (apiKeyRecord as unknown as { scopes?: string[] | null }).scopes ?? null,
     }
 
     try {

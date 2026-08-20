@@ -14,6 +14,13 @@ export interface McpToolContext {
   isSuperAdmin: boolean
   /** API key secret for authenticating HTTP requests to internal APIs */
   apiKeySecret?: string
+  /* Scope narrowing stored on the API key, when it has any.
+   *
+   * A key can be issued narrower than the roles behind it, and the REST router
+   * enforces that. Resolving role features without also honouring this would
+   * make the same key wider over MCP than over REST. Null or empty means no
+   * narrowing: role permissions apply as-is. */
+  apiKeyScopes?: string[] | null
 }
 
 /**

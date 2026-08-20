@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 
 export const metadata = {
   path: '/ext/deals',
@@ -33,6 +36,28 @@ export async function GET(req: Request, ctx: any) {
 
     const [{ count }] = await query.clone().count()
     const deals = await query.select('*').orderBy('created_at', 'desc').limit(pageSize).offset((page - 1) * pageSize)
+
+    // Deal title/description are encrypted at rest and this route reads through
+    // raw knex, which skips the ORM subscriber that would decrypt them. Without
+    // this, every consumer of the external API (the Chief of Staff included)
+    // gets `iv:ct:tag:v1` ciphertext where the deal name should be.
+    if (isTenantDataEncryptionEnabled() && auth.tenantId) {
+      const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+      for (const deal of deals) {
+        try {
+          const dec = await svc.decryptEntityPayload(
+            'customers:customer_deal',
+            { title: deal.title, description: deal.description },
+            auth.tenantId,
+            auth.orgId,
+          )
+          deal.title = dec.title ?? deal.title
+          deal.description = dec.description ?? deal.description
+        } catch {
+          /* leave the stored value alone: a single unreadable row must not fail the page */
+        }
+      }
+    }
 
     return NextResponse.json({ ok: true, data: deals, pagination: { page, pageSize, total: Number(count) } })
   } catch (error) {

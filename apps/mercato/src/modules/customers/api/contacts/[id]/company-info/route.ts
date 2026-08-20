@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 // Detect encrypted field values (format: base64:base64:base64:v1)
 function isEncrypted(val: any): boolean {
@@ -23,7 +24,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try {
     const { id: contactId } = await params
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     // Get the person record (job_title, department, company link)
     const person = await knex('customer_people')
@@ -46,6 +48,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const company = await knex('customer_entities')
         .where({ id: person.company_entity_id, organization_id: auth.orgId })
         .first()
+      if (company) {
+        await decryptRowFields(em, CONTACT_ENTITY_KEY, [company], ['display_name', 'primary_email', 'primary_phone'], auth.tenantId, auth.orgId)
+      }
       companyName = company?.display_name || null
 
       // Get colleagues (other people at the same company)

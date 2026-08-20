@@ -7,6 +7,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { signEmailToken } from '@/lib/email-token'
+import {
+  decryptRowFields,
+  CONTACT_ENTITY_KEY,
+} from '@open-mercato/shared/lib/encryption/decryptRows'
 
 // Send a blast to all matching contacts
 export async function POST(req: Request) {
@@ -19,7 +23,8 @@ export async function POST(req: Request) {
   try {
     const tenantId = auth.tenantId
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     const campaign = await knex('email_campaigns')
       .where('id', blastId)
@@ -69,9 +74,27 @@ export async function POST(req: Request) {
     } catch {}
 
     const contacts = await query.select('id', 'primary_email', 'display_name')
+
+    // These rows come from raw knex, which skips the decrypting subscriber, so
+    // primary_email can still be ciphertext here. That silently excluded those
+    // contacts from every campaign — ciphertext contains no '@', so the filter
+    // below dropped them — and made the unsubscribe check (plaintext emails)
+    // unable to match them at all. Decrypt before either test runs.
+    // Keep the stored value too: historical email_unsubscribes rows were written
+    // with whatever was on the contact, so for encrypted contacts they hold
+    // CIPHERTEXT. Comparing only the decrypted address would miss those rows and
+    // mail someone who unsubscribed. Check both until those rows are cleaned up.
+    const storedEmailById = new Map<string, string>(
+      contacts.map((c: any) => [String(c.id), String(c.primary_email ?? '')]),
+    )
+    await decryptRowFields(em, CONTACT_ENTITY_KEY, contacts, ['primary_email', 'display_name'], tenantId, auth.orgId)
     let recipients = contacts.filter((c: any) => {
       const email = c.primary_email?.trim()
-      return email && email.includes('@') && !unsubEmails.has(email.toLowerCase())
+      if (!email || !email.includes('@')) return false
+      if (unsubEmails.has(email.toLowerCase())) return false
+      const stored = storedEmailById.get(String(c.id))
+      if (stored && unsubEmails.has(stored.toLowerCase())) return false
+      return true
     })
 
     // Filter by category preferences if campaign has a category

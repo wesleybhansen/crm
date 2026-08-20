@@ -6,6 +6,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { logTimelineEvent } from '@/lib/timeline'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 /* Voice debrief: talk for 60 seconds after a call and it becomes records.
  * Takes a raw transcript (browser speech-to-text or typed), parses it into a
@@ -50,6 +51,8 @@ export async function POST(req: Request) {
         .select('id', 'display_name')
         .first()
       if (!contact) return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
+      // Otherwise the debrief is generated about "Qs46sGmk..." instead of a person.
+      await decryptRowFields(null, CONTACT_ENTITY_KEY, [contact], ['display_name'], auth.tenantId, auth.orgId)
     }
 
     const gate = await checkCustomersAiAllowance(auth)

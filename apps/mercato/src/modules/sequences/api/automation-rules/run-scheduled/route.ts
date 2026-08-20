@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import {
   buildSenderContext,
   htmlifyIfPlainText,
@@ -107,6 +108,11 @@ async function executeScheduledAction(
     case 'send_email': {
       if (!context.contactId) return { success: false, detail: 'No contactId in context' }
       const contact = await knex('customer_entities').where('id', context.contactId).first()
+      // Raw knex skips the decrypting subscriber, so this scheduled automation
+      // addressed its email to ciphertext and greeted the person by it.
+      if (contact) {
+        await decryptRowFields(null, CONTACT_ENTITY_KEY, [contact], ['primary_email', 'display_name'], tenantId, orgId)
+      }
       if (!contact?.primary_email) return { success: false, detail: 'Contact has no email' }
 
       const firstName = (contact.display_name || '').split(' ')[0] || 'there'
