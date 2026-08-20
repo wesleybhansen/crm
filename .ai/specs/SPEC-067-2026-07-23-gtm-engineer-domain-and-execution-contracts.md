@@ -596,7 +596,28 @@ The harness starts a loopback-only, read-only synthetic Noli identity/entitlemen
 | R4-B - guarded owned-mailbox harness | Completed | 2026-08-20 | Loopback form, explicit confirmation, no retries, disposable DB only |
 | R4-C - controlled lifecycle evidence | Completed | 2026-08-20 | Gmail SMTP accepted delivery to owned Yahoo; exact-header Yahoo reply produced one cursor, inbound event, reply, and atomic `email_reply` stop |
 
-## 26. Changelog
+## 26. R5 disposable public-unsubscribe integration (approved 2026-08-20)
+
+### 26.1 Scope and safety boundary
+
+- R5 closes the remaining credential-free route-integration gap for the public GTM unsubscribe endpoint. It adds no product API, entity, migration, worker, provider adapter, mailbox capability, or production configuration.
+- The standard disposable integration runtime supplies a deterministic, test-only v2 unsubscribe keyring and its loopback public base URL. The runtime already requires `OM_TEST_MODE=1`, uses a freshly migrated disposable PostgreSQL database, disables real email delivery, keeps execution and mailbox ingestion off, and keeps every real provider off.
+- The test creates its own synthetic Audience Play, research, enrichment, mailbox identity, campaign, approval, enrollment, and attempts through the real internal routes. It contains no customer/prospect identity and contacts no external provider or transport.
+
+### 26.2 Acceptance scenario
+
+- `TC-GTM-003`: a tampered v2 token is opaque; a valid token renders the public confirmation form with `List-Unsubscribe=One-Click`; the public POST atomically creates one org-scoped suppression, stops the exact enrollment with `stop_reason='unsubscribe'`, cancels every not-yet-contacted attempt, and writes one audit event; exact replay remains 200 and creates no duplicate side effect.
+- The scenario cleans all synthetic GTM and mailbox rows after the test. Normal integration teardown removes the application and database.
+- This proves the real HTTP handler plus durable database effects in isolation. It does not prove production key custody/rotation, a mailbox provider's external HTTPS POST, or prospect-outreach compliance; those remain activation evidence gates.
+
+### 26.3 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R5-A - disposable keyring/base URL | Completed locally | 2026-08-20 | Test runtime only; production manifests remain unchanged |
+| R5-B - public GET/POST lifecycle | Completed locally | 2026-08-20 | Real route and disposable PostgreSQL; TC-GTM-003 passed; no external effect |
+
+## 27. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -623,3 +644,4 @@ The harness starts a loopback-only, read-only synthetic Noli identity/entitlemen
 - 2026-08-20: Verified one authorized synthetic DataForSEO Live Advanced request at an exact `$0.002` root/task charge and corrected the dark adapter contract to require explicit provider-retention truth before eligibility. No provider flag, customer-use approval, prospect data, outreach, deployment, or customer exposure changed.
 - 2026-08-20: Approved R4 for one user-owned Gmail-to-Yahoo/Proton campaign message and one owned reply in a disposable loopback environment. Added the no-history IMAP baseline and an opt-in, two-message rehearsal contract; production and shared-live posture remain dark.
 - 2026-08-20: Completed R4 with owner-confirmed Gmail-to-Yahoo delivery and a Yahoo reply. The second disposable run recorded one SMTP-accepted attempt, one sealed IMAP cursor, one exact-header inbound event, one durable reply, and the transactionally coupled `email_reply` enrollment stop. Two stale harness-only state labels (`sent` vs `accepted`, `reply` vs `email_reply`) were corrected; no production or shared-live state changed.
+- 2026-08-20: Added R5's disposable public RFC 8058 route scenario. A deterministic test-only v2 keyring crosses the actual GET/POST handler and verifies opaque tamper handling, atomic suppression/stop/cancellation/audit, and replay idempotency without email, mailbox ingestion, provider access, or production state.
