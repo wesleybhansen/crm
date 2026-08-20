@@ -35,7 +35,8 @@ export function dataForSeoApproved(env: DataForSeoEnv = process.env): boolean {
   return (
     envValue(env, 'GTM_DATAFORSEO_CUSTOMER_USE_APPROVED') === 'true' &&
     Boolean(envValue(env, 'GTM_DATAFORSEO_TERMS_VERSION')) &&
-    Boolean(envValue(env, 'GTM_DATAFORSEO_PRICE_VERSION'))
+    Boolean(envValue(env, 'GTM_DATAFORSEO_PRICE_VERSION')) &&
+    retentionDays(env) !== null
   )
 }
 
@@ -57,6 +58,13 @@ function maxDepth(env: DataForSeoEnv): number {
   const parsed = Number(envValue(env, 'GTM_DATAFORSEO_MAX_DEPTH'))
   if (!Number.isInteger(parsed) || parsed < 1) return DATAFORSEO_DEFAULT_MAX_DEPTH
   return Math.min(parsed, DATAFORSEO_PROVIDER_MAX_DEPTH)
+}
+
+function retentionDays(env: DataForSeoEnv): number | null {
+  const configured = envValue(env, 'GTM_DATAFORSEO_RETENTION_DAYS')
+  if (!configured) return null
+  const parsed = Number(configured)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null
 }
 
 function keywordLength(value: string): number {
@@ -84,7 +92,7 @@ export function dataForSeoDescriptor(env: DataForSeoEnv = process.env): AdapterD
         export: approved,
         customer_display: approved,
         outreach_allowed: approved,
-        retention_days: 90,
+        retention_days: retentionDays(env),
       },
       rate_limits: { requests_per_minute: 120, concurrent: 5 },
       max_batch: maxDepth(env),
@@ -197,7 +205,7 @@ export function createDataForSeoMapsAdapter(deps: {
         return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('unsupported'), error: `unsupported_capability: ${coverage.reason ?? 'not covered'}` }
       }
       if (!dataForSeoEnabled(env)) {
-        return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('disabled'), error: 'provider_disabled: DataForSEO requires credentials plus approved terms and price versions' }
+        return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('disabled'), error: 'provider_disabled: DataForSEO requires credentials plus approved terms and price versions and provider-retention truth' }
       }
       const { keyword, location } = keywordAndLocation(plan)
       if (!keyword) {
