@@ -11,6 +11,7 @@ const approvedEnv = {
   GTM_DATAFORSEO_CUSTOMER_USE_APPROVED: 'true',
   GTM_DATAFORSEO_TERMS_VERSION: 'reviewed-2026-08-02',
   GTM_DATAFORSEO_PRICE_VERSION: 'maps-live-2026-07-01',
+  GTM_DATAFORSEO_RETENTION_DAYS: '365',
 }
 
 describe('DataForSEO Maps adapter', () => {
@@ -18,6 +19,15 @@ describe('DataForSEO Maps adapter', () => {
     expect(dataForSeoEnabled({
       GTM_DATAFORSEO_ENABLED: 'true', GTM_DATAFORSEO_LOGIN: 'x', GTM_DATAFORSEO_PASSWORD: 'y',
     })).toBe(false)
+  })
+
+  it('requires explicit reviewed provider-retention truth', () => {
+    const withoutRetention = { ...approvedEnv, GTM_DATAFORSEO_RETENTION_DAYS: undefined }
+    expect(dataForSeoEnabled(withoutRetention)).toBe(false)
+    expect(createDataForSeoMapsAdapter({ env: withoutRetention }).descriptor.constraints.license)
+      .toEqual(expect.objectContaining({ status: 'provisional', retention_days: null }))
+    expect(createDataForSeoMapsAdapter({ env: approvedEnv }).descriptor.constraints.license)
+      .toEqual(expect.objectContaining({ status: 'approved', retention_days: 365 }))
   })
 
   it('defaults to one 100-result billing block and requires an explicit lower-risk depth override', () => {
