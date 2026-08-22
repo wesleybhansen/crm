@@ -17,6 +17,7 @@ import {
   apifyCompanyEmployeesApproved,
   buildApifyCompanyEmployeesInput,
   createApifyCompanyEmployeesAdapter,
+  linkedInCompanyIdsFromEvidence,
   normalizeApifyCompanyEmployeeItem,
   type DecisionMakerResolvePlan,
 } from '../adapters/apify/company-employees'
@@ -43,6 +44,7 @@ const COMPANIES = [{
   match_id: '20000000-0000-4000-8000-000000000001',
   name: 'Example Dental',
   linkedin_url: 'https://www.linkedin.com/company/example-dental/',
+  linkedin_company_ids: ['3617662'],
 }]
 
 const PLAN: DecisionMakerResolvePlan = {
@@ -105,6 +107,15 @@ function employeeItem(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Apify company-employees decision-maker contract', () => {
+  it('extracts only stable numeric company ids from source evidence', () => {
+    expect(linkedInCompanyIdsFromEvidence([
+      { providerRef: { detail: { linkedin_company_id: ' 3617662 ' } } },
+      { providerRef: { detail: { linkedin_company_id: '3617662' } } },
+      { providerRef: { detail: { linkedin_company_id: 'not-an-id' } } },
+      { providerRef: { detail: null } },
+    ])).toEqual(['3617662'])
+  })
+
   it('requires the exact actor and company-employees price version', () => {
     expect(apifyCompanyEmployeesApproved(ENABLED_ENV)).toBe(true)
     expect(apifyCompanyEmployeesApproved({
@@ -226,6 +237,35 @@ describe('Apify company-employees decision-maker contract', () => {
     }), CLOCK.toISOString(), COMPANIES)).toBeNull()
     expect(normalizeApifyCompanyEmployeeItem(employeeItem({
       _meta: undefined,
+    }), CLOCK.toISOString(), COMPANIES)).toBeNull()
+  })
+
+  it('binds a numeric canonical company URL only through the frozen source id', () => {
+    const liveShape = employeeItem({
+      currentPosition: undefined,
+      currentPositions: [{
+        title: 'Practice Owner',
+        companyName: 'Example Dental',
+        companyLinkedinUrl: 'https://www.linkedin.com/company/3617662',
+      }],
+    })
+    expect(normalizeApifyCompanyEmployeeItem(
+      liveShape,
+      CLOCK.toISOString(),
+      COMPANIES,
+    )).toEqual(expect.objectContaining({ current_title: 'Practice Owner' }))
+    expect(normalizeApifyCompanyEmployeeItem(
+      liveShape,
+      CLOCK.toISOString(),
+      [{ ...COMPANIES[0], linkedin_company_ids: ['9999999'] }],
+    )).toBeNull()
+    expect(normalizeApifyCompanyEmployeeItem(employeeItem({
+      currentPosition: undefined,
+      currentPositions: [{
+        title: 'Practice Owner',
+        companyName: 'Example Dental',
+        companyLinkedinUrl: 'https://www.linkedin.com/company/9999999',
+      }],
     }), CLOCK.toISOString(), COMPANIES)).toBeNull()
   })
 

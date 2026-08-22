@@ -68,6 +68,28 @@ export type DecisionMakerCompany = {
   match_id: string
   name: string
   linkedin_url: string
+  // Numeric LinkedIn company ids observed by the upstream company source.
+  // LinkedIn may return the same company as either a slug URL or a numeric
+  // canonical URL, so both aliases must be frozen into the priced plan.
+  linkedin_company_ids?: string[]
+}
+
+export function normalizeLinkedInCompanyIds(values: unknown[]): string[] {
+  return [...new Set(values.flatMap((value) => {
+    if (typeof value !== 'string') return []
+    const id = value.trim()
+    return /^\d+$/.test(id) ? [id] : []
+  }))].sort().slice(0, 8)
+}
+
+export function linkedInCompanyIdsFromEvidence(
+  rows: Array<{ providerRef?: Record<string, unknown> | null }>,
+): string[] {
+  return normalizeLinkedInCompanyIds(rows.map((row) => {
+    const detail = row.providerRef?.detail
+    if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return null
+    return (detail as Record<string, unknown>).linkedin_company_id
+  }))
 }
 
 export type DecisionMakerResolvePlan = {
@@ -262,6 +284,12 @@ function normalizedCompanyUrl(value: string): string {
   return `${url.hostname.toLowerCase().replace(/^www\./, '')}${pathname}`
 }
 
+function linkedInCompanyId(value: string): string | null {
+  const url = new URL(value)
+  const match = url.pathname.match(/^\/company\/(\d+)\/?$/i)
+  return match?.[1] ?? null
+}
+
 function locationIdentity(value: unknown): Pick<CandidateIdentity, 'location' | 'city' | 'region' | 'country_code'> {
   const row = record(value)
   const parsed = record(row?.parsed)
@@ -336,13 +364,19 @@ export function normalizeApifyCompanyEmployeeItem(
   const companyByUrl = new Map(
     companies.map((company) => [normalizedCompanyUrl(company.linkedin_url), company]),
   )
+  const parentCompanyIds = new Set(
+    normalizeLinkedInCompanyIds(parent.linkedin_company_ids ?? []),
+  )
   const positions = currentPositions(row.currentPositions ?? row.currentPosition)
   const parentName = normalizedCompanyName(parent.name)
   const position = positions.find((entry) => {
     // Prefer the strongest field and never let a matching display name
-    // override a contradictory URL.
+    // override a contradictory URL. A numeric LinkedIn URL is also strong
+    // when that id was frozen from the upstream company-source evidence.
     if (entry.companyUrl) {
+      const companyId = linkedInCompanyId(entry.companyUrl)
       return companyByUrl.has(normalizedCompanyUrl(entry.companyUrl))
+        || Boolean(companyId && parentCompanyIds.has(companyId))
     }
     return Boolean(
       entry.companyName && normalizedCompanyName(entry.companyName) === parentName,
@@ -384,7 +418,7 @@ export function normalizeApifyCompanyEmployeeItem(
           parent_company_match_id: parent.match_id,
           parent_company_url: parent.linkedin_url,
           current_title: position.title,
-          company_binding: 'single_company_query_echo_v1',
+          company_binding: 'single_company_query_echo_with_alias_v2',
         },
       }],
     },
@@ -522,7 +556,7 @@ export function createApifyCompanyEmployeesAdapter(
       const providerReceipt = (extras: Record<string, unknown> = {}) => receipt(outcome, {
         max_charge_usd: maxChargeUsd,
         company_batch_mode: 'all_at_once',
-        company_binding: 'single_company_query_echo_v1',
+        company_binding: 'single_company_query_echo_with_alias_v2',
         companies_submitted: companies.length,
         job_titles_submitted: jobTitles.length,
         ...extras,

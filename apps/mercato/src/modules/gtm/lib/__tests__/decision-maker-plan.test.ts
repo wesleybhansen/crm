@@ -44,6 +44,7 @@ const companies = [
     match_id: '60000000-0000-4000-8000-000000000001',
     name: 'First Dental',
     linkedin_url: 'https://www.linkedin.com/company/first-dental/',
+    linkedin_company_ids: ['111111'],
   },
 ]
 
@@ -60,13 +61,16 @@ describe('decision-maker plan and qualification', () => {
     const second = buildDecisionMakerPlan({
       run,
       play,
-      companies: [...companies].reverse(),
+      companies: [...companies].reverse().map((company) => ({
+        ...company,
+        linkedin_company_ids: [...(company.linkedin_company_ids ?? [])].reverse(),
+      })),
       adapter,
       maxProfiles: 5,
     })
     expect(first.plan_hash).toBe(second.plan_hash)
     expect(first).toEqual(expect.objectContaining({
-      schema_version: '2',
+      schema_version: '3',
       available: true,
       company_count: 1,
       max_profiles: 5,
@@ -88,7 +92,22 @@ describe('decision-maker plan and qualification', () => {
     })
     const cap = buildDecisionMakerPlan({ run, play, companies, adapter, maxProfiles: 4 })
     const company = buildDecisionMakerPlan({ run, play, companies: companies.slice(0, 1), adapter, maxProfiles: 5 })
-    expect(new Set([base.plan_hash, title.plan_hash, cap.plan_hash, company.plan_hash]).size).toBe(4)
+    const companyId = buildDecisionMakerPlan({
+      run,
+      play,
+      companies: companies.map((entry) => entry.candidate_id.endsWith('1')
+        ? { ...entry, linkedin_company_ids: ['222222'] }
+        : entry),
+      adapter,
+      maxProfiles: 5,
+    })
+    expect(new Set([
+      base.plan_hash,
+      title.plan_hash,
+      cap.plan_hash,
+      company.plan_hash,
+      companyId.plan_hash,
+    ]).size).toBe(5)
   })
 
   it('returns an unavailable zero-credit plan when the dedicated price gate is absent', () => {
