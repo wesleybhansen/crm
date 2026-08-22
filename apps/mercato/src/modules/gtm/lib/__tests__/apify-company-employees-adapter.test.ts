@@ -95,6 +95,11 @@ function employeeItem(overrides: Record<string, unknown> = {}) {
       companyName: 'Example Dental',
       companyLinkedinUrl: 'https://www.linkedin.com/company/example-dental/',
     }],
+    _meta: {
+      query: {
+        currentCompanies: ['https://www.linkedin.com/company/example-dental/'],
+      },
+    },
     ...overrides,
   }
 }
@@ -157,7 +162,7 @@ describe('Apify company-employees decision-maker contract', () => {
     })
   })
 
-  it('normalizes only a person currently bound to an exact submitted company', () => {
+  it('normalizes only a person bound to the sole company echoed by the provider', () => {
     expect(normalizeApifyCompanyEmployeeItem(
       employeeItem(),
       CLOCK.toISOString(),
@@ -183,6 +188,67 @@ describe('Apify company-employees decision-maker contract', () => {
         companyLinkedinUrl: 'https://www.linkedin.com/company/another-company/',
       }],
     }), CLOCK.toISOString(), COMPANIES)).toBeNull()
+    expect(normalizeApifyCompanyEmployeeItem(employeeItem({
+      currentPosition: [{
+        position: 'Owner',
+        companyName: 'Example Dental',
+        companyLinkedinUrl: 'https://www.linkedin.com/company/another-company/',
+      }],
+    }), CLOCK.toISOString(), COMPANIES)).toBeNull()
+  })
+
+  it('supports the live plural-position shape without guessing a batched company', () => {
+    const liveShape = employeeItem({
+      currentPosition: undefined,
+      currentPositions: [{
+        title: 'Practice Owner',
+        companyName: 'Example Dental',
+      }],
+    })
+    expect(normalizeApifyCompanyEmployeeItem(
+      liveShape,
+      CLOCK.toISOString(),
+      COMPANIES,
+    )).toEqual(expect.objectContaining({
+      parent_company_url: COMPANIES[0].linkedin_url,
+      current_title: 'Practice Owner',
+    }))
+
+    expect(normalizeApifyCompanyEmployeeItem(employeeItem({
+      _meta: {
+        query: {
+          currentCompanies: [
+            'https://www.linkedin.com/company/example-dental/',
+            'https://www.linkedin.com/company/another-company/',
+          ],
+        },
+      },
+    }), CLOCK.toISOString(), COMPANIES)).toBeNull()
+    expect(normalizeApifyCompanyEmployeeItem(employeeItem({
+      _meta: undefined,
+    }), CLOCK.toISOString(), COMPANIES)).toBeNull()
+  })
+
+  it('rejects a multi-company plan before provider contact', async () => {
+    const runActor = jest.fn()
+    const result = await createApifyCompanyEmployeesAdapter({
+      env: ENABLED_ENV,
+      now,
+      runActor,
+    }).resolve({
+      ...PLAN,
+      companies: [...COMPANIES, {
+        candidate_id: '10000000-0000-4000-8000-000000000002',
+        match_id: '20000000-0000-4000-8000-000000000002',
+        name: 'Another Company',
+        linkedin_url: 'https://www.linkedin.com/company/another-company/',
+      }],
+    })
+    expect(result).toEqual(expect.objectContaining({
+      status: 'error',
+      error: expect.stringContaining('exactly one company'),
+    }))
+    expect(runActor).not.toHaveBeenCalled()
   })
 
   it('executes once, excludes raw body data, and charges returned profiles plus one start', async () => {

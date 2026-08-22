@@ -54,7 +54,7 @@ describe('decision-maker plan and qualification', () => {
     ])
   })
 
-  it('freezes sorted companies, roles, descriptor, start, and profile cost into the hash', () => {
+  it('freezes one deterministic company, roles, descriptor, start, and profile cost into the hash', () => {
     const adapter = createApifyCompanyEmployeesAdapter({ env: ENABLED_ENV })
     const first = buildDecisionMakerPlan({ run, play, companies, adapter, maxProfiles: 5 })
     const second = buildDecisionMakerPlan({
@@ -66,9 +66,9 @@ describe('decision-maker plan and qualification', () => {
     })
     expect(first.plan_hash).toBe(second.plan_hash)
     expect(first).toEqual(expect.objectContaining({
-      schema_version: '1',
+      schema_version: '2',
       available: true,
-      company_count: 2,
+      company_count: 1,
       max_profiles: 5,
       provider_units: 50,
       quoted_credits_per_unit: 250,
@@ -77,7 +77,6 @@ describe('decision-maker plan and qualification', () => {
     }))
     expect(first.companies.map((company) => company.candidate_id)).toEqual([
       '50000000-0000-4000-8000-000000000001',
-      '50000000-0000-4000-8000-000000000002',
     ])
   })
 
