@@ -135,6 +135,10 @@ export type ApifyRunOutcome = {
 
 export type ApifyRunOptions = {
   token: string
+  // Optional immutable build number/tag. When supplied, it is sent as the
+  // documented `build` query parameter so a reviewed marketplace contract
+  // cannot silently drift with the Actor's `latest` tag.
+  build?: string
   timeoutMs?: number
   maxItems?: number
   // Hard per-run provider spend cap in USD. REQUIRED by the API (see the
@@ -201,13 +205,22 @@ export function normalizeMaxChargeUsd(value: unknown): number {
   if (!Number.isFinite(parsed) || parsed <= APIFY_MIN_CHARGE_USD) return APIFY_MIN_CHARGE_USD
   // round UP to cents-of-a-cent so float noise can never land us under the
   // minimum, and so the value we send is the value we can show on a receipt
-  return Math.ceil(parsed * 10_000) / 10_000
+  const scaled = parsed * 10_000
+  const nearestInteger = Math.round(scaled)
+  // Decimal values such as 0.101 can become 1010.0000000000001 in binary.
+  // Treat only machine-noise-distance values as exact; a genuinely larger
+  // requested cap still rounds upward as the safety contract requires.
+  const integerUnits = Math.abs(scaled - nearestInteger) < 1e-9
+    ? nearestInteger
+    : Math.ceil(scaled)
+  return integerUnits / 10_000
 }
 
 export function buildRunSyncUrl(
   actorId: string,
   options: {
     token: string
+    build?: string
     tokenTransport: 'header' | 'query'
     timeoutMs: number
     maxItems?: number
@@ -215,6 +228,8 @@ export function buildRunSyncUrl(
   },
 ): { url: string; redactedUrl: string } {
   const params: string[] = []
+  const build = options.build?.trim()
+  if (build) params.push(`build=${encodeURIComponent(build)}`)
   // Apify's own run timeout, in seconds, kept just under our client deadline
   // so the provider gives up before we do where possible.
   params.push(`timeout=${Math.max(1, Math.floor(options.timeoutMs / 1000))}`)
@@ -252,6 +267,7 @@ export async function runActorSync(
 
   const { url, redactedUrl } = buildRunSyncUrl(actorId, {
     token: options.token,
+    build: options.build,
     tokenTransport,
     timeoutMs,
     maxItems: options.maxItems,

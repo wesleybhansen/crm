@@ -11,18 +11,21 @@ describe('selected GTM provider catalog', () => {
     })
     expect(catalog.items.map((row) => row.id)).toEqual([
       'dataforseo-google-maps',
+      'apify-linkedin-company-search',
       'apify-linkedin-post-comments',
       'apify-linkedin-profile',
       'apify-linkedin-profile-email',
     ])
     expect(catalog.items.map((row) => row.provider_usd_per_unit)).toEqual([
       0.002,
+      0.004,
       0.002,
       0.004,
       0.01,
     ])
     expect(catalog.items.map((row) => row.estimated_noli_credits_per_unit)).toEqual([
       1_000,
+      2_000,
       1_000,
       2_000,
       5_000,

@@ -733,7 +733,37 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R9-A - exact rights/price/retention closure | Completed locally | 2026-08-21 | Exact versions + 30-day JSON retention; one `$0.002`/100-result task |
 | R9-B - validation and freeze | Completed locally | 2026-08-21 | 67/68 suites and 730 tests passed; one opt-in PostgreSQL suite skipped; TypeScript, focused lint, and diff checks passed |
 
-## 31. Changelog
+## 31. R16 accepted-yield Apify company source (approved 2026-08-22)
+
+### 31.1 Customer-work-product contract
+
+- `harvestapi/linkedin-company-search` is an additive company source for the `firmographic_match` signal. It supplies the industry, employee count/range, public company URL, website, and structured US location fields required to move otherwise-valid company candidates from `review` to an evidence-supported `accepted` or `rejected` decision.
+- The frozen actor/build is `harvestapi/linkedin-company-search` `0.0.17`. The only supported mode is `full`; each request binds a bounded query, at most 20 locations, exact supported company-size buckets, a deterministic page, and at most 100 rows.
+- Provider output is evidence, not truth by declaration. A usable row requires a public LinkedIn company URL and name; parser drift that leaves no usable identity is ambiguous, not free. Qualification remains deterministic `fit-v5` and retains criterion-level observed evidence and unknowns.
+- This source does not find or verify personal email, send outreach, ingest mailboxes, or make a campaign public. LeadMagic and Bouncer remain excluded.
+
+### 31.2 Money, rights, and activation boundary
+
+- The conservative Free/Bronze quote is code-bound to `$0.004` per full-company result plus one `$0.001` actor-start event per run. The fixed start is represented as `0.25` full-company units so quote, reservation, provider cap, settlement, and reconciliation share one unit vocabulary.
+- A company-source quote reserves the maximum row events plus the start event and sends the reservation-derived `maxTotalChargeUsd` to Apify. Empty definitive runs charge only the start event. Timeout, transport uncertainty, or unusable billed rows park the operation as ambiguous and never trigger a silent retry.
+- Eligibility requires the existing exact Apify customer-use, terms, and selected-stack price gates plus `GTM_APIFY_COMPANY_PRICE_VERSION=harvestapi-linkedin-company-search-0.0.17-free-bronze-2026-08-22`. An optional actor override is accepted only when it equals the frozen actor id. A token or broad Apify flag cannot activate this capability by itself.
+- The owner approved Apify for this workflow. Because this is a Community Actor, Noli still owns source-platform compliance, minimization, evidence retention, suppression, deletion, and outreach decisions. Credentials and technical success do not delegate those duties to Apify.
+
+### 31.3 Acceptance and release posture
+
+- Network-free tests cover exact gate failure, actor override refusal, frozen input construction, quote arithmetic including the start event, firmographic normalization, URL validation, definitive empty billing, transport ambiguity, and no-call behavior while ineligible.
+- Research-plan tests freeze firmographic filters, price version, descriptor hash, and the actor-start charge into the immutable quote before any provider call.
+- R16 may deploy dark with the company-specific gate absent. Owner-only activation and one bounded golden motion may follow only after the merged artifact is running and existing execution, mailbox-ingestion, and public-promotion gates remain off.
+
+### 31.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R16-A - company-source contract | Completed locally | 2026-08-22 | Exact actor/build, input, output, evidence, rights, and event-price contract |
+| R16-B - validation and freeze | Completed locally | 2026-08-22 | 70/71 suites and 758 tests passed; one opt-in PostgreSQL suite and its seven tests skipped; whole-repository TypeScript, lint (zero errors), production build, deployment-security, and diff checks green |
+| R16-C - owner-only golden motion | Pending | 2026-08-22 | No R16 provider call or customer/public exposure yet |
+
+## 32. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -766,3 +796,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-21: Completed R8 around the current eligible Apify actor stack. Only LinkedIn post comments and exact profile enrichment are selectable; post search, reactions, X, and arbitrary actor overrides fail closed. Current exact terms/price versions and code-bound selected-actor rates are required, and Apify remains disabled.
 - 2026-08-21: Added R9 around the written DataForSEO rights/rate/retention clarification. Eligibility now requires exact June 12 terms, exact current price version, 30-day JSON retention, and one code-bound `$0.002` Live Advanced task capped at 100 rows; no provider call or production configuration changed.
 - 2026-08-22: Corrected the production-proven DataForSEO Maps location contract to emit canonical US location names, retain task-level validation truth, and fail a run honestly when every provider batch errors. The observed rejected task was authoritatively zero-cost and fully refunded; this correction makes no provider call by itself.
+- 2026-08-22: Added R16's exact Apify LinkedIn company-search contract for accepted-yield firmographics. It freezes the actor/build, supported filters, public evidence shape, `$0.004` full-company event, `$0.001` actor-start event, and a separate exact price-version gate; no R16 provider call or exposure change occurred in this code tranche.
