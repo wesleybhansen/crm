@@ -117,54 +117,6 @@ export async function POST(req: Request) {
     })
     if (!play) return opaqueNotFound()
 
-    if (body.op === 'status') {
-      const relations = await em.find(GtmCandidateRelation, {
-        organizationId,
-        tenantId,
-        researchRunId: run.id,
-        deletedAt: null,
-      }, { orderBy: { createdAt: 'desc' }, limit: 500 })
-      const childIds = [...new Set(relations.map((relation) => relation.childCandidateId))]
-      const matches = childIds.length > 0
-        ? await em.find(GtmCandidateMatch, {
-            organizationId,
-            tenantId,
-            researchRunId: run.id,
-            candidateId: { $in: childIds },
-            deletedAt: null,
-          }, { limit: 500 })
-        : []
-      const operations = await em.find(GtmProviderOperation, {
-        organizationId,
-        tenantId,
-        researchRunId: run.id,
-        kind: 'decision_maker_resolution',
-      }, { orderBy: { requestedAt: 'desc' }, limit: 50 })
-      return NextResponse.json({
-        ok: true,
-        status: {
-          companies_with_people: new Set(relations.map((relation) => relation.parentCandidateId)).size,
-          people: childIds.length,
-          accepted: matches.filter((match) => match.fitStatus === 'accepted').length,
-          review: matches.filter((match) => match.fitStatus === 'review').length,
-          rejected: matches.filter((match) => match.fitStatus === 'rejected').length,
-          operations: operations.length,
-          reconciliation_required: operations.filter(
-            (operation) => operation.localStatusMirror === 'reconciliation_required'
-              || operation.localStatusMirror === 'provider_started',
-          ).length,
-          latest_operation_status: operations[0]?.localStatusMirror ?? null,
-        },
-      })
-    }
-
-    if (run.status !== 'completed') {
-      return NextResponse.json(
-        { ok: false, error: 'Decision-maker resolution requires a completed research run' },
-        { status: 409 },
-      )
-    }
-
     const acceptedMatches = await em.find(GtmCandidateMatch, {
       organizationId,
       tenantId,
@@ -185,7 +137,7 @@ export async function POST(req: Request) {
         }, { limit: 100 })
       : []
     const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]))
-    const baseCompanies = acceptedMatches.flatMap((match) => {
+    const baseCompanies = acceptedMatches.flatMap((match, selectionRank) => {
       const candidate = candidateById.get(match.candidateId)
       if (!candidate) return []
       const linkedinUrl = linkedInCompanyUrl(candidate.identity)
@@ -198,10 +150,88 @@ export async function POST(req: Request) {
         match_id: match.id,
         name,
         linkedin_url: linkedinUrl,
+        selection_rank: selectionRank,
       }]
     })
+    const operations = await em.find(GtmProviderOperation, {
+      organizationId,
+      tenantId,
+      researchRunId: run.id,
+      kind: 'decision_maker_resolution',
+    }, { orderBy: { requestedAt: 'desc' }, limit: 500 })
+    const {
+      buildDecisionMakerPlan,
+      decisionMakerAttemptForCompany,
+      hasUnresolvedDecisionMakerOperations,
+      processedDecisionMakerCompanyIds,
+    } = await import('../../../lib/decision-makers/plan')
+    const processedCompanyIds = processedDecisionMakerCompanyIds(operations)
+    const unresolvedOperationCount = operations.filter((operation) => (
+      operation.localStatusMirror === 'reconciliation_required'
+      || operation.localStatusMirror === 'provider_started'
+    )).length
+
+    if (body.op === 'status') {
+      const relations = await em.find(GtmCandidateRelation, {
+        organizationId,
+        tenantId,
+        researchRunId: run.id,
+        deletedAt: null,
+      }, { orderBy: { createdAt: 'desc' }, limit: 500 })
+      const childIds = [...new Set(relations.map((relation) => relation.childCandidateId))]
+      const matches = childIds.length > 0
+        ? await em.find(GtmCandidateMatch, {
+            organizationId,
+            tenantId,
+            researchRunId: run.id,
+            candidateId: { $in: childIds },
+            deletedAt: null,
+          }, { limit: 500 })
+        : []
+      const eligibleCompanyIds = new Set(baseCompanies.map((company) => company.candidate_id))
+      const processedCompanyCount = [...processedCompanyIds]
+        .filter((candidateId) => eligibleCompanyIds.has(candidateId)).length
+      return NextResponse.json({
+        ok: true,
+        status: {
+          companies_with_people: new Set(relations.map((relation) => relation.parentCandidateId)).size,
+          people: childIds.length,
+          accepted: matches.filter((match) => match.fitStatus === 'accepted').length,
+          review: matches.filter((match) => match.fitStatus === 'review').length,
+          rejected: matches.filter((match) => match.fitStatus === 'rejected').length,
+          eligible_companies: eligibleCompanyIds.size,
+          processed_companies: processedCompanyCount,
+          remaining_companies: Math.max(0, eligibleCompanyIds.size - processedCompanyCount),
+          operations: operations.length,
+          reconciliation_required: unresolvedOperationCount,
+          latest_operation_status: operations[0]?.localStatusMirror ?? null,
+        },
+      })
+    }
+
+    if (run.status !== 'completed') {
+      return NextResponse.json(
+        { ok: false, error: 'Decision-maker resolution requires a completed research run' },
+        { status: 409 },
+      )
+    }
+    if (hasUnresolvedDecisionMakerOperations(operations)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Reconcile the previous provider result before checking another company',
+          code: 'reconciliation_required',
+        },
+        { status: 409 },
+      )
+    }
+
     const selectedCompanyCandidateId = [...baseCompanies]
-      .sort((left, right) => left.candidate_id.localeCompare(right.candidate_id))[0]?.candidate_id
+      .filter((company) => !processedCompanyIds.has(company.candidate_id))
+      .sort((left, right) => (
+        left.selection_rank - right.selection_rank
+        || left.candidate_id.localeCompare(right.candidate_id)
+      ))[0]?.candidate_id
     const evidenceRows = selectedCompanyCandidateId
       ? await em.find(GtmEvidence, {
           organizationId,
@@ -217,13 +247,13 @@ export async function POST(req: Request) {
         ? linkedInCompanyIdsFromEvidence(evidenceRows)
         : [],
     }))
+    const attempt = decisionMakerAttemptForCompany(operations, selectedCompanyCandidateId ?? null)
 
     const { decisionMakerAdapter } = await import('../../../lib/adapters/registry')
     const selectedAdapter = decisionMakerAdapter()
     const adapter = selectedAdapter ?? (await import(
       '../../../lib/adapters/apify/company-employees'
     )).createApifyCompanyEmployeesAdapter()
-    const { buildDecisionMakerPlan } = await import('../../../lib/decision-makers/plan')
     const plan = buildDecisionMakerPlan({
       run,
       play,
@@ -231,6 +261,8 @@ export async function POST(req: Request) {
       adapter,
       jobTitles: body.jobTitles,
       maxProfiles: body.maxProfiles,
+      processedCompanyIds,
+      attempt,
     })
     if (body.op === 'plan') return NextResponse.json({ ok: true, plan })
 

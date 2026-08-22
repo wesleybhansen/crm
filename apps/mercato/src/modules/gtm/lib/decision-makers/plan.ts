@@ -48,7 +48,7 @@ export function recommendedDecisionMakerTitles(play: Pick<GtmPlay, 'audience' | 
 }
 
 export type DecisionMakerPlan = {
-  schema_version: '3'
+  schema_version: '4'
   plan_hash: string
   available: boolean
   run_id: string
@@ -56,6 +56,11 @@ export type DecisionMakerPlan = {
   workspace_id: string
   companies: DecisionMakerCompany[]
   company_count: number
+  total_company_count: number
+  processed_company_count: number
+  remaining_company_count: number
+  company_position: number | null
+  attempt: number
   job_titles: string[]
   max_profiles: number
   adapter_id: string
@@ -69,6 +74,73 @@ export type DecisionMakerPlan = {
   note: string
 }
 
+export type DecisionMakerOperationProjection = {
+  localStatusMirror?: string | null
+  settledAt?: Date | string | null
+  receipt?: Record<string, unknown> | null
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function receiptPlan(operation: DecisionMakerOperationProjection): Record<string, unknown> | null {
+  return record(operation.receipt?.decision_maker_plan)
+}
+
+function receiptCompanyIds(operation: DecisionMakerOperationProjection): string[] {
+  const values = receiptPlan(operation)?.company_candidate_ids
+  return Array.isArray(values)
+    ? values.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : []
+}
+
+export function hasUnresolvedDecisionMakerOperations(
+  operations: DecisionMakerOperationProjection[],
+): boolean {
+  return operations.some((operation) => (
+    operation.localStatusMirror === 'provider_started'
+    || operation.localStatusMirror === 'reconciliation_required'
+  ))
+}
+
+export function processedDecisionMakerCompanyIds(
+  operations: DecisionMakerOperationProjection[],
+): Set<string> {
+  const processed = new Set<string>()
+  for (const operation of operations) {
+    if (
+      operation.localStatusMirror !== 'charged'
+      && operation.localStatusMirror !== 'partially_charged'
+    ) continue
+    if (!operation.settledAt) continue
+    const plan = receiptPlan(operation)
+    const schemaVersion = Number(plan?.schema_version)
+    if (!Number.isFinite(schemaVersion) || schemaVersion < 3) continue
+    const companyIds = receiptCompanyIds(operation)
+    if (companyIds.length === 1) processed.add(companyIds[0])
+  }
+  return processed
+}
+
+export function decisionMakerAttemptForCompany(
+  operations: DecisionMakerOperationProjection[],
+  candidateId: string | null,
+): number {
+  if (!candidateId) return 1
+  let latestAttempt = 0
+  for (const operation of operations) {
+    const plan = receiptPlan(operation)
+    if (Number(plan?.schema_version) < 4) continue
+    if (receiptCompanyIds(operation)[0] !== candidateId) continue
+    const attempt = Number(plan?.attempt)
+    if (Number.isInteger(attempt) && attempt > latestAttempt) latestAttempt = attempt
+  }
+  return latestAttempt + 1
+}
+
 export function buildDecisionMakerPlan(args: {
   run: Pick<GtmResearchRun, 'id' | 'playId' | 'workspaceId'>
   companies: DecisionMakerCompany[]
@@ -77,14 +149,32 @@ export function buildDecisionMakerPlan(args: {
   jobTitles?: string[] | null
   maxProfiles?: number | null
   markupMultiplier?: number
+  processedCompanyIds?: Iterable<string>
+  attempt?: number
 }): DecisionMakerPlan {
-  const companies = args.companies
-    .map((company) => ({
+  const rankedCompanies = args.companies
+    .map((company, index) => ({
       ...company,
+      selection_rank: Number.isInteger(company.selection_rank) && Number(company.selection_rank) >= 0
+        ? Number(company.selection_rank)
+        : index,
       linkedin_company_ids: normalizeLinkedInCompanyIds(company.linkedin_company_ids ?? []),
     }))
-    .sort((left, right) => left.candidate_id.localeCompare(right.candidate_id))
+    .sort((left, right) => (
+      left.selection_rank - right.selection_rank
+      || left.candidate_id.localeCompare(right.candidate_id)
+    ))
+  const eligibleCompanyIds = new Set(rankedCompanies.map((company) => company.candidate_id))
+  const processedCompanyIds = new Set(
+    [...(args.processedCompanyIds ?? [])].filter((candidateId) => eligibleCompanyIds.has(candidateId)),
+  )
+  const companies = rankedCompanies
+    .filter((company) => !processedCompanyIds.has(company.candidate_id))
     .slice(0, APIFY_COMPANY_EMPLOYEES_MAX_COMPANIES)
+  const remainingCompanyCount = Math.max(0, rankedCompanies.length - processedCompanyIds.size)
+  const attempt = Number.isSafeInteger(args.attempt) && Number(args.attempt) > 0
+    ? Number(args.attempt)
+    : 1
   const requestedTitles = normalizeDecisionMakerTitles(args.jobTitles ?? [])
   const jobTitles = requestedTitles.length > 0
     ? requestedTitles
@@ -128,11 +218,12 @@ export function buildDecisionMakerPlan(args: {
       )
     : 0
   const frozen = {
-    schema_version: '3' as const,
+    schema_version: '4' as const,
     run_id: args.run.id,
     play_id: args.run.playId,
     workspace_id: args.run.workspaceId,
     companies,
+    attempt,
     job_titles: jobTitles,
     max_profiles: maxProfiles,
     adapter_id: descriptor.adapter_id,
@@ -153,6 +244,11 @@ export function buildDecisionMakerPlan(args: {
     workspace_id: frozen.workspace_id,
     companies,
     company_count: companies.length,
+    total_company_count: rankedCompanies.length,
+    processed_company_count: processedCompanyIds.size,
+    remaining_company_count: remainingCompanyCount,
+    company_position: companies[0] ? companies[0].selection_rank + 1 : null,
+    attempt,
     job_titles: jobTitles,
     max_profiles: maxProfiles,
     adapter_id: frozen.adapter_id,
@@ -163,6 +259,8 @@ export function buildDecisionMakerPlan(args: {
     price_version: frozen.price_version,
     terms_version: frozen.terms_version,
     descriptor_hash: frozen.descriptor_hash,
-    note: 'Maximum authorized ceiling for one safely bound company. Basic profile discovery creates named people only; verified email remains a separate gate.',
+    note: companies.length > 0
+      ? 'One company is checked at a time so every person stays attributable. Basic profile discovery creates named people only; verified email remains a separate gate.'
+      : 'Every eligible accepted company in this run has been checked for this lead set.',
   }
 }

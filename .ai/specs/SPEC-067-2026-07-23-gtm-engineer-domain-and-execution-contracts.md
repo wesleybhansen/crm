@@ -826,9 +826,36 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 |---|---|---|---|
 | R21-A - provider/identity/API contract | Completed locally | 2026-08-22 | Exact actor, conservative Basic/Short price/start events, company/person relation and plan hash frozen |
 | R21-B - deterministic implementation and migration | Completed locally | 2026-08-22 | 73 GTM suites / 789 tests, TypeScript, lint, CRM and Hub production builds, Hub 1,226 tests, and disposable migration apply/reapply green; no external call made |
-| R21-C - owner-only golden motion | In progress | 2026-08-22 | The first run proved the `$0.05` Actor minimum; the second completed for `$0.029` but its three multi-company rows were safely withheld and reconciled as partially charged. The first single-company run also cost `$0.029`; it proved the Actor can echo the correct slug while returning the same company in a current position under its numeric canonical URL. Plan schema v3 binds that alias only through the frozen upstream company id; unrelated rows remain rejected. |
+| R21-C - owner-only golden motion | Completed | 2026-08-22 | The final single-company run cost `$0.029`, returned three rows, safely dropped two unrelated rows, persisted one company-bound person and relation, and settled as partially charged. The person remains `review`; no email, campaign, mailbox, or send work occurred. Plan schema v3 binds the Actor's numeric canonical company URL only through the frozen upstream company id. |
 
-## 34. Changelog
+## 34. R24 progressive decision-maker continuation (approved 2026-08-22)
+
+### 34.1 Continuation and money contract
+
+- A decision-maker operation remains bounded to one accepted company. The next plan chooses the earliest eligible company in the frozen accepted-match order that has not already reached a definitive `charged` or `partially_charged` canonical mirror with a durable settlement timestamp. A charged operator reconciliation advances the company even when the original provider observation was ambiguous; a refunded reconciliation leaves it eligible for an explicit retry.
+- `provider_started` and `reconciliation_required` are unresolved money truth. Either state blocks every later company plan or run until the existing operation is reconciled; the workflow never skips an ambiguous provider outcome to spend on another company.
+- A refunded or otherwise non-processed company remains eligible. Plan schema v4 binds a monotonically increasing per-company attempt to the immutable plan hash so an explicitly retried operation cannot alias an earlier quote or provider operation.
+- Legacy schema-v3 single-company results count as processed only when the local canonical mirror is terminal, settlement is not pending, and the receipt identifies exactly one company. Multi-company legacy receipts never advance the runway.
+
+### 34.2 Owner UI and release boundary
+
+- Status and plan responses add eligible, processed, remaining, and current company-position fields without removing existing fields. The Hub presents these as a compact lead runway and previews one bounded company at a time before exact quote confirmation.
+- Completion means every currently eligible accepted company was checked; it does not mean every company produced a person, that every person qualified, or that any email address is available or verified.
+- R24 adds no entity, migration, provider capability, flag, public promotion, mailbox ingestion, or email execution. The deployed experience remains owner-only; validating the next-company preview does not authorize another provider call.
+
+### 34.3 Acceptance and rollback
+
+- Deterministic tests prove settled success/no-result progression, unresolved-operation blocking, refunded retry attempts, stable accepted-match ordering, immutable attempt hashing, and the completed-run state.
+- Rollback is the prior CRM and Hub images. No database rollback or destructive migration is required.
+
+### 34.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R24-A - continuation contract | Completed locally | 2026-08-22 | Plan schema v4 freezes one-company rank, progress, and retry attempt; unresolved canonical money truth blocks continuation |
+| R24-B - lead-runway UI and validation | Completed locally | 2026-08-22 | 73/74 GTM suites and 799 tests pass (only the opt-in PostgreSQL suite skipped); CRM/Hub typechecks and production builds pass; Hub 1,228 tests pass; no provider call, schema, flag, mailbox, or email change |
+
+## 35. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -867,4 +894,5 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-22: Approved R21's accepted-company decision-maker resolver. The tranche freezes a Basic/Short Apify company-employees contract, additive company/person relation evidence, exact quote confirmation, and owner-only UI while keeping email verification, execution, mailbox ingestion, and public GTM promotion off.
 - 2026-08-22: Completed R21 locally with a conservative `$0.004`-per-profile quote while the Actor's public pricing table and input label differ. Added deterministic company-to-person evidence, privacy/retention handling, canonical-ledger single-flight, owner-only Hub quote/confirm controls, and generator-owned `Migration20260822181927_gtm`; all local gates passed without a provider or email call.
 - 2026-08-22: The R21 owner-only provider run returned the current plural `currentPositions[].title` shape and charged `$0.029`, but its batch echo could not safely bind any of three rows to one of ten submitted companies. No person, contact point, or relation was persisted. Plan schema v2 now permits exactly one frozen company per operation and requires the row's single `_meta.query.currentCompanies` URL to match it before persistence; plural and legacy position shapes remain covered without name-only guessing.
+- 2026-08-22: Completed the R21 owner-only golden motion with one safely company-bound person from a bounded three-row response; the other two rows were withheld and the operation reconciled as partially charged. Added R24 progressive one-company continuation and the owner lead runway without opening another provider, mailbox, email, or public GTM gate.
 - 2026-08-22: The first schema-v2 single-company run returned three profiles for one submitted company. Two current positions belonged to unrelated companies and were correctly withheld. The third named the submitted company but used LinkedIn's numeric canonical company URL already present as `linkedin_company_id` in the upstream source evidence, so all three were conservatively parked. Plan schema v3 freezes that id and accepts only the exact slug or exact frozen numeric alias while preserving fail-closed behavior for contradictory URLs.

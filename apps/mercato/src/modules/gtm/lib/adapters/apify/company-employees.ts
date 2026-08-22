@@ -68,6 +68,7 @@ export type DecisionMakerCompany = {
   match_id: string
   name: string
   linkedin_url: string
+  selection_rank?: number
   // Numeric LinkedIn company ids observed by the upstream company source.
   // LinkedIn may return the same company as either a slug URL or a numeric
   // canonical URL, so both aliases must be frozen into the priced plan.
