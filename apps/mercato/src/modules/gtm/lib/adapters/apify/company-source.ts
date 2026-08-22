@@ -408,7 +408,7 @@ export function normalizeApifyCompanyItem(
 }
 
 function receipt(
-  outcome: Pick<ApifyRunOutcome, 'actorId' | 'runId' | 'itemCount' | 'kind' | 'httpStatus' | 'requestUrl' | 'attemptedAt' | 'bodySnippet'>,
+  outcome: Pick<ApifyRunOutcome, 'actorId' | 'runId' | 'itemCount' | 'kind' | 'httpStatus' | 'requestUrl' | 'attemptedAt'>,
   extras: Record<string, unknown> = {},
 ) {
   return {
@@ -420,7 +420,6 @@ function receipt(
     http_status: outcome.httpStatus,
     request_url: outcome.requestUrl,
     attempted_at: outcome.attemptedAt,
-    ...(outcome.bodySnippet != null ? { body_snippet: outcome.bodySnippet } : {}),
     ...extras,
   }
 }
