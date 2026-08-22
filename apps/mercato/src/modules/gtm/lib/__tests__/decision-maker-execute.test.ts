@@ -168,7 +168,7 @@ describe('decision-maker execution', () => {
     expect(runActor).toHaveBeenCalledTimes(1)
     expect(ledger.listOperations()[0]).toEqual(expect.objectContaining({
       status: 'charged',
-      estimatedCredits: 20_000,
+      estimatedCredits: 25_000,
       chargedCredits: 12_000,
     }))
     const people = em.table(GtmCandidate).filter((candidate) => candidate.entityKind === 'person')

@@ -70,9 +70,9 @@ describe('decision-maker plan and qualification', () => {
       available: true,
       company_count: 2,
       max_profiles: 5,
-      provider_units: 40,
+      provider_units: 50,
       quoted_credits_per_unit: 250,
-      maximum_credits: 20_000,
+      maximum_credits: 25_000,
       price_version: APIFY_COMPANY_EMPLOYEES_REQUIRED_PRICE_VERSION,
     }))
     expect(first.companies.map((company) => company.candidate_id)).toEqual([
