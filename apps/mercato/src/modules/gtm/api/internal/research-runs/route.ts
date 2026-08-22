@@ -134,7 +134,14 @@ export async function POST(req: Request) {
     }
     const em = container.resolve('em') as EntityManager
     const entities = await import('../../../data/entities')
-    const { GtmPlay, GtmResearchRun, GtmCandidate, GtmProviderOperation, GtmAuditEvent } = entities
+    const {
+      GtmPlay,
+      GtmResearchRun,
+      GtmCandidate,
+      GtmCandidateMatch,
+      GtmProviderOperation,
+      GtmAuditEvent,
+    } = entities
     const { sourceAdapterList, sourceAdapterRegistry } = await import('../../../lib/adapters/registry')
     const requestId = req.headers.get('x-request-id')
 
@@ -490,14 +497,16 @@ export async function POST(req: Request) {
     if (!run) return opaqueNotFound()
 
     const scope = { organizationId, tenantId, researchRunId: run.id, deletedAt: null }
-    const [total, accepted, review, rejected, unscored, providerOperations] = await Promise.all([
-      em.count(GtmCandidate, scope),
-      em.count(GtmCandidate, { ...scope, fitStatus: 'accepted' }),
-      em.count(GtmCandidate, { ...scope, fitStatus: 'review' }),
-      em.count(GtmCandidate, { ...scope, fitStatus: 'rejected' }),
-      em.count(GtmCandidate, { ...scope, fitStatus: 'unscored' }),
+    const matchTotal = await em.count(GtmCandidateMatch, scope)
+    const CountEntity = matchTotal > 0 ? GtmCandidateMatch : GtmCandidate
+    const [accepted, review, rejected, unscored, providerOperations] = await Promise.all([
+      em.count(CountEntity, { ...scope, fitStatus: 'accepted' }),
+      em.count(CountEntity, { ...scope, fitStatus: 'review' }),
+      em.count(CountEntity, { ...scope, fitStatus: 'rejected' }),
+      em.count(CountEntity, { ...scope, fitStatus: 'unscored' }),
       em.count(GtmProviderOperation, scope),
     ])
+    const total = matchTotal > 0 ? matchTotal : await em.count(GtmCandidate, scope)
 
     return NextResponse.json({
       ok: true,

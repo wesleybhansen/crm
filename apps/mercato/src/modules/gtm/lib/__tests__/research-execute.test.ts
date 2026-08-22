@@ -15,6 +15,7 @@ import {
 } from '../research/execute'
 import {
   GtmCandidate,
+  GtmCandidateMatch,
   GtmEvidence,
   GtmProviderOperation,
   GtmResearchRun,
@@ -112,6 +113,8 @@ describe('executeResearchRun', () => {
     // fixture pool has 3 synthetic companies: charged 3 x 1 x 2 = 6
     expect(result.status).toBe('completed')
     expect(result.candidatesInserted).toBe(3)
+    expect(result.candidateMatchesCreated).toBe(3)
+    expect(result.candidatesReused).toBe(0)
     expect(result.evidenceInserted).toBe(3)
     expect(result.reconciledCredits).toBe(6)
     expect(result.reconciliationRequired).toBe(false)
@@ -129,6 +132,7 @@ describe('executeResearchRun', () => {
     // candidates qualified deterministically with retention set
     const candidates = em.table(GtmCandidate)
     expect(candidates).toHaveLength(3)
+    expect(em.table(GtmCandidateMatch)).toHaveLength(3)
     for (const candidate of candidates) {
       expect(candidate.fitStatus).toBe('accepted')
       expect(Number(candidate.fitScore)).toBeGreaterThanOrEqual(60)
@@ -583,12 +587,47 @@ describe('executeResearchRun', () => {
 
     expect(adapter.search).toHaveBeenCalledTimes(2)
     expect(result.candidatesInserted).toBe(3)
+    expect(result.candidateMatchesCreated).toBe(3)
     expect(result.duplicatesSkipped).toBe(3)
     expect(em.table(GtmCandidate)).toHaveLength(3)
+    expect(em.table(GtmCandidateMatch)).toHaveLength(3)
     expect(result.batches[0].idempotencyKey).toBe(`${run.id}:fixture-source:1`)
     expect(result.batches[1].idempotencyKey).toBe(`${run.id}:fixture-source:2`)
     expect(result.batches[1].candidatesInserted).toBe(0)
     expect(result.batches[1].duplicatesSkipped).toBe(3)
+  })
+
+  it('reuses workspace identities but records an independent qualification for a later run', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 200 })
+    const adapter = spyAdapter()
+    const first = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 3)],
+      query: 'companies hiring revenue operations leads',
+      maxCandidates: 3,
+      maxCredits: 12,
+    })
+    const second = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 3)],
+      query: 'the same companies for a later frozen play evaluation',
+      maxCandidates: 3,
+      maxCredits: 12,
+    })
+
+    const firstResult = await executeResearchRun(deps(em, ledger, first, [adapter]))
+    const secondResult = await executeResearchRun(deps(em, ledger, second, [adapter]))
+
+    expect(firstResult.candidatesInserted).toBe(3)
+    expect(secondResult.candidatesInserted).toBe(0)
+    expect(secondResult.candidatesReused).toBe(3)
+    expect(secondResult.candidateMatchesCreated).toBe(3)
+    expect(secondResult.duplicatesSkipped).toBe(0)
+    expect(secondResult.funnel.accepted).toBe(3)
+    expect(secondResult.funnel.acceptanceRate).toBe(1)
+    expect(em.table(GtmCandidate)).toHaveLength(3)
+    expect(em.table(GtmCandidateMatch)).toHaveLength(6)
+    expect(em.table(GtmCandidateMatch).filter((row) => row.researchRunId === second.id)).toHaveLength(3)
+    expect(em.table(GtmEvidence).filter((row) => row.researchRunId === second.id)).toHaveLength(3)
   })
 
   it('settles refunded on a definitive no_result for a pay_on_found adapter', async () => {

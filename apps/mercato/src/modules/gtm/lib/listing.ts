@@ -110,6 +110,7 @@ export async function candidateEnrichment(
   em: ListEm,
   ctx: ListCtx,
   candidateIds: string[],
+  options: { researchRunByCandidate?: Map<string, string> } = {},
 ): Promise<Map<string, CandidateEnrichment>> {
   const rollup = new Map<string, CandidateEnrichment>()
   const seenSources = new Map<string, Set<string>>()
@@ -139,6 +140,8 @@ export async function candidateEnrichment(
   // Provenance is derived from the SAME evidence rows already fetched above,
   // so transparency costs zero additional queries.
   for (const row of evidence) {
+    const expectedRun = options.researchRunByCandidate?.get(row.candidateId)
+    if (expectedRun && row.researchRunId !== expectedRun) continue
     const entry = rollup.get(row.candidateId)
     if (!entry) continue
     entry.evidenceCount += 1

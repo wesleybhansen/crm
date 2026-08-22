@@ -406,9 +406,84 @@ export class GtmCandidate {
   deletedAt?: Date | null
 }
 
+// A candidate is a workspace-wide deduplicated identity. Qualification is
+// contextual, however: the same company can fit one Audience Play and fail
+// another. This immutable-per-run association keeps those facts separate
+// without weakening the candidate identity constraint above.
+@Entity({ tableName: 'gtm_candidate_matches' })
+@Index({ name: 'gtm_candidate_matches_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'gtm_candidate_matches_org_tenant_run_idx', properties: ['organizationId', 'tenantId', 'researchRunId'] })
+@Index({ name: 'gtm_candidate_matches_org_tenant_play_idx', properties: ['organizationId', 'tenantId', 'playId'] })
+@Index({ name: 'gtm_candidate_matches_org_tenant_candidate_idx', properties: ['organizationId', 'tenantId', 'candidateId'] })
+@Unique({ name: 'gtm_candidate_matches_run_candidate_unique', properties: ['researchRunId', 'candidateId'] })
+export class GtmCandidateMatch {
+  [OptionalProps]?: 'id' | 'fitStatus' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => GtmWorkspace, { fieldName: 'workspace_id', mapToPk: true, deleteRule: 'cascade' })
+  workspaceId!: string
+
+  @ManyToOne(() => GtmPlay, { fieldName: 'play_id', mapToPk: true, deleteRule: 'cascade' })
+  playId!: string
+
+  @ManyToOne(() => GtmResearchRun, { fieldName: 'research_run_id', mapToPk: true, deleteRule: 'cascade' })
+  researchRunId!: string
+
+  @ManyToOne(() => GtmCandidate, { fieldName: 'candidate_id', mapToPk: true, deleteRule: 'cascade' })
+  candidateId!: string
+
+  @ManyToOne(() => GtmProviderOperation, {
+    fieldName: 'provider_operation_id',
+    mapToPk: true,
+    nullable: true,
+    deleteRule: 'set null',
+  })
+  providerOperationId?: string | null
+
+  // unscored | accepted | review | rejected
+  @Property({ name: 'fit_status', type: 'text', default: 'unscored' })
+  fitStatus: string = 'unscored'
+
+  @Property({ name: 'fit_score', type: 'decimal', precision: 6, scale: 3, nullable: true })
+  fitScore?: string | null
+
+  @Property({ name: 'reject_reason', type: 'text', nullable: true })
+  rejectReason?: string | null
+
+  @Property({ name: 'quality_status', type: 'text', nullable: true })
+  qualityStatus?: string | null
+
+  @Property({ name: 'quality_score', type: 'decimal', precision: 6, scale: 3, nullable: true })
+  qualityScore?: string | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  qualification?: Record<string, unknown> | null
+
+  @Property({ name: 'qualification_version', type: 'text', nullable: true })
+  qualificationVersion?: string | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'gtm_evidence' })
 @Index({ name: 'gtm_evidence_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'gtm_evidence_org_tenant_candidate_idx', properties: ['organizationId', 'tenantId', 'candidateId'] })
+@Index({ name: 'gtm_evidence_org_tenant_run_idx', properties: ['organizationId', 'tenantId', 'researchRunId'] })
 export class GtmEvidence {
   [OptionalProps]?: 'id' | 'createdAt' | 'updatedAt'
 
@@ -424,6 +499,16 @@ export class GtmEvidence {
   // -> gtm_candidates.id
   @ManyToOne(() => GtmCandidate, { fieldName: 'candidate_id', mapToPk: true })
   candidateId!: string
+
+  // Nullable for legacy rows. New observations always bind evidence to the
+  // exact run whose frozen play/profile caused the qualification verdict.
+  @ManyToOne(() => GtmResearchRun, {
+    fieldName: 'research_run_id',
+    mapToPk: true,
+    nullable: true,
+    deleteRule: 'set null',
+  })
+  researchRunId?: string | null
 
   @Property({ type: 'text' })
   claim!: string

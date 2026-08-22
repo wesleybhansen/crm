@@ -14,7 +14,13 @@ import {
 import type { SourcePlanBatch } from './plan'
 import { ruleBasedFitScorer, type FitScorer } from './qualify'
 import { assessEvidence } from './evidence-quality'
-import { GtmCandidate, GtmEvidence, GtmProviderOperation, GtmResearchRun } from '../../data/entities'
+import {
+  GtmCandidate,
+  GtmCandidateMatch,
+  GtmEvidence,
+  GtmProviderOperation,
+  GtmResearchRun,
+} from '../../data/entities'
 
 /*
  * Research-run execution against source adapters through the SPEC-066 section
@@ -104,6 +110,8 @@ export type BatchOutcome = {
   ledgerStatus: string | null
   chargedCredits: number
   candidatesInserted: number
+  candidateMatchesCreated: number
+  candidatesReused: number
   duplicatesSkipped: number
   rawCandidatesFound: number
   accepted: number
@@ -117,6 +125,8 @@ export type ResearchFunnel = {
   maxRawCandidates: number
   rawCandidatesFound: number
   uniqueCandidatesInserted: number
+  candidateMatchesCreated: number
+  candidatesReused: number
   duplicatesSkipped: number
   evidenceQualified: number
   accepted: number
@@ -140,6 +150,8 @@ export type ResearchRunExecutionResult = {
   reconciliationRequired: boolean
   reconciledCredits: number
   candidatesInserted: number
+  candidateMatchesCreated: number
+  candidatesReused: number
   duplicatesSkipped: number
   evidenceInserted: number
   funnel: ResearchFunnel
@@ -215,6 +227,8 @@ export async function executeResearchRun(
   const exhaustedAdapters = new Set<string>()
   const unresolvedAdapters = new Set<string>()
   let candidatesInserted = 0
+  let candidateMatchesCreated = 0
+  let candidatesReused = 0
   let duplicatesSkipped = 0
   let evidenceInserted = 0
   let rawCandidatesFound = 0
@@ -242,6 +256,8 @@ export async function executeResearchRun(
       ledgerStatus: null,
       chargedCredits: 0,
       candidatesInserted: 0,
+      candidateMatchesCreated: 0,
+      candidatesReused: 0,
       duplicatesSkipped: 0,
       rawCandidatesFound: 0,
       accepted: 0,
@@ -566,6 +582,8 @@ export async function executeResearchRun(
 
     // 6. Candidates + evidence + deterministic qualification.
     let batchInserted = 0
+    let batchMatchesCreated = 0
+    let batchReused = 0
     let batchDuplicates = 0
     let batchAccepted = 0
     let batchReview = 0
@@ -601,9 +619,94 @@ export async function executeResearchRun(
         referenceTime: qualificationReferenceTime,
       }, evidenceAssessment.validEvidence)
       const dedupeKey = candidateDedupeKey(candidate)
+      const qualification = {
+        reason: fit.reason,
+        breakdown: fit.breakdown,
+        unknowns: fit.unknowns,
+        contradictions: fit.contradictions,
+        profile: fit.profile ?? null,
+        criteria: fit.criteria ?? [],
+        evidence_issues: evidenceAssessment.issues,
+      }
+
+      const persistMatch = async (
+        row: GtmCandidate,
+        insertCandidate: boolean,
+      ): Promise<{ matchCreated: boolean; candidateInserted: boolean; evidenceRows: number }> =>
+        em.transactional(async (tem) => {
+          const priorMatch = await tem.findOne(GtmCandidateMatch, {
+            organizationId: run.organizationId,
+            tenantId: run.tenantId,
+            researchRunId: run.id,
+            candidateId: row.id,
+            deletedAt: null,
+          })
+          if (priorMatch) {
+            return { matchCreated: false, candidateInserted: false, evidenceRows: 0 }
+          }
+          if (insertCandidate) tem.persist(row)
+          const match = tem.create(GtmCandidateMatch, {
+            organizationId: run.organizationId,
+            tenantId: run.tenantId,
+            workspaceId: run.workspaceId,
+            playId: run.playId,
+            researchRunId: run.id,
+            candidateId: row.id,
+            providerOperationId: shadow.id,
+            fitStatus: fit.verdict,
+            fitScore: String(fit.fitScore),
+            rejectReason: fit.verdict === 'accepted' ? null : fit.reason,
+            qualityStatus: evidenceAssessment.status,
+            qualityScore: String(evidenceAssessment.score),
+            qualification,
+            qualificationVersion: fit.version,
+          })
+          tem.persist(match)
+          let evidenceRows = 0
+          for (const assessed of evidenceAssessment.rows) {
+            const evidence = assessed.evidence
+            const evidenceRow = tem.create(GtmEvidence, {
+              organizationId: run.organizationId,
+              tenantId: run.tenantId,
+              candidateId: row.id,
+              researchRunId: run.id,
+              claim: evidence.claim,
+              sourceUrl: evidence.source_url ?? null,
+              providerRef: {
+                provider: planned.adapter_id,
+                operation_id: operationId,
+                provider_request_id: receipt?.provider_request_id ?? null,
+                query,
+                ...(evidence.detail ? { detail: evidence.detail } : {}),
+              },
+              observedAt: evidence.observed_at ? new Date(evidence.observed_at) : null,
+              retrievedAt: now(),
+              confidence: String(evidence.confidence),
+              license: adapter.descriptor.constraints.license,
+              qualityStatus: assessed.status,
+              qualityIssues: assessed.issues,
+              evidenceType: 'provider_observation',
+            })
+            tem.persist(evidenceRow)
+            evidenceRows += 1
+          }
+          await tem.flush()
+          return { matchCreated: true, candidateInserted: insertCandidate, evidenceRows }
+        })
+
       try {
-        const insertedEvidence = await em.transactional(async (tem) => {
-          const row = tem.create(GtmCandidate, {
+        let existing = await em.findOne(GtmCandidate, {
+          organizationId: run.organizationId,
+          tenantId: run.tenantId,
+          workspaceId: run.workspaceId,
+          dedupeKey,
+          deletedAt: null,
+        })
+        let persisted: { matchCreated: boolean; candidateInserted: boolean; evidenceRows: number }
+        if (existing) {
+          persisted = await persistMatch(existing, false)
+        } else {
+          const row = em.create(GtmCandidate, {
             // app-side id so evidence rows can reference the candidate before
             // the transaction flushes (the column default is DB-generated)
             id: crypto.randomUUID(),
@@ -619,57 +722,44 @@ export async function executeResearchRun(
             rejectReason: fit.verdict === 'accepted' ? null : fit.reason,
             qualityStatus: evidenceAssessment.status,
             qualityScore: String(evidenceAssessment.score),
-            qualification: {
-              reason: fit.reason,
-              breakdown: fit.breakdown,
-              unknowns: fit.unknowns,
-              contradictions: fit.contradictions,
-              profile: fit.profile ?? null,
-              criteria: fit.criteria ?? [],
-              evidence_issues: evidenceAssessment.issues,
-            },
+            qualification,
             qualificationVersion: fit.version,
             retentionExpiresAt: new Date(
               now().getTime() + CANDIDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
             ),
           })
-          tem.persist(row)
-          let evidenceRows = 0
-          for (const assessed of evidenceAssessment.rows) {
-            const evidence = assessed.evidence
-            const evidenceRow = tem.create(GtmEvidence, {
+          try {
+            persisted = await persistMatch(row, true)
+          } catch (err) {
+            if (!(err instanceof UniqueConstraintViolationException)) throw err
+            // Another transaction won the workspace identity race. Reuse its
+            // row, but still preserve this run's independent qualification.
+            existing = await em.findOne(GtmCandidate, {
               organizationId: run.organizationId,
               tenantId: run.tenantId,
-              candidateId: row.id,
-              claim: evidence.claim,
-              sourceUrl: evidence.source_url ?? null,
-              providerRef: {
-                provider: planned.adapter_id,
-                operation_id: operationId,
-                provider_request_id: receipt?.provider_request_id ?? null,
-                query,
-                // inert per-observation detail from the adapter (engagement
-                // kind, reaction types, comment body); present only when the
-                // adapter actually captured some, never fabricated
-                ...(evidence.detail ? { detail: evidence.detail } : {}),
-              },
-              observedAt: evidence.observed_at ? new Date(evidence.observed_at) : null,
-              retrievedAt: now(),
-              confidence: String(evidence.confidence),
-              license: adapter.descriptor.constraints.license,
-              qualityStatus: assessed.status,
-              qualityIssues: assessed.issues,
-              evidenceType: 'provider_observation',
+              workspaceId: run.workspaceId,
+              dedupeKey,
+              deletedAt: null,
             })
-            tem.persist(evidenceRow)
-            evidenceRows += 1
+            if (!existing) throw err
+            persisted = await persistMatch(existing, false)
           }
-          await tem.flush()
-          return evidenceRows
-        })
-        batchInserted += 1
-        candidatesInserted += 1
-        evidenceInserted += insertedEvidence
+        }
+        if (!persisted.matchCreated) {
+          batchDuplicates += 1
+          duplicatesSkipped += 1
+          continue
+        }
+        batchMatchesCreated += 1
+        candidateMatchesCreated += 1
+        if (persisted.candidateInserted) {
+          batchInserted += 1
+          candidatesInserted += 1
+        } else {
+          batchReused += 1
+          candidatesReused += 1
+        }
+        evidenceInserted += persisted.evidenceRows
         if (evidenceAssessment.validEvidence.length > 0) evidenceQualified += 1
         if (fit.verdict === 'accepted') {
           accepted += 1
@@ -701,6 +791,8 @@ export async function executeResearchRun(
       ledgerStatus,
       chargedCredits,
       candidatesInserted: batchInserted,
+      candidateMatchesCreated: batchMatchesCreated,
+      candidatesReused: batchReused,
       duplicatesSkipped: batchDuplicates,
       rawCandidatesFound: found.length,
       accepted: batchAccepted,
@@ -738,12 +830,14 @@ export async function executeResearchRun(
     maxRawCandidates: limits.maxRawCandidates,
     rawCandidatesFound,
     uniqueCandidatesInserted: candidatesInserted,
+    candidateMatchesCreated,
+    candidatesReused,
     duplicatesSkipped,
     evidenceQualified,
     accepted,
     review,
     rejected,
-    acceptanceRate: candidatesInserted > 0 ? accepted / candidatesInserted : 0,
+    acceptanceRate: candidateMatchesCreated > 0 ? accepted / candidateMatchesCreated : 0,
     targetMet,
     stopReason,
     byReason: fitByReason,
@@ -754,6 +848,8 @@ export async function executeResearchRun(
     reconciliationRequired,
     reconciledCredits,
     candidatesInserted,
+    candidateMatchesCreated,
+    candidatesReused,
     duplicatesSkipped,
     evidenceInserted,
     funnel,
@@ -776,6 +872,8 @@ export async function executeResearchRun(
         reconciliation_required: reconciliationRequired,
         reconciled_credits: reconciledCredits,
         candidates_inserted: candidatesInserted,
+        candidate_matches_created: candidateMatchesCreated,
+        candidates_reused: candidatesReused,
         duplicates_skipped: duplicatesSkipped,
         evidence_inserted: evidenceInserted,
         funnel: {
@@ -783,6 +881,8 @@ export async function executeResearchRun(
           max_raw_candidates: funnel.maxRawCandidates,
           raw_candidates_found: funnel.rawCandidatesFound,
           unique_candidates_inserted: funnel.uniqueCandidatesInserted,
+          candidate_matches_created: funnel.candidateMatchesCreated,
+          candidates_reused: funnel.candidatesReused,
           duplicates_skipped: funnel.duplicatesSkipped,
           evidence_qualified: funnel.evidenceQualified,
           accepted: funnel.accepted,
@@ -802,6 +902,8 @@ export async function executeResearchRun(
           ledger_status: batch.ledgerStatus,
           charged_credits: batch.chargedCredits,
           candidates_inserted: batch.candidatesInserted,
+          candidate_matches_created: batch.candidateMatchesCreated,
+          candidates_reused: batch.candidatesReused,
           duplicates_skipped: batch.duplicatesSkipped,
           raw_candidates_found: batch.rawCandidatesFound,
           accepted: batch.accepted,

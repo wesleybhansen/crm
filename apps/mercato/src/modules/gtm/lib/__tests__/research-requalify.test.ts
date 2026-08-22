@@ -1,6 +1,7 @@
 import {
   GtmAuditEvent,
   GtmCandidate,
+  GtmCandidateMatch,
   GtmEvidence,
   GtmResearchRun,
 } from '../../data/entities'
@@ -172,6 +173,56 @@ describe('requalifyResearchRun', () => {
     expect(replay.alreadyCurrent).toBe(true)
     expect(replay.rescored).toBe(0)
     expect(replay).toEqual(expect.objectContaining({ accepted: 1, review: 1, rejected: 1 }))
+  })
+
+  it('requalifies run matches without overwriting the workspace identity verdict', async () => {
+    const em = new FakeEm()
+    const { run, dental, vet, manual } = await seed(em)
+    const matchByCandidate = new Map<string, GtmCandidateMatch>()
+    for (const candidate of [dental, vet, manual]) {
+      const match = em.create(GtmCandidateMatch, {
+        organizationId: ORG,
+        tenantId: TENANT,
+        workspaceId: WORKSPACE,
+        playId: run.playId,
+        researchRunId: run.id,
+        candidateId: candidate.id,
+        fitStatus: candidate.fitStatus,
+        fitScore: candidate.fitScore,
+        rejectReason: candidate.rejectReason,
+        qualificationVersion: 'fit-v4',
+      })
+      matchByCandidate.set(candidate.id, match)
+      em.persist(match)
+    }
+    for (const evidence of em.table(GtmEvidence)) evidence.researchRunId = run.id
+    const manualMatch = matchByCandidate.get(manual.id)!
+    em.persist(em.create(GtmAuditEvent, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      actor: 'user_id',
+      action: 'gtm.candidate_match.review_override',
+      objectType: 'gtm_candidate_match',
+      objectId: manualMatch.id,
+    }))
+    await em.flush()
+
+    const result = await requalifyResearchRun({ em, run, actorUserId: USER })
+
+    expect(result).toEqual(expect.objectContaining({
+      candidates: 3,
+      rescored: 2,
+      manualOverridesPreserved: 1,
+      accepted: 1,
+      review: 1,
+      rejected: 1,
+    }))
+    expect(matchByCandidate.get(dental.id)?.fitStatus).toBe('review')
+    expect(matchByCandidate.get(dental.id)?.qualificationVersion).toBe(FIT_SCORER_VERSION)
+    expect(matchByCandidate.get(vet.id)?.fitStatus).toBe('rejected')
+    expect(manualMatch.fitStatus).toBe('accepted')
+    expect(dental.fitStatus).toBe('rejected')
+    expect(dental.qualificationVersion).toBe('fit-v4')
   })
 
   it('fails closed when the immutable play snapshot is absent', async () => {

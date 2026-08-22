@@ -123,7 +123,14 @@ export async function POST(req: Request) {
     }
     const em = container.resolve('em') as EntityManager
     const entities = await import('../../../data/entities')
-    const { GtmResearchRun, GtmCandidate, GtmContactPoint, GtmAuditEvent } = entities
+    const {
+      GtmPlay,
+      GtmResearchRun,
+      GtmCandidate,
+      GtmCandidateMatch,
+      GtmContactPoint,
+      GtmAuditEvent,
+    } = entities
 
     // 5. Resolve the scope: exactly one of runId | workspaceId, self-scoped.
     //    Opaque 404 for malformed, missing, foreign, or soft-deleted rows.
@@ -148,13 +155,55 @@ export async function POST(req: Request) {
       if (!isUuid(body.workspaceId)) return opaqueNotFound()
       candidateWhere.workspaceId = body.workspaceId
     }
+    if (body.playId) {
+      if (!isUuid(body.playId)) return opaqueNotFound()
+      const play = await em.findOne(GtmPlay, {
+        id: body.playId,
+        organizationId,
+        tenantId,
+        ...(body.workspaceId ? { workspaceId: body.workspaceId } : {}),
+        deletedAt: null,
+      })
+      if (!play) return opaqueNotFound()
+    }
 
-    // Spec 4.1 step 6: enrichment considers accepted candidates only.
-    const candidates: GtmCandidate[] = await em.find(
-      GtmCandidate,
-      { ...candidateWhere, fitStatus: 'accepted' },
-      { orderBy: { fitScore: 'desc', createdAt: 'asc' }, limit: CANDIDATE_CAP },
+    // Spec 4.1 step 6: enrichment considers candidates accepted in the
+    // selected frozen run, or accepted by the latest match of any workspace
+    // play. Candidate-level verdicts are only the legacy fallback.
+    const matchWhere: Record<string, unknown> = { organizationId, tenantId, deletedAt: null }
+    if (runId) matchWhere.researchRunId = runId
+    else if (body.workspaceId) matchWhere.workspaceId = body.workspaceId
+    if (body.playId) matchWhere.playId = body.playId
+    const matches = await em.find(GtmCandidateMatch, matchWhere, {
+      orderBy: { createdAt: 'desc' },
+      limit: 5000,
+    })
+    const latestByContext = new Map<string, typeof matches[number]>()
+    for (const match of matches) {
+      const contextKey = runId ? match.candidateId : `${match.playId}:${match.candidateId}`
+      if (!latestByContext.has(contextKey)) latestByContext.set(contextKey, match)
+    }
+    const acceptedCandidateIds = new Set(
+      [...latestByContext.values()]
+        .filter((match) => match.fitStatus === 'accepted')
+        .map((match) => match.candidateId),
     )
+    const contextualScopeRequested = Boolean(runId || body.playId)
+    const candidates: GtmCandidate[] = matches.length > 0
+      ? acceptedCandidateIds.size > 0
+        ? await em.find(
+            GtmCandidate,
+            { organizationId, tenantId, id: { $in: [...acceptedCandidateIds] }, deletedAt: null },
+            { orderBy: { createdAt: 'asc' }, limit: CANDIDATE_CAP },
+          )
+        : []
+      : contextualScopeRequested
+        ? []
+        : await em.find(
+            GtmCandidate,
+            { ...candidateWhere, fitStatus: 'accepted' },
+            { orderBy: { fitScore: 'desc', createdAt: 'asc' }, limit: CANDIDATE_CAP },
+          )
     const candidateIds = candidates.map((candidate) => candidate.id)
     const contactPoints = candidateIds.length
       ? await em.find(GtmContactPoint, {
@@ -225,6 +274,7 @@ export async function POST(req: Request) {
       enrichAdapters,
       verifyAdapters,
       candidates,
+      acceptedCandidateIds: matches.length > 0 ? acceptedCandidateIds : undefined,
       contactPoints,
       noliOrgId,
       // Canonical provider metering is keyed to the represented Noli user.

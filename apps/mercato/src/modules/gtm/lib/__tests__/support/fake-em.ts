@@ -4,6 +4,7 @@ import {
   GtmCampaignVersion,
   GtmAiTelemetry,
   GtmCandidate,
+  GtmCandidateMatch,
   GtmChatMessage,
   GtmDeletionRequest,
   GtmDsrOperation,
@@ -150,6 +151,14 @@ export class FakeEm implements ResearchEm, RetentionEm, CampaignEm, ExecutionEm,
             new Error(`duplicate key value violates unique constraint: ${entity.dedupeKey}`),
           )
         }
+      }
+      if (entity instanceof GtmCandidateMatch) {
+        this.assertUnique(
+          entity,
+          GtmCandidateMatch,
+          (row) => row.researchRunId === entity.researchRunId && row.candidateId === entity.candidateId,
+          'gtm_candidate_matches_run_candidate_unique',
+        )
       }
       if (entity instanceof GtmEnrollment) {
         this.assertUnique(

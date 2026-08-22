@@ -22,6 +22,7 @@ import {
   GtmCampaign,
   GtmCampaignVersion,
   GtmCandidate,
+  GtmCandidateMatch,
   GtmEnrollment,
   GtmMailboxPolicy,
   GtmPlay,
@@ -219,16 +220,44 @@ export async function computeDraftState(
     deletedAt: null,
   })
   const runIds = new Set(runs.map((run) => run.id))
-  const candidates = (
-    await em.find(GtmCandidate, {
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      workspaceId: campaign.workspaceId,
-      fitStatus: 'accepted',
-      deletedAt: null,
-    })
-  )
-    .filter((candidate) => runIds.has(candidate.researchRunId))
+  const contextualMatches = runIds.size > 0
+    ? await em.find(GtmCandidateMatch, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        workspaceId: campaign.workspaceId,
+        playId: campaign.playId,
+        researchRunId: { $in: [...runIds] },
+        deletedAt: null,
+      }, { orderBy: { createdAt: 'desc' } })
+    : []
+  const latestMatchByCandidate = new Map<string, GtmCandidateMatch>()
+  for (const match of contextualMatches) {
+    if (!latestMatchByCandidate.has(match.candidateId)) {
+      latestMatchByCandidate.set(match.candidateId, match)
+    }
+  }
+  const acceptedMatchIds = [...latestMatchByCandidate.values()]
+    .filter((match) => match.fitStatus === 'accepted')
+    .map((match) => match.candidateId)
+  const candidates = (contextualMatches.length > 0
+    ? acceptedMatchIds.length > 0
+      ? await em.find(GtmCandidate, {
+          organizationId: ctx.organizationId,
+          tenantId: ctx.tenantId,
+          workspaceId: campaign.workspaceId,
+          id: { $in: acceptedMatchIds },
+          deletedAt: null,
+        })
+      : []
+    : (
+      await em.find(GtmCandidate, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        workspaceId: campaign.workspaceId,
+        fitStatus: 'accepted',
+        deletedAt: null,
+      })
+    ).filter((candidate) => runIds.has(candidate.researchRunId)))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const candidateIds = candidates.map((candidate) => candidate.id)
 

@@ -2,6 +2,7 @@ import type { CandidateEvidence, CandidateIdentity } from '../adapters/types'
 import {
   GtmAuditEvent,
   GtmCandidate,
+  GtmCandidateMatch,
   GtmEvidence,
   type GtmResearchRun,
 } from '../../data/entities'
@@ -142,22 +143,45 @@ export async function requalifyResearchRun(input: {
     researchRunId: run.id,
     deletedAt: null,
   }
-  const candidates = await em.find(GtmCandidate, scope)
-  const candidateIds = candidates.map((row) => row.id)
+  const matches = await em.find(GtmCandidateMatch, scope)
+  const legacyCandidates = matches.length === 0 ? await em.find(GtmCandidate, scope) : []
+  const candidateIds = matches.length > 0
+    ? [...new Set(matches.map((row) => row.candidateId))]
+    : legacyCandidates.map((row) => row.id)
+  const matchedCandidates = candidateIds.length > 0 && matches.length > 0
+    ? await em.find(GtmCandidate, {
+        organizationId: run.organizationId,
+        tenantId: run.tenantId,
+        id: { $in: candidateIds },
+        deletedAt: null,
+      })
+    : []
+  const candidatesById = new Map(matchedCandidates.map((row) => [row.id, row]))
+  const targets = matches.length > 0
+    ? matches
+        .map((match) => ({ match, candidate: candidatesById.get(match.candidateId) }))
+        .filter((row): row is { match: GtmCandidateMatch; candidate: GtmCandidate } => Boolean(row.candidate))
+    : legacyCandidates.map((candidate) => ({ match: null, candidate }))
+  const reviewObjectIds = matches.length > 0
+    ? matches.map((row) => row.id)
+    : candidateIds
   const [evidenceRows, manualAudits] = candidateIds.length > 0
     ? await Promise.all([
       em.find(GtmEvidence, {
         organizationId: run.organizationId,
         tenantId: run.tenantId,
         candidateId: { $in: candidateIds },
+        ...(matches.length > 0 ? { researchRunId: run.id } : {}),
         deletedAt: null,
       }),
       em.find(GtmAuditEvent, {
         organizationId: run.organizationId,
         tenantId: run.tenantId,
-        action: 'gtm.candidate.review_override',
-        objectType: 'gtm_candidate',
-        objectId: { $in: candidateIds },
+        action: matches.length > 0
+          ? 'gtm.candidate_match.review_override'
+          : 'gtm.candidate.review_override',
+        objectType: matches.length > 0 ? 'gtm_candidate_match' : 'gtm_candidate',
+        objectId: { $in: reviewObjectIds },
       }),
     ])
     : [[], []]
@@ -178,16 +202,17 @@ export async function requalifyResearchRun(input: {
     ? execution.requalification as Record<string, unknown>
     : {}
   const alreadyCurrent = priorRequalification.scorer_version === FIT_SCORER_VERSION
-    && candidates.every((row) =>
-      manuallyReviewed.has(row.id) || row.qualificationVersion === FIT_SCORER_VERSION,
+    && targets.every(({ candidate, match }) =>
+      manuallyReviewed.has(match?.id ?? candidate.id)
+      || (match?.qualificationVersion ?? candidate.qualificationVersion) === FIT_SCORER_VERSION,
     )
   if (alreadyCurrent) {
-    const current = summarizeFitResults(candidates.map((candidate): FitResult => ({
-      fitScore: Number(candidate.fitScore ?? 0),
-      verdict: candidate.fitStatus === 'accepted'
+    const current = summarizeFitResults(targets.map(({ candidate, match }): FitResult => ({
+      fitScore: Number(match?.fitScore ?? candidate.fitScore ?? 0),
+      verdict: (match?.fitStatus ?? candidate.fitStatus) === 'accepted'
         ? 'accepted'
-        : candidate.fitStatus === 'review' ? 'review' : 'rejected',
-      reason: candidate.rejectReason ?? 'meets_fit_rules',
+        : (match?.fitStatus ?? candidate.fitStatus) === 'review' ? 'review' : 'rejected',
+      reason: (match?.rejectReason ?? candidate.rejectReason) ?? 'meets_fit_rules',
       version: FIT_SCORER_VERSION,
       breakdown: { identity: 0, account: 0, persona: 0, geography: 0, evidence: 0 },
       unknowns: [],
@@ -196,7 +221,7 @@ export async function requalifyResearchRun(input: {
     return {
       scorerVersion: FIT_SCORER_VERSION,
       alreadyCurrent: true,
-      candidates: candidates.length,
+      candidates: targets.length,
       rescored: 0,
       manualOverridesPreserved: manuallyReviewed.size,
       ...current,
@@ -206,12 +231,16 @@ export async function requalifyResearchRun(input: {
   const fitResults: FitResult[] = []
   let rescored = 0
   await em.transactional(async (tem) => {
-    for (const candidate of candidates) {
-      if (manuallyReviewed.has(candidate.id)) {
+    for (const { candidate, match } of targets) {
+      const targetId = match?.id ?? candidate.id
+      const targetFitStatus = match?.fitStatus ?? candidate.fitStatus
+      const targetFitScore = match?.fitScore ?? candidate.fitScore
+      const targetRejectReason = match?.rejectReason ?? candidate.rejectReason
+      if (manuallyReviewed.has(targetId)) {
         fitResults.push({
-          fitScore: Number(candidate.fitScore ?? 0),
-          verdict: candidate.fitStatus === 'accepted' ? 'accepted' : 'rejected',
-          reason: candidate.rejectReason ?? 'manual_review_accepted',
+          fitScore: Number(targetFitScore ?? 0),
+          verdict: targetFitStatus === 'accepted' ? 'accepted' : 'rejected',
+          reason: targetRejectReason ?? 'manual_review_accepted',
           version: FIT_SCORER_VERSION,
           breakdown: { identity: 0, account: 0, persona: 0, geography: 0, evidence: 0 },
           unknowns: [],
@@ -232,10 +261,7 @@ export async function requalifyResearchRun(input: {
         identity: identity as CandidateIdentity,
       }, play, usableEvidence)
       candidate.identity = identity
-      candidate.fitStatus = fit.verdict
-      candidate.fitScore = String(fit.fitScore)
-      candidate.rejectReason = fit.verdict === 'accepted' ? null : fit.reason
-      candidate.qualification = {
+      const qualification = {
         reason: fit.reason,
         breakdown: fit.breakdown,
         unknowns: fit.unknowns,
@@ -246,8 +272,22 @@ export async function requalifyResearchRun(input: {
           Array.isArray(row.qualityIssues) ? row.qualityIssues : [],
         ),
       }
-      candidate.qualificationVersion = fit.version
-      tem.persist(candidate)
+      if (match) {
+        match.fitStatus = fit.verdict
+        match.fitScore = String(fit.fitScore)
+        match.rejectReason = fit.verdict === 'accepted' ? null : fit.reason
+        match.qualification = qualification
+        match.qualificationVersion = fit.version
+        tem.persist(match)
+        tem.persist(candidate)
+      } else {
+        candidate.fitStatus = fit.verdict
+        candidate.fitScore = String(fit.fitScore)
+        candidate.rejectReason = fit.verdict === 'accepted' ? null : fit.reason
+        candidate.qualification = qualification
+        candidate.qualificationVersion = fit.version
+        tem.persist(candidate)
+      }
       fitResults.push(fit)
       rescored += 1
     }
@@ -256,7 +296,7 @@ export async function requalifyResearchRun(input: {
     const result: RequalifyResearchRunResult = {
       scorerVersion: FIT_SCORER_VERSION,
       alreadyCurrent: false,
-      candidates: candidates.length,
+      candidates: targets.length,
       rescored,
       manualOverridesPreserved: manuallyReviewed.size,
       ...distribution,
@@ -292,7 +332,7 @@ export async function requalifyResearchRun(input: {
   return {
     scorerVersion: FIT_SCORER_VERSION,
     alreadyCurrent: false,
-    candidates: candidates.length,
+    candidates: targets.length,
     rescored,
     manualOverridesPreserved: manuallyReviewed.size,
     ...distribution,

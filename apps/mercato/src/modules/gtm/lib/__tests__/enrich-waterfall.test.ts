@@ -409,6 +409,23 @@ describe('runEnrichmentWaterfall', () => {
     })
   })
 
+  it('honors contextual accepted match ids even when the legacy candidate verdict differs', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const enrich = spyEnrich()
+    const verify = spyVerify()
+    const contextual = await makeCandidate(em, { name: 'Context Match', fitStatus: 'rejected' })
+    await makeCandidate(em, { name: 'Legacy Accept', fitStatus: 'accepted' })
+
+    await runEnrichmentWaterfall(deps(em, ledger, [enrich], [verify], {
+      acceptedCandidateIds: new Set([contextual.id]),
+    }))
+
+    expect(enrich.enrich).toHaveBeenCalledTimes(1)
+    expect(enrich.enrich.mock.calls[0][0].candidate.identity.name).toBe('Context Match')
+    expect(em.table(GtmContactPoint).map((point) => point.candidateId)).toEqual([contextual.id])
+  })
+
   it('skips the adapter call when the idempotency key maps to an already-settled operation', async () => {
     const em = new FakeEm()
     const ledger = new FixtureLedger({ poolBalance: 100 })

@@ -1,6 +1,6 @@
 import { FakeEm } from './support/fake-em'
-import { reviewCandidate, DEFAULT_MANUAL_REJECT_REASON } from '../research/review'
-import { GtmAuditEvent, GtmCandidate } from '../../data/entities'
+import { reviewCandidate, reviewCandidateMatch, DEFAULT_MANUAL_REJECT_REASON } from '../research/review'
+import { GtmAuditEvent, GtmCandidate, GtmCandidateMatch } from '../../data/entities'
 
 const ORG = '11111111-1111-4111-8111-111111111111'
 const TENANT = '22222222-2222-4222-8222-222222222222'
@@ -95,6 +95,42 @@ describe('reviewCandidate manual override', () => {
       verdict: 'accepted',
       previous_fit_status: 'rejected',
       previous_reject_reason: 'weak_evidence_confidence',
+    })
+  })
+
+  it('reviews one run match without changing the workspace identity verdict', async () => {
+    const em = new FakeEm()
+    const candidate = makeCandidate(em)
+    const match = em.create(GtmCandidateMatch, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: candidate.workspaceId,
+      playId: '44444444-4444-4444-8444-444444444444',
+      researchRunId: candidate.researchRunId,
+      candidateId: candidate.id,
+      fitStatus: 'accepted',
+      fitScore: '80',
+    })
+    em.persist(match)
+    await em.flush()
+
+    const result = await reviewCandidateMatch({
+      em,
+      candidate,
+      match,
+      verdict: 'rejected',
+      reason: 'not a fit for this audience',
+      userId: USER,
+    })
+
+    expect(result.match.fitStatus).toBe('rejected')
+    expect(result.match.rejectReason).toBe('not a fit for this audience')
+    expect(result.candidate.fitStatus).toBe('accepted')
+    expect(em.table(GtmAuditEvent)[0]).toMatchObject({
+      action: 'gtm.candidate_match.review_override',
+      objectType: 'gtm_candidate_match',
+      objectId: match.id,
+      metadata: expect.objectContaining({ candidate_id: candidate.id }),
     })
   })
 })
