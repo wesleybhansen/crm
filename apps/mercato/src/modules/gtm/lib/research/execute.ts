@@ -648,6 +648,15 @@ export async function executeResearchRun(
     })
   }
 
+  // A definitive provider/application error may fall through to a later source,
+  // but a run where every contacted source errored is not a successful
+  // "sources exhausted" run. Preserve the refunded ledger outcome while
+  // surfacing the execution failure honestly to the operator.
+  const hasUsableProviderOutcome = batches.some((batch) =>
+    batch.outcome === 'ok' || batch.outcome === 'partial' || batch.outcome === 'no_result')
+  if (!failureReason && !hasUsableProviderOutcome) {
+    failureReason = batches.find((batch) => batch.outcome === 'error')?.failureReason ?? null
+  }
   const status: 'completed' | 'failed' = failureReason ? 'failed' : 'completed'
   const targetMet = limits.targetAccepted > 0 && accepted >= limits.targetAccepted
   const skippedForCredits = batches.some((batch) => batch.outcome === 'skipped_max_credits')

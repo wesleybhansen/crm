@@ -560,7 +560,7 @@ describe('executeResearchRun', () => {
     expect(ledger.availableCredits()).toBe(100)
   })
 
-  it('refunds and records the failure on a definitive provider error, then continues', async () => {
+  it('refunds and fails honestly when every contacted provider returns a definitive error', async () => {
     const em = new FakeEm()
     const ledger = new FixtureLedger({ poolBalance: 100 })
     const adapter = spyAdapter()
@@ -573,7 +573,9 @@ describe('executeResearchRun', () => {
 
     const result = await executeResearchRun(deps(em, ledger, run, [adapter]))
 
-    expect(result.status).toBe('completed')
+    expect(result.status).toBe('failed')
+    expect(result.funnel.stopReason).toBe('failed')
+    expect(result.failureReason).toContain('provider_5xx')
     expect(result.batches[0].outcome).toBe('error')
     expect(result.batches[0].failureReason).toContain('provider_5xx')
     expect(ledger.listOperations()[0].status).toBe('refunded')
