@@ -9,7 +9,11 @@ import {
   type VerifyAdapter,
 } from '../adapters/types'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
-import { GtmCreditLedgerError, type GtmCreditLedger } from '../credits/ledger'
+import {
+  GtmCreditLedgerError,
+  type GtmCreditLedger,
+  type GtmSettleOutcome,
+} from '../credits/ledger'
 import {
   creditsForUnits,
   defaultMarkupMultiplier,
@@ -73,7 +77,11 @@ export type EnrichWaterfallDeps = {
   candidates: GtmCandidate[]
   // existing contact points for those candidates (skip-if-verified, parked skip)
   contactPoints: GtmContactPoint[]
-  userId: string
+  // Canonical Noli Core organization UUID for pooled-credit accounting.
+  noliOrgId: string
+  // Noli Core user UUID used by the canonical provider ledger. The CRM user
+  // UUID remains the actor identity for CRM authorization/audit only.
+  noliUserId: string
   runId?: string | null
   // 0/undefined = unbounded by the caller (the ledger still bounds spend)
   maxCredits?: number | null
@@ -163,7 +171,7 @@ function fitsBudget(budget: Budget, estimate: number): boolean {
 type WrappedInvoke<T> =
   | { kind: 'budget_exhausted' }
   | { kind: 'insufficient_credits'; message: string }
-  // an earlier run already settled/parked this exact operation - no call made
+  // an earlier run already owns/settled/parked this exact operation - no call made
   | { kind: 'already_settled'; ledgerStatus: string }
   | {
       kind: 'invoked'
@@ -188,9 +196,12 @@ async function invokeWithLedger<T>(
     descriptor: AdapterDescriptor
     kind: 'enrich' | 'verify'
     idempotencyKey: string
+    // CRM scope for the local shadow.
     orgId: string
+    // Noli Core scope for the canonical ledger.
+    noliOrgId: string
     tenantId: string
-    userId: string
+    noliUserId: string
     runId: string | null
     candidateId: string
     fingerprint: Record<string, unknown>
@@ -216,8 +227,8 @@ async function invokeWithLedger<T>(
   let reservedStatus: string
   try {
     const reserved = await ledger.reserve({
-      orgId: deps.orgId,
-      userId: deps.userId,
+      orgId: deps.noliOrgId,
+      userId: deps.noliUserId,
       kind: deps.kind === 'enrich' ? 'contact_enrich' : 'contact_verify',
       provider: descriptor.adapter_id,
       estimatedCredits: estimate,
@@ -308,70 +319,115 @@ async function invokeWithLedger<T>(
   const result = await deps.call(providerSpendCapUsd(estimate, markup))
 
   const receipt = (result.receipt ?? null) as Record<string, unknown> | null
-  let ledgerStatus: string
+  const observedAt = now()
+  let ledgerStatus = shadow.localStatusMirror ?? 'provider_started'
   let chargedCredits = 0
+  let settlementPending = false
+  let settlementError: string | null = null
+  let intendedAction: GtmSettleOutcome | 'mark_ambiguous'
 
   if (result.status === 'ok' || result.status === 'partial') {
     const actualUnits =
       result.cost_units ?? (Array.isArray(result.data) ? result.data.length : result.data ? 1 : 0)
     chargedCredits = Math.min(creditsForUnits(actualUnits, quoted, markup), estimate)
-    ledgerStatus = await ledger.settle(
-      operationId,
-      result.status === 'partial' ? 'partially_charged' : 'charged',
-      chargedCredits,
-      receipt,
-    )
-    budget.charged += chargedCredits
-    budget.outstanding -= estimate
+    intendedAction = result.status === 'partial' ? 'partially_charged' : 'charged'
   } else if (result.status === 'no_result') {
     // pay_on_found semantics: nothing found costs nothing; otherwise the
     // lookup itself is billable.
     if (descriptor.cost_model.pay_on_found) {
-      ledgerStatus = await ledger.settle(operationId, 'refunded', 0, receipt)
+      intendedAction = 'refunded'
     } else {
       chargedCredits = Math.min(creditsForUnits(result.cost_units ?? 1, quoted, markup), estimate)
-      ledgerStatus = await ledger.settle(operationId, 'charged', chargedCredits, receipt)
-      budget.charged += chargedCredits
+      intendedAction = 'charged'
     }
-    budget.outstanding -= estimate
   } else if (result.status === 'ambiguous') {
-    // Park the SAME operation; the reservation stays escrowed (outstanding)
-    // until a delayed settle or operator reconciliation lands on it.
-    ledgerStatus = await ledger.markAmbiguous(operationId, {
-      error: result.error ?? 'ambiguous provider outcome',
-      receipt,
-    })
+    intendedAction = 'mark_ambiguous'
   } else {
-    // Definitive provider error: refund, record, let the waterfall continue.
-    ledgerStatus = await ledger.settle(operationId, 'refunded', 0, receipt)
-    budget.outstanding -= estimate
+    intendedAction = 'refunded'
+  }
+
+  const observedReceipt = {
+    ...(receipt ?? {}),
+    gtm_observation: {
+      schema_version: 'gtm-provider-outcome-v1',
+      observed_at: observedAt.toISOString(),
+      adapter_status: result.status,
+      intended_ledger_action: intendedAction,
+      intended_charged_credits: chargedCredits,
+      provider_error: result.error ?? null,
+      output_count: Array.isArray(result.data) ? result.data.length : result.data ? 1 : 0,
+      settlement_pending: true,
+    },
+  }
+  await em.transactional(async (tem) => {
+    shadow.receipt = observedReceipt
+    tem.persist(shadow)
+    await tem.flush()
+  })
+
+  try {
+    if (intendedAction === 'mark_ambiguous') {
+      // Park the SAME operation; the reservation stays escrowed (outstanding)
+      // until a delayed settle or operator reconciliation lands on it.
+      ledgerStatus = await ledger.markAmbiguous(operationId, {
+        error: result.error ?? 'ambiguous provider outcome',
+        receipt,
+      })
+    } else {
+      ledgerStatus = await ledger.settle(operationId, intendedAction, chargedCredits, receipt)
+      budget.outstanding -= estimate
+      if (intendedAction === 'charged' || intendedAction === 'partially_charged') {
+        budget.charged += chargedCredits
+      }
+    }
+  } catch (error) {
+    settlementPending = true
+    settlementError = error instanceof Error
+      ? `${error.name}: ${error.message}`.slice(0, 500)
+      : 'unknown canonical ledger error'
   }
 
   await em.transactional(async (tem) => {
     shadow.localStatusMirror = ledgerStatus
-    shadow.receipt =
-      result.status === 'ambiguous'
-        ? { ...(receipt ?? {}), ambiguous_at: now().toISOString(), detail: result.error ?? null }
-        : receipt
-    if (result.status !== 'ambiguous') shadow.settledAt = now()
+    shadow.receipt = {
+      ...observedReceipt,
+      ...(result.status === 'ambiguous'
+        ? { ambiguous_at: observedAt.toISOString(), detail: result.error ?? null }
+        : {}),
+      gtm_observation: {
+        ...observedReceipt.gtm_observation,
+        settlement_pending: settlementPending,
+        canonical_status: ledgerStatus,
+        settlement_error: settlementError,
+      },
+    }
+    if (!settlementPending && result.status !== 'ambiguous') shadow.settledAt = now()
     tem.persist(shadow)
     await tem.flush()
   })
 
   return {
     kind: 'invoked',
-    result,
+    result: settlementPending
+      ? {
+          status: 'ambiguous',
+          data: null,
+          cost_units: null,
+          receipt,
+          error: 'canonical ledger outcome unresolved after provider response',
+        }
+      : result,
     operationId,
     shadowId: shadow.id,
     ledgerStatus,
-    chargedCredits,
+    chargedCredits: settlementPending ? 0 : chargedCredits,
   }
 }
 
 export async function runEnrichmentWaterfall(
   deps: EnrichWaterfallDeps,
 ): Promise<EnrichWaterfallSummary> {
-  const { em, ledger, userId } = deps
+  const { em, ledger, noliOrgId, noliUserId } = deps
   const markup = deps.markupMultiplier ?? defaultMarkupMultiplier()
   const now = deps.now ?? (() => new Date())
   const runId = deps.runId ?? null
@@ -491,8 +547,9 @@ export async function runEnrichmentWaterfall(
             kind: 'enrich',
             idempotencyKey: `enrich:${candidate.id}:${descriptor.adapter_id}`,
             orgId: candidate.organizationId,
+            noliOrgId,
             tenantId: candidate.tenantId,
-            userId,
+            noliUserId,
             runId,
             candidateId: candidate.id,
             fingerprint: {
@@ -518,7 +575,16 @@ export async function runEnrichmentWaterfall(
         }
         // Earlier run already consumed this operation and any points it found
         // are already in the index; try the next adapter in the waterfall.
-        if (invoked.kind === 'already_settled') continue
+        if (invoked.kind === 'already_settled') {
+          if (
+            invoked.ledgerStatus === 'provider_started' ||
+            invoked.ledgerStatus === 'reconciliation_required'
+          ) {
+            summary.ambiguous += 1
+            continue candidateLoop
+          }
+          continue
+        }
 
         const { result } = invoked
         if (result.status === 'ambiguous') {
@@ -625,8 +691,9 @@ export async function runEnrichmentWaterfall(
             kind: 'verify',
             idempotencyKey: `verify:${point.id}:${descriptor.adapter_id}`,
             orgId: point.organizationId,
+            noliOrgId,
             tenantId: point.tenantId,
-            userId,
+            noliUserId,
             runId,
             candidateId: candidate.id,
             fingerprint: {
@@ -651,7 +718,29 @@ export async function runEnrichmentWaterfall(
           summary.stopped = 'insufficient_credits'
           break candidateLoop
         }
-        if (invoked.kind === 'already_settled') continue
+        if (invoked.kind === 'already_settled') {
+          if (
+            invoked.ledgerStatus === 'provider_started' ||
+            invoked.ledgerStatus === 'reconciliation_required'
+          ) {
+            await em.transactional(async (tem) => {
+              point.verificationState = 'provider_ambiguous'
+              point.provenance = {
+                ...(point.provenance ?? {}),
+                verification: {
+                  ...verificationProvenance(point),
+                  parked: true,
+                  canonical_status: invoked.ledgerStatus,
+                },
+              }
+              tem.persist(point)
+              await tem.flush()
+            })
+            summary.ambiguous += 1
+            continue candidateLoop
+          }
+          continue
+        }
 
         const { result } = invoked
         let state: VerificationState | null = null

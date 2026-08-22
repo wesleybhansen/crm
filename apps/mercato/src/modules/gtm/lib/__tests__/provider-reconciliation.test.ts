@@ -7,17 +7,20 @@ import { FixtureLedger, type GtmLedgerStatus } from '../credits/ledger'
 import {
   classifyProviderOperationStatus,
   listProviderOperationsForReconciliation,
-  reconcileProviderOperation,
+  reconcileProviderOperation as reconcileProviderOperationBase,
   type GtmCanonicalOperatorReconciler,
   type GtmCanonicalOperatorReconciliationRequest,
   type GtmCanonicalOperatorReconciliationResult,
   type GtmOperatorReconciliationEvidence,
+  type ReconcileProviderOperationInput,
 } from '../reconciliation/operator'
 import { FakeEm } from './support/fake-em'
 
 const ORG = '10000000-0000-4000-8000-000000000001'
 const TENANT = '20000000-0000-4000-8000-000000000001'
 const USER = '30000000-0000-4000-8000-000000000001'
+const NOLI_ORG = '40000000-0000-4000-8000-000000000001'
+const NOLI_USER = '50000000-0000-4000-8000-000000000001'
 const DECIDED_AT = new Date('2026-08-17T19:30:00.000Z')
 
 const ctx = {
@@ -25,6 +28,15 @@ const ctx = {
   tenantId: TENANT,
   userId: USER,
   requestId: 'http-request-1',
+}
+
+function reconcileProviderOperation(
+  input: Omit<ReconcileProviderOperationInput, 'canonicalIdentity'>,
+) {
+  return reconcileProviderOperationBase({
+    ...input,
+    canonicalIdentity: { organizationId: NOLI_ORG, userId: NOLI_USER },
+  })
 }
 
 function evidence(
@@ -177,6 +189,7 @@ describe('operator/provider reconciliation', () => {
     const em = new FakeEm()
     const ledger = new FixtureLedger()
     const canonicalReconciler = new FixtureCanonicalReconciler(ledger)
+    const canonicalCall = jest.spyOn(canonicalReconciler, 'reconcile')
     const operation = await seedOperation(em, ledger, 'reserved')
 
     const result = await reconcileProviderOperation({
@@ -204,7 +217,9 @@ describe('operator/provider reconciliation', () => {
     expect(operation.settledAt).toEqual(DECIDED_AT)
     const record = (operation.receipt as any).operator_reconciliation
     expect(record).toMatchObject({
-      schema_version: 'gtm.operator_reconciliation.v1',
+      schema_version: 'gtm.operator_reconciliation.v2',
+      canonical_organization_id: NOLI_ORG,
+      canonical_user_id: NOLI_USER,
       idempotency_key: 'operator-release-1',
       decision: 'release',
       charged_credits: 0,
@@ -212,6 +227,11 @@ describe('operator/provider reconciliation', () => {
       canonical_status: 'released',
       actor_user_id: USER,
     })
+    expect(canonicalCall).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: NOLI_ORG,
+      actorUserId: NOLI_USER,
+      billingUserId: NOLI_USER,
+    }))
     expect(record.evidence_hash).toMatch(/^[a-f0-9]{64}$/)
 
     const actions = em.table(GtmProviderReconciliationAction)

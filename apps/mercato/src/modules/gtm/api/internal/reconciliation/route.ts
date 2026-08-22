@@ -42,9 +42,18 @@ export async function POST(req: Request) {
   if (parsed.data.op === 'apply' && !isUuid(parsed.data.operationId)) return notFound()
 
   try {
-    const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
+    const { findNoliUserById, findPrimaryOrgIdForUser } = await import(
+      '@open-mercato/shared/lib/noli/core-client'
+    )
     const noliUser = await findNoliUserById(parsed.data.noliUserId)
     if (!noliUser?.clerk_user_id) return notFound()
+    const noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
+    if (!noliOrgId) {
+      return NextResponse.json(
+        { ok: false, error: 'Noli organization is not available' },
+        { status: 503 },
+      )
+    }
     const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
     const auth = await resolveClerkUserToAuthContext(noliUser.clerk_user_id)
     if (!auth?.userId || !auth.orgId || !auth.tenantId) return notFound()
@@ -90,6 +99,10 @@ export async function POST(req: Request) {
       GtmOperatorReconciliationResult
     >('gtm.provider-operations.reconcile', {
       input: {
+        canonicalIdentity: {
+          organizationId: noliOrgId,
+          userId: noliUser.id,
+        },
         operationId: parsed.data.operationId,
         idempotencyKey: parsed.data.idempotencyKey,
         decision: parsed.data.decision,

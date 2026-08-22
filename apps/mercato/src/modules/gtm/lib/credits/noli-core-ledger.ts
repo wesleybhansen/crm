@@ -252,6 +252,7 @@ export class NoliCoreOperatorReconciler
     const row = await this.rpc('operatorReconcile', 'provider_op_reconcile', {
       p_org: request.organizationId,
       p_actor: request.actorUserId,
+      p_billing_user: request.billingUserId,
       p_operation_id: request.operationId,
       p_previous_status: request.previousStatus,
       p_outcome: request.outcome,

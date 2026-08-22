@@ -41,7 +41,7 @@ const reserveInput = {
 describe('NoliCoreOperatorReconciler', () => {
   it('calls the binding-aware canonical reconciliation RPC and validates the exact echo', async () => {
     const binding = {
-      schemaVersion: 'gtm.operator_reconciliation.v1' as const,
+      schemaVersion: 'gtm.operator_reconciliation.v2' as const,
       idempotencyKey: 'operator-1',
       auditEventId: 'aaaaaaaa-1111-4111-8111-111111111111',
       evidenceHash: 'a'.repeat(64),
@@ -56,6 +56,7 @@ describe('NoliCoreOperatorReconciler', () => {
       reconciler.reconcile({
         organizationId: ORG,
         actorUserId: USER,
+        billingUserId: USER,
         operationId: OP,
         previousStatus: 'reconciliation_required',
         outcome: 'charged',
@@ -67,6 +68,7 @@ describe('NoliCoreOperatorReconciler', () => {
     expect(rpc).toHaveBeenCalledWith('provider_op_reconcile', {
       p_org: ORG,
       p_actor: USER,
+      p_billing_user: USER,
       p_operation_id: OP,
       p_previous_status: 'reconciliation_required',
       p_outcome: 'charged',
@@ -84,13 +86,14 @@ describe('NoliCoreOperatorReconciler', () => {
     const result = await reconciler.reconcile({
       organizationId: ORG,
       actorUserId: USER,
+      billingUserId: USER,
       operationId: OP,
       previousStatus: 'reconciliation_required',
       outcome: 'charged',
       chargedCredits: 4,
       receipt: {},
       binding: {
-        schemaVersion: 'gtm.operator_reconciliation.v1',
+        schemaVersion: 'gtm.operator_reconciliation.v2',
         idempotencyKey: 'operator-2',
         auditEventId: 'aaaaaaaa-1111-4111-8111-111111111112',
         evidenceHash: 'c'.repeat(64),
@@ -108,7 +111,7 @@ describe('NoliCoreOperatorReconciler', () => {
         status: 'charged',
         charged_credits: 4,
         binding: {
-          schemaVersion: 'gtm.operator_reconciliation.v1',
+          schemaVersion: 'gtm.operator_reconciliation.v2',
           idempotencyKey: 'operator-3',
           auditEventId: 'aaaaaaaa-1111-4111-8111-111111111113',
           evidenceHash: 'e'.repeat(64),
@@ -121,13 +124,14 @@ describe('NoliCoreOperatorReconciler', () => {
       reconciler.reconcile({
         organizationId: ORG,
         actorUserId: USER,
+        billingUserId: USER,
         operationId: OP,
         previousStatus: 'reconciliation_required',
         outcome: 'charged',
         chargedCredits: 4,
         receipt: {},
         binding: {
-          schemaVersion: 'gtm.operator_reconciliation.v1',
+          schemaVersion: 'gtm.operator_reconciliation.v2',
           idempotencyKey: 'operator-3',
           auditEventId: 'aaaaaaaa-1111-4111-8111-111111111113',
           evidenceHash: 'e'.repeat(64),
