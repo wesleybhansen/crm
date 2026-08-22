@@ -10,7 +10,11 @@ import {
   fixtureVerifyAdapter,
 } from '../adapters/fixture'
 import { APIFY_ENRICH_ADAPTER_ID } from '../adapters/apify/enrich'
-import { APIFY_SOURCE_ADAPTER_ID } from '../adapters/apify/source'
+import {
+  APIFY_REQUIRED_PRICE_VERSION,
+  APIFY_REQUIRED_TERMS_VERSION,
+  APIFY_SOURCE_ADAPTER_ID,
+} from '../adapters/apify/source'
 import { BOUNCER_VERIFY_ADAPTER_ID } from '../adapters/bouncer/verify'
 import { DATAFORSEO_MAPS_ADAPTER_ID } from '../adapters/dataforseo/maps'
 import { LEADMAGIC_ENRICH_ADAPTER_ID } from '../adapters/leadmagic/enrich'
@@ -72,8 +76,8 @@ describe('adapter registry environment boundaries', () => {
     process.env.GTM_APIFY_ENABLED = 'true'
     process.env.GTM_APIFY_TOKEN = 'synthetic-test-token'
     process.env.GTM_APIFY_CUSTOMER_USE_APPROVED = 'true'
-    process.env.GTM_APIFY_TERMS_VERSION = 'reviewed-2026-08-02'
-    process.env.GTM_APIFY_PRICE_VERSION = 'measured-2026-07-24'
+    process.env.GTM_APIFY_TERMS_VERSION = APIFY_REQUIRED_TERMS_VERSION
+    process.env.GTM_APIFY_PRICE_VERSION = APIFY_REQUIRED_PRICE_VERSION
     process.env.GTM_DATAFORSEO_ENABLED = 'true'
     process.env.GTM_DATAFORSEO_LOGIN = 'synthetic-test-login'
     process.env.GTM_DATAFORSEO_PASSWORD = 'synthetic-test-password'
