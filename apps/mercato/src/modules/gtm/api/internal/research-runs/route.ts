@@ -33,6 +33,8 @@ import type { GtmCreditLedger } from '../../../lib/credits/ledger'
  *             priced->running claim is a conditional UPDATE so two
  *             concurrent executes cannot double-run.
  * - 'status'  returns the run plus candidate/operation counts
+ * - 'requalify' deterministically rescores stored output from the frozen run
+ *               snapshot, with no provider or billing call
  *
  * Fail-closed: flag-off 404; a strategy_only play can never be priced,
  * created, or executed (section 7 ladder boundary 1, recomputed in
@@ -313,7 +315,7 @@ export async function POST(req: Request) {
       })
     }
 
-    // execute | status
+    // execute | requalify | status
     if (!isUuid(body.runId)) return opaqueNotFound()
 
     if (body.op === 'execute') {
@@ -451,6 +453,30 @@ export async function POST(req: Request) {
         tem.persist(audit)
       })
 
+      return NextResponse.json({ ok: true, run: shapeRun(run), result })
+    }
+
+    if (body.op === 'requalify') {
+      const run = await em.findOne(GtmResearchRun, {
+        id: body.runId,
+        organizationId,
+        tenantId,
+        deletedAt: null,
+      })
+      if (!run) return opaqueNotFound()
+      if (run.status !== 'completed' && run.status !== 'failed') {
+        return NextResponse.json(
+          { ok: false, error: 'Only finished research runs can be requalified' },
+          { status: 409 },
+        )
+      }
+      const { requalifyResearchRun } = await import('../../../lib/research/requalify')
+      const result = await requalifyResearchRun({
+        em: em as unknown as import('../../../lib/research/requalify').RequalifyEm,
+        run,
+        actorUserId: userId,
+        requestId,
+      })
       return NextResponse.json({ ok: true, run: shapeRun(run), result })
     }
 

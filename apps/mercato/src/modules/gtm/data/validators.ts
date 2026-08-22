@@ -122,6 +122,11 @@ export const gtmResearchRunsBodySchema = z.discriminatedUnion('op', [
     noliUserId: idString,
     runId: idString,
   }),
+  z.object({
+    op: z.literal('requalify'),
+    noliUserId: idString,
+    runId: idString,
+  }),
   // Tranche 4: retention sweep exposed as a service-caller op (no in-app
   // worker convention exists; see lib/retention/sweep.ts).
   z.object({

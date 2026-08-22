@@ -38,7 +38,7 @@ export type FitResult = {
   fitScore: number
   verdict: FitVerdict
   reason: string
-  version: 'fit-v2' | 'fit-v3' | 'fit-v4'
+  version: 'fit-v2' | 'fit-v3' | 'fit-v4' | 'fit-v5'
   breakdown: FitBreakdown
   unknowns: string[]
   contradictions: string[]
@@ -64,6 +64,7 @@ export interface FitScorer {
 
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
+export const FIT_SCORER_VERSION = 'fit-v5' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -91,6 +92,10 @@ const EMPTY_BREAKDOWN: FitBreakdown = {
 
 type CriterionDefinition = QualificationProfile['criteria'][number] & {
   fields: string[]
+  // Provider targeting proves why a row was returned, but is not proof that
+  // the entity itself is inside the requested boundary. A match here can
+  // soften a contradiction to unknown/review; it can never produce pass.
+  targetingFields?: string[]
   useEvidence?: boolean
   employeeRange?: boolean
   exclusion?: boolean
@@ -111,7 +116,7 @@ function result(
     fitScore: Math.max(0, Math.min(100, Math.round(fitScore))),
     verdict,
     reason,
-    version: 'fit-v4',
+    version: FIT_SCORER_VERSION,
     breakdown,
     unknowns,
     contradictions,
@@ -197,6 +202,12 @@ const ALIAS_GROUPS: string[][] = [
   ['business development', 'bizdev', 'biz dev'],
   ['sales development representative', 'sdr'],
   ['business development representative', 'bdr'],
+  // Provider taxonomies describe the same local-business vertical at
+  // different levels (industry versus Maps category). These are deliberately
+  // narrow: veterinary and hospital categories are not included.
+  ['dentistry', 'dentist', 'dental clinic', 'cosmetic dentist', 'emergency dental service', 'dental implants provider'],
+  ['medical practices', 'medical practice', 'medical clinic', 'doctor'],
+  ['optometry', 'optometrist', 'optometry office', 'eye care center'],
   ['senior', 'sr'],
   ['junior', 'jr'],
   ['manager', 'mgr'],
@@ -384,6 +395,7 @@ function compileDefinitions(play: FitPlayInput, candidateKind: Candidate['entity
   addCriterion(definitions, query, 'locations', {
     id: 'geography.location', dimension: 'geography', label: 'Location', hard: true,
     fields: ['location', 'city', 'geography', 'region'],
+    targetingFields: ['provider_location'],
   })
 
   const exclusionSpecs = [
@@ -443,6 +455,7 @@ function evaluateCriterion(
     }
   }
   const identityValues = observedValues(identity, definition.fields)
+  const targetingValues = observedValues(identity, definition.targetingFields ?? [])
   const evidenceValues = definition.useEvidence
     ? evidence.flatMap((row) => [row.claim, ...Object.values(row.detail ?? {}).filter((value): value is string => typeof value === 'string')])
     : []
@@ -461,6 +474,9 @@ function evaluateCriterion(
       observed.some((actual) => wordsMatch(actual, expected)),
     )
   )
+  const targetingMatches = definition.expected.some((expected) =>
+    targetingValues.some((actual) => wordsMatch(actual, expected)),
+  )
   if (rangeStatus === 'unknown') {
     return {
       id: definition.id, dimension: definition.dimension, label: definition.label,
@@ -474,6 +490,18 @@ function evaluateCriterion(
     return {
       id: definition.id, dimension: definition.dimension, label: definition.label,
       expected: definition.expected, observed: evidenceValues,
+      status: 'unknown', hard: definition.hard,
+    }
+  }
+  // A Maps task targeted at a county can legitimately return an address that
+  // names only a city inside that county. The target therefore prevents a
+  // false hard rejection, but it cannot establish boundary membership: Maps
+  // may also return nearby entities outside that county. Keep the criterion
+  // unknown until result-level geography proves it.
+  if (!matches && targetingMatches) {
+    return {
+      id: definition.id, dimension: definition.dimension, label: definition.label,
+      expected: definition.expected, observed: [...observed, ...targetingValues],
       status: 'unknown', hard: definition.hard,
     }
   }
@@ -509,8 +537,14 @@ export const ruleBasedFitScorer: FitScorer = {
     }
 
     const location = stringValue(identity, ['location', 'city', 'geography', 'region'])
+    const countryCode = stringValue(identity, ['country_code', 'countryCode'])?.toUpperCase() ?? null
     const playGeography = (play.geography ?? '').trim()
-    if (playGeography && location && isUsGeography(playGeography) && !isUsGeography(location)) {
+    if (
+      playGeography
+      && isUsGeography(playGeography)
+      && ((countryCode && countryCode !== 'US' && countryCode !== 'USA')
+        || (location && !isUsGeography(location)))
+    ) {
       return result(0, 'rejected', FIT_REASONS.outsideGeography, EMPTY_BREAKDOWN, [], ['outside_play_geography'])
     }
     if (evidence.length === 0) {

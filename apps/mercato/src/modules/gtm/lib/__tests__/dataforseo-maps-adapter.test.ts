@@ -121,6 +121,8 @@ describe('DataForSEO Maps adapter', () => {
           items: [{
             title: 'Example HVAC', domain: 'example.test', address: 'Austin, TX',
             category: 'HVAC contractor', place_id: 'place-1',
+            address_info: { city: 'Austin', region: 'Texas', country_code: 'US' },
+            gps_coordinates: { latitude: 30.2672, longitude: -97.7431 },
           }],
         }],
       }],
@@ -133,7 +135,19 @@ describe('DataForSEO Maps adapter', () => {
     })
     expect(result.status).toBe('ok')
     expect(result.cost_units).toBe(1)
+    expect(result.data?.[0].identity).toEqual(expect.objectContaining({
+      provider_location: 'Austin,Texas,United States',
+      city: 'Austin',
+      region: 'Texas',
+      country_code: 'US',
+      latitude: 30.2672,
+      longitude: -97.7431,
+    }))
     expect(result.data?.[0].evidence[0].source_url).toContain('google.com/maps/place')
+    expect(result.data?.[0].evidence[0].detail).toEqual(expect.objectContaining({
+      provider_location: 'Austin,Texas,United States',
+      country_code: 'US',
+    }))
     expect(result.receipt).toEqual(expect.objectContaining({
       root_status_code: 20000, task_status_code: 20000,
       root_cost_usd: 0.002, task_cost_usd: 0.002,
