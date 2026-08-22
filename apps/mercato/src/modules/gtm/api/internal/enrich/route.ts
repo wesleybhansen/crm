@@ -89,10 +89,19 @@ export async function POST(req: Request) {
 
   try {
     // 3. noli-core user -> Clerk id
-    const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
+    const { findNoliUserById, findPrimaryOrgIdForUser } = await import(
+      '@open-mercato/shared/lib/noli/core-client'
+    )
     const noliUser = await findNoliUserById(body.noliUserId)
     if (!noliUser?.clerk_user_id) {
       return NextResponse.json({ ok: false, error: 'Noli user not found' }, { status: 404 })
+    }
+    const noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
+    if (!noliOrgId) {
+      return NextResponse.json(
+        { ok: false, error: 'Noli organization is not available' },
+        { status: 503 },
+      )
     }
 
     // 4. Resolve to a Mercato auth context (provisions on first contact and
@@ -217,7 +226,9 @@ export async function POST(req: Request) {
       verifyAdapters,
       candidates,
       contactPoints,
-      userId,
+      noliOrgId,
+      // Canonical provider metering is keyed to the represented Noli user.
+      noliUserId: body.noliUserId,
       runId,
       maxCredits: Math.min(body.maxCredits ?? plan.maximum_credits, plan.maximum_credits),
     })

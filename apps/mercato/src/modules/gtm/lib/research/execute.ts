@@ -4,6 +4,7 @@ import type { Candidate, SourceAdapter } from '../adapters/types'
 import {
   GtmCreditLedgerError,
   type GtmCreditLedger,
+  type GtmSettleOutcome,
 } from '../credits/ledger'
 import {
   creditsForUnits,
@@ -70,7 +71,12 @@ export type ExecuteResearchRunDeps = {
     providerQuery?: Record<string, unknown> | null
     recencyWindow?: string | null
   }
-  userId: string
+  // Canonical Noli Core organization UUID. CRM organizationId remains the
+  // tenant/data scope and must never be used for pooled-credit accounting.
+  noliOrgId: string
+  // Noli Core user UUID. This is deliberately not the Mercato/CRM user UUID:
+  // provider settlement writes ai_usage in Noli Core, whose FK is users.id.
+  noliUserId: string
   scorer?: FitScorer
   markupMultiplier?: number
   now?: () => Date
@@ -195,7 +201,7 @@ function parseLimits(run: GtmResearchRun): {
 export async function executeResearchRun(
   deps: ExecuteResearchRunDeps,
 ): Promise<ResearchRunExecutionResult> {
-  const { em, ledger, adapters, run, play, userId } = deps
+  const { em, ledger, adapters, run, play, noliOrgId, noliUserId } = deps
   const scorer = deps.scorer ?? ruleBasedFitScorer
   const markup = deps.markupMultiplier ?? defaultMarkupMultiplier()
   const now = deps.now ?? (() => new Date())
@@ -298,8 +304,8 @@ export async function executeResearchRun(
     let operationId: string
     try {
       const reserved = await ledger.reserve({
-        orgId: run.organizationId,
-        userId,
+        orgId: noliOrgId,
+        userId: noliUserId,
         kind: 'source_search',
         provider: planned.adapter_id,
         estimatedCredits: batchEstimatedCredits,
@@ -429,11 +435,18 @@ export async function executeResearchRun(
       max_charge_usd: maxChargeUsd,
     })
 
-    // 4. Outcome handling (exactly one ledger settlement path per batch).
+    // 4. Persist the observed provider outcome BEFORE asking Noli Core to
+    // settle it. If the canonical write is unavailable, the operator still
+    // has the provider's status/cost/request receipt and the operation is
+    // parked without a second provider call.
     const receipt = (result.receipt ?? null) as Record<string, unknown> | null
-    let ledgerStatus: string
+    const observedAt = now()
+    let ledgerStatus = shadow.localStatusMirror ?? 'provider_started'
     let chargedCredits = 0
     let batchFailure: string | null = null
+    let settlementPending = false
+    let settlementError: string | null = null
+    let intendedAction: GtmSettleOutcome | 'mark_ambiguous'
 
     if (result.status === 'ok' || result.status === 'partial') {
       const actualUnits = result.cost_units ?? (Array.isArray(result.data) ? result.data.length : 0)
@@ -441,41 +454,76 @@ export async function executeResearchRun(
         creditsForUnits(actualUnits, planned.quotedCreditsPerUnit, markup),
         batchEstimatedCredits,
       )
-      ledgerStatus = await ledger.settle(
-        operationId,
-        result.status === 'partial' ? 'partially_charged' : 'charged',
-        chargedCredits,
-        receipt,
-      )
-      reconciledCredits += chargedCredits
-      outstandingReserved -= batchEstimatedCredits
+      intendedAction = result.status === 'partial' ? 'partially_charged' : 'charged'
     } else if (result.status === 'no_result') {
       if (adapter.descriptor.cost_model.pay_on_found) {
-        ledgerStatus = await ledger.settle(operationId, 'refunded', 0, receipt)
+        intendedAction = 'refunded'
       } else {
         chargedCredits = Math.min(
           creditsForUnits(result.cost_units ?? 1, planned.quotedCreditsPerUnit, markup),
           batchEstimatedCredits,
         )
-        ledgerStatus = await ledger.settle(operationId, 'charged', chargedCredits, receipt)
-        reconciledCredits += chargedCredits
+        intendedAction = 'charged'
       }
-      outstandingReserved -= batchEstimatedCredits
     } else if (result.status === 'ambiguous') {
-      // Unknown outcome: park the SAME operation, never retry, never infer a
-      // charge locally. The reservation stays escrowed until reconciliation.
-      ledgerStatus = await ledger.markAmbiguous(operationId, {
-        error: result.error ?? 'ambiguous provider outcome',
-        receipt,
-      })
+      intendedAction = 'mark_ambiguous'
+    } else {
+      intendedAction = 'refunded'
+    }
+
+    const observedReceipt = {
+      ...(receipt ?? {}),
+      gtm_observation: {
+        schema_version: 'gtm-provider-outcome-v1',
+        observed_at: observedAt.toISOString(),
+        adapter_status: result.status,
+        intended_ledger_action: intendedAction,
+        intended_charged_credits: chargedCredits,
+        provider_error: result.error ?? null,
+        output_count: Array.isArray(result.data) ? result.data.length : result.data ? 1 : 0,
+        settlement_pending: true,
+      },
+    }
+    await em.transactional(async (tem) => {
+      shadow.receipt = observedReceipt
+      tem.persist(shadow)
+      await tem.flush()
+    })
+
+    try {
+      if (intendedAction === 'mark_ambiguous') {
+        // Unknown provider outcome: park the SAME operation, never retry, and
+        // never infer a charge locally. The reservation stays escrowed.
+        ledgerStatus = await ledger.markAmbiguous(operationId, {
+          error: result.error ?? 'ambiguous provider outcome',
+          receipt,
+        })
+        reconciliationRequired = true
+        unresolvedAdapters.add(planned.adapter_id)
+        batchFailure = result.error ?? 'ambiguous provider outcome'
+      } else {
+        ledgerStatus = await ledger.settle(
+          operationId,
+          intendedAction,
+          chargedCredits,
+          receipt,
+        )
+        outstandingReserved -= batchEstimatedCredits
+        if (intendedAction === 'charged' || intendedAction === 'partially_charged') {
+          reconciledCredits += chargedCredits
+        }
+      }
+    } catch (error) {
+      settlementPending = true
       reconciliationRequired = true
       unresolvedAdapters.add(planned.adapter_id)
-      batchFailure = result.error ?? 'ambiguous provider outcome'
-    } else {
-      // Definitive error: refund the reservation, record the failure, and
-      // continue with the remaining batches.
-      ledgerStatus = await ledger.settle(operationId, 'refunded', 0, receipt)
-      outstandingReserved -= batchEstimatedCredits
+      settlementError = error instanceof Error
+        ? `${error.name}: ${error.message}`.slice(0, 500)
+        : 'unknown canonical ledger error'
+      batchFailure = 'canonical ledger outcome unresolved after provider response'
+    }
+
+    if (result.status === 'error' && !settlementPending) {
       exhaustedAdapters.add(planned.adapter_id)
       batchFailure = result.error ?? 'provider error'
     }
@@ -494,15 +542,24 @@ export async function executeResearchRun(
       }
     }
 
-    // 5. Mirror the outcome on the shadow row (jsonb receipt carries the
-    //    ambiguity timestamp; the shadow never stores balances).
+    // 5. Mirror canonical truth after the receipt-first write. A failed
+    // settlement deliberately leaves local_status_mirror at provider_started;
+    // the receipt carries the intended decision for operator reconciliation.
     await em.transactional(async (tem) => {
       shadow.localStatusMirror = ledgerStatus
-      shadow.receipt =
-        result.status === 'ambiguous'
-          ? { ...(receipt ?? {}), ambiguous_at: now().toISOString(), detail: result.error ?? null }
-          : receipt
-      if (result.status !== 'ambiguous') shadow.settledAt = now()
+      shadow.receipt = {
+        ...observedReceipt,
+        ...(result.status === 'ambiguous'
+          ? { ambiguous_at: observedAt.toISOString(), detail: result.error ?? null }
+          : {}),
+        gtm_observation: {
+          ...observedReceipt.gtm_observation,
+          settlement_pending: settlementPending,
+          canonical_status: ledgerStatus,
+          settlement_error: settlementError,
+        },
+      }
+      if (!settlementPending && result.status !== 'ambiguous') shadow.settledAt = now()
       tem.persist(shadow)
       await tem.flush()
     })
@@ -513,7 +570,12 @@ export async function executeResearchRun(
     let batchAccepted = 0
     let batchReview = 0
     let batchRejected = 0
-    const providerRows = Array.isArray(result.data) ? result.data : []
+    // Do not release provider output while its canonical billing transition is
+    // unresolved. The reserved credits remain escrowed and the receipt is
+    // available to the operator; a later explicit reconciliation decides it.
+    const providerRows = settlementPending
+      ? []
+      : Array.isArray(result.data) ? result.data : []
     // Adapter-side slicing is not a security boundary. Enforce the generic
     // remaining raw ceiling here even when a provider over-returns.
     const remainingRaw = limits.maxRawCandidates > 0
@@ -635,7 +697,7 @@ export async function executeResearchRun(
     batches.push({
       ...base,
       operationId,
-      outcome: result.status,
+      outcome: settlementPending ? 'ambiguous' : result.status,
       ledgerStatus,
       chargedCredits,
       candidatesInserted: batchInserted,

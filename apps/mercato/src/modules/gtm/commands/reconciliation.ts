@@ -11,6 +11,10 @@ import {
 } from '../lib/reconciliation/operator'
 
 export type ReconcileProviderOperationCommandInput = {
+  canonicalIdentity: {
+    organizationId: string
+    userId: string
+  }
   operationId: string
   idempotencyKey: string
   decision: GtmOperatorReconciliationDecision

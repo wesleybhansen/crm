@@ -36,4 +36,15 @@ describe('GTM internal route RBAC contract', () => {
       expect(source).toContain("error: 'Forbidden'")
     }
   })
+
+  it('uses the represented Noli user for canonical provider metering', () => {
+    const internalDir = path.resolve(__dirname, '../../api/internal')
+    for (const routeName of ['research-runs', 'enrich']) {
+      const source = readFileSync(path.join(internalDir, routeName, 'route.ts'), 'utf8')
+      expect(source).toContain('findPrimaryOrgIdForUser')
+      expect(source).toContain('noliOrgId,')
+      expect(source).toContain('noliUserId: body.noliUserId')
+      expect(source).not.toContain('noliUserId: userId')
+    }
+  })
 })

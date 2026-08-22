@@ -17,7 +17,7 @@ import type { GtmLedgerStatus, GtmSettleOutcome } from '../credits/ledger'
  * ledger result is authoritative.
  */
 
-export const OPERATOR_RECONCILIATION_SCHEMA = 'gtm.operator_reconciliation.v1'
+export const OPERATOR_RECONCILIATION_SCHEMA = 'gtm.operator_reconciliation.v2'
 export const OPERATOR_RECONCILIATION_RECEIPT_KEY = 'operator_reconciliation'
 
 const AUDIT_ACTION = 'gtm.provider_operation.reconciled'
@@ -111,6 +111,8 @@ type StoredOperatorReconciliation = {
   charged_credits: number
   previous_status: GtmLedgerStatus
   canonical_status: GtmLedgerStatus
+  canonical_organization_id: string
+  canonical_user_id: string
   actor_user_id: string
   decided_at: string
   evidence: NormalizedEvidence
@@ -130,6 +132,7 @@ export type GtmCanonicalDecisionBinding = {
 export type GtmCanonicalOperatorReconciliationRequest = {
   organizationId: string
   actorUserId: string
+  billingUserId: string
   operationId: string
   previousStatus: GtmLedgerStatus
   outcome: NormalizedDecision['outcome']
@@ -267,6 +270,12 @@ export type ReconcileProviderOperationInput = {
   em: CampaignEm
   canonicalReconciler: GtmCanonicalOperatorReconciler
   ctx: GtmCtx
+  // Server-resolved Noli Core identity. This is distinct from the CRM scope
+  // in ctx and is decision-hash-bound before the canonical RPC.
+  canonicalIdentity: {
+    organizationId: string
+    userId: string
+  }
   // CRM shadow id, not a caller-supplied canonical operation id. Resolving it
   // through both org and tenant prevents cross-tenant canonical-ledger calls.
   operationId: string
@@ -285,6 +294,7 @@ export type ReconcileProviderOperationInput = {
 export async function reconcileProviderOperation(
   input: ReconcileProviderOperationInput,
 ): Promise<GtmOperatorReconciliationResult> {
+  const canonicalIdentity = normalizeCanonicalIdentity(input.canonicalIdentity)
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey)
   const decision = normalizeDecision(input.decision)
   const evidence = normalizeEvidence(input.evidence)
@@ -298,6 +308,7 @@ export async function reconcileProviderOperation(
     idempotencyKey,
     decision,
     evidenceHash,
+    canonicalIdentity,
   )
   if (replay) {
     const stored = readStoredOperatorReconciliation(operation.receipt)
@@ -346,6 +357,8 @@ export async function reconcileProviderOperation(
     charged_credits: decision.chargedCredits,
     previous_status: previousStatus,
     canonical_status: expectedCanonicalStatus(decision),
+    canonical_organization_id: canonicalIdentity.organizationId,
+    canonical_user_id: canonicalIdentity.userId,
     actor_user_id: input.ctx.userId,
     decided_at: decidedAt.toISOString(),
     evidence,
@@ -393,6 +406,7 @@ export async function reconcileProviderOperation(
       idempotencyKey,
       decision,
       evidenceHash,
+      canonicalIdentity,
     )
     if (concurrentReplay) return concurrentReplay
     assertActionMatches(currentAction, current, stored, 'pending')
@@ -445,6 +459,8 @@ export async function reconcileProviderOperation(
         kind: current.kind,
         previous_status: previousStatus,
         canonical_status: canonicalStatus,
+        canonical_organization_id: stored.canonical_organization_id,
+        canonical_user_id: stored.canonical_user_id,
         decision: decision.outcome,
         charged_credits: decision.chargedCredits,
         evidence_hash: evidenceHash,
@@ -649,8 +665,9 @@ async function reconcileCanonicalDecision(
 ): Promise<GtmLedgerStatus> {
   const expectedBinding = bindingFromStoredRecord(stored)
   const canonical = await canonicalReconciler.reconcile({
-    organizationId: stored.organization_id,
-    actorUserId: stored.actor_user_id,
+    organizationId: stored.canonical_organization_id,
+    actorUserId: stored.canonical_user_id,
+    billingUserId: stored.canonical_user_id,
     operationId: stored.noli_core_operation_id,
     previousStatus: stored.previous_status,
     outcome: stored.decision,
@@ -678,6 +695,7 @@ async function resolveExistingRecord(
   idempotencyKey: string,
   decision: NormalizedDecision,
   evidenceHash: string,
+  canonicalIdentity: { organizationId: string; userId: string },
 ): Promise<GtmOperatorReconciliationResult | null> {
   const stored = readStoredOperatorReconciliation(operation.receipt)
   if (!stored) return null
@@ -728,6 +746,8 @@ async function resolveExistingRecord(
   const exactReplay =
     stored.idempotency_key === idempotencyKey &&
     stored.actor_user_id === ctx.userId &&
+    stored.canonical_organization_id === canonicalIdentity.organizationId &&
+    stored.canonical_user_id === canonicalIdentity.userId &&
     stored.decision === decision.outcome &&
     stored.charged_credits === decision.chargedCredits &&
     stored.evidence_hash === evidenceHash
@@ -767,6 +787,8 @@ function auditMetadataMatches(
     metadata.kind === stored.kind &&
     metadata.previous_status === stored.previous_status &&
     metadata.canonical_status === stored.canonical_status &&
+    metadata.canonical_organization_id === stored.canonical_organization_id &&
+    metadata.canonical_user_id === stored.canonical_user_id &&
     metadata.decision === stored.decision &&
     metadata.charged_credits === stored.charged_credits &&
     metadata.evidence_hash === stored.evidence_hash &&
@@ -786,6 +808,24 @@ function normalizeIdempotencyKey(value: string): string {
     )
   }
   return key
+}
+
+function normalizeCanonicalIdentity(value: {
+  organizationId: string
+  userId: string
+}): { organizationId: string; userId: string } {
+  const organizationId = typeof value?.organizationId === 'string'
+    ? value.organizationId.trim()
+    : ''
+  const userId = typeof value?.userId === 'string' ? value.userId.trim() : ''
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  if (!uuid.test(organizationId) || !uuid.test(userId)) {
+    throw new GtmProviderReconciliationError(
+      'invalid_decision',
+      'canonical Noli organization and user identity must be UUIDs',
+    )
+  }
+  return { organizationId, userId }
 }
 
 function normalizeDecision(value: GtmOperatorReconciliationDecision): NormalizedDecision {
@@ -940,6 +980,8 @@ function hashDecisionRecord(
     charged_credits: record.charged_credits,
     previous_status: record.previous_status,
     canonical_status: record.canonical_status,
+    canonical_organization_id: record.canonical_organization_id,
+    canonical_user_id: record.canonical_user_id,
     actor_user_id: record.actor_user_id,
     decided_at: record.decided_at,
     evidence_hash: record.evidence_hash,
@@ -1148,6 +1190,10 @@ function readStoredOperatorReconciliation(
     !SETTLED_STATUSES.has(canonicalStatus as GtmLedgerStatus) ||
     typeof raw.actor_user_id !== 'string' ||
     !raw.actor_user_id ||
+    typeof raw.canonical_organization_id !== 'string' ||
+    !raw.canonical_organization_id ||
+    typeof raw.canonical_user_id !== 'string' ||
+    !raw.canonical_user_id ||
     typeof raw.decided_at !== 'string' ||
     Number.isNaN(new Date(raw.decided_at).getTime()) ||
     typeof raw.evidence_hash !== 'string' ||
@@ -1181,6 +1227,8 @@ function readStoredOperatorReconciliation(
     charged_credits: Number(raw.charged_credits),
     previous_status: previousStatus as GtmLedgerStatus,
     canonical_status: canonicalStatus as GtmLedgerStatus,
+    canonical_organization_id: raw.canonical_organization_id,
+    canonical_user_id: raw.canonical_user_id,
     actor_user_id: raw.actor_user_id,
     decided_at: new Date(raw.decided_at).toISOString(),
     evidence,

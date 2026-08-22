@@ -98,10 +98,19 @@ export async function POST(req: Request) {
 
   try {
     // 3. noli-core user -> Clerk id
-    const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
+    const { findNoliUserById, findPrimaryOrgIdForUser } = await import(
+      '@open-mercato/shared/lib/noli/core-client'
+    )
     const noliUser = await findNoliUserById(body.noliUserId)
     if (!noliUser?.clerk_user_id) {
       return NextResponse.json({ ok: false, error: 'Noli user not found' }, { status: 404 })
+    }
+    const noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
+    if (!noliOrgId) {
+      return NextResponse.json(
+        { ok: false, error: 'Noli organization is not available' },
+        { status: 503 },
+      )
     }
 
     // 4. Resolve to a Mercato auth context (provisions on first contact and
@@ -411,7 +420,10 @@ export async function POST(req: Request) {
         adapters,
         run,
         play,
-        userId,
+        noliOrgId,
+        // The canonical ledger meters into Noli Core ai_usage, so it must use
+        // the represented Noli user UUID, never the provisioned CRM UUID.
+        noliUserId: body.noliUserId,
       })
 
       await em.transactional(async (tem) => {

@@ -25,6 +25,7 @@ const TENANT = '22222222-2222-4222-8222-222222222222'
 const WORKSPACE = '33333333-3333-4333-8333-333333333333'
 const PLAY_ID = '44444444-4444-4444-8444-444444444444'
 const USER = '55555555-5555-4555-8555-555555555555'
+const NOLI_ORG = '66666666-6666-4666-8666-666666666666'
 
 const play = {
   id: PLAY_ID,
@@ -88,7 +89,8 @@ function deps(
     adapters: Object.fromEntries(adapters.map((adapter) => [adapter.descriptor.adapter_id, adapter])),
     run,
     play,
-    userId: USER,
+    noliOrgId: NOLI_ORG,
+    noliUserId: USER,
     markupMultiplier: 2,
   }
 }
@@ -149,6 +151,8 @@ describe('executeResearchRun', () => {
     expect(shadows[0].localStatusMirror).toBe('charged')
     expect(shadows[0].settledAt).toBeInstanceOf(Date)
     const op = ledger.getOperation(shadows[0].noliCoreOperationId)!
+    expect(op.orgId).toBe(NOLI_ORG)
+    expect(op.userId).toBe(USER)
     expect(op.status).toBe('charged')
     expect(op.chargedCredits).toBe(6)
   })
@@ -278,6 +282,56 @@ describe('executeResearchRun', () => {
     expect(op.status).toBe('reconciliation_required')
     expect(op.chargedCredits).toBe(0)
     expect(ledger.availableCredits()).toBe(90)
+  })
+
+  it('persists the provider receipt before settlement and never retries when settlement fails', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const adapter = spyAdapter()
+    const run = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 5)],
+      query: 'companies hiring revenue operations leads',
+      maxCandidates: 5,
+      maxCredits: 10,
+    })
+    jest.spyOn(ledger, 'settle').mockRejectedValueOnce(new Error('canonical ledger unavailable'))
+
+    const result = await executeResearchRun(deps(em, ledger, run, [adapter]))
+
+    expect(adapter.search).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({
+      status: 'completed',
+      reconciliationRequired: true,
+      reconciledCredits: 0,
+      candidatesInserted: 0,
+      funnel: { stopReason: 'unresolved_provider_outcome' },
+    })
+    expect(result.batches[0]).toMatchObject({
+      outcome: 'ambiguous',
+      ledgerStatus: 'provider_started',
+      chargedCredits: 6,
+      failureReason: 'canonical ledger outcome unresolved after provider response',
+    })
+    const shadow = em.table(GtmProviderOperation)[0]
+    expect(shadow.localStatusMirror).toBe('provider_started')
+    expect(shadow.settledAt).toBeUndefined()
+    expect(shadow.receipt).toEqual(expect.objectContaining({
+      provider_request_id: expect.any(String),
+      gtm_observation: expect.objectContaining({
+        adapter_status: 'ok',
+        intended_ledger_action: 'charged',
+        intended_charged_credits: 6,
+        settlement_pending: true,
+        canonical_status: 'provider_started',
+        settlement_error: expect.stringContaining('canonical ledger unavailable'),
+      }),
+    }))
+    expect(ledger.listOperations()[0].status).toBe('provider_started')
+
+    // A replay sees the same parked operation and cannot contact the provider.
+    await executeResearchRun(deps(em, ledger, run, [adapter]))
+    expect(adapter.search).toHaveBeenCalledTimes(1)
+    expect(ledger.listOperations()).toHaveLength(1)
   })
 
   it('does not double charge a delayed completion: the SAME operation settles once', async () => {
