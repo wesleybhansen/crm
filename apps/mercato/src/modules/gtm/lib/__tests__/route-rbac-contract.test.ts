@@ -16,6 +16,7 @@ describe('GTM internal route RBAC contract', () => {
       'campaigns',
       'candidates',
       'chat',
+      'decision-makers',
       'enrich',
       'execution',
       'gtm-inbox',
@@ -39,7 +40,7 @@ describe('GTM internal route RBAC contract', () => {
 
   it('uses the represented Noli user for canonical provider metering', () => {
     const internalDir = path.resolve(__dirname, '../../api/internal')
-    for (const routeName of ['research-runs', 'enrich']) {
+    for (const routeName of ['research-runs', 'enrich', 'decision-makers']) {
       const source = readFileSync(path.join(internalDir, routeName, 'route.ts'), 'utf8')
       expect(source).toContain('findPrimaryOrgIdForUser')
       expect(source).toContain('noliOrgId,')

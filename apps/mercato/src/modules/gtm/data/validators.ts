@@ -169,6 +169,30 @@ export const gtmEnrichBodySchema = z.discriminatedUnion('op', [
 
 export type GtmEnrichBody = z.infer<typeof gtmEnrichBodySchema>
 
+const decisionMakerPlanInput = {
+  noliUserId: idString,
+  runId: idString,
+  jobTitles: z.array(z.string().trim().min(1).max(60)).min(1).max(12).optional(),
+  maxProfiles: z.number().int().min(1).max(25).optional(),
+}
+
+export const gtmDecisionMakersBodySchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('plan'), ...decisionMakerPlanInput }),
+  z.object({
+    op: z.literal('run'),
+    ...decisionMakerPlanInput,
+    maxCredits: z.number().int().min(1).optional(),
+    expectedPlanHash: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+  z.object({
+    op: z.literal('status'),
+    noliUserId: idString,
+    runId: idString,
+  }),
+])
+
+export type GtmDecisionMakersBody = z.infer<typeof gtmDecisionMakersBodySchema>
+
 export const gtmCandidatesBodySchema = z.object({
   noliUserId: idString,
   op: z.enum(['list', 'review', 'detail']).optional().default('list'),

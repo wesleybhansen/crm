@@ -5,6 +5,7 @@ import {
   GtmAiTelemetry,
   GtmCandidate,
   GtmCandidateMatch,
+  GtmCandidateRelation,
   GtmChatMessage,
   GtmDeletionRequest,
   GtmDsrOperation,
@@ -15,6 +16,7 @@ import {
   GtmMailboxHealth,
   GtmMailboxPolicy,
   GtmProviderReconciliationAction,
+  GtmProviderOperation,
   GtmReply,
   GtmRenderedMessage,
   GtmSendAttempt,
@@ -160,6 +162,18 @@ export class FakeEm implements ResearchEm, RetentionEm, CampaignEm, ExecutionEm,
           'gtm_candidate_matches_run_candidate_unique',
         )
       }
+      if (entity instanceof GtmCandidateRelation) {
+        this.assertUnique(
+          entity,
+          GtmCandidateRelation,
+          (row) =>
+            row.researchRunId === entity.researchRunId
+            && row.parentCandidateId === entity.parentCandidateId
+            && row.childCandidateId === entity.childCandidateId
+            && row.relationshipKind === entity.relationshipKind,
+          'gtm_candidate_relations_run_parent_child_kind_unique',
+        )
+      }
       if (entity instanceof GtmEnrollment) {
         this.assertUnique(
           entity,
@@ -247,6 +261,14 @@ export class FakeEm implements ResearchEm, RetentionEm, CampaignEm, ExecutionEm,
             row.organizationId === entity.organizationId &&
             row.idempotencyKey === entity.idempotencyKey,
           'gtm_provider_reconciliation_actions_org_key_unique',
+        )
+      }
+      if (entity instanceof GtmProviderOperation) {
+        this.assertUnique(
+          entity,
+          GtmProviderOperation,
+          (row) => row.noliCoreOperationId === entity.noliCoreOperationId,
+          'gtm_provider_operations_noli_core_operation_unique',
         )
       }
       if (entity instanceof GtmMailboxCursor) {

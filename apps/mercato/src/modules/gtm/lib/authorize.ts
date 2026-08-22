@@ -22,6 +22,7 @@ const CAMPAIGN_READ_OPS = new Set(['list', 'draft-state', 'status'])
 const CANDIDATE_READ_OPS = new Set(['list', 'detail'])
 const CHAT_READ_OPS = new Set(['thread-list', 'messages'])
 const ENRICHMENT_READ_OPS = new Set(['plan', 'status'])
+const DECISION_MAKER_READ_OPS = new Set(['plan', 'status'])
 const INBOX_READ_OPS = new Set(['list', 'thread'])
 const HANDOFF_READ_OPS = new Set(['assets-list', 'asset-status'])
 const RESEARCH_READ_OPS = new Set(['list', 'plan', 'status'])
@@ -53,6 +54,10 @@ export function chatFeatureForOp(op: string): GtmFeature {
 
 export function enrichmentFeatureForOp(op: string): GtmFeature {
   return ENRICHMENT_READ_OPS.has(op) ? 'gtm.view' : 'gtm.launch'
+}
+
+export function decisionMakerFeatureForOp(op: string): GtmFeature {
+  return DECISION_MAKER_READ_OPS.has(op) ? 'gtm.view' : 'gtm.launch'
 }
 
 export function inboxFeatureForOp(op: string): GtmFeature {

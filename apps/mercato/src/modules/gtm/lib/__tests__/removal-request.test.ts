@@ -10,6 +10,7 @@ import {
 import { computeExclusions, hashAddress } from '../campaign/exclusions'
 import {
   GtmAuditEvent,
+  GtmCandidateRelation,
   GtmContactPoint,
   GtmDeletionRequest,
   GtmDsrOperation,
@@ -276,6 +277,23 @@ describe('prospect removal request', () => {
       recipient: address,
       provider_response: 'synthetic receipt detail',
     }
+    const relation = em.create(GtmCandidateRelation, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: candidate.workspaceId,
+      playId: fixture.campaign.playId,
+      researchRunId: candidate.researchRunId,
+      parentMatchId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      parentCandidateId: candidate.id,
+      childCandidateId: candidate.id,
+      providerOperationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      relationshipKind: 'current_employee',
+      observedTitle: 'Synthetic Decision Maker',
+      confidence: '0.950',
+      observedAt: clock.now(),
+    })
+    em.persist(relation)
+    await em.flush()
 
     const result = await applyRemovalRequest(em, { email: address }, { clock })
 
@@ -288,6 +306,8 @@ describe('prospect removal request', () => {
     const points = await em.find(GtmContactPoint, { candidateId: candidate.id })
     expect(points[0].value).toMatch(/^removed:/)
     expect(points[0].deletedAt).toBeInstanceOf(Date)
+    expect(relation).toMatchObject({ observedTitle: '[removed]', confidence: '0.000' })
+    expect(relation.deletedAt).toBeInstanceOf(Date)
     const rendered = await em.find(GtmRenderedMessage, { enrollmentId: enrollment.id })
     expect(rendered[0]).toMatchObject({ subject: null, bodyHtml: null, bodyText: null })
     expect(attempt.providerReceipt).toMatchObject({ redacted: true, status: 'accepted', cost_usd: 0.01 })

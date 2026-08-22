@@ -480,6 +480,75 @@ export class GtmCandidateMatch {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'gtm_candidate_relations' })
+@Index({ name: 'gtm_candidate_relations_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'gtm_candidate_relations_org_tenant_run_idx', properties: ['organizationId', 'tenantId', 'researchRunId'] })
+@Index({ name: 'gtm_candidate_relations_org_tenant_parent_idx', properties: ['organizationId', 'tenantId', 'parentCandidateId'] })
+@Index({ name: 'gtm_candidate_relations_org_tenant_child_idx', properties: ['organizationId', 'tenantId', 'childCandidateId'] })
+@Unique({
+  name: 'gtm_candidate_relations_run_parent_child_kind_unique',
+  properties: ['researchRunId', 'parentCandidateId', 'childCandidateId', 'relationshipKind'],
+})
+export class GtmCandidateRelation {
+  [OptionalProps]?: 'id' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => GtmWorkspace, { fieldName: 'workspace_id', mapToPk: true, deleteRule: 'cascade' })
+  workspaceId!: string
+
+  @ManyToOne(() => GtmPlay, { fieldName: 'play_id', mapToPk: true, deleteRule: 'cascade' })
+  playId!: string
+
+  @ManyToOne(() => GtmResearchRun, { fieldName: 'research_run_id', mapToPk: true, deleteRule: 'cascade' })
+  researchRunId!: string
+
+  @ManyToOne(() => GtmCandidateMatch, { fieldName: 'parent_match_id', mapToPk: true, deleteRule: 'cascade' })
+  parentMatchId!: string
+
+  @ManyToOne(() => GtmCandidate, { fieldName: 'parent_candidate_id', mapToPk: true, deleteRule: 'cascade' })
+  parentCandidateId!: string
+
+  @ManyToOne(() => GtmCandidate, { fieldName: 'child_candidate_id', mapToPk: true, deleteRule: 'cascade' })
+  childCandidateId!: string
+
+  @ManyToOne(() => GtmProviderOperation, {
+    fieldName: 'provider_operation_id',
+    mapToPk: true,
+    deleteRule: 'restrict',
+  })
+  providerOperationId!: string
+
+  // current_employee is the only R21 value; text keeps future values additive.
+  @Property({ name: 'relationship_kind', type: 'text' })
+  relationshipKind!: string
+
+  @Property({ name: 'observed_title', type: 'text' })
+  observedTitle!: string
+
+  @Property({ type: 'decimal', precision: 6, scale: 3 })
+  confidence!: string
+
+  @Property({ name: 'observed_at', type: 'timestamptz' })
+  observedAt!: Date
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'gtm_evidence' })
 @Index({ name: 'gtm_evidence_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'gtm_evidence_org_tenant_candidate_idx', properties: ['organizationId', 'tenantId', 'candidateId'] })

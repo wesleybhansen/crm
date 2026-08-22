@@ -3,6 +3,7 @@ import { sweepExpiredCandidates } from '../retention/sweep'
 import {
   GtmAuditEvent,
   GtmCandidate,
+  GtmCandidateRelation,
   GtmContactPoint,
   GtmEnrollment,
   GtmEvidence,
@@ -101,6 +102,24 @@ describe('sweepExpiredCandidates', () => {
     await enroll(em, enrolled, 'stopped')
     const fresh = await makeCandidate(em, { expiresAt: FUTURE, evidence: 1 })
     const noRetention = await makeCandidate(em, { expiresAt: null })
+    em.persist(
+      em.create(GtmCandidateRelation, {
+        organizationId: ORG_A,
+        tenantId: TENANT,
+        workspaceId: WORKSPACE,
+        playId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        researchRunId: RUN,
+        parentMatchId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        parentCandidateId: promoted.id,
+        childCandidateId: expired.id,
+        providerOperationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        relationshipKind: 'current_employee',
+        observedTitle: 'Synthetic Decision Maker',
+        confidence: '0.950',
+        observedAt: PAST,
+      }),
+    )
+    await em.flush()
 
     const result = await sweepExpiredCandidates(em, { now: NOW })
 
@@ -108,6 +127,7 @@ describe('sweepExpiredCandidates', () => {
       candidatesDeleted: 1,
       evidenceDeleted: 2,
       contactPointsDeleted: 1,
+      relationsDeleted: 1,
       skippedEnrolled: 1,
       batches: 1,
     })
@@ -121,6 +141,7 @@ describe('sweepExpiredCandidates', () => {
     // cascade: no evidence or contact points survive for the deleted candidate
     expect(em.table(GtmEvidence).some((row) => row.candidateId === expired.id)).toBe(false)
     expect(em.table(GtmContactPoint).some((row) => row.candidateId === expired.id)).toBe(false)
+    expect(em.table(GtmCandidateRelation)).toHaveLength(0)
     // untouched candidates keep their rows
     expect(em.table(GtmEvidence).some((row) => row.candidateId === promoted.id)).toBe(true)
     expect(em.table(GtmContactPoint).some((row) => row.candidateId === enrolled.id)).toBe(true)
@@ -146,6 +167,7 @@ describe('sweepExpiredCandidates', () => {
       candidates_deleted: 2,
       evidence_deleted: 3,
       contact_points_deleted: 3,
+      relations_deleted: 0,
       cutoff: NOW.toISOString(),
     })
     // no identity material leaks into the audit trail
@@ -198,6 +220,7 @@ describe('sweepExpiredCandidates', () => {
       candidatesDeleted: 0,
       evidenceDeleted: 0,
       contactPointsDeleted: 0,
+      relationsDeleted: 0,
       skippedEnrolled: 0,
       batches: 0,
     })
