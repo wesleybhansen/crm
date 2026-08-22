@@ -25,6 +25,7 @@ import {
   GtmAuditEvent,
   GtmCampaign,
   GtmCampaignVersion,
+  GtmCandidateMatch,
   GtmEnrollment,
   GtmMailboxPolicy,
   GtmPlay,
@@ -565,5 +566,46 @@ describe('draft-state determinism', () => {
     })
     const draft = await computeDraftState(em, ctx, campaign)
     expect(draft.consideredCandidateIds).toEqual([inPlay.id])
+  })
+
+  it('uses the latest play-specific match instead of a candidate-global verdict', async () => {
+    const em = new FakeEm()
+    const play = await seedPlay(em)
+    const run = await seedRun(em, play)
+    const acceptedForPlay = await seedCandidate(em, run, { fitStatus: 'rejected' })
+    const rejectedForPlay = await seedCandidate(em, run, { fitStatus: 'accepted' })
+    const acceptedMatch = em.create(GtmCandidateMatch, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      researchRunId: run.id,
+      candidateId: acceptedForPlay.id,
+      fitStatus: 'accepted',
+      fitScore: '95',
+    })
+    const rejectedMatch = em.create(GtmCandidateMatch, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      researchRunId: run.id,
+      candidateId: rejectedForPlay.id,
+      fitStatus: 'rejected',
+      fitScore: '10',
+      rejectReason: 'industry_excluded',
+    })
+    em.persist(acceptedMatch)
+    em.persist(rejectedMatch)
+    await em.flush()
+    const { campaign } = await createCampaign(em, ctx, {
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      name: 'Contextual scoping',
+    })
+
+    const draft = await computeDraftState(em, ctx, campaign)
+
+    expect(draft.consideredCandidateIds).toEqual([acceptedForPlay.id])
   })
 })

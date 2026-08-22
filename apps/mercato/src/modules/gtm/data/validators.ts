@@ -147,12 +147,14 @@ export const gtmEnrichBodySchema = z.discriminatedUnion('op', [
     noliUserId: idString,
     runId: idString.optional(),
     workspaceId: idString.optional(),
+    playId: idString.optional(),
   }),
   z.object({
     op: z.literal('run'),
     noliUserId: idString,
     runId: idString.optional(),
     workspaceId: idString.optional(),
+    playId: idString.optional(),
     maxCredits: z.number().int().min(1).optional(),
     expectedPlanHash: z.string().regex(/^[a-f0-9]{64}$/),
   }),
@@ -161,6 +163,7 @@ export const gtmEnrichBodySchema = z.discriminatedUnion('op', [
     noliUserId: idString,
     runId: idString.optional(),
     workspaceId: idString.optional(),
+    playId: idString.optional(),
   }),
 ])
 
@@ -171,10 +174,12 @@ export const gtmCandidatesBodySchema = z.object({
   op: z.enum(['list', 'review', 'detail']).optional().default('list'),
   // list filters
   runId: idString.optional(),
+  playId: idString.optional(),
   workspaceId: idString.optional(),
   fitStatus: z.enum(['unscored', 'accepted', 'review', 'rejected']).optional(),
   // review + detail ops
   candidateId: idString.optional(),
+  matchId: idString.optional(),
   verdict: z.enum(['accepted', 'rejected']).optional(),
   reason: z.string().trim().max(2000).optional(),
 })

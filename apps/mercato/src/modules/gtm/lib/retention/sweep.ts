@@ -1,6 +1,7 @@
 import {
   GtmAuditEvent,
   GtmCandidate,
+  GtmCandidateMatch,
   GtmContactPoint,
   GtmEnrollment,
   GtmEvidence,
@@ -117,7 +118,13 @@ export async function sweepExpiredCandidates(
         tenantId,
         candidateId: { $in: ids },
       })
+      const matches = await tem.find(GtmCandidateMatch, {
+        organizationId,
+        tenantId,
+        candidateId: { $in: ids },
+      })
 
+      for (const row of matches) tem.remove(row)
       for (const row of evidence) tem.remove(row)
       for (const row of contactPoints) tem.remove(row)
       for (const candidate of batch) tem.remove(candidate)

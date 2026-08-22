@@ -761,9 +761,32 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 |---|---|---|---|
 | R16-A - company-source contract | Completed locally | 2026-08-22 | Exact actor/build, input, output, evidence, rights, and event-price contract |
 | R16-B - validation and freeze | Completed locally | 2026-08-22 | 70/71 suites and 758 tests passed; one opt-in PostgreSQL suite and its seven tests skipped; whole-repository TypeScript, lint (zero errors), production build, deployment-security, and diff checks green |
-| R16-C - owner-only golden motion | Pending | 2026-08-22 | No R16 provider call or customer/public exposure yet |
+| R16-C - owner-only golden motion | Completed | 2026-08-22 | One exact 10-row owner-only run reconciled 20,500 credits; 4 new workspace identities produced 1 accepted / 3 rejected, no contact, campaign, mailbox, or send work |
 
-## 32. Changelog
+## 32. R19 contextual candidate qualification (approved 2026-08-22)
+
+### 32.1 Identity and qualification contract
+
+- `gtm_candidates` remains the workspace-wide identity and contact-data record, with its existing unique `(organization_id, workspace_id, dedupe_key)` constraint. A later source run never creates a second person/company row merely to express a different audience decision.
+- `gtm_candidate_matches` is the run/play-specific junction and fit snapshot. It binds one candidate to one frozen research run, play, provider operation, evidence-quality assessment, fit score/verdict/reason, criterion record, and scorer version. `(research_run_id, candidate_id)` is unique, so a same-run duplicate remains suppressed while a later run can reuse the identity without losing its own qualification.
+- New evidence records bind to `research_run_id`. Legacy evidence remains valid through a nullable compatibility field and is backfilled from its candidate's original run during the controlled migration.
+- Run status, requalification, manual review, selected-play People lists, enrichment selection, and campaign recipient approval consume contextual matches. Legacy candidate-level fields remain a compatibility fallback only; review of a contextual row never overwrites another play's decision.
+
+### 32.2 Migration and release contract
+
+- The entity change is represented by generator-owned `Migration20260822155644_gtm` plus the synchronized GTM snapshot. The migration adds only the junction table, its indexes/foreign keys, and nullable evidence run binding.
+- Existing rows are copied idempotently into one match per candidate/original run and legacy evidence is bound to that run after schema application. Replaying the backfill inserts/updates zero rows.
+- Rollback is the GTM/UI flags plus the prior app image. The additive table/column remain inert; no destructive rollback/drop is required.
+- Execution, mailbox ingestion, public GTM promotion, LeadMagic, and Bouncer remain off. This correctness tranche does not authorize outreach or broaden customer exposure.
+
+### 32.3 Acceptance gates
+
+- Cross-run tests prove the same workspace identities produce independent matches/evidence and count toward the later run's accepted-yield funnel; same-run duplicates remain suppressed.
+- Campaign approval, enrichment, requalification, and manual-review tests prove they use the contextual verdict while leaving the candidate identity verdict unchanged.
+- Full current-main migrations plus R19 apply to an empty disposable database; a second migrate has no pending work and a second generator pass reports no GTM drift. The legacy-row backfill is idempotent and preserves fit-v6 truth.
+- The Hub People screen requires an Audience Play context and sends its match id for detail/review. Hub typecheck and its complete deterministic suite remain green.
+
+## 33. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -797,3 +820,5 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-21: Added R9 around the written DataForSEO rights/rate/retention clarification. Eligibility now requires exact June 12 terms, exact current price version, 30-day JSON retention, and one code-bound `$0.002` Live Advanced task capped at 100 rows; no provider call or production configuration changed.
 - 2026-08-22: Corrected the production-proven DataForSEO Maps location contract to emit canonical US location names, retain task-level validation truth, and fail a run honestly when every provider batch errors. The observed rejected task was authoritatively zero-cost and fully refunded; this correction makes no provider call by itself.
 - 2026-08-22: Added R16's exact Apify LinkedIn company-search contract for accepted-yield firmographics. It freezes the actor/build, supported filters, public evidence shape, `$0.004` full-company event, `$0.001` actor-start event, and a separate exact price-version gate; no R16 provider call or exposure change occurred in this code tranche.
+- 2026-08-22: Completed one owner-only R16 company-source golden motion and removed response-body snippets from the company adapter's durable receipts. The exact run reconciled 20,500 credits for 10 raw rows and produced one accepted of four new identities; no contact, campaign, mailbox, or send work occurred.
+- 2026-08-22: Added R19 contextual candidate matches after the golden run proved workspace identity dedupe could otherwise suppress a later play's fit verdict. Candidate identity remains deduplicated; run/play qualification, evidence, review, enrichment, and campaign selection are now contextual and independently auditable.

@@ -75,6 +75,10 @@ export type EnrichWaterfallDeps = {
   verifyAdapters: VerifyAdapter[]
   // any fit status; the waterfall itself filters to accepted candidates
   candidates: GtmCandidate[]
+  // Contextual qualification lives on candidate matches. Routes that resolve
+  // those matches pass the accepted identity set instead of relying on the
+  // legacy candidate-level verdict.
+  acceptedCandidateIds?: Set<string>
   // existing contact points for those candidates (skip-if-verified, parked skip)
   contactPoints: GtmContactPoint[]
   // Canonical Noli Core organization UUID for pooled-credit accounting.
@@ -504,7 +508,9 @@ export async function runEnrichmentWaterfall(
 
   // Spec 4.1 step 6: enrichment runs over ACCEPTED candidates only.
   const accepted = deps.candidates.filter(
-    (candidate) => candidate.fitStatus === 'accepted' && !candidate.deletedAt,
+    (candidate) =>
+      (deps.acceptedCandidateIds?.has(candidate.id) ?? candidate.fitStatus === 'accepted')
+      && !candidate.deletedAt,
   )
 
   candidateLoop: for (const candidate of accepted) {

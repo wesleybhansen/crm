@@ -4,6 +4,7 @@ import {
   GtmAuditEvent,
   GtmCampaignVersion,
   GtmCandidate,
+  GtmCandidateMatch,
   GtmChatMessage,
   GtmContactPoint,
   GtmDeletionRequest,
@@ -324,9 +325,10 @@ export async function executeRemovalDeletion(
     await em.flush()
     const candidateIds = [...new Set(points.map((point) => point.candidateId))]
     const candidateIdSet = new Set(candidateIds)
-    const [candidates, evidence, contactPoints, enrollments, providerOperations, chatMessages] =
+    const [candidates, candidateMatches, evidence, contactPoints, enrollments, providerOperations, chatMessages] =
       await Promise.all([
         em.find(GtmCandidate, { organizationId, tenantId, id: { $in: candidateIds } }),
+        em.find(GtmCandidateMatch, { organizationId, tenantId, candidateId: { $in: candidateIds } }),
         em.find(GtmEvidence, { organizationId, tenantId, candidateId: { $in: candidateIds } }),
         em.find(GtmContactPoint, { organizationId, tenantId, candidateId: { $in: candidateIds } }),
         em.find(GtmEnrollment, { organizationId, tenantId, candidateId: { $in: candidateIds } }),
@@ -364,6 +366,16 @@ export async function executeRemovalDeletion(
         candidate.retentionExpiresAt = now
         candidate.updatedAt = now
         tem.persist(candidate)
+      }
+      for (const match of candidateMatches) {
+        match.fitStatus = 'rejected'
+        match.fitScore = null
+        match.rejectReason = 'removed'
+        match.qualityStatus = null
+        match.qualityScore = null
+        match.qualification = null
+        match.updatedAt = now
+        tem.persist(match)
       }
       for (const row of evidence) {
         row.claim = '[removed]'
