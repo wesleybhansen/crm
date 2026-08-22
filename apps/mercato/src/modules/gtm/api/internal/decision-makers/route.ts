@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { gtmInternalOpenApi } from '../../openapi'
 import { gtmDecisionMakersBodySchema } from '../../../data/validators'
+import { linkedInCompanyIdsFromEvidence } from '../../../lib/adapters/apify/company-employees'
 import { gtmEnabled } from '../../../lib/flags'
 import { isUuid } from '../../../lib/play-shape'
 
@@ -95,6 +96,7 @@ export async function POST(req: Request) {
       GtmCandidate,
       GtmCandidateMatch,
       GtmCandidateRelation,
+      GtmEvidence,
       GtmPlay,
       GtmProviderOperation,
       GtmResearchRun,
@@ -183,7 +185,7 @@ export async function POST(req: Request) {
         }, { limit: 100 })
       : []
     const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]))
-    const companies = acceptedMatches.flatMap((match) => {
+    const baseCompanies = acceptedMatches.flatMap((match) => {
       const candidate = candidateById.get(match.candidateId)
       if (!candidate) return []
       const linkedinUrl = linkedInCompanyUrl(candidate.identity)
@@ -198,6 +200,23 @@ export async function POST(req: Request) {
         linkedin_url: linkedinUrl,
       }]
     })
+    const selectedCompanyCandidateId = [...baseCompanies]
+      .sort((left, right) => left.candidate_id.localeCompare(right.candidate_id))[0]?.candidate_id
+    const evidenceRows = selectedCompanyCandidateId
+      ? await em.find(GtmEvidence, {
+          organizationId,
+          tenantId,
+          researchRunId: run.id,
+          candidateId: selectedCompanyCandidateId,
+          deletedAt: null,
+        }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+      : []
+    const companies = baseCompanies.map((company) => ({
+      ...company,
+      linkedin_company_ids: company.candidate_id === selectedCompanyCandidateId
+        ? linkedInCompanyIdsFromEvidence(evidenceRows)
+        : [],
+    }))
 
     const { decisionMakerAdapter } = await import('../../../lib/adapters/registry')
     const selectedAdapter = decisionMakerAdapter()

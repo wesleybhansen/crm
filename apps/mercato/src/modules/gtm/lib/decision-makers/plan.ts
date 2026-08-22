@@ -7,6 +7,7 @@ import {
   APIFY_COMPANY_EMPLOYEES_MAX_COMPANIES,
   APIFY_COMPANY_EMPLOYEES_MAX_PROFILES,
   APIFY_COMPANY_EMPLOYEES_SIGNAL,
+  normalizeLinkedInCompanyIds,
 } from '../adapters/apify/company-employees'
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
 import { descriptorHash, immutableHash } from '../research/plan'
@@ -47,7 +48,7 @@ export function recommendedDecisionMakerTitles(play: Pick<GtmPlay, 'audience' | 
 }
 
 export type DecisionMakerPlan = {
-  schema_version: '2'
+  schema_version: '3'
   plan_hash: string
   available: boolean
   run_id: string
@@ -77,7 +78,11 @@ export function buildDecisionMakerPlan(args: {
   maxProfiles?: number | null
   markupMultiplier?: number
 }): DecisionMakerPlan {
-  const companies = [...args.companies]
+  const companies = args.companies
+    .map((company) => ({
+      ...company,
+      linkedin_company_ids: normalizeLinkedInCompanyIds(company.linkedin_company_ids ?? []),
+    }))
     .sort((left, right) => left.candidate_id.localeCompare(right.candidate_id))
     .slice(0, APIFY_COMPANY_EMPLOYEES_MAX_COMPANIES)
   const requestedTitles = normalizeDecisionMakerTitles(args.jobTitles ?? [])
@@ -123,7 +128,7 @@ export function buildDecisionMakerPlan(args: {
       )
     : 0
   const frozen = {
-    schema_version: '2' as const,
+    schema_version: '3' as const,
     run_id: args.run.id,
     play_id: args.run.playId,
     workspace_id: args.run.workspaceId,
