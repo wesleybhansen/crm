@@ -92,6 +92,10 @@ export async function POST(req: Request) {
 
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
+    const { hasGtmFeature, strategyFeatureForOp } = await import('../../../lib/authorize')
+    if (!(await hasGtmFeature(container, ctx, strategyFeatureForOp(body.op)))) {
+      return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+    }
     const em = container.resolve('em') as EntityManager as unknown as import('../../../lib/campaign/build').CampaignEm
 
     // Malformed workspace id -> opaque 404 (same as a missing/foreign row).

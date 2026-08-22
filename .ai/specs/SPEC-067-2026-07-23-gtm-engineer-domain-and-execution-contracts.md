@@ -617,7 +617,63 @@ The harness starts a loopback-only, read-only synthetic Noli identity/entitlemen
 | R5-A - disposable keyring/base URL | Completed locally | 2026-08-20 | Test runtime only; production manifests remain unchanged |
 | R5-B - public GET/POST lifecycle | Completed locally | 2026-08-20 | Real route and disposable PostgreSQL; TC-GTM-003 passed; no external effect |
 
-## 27. Changelog
+## 27. R6 selected provider routing (approved 2026-08-21)
+
+### 27.1 Selected stack
+
+- DataForSEO is the selected provider for US local-company and location discovery. Eligibility still requires its credential, enable switch, customer-use approval, frozen terms and price versions, and the reviewed 30-day provider-retention contract.
+- Apify is the selected provider for separately eligible public social-signal sourcing and profile enrichment. Every actor remains independently gated by the existing Apify customer-use, frozen terms, frozen price, invoice/spend-cap, and capability checks.
+- LeadMagic and Bouncer are owner-excluded from the active product plan. Their historical adapter source and network-free contract tests may remain for custody and future comparison, but no production or development runtime registry may select them from environment configuration.
+- R6 selects no independent real-email verifier. Deterministic fixture verification remains restricted to the isolated test harness. A future verifier requires a new explicit provider decision and contract amendment.
+
+### 27.2 Migration and backward compatibility
+
+R6 changes no API route, exported adapter implementation, entity, migration, stored row, ACL feature, queue, or generated contract. Existing LeadMagic and Bouncer environment variables are retained as documented no-ops for compatibility, so a stale deployment configuration cannot activate an excluded provider. DataForSEO and Apify retain their existing additive configuration and fail-closed eligibility contracts.
+
+### 27.3 Acceptance gates
+
+- Production-mode registry tests enable complete synthetic LeadMagic and Bouncer configurations and prove neither source, enrichment, nor verification registry includes them.
+- Production-mode registry tests prove only fully eligible DataForSEO and Apify adapters enter the selected stack; fixture adapters remain impossible outside the explicit ephemeral test harness.
+- Full GTM tests, TypeScript, lint, and diff checks pass with external network access denied and no provider, mailbox, migration, or shared-service call.
+
+### 27.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R6-A - closed provider registry | Completed locally | 2026-08-21 | DataForSEO + eligible Apify selected; LeadMagic/Bouncer registry activation removed |
+| R6-B - validation and freeze | Completed locally | 2026-08-21 | 66/67 suites and 727 tests passed; the one skipped suite is the opt-in PostgreSQL concurrency harness; no provider call or configuration change occurred |
+
+## 28. R7 complete represented-user RBAC (approved 2026-08-21)
+
+### 28.1 Security contract
+
+The shared Noli service secret authenticates the calling application only. Every internal GTM route that carries a represented `noliUserId` must additionally resolve and enforce the least-privilege `gtm.view`, `gtm.edit`, `gtm.approve`, or `gtm.launch` feature in the exact organization and tenant before loading or mutating GTM rows.
+
+- Read-only lists, detail, status, plan, history, and timeline operations require `gtm.view`.
+- Workspace, strategy, chat, candidate-review, manual-task, draft, attachment, and import mutations require `gtm.edit`.
+- Campaign approval and external AMS asset requests require `gtm.approve`.
+- Paid provider execution, enrichment execution, retention sweeping, dependency overrides that can unblock execution, approved-reply sending, campaign lifecycle, transport execution, and mailbox controls require `gtm.launch`.
+- The account-free public removal request is the sole internal-dispatch exception because it intentionally has no represented user. It retains its shared-secret, opacity, suppression, and tenant-resolution contract.
+- Dependency absence, denial, or RBAC failure returns `403 Forbidden` before entity, provider, ledger, mailbox, model, or handoff access.
+
+### 28.2 Migration and backward compatibility
+
+R7 adds no route, field, entity, migration, feature id, queue, or generated contract. It enforces the ACL features already declared since the original spec. Admin and superadmin behavior remains compatible because both already receive all four GTM features; employee defaults remain read-only as documented. Any caller that previously depended on service-secret possession while lacking the represented user's feature was relying on an authorization defect and now fails closed.
+
+### 28.3 Acceptance gates
+
+- Pure mapping tests cover every operation family and prove paid provider work and reply dispatch require `gtm.launch`.
+- A source-level security invariant enumerates every internal GTM route and fails unless all represented-user routes call `hasGtmFeature`; only the public removal route is exempt.
+- Full GTM Jest, TypeScript, focused lint, diff, and existing disposable integration gates remain green with all external-effect switches off.
+
+### 28.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R7-A - route authorization closure | Completed locally | 2026-08-21 | Least-privilege mappings and pre-entity enforcement added to all represented-user routes |
+| R7-B - validation and freeze | Completed locally | 2026-08-21 | 67/68 suites and 730 tests passed; the one skipped suite is the opt-in PostgreSQL concurrency harness; provider and execution configuration remain unchanged |
+
+## 29. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -645,3 +701,5 @@ The harness starts a loopback-only, read-only synthetic Noli identity/entitlemen
 - 2026-08-20: Approved R4 for one user-owned Gmail-to-Yahoo/Proton campaign message and one owned reply in a disposable loopback environment. Added the no-history IMAP baseline and an opt-in, two-message rehearsal contract; production and shared-live posture remain dark.
 - 2026-08-20: Completed R4 with owner-confirmed Gmail-to-Yahoo delivery and a Yahoo reply. The second disposable run recorded one SMTP-accepted attempt, one sealed IMAP cursor, one exact-header inbound event, one durable reply, and the transactionally coupled `email_reply` enrollment stop. Two stale harness-only state labels (`sent` vs `accepted`, `reply` vs `email_reply`) were corrected; no production or shared-live state changed.
 - 2026-08-20: Added R5's disposable public RFC 8058 route scenario. A deterministic test-only v2 keyring crosses the actual GET/POST handler and verifies opaque tamper handling, atomic suppression/stop/cancellation/audit, and replay idempotency without email, mailbox ingestion, provider access, or production state.
+- 2026-08-21: Completed R6 runtime provider selection around DataForSEO and eligible Apify. LeadMagic and Bouncer remain auditable source/tests but their environment variables cannot register them; no real-email verifier is selected. Full GTM validation passed 66/67 suites and 727 tests, with only the opt-in PostgreSQL concurrency harness skipped.
+- 2026-08-21: Completed R7 represented-user authorization across every internal GTM route. The service secret remains application authentication only; paid provider work, reply sending, execution, and safety-sensitive controls require the represented user's `gtm.launch` feature. Full GTM validation passed 67/68 suites and 730 tests, with only the opt-in PostgreSQL concurrency harness skipped.

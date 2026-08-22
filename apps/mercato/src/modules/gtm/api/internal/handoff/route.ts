@@ -94,6 +94,10 @@ export async function POST(req: Request) {
 
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
+    const { handoffFeatureForOp, hasGtmFeature } = await import('../../../lib/authorize')
+    if (!(await hasGtmFeature(container, ctx, handoffFeatureForOp(body.op)))) {
+      return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+    }
     const em = container.resolve('em') as EntityManager as unknown as ExecutionEm
     const entities = await import('../../../data/entities')
     const httpLib = await import('../../../lib/handoff/http')

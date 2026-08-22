@@ -2,9 +2,6 @@ import type { EnrichAdapter, SourceAdapter, VerifyAdapter } from './types'
 import { fixtureEnrichAdapter, fixtureSourceAdapter, fixtureVerifyAdapter } from './fixture'
 import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
 import { apifyEnrichEnabled, createApifyEnrichAdapter } from './apify/enrich'
-import { createLeadMagicSourceAdapter, leadMagicEnabled } from './leadmagic/source'
-import { createLeadMagicEnrichAdapter, leadMagicEnrichEnabled } from './leadmagic/enrich'
-import { bouncerEnabled, createBouncerVerifyAdapter } from './bouncer/verify'
 import { createDataForSeoMapsAdapter, dataForSeoEnabled } from './dataforseo/maps'
 
 /*
@@ -17,10 +14,16 @@ import { createDataForSeoMapsAdapter, dataForSeoEnabled } from './dataforseo/map
  * empty registry and an honest unsupported-plan response, never synthetic
  * customer data.
  *
- * Real provider adapters register ADDITIVELY behind their own env gate, in
- * waterfall priority order. The Apify social-engagement source ships DARK
- * (GTM_APIFY_ENABLED plus a token, default off) because that source is
- * legally gated pending review; see lib/adapters/apify/source.ts.
+ * The selected real-provider stack is deliberately closed: DataForSEO for
+ * local company discovery and Apify for approved social-signal sourcing and
+ * profile enrichment. LeadMagic and Bouncer implementations remain in the
+ * repository as historical, directly testable adapters, but owner decision
+ * R6 excludes them from every runtime registry. Their environment variables
+ * therefore cannot activate them accidentally.
+ *
+ * Selected providers still register only behind their own credential,
+ * customer-use, frozen-terms, and frozen-price gates. Apify remains dark
+ * until those gates are explicitly satisfied; see lib/adapters/apify/source.ts.
  */
 export function fixtureAdaptersEnabled(
   env: NodeJS.ProcessEnv = process.env,
@@ -40,10 +43,6 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
     const apify = createApifySourceAdapter()
     registry[apify.descriptor.adapter_id] = apify
   }
-  if (leadMagicEnabled()) {
-    const leadMagic = createLeadMagicSourceAdapter()
-    registry[leadMagic.descriptor.adapter_id] = leadMagic
-  }
   if (dataForSeoEnabled()) {
     const dataForSeo = createDataForSeoMapsAdapter()
     registry[dataForSeo.descriptor.adapter_id] = dataForSeo
@@ -59,22 +58,20 @@ export function sourceAdapterList(): SourceAdapter[] {
  * Registry ORDER is the enrichment waterfall order (SPEC-066 section 4.1
  * step 6): the first adapter that yields contact points wins.
  *
- * The Apify profile+email adapter appends behind the SAME dark gate as the
- * Apify source (GTM_APIFY_ENABLED plus a token, default off). With the gate off
- * this list contains no network adapter. Note it is the only pay-per-ATTEMPT
- * adapter in the stack: see lib/adapters/apify/enrich.ts.
+ * Apify is the selected enrichment adapter and uses the SAME dark gate as the
+ * Apify source (GTM_APIFY_ENABLED plus its approval contract, default off).
+ * With the gate off this list contains no network adapter. It is pay-per-
+ * attempt: see lib/adapters/apify/enrich.ts.
  */
 export function enrichAdapterList(): EnrichAdapter[] {
   const list: EnrichAdapter[] = fixtureAdaptersEnabled() ? [fixtureEnrichAdapter] : []
-  if (leadMagicEnrichEnabled()) list.push(createLeadMagicEnrichAdapter())
   if (apifyEnrichEnabled()) list.push(createApifyEnrichAdapter())
   return list
 }
 
-// Registry ORDER is the verification order: the first adapter that returns a
-// definitive verification state settles the contact point.
+// R6 intentionally selects no independent verification provider. Fixture
+// verification remains available only to the isolated test harness. A future
+// real verifier requires an explicit owner-selected provider and spec change.
 export function verifyAdapterList(): VerifyAdapter[] {
-  const list: VerifyAdapter[] = fixtureAdaptersEnabled() ? [fixtureVerifyAdapter] : []
-  if (bouncerEnabled()) list.push(createBouncerVerifyAdapter())
-  return list
+  return fixtureAdaptersEnabled() ? [fixtureVerifyAdapter] : []
 }
