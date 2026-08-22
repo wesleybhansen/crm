@@ -225,7 +225,11 @@ describe('Apify LinkedIn company source contract', () => {
       now,
       runActor: async (_actorId, input, options) => {
         calls.push({ input, options })
-        return outcome({ items: [item], itemCount: 1 })
+        return outcome({
+          items: [item],
+          itemCount: 1,
+          bodySnippet: '[{"phone":"synthetic-personal-data"}]',
+        })
       },
     })
     const result = await adapter.search(PLAN)
@@ -248,6 +252,7 @@ describe('Apify LinkedIn company source contract', () => {
       maxItems: 25,
       maxChargeUsd: 0.101,
     }))
+    expect(result.receipt).not.toHaveProperty('body_snippet')
   })
 
   it('charges only the fixed start event on a definitive empty run', async () => {
@@ -256,13 +261,16 @@ describe('Apify LinkedIn company source contract', () => {
       now,
       runActor: async () => outcome({
         kind: 'no_result', status: 'no_result', items: [], itemCount: 0,
+        bodySnippet: '[{"phone":"synthetic-personal-data"}]',
       }),
     })
-    await expect(adapter.search(PLAN)).resolves.toEqual(expect.objectContaining({
+    const result = await adapter.search(PLAN)
+    expect(result).toEqual(expect.objectContaining({
       status: 'no_result',
       cost_units: 0.25,
       receipt: expect.objectContaining({ actor_start_billed: true }),
     }))
+    expect(result.receipt).not.toHaveProperty('body_snippet')
   })
 
   it('parks transport ambiguity without guessing the actor charge', async () => {
@@ -275,12 +283,15 @@ describe('Apify LinkedIn company source contract', () => {
         items: [],
         itemCount: 0,
         httpStatus: null,
+        bodySnippet: '[{"phone":"synthetic-personal-data"}]',
         error: 'transport_unknown',
       }),
     })
-    await expect(adapter.search(PLAN)).resolves.toEqual(expect.objectContaining({
+    const result = await adapter.search(PLAN)
+    expect(result).toEqual(expect.objectContaining({
       status: 'ambiguous', cost_units: null,
     }))
+    expect(result.receipt).not.toHaveProperty('body_snippet')
   })
 
   it('never contacts an actor when the company-specific contract is absent', async () => {
