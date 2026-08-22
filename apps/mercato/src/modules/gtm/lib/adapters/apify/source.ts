@@ -71,17 +71,16 @@ export const APIFY_SOURCE_ADAPTER_ID = 'apify-social-source'
 export const APIFY_RECEIPT_FIELDS = ['actor_id', 'run_id', 'item_count'] as const
 
 /*
- * PROVISIONAL LICENSE FLAG.
+ * CUSTOMER-SERVING RIGHTS DECISION.
  *
- * The descriptor below declares export / customer_display / outreach_allowed
- * as true because that is what the product needs from this layer. That
- * declaration is PROVISIONAL, pending the legal review recorded in the
- * data-sources map. AdapterDescriptor is a frozen shape (SPEC-066 11.1) with
- * no metadata or extension field, so the flag cannot live inside the
- * descriptor without changing the shared contract type. It is exported here
- * instead and asserted in tests, so nothing can quietly forget it.
+ * The owner accepted the selected actors for customer-serving use on
+ * 2026-08-21 after review of Apify's Actor Terms and General Terms. Runtime
+ * still requires the exact terms and price versions below: approval of the
+ * stack does not let a deployment silently use another actor or rate card.
  */
-export const APIFY_PROVISIONAL_LICENSE = true
+export const APIFY_CUSTOMER_SERVING_RIGHTS_APPROVED = true
+/** Compatibility signal for older contract checks. */
+export const APIFY_PROVISIONAL_LICENSE = !APIFY_CUSTOMER_SERVING_RIGHTS_APPROVED
 
 // Env gate default: OFF. Both conditions must hold.
 export const APIFY_ENABLED_ENV = 'GTM_APIFY_ENABLED'
@@ -217,7 +216,8 @@ export function apifySourceDescriptor(env: ApifyEnv = processEnv()): AdapterDesc
     layer: 'source',
     capabilities: APIFY_SELECTED_SOURCE_CAPABILITY_KINDS.map(capabilityRow),
     constraints: {
-      // PROVISIONAL pending legal review; see APIFY_PROVISIONAL_LICENSE above.
+      // Deployment approval is exact-version gated even though the selected
+      // stack's customer-serving rights have been accepted by the owner.
       license: {
         status: approved ? 'approved' : 'provisional',
         terms_version: (env[APIFY_TERMS_VERSION_ENV] ?? '').trim() || 'unapproved',
@@ -374,13 +374,12 @@ export function createApifySourceAdapter(deps: ApifySourceDeps = {}): SourceAdap
         )
       }
 
-      // 2. HARD GATE. Default OFF, deliberately: this source is legally gated
-      //    pending the review in the data-sources map. Returned as an error
-      //    result, never thrown.
+      // 2. HARD GATE. Default OFF. Deployment activation remains explicit and
+      //    is returned as an error result, never thrown.
       if (!apifyEnabled(env)) {
         return refusal(
           actorId,
-          `provider_disabled: ${APIFY_ENABLED_ENV} is not 'true'; the Apify source ships dark pending legal review`,
+          `provider_disabled: ${APIFY_ENABLED_ENV} is not 'true'; the selected Apify source is not active in this deployment`,
           { provider_status: 'disabled', attempted_at: attemptedAt },
         )
       }

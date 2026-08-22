@@ -61,6 +61,7 @@ describe('GTM server-side feature authorization', () => {
   it('makes provider reconciliation readable by viewers and mutable only by approvers', () => {
     expect(reconciliationFeatureForOp('list')).toBe('gtm.view')
     expect(reconciliationFeatureForOp('history')).toBe('gtm.view')
+    expect(reconciliationFeatureForOp('catalog')).toBe('gtm.view')
     expect(reconciliationFeatureForOp('ai-telemetry')).toBe('gtm.view')
     expect(reconciliationFeatureForOp('apply')).toBe('gtm.approve')
   })

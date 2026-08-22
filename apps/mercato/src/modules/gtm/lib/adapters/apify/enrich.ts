@@ -81,14 +81,13 @@ import {
 export const APIFY_ENRICH_ADAPTER_ID = 'apify-linkedin-profile-enrich'
 
 /*
- * PROVISIONAL LICENSE FLAG (same posture as the source adapter). The descriptor
- * declares export / customer_display / outreach_allowed true because that is
- * what the product needs of this layer; the declaration is PROVISIONAL pending
- * the legal review recorded in the data-sources map. AdapterDescriptor is a
- * frozen shape with no metadata field, so the flag is exported and asserted in
- * tests instead of hidden inside the descriptor.
+ * Customer-serving rights for the selected actor were accepted by the owner
+ * on 2026-08-21. The deployment still has to bind the exact reviewed actor,
+ * terms version, price version, and credentials before runtime registration.
  */
-export const APIFY_ENRICH_PROVISIONAL_LICENSE = true
+export const APIFY_ENRICH_CUSTOMER_SERVING_RIGHTS_APPROVED = true
+/** Compatibility signal for older contract checks. */
+export const APIFY_ENRICH_PROVISIONAL_LICENSE = !APIFY_ENRICH_CUSTOMER_SERVING_RIGHTS_APPROVED
 
 /*
  * Whether to pay for the email search. Default TRUE: finding a contact is the
@@ -204,7 +203,8 @@ export function apifyEnrichDescriptor(env: ApifyEnv = processEnv()): AdapterDesc
     layer: 'enrich',
     capabilities: APIFY_ENRICH_SIGNAL_KINDS.map(capabilityRow),
     constraints: {
-      // PROVISIONAL pending legal review; see APIFY_ENRICH_PROVISIONAL_LICENSE.
+      // The selected stack is owner-approved; deployment approval stays bound
+      // to the exact reviewed terms and price versions.
       license: {
         status: approved ? 'approved' : 'provisional',
         terms_version: (env[APIFY_TERMS_VERSION_ENV] ?? '').trim() || 'unapproved',
@@ -341,7 +341,7 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
       if (!apifyEnabled(env)) {
         return refusal(
           actorId,
-          `provider_disabled: ${APIFY_ENABLED_ENV} is not 'true'; the Apify enrichment ships dark pending legal review`,
+          `provider_disabled: ${APIFY_ENABLED_ENV} is not 'true'; the selected Apify enrichment is not active in this deployment`,
           { provider_status: 'disabled', attempted_at: attemptedAt },
         )
       }

@@ -208,14 +208,22 @@ export async function POST(req: Request) {
       if (!isUuid(body.workspaceId)) return opaqueNotFound()
       where.workspaceId = body.workspaceId
     }
+    const summaryWhere = { ...where }
     if (body.fitStatus) {
       where.fitStatus = body.fitStatus
     }
 
-    const candidates = await em.find(GtmCandidate, where, {
-      orderBy: { fitScore: 'desc', createdAt: 'desc' },
-      limit: LIST_CAP,
-    })
+    const [candidates, total, accepted, review, rejected, unscored] = await Promise.all([
+      em.find(GtmCandidate, where, {
+        orderBy: { fitScore: 'desc', createdAt: 'desc' },
+        limit: LIST_CAP,
+      }),
+      em.count(GtmCandidate, summaryWhere),
+      em.count(GtmCandidate, { ...summaryWhere, fitStatus: 'accepted' }),
+      em.count(GtmCandidate, { ...summaryWhere, fitStatus: 'review' }),
+      em.count(GtmCandidate, { ...summaryWhere, fitStatus: 'rejected' }),
+      em.count(GtmCandidate, { ...summaryWhere, fitStatus: 'unscored' }),
+    ])
 
     // Additive per-row rollup: verified-email presence + evidence count, one
     // grouped query per table over this page's candidate ids (no N+1).
@@ -244,6 +252,10 @@ export async function POST(req: Request) {
           confidence: extra?.confidence ?? null,
         }
       }),
+      summary: {
+        total,
+        by_fit_status: { accepted, review, rejected, unscored },
+      },
       cap: LIST_CAP,
     })
   } catch (err) {
