@@ -104,7 +104,7 @@ export type SourcePlanFailure = {
 
 export type SourcePlanSuccess = {
   ok: true
-  schemaVersion: '6'
+  schemaVersion: '7'
   planHash: string
   adapterPlan: SourcePlanBatch[]
   estimatedCredits: number
@@ -356,7 +356,7 @@ export function buildSourcePlan(
       : estimatedCredits
 
   const pricedPlan = {
-    schemaVersion: '6' as const,
+    schemaVersion: '7' as const,
     adapterPlan,
     estimatedCredits,
     plannedRawCapacity,

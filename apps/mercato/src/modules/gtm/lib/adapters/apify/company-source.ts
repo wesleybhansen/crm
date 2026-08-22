@@ -201,7 +201,14 @@ function quoted(value: string): string {
 
 export function buildApifyCompanySearchInput(plan: SourceSearchPlan): Record<string, unknown> {
   const query = plan.provider_query ?? {}
-  const keywords = stringArray(query.company_keywords, 5)
+  // Search breadth and qualification precision are separate contracts. A
+  // broad provider term such as "dental" can find the candidate universe,
+  // while exact company_keywords/exclusions decide whether each returned row
+  // is actually a dental practice rather than a lab, consultant or vendor.
+  const searchKeywords = stringArray(query.source_search_keywords, 5)
+  const keywords = searchKeywords.length > 0
+    ? searchKeywords
+    : stringArray(query.company_keywords, 5)
   const industries = stringArray(query.industries, 5)
   const terms = keywords.length > 0 ? keywords : industries
   const searchQuery = trimQuery(
@@ -358,6 +365,10 @@ export function normalizeApifyCompanyItem(
     domain,
     urls,
     location: location.location,
+    // Frozen targeting provenance is deliberately distinct from the returned
+    // office. The qualifier may use it to avoid a false hard rejection, but
+    // never as result-level proof of geographic membership.
+    provider_location: targetLocations[0] ?? null,
     city: location.city,
     region: location.region,
     country_code: location.countryCode,

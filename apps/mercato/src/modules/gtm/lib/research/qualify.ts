@@ -24,7 +24,7 @@ export type CriterionResult = {
 }
 
 export type QualificationProfile = {
-  version: 'qualification-profile-v1' | 'qualification-profile-v2'
+  version: 'qualification-profile-v1' | 'qualification-profile-v2' | 'qualification-profile-v3'
   criteria: Array<{
     id: string
     dimension: CriterionResult['dimension']
@@ -38,7 +38,7 @@ export type FitResult = {
   fitScore: number
   verdict: FitVerdict
   reason: string
-  version: 'fit-v2' | 'fit-v3' | 'fit-v4' | 'fit-v5'
+  version: 'fit-v2' | 'fit-v3' | 'fit-v4' | 'fit-v5' | 'fit-v6'
   breakdown: FitBreakdown
   unknowns: string[]
   contradictions: string[]
@@ -64,7 +64,7 @@ export interface FitScorer {
 
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
-export const FIT_SCORER_VERSION = 'fit-v5' as const
+export const FIT_SCORER_VERSION = 'fit-v6' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -333,6 +333,26 @@ function employeeRangeStatus(observed: string[], expected: string[]): EmployeeRa
   return sawUnknown ? 'unknown' : 'fail'
 }
 
+/*
+ * Provider company records can contain both an exact employee count and a
+ * coarse LinkedIn bucket. The exact count is stronger evidence. Evaluating
+ * the two observations as an unordered set lets a stale/conflicting bucket
+ * override a definitive count (for example count 53 + bucket 11-50). Only a
+ * scalar numeric field is treated as exact; range-looking strings continue
+ * through the conservative overlap logic above.
+ */
+function exactEmployeeCount(identity: Record<string, unknown>): number | null {
+  for (const key of ['employee_count', 'employees']) {
+    const value = identity[key]
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
+    if (typeof value === 'string' && /^\s*\d[\d,]*(?:\.\d+)?\s*$/.test(value)) {
+      const parsed = Number(value.replace(/,/g, '').trim())
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed
+    }
+  }
+  return null
+}
+
 function recencyDays(value: string | null | undefined): number | null {
   const text = (value ?? '').trim().toLowerCase()
   const amount = Number(text.match(/\d+(?:\.\d+)?/)?.[0])
@@ -426,7 +446,7 @@ export function compileQualificationProfile(
   candidateKind: Candidate['entity_kind'],
 ): QualificationProfile {
   return {
-    version: 'qualification-profile-v2',
+    version: 'qualification-profile-v3',
     criteria: compileDefinitions(play, candidateKind).map(({ id, dimension, label, expected, hard }) => ({
       id, dimension, label, expected, hard,
     })),
@@ -467,7 +487,13 @@ function evaluateCriterion(
     }
   }
   const rangeStatus = definition.employeeRange
-    ? employeeRangeStatus(observed, definition.expected)
+    ? (() => {
+      const exactCount = exactEmployeeCount(identity)
+      return employeeRangeStatus(
+        exactCount == null ? observed : [String(exactCount)],
+        definition.expected,
+      )
+    })()
     : null
   const matches = rangeStatus === 'pass' || (
     rangeStatus === null && definition.expected.some((expected) =>

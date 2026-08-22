@@ -1,4 +1,4 @@
-import type { CandidateEvidence } from '../adapters/types'
+import type { CandidateEvidence, CandidateIdentity } from '../adapters/types'
 import {
   FIT_ACCEPT_THRESHOLD,
   FIT_REASONS,
@@ -150,7 +150,7 @@ describe('ruleBasedFitScorer', () => {
       strongEvidence,
     )
     expect(result.verdict).toBe('accepted')
-    expect(result.version).toBe('fit-v5')
+    expect(result.version).toBe('fit-v6')
     expect(result.criteria?.every((row) => row.status === 'pass')).toBe(true)
   })
 
@@ -180,6 +180,136 @@ describe('ruleBasedFitScorer', () => {
     expect(result.verdict).toBe('review')
     expect(result.reason).toBe(FIT_REASONS.criterionUnknown)
     expect(result.unknowns).toContain('account.employee_range')
+  })
+
+  it('gives an exact employee count precedence over a conflicting provider bucket', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'company',
+        identity: {
+          name: 'Conflicting Company Size',
+          domain: 'conflicting-size.example',
+          industry: 'Medical Practices',
+          employee_count: 53,
+          employee_range: '11-50',
+          location: 'San Diego, CA',
+        },
+      },
+      {
+        entityUnit: 'companies', geography: 'San Diego, California',
+        providerQuery: { employee_ranges: ['1-10', '11-50'] },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.contradictions).toContain('account.employee_range')
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'account.employee_range', status: 'fail', observed: ['11-50', '53'],
+      }),
+    ]))
+  })
+
+  it('does not let a broad source-search term prove precise audience fit', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'company',
+        identity: {
+          name: 'Dental Ops Coach',
+          domain: 'dental-ops.example',
+          industry: 'Operations Consulting',
+          employee_count: 2,
+          employee_range: '2-10',
+          location: 'San Diego, CA',
+          company_description: 'We advise dentists on practice operations.',
+        },
+      },
+      {
+        entityUnit: 'companies', geography: 'San Diego, California',
+        providerQuery: {
+          source_search_keywords: ['dental'],
+          company_keywords: ['dental practice', 'dental office', 'dental care'],
+          industries: ['Medical Practices', 'Hospitals and Health Care'],
+          employee_ranges: ['1-10', '11-50'],
+          locations: ['San Diego, California'],
+        },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.contradictions).toEqual(expect.arrayContaining([
+      'account.industry',
+      'account.keywords',
+    ]))
+    expect(result.criteria?.some((row) => row.id === 'source_search_keywords')).toBe(false)
+  })
+
+  it('separates dental practices from adjacent companies in the golden firmographic rubric', () => {
+    const preciseDentalPlay = {
+      entityUnit: 'companies',
+      geography: 'San Diego, California',
+      providerQuery: {
+        source_search_keywords: ['dental'],
+        company_keywords: [
+          'dental practice', 'dental office', 'dental center',
+          'dental care', 'dentistry', 'dental services',
+        ],
+        industries: ['Medical Practices', 'Hospitals and Health Care'],
+        employee_ranges: ['1-10', '11-50'],
+        locations: ['San Diego, California'],
+        exclude_company_keywords: [
+          'dental billing', 'dental laboratory', 'dental lab',
+          'dental consulting', 'veterinary dental', 'dental support',
+        ],
+        exclude_industries: ['Accounting', 'Operations Consulting', 'Veterinary Services'],
+      },
+    }
+    const score = (identity: CandidateIdentity) => ruleBasedFitScorer.score(
+      { entity_kind: 'company', identity },
+      preciseDentalPlay,
+      strongEvidence,
+    )
+
+    expect(score({
+      name: 'Example Dental Center', domain: 'practice.example',
+      industry: 'Hospitals and Health Care', employee_count: 9, employee_range: '2-10',
+      location: 'San Diego, CA', company_description: 'A family dental center providing dental services.',
+    }).verdict).toBe('accepted')
+
+    expect(score({
+      name: 'Example Dental Billing', domain: 'billing.example',
+      industry: 'Accounting', employee_count: 1, employee_range: '2-10',
+      location: 'San Diego, CA', company_description: 'Billing support for dental practices.',
+    }).verdict).toBe('rejected')
+
+    expect(score({
+      name: 'Example Dental Ceramics', domain: 'lab.example',
+      industry: 'Hospitals and Health Care', employee_count: 10, employee_range: '11-50',
+      location: 'San Diego, CA', company_description: 'A dental laboratory serving local offices.',
+    }).verdict).toBe('rejected')
+
+    expect(score({
+      name: 'Example Veterinary Dental Center', domain: 'veterinary.example',
+      industry: 'Veterinary Services', employee_count: 33, employee_range: '11-50',
+      location: 'San Diego, CA', company_description: 'Veterinary dental care for animals.',
+    }).verdict).toBe('rejected')
+
+    expect(score({
+      name: 'Example Multi-location Dental Practice', domain: 'large.example',
+      industry: 'Medical Practices', employee_count: 53, employee_range: '11-50',
+      location: 'San Diego, CA', company_description: 'A family-owned dental practice.',
+    }).verdict).toBe('rejected')
+
+    const localityReview = score({
+      name: 'Example La Jolla Dental Care', domain: 'lajolla.example',
+      industry: 'Hospitals and Health Care', employee_count: 19, employee_range: '11-50',
+      location: 'La Jolla, CA', provider_location: 'San Diego, California',
+      company_description: 'Comprehensive dental care for local families.',
+    })
+    expect(localityReview.verdict).toBe('review')
+    expect(localityReview.unknowns).toContain('geography.location')
   })
 
   it('routes a valid county-targeted dental Maps result to review until employee size is proven', () => {
