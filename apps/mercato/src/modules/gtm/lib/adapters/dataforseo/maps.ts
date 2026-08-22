@@ -340,6 +340,8 @@ export function createDataForSeoMapsAdapter(deps: {
         const candidates = items.map((item): Candidate | null => {
           const name = stringValue(item.title)
           const sourceUrl = mapsUrl(item)
+          const addressInfo = objectValue(item.address_info)
+          const coordinates = objectValue(item.gps_coordinates)
           if (!name || !sourceUrl) return null
           return {
             entity_kind: 'company',
@@ -349,13 +351,30 @@ export function createDataForSeoMapsAdapter(deps: {
               urls: [sourceUrl],
               location: stringValue(item.address),
               industry: stringValue(item.category),
+              // DataForSEO's requested location is durable provenance for the
+              // local Maps result. Keep it separate from the row's street
+              // address: downstream qualification may use it to avoid a false
+              // rejection, but never as proof the returned entity is inside
+              // that boundary.
+              provider_location: location,
+              city: stringValue(addressInfo.city),
+              region: stringValue(addressInfo.region),
+              country_code: stringValue(addressInfo.country_code),
+              latitude: finiteNumber(coordinates.latitude),
+              longitude: finiteNumber(coordinates.longitude),
             },
             evidence: [{
               claim: `${name} appeared in the Google Maps results for “${keyword}” in ${location}.`,
               source_url: sourceUrl,
               observed_at: observedAt,
               confidence: 0.9,
-              detail: { provider: 'dataforseo', place_id: item.place_id ?? null, category: item.category ?? null },
+              detail: {
+                provider: 'dataforseo',
+                place_id: item.place_id ?? null,
+                category: item.category ?? null,
+                provider_location: location,
+                country_code: addressInfo.country_code ?? null,
+              },
             }],
           }
         }).filter((candidate): candidate is Candidate => candidate !== null)

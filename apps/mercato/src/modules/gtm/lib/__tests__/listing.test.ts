@@ -423,6 +423,9 @@ describe('list op validators (additive union branches)', () => {
     expect(
       gtmResearchRunsBodySchema.safeParse({ op: 'status', noliUserId: 'u1', runId: 'r1' }).success,
     ).toBe(true)
+    expect(
+      gtmResearchRunsBodySchema.safeParse({ op: 'requalify', noliUserId: 'u1', runId: 'r1' }).success,
+    ).toBe(true)
   })
 
   it('requires the exact immutable quote hash for provider-running operations', () => {

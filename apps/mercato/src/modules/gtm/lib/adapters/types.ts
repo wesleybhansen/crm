@@ -135,6 +135,15 @@ export type CandidateIdentity = {
   domain?: string | null
   urls?: string[]
   location?: string | null
+  // Frozen provider targeting provenance is distinct from the returned
+  // entity's street address. Structured locality fields preserve the exact
+  // provider observation without forcing downstream code to parse addresses.
+  provider_location?: string | null
+  city?: string | null
+  region?: string | null
+  country_code?: string | null
+  latitude?: number | null
+  longitude?: number | null
   industry?: string | null
   employee_range?: string | null
   technologies?: string[]

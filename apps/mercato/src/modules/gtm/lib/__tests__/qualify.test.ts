@@ -57,6 +57,23 @@ describe('ruleBasedFitScorer', () => {
     expect(result.reason).toBe(FIT_REASONS.outsideGeography)
   })
 
+  it('rejects an explicit non-US provider country even if other location text is contradictory', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'company',
+        identity: {
+          name: 'Contradictory Location Co',
+          location: 'San Diego, CA',
+          country_code: 'MX',
+        },
+      },
+      play,
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.outsideGeography)
+  })
+
   it('rejects a nameless identity outright', () => {
     const result = ruleBasedFitScorer.score(
       { entity_kind: 'company', identity: { name: '  ' } },
@@ -133,7 +150,7 @@ describe('ruleBasedFitScorer', () => {
       strongEvidence,
     )
     expect(result.verdict).toBe('accepted')
-    expect(result.version).toBe('fit-v4')
+    expect(result.version).toBe('fit-v5')
     expect(result.criteria?.every((row) => row.status === 'pass')).toBe(true)
   })
 
@@ -163,6 +180,70 @@ describe('ruleBasedFitScorer', () => {
     expect(result.verdict).toBe('review')
     expect(result.reason).toBe(FIT_REASONS.criterionUnknown)
     expect(result.unknowns).toContain('account.employee_range')
+  })
+
+  it('routes a valid county-targeted dental Maps result to review until employee size is proven', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'company',
+        identity: {
+          name: 'Example Family Dental',
+          domain: 'example-dental.test',
+          industry: 'Dental clinic',
+          location: '13465 Camino Canada, El Cajon, CA 92021',
+          provider_location: 'San Diego County,California,United States',
+          country_code: 'US',
+        },
+      },
+      {
+        entityUnit: 'companies',
+        geography: 'San Diego County, California',
+        providerQuery: {
+          industries: ['Dentistry', 'Medical Practices'],
+          employee_ranges: ['2 to 50'],
+          locations: ['San Diego County, California'],
+        },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('review')
+    expect(result.reason).toBe(FIT_REASONS.criterionUnknown)
+    expect(result.unknowns).toEqual(['account.employee_range', 'geography.location'])
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'account.industry', status: 'pass' }),
+      expect.objectContaining({ id: 'geography.location', status: 'unknown' }),
+      expect.objectContaining({ id: 'account.employee_range', status: 'unknown' }),
+    ]))
+  })
+
+  it('still rejects an out-of-industry Maps result inside the requested county', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'company',
+        identity: {
+          name: 'Example Animal Hospital',
+          industry: 'Veterinarian',
+          location: 'El Cajon, CA 92021',
+          provider_location: 'San Diego County,California,United States',
+          country_code: 'US',
+        },
+      },
+      {
+        entityUnit: 'companies',
+        geography: 'San Diego County, California',
+        providerQuery: {
+          industries: ['Dentistry', 'Medical Practices'],
+          employee_ranges: ['2 to 50'],
+          locations: ['San Diego County, California'],
+        },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.criterionMismatch)
+    expect(result.contradictions).toContain('account.industry')
   })
 
   it('routes a partially overlapping provider size bucket to review', () => {
@@ -306,6 +387,25 @@ describe('criterion matching is token-based, not substring', () => {
   it('resolves US state codes against their spelled-out form', () => {
     expect(criterion({ ...base, location: 'Austin, Texas' }, { locations: ['Austin, TX'] }, 'geography.location')).toBe('pass')
     expect(criterion({ ...base, location: 'Austin, TX, US' }, { locations: ['Austin, Texas'] }, 'geography.location')).toBe('pass')
+  })
+
+  it('resolves narrow local-healthcare provider categories to the requested industry', () => {
+    expect(criterion({ ...base, industry: 'Dental clinic' }, { industries: ['Dentistry'] }, 'account.industry')).toBe('pass')
+    expect(criterion({ ...base, industry: 'Dentist' }, { industries: ['Dentistry'] }, 'account.industry')).toBe('pass')
+    expect(criterion({ ...base, industry: 'Medical clinic' }, { industries: ['Medical Practices'] }, 'account.industry')).toBe('pass')
+    expect(criterion({ ...base, industry: 'Veterinarian' }, { industries: ['Dentistry'] }, 'account.industry')).toBe('fail')
+  })
+
+  it('uses a frozen Maps target only to prevent a false reject, never as result-level proof', () => {
+    expect(criterion(
+      {
+        ...base,
+        location: '13465 Camino Canada, El Cajon, CA 92021',
+        provider_location: 'San Diego County,California,United States',
+      },
+      { locations: ['San Diego County, California'] },
+      'geography.location',
+    )).toBe('unknown')
   })
 
   it('does not treat a different state as a match', () => {
