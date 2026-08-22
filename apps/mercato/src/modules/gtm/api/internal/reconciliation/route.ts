@@ -14,7 +14,7 @@ import {
 } from '../../../lib/reconciliation/operator'
 import type { ReconcileProviderOperationCommandInput } from '../../../commands/reconciliation'
 
-export const openApi = gtmInternalOpenApi('List or reconcile ambiguous GTM provider operations')
+export const openApi = gtmInternalOpenApi('List, catalog, or reconcile GTM provider operations')
 
 export const metadata = {
   path: '/internal/gtm/reconciliation',
@@ -59,6 +59,10 @@ export async function POST(req: Request) {
     const { hasGtmFeature, reconciliationFeatureForOp } = await import('../../../lib/authorize')
     if (!(await hasGtmFeature(container, ctx, reconciliationFeatureForOp(parsed.data.op)))) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+    }
+    if (parsed.data.op === 'catalog') {
+      const { selectedProviderCatalog } = await import('../../../lib/adapters/provider-catalog')
+      return NextResponse.json({ ok: true, catalog: selectedProviderCatalog() })
     }
     const em = container.resolve('em') as EntityManager as unknown as CampaignEm
     if (parsed.data.op === 'list') {

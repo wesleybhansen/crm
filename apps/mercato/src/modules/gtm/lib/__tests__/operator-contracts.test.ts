@@ -40,6 +40,15 @@ describe('GTM C3 operator API contracts', () => {
       op: 'ai-telemetry',
       noliUserId: USER,
     }).success).toBe(true)
+    expect(gtmReconciliationBodySchema.safeParse({
+      op: 'catalog',
+      noliUserId: USER,
+    }).success).toBe(true)
+    expect(gtmReconciliationBodySchema.safeParse({
+      op: 'catalog',
+      noliUserId: USER,
+      exposeCredentials: true,
+    }).success).toBe(false)
   })
 
   it('bounds the R4 test-only ingestion request to an exact RFC reply header', () => {

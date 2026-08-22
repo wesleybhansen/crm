@@ -334,8 +334,8 @@ describe('apify source descriptor', () => {
     expect(25_000 / CREDITS_PER_USD).toBeCloseTo(0.1, 10)
   })
 
-  it('keeps customer rights closed until the exact terms and price are approved', () => {
-    expect(APIFY_PROVISIONAL_LICENSE).toBe(true)
+  it('keeps deployment customer use closed until the exact terms and price are configured', () => {
+    expect(APIFY_PROVISIONAL_LICENSE).toBe(false)
     const provisional = createApifySourceAdapter({
       env: { GTM_APIFY_ENABLED: 'true', GTM_APIFY_TOKEN: TOKEN },
       now,

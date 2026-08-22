@@ -1,0 +1,133 @@
+import {
+  CREDITS_PER_USD,
+  creditsForUnits,
+  creditsFromUsd,
+  defaultMarkupMultiplier,
+} from '../credits/markup'
+import {
+  DATAFORSEO_DEFAULT_MAX_DEPTH,
+  DATAFORSEO_DEFAULT_USD_PER_100_RESULTS,
+  DATAFORSEO_REQUIRED_PRICE_VERSION,
+  DATAFORSEO_REQUIRED_RETENTION_DAYS,
+  DATAFORSEO_REQUIRED_TERMS_VERSION,
+} from './dataforseo/maps'
+import { APIFY_MEASURED_USD } from './apify/actors'
+import {
+  APIFY_REQUIRED_PRICE_VERSION,
+  APIFY_REQUIRED_TERMS_VERSION,
+} from './apify/source'
+
+export type SelectedProviderCatalogItem = {
+  id: string
+  provider: 'DataForSEO' | 'Apify'
+  category: 'lead_search' | 'enrichment'
+  name: string
+  description: string
+  unit: string
+  provider_usd_per_unit: number
+  estimated_noli_credits_per_unit: number
+  max_results_per_request: number
+  evidence: string
+  retention_days: number | null
+  terms_version: string
+  price_version: string
+}
+
+export type SelectedProviderCatalog = {
+  basis: {
+    credits_per_usd: number
+    markup_multiplier: number
+    quote_posture: 'estimate_until_reserved'
+  }
+  items: SelectedProviderCatalogItem[]
+}
+
+function item(
+  input: Omit<SelectedProviderCatalogItem, 'estimated_noli_credits_per_unit'>,
+  markupMultiplier: number,
+): SelectedProviderCatalogItem {
+  return {
+    ...input,
+    estimated_noli_credits_per_unit: creditsForUnits(
+      1,
+      creditsFromUsd(input.provider_usd_per_unit),
+      markupMultiplier,
+    ),
+  }
+}
+
+/**
+ * Customer-readable catalog for the deliberately narrow production stack.
+ * It contains frozen public contract facts only: no credentials, feature
+ * flags, account identifiers, runtime availability, or provider payloads.
+ * A run's immutable quote remains authoritative for actual spend.
+ */
+export function selectedProviderCatalog(
+  markupMultiplier: number = defaultMarkupMultiplier(),
+): SelectedProviderCatalog {
+  return {
+    basis: {
+      credits_per_usd: CREDITS_PER_USD,
+      markup_multiplier: markupMultiplier,
+      quote_posture: 'estimate_until_reserved',
+    },
+    items: [
+      item({
+        id: 'dataforseo-google-maps',
+        provider: 'DataForSEO',
+        category: 'lead_search',
+        name: 'Google Maps company search',
+        description: 'Finds US companies and locations that match a local-business signal.',
+        unit: `one live search, up to ${DATAFORSEO_DEFAULT_MAX_DEPTH} results`,
+        provider_usd_per_unit: DATAFORSEO_DEFAULT_USD_PER_100_RESULTS,
+        max_results_per_request: DATAFORSEO_DEFAULT_MAX_DEPTH,
+        evidence: 'Listing URL, observation time, and source metadata retained with each accepted row.',
+        retention_days: DATAFORSEO_REQUIRED_RETENTION_DAYS,
+        terms_version: DATAFORSEO_REQUIRED_TERMS_VERSION,
+        price_version: DATAFORSEO_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'apify-linkedin-post-comments',
+        provider: 'Apify',
+        category: 'lead_search',
+        name: 'LinkedIn post commenters',
+        description: 'Finds people who commented on a selected LinkedIn post signal.',
+        unit: 'commenter result',
+        provider_usd_per_unit: APIFY_MEASURED_USD.sourcing_per_result,
+        max_results_per_request: 100,
+        evidence: 'Source post URL and observed engagement are retained as qualification evidence.',
+        retention_days: null,
+        terms_version: APIFY_REQUIRED_TERMS_VERSION,
+        price_version: APIFY_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'apify-linkedin-profile',
+        provider: 'Apify',
+        category: 'enrichment',
+        name: 'LinkedIn profile enrichment',
+        description: 'Adds profile and company context to a selected person without an email lookup.',
+        unit: 'profile enriched',
+        provider_usd_per_unit: APIFY_MEASURED_USD.profile_without_email,
+        max_results_per_request: 1,
+        evidence: 'Profile URL and returned field provenance stay attached to the candidate.',
+        retention_days: null,
+        terms_version: APIFY_REQUIRED_TERMS_VERSION,
+        price_version: APIFY_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'apify-linkedin-profile-email',
+        provider: 'Apify',
+        category: 'enrichment',
+        name: 'LinkedIn profile + email search',
+        description: 'Adds profile context and searches for an address for a selected person.',
+        unit: 'profile with email search',
+        provider_usd_per_unit: APIFY_MEASURED_USD.profile_with_email,
+        max_results_per_request: 1,
+        evidence: 'Found addresses remain source-labeled and are not represented as verified email.',
+        retention_days: null,
+        terms_version: APIFY_REQUIRED_TERMS_VERSION,
+        price_version: APIFY_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+    ],
+  }
+}

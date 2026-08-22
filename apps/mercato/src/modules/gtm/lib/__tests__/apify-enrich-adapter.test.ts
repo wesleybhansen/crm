@@ -291,8 +291,8 @@ describe('apify enrich descriptor', () => {
     expect(descriptor.dsr.deletion_supported).toBe(false)
   })
 
-  it('keeps customer rights closed until the exact terms and price are approved', () => {
-    expect(APIFY_ENRICH_PROVISIONAL_LICENSE).toBe(true)
+  it('keeps deployment customer use closed until the exact terms and price are configured', () => {
+    expect(APIFY_ENRICH_PROVISIONAL_LICENSE).toBe(false)
     const provisional = createApifyEnrichAdapter({
       env: { GTM_APIFY_ENABLED: 'true', GTM_APIFY_TOKEN: TOKEN },
       now,
