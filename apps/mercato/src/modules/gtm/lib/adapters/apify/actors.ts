@@ -18,10 +18,17 @@ import type { Candidate, CandidateIdentity, ContactPoint } from '../types'
  *   LIVE-VERIFIED 2026-07-24.
  * - `harvestapi/linkedin-post-reactions`: input schema LIVE-VERIFIED; output
  *   shape STILL UNVERIFIED (the probe post had no reactions, so a 201 with an
- *   empty array was all we saw). Its normalizer keeps defensive aliases.
- * - `apidojo/tweet-scraper` (X): input AND output STILL UNVERIFIED.
- * Pricing lives in APIFY_MEASURED_USD below, in DOLLARS (measured 2026-07-24,
- * not yet reconciled against an invoice).
+ *   empty array was all we saw). Its normalizer remains available for fixture
+ *   custody, but the capability is not selectable.
+ * - `apidojo/tweet-scraper` (X): input AND output STILL UNVERIFIED and the
+ *   capability is not selectable.
+ * - `harvestapi/linkedin-post-search`: its current multi-event rate card bills
+ *   posts, nested reactions/comments, zero-result queries and actor starts.
+ *   The synchronous client cannot retrieve the authoritative run charge, so
+ *   the capability is not selectable until the two-step receipt contract is
+ *   implemented.
+ * Pricing lives in APIFY_MEASURED_USD below, in DOLLARS. The selected actor
+ * rates were rechecked against their public Apify Store pages on 2026-08-21.
  */
 
 export type ApifyCapabilityKind =
@@ -36,6 +43,15 @@ export const APIFY_CAPABILITY_KINDS: ApifyCapabilityKind[] = [
   'linkedin_post_comments',
   'x_post_engagers',
 ]
+
+/**
+ * Capabilities admitted by the production source descriptor. Keep the wider
+ * registry above for frozen parsing/normalization fixtures, but never expose a
+ * capability merely because an actor id or credential exists.
+ */
+export const APIFY_SELECTED_SOURCE_CAPABILITY_KINDS = [
+  'linkedin_post_comments',
+] as const satisfies readonly ApifyCapabilityKind[]
 
 /*
  * DISCOVERY vs SCRAPE.
@@ -117,22 +133,23 @@ export const APIFY_ACTORS: Record<ApifyCapabilityKind, ApifyActorConfig> = {
  * quotes. Noli credits are derived from these with creditsFromUsd
  * (lib/credits/markup.ts), never hand-copied from another vendor's rate card.
  *
- * Every figure below was LIVE-MEASURED or read off the actor's own pricing
- * schema on 2026-07-24. RE-CHECK AGAINST A REAL INVOICE before customer use:
- * marketplace pricing changes without notice.
+ * Every selected-stack figure below was rechecked on the actor's own Apify
+ * Store pricing page on 2026-08-21. Account-specific price truth is still
+ * frozen by GTM_APIFY_PRICE_VERSION before customer use because marketplace
+ * pricing changes without notice.
  */
 export const APIFY_MEASURED_USD = {
-  // ~$0.003 per returned engagement result (LinkedIn comments/reactions, X)
-  sourcing_per_result: 0.003,
+  // Free/Starter rate for the selected LinkedIn comments actor: $2 / 1,000.
+  sourcing_per_result: 0.002,
   /*
-   * Post SEARCH bills per POST RETURNED, not per engager. LIVE-MEASURED
-   * 2026-07-25: 3 posts settled at $0.00605 and 30 posts at $0.06005, both
-   * exactly `posts * 0.002 + 0.00005` actor-start. In the 30-post run the 27
-   * engager profiles it also returned added nothing, so nested engagement
-   * looks free - ONE observation, so treat it as provisional and reconcile
-   * against a real invoice before relying on it.
+   * Current post-search rate components. These are recorded for planning the
+   * future two-step receipt client only; the capability is not selectable.
+   * The actor may also bill selected nested reactions, comments and profile
+   * enrichment, so post count alone is never authoritative settlement truth.
    */
   post_search_per_post: 0.002,
+  post_search_zero_result: 0.001,
+  post_search_actor_start_minimum: 0.00005,
   // profile detail without an email lookup ("main" profile mode territory)
   profile_without_email: 0.004,
   // full-profile-with-email event on the reactions actor

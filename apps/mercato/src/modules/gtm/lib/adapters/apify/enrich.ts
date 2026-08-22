@@ -97,6 +97,8 @@ export const APIFY_ENRICH_PROVISIONAL_LICENSE = true
  * $0.004 profile-only mode (company data, no address).
  */
 export const APIFY_ENRICH_EMAIL_ENV = 'GTM_APIFY_ENRICH_EMAIL'
+// Retained as a documented compatibility no-op. Runtime pricing is bound to
+// APIFY_REQUIRED_PRICE_VERSION and cannot be overridden independently.
 export const APIFY_USD_PER_PROFILE_ENV = 'GTM_APIFY_USD_PER_PROFILE'
 export const APIFY_ENRICH_TIMEOUT_MS_ENV = 'GTM_APIFY_TIMEOUT_MS'
 
@@ -136,13 +138,11 @@ export function apifyEnrichEmailMode(env: ApifyEnv): boolean {
 
 /*
  * USD the provider charges per profile ATTEMPTED, straight from the actor's own
- * pricing labels, env-overridable per deploy:
+ * pricing labels:
  *   email search on  -> $0.01  ("Profile details + email search ($10 per 1k)")
  *   email search off -> $0.004 ("Profile details no email ($4 per 1k)")
  */
 export function usdPerProfile(env: ApifyEnv): number {
-  const parsed = Number(env[APIFY_USD_PER_PROFILE_ENV])
-  if (Number.isFinite(parsed) && parsed > 0) return parsed
   return apifyEnrichEmailMode(env)
     ? APIFY_MEASURED_USD.profile_with_email
     : APIFY_MEASURED_USD.profile_without_email
@@ -326,6 +326,16 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
         })
       }
       const actorId = resolveEnrichActorId(env)
+
+      // The frozen price/parser/rights contract applies only to the selected
+      // actor. A deployment override is a new provider contract and stays
+      // closed until it is reviewed explicitly.
+      if (actorId !== APIFY_ENRICH_ACTOR.defaultActorId) {
+        return refusal(actorId, 'provider_disabled: enrichment actor override is unapproved', {
+          provider_status: 'actor_contract_unapproved',
+          attempted_at: attemptedAt,
+        })
+      }
 
       // 2. HARD GATE. Default OFF; returned as an error result, never thrown.
       if (!apifyEnabled(env)) {

@@ -9,8 +9,9 @@ import {
 } from '../types'
 import { creditsFromUsd } from '../../credits/markup'
 import {
-  APIFY_CAPABILITY_KINDS,
+  APIFY_ACTORS,
   APIFY_MEASURED_USD,
+  APIFY_SELECTED_SOURCE_CAPABILITY_KINDS,
   buildActorInput,
   extractPostUrl,
   extractSearchQuery,
@@ -89,6 +90,8 @@ export const APIFY_TIMEOUT_MS_ENV = 'GTM_APIFY_TIMEOUT_MS'
 export const APIFY_CUSTOMER_USE_APPROVED_ENV = 'GTM_APIFY_CUSTOMER_USE_APPROVED'
 export const APIFY_TERMS_VERSION_ENV = 'GTM_APIFY_TERMS_VERSION'
 export const APIFY_PRICE_VERSION_ENV = 'GTM_APIFY_PRICE_VERSION'
+export const APIFY_REQUIRED_TERMS_VERSION = 'apify-actor-terms-2026-07-09'
+export const APIFY_REQUIRED_PRICE_VERSION = 'harvestapi-selected-stack-2026-08-21'
 // Batch ceiling; the plan's max_candidates caps below this.
 export const APIFY_MAX_BATCH = 100
 
@@ -118,9 +121,12 @@ export const APIFY_MAX_CHARGE_USD_ENV = 'GTM_APIFY_MAX_CHARGE_USD'
  * $0.0000008, about 3,750x under the real ~$0.003 cost, so every sourcing run
  * undercharged by that factor. Provider cost goes in as dollars, always.
  *
- * $0.003/result was LIVE-MEASURED 2026-07-24 and prices at 750 credits before
- * markup. Re-check against a real Apify invoice before customer use.
+ * The selected comments actor publishes $0.002/result for Free/Starter as of
+ * 2026-08-21 and prices at 500 credits before markup. The exact frozen price
+ * version above must match before the adapter can register.
  */
+// Retained as a documented compatibility no-op. Runtime pricing is bound to
+// APIFY_REQUIRED_PRICE_VERSION and cannot be overridden independently.
 export const APIFY_USD_PER_RESULT_ENV = 'GTM_APIFY_USD_PER_RESULT'
 export const APIFY_DEFAULT_USD_PER_RESULT = APIFY_MEASURED_USD.sourcing_per_result
 
@@ -135,8 +141,8 @@ export function apifyEnabled(env: ApifyEnv = processEnv()): boolean {
 export function apifyCustomerUseApproved(env: ApifyEnv = processEnv()): boolean {
   return (
     env[APIFY_CUSTOMER_USE_APPROVED_ENV] === 'true' &&
-    Boolean((env[APIFY_TERMS_VERSION_ENV] ?? '').trim()) &&
-    Boolean((env[APIFY_PRICE_VERSION_ENV] ?? '').trim())
+    (env[APIFY_TERMS_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_TERMS_VERSION &&
+    (env[APIFY_PRICE_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_PRICE_VERSION
   )
 }
 
@@ -153,10 +159,11 @@ export function apifySourceEnabled(env: ApifyEnv = processEnv()): boolean {
   return apifyEnabled(env) && apifyToken(env) !== null && apifyCustomerUseApproved(env)
 }
 
-// USD the provider charges per returned result, env-overridable per deploy.
-export function usdPerResult(env: ApifyEnv): number {
-  const parsed = Number(env[APIFY_USD_PER_RESULT_ENV])
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : APIFY_DEFAULT_USD_PER_RESULT
+// USD the selected actor charges per returned result. A new rate requires a
+// new reviewed price version in code; an arbitrary deployment value cannot
+// mutate a frozen quote while retaining the same version identifier.
+export function usdPerResult(_env: ApifyEnv): number {
+  return APIFY_DEFAULT_USD_PER_RESULT
 }
 
 /*
@@ -198,7 +205,7 @@ function capabilityRow(signalKind: ApifyCapabilityKind): AdapterCapability {
     // closed at plan time rather than being silently attempted.
     entity_units: ['people'],
     geographies: ['US'],
-    channels: ['email', 'linkedin', 'x'],
+    channels: ['email', 'linkedin'],
   }
 }
 
@@ -208,7 +215,7 @@ export function apifySourceDescriptor(env: ApifyEnv = processEnv()): AdapterDesc
     contract_version: '2',
     adapter_id: APIFY_SOURCE_ADAPTER_ID,
     layer: 'source',
-    capabilities: APIFY_CAPABILITY_KINDS.map(capabilityRow),
+    capabilities: APIFY_SELECTED_SOURCE_CAPABILITY_KINDS.map(capabilityRow),
     constraints: {
       // PROVISIONAL pending legal review; see APIFY_PROVISIONAL_LICENSE above.
       license: {
@@ -222,9 +229,10 @@ export function apifySourceDescriptor(env: ApifyEnv = processEnv()): AdapterDesc
       rate_limits: { requests_per_minute: 30, concurrent: 2 },
       max_batch: APIFY_MAX_BATCH,
     },
-    // pay-per-result: only usable candidates are charged, a no_result is free.
-    // The quote is Noli credits per result PRE-markup (750 by default, i.e.
-    // $0.003); the platform markup is applied once, by creditsForUnits.
+    // The selected comments actor is pay-per-result, so a definitive
+    // no-comment answer is free under its current rate card. Post search is
+    // not exposed because its current zero-result/start/nested-event charges
+    // cannot be reconciled by the synchronous client.
     cost_model: {
       unit: 'result',
       quoted_credits_per_unit: creditsPerResult(env),
@@ -354,6 +362,17 @@ export function createApifySourceAdapter(deps: ApifySourceDeps = {}): SourceAdap
         })
       }
       const actorId = resolveActorId(signalKind, env)
+
+      // Actor overrides are separate provider contracts. Never let an
+      // arbitrary marketplace actor inherit the selected actor's parser,
+      // frozen price or customer-use approval merely through an env value.
+      if (actorId !== APIFY_ACTORS[signalKind].defaultActorId) {
+        return refusal(
+          actorId,
+          `provider_disabled: actor override for ${signalKind} has no approved contract`,
+          { provider_status: 'actor_contract_unapproved', attempted_at: attemptedAt },
+        )
+      }
 
       // 2. HARD GATE. Default OFF, deliberately: this source is legally gated
       //    pending the review in the data-sources map. Returned as an error

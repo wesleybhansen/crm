@@ -673,7 +673,37 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R7-A - route authorization closure | Completed locally | 2026-08-21 | Least-privilege mappings and pre-entity enforcement added to all represented-user routes |
 | R7-B - validation and freeze | Completed locally | 2026-08-21 | 67/68 suites and 730 tests passed; the one skipped suite is the opt-in PostgreSQL concurrency harness; provider and execution configuration remain unchanged |
 
-## 29. Changelog
+## 29. R8 current Apify contract closure (approved 2026-08-21)
+
+### 29.1 Selected actors and capability boundary
+
+- The production source descriptor admits only `harvestapi/linkedin-post-comments`. Its input and output shapes have a retained redacted live fixture, and its current Free/Starter rate is `$2 / 1,000` comment results.
+- `harvestapi/linkedin-profile-scraper` remains the sole enrichment actor, at the current published `$4 / 1,000` profile-details rate or `$10 / 1,000` profile-details-plus-email-search rate.
+- LinkedIn post search, standalone reactions, X engagement, fallback actors, and arbitrary actor overrides are not selectable. Their parsers and historical fixtures may remain for custody, but no broad Apify switch can expose them.
+- Post search remains closed because its current rate card separately bills posts, optional main/full profiles, nested reactions/comments, zero-result queries, and actor starts, while the synchronous dataset endpoint supplies no run id or authoritative finalized charge. It requires a two-step run/receipt contract before activation.
+
+### 29.2 Version and rights posture
+
+- Customer-use eligibility requires the exact supported Apify Actor Terms version `apify-actor-terms-2026-07-09` and selected-stack price version `harvestapi-selected-stack-2026-08-21`; arbitrary nonempty strings fail closed.
+- The selected source/profile rates are code-bound to that price version. Legacy per-result/per-profile environment values are compatibility no-ops and cannot silently mutate a frozen quote.
+- The selected Actors are Community Actors. Apify does not vet or guarantee their legal compliance, and the owner remains responsible for source-platform rights, privacy, output handling, and customer-serving use. Therefore the deployment gate remains off until that independent approval is recorded.
+- Credentials alone never grant capability, customer-use, terms, price, export, display, retention, or outreach authority.
+
+### 29.3 Acceptance and release posture
+
+- Network-free tests prove only the selected comments capability enters the source descriptor, stale contract versions fail, unselected capabilities make zero provider calls, and actor overrides make zero provider calls.
+- Existing profile-enrichment tests prove an override cannot inherit the selected actor's contract.
+- R8 changes no entity, migration, route, queue, customer data, production configuration, or provider state. Apify remains disabled in production.
+
+### 29.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R8-A - selected actor/capability closure | Completed locally | 2026-08-21 | Comments + selected profile actor only; search/reactions/X/overrides fail closed |
+| R8-B - current price/version freeze | Completed locally | 2026-08-21 | Exact terms/price versions and current published selected-actor rates |
+| R8-C - validation and freeze | Completed locally | 2026-08-21 | 67/68 suites and 730 tests passed; the one skipped suite is the opt-in PostgreSQL concurrency harness; TypeScript, focused lint, and diff checks passed |
+
+## 30. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.

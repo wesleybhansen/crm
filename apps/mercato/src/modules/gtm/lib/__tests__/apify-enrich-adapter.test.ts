@@ -16,7 +16,11 @@ import {
   normalizeProfileItem,
   resolveEnrichActorId,
 } from '../adapters/apify/actors'
-import { APIFY_RECEIPT_FIELDS } from '../adapters/apify/source'
+import {
+  APIFY_RECEIPT_FIELDS,
+  APIFY_REQUIRED_PRICE_VERSION,
+  APIFY_REQUIRED_TERMS_VERSION,
+} from '../adapters/apify/source'
 import {
   APIFY_ENRICH_ADAPTER_ID,
   APIFY_ENRICH_PROVISIONAL_LICENSE,
@@ -45,8 +49,8 @@ const ENABLED_ENV = {
   GTM_APIFY_ENABLED: 'true',
   GTM_APIFY_TOKEN: TOKEN,
   GTM_APIFY_CUSTOMER_USE_APPROVED: 'true',
-  GTM_APIFY_TERMS_VERSION: 'reviewed-2026-08-02',
-  GTM_APIFY_PRICE_VERSION: 'measured-2026-07-24',
+  GTM_APIFY_TERMS_VERSION: APIFY_REQUIRED_TERMS_VERSION,
+  GTM_APIFY_PRICE_VERSION: APIFY_REQUIRED_PRICE_VERSION,
 }
 
 const PROFILE_URL = 'https://www.linkedin.com/in/priya-nair-example'
@@ -181,8 +185,8 @@ describe('apify enrich adapter env gate', () => {
     process.env.GTM_APIFY_ENABLED = 'true'
     process.env.GTM_APIFY_TOKEN = TOKEN
     process.env.GTM_APIFY_CUSTOMER_USE_APPROVED = 'true'
-    process.env.GTM_APIFY_TERMS_VERSION = 'reviewed-2026-08-02'
-    process.env.GTM_APIFY_PRICE_VERSION = 'measured-2026-07-24'
+    process.env.GTM_APIFY_TERMS_VERSION = APIFY_REQUIRED_TERMS_VERSION
+    process.env.GTM_APIFY_PRICE_VERSION = APIFY_REQUIRED_PRICE_VERSION
     try {
       expect(apifyEnrichEnabled()).toBe(true)
       const list = enrichAdapterList()
@@ -271,12 +275,12 @@ describe('apify enrich descriptor', () => {
     expect(creditsFromUsd(APIFY_MEASURED_USD.profile_without_email)).toBe(1_000)
   })
 
-  it('reads the per-profile price from the environment, in USD, and converts to credits', () => {
+  it('does not let an env override mutate the frozen per-profile price', () => {
     const priced = createApifyEnrichAdapter({
       env: { ...ENABLED_ENV, GTM_APIFY_USD_PER_PROFILE: '0.02' },
       now,
     })
-    expect(priced.descriptor.cost_model.quoted_credits_per_unit).toBe(5_000)
+    expect(priced.descriptor.cost_model.quoted_credits_per_unit).toBe(2_500)
   })
 
   it('declares timeout-is-ambiguous, the receipt fields, and no upstream deletion', () => {
@@ -302,7 +306,7 @@ describe('apify enrich descriptor', () => {
     }))
     expect(adapter.descriptor.constraints.license).toEqual(expect.objectContaining({
       status: 'approved',
-      terms_version: 'reviewed-2026-08-02',
+      terms_version: APIFY_REQUIRED_TERMS_VERSION,
     }))
   })
 
@@ -761,7 +765,7 @@ describe('apify enrich actor input (verified schema)', () => {
     )
   })
 
-  it('swaps the actor with a single env override, and keeps a documented fallback', async () => {
+  it('refuses an actor override and keeps the fallback as documentation only', async () => {
     const { fetchImpl, calls } = makeFetch({ status: 201, body: '[]' })
     const adapter = createApifyEnrichAdapter({
       fetchImpl,
@@ -769,8 +773,13 @@ describe('apify enrich actor input (verified schema)', () => {
       now,
     })
     const result = await adapter.enrich(baseRequest)
-    expect(result.receipt).toMatchObject({ actor_id: 'someone/other-profile-actor' })
-    expect(calls[0].url).toContain('/acts/someone~other-profile-actor/run-sync-get-dataset-items')
+    expect(result.status).toBe('error')
+    expect(result.error).toContain('actor override')
+    expect(result.receipt).toMatchObject({
+      actor_id: 'someone/other-profile-actor',
+      provider_status: 'actor_contract_unapproved',
+    })
+    expect(calls).toHaveLength(0)
 
     expect(resolveEnrichActorId({})).toBe('harvestapi/linkedin-profile-scraper')
     expect(APIFY_ENRICH_ACTOR.fallbackActorId).toMatch(/^[\w.-]+\/[\w.-]+$/)
@@ -808,7 +817,7 @@ describe('apify enrich mandatory spend cap', () => {
     expect(new URL(calls[0].url).searchParams.get('maxTotalChargeUsd')).toBe('0.75')
   })
 
-  it('falls back to one profile at the configured per-profile cost, floored at the minimum', () => {
+  it('falls back to one profile at the frozen per-profile cost, floored at the minimum', () => {
     // $0.01 with the email search is exactly the floor
     expect(resolveEnrichMaxChargeUsd(ENABLED_ENV, { profiles: 1 })).toBe(0.01)
     // $0.004 profile-only is under it, so the floor applies
