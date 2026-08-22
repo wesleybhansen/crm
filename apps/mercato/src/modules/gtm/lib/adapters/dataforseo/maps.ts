@@ -21,7 +21,9 @@ const RECEIPT_FIELDS = [
   'provider_request_id',
   'provider_status',
   'root_status_code',
+  'root_status_message',
   'task_status_code',
+  'task_status_message',
   'root_cost_usd',
   'task_cost_usd',
   'items_count',
@@ -130,6 +132,42 @@ function finiteNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const US_STATE_NAMES_BY_ABBREVIATION: Record<string, string> = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
+  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', FL: 'Florida', GA: 'Georgia',
+  HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',
+  KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts',
+  MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana',
+  NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico',
+  NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',
+  OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+  SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont',
+  VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+  DC: 'District of Columbia',
+}
+
+const US_STATE_NAMES = new Map(
+  Object.values(US_STATE_NAMES_BY_ABBREVIATION).map((name) => [name.toLowerCase(), name]),
+)
+
+function canonicalDataForSeoUsLocation(value: string): string | null {
+  const parts = value.split(',').map((part) => part.trim()).filter(Boolean)
+  if (parts.length === 0) return 'United States'
+
+  const countryToken = parts.at(-1)?.replaceAll('.', '').toLowerCase()
+  if (countryToken === 'us' || countryToken === 'usa' || countryToken === 'united states') {
+    parts.pop()
+  }
+  if (parts.length === 0) return 'United States'
+
+  const stateToken = parts.at(-1) ?? ''
+  const state = US_STATE_NAMES_BY_ABBREVIATION[stateToken.toUpperCase()]
+    ?? US_STATE_NAMES.get(stateToken.toLowerCase())
+  if (!state) return null
+  parts[parts.length - 1] = state
+  return `${parts.join(',')},United States`
+}
+
 function taskFrom(payload: unknown): Record<string, unknown> {
   const root = objectValue(payload)
   return Array.isArray(root.tasks) ? objectValue(root.tasks[0]) : {}
@@ -163,8 +201,11 @@ function keywordAndLocation(plan: { query: string; provider_query?: Record<strin
     ? query.locations.filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
     : []
   return {
-    keyword: keywords.join(' ') || plan.query.trim(),
-    location: locations[0]?.trim() || 'United States',
+    // One frozen Live task can carry one Maps search phrase. Use the primary
+    // ranked phrase rather than concatenating alternatives into an accidental
+    // all-terms query that suppresses valid local results.
+    keyword: keywords[0]?.trim() || plan.query.trim(),
+    location: canonicalDataForSeoUsLocation(locations[0]?.trim() || 'United States'),
   }
 }
 
@@ -198,7 +239,9 @@ export function createDataForSeoMapsAdapter(deps: {
         provider_request_id: task.id ?? null,
         provider_status: status,
         root_status_code: null,
+        root_status_message: null,
         task_status_code: task.status_code ?? null,
+        task_status_message: stringValue(task.status_message)?.slice(0, 240) ?? null,
         root_cost_usd: null,
         task_cost_usd: task.cost ?? null,
         items_count: count,
@@ -213,6 +256,9 @@ export function createDataForSeoMapsAdapter(deps: {
       const { keyword, location } = keywordAndLocation(plan)
       if (!keyword) {
         return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('bad_request'), error: 'bad_request: a local-business keyword is required' }
+      }
+      if (!location) {
+        return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('bad_request'), error: 'bad_request: DataForSEO requires a US state or a city/county plus state' }
       }
       if (maxCandidates < 1) {
         return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('bad_request'), error: 'bad_request: DataForSEO requires at least one authorized result' }
@@ -248,13 +294,22 @@ export function createDataForSeoMapsAdapter(deps: {
         const providerReceipt = (status: string, count = 0) => ({
           ...baseReceipt(status, task, count),
           root_status_code: rootStatus || null,
+          root_status_message: stringValue(root.status_message)?.slice(0, 240) ?? null,
           task_status_code: taskStatus || null,
+          task_status_message: stringValue(task.status_message)?.slice(0, 240) ?? null,
           root_cost_usd: root.cost ?? null,
         })
         if (!response.ok || rootStatus !== 20000 || taskStatus !== 20000) {
+          const failureCode = taskStatus && taskStatus !== 20000
+            ? taskStatus
+            : rootStatus && rootStatus !== 20000
+              ? rootStatus
+              : !response.ok
+                ? response.status
+                : 'missing_task_status'
           return {
             status: 'error', data: null, cost_units: 0,
-            receipt: providerReceipt(`provider_error_${rootStatus || taskStatus || response.status}`),
+            receipt: providerReceipt(`provider_error_${failureCode}`),
             error: `provider_application_error: DataForSEO returned root ${rootStatus || 'unknown'} and task ${taskStatus || 'unknown'}`,
           }
         }

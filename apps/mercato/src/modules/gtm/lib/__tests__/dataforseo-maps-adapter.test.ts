@@ -138,6 +138,41 @@ describe('DataForSEO Maps adapter', () => {
       root_status_code: 20000, task_status_code: 20000,
       root_cost_usd: 0.002, task_cost_usd: 0.002,
     }))
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))
+    expect(body).toEqual([expect.objectContaining({
+      keyword: 'HVAC contractor',
+      location_name: 'Austin,Texas,United States',
+      language_code: 'en',
+      depth: 25,
+    })])
+  })
+
+  it('canonicalizes a county and full state into an exact DataForSEO location name', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      status_code: 20000, cost: 0.002,
+      tasks: [{ status_code: 20000, cost: 0.002, result: [{ items: [] }] }],
+    }), { status: 200 })) as unknown as typeof fetch
+    const adapter = createDataForSeoMapsAdapter({ env: approvedEnv, fetchImpl })
+    await adapter.search({
+      signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
+      query: 'dental clinic', max_candidates: 100,
+      provider_query: { company_keywords: ['dental clinic'], locations: ['San Diego County, California'] },
+    })
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))
+    expect(body[0].location_name).toBe('San Diego County,California,United States')
+  })
+
+  it('rejects an incomplete local location before provider contact', async () => {
+    const fetchImpl = jest.fn() as unknown as typeof fetch
+    const adapter = createDataForSeoMapsAdapter({ env: approvedEnv, fetchImpl })
+    const result = await adapter.search({
+      signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
+      query: 'dental clinic', max_candidates: 100,
+      provider_query: { company_keywords: ['dental clinic'], locations: ['Springfield'] },
+    })
+    expect(result).toEqual(expect.objectContaining({ status: 'error', cost_units: 0 }))
+    expect(result.error).toContain('city/county plus state')
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 
   it('fails closed on an HTTP-200 root application error without charging a result unit', async () => {
@@ -153,6 +188,26 @@ describe('DataForSEO Maps adapter', () => {
     })
     expect(result).toEqual(expect.objectContaining({ status: 'error', cost_units: 0 }))
     expect(result.receipt).toEqual(expect.objectContaining({ root_status_code: 40000 }))
+  })
+
+  it('records the failing task code and bounded status message when the root succeeds', async () => {
+    const adapter = createDataForSeoMapsAdapter({
+      env: approvedEnv,
+      fetchImpl: jest.fn().mockResolvedValue(new Response(JSON.stringify({
+        status_code: 20000, status_message: 'Ok.', cost: 0,
+        tasks: [{ status_code: 40501, status_message: "Invalid Field: 'location_name'.", cost: 0 }],
+      }), { status: 200 })) as unknown as typeof fetch,
+    })
+    const result = await adapter.search({
+      signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
+      query: 'HVAC contractors', max_candidates: 25,
+    })
+    expect(result.receipt).toEqual(expect.objectContaining({
+      provider_status: 'provider_error_40501',
+      root_status_code: 20000,
+      task_status_code: 40501,
+      task_status_message: "Invalid Field: 'location_name'.",
+    }))
   })
 
   it('settles from authoritative USD cost rather than the requested depth', async () => {
