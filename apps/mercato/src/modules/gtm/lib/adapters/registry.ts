@@ -7,6 +7,11 @@ import {
   apifyCompanySourceEnabled,
   createApifyCompanySourceAdapter,
 } from './apify/company-source'
+import {
+  apifyCompanyEmployeesEnabled,
+  createApifyCompanyEmployeesAdapter,
+  type DecisionMakerAdapter,
+} from './apify/company-employees'
 
 /*
  * Adapter registries (SPEC-066 Tranches 3/4).
@@ -84,4 +89,11 @@ export function enrichAdapterList(): EnrichAdapter[] {
 // real verifier requires an explicit owner-selected provider and spec change.
 export function verifyAdapterList(): VerifyAdapter[] {
   return fixtureAdaptersEnabled() ? [fixtureVerifyAdapter] : []
+}
+
+// Decision-maker resolution is intentionally outside the general research
+// source registry. It can run only for accepted, exact company matches through
+// its dedicated plan/confirm route and its separate actor-price gate.
+export function decisionMakerAdapter(): DecisionMakerAdapter | null {
+  return apifyCompanyEmployeesEnabled() ? createApifyCompanyEmployeesAdapter() : null
 }

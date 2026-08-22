@@ -5,6 +5,7 @@ import {
   GtmCampaignVersion,
   GtmCandidate,
   GtmCandidateMatch,
+  GtmCandidateRelation,
   GtmChatMessage,
   GtmContactPoint,
   GtmDeletionRequest,
@@ -33,6 +34,7 @@ export type DeletionResult = {
   candidatesAnonymized: number
   evidenceAnonymized: number
   contactPointsAnonymized: number
+  relationsAnonymized: number
   renderedMessagesAnonymized: number
   repliesAnonymized: number
   providerReceiptsRedacted: number
@@ -50,6 +52,7 @@ function resultFromStoredRequest(request: GtmDeletionRequest): DeletionResult {
     candidatesAnonymized: count('candidates_anonymized'),
     evidenceAnonymized: count('evidence_anonymized'),
     contactPointsAnonymized: count('contact_points_anonymized'),
+    relationsAnonymized: count('relations_anonymized'),
     renderedMessagesAnonymized: count('rendered_messages_anonymized'),
     repliesAnonymized: count('replies_anonymized'),
     providerReceiptsRedacted: count('provider_receipts_redacted'),
@@ -268,6 +271,7 @@ export async function executeRemovalDeletion(
     candidatesAnonymized: 0,
     evidenceAnonymized: 0,
     contactPointsAnonymized: 0,
+    relationsAnonymized: 0,
     renderedMessagesAnonymized: 0,
     repliesAnonymized: 0,
     providerReceiptsRedacted: 0,
@@ -325,10 +329,18 @@ export async function executeRemovalDeletion(
     await em.flush()
     const candidateIds = [...new Set(points.map((point) => point.candidateId))]
     const candidateIdSet = new Set(candidateIds)
-    const [candidates, candidateMatches, evidence, contactPoints, enrollments, providerOperations, chatMessages] =
+    const [candidates, candidateMatches, candidateRelations, evidence, contactPoints, enrollments, providerOperations, chatMessages] =
       await Promise.all([
         em.find(GtmCandidate, { organizationId, tenantId, id: { $in: candidateIds } }),
         em.find(GtmCandidateMatch, { organizationId, tenantId, candidateId: { $in: candidateIds } }),
+        em.find(GtmCandidateRelation, {
+          organizationId,
+          tenantId,
+          $or: [
+            { parentCandidateId: { $in: candidateIds } },
+            { childCandidateId: { $in: candidateIds } },
+          ],
+        }),
         em.find(GtmEvidence, { organizationId, tenantId, candidateId: { $in: candidateIds } }),
         em.find(GtmContactPoint, { organizationId, tenantId, candidateId: { $in: candidateIds } }),
         em.find(GtmEnrollment, { organizationId, tenantId, candidateId: { $in: candidateIds } }),
@@ -376,6 +388,13 @@ export async function executeRemovalDeletion(
         match.qualification = null
         match.updatedAt = now
         tem.persist(match)
+      }
+      for (const relation of candidateRelations) {
+        relation.observedTitle = '[removed]'
+        relation.confidence = '0.000'
+        relation.deletedAt = now
+        relation.updatedAt = now
+        tem.persist(relation)
       }
       for (const row of evidence) {
         row.claim = '[removed]'
@@ -449,6 +468,7 @@ export async function executeRemovalDeletion(
             candidates: candidates.length,
             evidence: evidence.length,
             contact_points: contactPoints.length,
+            relations: candidateRelations.length,
             rendered_messages: rendered.length,
             replies: replies.length,
             provider_receipts: providerOperations.length + attempts.length,
@@ -461,6 +481,7 @@ export async function executeRemovalDeletion(
     counts.candidatesAnonymized += candidates.length
     counts.evidenceAnonymized += evidence.length
     counts.contactPointsAnonymized += contactPoints.length
+    counts.relationsAnonymized += candidateRelations.length
     counts.renderedMessagesAnonymized += rendered.length
     counts.repliesAnonymized += replies.length
     counts.providerReceiptsRedacted += providerOperations.length + attempts.length
@@ -521,6 +542,7 @@ export async function executeRemovalDeletion(
       candidates_anonymized: candidates.length,
       evidence_anonymized: evidence.length,
       contact_points_anonymized: contactPoints.length,
+      relations_anonymized: candidateRelations.length,
       rendered_messages_anonymized: rendered.length,
       replies_anonymized: replies.length,
       provider_receipts_redacted: providerOperations.length + attempts.length,
@@ -537,6 +559,7 @@ export async function executeRemovalDeletion(
     candidates_anonymized: counts.candidatesAnonymized,
     evidence_anonymized: counts.evidenceAnonymized,
     contact_points_anonymized: counts.contactPointsAnonymized,
+    relations_anonymized: counts.relationsAnonymized,
     rendered_messages_anonymized: counts.renderedMessagesAnonymized,
     replies_anonymized: counts.repliesAnonymized,
     provider_receipts_redacted: counts.providerReceiptsRedacted,

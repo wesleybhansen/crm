@@ -705,4 +705,24 @@ describe('candidateDedupeKey', () => {
     expect(person).not.toBe(company)
     expect(otherDomain).not.toBe(company)
   })
+
+  it('uses a canonical LinkedIn profile URL for person identity', () => {
+    const first = candidateDedupeKey({
+      entity_kind: 'person',
+      identity: {
+        name: 'Alex Example',
+        city: 'San Diego',
+        urls: ['https://www.linkedin.com/in/Alex-Example/'],
+      },
+    })
+    const renamed = candidateDedupeKey({
+      entity_kind: 'person',
+      identity: {
+        name: 'Alexandra Example',
+        city: 'Los Angeles',
+        urls: ['https://linkedin.com/in/alex-example'],
+      },
+    })
+    expect(first).toBe(renamed)
+  })
 })

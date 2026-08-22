@@ -1,4 +1,5 @@
 import {
+  decisionMakerAdapter,
   enrichAdapterList,
   fixtureAdaptersEnabled,
   sourceAdapterRegistry,
@@ -15,6 +16,11 @@ import {
   APIFY_COMPANY_REQUIRED_PRICE_VERSION,
   APIFY_COMPANY_SOURCE_ADAPTER_ID,
 } from '../adapters/apify/company-source'
+import {
+  APIFY_COMPANY_EMPLOYEES_ADAPTER_ID,
+  APIFY_COMPANY_EMPLOYEES_PRICE_VERSION_ENV,
+  APIFY_COMPANY_EMPLOYEES_REQUIRED_PRICE_VERSION,
+} from '../adapters/apify/company-employees'
 import {
   APIFY_REQUIRED_PRICE_VERSION,
   APIFY_REQUIRED_TERMS_VERSION,
@@ -106,6 +112,25 @@ describe('adapter registry environment boundaries', () => {
       APIFY_ENRICH_ADAPTER_ID,
     ])
     expect(verifyAdapterList()).toEqual([])
+    expect(decisionMakerAdapter()).toBeNull()
+  })
+
+  it('keeps decision-maker resolution outside general sourcing and behind its exact gate', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.GTM_APIFY_ENABLED = 'true'
+    process.env.GTM_APIFY_TOKEN = 'synthetic-test-token'
+    process.env.GTM_APIFY_CUSTOMER_USE_APPROVED = 'true'
+    process.env.GTM_APIFY_TERMS_VERSION = APIFY_REQUIRED_TERMS_VERSION
+    process.env.GTM_APIFY_PRICE_VERSION = APIFY_REQUIRED_PRICE_VERSION
+    process.env[APIFY_COMPANY_EMPLOYEES_PRICE_VERSION_ENV] =
+      APIFY_COMPANY_EMPLOYEES_REQUIRED_PRICE_VERSION
+
+    expect(decisionMakerAdapter()?.descriptor.adapter_id).toBe(
+      APIFY_COMPANY_EMPLOYEES_ADAPTER_ID,
+    )
+    expect(Object.keys(sourceAdapterRegistry())).not.toContain(
+      APIFY_COMPANY_EMPLOYEES_ADAPTER_ID,
+    )
   })
 
   it('cannot register owner-excluded LeadMagic or Bouncer adapters', () => {

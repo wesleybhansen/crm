@@ -786,7 +786,48 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - Full current-main migrations plus R19 apply to an empty disposable database; a second migrate has no pending work and a second generator pass reports no GTM drift. The legacy-row backfill is idempotent and preserves fit-v6 truth.
 - The Hub People screen requires an Audience Play context and sends its match id for detail/review. Hub typecheck and its complete deterministic suite remain green.
 
-## 33. Changelog
+## 33. R21 accepted-company decision-maker resolution (approved 2026-08-22)
+
+### 33.1 Product and identity contract
+
+- R21 closes the missing company-to-person bridge in the golden GTM motion. It takes accepted company matches from one frozen research run and resolves a bounded set of current decision-makers through the separately contracted `harvestapi/linkedin-company-employees` Actor.
+- A resolved person is a normal workspace-deduplicated `gtm_candidates` row and receives a run/play-specific `gtm_candidate_matches` row. Company fit is never copied blindly: a person is accepted only when the parent company match is accepted and the returned current title deterministically matches a title in the frozen resolution plan; uncertain roles remain `review` and contradictory/non-decision-maker roles are rejected.
+- `gtm_candidate_relations` is an additive tenant-scoped evidence junction. It binds parent company candidate + contextual match, child person candidate, play, research run, provider operation, relationship kind (`current_employee`), observed title, confidence, and observed time. The unique run/company/person/kind key makes replay idempotent while allowing one person to relate to more than one company or to change companies over time.
+- Person evidence is deliberately minimal: public LinkedIn profile URL, observed current company/title, provider/operation identity, and observation time. Full biographies, skills, education, photos, raw response bodies, and provider emails are neither requested in Basic/Short mode nor retained.
+
+### 33.2 Frozen provider and money contract
+
+- The selected Actor is `harvestapi/linkedin-company-employees`. R21 supports only the current `Short ($4 per 1k)` input mode. The Actor pricing table currently says `$0.003` per Basic profile, while the input schema label implies `$0.004`; until an account receipt resolves that discrepancy, quote and settle conservatively at `$0.004` per returned profile plus `$0.020` per all-at-once Actor start. The contract version is `harvestapi-linkedin-company-employees-basic-conservative-2026-08-22`; a changed actor, mode, price, or resolved lower billing proof requires a new reviewed version.
+- One operation accepts at most ten exact LinkedIn company URLs, uses `companyBatchMode=all_at_once`, and returns at most 25 profiles. The quote reserves the fixed start event plus the maximum profile events, and the reservation-derived `maxTotalChargeUsd` is sent to Apify. A definitive empty result charges only the start; returned rows charge the start plus every provider-returned profile, including rows the parser cannot safely bind.
+- Eligibility requires the existing exact Apify customer-use/terms/selected-stack gates plus `GTM_APIFY_COMPANY_EMPLOYEES_PRICE_VERSION` matching the R21 contract. An optional actor override is accepted only when it equals the frozen Actor id. This capability is not added to the general source registry and cannot be activated by the broad Apify switch alone.
+- Reserve/start/single-flight/receipt-first/settle-or-ambiguous semantics are identical to section 11.2. The immutable plan hash binds run, play, company candidate and match ids, exact company URLs, title filters, profile cap, descriptor hash, price/terms versions, and quoted fixed/per-profile units. Unknown provider or canonical-ledger outcomes expose no person output and never auto-retry.
+
+### 33.3 Reachability and release boundary
+
+- R21 uses Basic/Short discovery only. It does not request or create email contact points. A resolved person is therefore visible and research-ready but not sendable; campaign approval still requires a separately verified email contact point.
+- The existing selected Apify profile-enrichment adapter may later search for an address for a resolved person, but its result remains `found`. R6 selected no independent real-email verifier, so automated email execution stays blocked even when profile enrichment finds an address.
+- R21 grants no email execution, mailbox ingestion, campaign launch, public GTM promotion, or public provider capability. It may deploy owner-only and dark with the new exact price-version gate absent. A later owner-only golden motion is limited to one bounded resolution operation and no outreach.
+
+### 33.4 API and UI contract
+
+- New internal operation `/internal/gtm/decision-makers` supports `plan`, `run`, and `status`. It re-resolves the represented Noli user, enforces `gtm.view` for plan/status and `gtm.launch` for paid execution, and scopes every row by organization and tenant. `run` requires the exact current `plan_hash` and returns `409 plan_changed` before reserve when inputs drift.
+- The Hub Research/People experience exposes the frozen company count, role filters, maximum people, maximum credits, and actual resolved/reused/review counts. It must say that people are resolved from accepted companies and that email verification is a separate step; it must not imply that a name alone is campaign-ready.
+- Integration coverage includes wrong-user/cross-tenant opacity, non-accepted-company exclusion, plan drift, exact role/title binding, concurrent replay single-flight, parser drift/partial rows, provider ambiguity, canonical settlement failure, relation replay, person dedupe, and a no-send campaign approval check.
+
+### 33.5 Migration and rollback
+
+- ORM entities are the source of truth. The additive relation table and indexes are emitted by `yarn db:generate` with the synchronized GTM snapshot; no migration SQL is hand-written.
+- Disposable empty-database apply/reapply/no-drift and current-schema upgrade rehearsals are mandatory before merge. Rollback is the new capability gate plus the prior CRM/Hub image; the additive relation table remains inert and is not dropped.
+
+### 33.6 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R21-A - provider/identity/API contract | Completed locally | 2026-08-22 | Exact actor, conservative Basic/Short price/start events, company/person relation and plan hash frozen |
+| R21-B - deterministic implementation and migration | Completed locally | 2026-08-22 | 73 GTM suites / 789 tests, TypeScript, lint, CRM and Hub production builds, Hub 1,226 tests, and disposable migration apply/reapply green; no external call made |
+| R21-C - owner-only golden motion | Pending | 2026-08-22 | One bounded no-email/no-send run after dark deployment and explicit capability activation |
+
+## 34. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -822,3 +863,5 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-22: Added R16's exact Apify LinkedIn company-search contract for accepted-yield firmographics. It freezes the actor/build, supported filters, public evidence shape, `$0.004` full-company event, `$0.001` actor-start event, and a separate exact price-version gate; no R16 provider call or exposure change occurred in this code tranche.
 - 2026-08-22: Completed one owner-only R16 company-source golden motion and removed response-body snippets from the company adapter's durable receipts. The exact run reconciled 20,500 credits for 10 raw rows and produced one accepted of four new identities; no contact, campaign, mailbox, or send work occurred.
 - 2026-08-22: Added R19 contextual candidate matches after the golden run proved workspace identity dedupe could otherwise suppress a later play's fit verdict. Candidate identity remains deduplicated; run/play qualification, evidence, review, enrichment, and campaign selection are now contextual and independently auditable.
+- 2026-08-22: Approved R21's accepted-company decision-maker resolver. The tranche freezes a Basic/Short Apify company-employees contract, additive company/person relation evidence, exact quote confirmation, and owner-only UI while keeping email verification, execution, mailbox ingestion, and public GTM promotion off.
+- 2026-08-22: Completed R21 locally with a conservative `$0.004`-per-profile quote while the Actor's public pricing table and input label differ. Added deterministic company-to-person evidence, privacy/retention handling, canonical-ledger single-flight, owner-only Hub quote/confirm controls, and generator-owned `Migration20260822181927_gtm`; all local gates passed without a provider or email call.

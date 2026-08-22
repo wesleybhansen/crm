@@ -2,6 +2,7 @@ import {
   GtmAuditEvent,
   GtmCandidate,
   GtmCandidateMatch,
+  GtmCandidateRelation,
   GtmContactPoint,
   GtmEnrollment,
   GtmEvidence,
@@ -51,6 +52,7 @@ export type SweepResult = {
   candidatesDeleted: number
   evidenceDeleted: number
   contactPointsDeleted: number
+  relationsDeleted: number
   // expired never-promoted candidates kept because an enrollment references them
   skippedEnrolled: number
   // one audit event is written per swept (org, tenant) batch
@@ -66,6 +68,7 @@ export async function sweepExpiredCandidates(
     candidatesDeleted: 0,
     evidenceDeleted: 0,
     contactPointsDeleted: 0,
+    relationsDeleted: 0,
     skippedEnrolled: 0,
     batches: 0,
   }
@@ -123,7 +126,16 @@ export async function sweepExpiredCandidates(
         tenantId,
         candidateId: { $in: ids },
       })
+      const relations = await tem.find(GtmCandidateRelation, {
+        organizationId,
+        tenantId,
+        $or: [
+          { parentCandidateId: { $in: ids } },
+          { childCandidateId: { $in: ids } },
+        ],
+      })
 
+      for (const row of relations) tem.remove(row)
       for (const row of matches) tem.remove(row)
       for (const row of evidence) tem.remove(row)
       for (const row of contactPoints) tem.remove(row)
@@ -141,6 +153,7 @@ export async function sweepExpiredCandidates(
           candidates_deleted: batch.length,
           evidence_deleted: evidence.length,
           contact_points_deleted: contactPoints.length,
+          relations_deleted: relations.length,
           cutoff: now.toISOString(),
         },
       })
@@ -150,6 +163,7 @@ export async function sweepExpiredCandidates(
       result.candidatesDeleted += batch.length
       result.evidenceDeleted += evidence.length
       result.contactPointsDeleted += contactPoints.length
+      result.relationsDeleted += relations.length
       result.batches += 1
     })
   }

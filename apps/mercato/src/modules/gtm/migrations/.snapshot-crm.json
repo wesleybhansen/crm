@@ -4618,6 +4618,341 @@
           "nullable": false,
           "mappedType": "uuid"
         },
+        "research_run_id": {
+          "name": "research_run_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "parent_match_id": {
+          "name": "parent_match_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "parent_candidate_id": {
+          "name": "parent_candidate_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "child_candidate_id": {
+          "name": "child_candidate_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "provider_operation_id": {
+          "name": "provider_operation_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "relationship_kind": {
+          "name": "relationship_kind",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "observed_title": {
+          "name": "observed_title",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "numeric(6,3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "precision": 6,
+          "scale": 3,
+          "mappedType": "decimal"
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "gtm_candidate_relations",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "gtm_candidate_relations_org_tenant_child_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "child_candidate_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_candidate_relations_org_tenant_parent_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "parent_candidate_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_candidate_relations_org_tenant_run_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "research_run_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_candidate_relations_org_tenant_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_candidate_relations_run_parent_child_kind_unique",
+          "columnNames": [
+            "research_run_id",
+            "parent_candidate_id",
+            "child_candidate_id",
+            "relationship_kind"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "gtm_candidate_relations_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "gtm_candidate_relations_workspace_id_foreign": {
+          "constraintName": "gtm_candidate_relations_workspace_id_foreign",
+          "columnNames": [
+            "workspace_id"
+          ],
+          "localTableName": "public.gtm_candidate_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_workspaces",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "gtm_candidate_relations_play_id_foreign": {
+          "constraintName": "gtm_candidate_relations_play_id_foreign",
+          "columnNames": [
+            "play_id"
+          ],
+          "localTableName": "public.gtm_candidate_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_plays",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "gtm_candidate_relations_research_run_id_foreign": {
+          "constraintName": "gtm_candidate_relations_research_run_id_foreign",
+          "columnNames": [
+            "research_run_id"
+          ],
+          "localTableName": "public.gtm_candidate_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_research_runs",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "gtm_candidate_relations_parent_match_id_foreign": {
+          "constraintName": "gtm_candidate_relations_parent_match_id_foreign",
+          "columnNames": [
+            "parent_match_id"
+          ],
+          "localTableName": "public.gtm_candidate_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_candidate_matches",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "gtm_candidate_relations_parent_candidate_id_foreign": {
+          "constraintName": "gtm_candidate_relations_parent_candidate_id_foreign",
+          "columnNames": [
+            "parent_candidate_id"
+          ],
+          "localTableName": "public.gtm_candidate_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_candidates",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "gtm_candidate_relations_child_candidate_id_foreign": {
+          "constraintName": "gtm_candidate_relations_child_candidate_id_foreign",
+          "columnNames": [
+            "child_candidate_id"
+          ],
+          "localTableName": "public.gtm_candidate_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_candidates",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "gtm_candidate_relations_provider_operation_id_foreign": {
+          "constraintName": "gtm_candidate_relations_provider_operation_id_foreign",
+          "columnNames": [
+            "provider_operation_id"
+          ],
+          "localTableName": "public.gtm_candidate_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_provider_operations",
+          "deleteRule": "restrict",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "play_id": {
+          "name": "play_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
         "name": {
           "name": "name",
           "type": "text",

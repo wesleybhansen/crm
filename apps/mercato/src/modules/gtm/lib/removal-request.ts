@@ -172,6 +172,7 @@ export async function applyRemovalRequest(
       deletion.candidatesAnonymized +
       deletion.evidenceAnonymized +
       deletion.contactPointsAnonymized +
+      deletion.relationsAnonymized +
       deletion.renderedMessagesAnonymized +
       deletion.repliesAnonymized,
     dsrOperations: deletion.dsrOperations,

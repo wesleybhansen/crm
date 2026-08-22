@@ -160,15 +160,38 @@ export type ResearchRunExecutionResult = {
 
 const CANDIDATE_RETENTION_DAYS = 90
 
-// dedupe_key = sha256 of the normalized identity triple
-// (entity_kind|name|domain-or-city), SPEC-066 section 4.
+// Person identities prefer a canonical public LinkedIn profile URL when one
+// is present. Names plus cities are not unique enough for decision-maker
+// resolution; companies retain the stable name + domain/city contract.
 export function candidateDedupeKey(candidate: Pick<Candidate, 'entity_kind' | 'identity'>): string {
   const identity = (candidate.identity ?? {}) as Record<string, unknown>
   const name = normalizePart(identity.name)
+  const profileUrl = candidate.entity_kind === 'person'
+    ? canonicalLinkedInProfileUrl(identity.urls)
+    : ''
   const domainOrCity =
     normalizePart(identity.domain) || normalizePart(identity.city) || normalizePart(identity.location)
-  const material = `${candidate.entity_kind}|${name}|${domainOrCity}`
+  const material = profileUrl
+    ? `${candidate.entity_kind}|linkedin|${profileUrl}`
+    : `${candidate.entity_kind}|${name}|${domainOrCity}`
   return crypto.createHash('sha256').update(material).digest('hex')
+}
+
+function canonicalLinkedInProfileUrl(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    try {
+      const url = new URL(entry)
+      if (!/^(?:www\.)?linkedin\.com$/i.test(url.hostname)) continue
+      const path = url.pathname.replace(/\/+$/, '').toLowerCase()
+      if (!path.startsWith('/in/')) continue
+      return `linkedin.com${path}`
+    } catch {
+      continue
+    }
+  }
+  return ''
 }
 
 function normalizePart(value: unknown): string {
