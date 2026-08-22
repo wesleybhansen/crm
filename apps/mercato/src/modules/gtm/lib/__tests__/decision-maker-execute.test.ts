@@ -79,6 +79,11 @@ function employeeItem(title = 'Practice Owner') {
       companyName: 'Example Dental',
       companyLinkedinUrl: 'https://www.linkedin.com/company/example-dental/',
     }],
+    _meta: {
+      query: {
+        currentCompanies: ['https://www.linkedin.com/company/example-dental/'],
+      },
+    },
   }
 }
 

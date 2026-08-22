@@ -47,7 +47,7 @@ export function recommendedDecisionMakerTitles(play: Pick<GtmPlay, 'audience' | 
 }
 
 export type DecisionMakerPlan = {
-  schema_version: '1'
+  schema_version: '2'
   plan_hash: string
   available: boolean
   run_id: string
@@ -123,7 +123,7 @@ export function buildDecisionMakerPlan(args: {
       )
     : 0
   const frozen = {
-    schema_version: '1' as const,
+    schema_version: '2' as const,
     run_id: args.run.id,
     play_id: args.run.playId,
     workspace_id: args.run.workspaceId,
@@ -158,6 +158,6 @@ export function buildDecisionMakerPlan(args: {
     price_version: frozen.price_version,
     terms_version: frozen.terms_version,
     descriptor_hash: frozen.descriptor_hash,
-    note: 'Maximum authorized ceiling. Basic profile discovery creates named people only; verified email remains a separate gate.',
+    note: 'Maximum authorized ceiling for one safely bound company. Basic profile discovery creates named people only; verified email remains a separate gate.',
   }
 }

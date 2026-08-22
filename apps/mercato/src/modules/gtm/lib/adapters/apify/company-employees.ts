@@ -34,7 +34,10 @@ export const APIFY_COMPANY_EMPLOYEES_PRICE_VERSION_ENV =
   'GTM_APIFY_COMPANY_EMPLOYEES_PRICE_VERSION'
 export const APIFY_COMPANY_EMPLOYEES_REQUIRED_PRICE_VERSION =
   'harvestapi-linkedin-company-employees-basic-min-0.05-2026-08-22'
-export const APIFY_COMPANY_EMPLOYEES_MAX_COMPANIES = 10
+// A Short-mode result does not reliably identify its source company when an
+// Actor run contains more than one company. Keep one immutable company per
+// operation so the echoed query can safely bind every accepted row.
+export const APIFY_COMPANY_EMPLOYEES_MAX_COMPANIES = 1
 export const APIFY_COMPANY_EMPLOYEES_MAX_PROFILES = 25
 export const APIFY_COMPANY_EMPLOYEES_PROFILE_MODE = 'Short ($4 per 1k)'
 
@@ -284,7 +287,25 @@ function currentPositions(value: unknown): CurrentPosition[] {
       companyName: text(row.companyName) ?? '',
       companyUrl: safeLinkedInUrl(row.companyLinkedinUrl, 'company') ?? '',
     }))
-    .filter((row) => row.title && row.companyName && row.companyUrl)
+    .filter((row) => row.title)
+}
+
+function normalizedCompanyName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function echoedCompanyUrls(row: Record<string, unknown>): string[] {
+  const meta = record(row._meta)
+  const query = record(meta?.query)
+  const currentCompanies = Array.isArray(query?.currentCompanies)
+    ? query.currentCompanies
+    : []
+  return distinctStrings(
+    currentCompanies
+      .map((value) => safeLinkedInUrl(value, 'company'))
+      .filter((value): value is string => value != null),
+    APIFY_COMPANY_EMPLOYEES_MAX_COMPANIES + 1,
+  )
 }
 
 export function normalizeApifyCompanyEmployeeItem(
@@ -300,14 +321,40 @@ export function normalizeApifyCompanyEmployeeItem(
   const name = text(row.fullName) ?? [firstName, lastName].filter(Boolean).join(' ').trim()
   if (!profileUrl || !name) return null
 
+  // The live Actor contract echoes the submitted company query in `_meta`.
+  // Short-mode rows are safe only when both the frozen plan and that echo
+  // contain the same sole company. A batched echo can prove the batch but not
+  // which company produced a particular person, so it is rejected.
+  if (companies.length !== 1) return null
+  const parent = companies[0]
+  const echoed = echoedCompanyUrls(row)
+  if (
+    echoed.length !== 1
+    || normalizedCompanyUrl(echoed[0]) !== normalizedCompanyUrl(parent.linkedin_url)
+  ) return null
+
   const companyByUrl = new Map(
     companies.map((company) => [normalizedCompanyUrl(company.linkedin_url), company]),
   )
-  const position = currentPositions(row.currentPosition)
-    .find((entry) => companyByUrl.has(normalizedCompanyUrl(entry.companyUrl)))
+  const positions = currentPositions(row.currentPositions ?? row.currentPosition)
+  const parentName = normalizedCompanyName(parent.name)
+  const position = positions.find((entry) => {
+    // Prefer the strongest field and never let a matching display name
+    // override a contradictory URL.
+    if (entry.companyUrl) {
+      return companyByUrl.has(normalizedCompanyUrl(entry.companyUrl))
+    }
+    return Boolean(
+      entry.companyName && normalizedCompanyName(entry.companyName) === parentName,
+    )
+  }) ?? (
+    positions.length === 1
+    && !positions[0].companyUrl
+    && !positions[0].companyName
+      ? positions[0]
+      : null
+  )
   if (!position) return null
-  const parent = companyByUrl.get(normalizedCompanyUrl(position.companyUrl))
-  if (!parent) return null
   const location = locationIdentity(row.location)
   const identity: CandidateIdentity = {
     name,
@@ -337,6 +384,7 @@ export function normalizeApifyCompanyEmployeeItem(
           parent_company_match_id: parent.match_id,
           parent_company_url: parent.linkedin_url,
           current_title: position.title,
+          company_binding: 'single_company_query_echo_v1',
         },
       }],
     },
@@ -457,8 +505,8 @@ export function createApifyCompanyEmployeesAdapter(
       const companies = input.companies as string[]
       const jobTitles = input.jobTitles as string[]
       const cap = input.maxItems as number
-      if (companies.length === 0 || jobTitles.length === 0 || cap <= 0) {
-        return refusal(actorId, attemptedAt, 'bad_request: companies, job titles, and a profile cap are required')
+      if (plan.companies.length !== 1 || companies.length !== 1 || jobTitles.length === 0 || cap <= 0) {
+        return refusal(actorId, attemptedAt, 'bad_request: exactly one company, job titles, and a profile cap are required')
       }
       const maxChargeUsd = Number(plan.max_charge_usd)
       if (!Number.isFinite(maxChargeUsd) || maxChargeUsd <= 0) {
@@ -474,6 +522,7 @@ export function createApifyCompanyEmployeesAdapter(
       const providerReceipt = (extras: Record<string, unknown> = {}) => receipt(outcome, {
         max_charge_usd: maxChargeUsd,
         company_batch_mode: 'all_at_once',
+        company_binding: 'single_company_query_echo_v1',
         companies_submitted: companies.length,
         job_titles_submitted: jobTitles.length,
         ...extras,
