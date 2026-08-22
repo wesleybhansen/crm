@@ -19,6 +19,14 @@ type GtmContainer = {
 }
 
 const CAMPAIGN_READ_OPS = new Set(['list', 'draft-state', 'status'])
+const CANDIDATE_READ_OPS = new Set(['list', 'detail'])
+const CHAT_READ_OPS = new Set(['thread-list', 'messages'])
+const ENRICHMENT_READ_OPS = new Set(['plan', 'status'])
+const INBOX_READ_OPS = new Set(['list', 'thread'])
+const HANDOFF_READ_OPS = new Set(['assets-list', 'asset-status'])
+const RESEARCH_READ_OPS = new Set(['list', 'plan', 'status'])
+const STRATEGY_READ_OPS = new Set(['icp-list', 'icp-get', 'voice-list', 'voice-get'])
+const TASK_READ_OPS = new Set(['list', 'timeline'])
 
 export function campaignFeatureForOp(op: string): GtmFeature {
   if (op === 'approve') return 'gtm.approve'
@@ -33,6 +41,42 @@ export function reconciliationFeatureForOp(op: string): GtmFeature {
   return op === 'list' || op === 'history' || op === 'ai-telemetry'
     ? 'gtm.view'
     : 'gtm.approve'
+}
+
+export function candidateFeatureForOp(op: string): GtmFeature {
+  return CANDIDATE_READ_OPS.has(op) ? 'gtm.view' : 'gtm.edit'
+}
+
+export function chatFeatureForOp(op: string): GtmFeature {
+  return CHAT_READ_OPS.has(op) ? 'gtm.view' : 'gtm.edit'
+}
+
+export function enrichmentFeatureForOp(op: string): GtmFeature {
+  return ENRICHMENT_READ_OPS.has(op) ? 'gtm.view' : 'gtm.launch'
+}
+
+export function inboxFeatureForOp(op: string): GtmFeature {
+  if (INBOX_READ_OPS.has(op)) return 'gtm.view'
+  return op === 'approve-draft' ? 'gtm.launch' : 'gtm.edit'
+}
+
+export function handoffFeatureForOp(op: string): GtmFeature {
+  if (HANDOFF_READ_OPS.has(op)) return 'gtm.view'
+  return op === 'asset-request' ? 'gtm.approve' : 'gtm.edit'
+}
+
+export function researchFeatureForOp(op: string): GtmFeature {
+  if (RESEARCH_READ_OPS.has(op)) return 'gtm.view'
+  return op === 'execute' || op === 'retention-sweep' ? 'gtm.launch' : 'gtm.edit'
+}
+
+export function strategyFeatureForOp(op: string): GtmFeature {
+  return STRATEGY_READ_OPS.has(op) ? 'gtm.view' : 'gtm.edit'
+}
+
+export function taskFeatureForOp(op: string): GtmFeature {
+  if (TASK_READ_OPS.has(op)) return 'gtm.view'
+  return op === 'override-dependency' ? 'gtm.launch' : 'gtm.edit'
 }
 
 /** Server-side RBAC for shared-secret GTM routes. The service secret proves

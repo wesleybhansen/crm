@@ -72,9 +72,14 @@ export async function POST(req: Request) {
     }
     const organizationId = auth.orgId as string
     const tenantId = auth.tenantId as string
+    const userId = auth.userId as string
 
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
+    const { hasGtmFeature } = await import('../../../lib/authorize')
+    if (!(await hasGtmFeature(container, { organizationId, tenantId, userId }, 'gtm.view'))) {
+      return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+    }
     const em = container.resolve('em') as EntityManager
     const { GtmWorkspace, GtmPlay } = await import('../../../data/entities')
 

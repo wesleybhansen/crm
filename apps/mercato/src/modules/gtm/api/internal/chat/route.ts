@@ -88,6 +88,10 @@ export async function POST(req: Request) {
 
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
+    const { chatFeatureForOp, hasGtmFeature } = await import('../../../lib/authorize')
+    if (!(await hasGtmFeature(container, ctx, chatFeatureForOp(body.op)))) {
+      return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+    }
     const em = container.resolve('em') as EntityManager as unknown as import('../../../lib/campaign/build').CampaignEm
 
     const store = await import('../../../lib/chat/store')
