@@ -5,6 +5,8 @@ import {
   APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD,
   APIFY_COMPANY_EMPLOYEES_ADAPTER_ID,
   APIFY_COMPANY_EMPLOYEES_BASIC_PROFILE_USD,
+  APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_UNITS,
+  APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_USD,
   APIFY_COMPANY_EMPLOYEES_PRICE_VERSION_ENV,
   APIFY_COMPANY_EMPLOYEES_PROFILE_MODE,
   APIFY_COMPANY_EMPLOYEES_PROFILE_UNITS,
@@ -50,7 +52,7 @@ const PLAN: DecisionMakerResolvePlan = {
   companies: COMPANIES,
   job_titles: ['Owner', 'Practice Owner', 'Founder'],
   max_profiles: 5,
-  max_charge_usd: 0.035,
+  max_charge_usd: 0.05,
 }
 
 function outcome(values: Partial<ApifyRunOutcome> = {}): ApifyRunOutcome {
@@ -110,7 +112,7 @@ describe('Apify company-employees decision-maker contract', () => {
     })).toBe(false)
   })
 
-  it('reserves the higher of the published Basic price and the actor mode label', () => {
+  it('reserves the provider minimum while settling at the conservative profile price', () => {
     const adapter = createApifyCompanyEmployeesAdapter({ env: ENABLED_ENV, now })
     expect(adapter.descriptor).toEqual(expect.objectContaining({
       adapter_id: APIFY_COMPANY_EMPLOYEES_ADAPTER_ID,
@@ -125,16 +127,22 @@ describe('Apify company-employees decision-maker contract', () => {
     expect(APIFY_COMPANY_EMPLOYEES_BASIC_PROFILE_USD).toBe(0.003)
     expect(APIFY_COMPANY_EMPLOYEES_QUOTED_PROFILE_USD).toBe(0.004)
     expect(APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD).toBe(0.02)
+    expect(APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_USD).toBe(0.05)
     expect(APIFY_COMPANY_EMPLOYEES_PROFILE_UNITS).toBe(4)
     expect(APIFY_COMPANY_EMPLOYEES_START_UNITS).toBe(20)
+    expect(APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_UNITS).toBe(50)
     expect(adapter.quote(PLAN)).toEqual({
       max_companies: 1,
       max_profiles: 5,
-      provider_units: 40,
+      provider_units: 50,
       billable_unit: 'apify_millidollar',
       quoted_credits_per_unit: 250,
-      estimated_credits_before_markup: 10_000,
+      estimated_credits_before_markup: 12_500,
     })
+    expect(adapter.quote({ ...PLAN, max_profiles: 25 })).toEqual(expect.objectContaining({
+      provider_units: 120,
+      estimated_credits_before_markup: 30_000,
+    }))
   })
 
   it('builds only the bounded all-at-once Basic request', () => {
@@ -196,7 +204,7 @@ describe('Apify company-employees decision-maker contract', () => {
     }))
     expect(runActor.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
       maxItems: 5,
-      maxChargeUsd: 0.035,
+      maxChargeUsd: 0.05,
     }))
     expect(result).toEqual(expect.objectContaining({
       status: 'ok',

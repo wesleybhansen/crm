@@ -33,7 +33,7 @@ export const APIFY_COMPANY_EMPLOYEES_ACTOR_ENV = 'GTM_APIFY_ACTOR_LINKEDIN_COMPA
 export const APIFY_COMPANY_EMPLOYEES_PRICE_VERSION_ENV =
   'GTM_APIFY_COMPANY_EMPLOYEES_PRICE_VERSION'
 export const APIFY_COMPANY_EMPLOYEES_REQUIRED_PRICE_VERSION =
-  'harvestapi-linkedin-company-employees-basic-conservative-2026-08-22'
+  'harvestapi-linkedin-company-employees-basic-min-0.05-2026-08-22'
 export const APIFY_COMPANY_EMPLOYEES_MAX_COMPANIES = 10
 export const APIFY_COMPANY_EMPLOYEES_MAX_PROFILES = 25
 export const APIFY_COMPANY_EMPLOYEES_PROFILE_MODE = 'Short ($4 per 1k)'
@@ -44,11 +44,19 @@ export const APIFY_COMPANY_EMPLOYEES_BASIC_PROFILE_USD = 0.003
 // until a canonical provider receipt resolves the discrepancy.
 export const APIFY_COMPANY_EMPLOYEES_QUOTED_PROFILE_USD = 0.004
 export const APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD = 0.02
+// The Actor metadata currently declares a $0.05 minimum
+// `maxTotalChargeUsd`. A smaller reservation is rejected before a run starts,
+// even when the start + requested profile events would cost less. Quote the
+// provider-enforced ceiling so the canonical ledger always covers the hard
+// cap sent to Apify; settlement still uses the actual start + returned rows.
+export const APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_USD = 0.05
 const APIFY_MILLIDOLLAR_USD = 0.001
 export const APIFY_COMPANY_EMPLOYEES_PROFILE_UNITS =
   APIFY_COMPANY_EMPLOYEES_QUOTED_PROFILE_USD / APIFY_MILLIDOLLAR_USD
 export const APIFY_COMPANY_EMPLOYEES_START_UNITS =
   APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD / APIFY_MILLIDOLLAR_USD
+export const APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_UNITS =
+  APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_USD / APIFY_MILLIDOLLAR_USD
 
 type CompanyEmployeesEnv = Record<string, string | undefined>
 
@@ -400,8 +408,11 @@ export function createApifyCompanyEmployeesAdapter(
         ? Math.max(0, Math.min(Math.floor(plan.max_profiles), APIFY_COMPANY_EMPLOYEES_MAX_PROFILES))
         : 0
       const providerUnits = maxProfiles > 0
-        ? APIFY_COMPANY_EMPLOYEES_START_UNITS
-          + maxProfiles * APIFY_COMPANY_EMPLOYEES_PROFILE_UNITS
+        ? Math.max(
+            APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_UNITS,
+            APIFY_COMPANY_EMPLOYEES_START_UNITS
+              + maxProfiles * APIFY_COMPANY_EMPLOYEES_PROFILE_UNITS,
+          )
         : 0
       return {
         max_companies: maxCompanies,
