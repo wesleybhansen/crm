@@ -145,6 +145,7 @@ export type CandidateIdentity = {
   latitude?: number | null
   longitude?: number | null
   industry?: string | null
+  employee_count?: number | null
   employee_range?: string | null
   technologies?: string[]
   company_description?: string | null

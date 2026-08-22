@@ -1266,16 +1266,19 @@ describe('apify client helpers', () => {
   it('builds the run-sync url with the token out of the redacted form', () => {
     const built = buildRunSyncUrl('acme/actor', {
       token: TOKEN,
+      build: '0.0.17',
       tokenTransport: 'query',
       timeoutMs: 60_000,
       maxItems: 25,
       maxChargeUsd: 0.25,
     })
     expect(built.url).toContain(`token=${TOKEN}`)
+    expect(built.url).toContain('build=0.0.17')
     expect(built.url).toContain('timeout=60')
     expect(built.url).toContain('maxItems=25')
     expect(built.url).toContain('maxTotalChargeUsd=0.25')
     expect(built.redactedUrl).not.toContain(TOKEN)
+    expect(built.redactedUrl).toContain('build=0.0.17')
     expect(built.redactedUrl).toContain('token=[redacted]')
     expect(built.redactedUrl).toContain('maxTotalChargeUsd=0.25')
   })

@@ -1,6 +1,15 @@
 import { fixtureSourceAdapter, fixtureSourceDescriptor } from '../adapters/fixture'
 import type { SourceAdapter } from '../adapters/types'
 import {
+  APIFY_COMPANY_REQUIRED_PRICE_VERSION,
+  APIFY_COMPANY_PRICE_VERSION_ENV,
+  createApifyCompanySourceAdapter,
+} from '../adapters/apify/company-source'
+import {
+  APIFY_REQUIRED_PRICE_VERSION,
+  APIFY_REQUIRED_TERMS_VERSION,
+} from '../adapters/apify/source'
+import {
   buildSourcePlan,
   DEFAULT_MAX_CANDIDATES,
   MAX_CANDIDATES_HARD_CAP,
@@ -16,6 +25,17 @@ const executablePlay: PlanPlayInput = {
 }
 
 const adapters: SourceAdapter[] = [fixtureSourceAdapter]
+
+const approvedCompanySource = createApifyCompanySourceAdapter({
+  env: {
+    GTM_APIFY_ENABLED: 'true',
+    GTM_APIFY_TOKEN: 'synthetic-planning-only-token',
+    GTM_APIFY_CUSTOMER_USE_APPROVED: 'true',
+    GTM_APIFY_TERMS_VERSION: APIFY_REQUIRED_TERMS_VERSION,
+    GTM_APIFY_PRICE_VERSION: APIFY_REQUIRED_PRICE_VERSION,
+    [APIFY_COMPANY_PRICE_VERSION_ENV]: APIFY_COMPANY_REQUIRED_PRICE_VERSION,
+  },
+})
 
 describe('buildSourcePlan fail-closed boundaries', () => {
   it('fails closed on a strategy_only play (section 7 ladder boundary 1)', () => {
@@ -62,6 +82,44 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 })
 
 describe('buildSourcePlan pricing and limits', () => {
+  it('freezes a firmographic company-source quote including the actor-start event', () => {
+    const play: PlanPlayInput = {
+      marketType: 'b2b',
+      geography: 'San Diego, California, US',
+      signal: 'firmographic_match',
+      signalKind: 'firmographic_match',
+      entityUnit: 'companies',
+      audience: 'Independent dental practices with 1-50 employees',
+      providerQuery: {
+        company_keywords: ['dental practice'],
+        industries: ['Dentistry'],
+        employee_ranges: ['1-10', '11-50'],
+        locations: ['San Diego, California'],
+      },
+    }
+    const plan = buildSourcePlan(play, [approvedCompanySource], {
+      targetAccepted: 5,
+      maxRawCandidates: 10,
+    }, 2)
+    expect(plan.ok).toBe(true)
+    if (plan.ok) {
+      expect(plan.adapterPlan).toEqual([
+        expect.objectContaining({
+          adapter_id: 'apify-linkedin-company-search',
+          providerUnits: 10.25,
+          billableUnit: 'full_company',
+          maxCandidates: 10,
+          estimatedCredits: 20_500,
+          priceVersion: APIFY_COMPANY_REQUIRED_PRICE_VERSION,
+          providerQuery: play.providerQuery,
+        }),
+      ])
+      expect(plan.estimatedCredits).toBe(20_500)
+      expect(plan.limits.maxCredits).toBe(20_500)
+      expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
+    }
+  })
+
   it('pursues 25 accepted leads under a separate 100-row raw ceiling', () => {
     const plan = buildSourcePlan(executablePlay, adapters, null, 2)
     expect(plan.ok).toBe(true)

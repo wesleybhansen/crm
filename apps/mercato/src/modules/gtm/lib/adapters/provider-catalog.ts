@@ -16,6 +16,12 @@ import {
   APIFY_REQUIRED_PRICE_VERSION,
   APIFY_REQUIRED_TERMS_VERSION,
 } from './apify/source'
+import {
+  APIFY_COMPANY_ACTOR_START_USD,
+  APIFY_COMPANY_FULL_RESULT_USD,
+  APIFY_COMPANY_REQUIRED_PRICE_VERSION,
+  APIFY_COMPANY_SOURCE_MAX_BATCH,
+} from './apify/company-source'
 
 export type SelectedProviderCatalogItem = {
   id: string
@@ -85,6 +91,22 @@ export function selectedProviderCatalog(
         retention_days: DATAFORSEO_REQUIRED_RETENTION_DAYS,
         terms_version: DATAFORSEO_REQUIRED_TERMS_VERSION,
         price_version: DATAFORSEO_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'apify-linkedin-company-search',
+        provider: 'Apify',
+        category: 'lead_search',
+        name: 'LinkedIn company search',
+        description:
+          'Finds US companies by industry, employee range, and location for firmographic qualification.',
+        unit: `full company result; each run also reserves a $${APIFY_COMPANY_ACTOR_START_USD.toFixed(3)} actor-start event`,
+        provider_usd_per_unit: APIFY_COMPANY_FULL_RESULT_USD,
+        max_results_per_request: APIFY_COMPANY_SOURCE_MAX_BATCH,
+        evidence:
+          'Public company URL, observed firmographics, and observation time remain attached to each row.',
+        retention_days: 90,
+        terms_version: APIFY_REQUIRED_TERMS_VERSION,
+        price_version: APIFY_COMPANY_REQUIRED_PRICE_VERSION,
       }, markupMultiplier),
       item({
         id: 'apify-linkedin-post-comments',

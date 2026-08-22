@@ -11,6 +11,11 @@ import {
 } from '../adapters/fixture'
 import { APIFY_ENRICH_ADAPTER_ID } from '../adapters/apify/enrich'
 import {
+  APIFY_COMPANY_PRICE_VERSION_ENV,
+  APIFY_COMPANY_REQUIRED_PRICE_VERSION,
+  APIFY_COMPANY_SOURCE_ADAPTER_ID,
+} from '../adapters/apify/company-source'
+import {
   APIFY_REQUIRED_PRICE_VERSION,
   APIFY_REQUIRED_TERMS_VERSION,
   APIFY_SOURCE_ADAPTER_ID,
@@ -83,6 +88,7 @@ describe('adapter registry environment boundaries', () => {
     process.env.GTM_APIFY_CUSTOMER_USE_APPROVED = 'true'
     process.env.GTM_APIFY_TERMS_VERSION = APIFY_REQUIRED_TERMS_VERSION
     process.env.GTM_APIFY_PRICE_VERSION = APIFY_REQUIRED_PRICE_VERSION
+    process.env[APIFY_COMPANY_PRICE_VERSION_ENV] = APIFY_COMPANY_REQUIRED_PRICE_VERSION
     process.env.GTM_DATAFORSEO_ENABLED = 'true'
     process.env.GTM_DATAFORSEO_LOGIN = 'synthetic-test-login'
     process.env.GTM_DATAFORSEO_PASSWORD = 'synthetic-test-password'
@@ -93,6 +99,7 @@ describe('adapter registry environment boundaries', () => {
 
     expect(Object.keys(sourceAdapterRegistry())).toEqual([
       APIFY_SOURCE_ADAPTER_ID,
+      APIFY_COMPANY_SOURCE_ADAPTER_ID,
       DATAFORSEO_MAPS_ADAPTER_ID,
     ])
     expect(enrichAdapterList().map((adapter) => adapter.descriptor.adapter_id)).toEqual([

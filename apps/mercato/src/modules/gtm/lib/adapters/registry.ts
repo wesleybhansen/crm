@@ -3,6 +3,10 @@ import { fixtureEnrichAdapter, fixtureSourceAdapter, fixtureVerifyAdapter } from
 import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
 import { apifyEnrichEnabled, createApifyEnrichAdapter } from './apify/enrich'
 import { createDataForSeoMapsAdapter, dataForSeoEnabled } from './dataforseo/maps'
+import {
+  apifyCompanySourceEnabled,
+  createApifyCompanySourceAdapter,
+} from './apify/company-source'
 
 /*
  * Adapter registries (SPEC-066 Tranches 3/4).
@@ -15,15 +19,17 @@ import { createDataForSeoMapsAdapter, dataForSeoEnabled } from './dataforseo/map
  * customer data.
  *
  * The selected real-provider stack is deliberately closed: DataForSEO for
- * local company discovery and Apify for approved social-signal sourcing and
- * profile enrichment. LeadMagic and Bouncer implementations remain in the
- * repository as historical, directly testable adapters, but owner decision
+ * local company discovery and Apify for separately approved company search,
+ * social-signal sourcing, and profile enrichment. LeadMagic and Bouncer
+ * implementations remain in the repository as historical, directly testable
+ * adapters, but owner decision
  * R6 excludes them from every runtime registry. Their environment variables
  * therefore cannot activate them accidentally.
  *
  * Selected providers still register only behind their own credential,
- * customer-use, frozen-terms, and frozen-price gates. Apify remains dark
- * until those gates are explicitly satisfied; see lib/adapters/apify/source.ts.
+ * customer-use, frozen-terms, and frozen-price gates. The company-search
+ * actor additionally requires its own exact price version; see
+ * lib/adapters/apify/company-source.ts.
  */
 export function fixtureAdaptersEnabled(
   env: NodeJS.ProcessEnv = process.env,
@@ -42,6 +48,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifySourceEnabled()) {
     const apify = createApifySourceAdapter()
     registry[apify.descriptor.adapter_id] = apify
+  }
+  if (apifyCompanySourceEnabled()) {
+    const apifyCompany = createApifyCompanySourceAdapter()
+    registry[apifyCompany.descriptor.adapter_id] = apifyCompany
   }
   if (dataForSeoEnabled()) {
     const dataForSeo = createDataForSeoMapsAdapter()
