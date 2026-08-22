@@ -149,8 +149,25 @@ describe('Apify LinkedIn company source contract', () => {
     })
   })
 
+  it('keeps broad source search terms separate from precise fit criteria', () => {
+    expect(buildApifyCompanySearchInput({
+      ...PLAN,
+      provider_query: {
+        ...PLAN.provider_query,
+        source_search_keywords: ['dental'],
+        company_keywords: ['dental practice', 'dental office'],
+      },
+    })).toEqual(expect.objectContaining({
+      searchQuery: 'dental',
+    }))
+  })
+
   it('normalizes exact company firmographics and a public evidence URL', () => {
-    const candidate = normalizeApifyCompanyItem(companyItem(), CLOCK.toISOString())
+    const candidate = normalizeApifyCompanyItem(
+      companyItem(),
+      CLOCK.toISOString(),
+      ['San Diego, California'],
+    )
     expect(candidate).toEqual(expect.objectContaining({
       entity_kind: 'company',
       identity: expect.objectContaining({
@@ -160,6 +177,7 @@ describe('Apify LinkedIn company source contract', () => {
         employee_count: 17,
         employee_range: '11-50',
         location: 'San Diego, California, United States',
+        provider_location: 'San Diego, California',
         city: 'San Diego',
         region: 'California',
         country_code: 'US',
@@ -187,6 +205,7 @@ describe('Apify LinkedIn company source contract', () => {
     }), CLOCK.toISOString(), ['San Diego, California'])
     expect(candidate?.identity).toEqual(expect.objectContaining({
       location: 'San Diego, California, United States',
+      provider_location: 'San Diego, California',
       city: 'San Diego',
       region: 'California',
     }))
