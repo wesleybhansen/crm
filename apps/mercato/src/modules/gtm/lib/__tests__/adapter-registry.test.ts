@@ -16,7 +16,12 @@ import {
   APIFY_SOURCE_ADAPTER_ID,
 } from '../adapters/apify/source'
 import { BOUNCER_VERIFY_ADAPTER_ID } from '../adapters/bouncer/verify'
-import { DATAFORSEO_MAPS_ADAPTER_ID } from '../adapters/dataforseo/maps'
+import {
+  DATAFORSEO_MAPS_ADAPTER_ID,
+  DATAFORSEO_REQUIRED_PRICE_VERSION,
+  DATAFORSEO_REQUIRED_RETENTION_DAYS,
+  DATAFORSEO_REQUIRED_TERMS_VERSION,
+} from '../adapters/dataforseo/maps'
 import { LEADMAGIC_ENRICH_ADAPTER_ID } from '../adapters/leadmagic/enrich'
 import { LEADMAGIC_SOURCE_ADAPTER_ID } from '../adapters/leadmagic/source'
 
@@ -82,9 +87,9 @@ describe('adapter registry environment boundaries', () => {
     process.env.GTM_DATAFORSEO_LOGIN = 'synthetic-test-login'
     process.env.GTM_DATAFORSEO_PASSWORD = 'synthetic-test-password'
     process.env.GTM_DATAFORSEO_CUSTOMER_USE_APPROVED = 'true'
-    process.env.GTM_DATAFORSEO_TERMS_VERSION = 'tos-2026-06-12'
-    process.env.GTM_DATAFORSEO_PRICE_VERSION = 'maps-live-2026-08-20'
-    process.env.GTM_DATAFORSEO_RETENTION_DAYS = '30'
+    process.env.GTM_DATAFORSEO_TERMS_VERSION = DATAFORSEO_REQUIRED_TERMS_VERSION
+    process.env.GTM_DATAFORSEO_PRICE_VERSION = DATAFORSEO_REQUIRED_PRICE_VERSION
+    process.env.GTM_DATAFORSEO_RETENTION_DAYS = String(DATAFORSEO_REQUIRED_RETENTION_DAYS)
 
     expect(Object.keys(sourceAdapterRegistry())).toEqual([
       APIFY_SOURCE_ADAPTER_ID,

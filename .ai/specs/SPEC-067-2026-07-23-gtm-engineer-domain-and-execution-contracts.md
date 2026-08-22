@@ -181,8 +181,8 @@ Adapter invoke is wrapped: (1) noli-core `provider_op_reserve` (org-scoped idemp
 - A non-timeout transport failure after any real provider request is dispatched is ambiguous because billing cannot be proven. Unreadable successful response bodies are ambiguous for the same reason. They retain the reservation for reconciliation and are never silently refunded.
 - Provider settlement uses authoritative provider billing fields when the provider exposes them. LeadMagic discovery uses `credits_consumed`; DataForSEO uses task/root USD cost against the frozen account rate. A missing or over-ceiling billing receipt is ambiguous.
 - Verification is address-scoped within the exact organization and tenant. Enrichment plan schema v3 quotes one call per normalized email address; an unambiguous existing terminal result is reused for duplicate contact-point rows with provenance, while conflicting historical states disable reuse and require reconciliation. Unidentified rows remain independently quoted.
-- DataForSEO Maps defaults to a frozen depth of 100 results. An operator may explicitly lower or raise that ceiling only up to the provider maximum of 700; the quote and request use the same ceiling and 100-result billing blocks. Keywords over 700 characters and search operators that multiply the frozen base price are rejected before provider contact.
-- DataForSEO activation also requires an explicit nonnegative provider-retention day value bound to the reviewed terms version. Unknown retention remains `null` in the descriptor and keeps the adapter provisional and disabled; it must never inherit Noli's separate 90-day candidate-retention default.
+- DataForSEO Maps is frozen to one Live Advanced task of at most 100 results at `$0.002`. Legacy rate and depth environment variables are compatibility no-ops; a larger depth or changed rate requires a new reviewed contract/version and code change. Keywords over 700 characters and search operators that multiply the frozen base price are rejected before provider contact.
+- DataForSEO activation requires exact reviewed terms and price versions plus the exact 30-day provider JSON-retention value. Unknown or mismatched retention remains provisional and disabled; it must never inherit Noli's separate 90-day candidate-retention default.
 - Research plan schema v5 may quote multiple pages from the same source only when its descriptor declares deterministic offset pagination. Each page has a separate reserve/start/settle operation and immutable offset. A short/no-result page skips later offsets; an ambiguous page blocks them for reconciliation. Opaque provider cursors are not persisted or replayed.
 - Fit-v4 / qualification-profile-v2 treats company-size evidence as tri-state: an exact count or provider bucket fully contained by an approved range passes, a disjoint bucket fails, and partial overlap routes to review. Source plan schema v6 binds that rubric version so stale plan approvals fail closed.
 
@@ -703,7 +703,34 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R8-B - current price/version freeze | Completed locally | 2026-08-21 | Exact terms/price versions and current published selected-actor rates |
 | R8-C - validation and freeze | Completed locally | 2026-08-21 | 67/68 suites and 730 tests passed; the one skipped suite is the opt-in PostgreSQL concurrency harness; TypeScript, focused lint, and diff checks passed |
 
-## 30. Changelog
+## 30. R9 current DataForSEO contract closure (approved 2026-08-21)
+
+### 30.1 Rights, price, and retention boundary
+
+- The owner-provided DataForSEO clarification permits customer display/export/retention of API output, qualification evidence, audience qualification, and B2B-outreach support for the described workflow without a separate DataForSEO addendum, subject to the DataForSEO Terms and source-platform restrictions.
+- Eligibility requires the exact reviewed Terms version `dataforseo-tos-2026-06-12`, exact price version `google-maps-live-advanced-2026-08-21`, explicit owner customer-use approval, credentials, and a conservative provider JSON-retention ceiling of 30 days from the owner-provided support clarification. The current help page says Live results are not retrievable after the response; the 30-day value is intentionally the stricter maximum until DataForSEO resolves that wording. HTML/screenshot retention is outside this adapter because it requests and stores neither artifact.
+- Source-platform restrictions and Noli's independent legal basis, minimization, suppression, deletion, and outreach duties remain applicable. The adapter declares provider DSR deletion unsupported and does not treat the provider clarification as resolving every subprocessor/DSR question.
+
+### 30.2 Money and capability boundary
+
+- The selected capability is US Google Maps Live Advanced company/location discovery only. One provider call is capped at `depth: 100`, with no price-multiplying search operators or rectangle calculation, at a code-bound `$0.002` maximum task rate.
+- The API-returned task/root USD cost remains authoritative. Missing cost, unreadable post-dispatch responses, or cost above the one-task reservation remain ambiguous for operator reconciliation.
+- Every successfully processed duplicate request is billable. The adapter relies on the canonical provider-operation `started_now` single-flight boundary before dispatch; duplicate-task dashboard limits are defense in depth, not correctness.
+- The published account maximum may exceed Noli's descriptor, but Noli retains a lower 120-request/minute and five-concurrent safety ceiling. Account configuration never widens the frozen per-operation contract.
+
+### 30.3 Acceptance and release posture
+
+- Network-free tests prove stale terms/price labels and wrong retention fail closed; legacy rate/depth overrides cannot mutate the frozen quote or request; unsupported price-multiplying queries make zero provider calls; authoritative receipts and ambiguity behavior remain intact.
+- R9 makes no provider call, entity, migration, route, queue, customer-data, production-configuration, or flag change. DataForSEO remains disabled until a later controlled activation step.
+
+### 30.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R9-A - exact rights/price/retention closure | Completed locally | 2026-08-21 | Exact versions + 30-day JSON retention; one `$0.002`/100-result task |
+| R9-B - validation and freeze | Completed locally | 2026-08-21 | 67/68 suites and 730 tests passed; one opt-in PostgreSQL suite skipped; TypeScript, focused lint, and diff checks passed |
+
+## 31. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -733,3 +760,5 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-20: Added R5's disposable public RFC 8058 route scenario. A deterministic test-only v2 keyring crosses the actual GET/POST handler and verifies opaque tamper handling, atomic suppression/stop/cancellation/audit, and replay idempotency without email, mailbox ingestion, provider access, or production state.
 - 2026-08-21: Completed R6 runtime provider selection around DataForSEO and eligible Apify. LeadMagic and Bouncer remain auditable source/tests but their environment variables cannot register them; no real-email verifier is selected. Full GTM validation passed 66/67 suites and 727 tests, with only the opt-in PostgreSQL concurrency harness skipped.
 - 2026-08-21: Completed R7 represented-user authorization across every internal GTM route. The service secret remains application authentication only; paid provider work, reply sending, execution, and safety-sensitive controls require the represented user's `gtm.launch` feature. Full GTM validation passed 67/68 suites and 730 tests, with only the opt-in PostgreSQL concurrency harness skipped.
+- 2026-08-21: Completed R8 around the current eligible Apify actor stack. Only LinkedIn post comments and exact profile enrichment are selectable; post search, reactions, X, and arbitrary actor overrides fail closed. Current exact terms/price versions and code-bound selected-actor rates are required, and Apify remains disabled.
+- 2026-08-21: Added R9 around the written DataForSEO rights/rate/retention clarification. Eligibility now requires exact June 12 terms, exact current price version, 30-day JSON retention, and one code-bound `$0.002` Live Advanced task capped at 100 rows; no provider call or production configuration changed.

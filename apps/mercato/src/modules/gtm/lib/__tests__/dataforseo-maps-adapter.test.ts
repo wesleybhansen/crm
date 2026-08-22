@@ -1,5 +1,9 @@
 import {
   DATAFORSEO_DEFAULT_MAX_DEPTH,
+  DATAFORSEO_DEFAULT_USD_PER_100_RESULTS,
+  DATAFORSEO_REQUIRED_PRICE_VERSION,
+  DATAFORSEO_REQUIRED_RETENTION_DAYS,
+  DATAFORSEO_REQUIRED_TERMS_VERSION,
   createDataForSeoMapsAdapter,
   dataForSeoEnabled,
 } from '../adapters/dataforseo/maps'
@@ -9,9 +13,9 @@ const approvedEnv = {
   GTM_DATAFORSEO_LOGIN: 'login',
   GTM_DATAFORSEO_PASSWORD: 'password',
   GTM_DATAFORSEO_CUSTOMER_USE_APPROVED: 'true',
-  GTM_DATAFORSEO_TERMS_VERSION: 'reviewed-2026-08-02',
-  GTM_DATAFORSEO_PRICE_VERSION: 'maps-live-2026-07-01',
-  GTM_DATAFORSEO_RETENTION_DAYS: '365',
+  GTM_DATAFORSEO_TERMS_VERSION: DATAFORSEO_REQUIRED_TERMS_VERSION,
+  GTM_DATAFORSEO_PRICE_VERSION: DATAFORSEO_REQUIRED_PRICE_VERSION,
+  GTM_DATAFORSEO_RETENTION_DAYS: String(DATAFORSEO_REQUIRED_RETENTION_DAYS),
 }
 
 describe('DataForSEO Maps adapter', () => {
@@ -21,16 +25,28 @@ describe('DataForSEO Maps adapter', () => {
     })).toBe(false)
   })
 
-  it('requires explicit reviewed provider-retention truth', () => {
+  it('requires the exact reviewed terms, price, and provider-retention contract', () => {
     const withoutRetention = { ...approvedEnv, GTM_DATAFORSEO_RETENTION_DAYS: undefined }
     expect(dataForSeoEnabled(withoutRetention)).toBe(false)
     expect(createDataForSeoMapsAdapter({ env: withoutRetention }).descriptor.constraints.license)
       .toEqual(expect.objectContaining({ status: 'provisional', retention_days: null }))
     expect(createDataForSeoMapsAdapter({ env: approvedEnv }).descriptor.constraints.license)
-      .toEqual(expect.objectContaining({ status: 'approved', retention_days: 365 }))
+      .toEqual(expect.objectContaining({
+        status: 'approved',
+        terms_version: DATAFORSEO_REQUIRED_TERMS_VERSION,
+        retention_days: DATAFORSEO_REQUIRED_RETENTION_DAYS,
+      }))
+
+    for (const stale of [
+      { GTM_DATAFORSEO_TERMS_VERSION: 'reviewed-2026-08-02' },
+      { GTM_DATAFORSEO_PRICE_VERSION: 'maps-live-2026-07-01' },
+      { GTM_DATAFORSEO_RETENTION_DAYS: '365' },
+    ]) {
+      expect(dataForSeoEnabled({ ...approvedEnv, ...stale })).toBe(false)
+    }
   })
 
-  it('defaults to one 100-result billing block and requires an explicit lower-risk depth override', () => {
+  it('freezes one 100-result billing block and ignores legacy rate/depth overrides', () => {
     const adapter = createDataForSeoMapsAdapter({ env: approvedEnv })
     const quote = adapter.quote({
       signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
@@ -42,21 +58,27 @@ describe('DataForSEO Maps adapter', () => {
       billable_unit: 'maps_100_results',
     }))
 
-    const expanded = createDataForSeoMapsAdapter({
-      env: { ...approvedEnv, GTM_DATAFORSEO_MAX_DEPTH: '250' },
-    }).quote({
+    const compatibilityOverrides = createDataForSeoMapsAdapter({
+      env: {
+        ...approvedEnv,
+        GTM_DATAFORSEO_MAX_DEPTH: '700',
+        GTM_DATAFORSEO_USD_PER_100_RESULTS: '99',
+      },
+    })
+    const expanded = compatibilityOverrides.quote({
       signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
       query: 'HVAC contractors', max_candidates: 700,
     })
-    expect(expanded).toEqual(expect.objectContaining({ max_candidates: 250, provider_units: 3 }))
-
-    const providerCapped = createDataForSeoMapsAdapter({
-      env: { ...approvedEnv, GTM_DATAFORSEO_MAX_DEPTH: '9999' },
-    }).quote({
-      signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
-      query: 'HVAC contractors', max_candidates: 9999,
-    })
-    expect(providerCapped).toEqual(expect.objectContaining({ max_candidates: 700, provider_units: 7 }))
+    expect(expanded).toEqual(expect.objectContaining({
+      max_candidates: DATAFORSEO_DEFAULT_MAX_DEPTH,
+      provider_units: 1,
+      quoted_credits_per_unit: expect.any(Number),
+    }))
+    expect(compatibilityOverrides.descriptor.cost_model.price_version)
+      .toBe(DATAFORSEO_REQUIRED_PRICE_VERSION)
+    expect(compatibilityOverrides.descriptor.cost_model.quoted_credits_per_unit)
+      .toBe(createDataForSeoMapsAdapter({ env: approvedEnv }).descriptor.cost_model.quoted_credits_per_unit)
+    expect(DATAFORSEO_DEFAULT_USD_PER_100_RESULTS).toBe(0.002)
   })
 
   it('sends the frozen default depth rather than the caller requested ceiling', async () => {

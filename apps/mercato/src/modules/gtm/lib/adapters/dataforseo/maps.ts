@@ -11,8 +11,10 @@ export const DATAFORSEO_MAPS_ADAPTER_ID = 'dataforseo-google-maps'
 export const DATAFORSEO_MAPS_URL = 'https://api.dataforseo.com/v3/serp/google/maps/live/advanced'
 export const DATAFORSEO_DEFAULT_USD_PER_100_RESULTS = 0.002
 export const DATAFORSEO_DEFAULT_MAX_DEPTH = 100
-export const DATAFORSEO_PROVIDER_MAX_DEPTH = 700
 export const DATAFORSEO_MAX_KEYWORD_CHARS = 700
+export const DATAFORSEO_REQUIRED_TERMS_VERSION = 'dataforseo-tos-2026-06-12'
+export const DATAFORSEO_REQUIRED_PRICE_VERSION = 'google-maps-live-advanced-2026-08-21'
+export const DATAFORSEO_REQUIRED_RETENTION_DAYS = 30
 const PRICE_MULTIPLYING_QUERY_OPERATOR =
   /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|define|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
 const RECEIPT_FIELDS = [
@@ -34,9 +36,9 @@ function envValue(env: DataForSeoEnv, name: string): string {
 export function dataForSeoApproved(env: DataForSeoEnv = process.env): boolean {
   return (
     envValue(env, 'GTM_DATAFORSEO_CUSTOMER_USE_APPROVED') === 'true' &&
-    Boolean(envValue(env, 'GTM_DATAFORSEO_TERMS_VERSION')) &&
-    Boolean(envValue(env, 'GTM_DATAFORSEO_PRICE_VERSION')) &&
-    retentionDays(env) !== null
+    envValue(env, 'GTM_DATAFORSEO_TERMS_VERSION') === DATAFORSEO_REQUIRED_TERMS_VERSION &&
+    envValue(env, 'GTM_DATAFORSEO_PRICE_VERSION') === DATAFORSEO_REQUIRED_PRICE_VERSION &&
+    retentionDays(env) === DATAFORSEO_REQUIRED_RETENTION_DAYS
   )
 }
 
@@ -49,15 +51,16 @@ export function dataForSeoEnabled(env: DataForSeoEnv = process.env): boolean {
   )
 }
 
-function usdPerBlock(env: DataForSeoEnv): number {
-  const parsed = Number(envValue(env, 'GTM_DATAFORSEO_USD_PER_100_RESULTS'))
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DATAFORSEO_DEFAULT_USD_PER_100_RESULTS
+function usdPerBlock(_env: DataForSeoEnv): number {
+  // Compatibility note: GTM_DATAFORSEO_USD_PER_100_RESULTS is intentionally ignored.
+  // A rate change requires a new reviewed price-version constant and code change.
+  return DATAFORSEO_DEFAULT_USD_PER_100_RESULTS
 }
 
-function maxDepth(env: DataForSeoEnv): number {
-  const parsed = Number(envValue(env, 'GTM_DATAFORSEO_MAX_DEPTH'))
-  if (!Number.isInteger(parsed) || parsed < 1) return DATAFORSEO_DEFAULT_MAX_DEPTH
-  return Math.min(parsed, DATAFORSEO_PROVIDER_MAX_DEPTH)
+function maxDepth(_env: DataForSeoEnv): number {
+  // Compatibility note: GTM_DATAFORSEO_MAX_DEPTH is intentionally ignored.
+  // The reviewed quote covers exactly one Live Advanced task of up to 100 rows.
+  return DATAFORSEO_DEFAULT_MAX_DEPTH
 }
 
 function retentionDays(env: DataForSeoEnv): number | null {
