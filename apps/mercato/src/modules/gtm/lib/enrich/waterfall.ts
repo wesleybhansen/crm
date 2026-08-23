@@ -510,7 +510,8 @@ export async function runEnrichmentWaterfall(
   const accepted = deps.candidates.filter(
     (candidate) =>
       (deps.acceptedCandidateIds?.has(candidate.id) ?? candidate.fitStatus === 'accepted')
-      && !candidate.deletedAt,
+      && !candidate.deletedAt
+      && candidate.entityKind === 'person',
   )
 
   candidateLoop: for (const candidate of accepted) {

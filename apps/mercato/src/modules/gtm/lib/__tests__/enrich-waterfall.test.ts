@@ -112,6 +112,10 @@ describe('runEnrichmentWaterfall', () => {
     const enrich = spyEnrich()
     const verify = spyVerify()
     const accepted = await makeCandidate(em, { name: 'Alex Example' })
+    const acceptedCompany = await makeCandidate(em, {
+      name: 'Example Dynamics LLC',
+      kind: 'company',
+    })
     const rejected = await makeCandidate(em, { name: 'Jamie Fixture', fitStatus: 'rejected' })
     const unscored = await makeCandidate(em, { name: 'Casey Synthetic', fitStatus: 'unscored' })
 
@@ -142,6 +146,7 @@ describe('runEnrichmentWaterfall', () => {
     // rejected and unscored candidates were never touched
     expect(points.some((point) => point.candidateId === rejected.id)).toBe(false)
     expect(points.some((point) => point.candidateId === unscored.id)).toBe(false)
+    expect(points.some((point) => point.candidateId === acceptedCompany.id)).toBe(false)
 
     // enrich 1 unit x 2 quoted x 2 markup = 4, verify 1 x 1 x 2 = 2
     expect(summary).toMatchObject({

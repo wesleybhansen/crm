@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0-R25 implemented through the owner-only dark provider golden motion and deployed on the controlled CRM host. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+**Status:** C0-R27 implemented through the owner-only dark provider golden motion. R26 is deployed on the controlled CRM host; R27 is verified locally and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -183,6 +183,7 @@ The represented Noli Core organization and user UUIDs, not the provisioned CRM o
 - A non-timeout transport failure after any real provider request is dispatched is ambiguous because billing cannot be proven. Unreadable successful response bodies are ambiguous for the same reason. They retain the reservation for reconciliation and are never silently refunded.
 - Provider settlement uses authoritative provider billing fields when the provider exposes them. LeadMagic discovery uses `credits_consumed`; DataForSEO uses task/root USD cost against the frozen account rate. A missing or over-ceiling billing receipt is ambiguous.
 - Verification is address-scoped within the exact organization and tenant. Enrichment plan schema v3 quotes one call per normalized email address; an unambiguous existing terminal result is reused for duplicate contact-point rows with provenance, while conflicting historical states disable reuse and require reconciliation. Unidentified rows remain independently quoted.
+- Contact enrichment and verification operate on accepted person candidates only. Accepted company identities are account evidence for decision-maker resolution; they cannot enter a contact-enrichment quote, consume an enrichment reservation, or become an email recipient.
 - DataForSEO Maps is frozen to one Live Advanced task of at most 100 results at `$0.002`. Legacy rate and depth environment variables are compatibility no-ops; a larger depth or changed rate requires a new reviewed contract/version and code change. Keywords over 700 characters and search operators that multiply the frozen base price are rejected before provider contact.
 - DataForSEO receives one ranked Maps keyword and an exact canonical US location name. The adapter expands state abbreviations, removes display-only comma spacing, appends `United States`, and rejects an incomplete city/county without a state before provider contact. Provider receipts preserve both root and task status; a failed task code takes precedence over a successful envelope code. A run where every contacted provider returns a definitive application error is `failed`, not `completed` or `sources_exhausted`, while its reservation is still refunded from authoritative zero-cost evidence.
 - DataForSEO activation requires exact reviewed terms and price versions plus the exact 30-day provider JSON-retention value. Unknown or mismatched retention remains provisional and disabled; it must never inherit Noli's separate 90-day candidate-retention default.
@@ -914,7 +915,26 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R26-A - export and diagnostics contract | Completed locally | 2026-08-23 | Count-only qualification diagnostics and the audited, suppression-aware export are implemented without a provider, mailbox, send, schema, flag, or exposure change |
 | R26-B - deterministic verification | Completed locally | 2026-08-23 | CRM focused tests pass 16/16; the full GTM baseline remains 75 passing suites plus one opt-in PostgreSQL suite skipped, with 825 tests passing and 7 skipped. Hub focused tests pass 28/28 and the full Hub baseline remains 1,234/1,234. Both typechecks and production builds pass. |
 
-## 37. Changelog
+## 37. R27 person-only enrichment scope (approved 2026-08-23)
+
+### 37.1 Golden-motion correction
+
+- The owner-only dental golden motion produced accepted company accounts before resolving people. The existing enrichment quote counted all accepted identities while runtime capability checks skipped company calls, inflating a one-person authorization to the full account set.
+- Enrichment plans and the direct waterfall now admit accepted person candidates only. Company contact points are excluded from quote identity and verification counts, so a company cannot inflate the ceiling or consume a provider reservation even when a test adapter technically supports company enrichment.
+- This is a narrowing safety correction to an owner-only dark operation, not an API, schema, provider, mailbox, execution, or exposure change. Existing request and response fields remain intact.
+
+### 37.2 Acceptance and rollback
+
+- Deterministic plan and waterfall tests must prove an accepted company and any company contact point are excluded while the accepted person remains quoted and processed.
+- Rollback is the prior CRM artifact. No data migration or external configuration change is required.
+
+### 37.3 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R27-A - person-only quote and waterfall | Completed locally | 2026-08-23 | 23 focused tests and the full GTM baseline of 75 suites/826 tests pass; TypeScript, focused lint, production build, and diff checks are clean. No migration or external call was added. |
+
+## 38. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -961,3 +981,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Completed the corrected R25 owner-only golden. The same pinned build returned the expected conservative risky/free-provider classification for one owned address and again billed `$0.004`; Noli reserved 5,000 credits and settled exactly 2,000 after markup. The canonical transitions were `reserved` -> `provider_started` -> `charged`, the durable provider receipt remained address-redacted, no email was sent, and the disposable product rows were soft-deleted. The exact verifier gate is on only for the owner-only dark flow; execution, mailbox ingestion, LeadMagic, Bouncer, and public GTM promotion remain off.
 - 2026-08-23: Approved R26's actionable reviewed-lead surface: count-only qualification diagnostics plus an explicit, audited, suppression-aware CSV export of accepted people with verified work email and export-permitted evidence. No provider, schema, mailbox, send, flag, or exposure authority changed.
 - 2026-08-23: Completed R26 locally. Export permission is fail-closed across every contextual evidence row; current suppression and legacy unsubscribe checks run immediately before export; deterministic audit idempotency binds the exact result fingerprint without recording PII; and the Hub validates the complete response, neutralizes spreadsheet formulas, and generates the CSV only on an explicit click. Deterministic tests, typechecks, and both production builds pass. Deployment remains owner-only dark and changes no provider, mailbox, send, schema, flag, or public exposure posture.
+- 2026-08-23: Added R27's person-only enrichment scope after the owner golden exposed that accepted company accounts inflated a one-person contact quote. Plans and direct waterfall execution now exclude companies and company contact points before any reservation; no provider, mailbox, send, schema, flag, or exposure gate changed.

@@ -26,6 +26,37 @@ describe('immutable enrichment quote', () => {
     expect(plan.plan_hash).toMatch(/^[a-f0-9]{64}$/)
   })
 
+  it('excludes accepted company identities from person contact discovery and verification', () => {
+    const plan = buildEnrichmentPlan(
+      [
+        { id: 'person-1', entityKind: 'person' },
+        { id: 'company-1', entityKind: 'company' },
+      ],
+      [
+        {
+          id: 'company-point',
+          candidateId: 'company-1',
+          channel: 'email',
+          value: 'office@example.com',
+          verificationState: 'found',
+        },
+      ],
+      [fixtureEnrichAdapter],
+      [fixtureVerifyAdapter],
+      2,
+    )
+
+    expect(plan).toMatchObject({
+      candidates_considered: 1,
+      candidates_needing_enrichment: 1,
+      emails_needing_verification: 1,
+    })
+    expect(plan.providers).toEqual([
+      expect.objectContaining({ adapter_id: 'fixture-enrich', max_units: 1 }),
+      expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 1 }),
+    ])
+  })
+
   it('counts every unidentified found row, not one per candidate', () => {
     // c-2 carries two found addresses; the waterfall verifies both, so the
     // quote has to reserve for both or the run stops inside its own ceiling.

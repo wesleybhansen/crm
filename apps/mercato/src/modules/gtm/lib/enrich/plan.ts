@@ -2,7 +2,7 @@ import type { EnrichAdapter, VerifyAdapter } from '../adapters/types'
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
 import { descriptorHash, immutableHash } from '../research/plan'
 
-type CandidateRow = { id: string }
+type CandidateRow = { id: string; entityKind?: string }
 type ContactPointRow = {
   id?: string
   candidateId: string
@@ -70,14 +70,21 @@ export function buildEnrichmentPlan(
   verifyAdapters: VerifyAdapter[],
   markup = defaultMarkupMultiplier(),
 ): EnrichmentPlan {
+  const reachableCandidates = candidates.filter(
+    (candidate) => candidate.entityKind === undefined || candidate.entityKind === 'person',
+  )
+  const reachableCandidateIds = new Set(reachableCandidates.map((candidate) => candidate.id))
+  const scopedContactPoints = contactPoints.filter((point) =>
+    reachableCandidateIds.has(point.candidateId),
+  )
   const emailByCandidate = new Map<string, ContactPointRow[]>()
-  for (const point of contactPoints) {
+  for (const point of scopedContactPoints) {
     if (point.channel !== 'email') continue
     const rows = emailByCandidate.get(point.candidateId) ?? []
     rows.push(point)
     emailByCandidate.set(point.candidateId, rows)
   }
-  const unresolved = candidates.filter(
+  const unresolved = reachableCandidates.filter(
     (candidate) => !emailByCandidate.get(candidate.id)?.some((point) => point.verificationState === 'verified'),
   )
   const needingEnrichment = unresolved.filter(
@@ -88,7 +95,7 @@ export function buildEnrichmentPlan(
   // rows. This mirrors provider duplicate-credit semantics and prevents two
   // candidate rows carrying the same address from authorizing duplicate spend.
   const terminalByAddress = new Map<string, string | null>()
-  for (const point of contactPoints) {
+  for (const point of scopedContactPoints) {
     if (point.channel !== 'email' || !TERMINAL_VERIFICATION_STATES.has(point.verificationState)) continue
     const address = normalizedEmail(point.value)
     if (!address) continue
@@ -137,7 +144,7 @@ export function buildEnrichmentPlan(
   const frozen = {
     schema_version: '3' as const,
     candidate_ids: unresolved.map((candidate) => candidate.id).sort(),
-    contact_identities: contactPoints
+    contact_identities: scopedContactPoints
       .filter((point) => point.channel === 'email')
       .map((point) => [
         point.id ?? null,
@@ -150,7 +157,7 @@ export function buildEnrichmentPlan(
         const right = JSON.stringify(b)
         return left < right ? -1 : left > right ? 1 : 0
       }),
-    candidates_considered: candidates.length,
+    candidates_considered: reachableCandidates.length,
     candidates_needing_enrichment: needingEnrichment.length,
     emails_needing_verification: verificationCeiling,
     providers,
@@ -158,7 +165,7 @@ export function buildEnrichmentPlan(
   return {
     schema_version: frozen.schema_version,
     plan_hash: immutableHash(frozen),
-    candidates_considered: candidates.length,
+    candidates_considered: reachableCandidates.length,
     candidates_needing_enrichment: needingEnrichment.length,
     emails_needing_verification: verificationCeiling,
     maximum_credits: providers.reduce((sum, provider) => sum + provider.max_credits, 0),
