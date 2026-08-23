@@ -37,7 +37,7 @@ describe('selected GTM provider catalog', () => {
       name: 'Mailbox verification',
       max_results_per_request: 1,
       price_version:
-        'automation-lab-email-enrichment-0.1.49-free-0.001-start-0.003-confidence-50-2026-08-23',
+        'automation-lab-email-enrichment-0.1.49-free-0.001-start-0.003-per-row-observed-2026-08-23',
     })
   })
 
