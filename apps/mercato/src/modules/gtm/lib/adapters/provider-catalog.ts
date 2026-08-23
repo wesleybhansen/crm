@@ -162,7 +162,7 @@ export function selectedProviderCatalog(
         category: 'enrichment',
         name: 'Mailbox verification',
         description:
-          `Checks one found address for explicit SMTP evidence. The expected completed-run events total $${(
+          `Checks one found address for explicit SMTP evidence. One emitted result has an observed event total of $${(
             APIFY_EMAIL_VERIFY_START_USD + APIFY_EMAIL_VERIFY_RESULT_USD
           ).toFixed(3)}; every provider run is hard-capped at $${APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD.toFixed(2)}.`,
         unit: 'address checked with a completed verification result',

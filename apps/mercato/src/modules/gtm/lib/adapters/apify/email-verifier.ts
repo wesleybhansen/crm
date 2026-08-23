@@ -31,7 +31,7 @@ export const APIFY_EMAIL_VERIFY_ENABLED_ENV = 'GTM_APIFY_EMAIL_VERIFY_ENABLED'
 export const APIFY_EMAIL_VERIFY_PRICE_VERSION_ENV = 'GTM_APIFY_EMAIL_VERIFY_PRICE_VERSION'
 export const APIFY_EMAIL_VERIFY_ACTOR_ENV = 'GTM_APIFY_ACTOR_EMAIL_VERIFY'
 export const APIFY_EMAIL_VERIFY_REQUIRED_PRICE_VERSION =
-  'automation-lab-email-enrichment-0.1.49-free-0.001-start-0.003-confidence-50-2026-08-23'
+  'automation-lab-email-enrichment-0.1.49-free-0.001-start-0.003-per-row-observed-2026-08-23'
 export const APIFY_EMAIL_VERIFY_START_USD = 0.001
 export const APIFY_EMAIL_VERIFY_RESULT_USD = 0.003
 export const APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD = APIFY_MIN_CHARGE_USD
@@ -231,12 +231,6 @@ function verificationState(row: ParsedVerification): VerificationState {
   return 'unknown'
 }
 
-function billedUnits(confidenceScore: number): number {
-  return confidenceScore >= 50
-    ? APIFY_EMAIL_VERIFY_BILLED_UNITS
-    : APIFY_EMAIL_VERIFY_START_ONLY_UNITS
-}
-
 function receipt(
   outcome: ApifyRunOutcome | null,
   providerStatus: string,
@@ -416,11 +410,14 @@ export function createApifyEmailVerifierAdapter(
         },
         receipt: receipt(outcome, state, {
           max_charge_usd: maxChargeUsd,
-          billing_event:
-            parsed.confidenceScore >= 50 ? 'start+email-verified' : 'start',
+          // The provider calls this event `email-verified`, but the live R25
+          // golden charged it for a schema-valid row with confidence 5. Bill
+          // every emitted row so our settlement follows observed spend, not
+          // the event label or its currently inaccurate threshold metadata.
+          billing_event: 'start+email-verified',
           ...detail,
         }),
-        cost_units: billedUnits(parsed.confidenceScore),
+        cost_units: APIFY_EMAIL_VERIFY_BILLED_UNITS,
       }
     },
   }

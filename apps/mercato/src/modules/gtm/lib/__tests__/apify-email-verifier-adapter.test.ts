@@ -123,7 +123,7 @@ describe('Apify email verification adapter', () => {
     }
   })
 
-  it('quotes the Apify minimum run cap while settling the frozen start and result events', () => {
+  it('quotes the Apify minimum run cap while settling the observed start and per-row events', () => {
     const descriptor = createApifyEmailVerifierAdapter({
       env: APPROVED_ENV,
       runActor: jest.fn(),
@@ -180,16 +180,36 @@ describe('Apify email verification adapter', () => {
     ['catch all', item({ isVerified: false, isCatchAll: true, confidenceScore: 60 }), 'catch_all', APIFY_EMAIL_VERIFY_BILLED_UNITS],
     ['role mailbox', item({ isRoleAccount: true, confidenceScore: 85 }), 'risky', APIFY_EMAIL_VERIFY_BILLED_UNITS],
     ['free mailbox', item({ isFreeProvider: true, confidenceScore: 85 }), 'risky', APIFY_EMAIL_VERIFY_BILLED_UNITS],
-    ['disposable', item({ isVerified: false, isDisposable: true, confidenceScore: 5, verificationMethod: 'format' }), 'risky', APIFY_EMAIL_VERIFY_START_ONLY_UNITS],
-    ['invalid syntax', item({ isValidFormat: false, hasMxRecords: false, isVerified: false, confidenceScore: 0, verificationMethod: 'format' }), 'not_found', APIFY_EMAIL_VERIFY_START_ONLY_UNITS],
-    ['no mail server', item({ hasMxRecords: false, isVerified: false, confidenceScore: 0, verificationMethod: 'mx' }), 'not_found', APIFY_EMAIL_VERIFY_START_ONLY_UNITS],
-    ['mx only', item({ isVerified: false, confidenceScore: 45, verificationMethod: 'mx' }), 'unknown', APIFY_EMAIL_VERIFY_START_ONLY_UNITS],
+    ['disposable', item({ isVerified: false, isDisposable: true, confidenceScore: 5, verificationMethod: 'format' }), 'risky', APIFY_EMAIL_VERIFY_BILLED_UNITS],
+    ['invalid syntax', item({ isValidFormat: false, hasMxRecords: false, isVerified: false, confidenceScore: 0, verificationMethod: 'format' }), 'not_found', APIFY_EMAIL_VERIFY_BILLED_UNITS],
+    ['no mail server', item({ hasMxRecords: false, isVerified: false, confidenceScore: 0, verificationMethod: 'mx' }), 'not_found', APIFY_EMAIL_VERIFY_BILLED_UNITS],
+    ['mx only', item({ isVerified: false, confidenceScore: 45, verificationMethod: 'mx' }), 'unknown', APIFY_EMAIL_VERIFY_BILLED_UNITS],
   ])('maps %s without overstating mailbox proof', async (_label, row, expectedState, expectedUnits) => {
     const { adapter } = adapterWith([row])
     const result = await adapter.verify(REQUEST)
     expect(result.status).toBe('ok')
     expect(result.data?.verification_state).toBe(expectedState)
     expect(result.cost_units).toBeCloseTo(expectedUnits, 10)
+  })
+
+  it('settles the result event for an emitted row even below the catalog confidence label', async () => {
+    const { adapter } = adapterWith([
+      item({
+        isVerified: false,
+        isFreeProvider: true,
+        confidenceScore: 5,
+        verificationMethod: 'smtp',
+      }),
+    ])
+
+    const result = await adapter.verify(REQUEST)
+
+    expect(result.data?.verification_state).toBe('risky')
+    expect(result.cost_units).toBeCloseTo(APIFY_EMAIL_VERIFY_BILLED_UNITS, 10)
+    expect(result.receipt).toEqual(expect.objectContaining({
+      confidence_score: 5,
+      billing_event: 'start+email-verified',
+    }))
   })
 
   it('returns a definite unknown with only the start event when the actor returns no row', async () => {
