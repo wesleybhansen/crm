@@ -1,8 +1,13 @@
 import type { EnrichAdapter, VerifyAdapter } from '../adapters/types'
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
 import { descriptorHash, immutableHash } from '../research/plan'
+import { normalizeCompanyWebsite } from './company-domain'
 
-type CandidateRow = { id: string; entityKind?: string }
+type CandidateRow = {
+  id: string
+  entityKind?: string
+  identity?: Record<string, unknown>
+}
 type ContactPointRow = {
   id?: string
   candidateId: string
@@ -39,7 +44,7 @@ export type EnrichmentProviderQuote = {
 }
 
 export type EnrichmentPlan = {
-  schema_version: '3'
+  schema_version: '4'
   plan_hash: string
   candidates_considered: number
   candidates_needing_enrichment: number
@@ -118,8 +123,22 @@ export function buildEnrichmentPlan(
     }
   }
   const pointsNeedingVerification = verificationIdentities.size
-  // A newly enriched candidate can yield one email that also needs verifying.
-  const verificationCeiling = pointsNeedingVerification + needingEnrichment.length
+  // Freeze the largest address yield any eligible adapter can expose for each
+  // candidate. The enrichment waterfall stops after the first adapter that
+  // finds points, so this is a max per candidate, not a sum across adapters.
+  const maximumNewPoints = needingEnrichment.reduce((sum, candidate) => {
+    const perAdapter = enrichAdapters.flatMap((adapter) => {
+      if (!usable(adapter)) return []
+      if (adapter.supportsCandidate && !adapter.supportsCandidate({
+        entity_kind: candidate.entityKind ?? 'person',
+        identity: candidate.identity ?? null,
+      })) return []
+      const ceiling = adapter.maxContactPointsPerCandidate ?? 1
+      return [Number.isSafeInteger(ceiling) && ceiling > 0 ? ceiling : 1]
+    })
+    return sum + Math.max(0, ...perAdapter)
+  }, 0)
+  const verificationCeiling = pointsNeedingVerification + maximumNewPoints
   const providers: EnrichmentProviderQuote[] = []
 
   const add = (adapter: EnrichAdapter | VerifyAdapter, units: number) => {
@@ -138,12 +157,26 @@ export function buildEnrichmentPlan(
       descriptor_hash: descriptorHash(descriptor),
     })
   }
-  for (const adapter of enrichAdapters) add(adapter, needingEnrichment.length)
+  for (const adapter of enrichAdapters) {
+    const units = adapter.supportsCandidate
+      ? needingEnrichment.filter((candidate) => adapter.supportsCandidate?.({
+          entity_kind: candidate.entityKind ?? 'person',
+          identity: candidate.identity ?? null,
+        })).length
+      : needingEnrichment.length
+    add(adapter, units)
+  }
   for (const adapter of verifyAdapters) add(adapter, verificationCeiling)
 
   const frozen = {
-    schema_version: '3' as const,
+    schema_version: '4' as const,
     candidate_ids: unresolved.map((candidate) => candidate.id).sort(),
+    candidate_company_domains: unresolved
+      .map((candidate) => [
+        candidate.id,
+        normalizeCompanyWebsite(candidate.identity?.domain)?.companyDomain ?? null,
+      ] as const)
+      .sort((left, right) => left[0].localeCompare(right[0])),
     contact_identities: scopedContactPoints
       .filter((point) => point.channel === 'email')
       .map((point) => [

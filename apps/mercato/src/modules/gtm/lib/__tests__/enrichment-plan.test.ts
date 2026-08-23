@@ -166,7 +166,68 @@ describe('immutable enrichment quote', () => {
       [fixtureEnrichAdapter],
       [fixtureVerifyAdapter],
     )
-    expect(first.schema_version).toBe('3')
+    expect(first.schema_version).toBe('4')
     expect(changedIdentity.plan_hash).not.toBe(first.plan_hash)
+  })
+
+  it('quotes a candidate-gated enrichment adapter only for people with its required input', () => {
+    const domainAdapter = {
+      ...fixtureEnrichAdapter,
+      descriptor: {
+        ...fixtureEnrichAdapter.descriptor,
+        adapter_id: 'domain-enrich',
+      },
+      supportsCandidate: (candidate: { identity?: Record<string, unknown> | null }) =>
+        typeof candidate.identity?.domain === 'string',
+    }
+    const withDomain = buildEnrichmentPlan(
+      [
+        { id: 'c-1', entityKind: 'person', identity: { domain: 'acme-industrial.com' } },
+        { id: 'c-2', entityKind: 'person', identity: { name: 'No domain' } },
+      ],
+      [],
+      [domainAdapter],
+      [],
+      2,
+    )
+    const changedDomain = buildEnrichmentPlan(
+      [
+        { id: 'c-1', entityKind: 'person', identity: { domain: 'other-industrial.com' } },
+        { id: 'c-2', entityKind: 'person', identity: { name: 'No domain' } },
+      ],
+      [],
+      [domainAdapter],
+      [],
+      2,
+    )
+
+    expect(withDomain.providers).toEqual([
+      expect.objectContaining({ adapter_id: 'domain-enrich', max_units: 1 }),
+    ])
+    expect(changedDomain.plan_hash).not.toBe(withDomain.plan_hash)
+  })
+
+  it('quotes verification for the maximum contacts one winning adapter can return', () => {
+    const onePointAdapter = {
+      ...fixtureEnrichAdapter,
+      descriptor: { ...fixtureEnrichAdapter.descriptor, adapter_id: 'one-point' },
+    }
+    const fivePointAdapter = {
+      ...fixtureEnrichAdapter,
+      descriptor: { ...fixtureEnrichAdapter.descriptor, adapter_id: 'five-point' },
+      maxContactPointsPerCandidate: 5,
+    }
+    const plan = buildEnrichmentPlan(
+      [{ id: 'c-1', entityKind: 'person' }],
+      [],
+      [onePointAdapter, fivePointAdapter],
+      [fixtureVerifyAdapter],
+      2,
+    )
+
+    expect(plan.emails_needing_verification).toBe(5)
+    expect(plan.providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 5 }),
+    ]))
   })
 })

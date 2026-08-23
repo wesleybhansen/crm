@@ -280,6 +280,15 @@ export interface SourceAdapter {
 
 export interface EnrichAdapter {
   descriptor: AdapterDescriptor
+  // Maximum number of contact points one successful candidate call can
+  // expose to the verification phase. The immutable plan uses this ceiling;
+  // omitted adapters preserve the historical one-point contract.
+  maxContactPointsPerCandidate?: number
+  supportsCandidate?(candidate: {
+    entity_kind?: string | null
+    identity?: Record<string, unknown> | null
+  }): boolean
+  operationFingerprint?(request: EnrichRequest): string | null
   enrich(request: EnrichRequest): Promise<AdapterResult<ContactPoint[]>>
 }
 

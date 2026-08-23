@@ -35,6 +35,12 @@ import {
 } from '../adapters/dataforseo/maps'
 import { LEADMAGIC_ENRICH_ADAPTER_ID } from '../adapters/leadmagic/enrich'
 import { LEADMAGIC_SOURCE_ADAPTER_ID } from '../adapters/leadmagic/source'
+import {
+  APIFY_WEBSITE_EMAIL_ADAPTER_ID,
+  APIFY_WEBSITE_EMAIL_ENABLED_ENV,
+  APIFY_WEBSITE_EMAIL_PRICE_VERSION_ENV,
+  APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION,
+} from '../adapters/apify/website-email'
 
 describe('adapter registry environment boundaries', () => {
   const saved = { ...process.env }
@@ -131,6 +137,23 @@ describe('adapter registry environment boundaries', () => {
     expect(Object.keys(sourceAdapterRegistry())).not.toContain(
       APIFY_COMPANY_EMPLOYEES_ADAPTER_ID,
     )
+  })
+
+  it('registers public website discovery only behind its separate exact gate', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.GTM_APIFY_ENABLED = 'true'
+    process.env.GTM_APIFY_TOKEN = 'synthetic-test-token'
+    process.env.GTM_APIFY_CUSTOMER_USE_APPROVED = 'true'
+    process.env.GTM_APIFY_TERMS_VERSION = APIFY_REQUIRED_TERMS_VERSION
+    process.env.GTM_APIFY_PRICE_VERSION = APIFY_REQUIRED_PRICE_VERSION
+    process.env[APIFY_WEBSITE_EMAIL_ENABLED_ENV] = 'true'
+    process.env[APIFY_WEBSITE_EMAIL_PRICE_VERSION_ENV] =
+      APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION
+
+    expect(enrichAdapterList().map((adapter) => adapter.descriptor.adapter_id)).toEqual([
+      APIFY_ENRICH_ADAPTER_ID,
+      APIFY_WEBSITE_EMAIL_ADAPTER_ID,
+    ])
   })
 
   it('cannot register owner-excluded LeadMagic or Bouncer adapters', () => {

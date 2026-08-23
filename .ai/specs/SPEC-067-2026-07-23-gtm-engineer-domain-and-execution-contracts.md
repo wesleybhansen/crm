@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0-R28 implemented through the owner-only dark provider golden motion. R27 is deployed on the controlled CRM host; R28 is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+**Status:** C0-R29 is merged and dark-deployed through the additive canonical credit correction. R30 is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -962,7 +962,39 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R28-A - durable run and finalized-event client | Completed locally | 2026-08-23 | Exact run id, ten-second billing finalization, frozen event-price verification, capped dataset read, and ambiguity handling implemented without a provider call |
 | R28-B - exact adaptive settlement | Completed locally | 2026-08-23 | Profile-only miss settles 2,000 credits after markup; email-search event remains capped at 5,000; zero-event run refunds; full GTM suite passes 76 suites/835 tests with one opt-in PostgreSQL suite skipped |
 
-## 39. Changelog
+## 39. R30 bounded public-website contact discovery (approved 2026-08-23)
+
+### 39.1 Product boundary and provider contract
+
+- When the selected profile-enrichment actor returns no address for an accepted person, CRM may try one separately gated, source-backed fallback against the person's company website. It does not guess email patterns, use a people-data broker, or convert a generic role address into person-level proof. Every discovered address remains `found` until the independent verifier classifies it.
+- The provider contract is frozen to Apify's maintained `apify/website-content-crawler` actor, build `0.3.94`. The request uses the raw-HTTP Cheerio crawler, at most five pages, depth one, concurrency one, 15 seconds per page, robots enforcement, no proxy, no sitemap expansion, no files, screenshots, HTML, Markdown, or AI summary, 1,024 MiB memory, and a `$0.01` total-provider-charge ceiling.
+- Crawl scope is the exact normalized company apex plus its `www` alias. Redirected or returned rows outside that scope are ignored; malformed rows make the billed result ambiguous. The dataset projection is only `url,crawl,text`, capped at one MiB before parsing. Only syntactically valid, same-company-domain addresses are retained, with `no-reply`, `test`, and `example` locals excluded. Person-name matches rank before other addresses and role mailboxes; at most five unique addresses survive.
+- Contact provenance contains the public source URL, observation time, SHA-256 of the observed page text, normalized company domain, and match kind. Durable provider receipts contain only hashes, counts, actor/run/build/billing fields, and crawl controls; no address, raw domain, page body, credential, or provider body snippet is stored in the receipt.
+
+### 39.2 Identity, quote, money, and idempotency
+
+- Decision-maker plan schema v5 freezes each normalized parent-company domain. A safely resolved child person inherits that domain in its candidate identity. For pre-existing relations, the enrichment route may derive the domain from exactly one current parent-company relation without mutating stored identity; zero or conflicting parent domains fail closed.
+- Enrichment plan schema v4 freezes the normalized company domain per unresolved person, counts provider units only for candidates the adapter can actually serve, and reserves verification for the largest contact-point yield any winning adapter can expose. Changing the domain changes the quote hash. The execution idempotency key additionally binds a one-way domain fingerprint, so a later corrected company domain cannot replay a prior crawl receipt.
+- The exact website crawl reserves a maximum `$0.01` provider charge. CRM starts the pinned run, waits for finalized billing, requires Apify's `FREE` pricing model with no charged events, and settles the exact `usageTotalUsd`; drift, missing billing, a cost above the cap, or an unreadable/oversized dataset is ambiguous and requires operator reconciliation. The normal 2x customer-credit markup remains canonical and no local balance is created.
+
+### 39.3 Rights, retention, release, and rollback
+
+- This capability inherits the already approved Apify customer-use/terms/selected-stack gates and adds `GTM_APIFY_WEBSITE_EMAIL_ENABLED` plus the exact price-contract version `apify-website-content-crawler-0.3.94-free-usage-cap-0.01-2026-08-23`. An arbitrary actor override, stale price version, missing token, or disabled broad gate cannot register or call it.
+- Public-page observation is evidence, not permission to send. Campaign eligibility still requires accepted fit, an independently `verified` address, current suppression checks, exact approval binding, and every execution gate. Role or risky addresses do not become campaign-ready merely because they were published.
+- The provider declares no supported DSR deletion API for this adapter. CRM retains only the bounded evidence and contact record under its existing deletion/retention paths. Before any customer-facing activation, the owner must read-verify the account's actual default dataset retention and either prove it matches the frozen posture or add a crash-safe cleanup contract; the generic provider default must not be assumed to equal account truth.
+- R30 adds no entity, migration, route shape removal, mailbox capability, send capability, or public exposure. The optional adapter methods are backward-compatible; plan-version changes intentionally invalidate stale quotes. Rollback is the prior CRM image plus the website-email gate off. Any already-started canonical provider operation must be reconciled before retry.
+
+### 39.4 Acceptance and implementation status
+
+- Deterministic acceptance covers exact gate registration, normalized/inherited domains, quote/hash changes, maximum contact-yield verification ceiling, unsupported-candidate zero reservation, bounded actor input, same-domain filtering, address ranking, redacted receipts, exact finalized-usage settlement/refund, pricing drift, malformed/off-scope rows, dataset byte ceiling, and canonical idempotency.
+- No provider call, email, mailbox ingestion, migration, production flag change, or customer exposure is part of the code tranche. One owner-only quote/confirm golden may follow dark deployment only after a read-only account-retention and exact actor/build/pricing recheck.
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R30-A - domain custody and bounded website adapter | Completed locally | 2026-08-23 | Parent-domain propagation, plan/hash binding, exact pinned crawl, same-domain evidence, and finalized usage settlement are implemented behind a separate dark gate |
+| R30-B - deterministic verification | Completed locally | 2026-08-23 | Focused tests pass 52/52; the full GTM baseline passes 78 suites/856 tests with one opt-in PostgreSQL suite and seven tests skipped. TypeScript and focused lint pass; no provider call occurred |
+
+## 40. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1011,3 +1043,5 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Completed R26 locally. Export permission is fail-closed across every contextual evidence row; current suppression and legacy unsubscribe checks run immediately before export; deterministic audit idempotency binds the exact result fingerprint without recording PII; and the Hub validates the complete response, neutralizes spreadsheet formulas, and generates the CSV only on an explicit click. Deterministic tests, typechecks, and both production builds pass. Deployment remains owner-only dark and changes no provider, mailbox, send, schema, flag, or public exposure posture.
 - 2026-08-23: Added R27's person-only enrichment scope after the owner golden exposed that accepted company accounts inflated a one-person contact quote. Plans and direct waterfall execution now exclude companies and company contact points before any reservation; no provider, mailbox, send, schema, flag, or exposure gate changed.
 - 2026-08-23: Added R28 after the exact R27 Apify run proved adaptive event billing: one `$0.004` profile event and zero `$0.01` email-search events. Profile enrichment now preserves a durable run id, waits for finalized event counts, validates the frozen price map and total before reading output, and settles exact cost or parks ambiguity. The historical owner-only operation's 3,000-credit overcharge remains explicitly recorded for a future additive canonical compensation; no email, verifier, mailbox, execution, schema, or public-exposure gate changed.
+- 2026-08-23: Completed R29 outside CRM with one additive, replay-safe 3,000-credit Noli Core adjustment for the immutable R27 overcharge. The original operation and usage rows remain unchanged; the adjustment was read-verified and replay-verified before R30 began.
+- 2026-08-23: Added R30's bounded public-company-website contact fallback. The exact Apify website crawler is separately dark-gated, quote/confirm capped, same-domain only, receipt-redacted, and billed from finalized platform usage. It produces source-backed `found` addresses only; independent verification and all campaign/send gates remain unchanged and off.

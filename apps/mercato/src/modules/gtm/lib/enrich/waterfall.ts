@@ -543,8 +543,10 @@ export async function runEnrichmentWaterfall(
             identity: candidate.identity as unknown as CandidateIdentity,
           },
         }
+        if (adapter.supportsCandidate && !adapter.supportsCandidate(request.candidate)) continue
         // Fail closed before spend: an uncovered dimension never reserves.
         if (!capabilityCovers(descriptor, request).covered) continue
+        const adapterRequestFingerprint = adapter.operationFingerprint?.(request) ?? null
 
         const invoked = await invokeWithLedger(
           {
@@ -553,7 +555,9 @@ export async function runEnrichmentWaterfall(
             budget,
             descriptor,
             kind: 'enrich',
-            idempotencyKey: `enrich:${candidate.id}:${descriptor.adapter_id}`,
+            idempotencyKey: `enrich:${candidate.id}:${descriptor.adapter_id}${
+              adapterRequestFingerprint ? `:${adapterRequestFingerprint}` : ''
+            }`,
             orgId: candidate.organizationId,
             noliOrgId,
             tenantId: candidate.tenantId,
@@ -565,6 +569,7 @@ export async function runEnrichmentWaterfall(
               adapter_id: descriptor.adapter_id,
               channel: 'email',
               entity_kind: candidate.entityKind,
+              adapter_request_fingerprint: adapterRequestFingerprint,
             },
             markup,
             now,

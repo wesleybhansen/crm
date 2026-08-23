@@ -68,6 +68,7 @@ export type DecisionMakerCompany = {
   match_id: string
   name: string
   linkedin_url: string
+  domain?: string | null
   selection_rank?: number
   // Numeric LinkedIn company ids observed by the upstream company source.
   // LinkedIn may return the same company as either a slug URL or a numeric
@@ -395,6 +396,7 @@ export function normalizeApifyCompanyEmployeeItem(
     name,
     company: parent.name,
     title: position.title,
+    domain: parent.domain ?? null,
     urls: [profileUrl],
     location: location.location,
     city: location.city,

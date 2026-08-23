@@ -11,6 +11,7 @@ import {
 } from '../adapters/apify/company-employees'
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
 import { descriptorHash, immutableHash } from '../research/plan'
+import { normalizeCompanyWebsite } from '../enrich/company-domain'
 
 const GENERIC_TITLES = ['Owner', 'Founder', 'CEO', 'President', 'Managing Partner', 'Principal']
 
@@ -48,7 +49,7 @@ export function recommendedDecisionMakerTitles(play: Pick<GtmPlay, 'audience' | 
 }
 
 export type DecisionMakerPlan = {
-  schema_version: '4'
+  schema_version: '5'
   plan_hash: string
   available: boolean
   run_id: string
@@ -159,6 +160,7 @@ export function buildDecisionMakerPlan(args: {
         ? Number(company.selection_rank)
         : index,
       linkedin_company_ids: normalizeLinkedInCompanyIds(company.linkedin_company_ids ?? []),
+      domain: normalizeCompanyWebsite(company.domain)?.companyDomain ?? null,
     }))
     .sort((left, right) => (
       left.selection_rank - right.selection_rank
@@ -218,7 +220,7 @@ export function buildDecisionMakerPlan(args: {
       )
     : 0
   const frozen = {
-    schema_version: '4' as const,
+    schema_version: '5' as const,
     run_id: args.run.id,
     play_id: args.run.playId,
     workspace_id: args.run.workspaceId,
