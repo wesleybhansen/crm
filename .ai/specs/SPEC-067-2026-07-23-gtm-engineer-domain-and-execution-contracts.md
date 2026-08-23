@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0-R27 implemented through the owner-only dark provider golden motion. R26 is deployed on the controlled CRM host; R27 is verified locally and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+**Status:** C0-R28 implemented through the owner-only dark provider golden motion. R27 is deployed on the controlled CRM host; R28 is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -932,9 +932,37 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 
 | Phase | Status | Date | Notes |
 |---|---|---|---|
-| R27-A - person-only quote and waterfall | Completed locally | 2026-08-23 | 23 focused tests and the full GTM baseline of 75 suites/826 tests pass; TypeScript, focused lint, production build, and diff checks are clean. No migration or external call was added. |
+| R27-A - person-only quote and waterfall | Completed and dark-deployed | 2026-08-23 | 23 focused tests and the full GTM baseline of 75 suites/826 tests pass; TypeScript, focused lint, production build, and diff checks are clean. No migration or external call was added. |
 
-## 38. Changelog
+## 38. R28 finalized Apify profile-enrichment settlement (approved 2026-08-23)
+
+### 38.1 Golden-motion correction
+
+- The first R27 one-person owner-only enrichment run returned one profile row with no email. Apify's finalized run showed `chargedEventCounts={profile:1,profile_with_email:0}` and `$0.004` total cost. The prior synchronous dataset contract returned no run id and conservatively settled the full `$0.01` email-search ceiling, charging 5,000 Noli credits after the 2x markup instead of the exact 2,000-credit charge.
+- HarvestAPI's current actor pricing is adaptive pay per event: `profile` costs `$0.004`; `profile_with_email` costs `$0.01`. A missing email is not enough to infer which event occurred. Settlement must use the finalized event map from the exact run, not the requested mode, returned-row count, or timestamp matching.
+- The historical owner-dark operation remains immutable under the existing canonical settled-operation contract and carries a recorded 3,000-credit discrepancy. It must be corrected through an additive canonical adjustment/compensation contract before customer billing is enabled; mutating the original settled receipt or silently editing balances is forbidden.
+
+### 38.2 Durable run and billing contract
+
+- Profile enrichment uses `POST /v2/actors/{actorId}/runs` with the existing reservation-derived `maxTotalChargeUsd`, one-item ceiling, and bounded `waitForFinish`. The returned run id is persisted on every post-dispatch outcome.
+- After a successful terminal run, CRM waits the provider-documented ten-second finalization interval, reads that exact run, and requires `PAY_PER_EVENT`, the frozen `$0.004`/`$0.01` event prices, non-negative integer event counts, and a matching finalized total at or below the reserved provider cap. Unknown events, changed prices, missing totals, non-terminal state, receipt failure, or contradictory totals are ambiguous and expose no provider output.
+- Only after billing truth is final does CRM read the exact run dataset. A missing/unreadable/oversized dataset remains ambiguous on the same run and is never retried automatically. A returned email additionally requires one `profile_with_email` charge event; a profile-only event cannot authorize an address even if a drifting actor row contains one.
+- The customer quote remains the maximum `$0.01` profile-plus-email ceiling (5,000 Noli credits at 2x). Exact settlement is `$0.004` / 2,000 credits for one profile-only event, `$0.01` / 5,000 credits for one email-search event, and zero/refunded for an authoritative zero-event run. Provider event counts, exact cost, pricing model, billing-contract version, and run id are durable redacted receipt fields.
+
+### 38.3 Release, acceptance, and rollback
+
+- R28 changes no route, entity, migration, flag, provider capability, mailbox capability, execution state, or public exposure. The exact profile adapter remains owner-only and quote/confirm gated; automated execution and mailbox ingestion remain off.
+- Deterministic tests prove the profile-only 2,000-credit settlement, email-search 5,000-credit ceiling, zero-event refund, run-id retention, price drift parking, returned-email/event contradiction parking, token redaction, and no dataset access before finalized billing.
+- Rollback is the prior CRM image. No schema or configuration rollback is required. The old synchronous path remains available to other independently contracted Apify adapters; only profile enrichment moves to the finalized two-step contract.
+
+### 38.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R28-A - durable run and finalized-event client | Completed locally | 2026-08-23 | Exact run id, ten-second billing finalization, frozen event-price verification, capped dataset read, and ambiguity handling implemented without a provider call |
+| R28-B - exact adaptive settlement | Completed locally | 2026-08-23 | Profile-only miss settles 2,000 credits after markup; email-search event remains capped at 5,000; zero-event run refunds; full GTM suite passes 76 suites/835 tests with one opt-in PostgreSQL suite skipped |
+
+## 39. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -982,3 +1010,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Approved R26's actionable reviewed-lead surface: count-only qualification diagnostics plus an explicit, audited, suppression-aware CSV export of accepted people with verified work email and export-permitted evidence. No provider, schema, mailbox, send, flag, or exposure authority changed.
 - 2026-08-23: Completed R26 locally. Export permission is fail-closed across every contextual evidence row; current suppression and legacy unsubscribe checks run immediately before export; deterministic audit idempotency binds the exact result fingerprint without recording PII; and the Hub validates the complete response, neutralizes spreadsheet formulas, and generates the CSV only on an explicit click. Deterministic tests, typechecks, and both production builds pass. Deployment remains owner-only dark and changes no provider, mailbox, send, schema, flag, or public exposure posture.
 - 2026-08-23: Added R27's person-only enrichment scope after the owner golden exposed that accepted company accounts inflated a one-person contact quote. Plans and direct waterfall execution now exclude companies and company contact points before any reservation; no provider, mailbox, send, schema, flag, or exposure gate changed.
+- 2026-08-23: Added R28 after the exact R27 Apify run proved adaptive event billing: one `$0.004` profile event and zero `$0.01` email-search events. Profile enrichment now preserves a durable run id, waits for finalized event counts, validates the frozen price map and total before reading output, and settles exact cost or parks ambiguity. The historical owner-only operation's 3,000-credit overcharge remains explicitly recorded for a future additive canonical compensation; no email, verifier, mailbox, execution, schema, or public-exposure gate changed.

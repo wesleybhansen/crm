@@ -46,6 +46,7 @@ import type { AdapterResultStatus } from '../types'
 
 export const APIFY_API_BASE = 'https://api.apify.com/v2'
 export const APIFY_DEFAULT_TIMEOUT_MS = 60_000
+export const APIFY_FINALIZED_BILLING_DELAY_MS = 10_000
 // Response bodies are truncated before they reach a receipt: receipts are
 // stored jsonb and read by humans, not a place for a full provider payload.
 export const APIFY_BODY_SNIPPET_LIMIT = 500
@@ -74,7 +75,7 @@ export type ApifyFetchResponse = {
 export type ApifyFetchInit = {
   method: string
   headers: Record<string, string>
-  body: string
+  body?: string
   signal?: unknown
 }
 
@@ -131,6 +132,10 @@ export type ApifyRunOutcome = {
   requestUrl: string
   attemptedAt: string
   error: string | null
+  billingFinalized?: boolean
+  chargedEventCounts?: Record<string, number> | null
+  providerCostUsd?: number | null
+  pricingModel?: string | null
 }
 
 export type ApifyRunOptions = {
@@ -152,6 +157,17 @@ export type ApifyRunOptions = {
   tokenTransport?: 'header' | 'query'
   now?: () => Date
   fetchImpl?: ApifyFetchLike
+}
+
+export type ApifyFinalizedBillingContract = {
+  pricingModel: 'PAY_PER_EVENT'
+  eventPricesUsd: Record<string, number>
+}
+
+export type ApifyFinalizedRunOptions = ApifyRunOptions & {
+  billingContract: ApifyFinalizedBillingContract
+  finalizationDelayMs?: number
+  sleep?: (delayMs: number) => Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +263,414 @@ export function buildRunSyncUrl(
       ? `${base}?${[...params, `token=${encodeURIComponent(options.token)}`].join('&')}`
       : `${base}?${params.join('&')}`
   return { url, redactedUrl }
+}
+
+export function buildActorRunUrl(
+  actorId: string,
+  options: {
+    token: string
+    build?: string
+    tokenTransport: 'header' | 'query'
+    timeoutMs: number
+    maxItems?: number
+    maxChargeUsd?: number
+    finalizationDelayMs: number
+  },
+): { url: string; redactedUrl: string } {
+  const params: string[] = []
+  const build = options.build?.trim()
+  if (build) params.push(`build=${encodeURIComponent(build)}`)
+  const providerTimeoutSeconds = Math.max(1, Math.floor(options.timeoutMs / 1000))
+  const waitBudgetMs = Math.max(1_000, options.timeoutMs - options.finalizationDelayMs - 2_000)
+  params.push(`timeout=${providerTimeoutSeconds}`)
+  params.push(`waitForFinish=${Math.min(60, Math.max(1, Math.floor(waitBudgetMs / 1000)))}`)
+  if (typeof options.maxItems === 'number' && options.maxItems > 0) {
+    params.push(`maxItems=${Math.floor(options.maxItems)}`)
+  }
+  params.push(`maxTotalChargeUsd=${normalizeMaxChargeUsd(options.maxChargeUsd)}`)
+  const base = `${APIFY_API_BASE}/acts/${encodeActorId(actorId)}/runs`
+  const redactedUrl = `${base}?${[...params, 'token=[redacted]'].join('&')}`
+  const url =
+    options.tokenTransport === 'query'
+      ? `${base}?${[...params, `token=${encodeURIComponent(options.token)}`].join('&')}`
+      : `${base}?${params.join('&')}`
+  return { url, redactedUrl }
+}
+
+type ApifyRunRecord = {
+  id: string
+  status: string
+  defaultDatasetId: string
+  chargedEventCounts: Record<string, number>
+  pricingInfo: {
+    pricingModel: string
+    pricingPerEvent?: {
+      actorChargeEvents?: Record<string, { eventPriceUsd?: number }>
+    }
+  }
+  usageTotalUsd: number | null
+}
+
+type ApifyRunIdentity = Pick<ApifyRunRecord, 'id' | 'status' | 'defaultDatasetId'>
+
+function parseRunIdentity(value: unknown): ApifyRunIdentity | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const row = value as Record<string, unknown>
+  if (
+    typeof row.id !== 'string' ||
+    !row.id ||
+    typeof row.status !== 'string' ||
+    typeof row.defaultDatasetId !== 'string' ||
+    !row.defaultDatasetId
+  ) {
+    return null
+  }
+  return { id: row.id, status: row.status, defaultDatasetId: row.defaultDatasetId }
+}
+
+function parseRunRecord(value: unknown): ApifyRunRecord | null {
+  const identity = parseRunIdentity(value)
+  if (!identity) return null
+  const row = value as Record<string, unknown>
+  const rawCounts = row.chargedEventCounts
+  const chargedEventCounts: Record<string, number> = {}
+  if (rawCounts && typeof rawCounts === 'object' && !Array.isArray(rawCounts)) {
+    for (const [event, count] of Object.entries(rawCounts)) {
+      if (!Number.isSafeInteger(count) || Number(count) < 0) return null
+      chargedEventCounts[event] = Number(count)
+    }
+  }
+  const pricingInfo = row.pricingInfo
+  if (!pricingInfo || typeof pricingInfo !== 'object' || Array.isArray(pricingInfo)) return null
+  const pricing = pricingInfo as Record<string, unknown>
+  const pricingPerEvent = pricing.pricingPerEvent
+  const rawEvents =
+    pricingPerEvent && typeof pricingPerEvent === 'object' && !Array.isArray(pricingPerEvent)
+      ? (pricingPerEvent as Record<string, unknown>).actorChargeEvents
+      : null
+  const actorChargeEvents: Record<string, { eventPriceUsd?: number }> = {}
+  if (rawEvents && typeof rawEvents === 'object' && !Array.isArray(rawEvents)) {
+    for (const [event, detail] of Object.entries(rawEvents)) {
+      if (!detail || typeof detail !== 'object' || Array.isArray(detail)) continue
+      const price = Number((detail as Record<string, unknown>).eventPriceUsd)
+      actorChargeEvents[event] = Number.isFinite(price) ? { eventPriceUsd: price } : {}
+    }
+  }
+  const usageTotalUsd = row.usageTotalUsd == null ? Number.NaN : Number(row.usageTotalUsd)
+  return {
+    ...identity,
+    chargedEventCounts,
+    pricingInfo: {
+      pricingModel: typeof pricing.pricingModel === 'string' ? pricing.pricingModel : '',
+      pricingPerEvent: { actorChargeEvents },
+    },
+    usageTotalUsd: Number.isFinite(usageTotalUsd) && usageTotalUsd >= 0 ? usageTotalUsd : null,
+  }
+}
+
+function finalizedProviderCost(
+  run: ApifyRunRecord,
+  contract: ApifyFinalizedBillingContract,
+  maxChargeUsd: number,
+): { costUsd: number; counts: Record<string, number> } | null {
+  if (run.pricingInfo.pricingModel !== contract.pricingModel) return null
+  const providerPrices = run.pricingInfo.pricingPerEvent?.actorChargeEvents ?? {}
+  for (const [event, expectedPrice] of Object.entries(contract.eventPricesUsd)) {
+    if (!Number.isFinite(expectedPrice) || expectedPrice < 0) return null
+    if (providerPrices[event]?.eventPriceUsd !== expectedPrice) return null
+  }
+  for (const [event, count] of Object.entries(run.chargedEventCounts)) {
+    if (count > 0 && contract.eventPricesUsd[event] == null) return null
+  }
+  const costUsd = Object.entries(run.chargedEventCounts).reduce(
+    (sum, [event, count]) => sum + count * (contract.eventPricesUsd[event] ?? 0),
+    0,
+  )
+  const roundedCostUsd = Math.round(costUsd * 1e6) / 1e6
+  if (roundedCostUsd > maxChargeUsd + 1e-9) return null
+  if (run.usageTotalUsd == null || Math.abs(run.usageTotalUsd - roundedCostUsd) > 1e-6) return null
+  return { costUsd: roundedCostUsd, counts: run.chargedEventCounts }
+}
+
+async function defaultSleep(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+}
+
+async function fetchTextWithTimeout(
+  fetchImpl: ApifyFetchLike,
+  url: string,
+  init: ApifyFetchInit,
+  timeoutMs: number,
+): Promise<{ response: ApifyFetchResponse; body: string }> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetchImpl(url, { ...init, signal: controller.signal })
+    return { response, body: await response.text() }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function runActorWithFinalizedBilling(
+  actorId: string,
+  input: Record<string, unknown>,
+  options: ApifyFinalizedRunOptions,
+): Promise<ApifyRunOutcome> {
+  const timeoutMs = options.timeoutMs ?? APIFY_DEFAULT_TIMEOUT_MS
+  const tokenTransport = options.tokenTransport ?? 'header'
+  const now = options.now ?? (() => new Date())
+  const attemptedAt = now().toISOString()
+  const configuredDelayMs = options.finalizationDelayMs ?? APIFY_FINALIZED_BILLING_DELAY_MS
+  const finalizationDelayMs = Number.isFinite(configuredDelayMs)
+    ? Math.max(0, Math.floor(configuredDelayMs))
+    : APIFY_FINALIZED_BILLING_DELAY_MS
+  const fetchImpl =
+    options.fetchImpl ?? ((globalThis as { fetch?: unknown }).fetch as ApifyFetchLike | undefined)
+  const maxChargeUsd = normalizeMaxChargeUsd(options.maxChargeUsd)
+  const { url, redactedUrl } = buildActorRunUrl(actorId, {
+    token: options.token,
+    build: options.build,
+    tokenTransport,
+    timeoutMs,
+    maxItems: options.maxItems,
+    maxChargeUsd,
+    finalizationDelayMs,
+  })
+  const base = {
+    actorId,
+    runId: null as string | null,
+    itemCount: 0,
+    httpStatus: null as number | null,
+    retryAfterSeconds: null as number | null,
+    bodySnippet: null as string | null,
+    requestUrl: redactedUrl,
+    attemptedAt,
+    billingFinalized: false,
+    chargedEventCounts: null as Record<string, number> | null,
+    providerCostUsd: null as number | null,
+    pricingModel: null as string | null,
+  }
+  if (typeof fetchImpl !== 'function') {
+    return {
+      ...base,
+      kind: 'client_error',
+      status: 'error',
+      items: [],
+      error: 'apify_client_unavailable: no fetch implementation available',
+    }
+  }
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (tokenTransport === 'header') headers.authorization = `Bearer ${options.token}`
+
+  let startResponse: ApifyFetchResponse
+  let startBody: string
+  try {
+    const result = await fetchTextWithTimeout(
+      fetchImpl,
+      url,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(input),
+      },
+      timeoutMs,
+    )
+    startResponse = result.response
+    startBody = result.body
+  } catch (error) {
+    const message = redactToken(error instanceof Error ? error.message : String(error), options.token)
+    return {
+      ...base,
+      kind: isAbortLike(error) ? 'timeout' : 'transport_unknown',
+      status: 'ambiguous',
+      items: [],
+      error: `transport_unknown: actor start outcome is unknown (${message})`,
+    }
+  }
+  const httpStatus = Number.isFinite(startResponse.status) ? startResponse.status : null
+  const retryAfterSeconds = readRetryAfter(startResponse.headers)
+  const withStart = {
+    ...base,
+    httpStatus,
+    retryAfterSeconds,
+    bodySnippet: truncateBody(redactToken(startBody, options.token)),
+  }
+  if (httpStatus === 401 || httpStatus === 403 || httpStatus === 429) {
+    return {
+      ...withStart,
+      kind: httpStatus === 429 ? 'rate_limited' : 'auth_error',
+      status: 'error',
+      items: [],
+      error: `provider_error: Apify rejected actor start (HTTP ${httpStatus})`,
+    }
+  }
+  if (httpStatus == null || httpStatus < 200 || httpStatus >= 300) {
+    const dispatched = httpStatus === 408 || (httpStatus != null && httpStatus >= 500)
+    return {
+      ...withStart,
+      kind: dispatched ? 'transport_unknown' : 'client_error',
+      status: dispatched ? 'ambiguous' : 'error',
+      items: [],
+      error: `provider_error: Apify actor start returned HTTP ${httpStatus ?? 'unknown'}`,
+    }
+  }
+
+  let startPayload: unknown
+  try {
+    startPayload = JSON.parse(startBody)
+  } catch {
+    return {
+      ...withStart,
+      kind: 'invalid_schema',
+      status: 'ambiguous',
+      items: [],
+      error: 'invalid_schema: Apify actor start body was not valid JSON',
+    }
+  }
+  const startEnvelope = startPayload as { data?: unknown }
+  const startRun = parseRunIdentity(startEnvelope?.data)
+  if (!startRun) {
+    return {
+      ...withStart,
+      kind: 'invalid_schema',
+      status: 'ambiguous',
+      items: [],
+      error: 'invalid_schema: Apify actor start body had no durable run identity',
+    }
+  }
+  const withRun = { ...withStart, runId: startRun.id }
+  if (startRun.status !== 'SUCCEEDED') {
+    return {
+      ...withRun,
+      kind: startRun.status === 'TIMED-OUT' ? 'timeout' : 'transport_unknown',
+      status: 'ambiguous',
+      items: [],
+      error: `provider_pending: Apify run ended wait with ${startRun.status}`,
+    }
+  }
+
+  await (options.sleep ?? defaultSleep)(finalizationDelayMs)
+  let detailResponse: ApifyFetchResponse
+  let detailBody: string
+  try {
+    const result = await fetchTextWithTimeout(
+      fetchImpl,
+      `${APIFY_API_BASE}/actor-runs/${encodeURIComponent(startRun.id)}`,
+      { method: 'GET', headers },
+      timeoutMs,
+    )
+    detailResponse = result.response
+    detailBody = result.body
+  } catch (error) {
+    const message = redactToken(error instanceof Error ? error.message : String(error), options.token)
+    return {
+      ...withRun,
+      kind: 'transport_unknown',
+      status: 'ambiguous',
+      items: [],
+      error: `transport_unknown: finalized run receipt unavailable (${message})`,
+    }
+  }
+  if (detailResponse.status < 200 || detailResponse.status >= 300) {
+    return {
+      ...withRun,
+      kind: 'transport_unknown',
+      status: 'ambiguous',
+      items: [],
+      error: `provider_error: finalized run receipt returned HTTP ${detailResponse.status}`,
+    }
+  }
+  let detailPayload: unknown
+  try {
+    detailPayload = JSON.parse(detailBody)
+  } catch {
+    return {
+      ...withRun,
+      kind: 'invalid_schema',
+      status: 'ambiguous',
+      items: [],
+      error: 'invalid_schema: finalized run receipt was not valid JSON',
+    }
+  }
+  const detailEnvelope = detailPayload as { data?: unknown }
+  const finalRun = parseRunRecord(detailEnvelope?.data)
+  const billing = finalRun
+    ? finalizedProviderCost(finalRun, options.billingContract, maxChargeUsd)
+    : null
+  if (!finalRun || finalRun.id !== startRun.id || finalRun.status !== 'SUCCEEDED' || !billing) {
+    return {
+      ...withRun,
+      kind: 'invalid_schema',
+      status: 'ambiguous',
+      items: [],
+      error: 'invalid_schema: finalized billing evidence did not match the frozen contract',
+    }
+  }
+  const withBilling = {
+    ...withRun,
+    billingFinalized: true,
+    chargedEventCounts: billing.counts,
+    providerCostUsd: billing.costUsd,
+    pricingModel: finalRun.pricingInfo.pricingModel,
+  }
+
+  let datasetResponse: ApifyFetchResponse
+  let datasetBody: string
+  try {
+    const limit = Math.max(1, Math.floor(options.maxItems ?? 1))
+    const result = await fetchTextWithTimeout(
+      fetchImpl,
+      `${APIFY_API_BASE}/datasets/${encodeURIComponent(finalRun.defaultDatasetId)}/items?clean=true&limit=${limit}`,
+      { method: 'GET', headers },
+      timeoutMs,
+    )
+    datasetResponse = result.response
+    datasetBody = result.body
+  } catch (error) {
+    const message = redactToken(error instanceof Error ? error.message : String(error), options.token)
+    return {
+      ...withBilling,
+      kind: 'transport_unknown',
+      status: 'ambiguous',
+      items: [],
+      error: `transport_unknown: run dataset unavailable (${message})`,
+    }
+  }
+  if (datasetResponse.status < 200 || datasetResponse.status >= 300) {
+    return {
+      ...withBilling,
+      kind: 'transport_unknown',
+      status: 'ambiguous',
+      items: [],
+      error: `provider_error: run dataset returned HTTP ${datasetResponse.status}`,
+    }
+  }
+  let items: unknown
+  try {
+    items = JSON.parse(datasetBody)
+  } catch {
+    items = null
+  }
+  const maxItems = Math.max(1, Math.floor(options.maxItems ?? 1))
+  if (!Array.isArray(items) || items.length > maxItems) {
+    return {
+      ...withBilling,
+      kind: 'invalid_schema',
+      status: 'ambiguous',
+      items: [],
+      error: 'invalid_schema: run dataset exceeded the frozen result contract',
+    }
+  }
+  return {
+    ...withBilling,
+    kind: items.length === 0 ? 'no_result' : 'ok',
+    status: items.length === 0 ? 'no_result' : 'ok',
+    items,
+    itemCount: items.length,
+    bodySnippet: truncateBody(redactToken(datasetBody, options.token)),
+    error: null,
+  }
 }
 
 // ---------------------------------------------------------------------------

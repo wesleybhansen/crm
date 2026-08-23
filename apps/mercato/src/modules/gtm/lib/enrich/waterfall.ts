@@ -337,8 +337,9 @@ async function invokeWithLedger<T>(
     intendedAction = result.status === 'partial' ? 'partially_charged' : 'charged'
   } else if (result.status === 'no_result') {
     // pay_on_found semantics: nothing found costs nothing; otherwise the
-    // lookup itself is billable.
-    if (descriptor.cost_model.pay_on_found) {
+    // lookup itself is billable only when the finalized provider receipt
+    // reports a nonzero unit amount.
+    if (descriptor.cost_model.pay_on_found || result.cost_units === 0) {
       intendedAction = 'refunded'
     } else {
       chargedCredits = Math.min(creditsForUnits(result.cost_units ?? 1, quoted, markup), estimate)
