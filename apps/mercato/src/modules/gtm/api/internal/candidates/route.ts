@@ -27,6 +27,9 @@ import type { GtmCandidate, GtmCandidateMatch } from '../../../data/entities'
  *            candidate ids (lib/listing.ts; never one query per candidate)
  * - 'review' manual verdict override for one candidate; the change writes a
  *            gtm_audit_events row in the same transaction
+ * - 'export' explicit, audited reviewed-lead export: latest play-contextual
+ *            accepted people only, verified + unsuppressed email only, and
+ *            explicit evidence-export permission (lib/candidate-export.ts)
  *
  * Public at the dispatcher level (requireAuth: false) - we authenticate with
  * the shared secret instead of a Clerk/JWT session, mirroring
@@ -246,6 +249,54 @@ export async function POST(req: Request) {
       })
     }
 
+    if (body.op === 'export') {
+      if (
+        !body.workspaceId ||
+        !body.playId ||
+        !body.idempotency_key ||
+        !isUuid(body.workspaceId) ||
+        !isUuid(body.playId)
+      ) return opaqueNotFound()
+      const exportLib = await import('../../../lib/candidate-export')
+      try {
+        const result = await exportLib.buildReviewedLeadExport(
+          em as unknown as import('../../../lib/campaign/build').CampaignEm,
+          { organizationId, tenantId, userId, requestId: req.headers.get('x-request-id') },
+          { workspaceId: body.workspaceId, playId: body.playId },
+        )
+        await exportLib.auditReviewedLeadExport(
+          em as unknown as import('../../../lib/campaign/build').CampaignEm,
+          { organizationId, tenantId, userId, requestId: req.headers.get('x-request-id') },
+          {
+            workspaceId: body.workspaceId,
+            playId: body.playId,
+            idempotencyKey: body.idempotency_key,
+            result,
+          },
+        )
+        return NextResponse.json({
+          ok: true,
+          export: {
+            schema_version: result.schema_version,
+            considered: result.considered,
+            exported: result.exported,
+            skipped_by_reason: result.skipped_by_reason,
+            truncated: result.truncated,
+            rows: result.rows,
+          },
+        })
+      } catch (err) {
+        if (err instanceof exportLib.ReviewedLeadExportError) {
+          if (err.code === 'scope_not_found') return opaqueNotFound()
+          return NextResponse.json(
+            { ok: false, error: err.message, code: err.code },
+            { status: err.code === 'idempotency_conflict' ? 409 : 422 },
+          )
+        }
+        throw err
+      }
+    }
+
     // list. Candidate identity is workspace-wide, while qualification is
     // contextual to a frozen play/run. Contextual lists therefore project the
     // latest match for each identity; legacy candidate fields remain the
@@ -260,6 +311,15 @@ export async function POST(req: Request) {
     let review = 0
     let rejected = 0
     let unscored = 0
+    let qualification = {
+      scored: 0,
+      accepted: 0,
+      review: 0,
+      rejected: 0,
+      unscored: 0,
+      qualification_rate: 0,
+      by_reason: {} as Record<string, number>,
+    }
 
     if (body.runId || body.playId) {
       const matchWhere: Record<string, unknown> = { organizationId, tenantId, deletedAt: null }
@@ -282,6 +342,8 @@ export async function POST(req: Request) {
       review = latestMatches.filter((row) => row.fitStatus === 'review').length
       rejected = latestMatches.filter((row) => row.fitStatus === 'rejected').length
       unscored = latestMatches.filter((row) => row.fitStatus === 'unscored').length
+      const { qualificationDiagnostics } = await import('../../../lib/candidate-export')
+      qualification = qualificationDiagnostics(latestMatches)
       const filteredMatches = body.fitStatus
         ? latestMatches.filter((row) => row.fitStatus === body.fitStatus)
         : latestMatches
@@ -322,6 +384,19 @@ export async function POST(req: Request) {
       review = countReview
       rejected = countRejected
       unscored = countUnscored
+      const scored = accepted + review + rejected
+      qualification = {
+        scored,
+        accepted,
+        review,
+        rejected,
+        unscored,
+        qualification_rate: scored > 0 ? accepted / scored : 0,
+        // Reason diagnostics are intentionally contextual. A workspace-wide
+        // view can combine incompatible play criteria, so it returns no
+        // invented aggregate reason story.
+        by_reason: {},
+      }
     }
 
     // Additive per-row rollup: verified-email presence + evidence count, one
@@ -361,6 +436,7 @@ export async function POST(req: Request) {
       summary: {
         total,
         by_fit_status: { accepted, review, rejected, unscored },
+        qualification,
       },
       cap: LIST_CAP,
     })

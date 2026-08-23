@@ -80,7 +80,7 @@ describe('GTM server-side feature authorization', () => {
 
   it('maps every remaining GTM route operation onto least privilege', () => {
     for (const op of ['list', 'detail']) expect(candidateFeatureForOp(op)).toBe('gtm.view')
-    expect(candidateFeatureForOp('review')).toBe('gtm.edit')
+    for (const op of ['review', 'export']) expect(candidateFeatureForOp(op)).toBe('gtm.edit')
     for (const op of ['thread-list', 'messages']) expect(chatFeatureForOp(op)).toBe('gtm.view')
     for (const op of ['thread-create', 'append-message']) expect(chatFeatureForOp(op)).toBe('gtm.edit')
     for (const op of ['assets-list', 'asset-status']) expect(handoffFeatureForOp(op)).toBe('gtm.view')
