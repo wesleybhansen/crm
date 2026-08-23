@@ -706,13 +706,14 @@ export async function runEnrichmentWaterfall(
               contact_point_id: point.id,
               adapter_id: descriptor.adapter_id,
               channel: 'email',
+              address_sha256: crypto
+                .createHash('sha256')
+                .update(point.value.trim().toLowerCase())
+                .digest('hex'),
             },
             markup,
             now,
-            // no verify adapter accepts a provider-side USD cap yet; the
-            // wrapper still computes one so adding a paid verifier is a
-            // one-line change rather than a metering gap.
-            call: () => adapter.verify(request),
+            call: (maxChargeUsd) => adapter.verify({ ...request, max_charge_usd: maxChargeUsd }),
           },
         )
 
@@ -772,6 +773,7 @@ export async function runEnrichmentWaterfall(
               provider_operation_shadow_id: invoked.shadowId,
               state,
               parked: state === 'provider_ambiguous',
+              ...(result.data?.detail ? { detail: result.data.detail } : {}),
             },
           }
           tem.persist(point)

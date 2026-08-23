@@ -855,7 +855,38 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R24-A - continuation contract | Completed locally | 2026-08-22 | Plan schema v4 freezes one-company rank, progress, and retry attempt; unresolved canonical money truth blocks continuation |
 | R24-B - lead-runway UI and validation | Completed locally | 2026-08-22 | 73/74 GTM suites and 799 tests pass (only the opt-in PostgreSQL suite skipped); CRM/Hub typechecks and production builds pass; Hub 1,228 tests pass; no provider call, schema, flag, mailbox, or email change |
 
-## 35. Changelog
+## 35. R25 selected Apify email verification (approved 2026-08-23)
+
+### 35.1 Provider and confidence contract
+
+- R25 supersedes only R6's “no independent real-email verifier” decision. LeadMagic and Bouncer remain excluded. The selected verifier is `automation-lab/email-enrichment`, pinned to build `0.1.49`, behind `GTM_APIFY_EMAIL_VERIFY_ENABLED` and the exact price contract `automation-lab-email-enrichment-0.1.49-free-0.001-start-0.003-confidence-50-2026-08-23` in addition to the existing Apify token, customer-use, terms, and selected-stack gates.
+- One operation accepts exactly one normalized address and requests SMTP depth, catch-all detection, and domain-deliverability checks. A response binds only when exactly one schema-valid row echoes the requested address. Actor overrides, extra rows, mismatched addresses, schema drift, timeouts, transport uncertainty, and provider 5xx outcomes fail closed or enter canonical reconciliation; none is silently retried.
+- Only `isVerified=true`, `verificationMethod=smtp`, confidence at least 80, and a non-catch-all, non-disposable, non-free, non-role address becomes `verified`. Catch-all becomes `catch_all`; disposable, free-provider, and role addresses become `risky`; explicit bad syntax or absent MX becomes `not_found`; MX-only and every other incomplete proof becomes `unknown`.
+- The frozen Free-tier events are `$0.001` per Actor start plus `$0.003` when confidence is at least 50. Because Apify enforces a `$0.01` minimum `maxTotalChargeUsd`, the plan reserves that one-run provider ceiling while settlement charges fractional capped units for the observed start-only or start-plus-result event. The actor build and rate version are immutable quote material. A changed build, actor, event threshold, event price, or provider cap requires a new contract version.
+
+### 35.2 Data, API, UI, and release boundary
+
+- `VerifyRequest.max_charge_usd` and `VerificationOutcome.detail` are optional additive fields. The existing enrichment route passes its reservation-derived provider cap into verification and stores only redacted verification method, confidence, provider category, deliverability grade, and risk flags on contact provenance. The normalized address is represented in the canonical fingerprint only by SHA-256; provider receipts never copy it.
+- Existing `POST /internal/gtm/enrich` status, plan, and run operations remain backward compatible. Plans show one separately priced verification row per unresolved normalized address. The run retains the existing accepted-candidate, tenant, idempotency, reserve/start/settle-or-reconcile, duplicate-address reuse, and stop-at-first-verified rules.
+- The Hub People path continues to quote before provider spend, but labels selected capabilities in product language and reports the actual post-run state instead of promising that every found address will verify.
+- R25 may deploy owner-only and dark. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, and public GTM promotion remain off. Enabling the new exact verifier gate authorizes only one-address verification inside the existing owner-only quote/confirm flow; it does not authorize an email send.
+
+### 35.3 Acceptance, golden evidence, and rollback
+
+- Deterministic adapter tests cover every gate, actor/build/input/cap binding, no-secret/no-address receipt posture, exact verified proof, catch-all/risky/not-found/unknown mappings, event-sensitive settlement units, output-address mismatch, schema drift, and ambiguity. Existing enrichment-waterfall tests prove the provider cap reaches the verifier and route-level fixture integration continues to cover plan/run persistence and verified-contact promotion.
+- Hub contract coverage proves quote, provider-label, state-count, and failure-honesty copy on the People path. CRM and Hub TypeScript, lint where supported, production builds, full relevant tests, and `git diff --check` are required before merge.
+- After dark deployment, one user-owned address may be checked through the production owner-only flow under the `$0.01` provider cap. The evidence must record whether SMTP proof was actually available and must not reinterpret MX-only proof as verified. No message is sent.
+- Rollback is the capability gate off plus the prior CRM/Hub images. R25 adds no entity or migration; existing contact rows and provider-operation evidence remain inert and auditable.
+
+### 35.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R25-A - exact verifier contract | Completed locally | 2026-08-23 | Apify actor/build/rate, conservative proof mapping, canonical spend cap, and redacted evidence frozen |
+| R25-B - deterministic implementation | Completed locally | 2026-08-23 | 74/75 CRM GTM suites and 815 tests pass (only the opt-in PostgreSQL suite skipped); CRM/Hub typechecks and production builds pass; Hub 1,229 tests pass; no provider call, schema, mailbox, or email change |
+| R25-C - owner-only golden motion | Pending | 2026-08-23 | One user-owned address; no send or mailbox ingestion |
+
+## 36. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -896,3 +927,5 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-22: The R21 owner-only provider run returned the current plural `currentPositions[].title` shape and charged `$0.029`, but its batch echo could not safely bind any of three rows to one of ten submitted companies. No person, contact point, or relation was persisted. Plan schema v2 now permits exactly one frozen company per operation and requires the row's single `_meta.query.currentCompanies` URL to match it before persistence; plural and legacy position shapes remain covered without name-only guessing.
 - 2026-08-22: Completed the R21 owner-only golden motion with one safely company-bound person from a bounded three-row response; the other two rows were withheld and the operation reconciled as partially charged. Added R24 progressive one-company continuation and the owner lead runway without opening another provider, mailbox, email, or public GTM gate.
 - 2026-08-22: The first schema-v2 single-company run returned three profiles for one submitted company. Two current positions belonged to unrelated companies and were correctly withheld. The third named the submitted company but used LinkedIn's numeric canonical company URL already present as `linkedin_company_id` in the upstream source evidence, so all three were conservatively parked. Plan schema v3 freezes that id and accepts only the exact slug or exact frozen numeric alias while preserving fail-closed behavior for contradictory URLs.
+- 2026-08-23: Approved R25's exact Apify email-verification contract. The selected build can promote only explicit non-catch-all SMTP proof; incomplete results stay honestly risky, not-found, or unknown. LeadMagic/Bouncer and every email execution or ingestion gate remain off.
+- 2026-08-23: Completed R25-A/B locally. Added the separately gated Apify verifier, immutable provider cap and event settlement, redacted provenance, selected-provider catalog disclosure, and customer-language Hub results; all deterministic validation passed without a provider call.

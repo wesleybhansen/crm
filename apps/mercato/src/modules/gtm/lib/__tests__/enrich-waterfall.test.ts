@@ -122,6 +122,7 @@ describe('runEnrichmentWaterfall', () => {
     expect(enrich.enrich.mock.calls[0][0].candidate.identity.name).toBe('Alex Example')
     expect(verify.verify).toHaveBeenCalledTimes(1)
     expect(verify.verify.mock.calls[0][0].value).toBe('alex.example@example-dynamics.example')
+    expect(verify.verify.mock.calls[0][0].max_charge_usd).toBe(0.01)
 
     const points = em.table(GtmContactPoint)
     expect(points).toHaveLength(1)

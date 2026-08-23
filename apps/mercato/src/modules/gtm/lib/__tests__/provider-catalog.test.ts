@@ -15,6 +15,7 @@ describe('selected GTM provider catalog', () => {
       'apify-linkedin-post-comments',
       'apify-linkedin-profile',
       'apify-linkedin-profile-email',
+      'apify-email-verification',
     ])
     expect(catalog.items.map((row) => row.provider_usd_per_unit)).toEqual([
       0.002,
@@ -22,6 +23,7 @@ describe('selected GTM provider catalog', () => {
       0.002,
       0.004,
       0.01,
+      0.004,
     ])
     expect(catalog.items.map((row) => row.estimated_noli_credits_per_unit)).toEqual([
       1_000,
@@ -29,7 +31,14 @@ describe('selected GTM provider catalog', () => {
       1_000,
       2_000,
       5_000,
+      2_000,
     ])
+    expect(catalog.items.at(-1)).toMatchObject({
+      name: 'Mailbox verification',
+      max_results_per_request: 1,
+      price_version:
+        'automation-lab-email-enrichment-0.1.49-free-0.001-start-0.003-confidence-50-2026-08-23',
+    })
   })
 
   it('contains no runtime, credential, token, or account fields', () => {

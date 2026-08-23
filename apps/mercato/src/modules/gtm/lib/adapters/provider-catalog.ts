@@ -22,6 +22,12 @@ import {
   APIFY_COMPANY_REQUIRED_PRICE_VERSION,
   APIFY_COMPANY_SOURCE_MAX_BATCH,
 } from './apify/company-source'
+import {
+  APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD,
+  APIFY_EMAIL_VERIFY_REQUIRED_PRICE_VERSION,
+  APIFY_EMAIL_VERIFY_RESULT_USD,
+  APIFY_EMAIL_VERIFY_START_USD,
+} from './apify/email-verifier'
 
 export type SelectedProviderCatalogItem = {
   id: string
@@ -149,6 +155,25 @@ export function selectedProviderCatalog(
         retention_days: null,
         terms_version: APIFY_REQUIRED_TERMS_VERSION,
         price_version: APIFY_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'apify-email-verification',
+        provider: 'Apify',
+        category: 'enrichment',
+        name: 'Mailbox verification',
+        description:
+          `Checks one found address for explicit SMTP evidence. The expected completed-run events total $${(
+            APIFY_EMAIL_VERIFY_START_USD + APIFY_EMAIL_VERIFY_RESULT_USD
+          ).toFixed(3)}; every provider run is hard-capped at $${APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD.toFixed(2)}.`,
+        unit: 'address checked with a completed verification result',
+        provider_usd_per_unit:
+          APIFY_EMAIL_VERIFY_START_USD + APIFY_EMAIL_VERIFY_RESULT_USD,
+        max_results_per_request: 1,
+        evidence:
+          'Only verification method, confidence, risk flags, and a provider receipt are retained; the catalog does not promise a verified result.',
+        retention_days: 90,
+        terms_version: APIFY_REQUIRED_TERMS_VERSION,
+        price_version: APIFY_EMAIL_VERIFY_REQUIRED_PRICE_VERSION,
       }, markupMultiplier),
     ],
   }
