@@ -183,6 +183,17 @@ function exportAuditMetadata(input: {
     skipped_by_reason: input.result.skipped_by_reason,
     truncated: input.result.truncated,
     candidate_set_hash: sha256([...input.result.exportedCandidateIds].sort().join('\n')),
+    // Bind the idempotency fence to the exact released work product without
+    // copying any name, address, URL, or evidence text into the audit row.
+    // Rows and their nested URL arrays are already deterministically ordered.
+    result_hash: sha256(JSON.stringify({
+      schema_version: input.result.schema_version,
+      considered: input.result.considered,
+      exported: input.result.exported,
+      skipped_by_reason: input.result.skipped_by_reason,
+      truncated: input.result.truncated,
+      rows: input.result.rows,
+    })),
     idempotency_key_hash: sha256(input.idempotencyKey),
   }
 }
@@ -206,6 +217,7 @@ function auditMatches(audit: GtmAuditEvent, expected: Record<string, unknown>): 
     && actual.exported === expected.exported
     && actual.truncated === expected.truncated
     && actual.candidate_set_hash === expected.candidate_set_hash
+    && actual.result_hash === expected.result_hash
     && actual.idempotency_key_hash === expected.idempotency_key_hash
     && recordsEqual(actual.skipped_by_reason, expected.skipped_by_reason as Record<string, number>)
   )

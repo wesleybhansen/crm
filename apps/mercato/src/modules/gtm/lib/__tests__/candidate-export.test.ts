@@ -338,6 +338,7 @@ describe('auditReviewedLeadExport', () => {
     expect(serialized).not.toContain('Example Dynamics')
     expect(serialized).not.toContain('r26-export-1')
     expect(serialized).toMatch(/candidate_set_hash/)
+    expect(serialized).toMatch(/result_hash/)
     expect(replay.id).toBe(audit.id)
     expect(em.table(GtmAuditEvent)).toHaveLength(1)
 
@@ -346,6 +347,13 @@ describe('auditReviewedLeadExport', () => {
       playId: play.id,
       idempotencyKey: 'r26-export-1',
       result: { ...result, exported: 0, rows: [], exportedCandidateIds: [] },
+    })).rejects.toMatchObject({ code: 'idempotency_conflict' })
+
+    await expect(auditReviewedLeadExport(em, ctx, {
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      idempotencyKey: 'r26-export-1',
+      result: { ...result, rows: result.rows.map((row) => ({ ...row, verified_email: 'changed@example.test' })) },
     })).rejects.toMatchObject({ code: 'idempotency_conflict' })
   })
 })
