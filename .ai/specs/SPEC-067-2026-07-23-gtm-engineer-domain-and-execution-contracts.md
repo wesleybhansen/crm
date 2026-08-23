@@ -886,7 +886,35 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R25-B - deterministic implementation | Completed and dark-deployed | 2026-08-23 | 74/75 CRM GTM suites and 816 tests pass (only the opt-in PostgreSQL suite skipped); CRM/Hub typechecks and production builds pass; Hub 1,229 tests pass; no schema, mailbox, or email-send change |
 | R25-C - owner-only golden motion | Completed dark | 2026-08-23 | A corrected rerun on one owned Gmail address returned the expected conservative risky/free-provider result with SMTP method and confidence 5. Apify charged `$0.004`; the canonical ledger reserved 5,000 credits and charged 2,000 after the 2x markup. Transitions were `reserved` -> `provider_started` -> `charged`; the durable receipt contained no raw address, no message was sent, and all product-facing fixture rows were soft-deleted after verification. |
 
-## 36. Changelog
+## 36. R26 actionable reviewed-lead surface (approved 2026-08-23)
+
+### 36.1 Qualification diagnostics
+
+- The play-scoped candidate list returns the latest contextual verdict for each candidate plus an additive, count-only qualification diagnostic: total scored, accepted, review, rejected, unscored, qualification rate, and rejected rows grouped by the stored deterministic reason code. Counts are computed before the visible table filter so changing the filter cannot rewrite the funnel.
+- The Hub may explain the largest recorded filters and link the user back to the Strategist, but it must not claim that loosening a criterion will improve quality or yield unless the user explicitly edits and reruns the frozen play. Missing reasons remain `unspecified`; the UI never invents a cause.
+
+### 36.2 Reviewed-lead export
+
+- `POST /internal/gtm/candidates` gains the exact `export` operation. It requires server-resolved tenant identity, the `gtm.edit` role, an explicit workspace and play, and an Idempotency-Key supplied by the Hub proxy. Caller-supplied org, tenant, and user identity remain stripped.
+- The export is intentionally narrower than a raw table dump: only the latest play-contextual `accepted` **person** rows are considered; only a non-deleted `verified` email may be exported; current GTM/global suppressions and legacy unsubscribes exclude the address at export time; and provider evidence must carry explicit customer-export permission. A missing permission, suppressed address, absent verified mailbox, company row, or stale/deleted record is skipped and counted by reason.
+- Export rows contain only the reviewed work product needed for customer action: name, title, company, LinkedIn/profile URL when grounded, verified work email, fit score/status, the stored “why them” explanation, permitted source URLs, latest observation date, and verification state. They contain no provider credential, raw provider response, operation receipt, internal org/tenant/user id, suppression hash, model prompt, or unreviewed address.
+- The response is capped at 1,000 rows and reports `considered`, `exported`, `skipped_by_reason`, and whether additional accepted identities exceeded the cap. The Hub generates UTF-8 CSV locally with RFC-style quoting and spreadsheet-formula neutralization, presents the exact exported/skipped counts, and starts the download only after an explicit user action.
+- Every export writes a redacted `gtm.candidates.exported` audit row containing the workspace/play ids, schema version, row counts, skipped counts, a hash of exported candidate ids, and a hash of the Idempotency-Key. No name, title, company, URL, email, or evidence text enters audit metadata or application logs.
+- R26 changes no entity or migration and makes no provider/model/mailbox/email call. Deployment remains owner-only dark; automated execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+
+### 36.3 Acceptance and rollback
+
+- Deterministic tests cover tenant isolation, latest-context selection, accepted-person-only scope, explicit evidence-export permission, verified-email selection, suppression and legacy-unsubscribe exclusion, cap truth, redacted audit metadata, formula neutralization, CSV quoting/newlines, diagnostic counts, and honest empty/error UI states.
+- Rollback is the prior CRM and Hub artifacts. Because there is no schema or external effect, disabling the GTM module or reverting the application removes the surface without data rollback.
+
+### 36.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R26-A - export and diagnostics contract | Completed locally | 2026-08-23 | Count-only qualification diagnostics and the audited, suppression-aware export are implemented without a provider, mailbox, send, schema, flag, or exposure change |
+| R26-B - deterministic verification | Completed locally | 2026-08-23 | CRM focused tests pass 16/16; the full GTM baseline remains 75 passing suites plus one opt-in PostgreSQL suite skipped, with 825 tests passing and 7 skipped. Hub focused tests pass 28/28 and the full Hub baseline remains 1,234/1,234. Both typechecks and production builds pass. |
+
+## 37. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -931,3 +959,5 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Completed R25-A/B locally. Added the separately gated Apify verifier, immutable provider cap and event settlement, redacted provenance, selected-provider catalog disclosure, and customer-language Hub results; all deterministic validation passed without a provider call.
 - 2026-08-23: The first owner-only R25 golden returned a conservative risky/free-provider result with explicit SMTP method, build `0.1.49`, no ambiguity, and no email send. Apify's run ledger charged `$0.004` despite confidence 5, contradicting the published event-threshold description; Noli initially settled only the `$0.001` start event before markup. The capability was disabled immediately and the contract was version-bumped to charge every emitted row before any rerun.
 - 2026-08-23: Completed the corrected R25 owner-only golden. The same pinned build returned the expected conservative risky/free-provider classification for one owned address and again billed `$0.004`; Noli reserved 5,000 credits and settled exactly 2,000 after markup. The canonical transitions were `reserved` -> `provider_started` -> `charged`, the durable provider receipt remained address-redacted, no email was sent, and the disposable product rows were soft-deleted. The exact verifier gate is on only for the owner-only dark flow; execution, mailbox ingestion, LeadMagic, Bouncer, and public GTM promotion remain off.
+- 2026-08-23: Approved R26's actionable reviewed-lead surface: count-only qualification diagnostics plus an explicit, audited, suppression-aware CSV export of accepted people with verified work email and export-permitted evidence. No provider, schema, mailbox, send, flag, or exposure authority changed.
+- 2026-08-23: Completed R26 locally. Export permission is fail-closed across every contextual evidence row; current suppression and legacy unsubscribe checks run immediately before export; deterministic audit idempotency binds the exact result fingerprint without recording PII; and the Hub validates the complete response, neutralizes spreadsheet formulas, and generates the CSV only on an explicit click. Deterministic tests, typechecks, and both production builds pass. Deployment remains owner-only dark and changes no provider, mailbox, send, schema, flag, or public exposure posture.

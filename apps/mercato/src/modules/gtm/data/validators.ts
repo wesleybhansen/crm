@@ -195,7 +195,7 @@ export type GtmDecisionMakersBody = z.infer<typeof gtmDecisionMakersBodySchema>
 
 export const gtmCandidatesBodySchema = z.object({
   noliUserId: idString,
-  op: z.enum(['list', 'review', 'detail']).optional().default('list'),
+  op: z.enum(['list', 'review', 'detail', 'export']).optional().default('list'),
   // list filters
   runId: idString.optional(),
   playId: idString.optional(),
@@ -206,6 +206,20 @@ export const gtmCandidatesBodySchema = z.object({
   matchId: idString.optional(),
   verdict: z.enum(['accepted', 'rejected']).optional(),
   reason: z.string().trim().max(2000).optional(),
+  // Server-injected from the Hub Idempotency-Key header. Required only by the
+  // audited export operation; caller-supplied body copies are stripped.
+  idempotency_key: idString.optional(),
+}).superRefine((body, issue) => {
+  if (body.op !== 'export') return
+  for (const key of ['workspaceId', 'playId', 'idempotency_key'] as const) {
+    if (!body[key]) {
+      issue.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `${key} is required for export`,
+      })
+    }
+  }
 })
 
 export type GtmResearchRunsBody = z.infer<typeof gtmResearchRunsBodySchema>
