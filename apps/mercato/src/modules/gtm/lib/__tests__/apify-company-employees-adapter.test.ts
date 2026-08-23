@@ -43,6 +43,7 @@ const COMPANIES = [{
   candidate_id: '10000000-0000-4000-8000-000000000001',
   match_id: '20000000-0000-4000-8000-000000000001',
   name: 'Example Dental',
+  domain: 'https://www.example-dental.com/contact',
   linkedin_url: 'https://www.linkedin.com/company/example-dental/',
   linkedin_company_ids: ['3617662'],
 }]
@@ -187,6 +188,7 @@ describe('Apify company-employees decision-maker contract', () => {
           name: 'Alex Example',
           company: 'Example Dental',
           title: 'Practice Owner',
+          domain: 'https://www.example-dental.com/contact',
           urls: ['https://www.linkedin.com/in/alex-example/'],
           country_code: 'US',
         }),

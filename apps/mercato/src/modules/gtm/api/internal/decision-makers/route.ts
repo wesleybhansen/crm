@@ -6,6 +6,7 @@ import { gtmDecisionMakersBodySchema } from '../../../data/validators'
 import { linkedInCompanyIdsFromEvidence } from '../../../lib/adapters/apify/company-employees'
 import { gtmEnabled } from '../../../lib/flags'
 import { isUuid } from '../../../lib/play-shape'
+import { normalizeCompanyWebsite } from '../../../lib/enrich/company-domain'
 
 export const openApi = gtmInternalOpenApi(
   'Plan, execute, and inspect accepted-company decision-maker resolution',
@@ -150,6 +151,7 @@ export async function POST(req: Request) {
         match_id: match.id,
         name,
         linkedin_url: linkedinUrl,
+        domain: normalizeCompanyWebsite(candidate.identity.domain)?.companyDomain ?? null,
         selection_rank: selectionRank,
       }]
     })

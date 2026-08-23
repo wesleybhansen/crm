@@ -128,6 +128,7 @@ export async function POST(req: Request) {
       GtmResearchRun,
       GtmCandidate,
       GtmCandidateMatch,
+      GtmCandidateRelation,
       GtmContactPoint,
       GtmAuditEvent,
     } = entities
@@ -240,8 +241,52 @@ export async function POST(req: Request) {
     const { enrichAdapterList, verifyAdapterList } = await import('../../../lib/adapters/registry')
     const enrichAdapters = enrichAdapterList()
     const verifyAdapters = verifyAdapterList()
+    let enrichmentCandidates = candidates
+    const { APIFY_WEBSITE_EMAIL_ADAPTER_ID } = await import(
+      '../../../lib/adapters/apify/website-email'
+    )
+    if (
+      candidateIds.length > 0
+      && enrichAdapters.some((adapter) => adapter.descriptor.adapter_id === APIFY_WEBSITE_EMAIL_ADAPTER_ID)
+    ) {
+      const relations = await em.find(GtmCandidateRelation, {
+        organizationId,
+        tenantId,
+        childCandidateId: { $in: candidateIds },
+        relationshipKind: 'current_employee',
+        ...(runId ? { researchRunId: runId } : {}),
+        ...(body.playId ? { playId: body.playId } : {}),
+        deletedAt: null,
+      }, { limit: 501 })
+      // An incomplete relation set could hide a conflicting parent domain.
+      // In that case derive nothing and spend nothing through this adapter.
+      const completeRelations = relations.length <= 500 ? relations : []
+      const parentIds = [...new Set(completeRelations.map((relation) => relation.parentCandidateId))]
+      const parentCandidates = parentIds.length > 0
+        ? await em.find(GtmCandidate, {
+            organizationId,
+            tenantId,
+            id: { $in: parentIds },
+            entityKind: 'company',
+            deletedAt: null,
+          }, { limit: 500 })
+        : []
+      const { inheritUnambiguousCompanyDomains } = await import(
+        '../../../lib/enrich/company-domain'
+      )
+      enrichmentCandidates = inheritUnambiguousCompanyDomains(
+        candidates,
+        completeRelations,
+        parentCandidates,
+      )
+    }
     const { buildEnrichmentPlan } = await import('../../../lib/enrich/plan')
-    const plan = buildEnrichmentPlan(candidates, contactPoints, enrichAdapters, verifyAdapters)
+    const plan = buildEnrichmentPlan(
+      enrichmentCandidates,
+      contactPoints,
+      enrichAdapters,
+      verifyAdapters,
+    )
     if (body.op === 'plan') {
       return NextResponse.json({ ok: true, plan })
     }
@@ -273,7 +318,7 @@ export async function POST(req: Request) {
       ledger: getLedger(),
       enrichAdapters,
       verifyAdapters,
-      candidates,
+      candidates: enrichmentCandidates,
       acceptedCandidateIds: matches.length > 0 ? acceptedCandidateIds : undefined,
       contactPoints,
       noliOrgId,

@@ -151,6 +151,9 @@ export type ApifyRunOptions = {
   // floored at APIFY_MIN_CHARGE_USD so a run can never be rejected for an
   // under-minimum cap, and can never exceed what the caller reserved.
   maxChargeUsd?: number
+  memoryMbytes?: number
+  datasetFields?: string[]
+  maxDatasetBodyBytes?: number
   // 'header' (default) keeps the token out of the URL entirely; 'query' is
   // the documented `?token=` form. Either way the token is redacted from
   // anything we store or return.
@@ -159,10 +162,18 @@ export type ApifyRunOptions = {
   fetchImpl?: ApifyFetchLike
 }
 
-export type ApifyFinalizedBillingContract = {
+export type ApifyFinalizedEventBillingContract = {
   pricingModel: 'PAY_PER_EVENT'
   eventPricesUsd: Record<string, number>
 }
+
+export type ApifyFinalizedUsageBillingContract = {
+  pricingModel: 'FREE'
+}
+
+export type ApifyFinalizedBillingContract =
+  | ApifyFinalizedEventBillingContract
+  | ApifyFinalizedUsageBillingContract
 
 export type ApifyFinalizedRunOptions = ApifyRunOptions & {
   billingContract: ApifyFinalizedBillingContract
@@ -241,6 +252,7 @@ export function buildRunSyncUrl(
     timeoutMs: number
     maxItems?: number
     maxChargeUsd?: number
+    memoryMbytes?: number
   },
 ): { url: string; redactedUrl: string } {
   const params: string[] = []
@@ -251,6 +263,9 @@ export function buildRunSyncUrl(
   params.push(`timeout=${Math.max(1, Math.floor(options.timeoutMs / 1000))}`)
   if (typeof options.maxItems === 'number' && options.maxItems > 0) {
     params.push(`maxItems=${Math.floor(options.maxItems)}`)
+  }
+  if (typeof options.memoryMbytes === 'number' && options.memoryMbytes >= 128) {
+    params.push(`memory=${Math.floor(options.memoryMbytes)}`)
   }
   // ALWAYS sent. Omitting it is HTTP 400 max-total-charge-usd-below-minimum
   // (verified live), and it is a free hard spend cap on top of our ledger
@@ -274,6 +289,7 @@ export function buildActorRunUrl(
     timeoutMs: number
     maxItems?: number
     maxChargeUsd?: number
+    memoryMbytes?: number
     finalizationDelayMs: number
   },
 ): { url: string; redactedUrl: string } {
@@ -286,6 +302,9 @@ export function buildActorRunUrl(
   params.push(`waitForFinish=${Math.min(60, Math.max(1, Math.floor(waitBudgetMs / 1000)))}`)
   if (typeof options.maxItems === 'number' && options.maxItems > 0) {
     params.push(`maxItems=${Math.floor(options.maxItems)}`)
+  }
+  if (typeof options.memoryMbytes === 'number' && options.memoryMbytes >= 128) {
+    params.push(`memory=${Math.floor(options.memoryMbytes)}`)
   }
   params.push(`maxTotalChargeUsd=${normalizeMaxChargeUsd(options.maxChargeUsd)}`)
   const base = `${APIFY_API_BASE}/acts/${encodeActorId(actorId)}/runs`
@@ -374,6 +393,14 @@ function finalizedProviderCost(
   maxChargeUsd: number,
 ): { costUsd: number; counts: Record<string, number> } | null {
   if (run.pricingInfo.pricingModel !== contract.pricingModel) return null
+  if (contract.pricingModel === 'FREE') {
+    if (Object.values(run.chargedEventCounts).some((count) => count > 0)) return null
+    if (run.usageTotalUsd == null || run.usageTotalUsd > maxChargeUsd + 1e-9) return null
+    return {
+      costUsd: Math.round(run.usageTotalUsd * 1e8) / 1e8,
+      counts: run.chargedEventCounts,
+    }
+  }
   const providerPrices = run.pricingInfo.pricingPerEvent?.actorChargeEvents ?? {}
   for (const [event, expectedPrice] of Object.entries(contract.eventPricesUsd)) {
     if (!Number.isFinite(expectedPrice) || expectedPrice < 0) return null
@@ -435,6 +462,7 @@ export async function runActorWithFinalizedBilling(
     timeoutMs,
     maxItems: options.maxItems,
     maxChargeUsd,
+    memoryMbytes: options.memoryMbytes,
     finalizationDelayMs,
   })
   const base = {
@@ -619,9 +647,14 @@ export async function runActorWithFinalizedBilling(
   let datasetBody: string
   try {
     const limit = Math.max(1, Math.floor(options.maxItems ?? 1))
+    const datasetParams = new URLSearchParams({ clean: 'true', limit: String(limit) })
+    const datasetFields = (options.datasetFields ?? [])
+      .map((field) => field.trim())
+      .filter((field) => /^[a-zA-Z0-9_.]+$/.test(field))
+    if (datasetFields.length > 0) datasetParams.set('fields', datasetFields.join(','))
     const result = await fetchTextWithTimeout(
       fetchImpl,
-      `${APIFY_API_BASE}/datasets/${encodeURIComponent(finalRun.defaultDatasetId)}/items?clean=true&limit=${limit}`,
+      `${APIFY_API_BASE}/datasets/${encodeURIComponent(finalRun.defaultDatasetId)}/items?${datasetParams.toString()}`,
       { method: 'GET', headers },
       timeoutMs,
     )
@@ -644,6 +677,20 @@ export async function runActorWithFinalizedBilling(
       status: 'ambiguous',
       items: [],
       error: `provider_error: run dataset returned HTTP ${datasetResponse.status}`,
+    }
+  }
+  const maxDatasetBodyBytes = Number(options.maxDatasetBodyBytes)
+  if (
+    Number.isFinite(maxDatasetBodyBytes)
+    && maxDatasetBodyBytes > 0
+    && Buffer.byteLength(datasetBody, 'utf8') > Math.floor(maxDatasetBodyBytes)
+  ) {
+    return {
+      ...withBilling,
+      kind: 'invalid_schema',
+      status: 'ambiguous',
+      items: [],
+      error: 'invalid_schema: run dataset exceeded the frozen byte ceiling',
     }
   }
   let items: unknown
@@ -696,6 +743,7 @@ export async function runActorSync(
     timeoutMs,
     maxItems: options.maxItems,
     maxChargeUsd: options.maxChargeUsd,
+    memoryMbytes: options.memoryMbytes,
   })
 
   const base = {

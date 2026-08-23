@@ -15,6 +15,7 @@ describe('selected GTM provider catalog', () => {
       'apify-linkedin-post-comments',
       'apify-linkedin-profile',
       'apify-linkedin-profile-email',
+      'apify-public-website-email',
       'apify-email-verification',
     ])
     expect(catalog.items.map((row) => row.provider_usd_per_unit)).toEqual([
@@ -23,6 +24,7 @@ describe('selected GTM provider catalog', () => {
       0.002,
       0.004,
       0.01,
+      0.01,
       0.004,
     ])
     expect(catalog.items.map((row) => row.estimated_noli_credits_per_unit)).toEqual([
@@ -30,6 +32,7 @@ describe('selected GTM provider catalog', () => {
       2_000,
       1_000,
       2_000,
+      5_000,
       5_000,
       2_000,
     ])

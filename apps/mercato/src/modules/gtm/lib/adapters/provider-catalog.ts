@@ -28,6 +28,12 @@ import {
   APIFY_EMAIL_VERIFY_RESULT_USD,
   APIFY_EMAIL_VERIFY_START_USD,
 } from './apify/email-verifier'
+import {
+  APIFY_WEBSITE_EMAIL_MAX_ADDRESSES,
+  APIFY_WEBSITE_EMAIL_MAX_PAGES,
+  APIFY_WEBSITE_EMAIL_PROVIDER_CAP_USD,
+  APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION,
+} from './apify/website-email'
 
 export type SelectedProviderCatalogItem = {
   id: string
@@ -155,6 +161,22 @@ export function selectedProviderCatalog(
         retention_days: null,
         terms_version: APIFY_REQUIRED_TERMS_VERSION,
         price_version: APIFY_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'apify-public-website-email',
+        provider: 'Apify',
+        category: 'enrichment',
+        name: 'Public website contact discovery',
+        description:
+          `Checks up to ${APIFY_WEBSITE_EMAIL_MAX_PAGES} same-domain public pages without a proxy or AI summary. Each run is hard-capped at $${APIFY_WEBSITE_EMAIL_PROVIDER_CAP_USD.toFixed(2)} and settles from finalized platform usage.`,
+        unit: `bounded website crawl, up to ${APIFY_WEBSITE_EMAIL_MAX_PAGES} pages`,
+        provider_usd_per_unit: APIFY_WEBSITE_EMAIL_PROVIDER_CAP_USD,
+        max_results_per_request: APIFY_WEBSITE_EMAIL_MAX_ADDRESSES,
+        evidence:
+          'Each found address retains its same-domain source URL, observation time, and page-content hash without retaining the page body.',
+        retention_days: 90,
+        terms_version: APIFY_REQUIRED_TERMS_VERSION,
+        price_version: APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION,
       }, markupMultiplier),
       item({
         id: 'apify-email-verification',

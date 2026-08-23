@@ -138,6 +138,7 @@ export async function executeDecisionMakerPlan(args: {
       company_candidate_ids: plan.companies.map((company) => company.candidate_id),
       company_match_ids: plan.companies.map((company) => company.match_id),
       company_linkedin_urls: plan.companies.map((company) => company.linkedin_url),
+      company_domains: plan.companies.map((company) => company.domain ?? null),
       job_titles: plan.job_titles,
       max_profiles: plan.max_profiles,
       descriptor_hash: plan.descriptor_hash,

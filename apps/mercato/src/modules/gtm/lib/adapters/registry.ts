@@ -16,6 +16,10 @@ import {
   apifyEmailVerifierEnabled,
   createApifyEmailVerifierAdapter,
 } from './apify/email-verifier'
+import {
+  apifyWebsiteEmailEnabled,
+  createApifyWebsiteEmailAdapter,
+} from './apify/website-email'
 
 /*
  * Adapter registries (SPEC-066 Tranches 3/4).
@@ -29,7 +33,8 @@ import {
  *
  * The selected real-provider stack is deliberately closed: DataForSEO for
  * local company discovery and Apify for separately approved company search,
- * social-signal sourcing, profile enrichment, and email verification. LeadMagic and Bouncer
+ * social-signal sourcing, profile enrichment, bounded public-website email
+ * discovery, and email verification. LeadMagic and Bouncer
  * implementations remain in the repository as historical, directly testable
  * adapters, but owner decision
  * R6 excludes them from every runtime registry. Their environment variables
@@ -77,14 +82,18 @@ export function sourceAdapterList(): SourceAdapter[] {
  * Registry ORDER is the enrichment waterfall order (SPEC-066 section 4.1
  * step 6): the first adapter that yields contact points wins.
  *
- * Apify is the selected enrichment adapter and uses the SAME dark gate as the
- * Apify source (GTM_APIFY_ENABLED plus its approval contract, default off).
- * With the gate off this list contains no network adapter. It is pay-per-
- * attempt: see lib/adapters/apify/enrich.ts.
+ * Apify is the selected enrichment provider and uses the same broad dark gate
+ * as the Apify source (GTM_APIFY_ENABLED plus its approval contract, default
+ * off). Each capability also has its own exact actor/price gate. Profile
+ * enrichment runs first; bounded public-company-website discovery is the
+ * source-backed fallback. With the gates off this list contains no network
+ * adapter. Both are pay-per-attempt; see lib/adapters/apify/enrich.ts and
+ * lib/adapters/apify/website-email.ts.
  */
 export function enrichAdapterList(): EnrichAdapter[] {
   const list: EnrichAdapter[] = fixtureAdaptersEnabled() ? [fixtureEnrichAdapter] : []
   if (apifyEnrichEnabled()) list.push(createApifyEnrichAdapter())
+  if (apifyWebsiteEmailEnabled()) list.push(createApifyWebsiteEmailAdapter())
   return list
 }
 

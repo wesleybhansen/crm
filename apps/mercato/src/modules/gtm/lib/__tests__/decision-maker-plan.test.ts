@@ -50,6 +50,7 @@ const companies = [
     linkedin_url: 'https://www.linkedin.com/company/first-dental/',
     selection_rank: 0,
     linkedin_company_ids: ['111111'],
+    domain: 'https://www.first-dental.com/contact',
   },
 ]
 
@@ -75,7 +76,7 @@ describe('decision-maker plan and qualification', () => {
     })
     expect(first.plan_hash).toBe(second.plan_hash)
     expect(first).toEqual(expect.objectContaining({
-      schema_version: '4',
+      schema_version: '5',
       available: true,
       company_count: 1,
       total_company_count: 2,
@@ -89,6 +90,7 @@ describe('decision-maker plan and qualification', () => {
       maximum_credits: 25_000,
       price_version: APIFY_COMPANY_EMPLOYEES_REQUIRED_PRICE_VERSION,
     }))
+    expect(first.companies[0]?.domain).toBe('first-dental.com')
     expect(first.companies.map((company) => company.candidate_id)).toEqual([
       '50000000-0000-4000-8000-000000000001',
     ])
