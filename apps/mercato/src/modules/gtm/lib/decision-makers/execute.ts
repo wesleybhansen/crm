@@ -248,6 +248,7 @@ export async function executeDecisionMakerPlan(args: {
     decision_maker_plan: {
       schema_version: plan.schema_version,
       plan_hash: plan.plan_hash,
+      attempt: plan.attempt,
       company_candidate_ids: plan.companies.map((company) => company.candidate_id),
       job_titles: plan.job_titles,
       max_profiles: plan.max_profiles,
