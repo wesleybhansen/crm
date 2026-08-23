@@ -12,6 +12,10 @@ import {
   createApifyCompanyEmployeesAdapter,
   type DecisionMakerAdapter,
 } from './apify/company-employees'
+import {
+  apifyEmailVerifierEnabled,
+  createApifyEmailVerifierAdapter,
+} from './apify/email-verifier'
 
 /*
  * Adapter registries (SPEC-066 Tranches 3/4).
@@ -25,7 +29,7 @@ import {
  *
  * The selected real-provider stack is deliberately closed: DataForSEO for
  * local company discovery and Apify for separately approved company search,
- * social-signal sourcing, and profile enrichment. LeadMagic and Bouncer
+ * social-signal sourcing, profile enrichment, and email verification. LeadMagic and Bouncer
  * implementations remain in the repository as historical, directly testable
  * adapters, but owner decision
  * R6 excludes them from every runtime registry. Their environment variables
@@ -84,11 +88,10 @@ export function enrichAdapterList(): EnrichAdapter[] {
   return list
 }
 
-// R6 intentionally selects no independent verification provider. Fixture
-// verification remains available only to the isolated test harness. A future
-// real verifier requires an explicit owner-selected provider and spec change.
 export function verifyAdapterList(): VerifyAdapter[] {
-  return fixtureAdaptersEnabled() ? [fixtureVerifyAdapter] : []
+  const list: VerifyAdapter[] = fixtureAdaptersEnabled() ? [fixtureVerifyAdapter] : []
+  if (apifyEmailVerifierEnabled()) list.push(createApifyEmailVerifierAdapter())
+  return list
 }
 
 // Decision-maker resolution is intentionally outside the general research

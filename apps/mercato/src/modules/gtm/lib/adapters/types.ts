@@ -194,6 +194,7 @@ export type VerificationOutcome = {
   channel: AdapterChannel
   value: string
   verification_state: VerificationState
+  detail?: Record<string, unknown>
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +269,7 @@ export type VerifyRequest = {
   channel: AdapterChannel
   value: string
   call_sequence?: number
+  max_charge_usd?: number
 }
 
 export interface SourceAdapter {
