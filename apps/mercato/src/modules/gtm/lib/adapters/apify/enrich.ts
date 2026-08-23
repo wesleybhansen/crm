@@ -23,8 +23,9 @@ import {
   APIFY_DEFAULT_TIMEOUT_MS,
   APIFY_MIN_CHARGE_USD,
   normalizeMaxChargeUsd,
-  runActorSync,
+  runActorWithFinalizedBilling,
   type ApifyFetchLike,
+  type ApifyFinalizedBillingContract,
   type ApifyRunOutcome,
 } from './client'
 import {
@@ -60,16 +61,15 @@ import {
  *
  * =========================================================================
  * CRITICAL, AND THE REASON THIS FILE EXISTS SEPARATELY FROM THE SOURCE ONE:
- * THE EMAIL SEARCH IS PAY-PER-ATTEMPT, NOT PAY-ON-FOUND.
+ * THE PROFILE RUN USES ADAPTIVE PAY-PER-EVENT BILLING, NOT PAY-ON-FOUND.
  *
- * A live run on 2026-07-24 was CHARGED $0.01 while returning `emails: []`.
- * The provider bills for the attempt, not the hit. Therefore:
+ * A live run on 2026-08-23 returned one profile with `emails: []` and charged
+ * only the `$0.004` `profile` event; a prior run that performed email search
+ * charged the `$0.01` `profile_with_email` event even without a hit. Therefore:
  *   - cost_model.pay_on_found is FALSE on this descriptor;
- *   - every definitive outcome reports cost_units = profiles ATTEMPTED (1),
- *     including the "no address found" outcome, so the 11.2 wrapper settles
- *     it 'charged' rather than 'refunded';
- *   - true cost per VERIFIED email is $0.01 / hit-rate and MUST be measured,
- *     never assumed.
+ *   - the two-step client retains the run id and finalized charged-event map;
+ *   - settlement uses the actual frozen event price, never a guessed attempt;
+ *   - missing, stale, or changed billing evidence is ambiguous and parked.
  * The SOURCING adapter is the opposite and stays pay_on_found: a zero-item
  * reactions run was verified to cost $0.00.
  * =========================================================================
@@ -100,6 +100,25 @@ export const APIFY_ENRICH_EMAIL_ENV = 'GTM_APIFY_ENRICH_EMAIL'
 // APIFY_REQUIRED_PRICE_VERSION and cannot be overridden independently.
 export const APIFY_USD_PER_PROFILE_ENV = 'GTM_APIFY_USD_PER_PROFILE'
 export const APIFY_ENRICH_TIMEOUT_MS_ENV = 'GTM_APIFY_TIMEOUT_MS'
+
+export const APIFY_ENRICH_BILLING_CONTRACT_VERSION =
+  'harvestapi-linkedin-profile-scraper-finalized-events-2026-08-23'
+export const APIFY_ENRICH_EVENT_PRICES_USD = {
+  profile: APIFY_MEASURED_USD.profile_without_email,
+  profile_with_email: APIFY_MEASURED_USD.profile_with_email,
+} as const
+export const APIFY_ENRICH_RECEIPT_FIELDS = [
+  ...APIFY_RECEIPT_FIELDS,
+  'billing_finalized',
+  'charged_event_counts',
+  'provider_cost_usd',
+  'pricing_model',
+] as const
+
+const APIFY_ENRICH_BILLING_CONTRACT: ApifyFinalizedBillingContract = {
+  pricingModel: 'PAY_PER_EVENT',
+  eventPricesUsd: APIFY_ENRICH_EVENT_PRICES_USD,
+}
 
 /*
  * One profile per call. The actor accepts a `queries` array, but the waterfall
@@ -235,7 +254,10 @@ export function apifyEnrichDescriptor(env: ApifyEnv = processEnv()): AdapterDesc
       max_age_days: null,
       min_confidence: 0,
     },
-    ambiguity_contract: { timeout_is_ambiguous: true, receipt_fields: [...APIFY_RECEIPT_FIELDS] },
+    ambiguity_contract: {
+      timeout_is_ambiguous: true,
+      receipt_fields: [...APIFY_ENRICH_RECEIPT_FIELDS],
+    },
     // No per-subject deletion endpoint exists on a marketplace actor run.
     // Deletion is handled NOLI-SIDE (retention sweep + suppression list), which
     // is what a DSR actually acts on for this layer.
@@ -262,6 +284,8 @@ export type ApifyEnrichDeps = {
   fetchImpl?: ApifyFetchLike
   env?: ApifyEnv
   now?: () => Date
+  finalizationDelayMs?: number
+  sleep?: (delayMs: number) => Promise<void>
 }
 
 type ReceiptExtras = Record<string, unknown>
@@ -274,7 +298,16 @@ function receipt(
 ): Record<string, unknown> {
   // Always carries the declared ambiguity_contract.receipt_fields, on every
   // path including refusals.
-  return { actor_id: actorId, run_id: runId, item_count: itemCount, ...extras }
+  return {
+    actor_id: actorId,
+    run_id: runId,
+    item_count: itemCount,
+    billing_finalized: false,
+    charged_event_counts: null,
+    provider_cost_usd: null,
+    pricing_model: null,
+    ...extras,
+  }
 }
 
 function refusal(
@@ -287,7 +320,7 @@ function refusal(
     data: null,
     receipt: receipt(actorId, null, 0, extras),
     // a refusal never reached the provider, so nothing was attempted and
-    // nothing is billable, pay-per-attempt or not
+    // nothing is billable because the provider was never contacted
     cost_units: 0,
     error,
   }
@@ -301,13 +334,16 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
   const runActor: ApifyEnrichRunActorFn =
     deps.runActor ??
     ((actorId, input, options) =>
-      runActorSync(actorId, input, {
+      runActorWithFinalizedBilling(actorId, input, {
         token: options.token,
         timeoutMs: options.timeoutMs,
         maxItems: options.maxItems,
         maxChargeUsd: options.maxChargeUsd,
         now: options.now,
         fetchImpl: deps.fetchImpl,
+        billingContract: APIFY_ENRICH_BILLING_CONTRACT,
+        finalizationDelayMs: deps.finalizationDelayMs,
+        sleep: deps.sleep,
       }))
 
   return {
@@ -397,11 +433,17 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
           // the billing model, on every receipt, so a reconciler never has to
           // guess why a miss was still charged
           pay_per_attempt: true,
+          adaptive_event_billing: true,
           profile_scraper_mode: profileEnrichMode(withEmail),
           provider_status: outcome.kind,
           http_status: outcome.httpStatus,
           request_url: outcome.requestUrl,
           attempted_at: outcome.attemptedAt,
+          billing_contract_version: APIFY_ENRICH_BILLING_CONTRACT_VERSION,
+          billing_finalized: outcome.billingFinalized ?? false,
+          charged_event_counts: outcome.chargedEventCounts ?? null,
+          provider_cost_usd: outcome.providerCostUsd ?? null,
+          pricing_model: outcome.pricingModel ?? null,
           ...(outcome.retryAfterSeconds != null
             ? { retry_after_seconds: outcome.retryAfterSeconds }
             : {}),
@@ -418,9 +460,54 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
           ...extras,
         })
 
+      const finalizedBilling = (): {
+        costUnits: number
+        profileEvents: number
+        emailEvents: number
+      } | null => {
+        if (
+          typeof outcome.runId !== 'string' ||
+          outcome.runId.length === 0 ||
+          outcome.billingFinalized !== true ||
+          outcome.pricingModel !== APIFY_ENRICH_BILLING_CONTRACT.pricingModel ||
+          !Number.isFinite(outcome.providerCostUsd) ||
+          Number(outcome.providerCostUsd) < 0
+        ) {
+          return null
+        }
+        const counts = outcome.chargedEventCounts
+        if (!counts || typeof counts !== 'object' || Array.isArray(counts)) return null
+        const profileEvents = Number(counts.profile ?? 0)
+        const emailEvents = Number(counts.profile_with_email ?? 0)
+        if (
+          !Number.isSafeInteger(profileEvents) ||
+          profileEvents < 0 ||
+          !Number.isSafeInteger(emailEvents) ||
+          emailEvents < 0 ||
+          profileEvents + emailEvents > APIFY_ENRICH_MAX_BATCH ||
+          Object.entries(counts).some(
+            ([event, count]) =>
+              event !== 'profile' && event !== 'profile_with_email' && Number(count) > 0,
+          ) ||
+          (!withEmail && emailEvents > 0)
+        ) {
+          return null
+        }
+        const expectedCostUsd =
+          profileEvents * APIFY_ENRICH_EVENT_PRICES_USD.profile +
+          emailEvents * APIFY_ENRICH_EVENT_PRICES_USD.profile_with_email
+        if (Math.abs(Number(outcome.providerCostUsd) - expectedCostUsd) > 1e-6) return null
+        return {
+          costUnits:
+            Math.round((Number(outcome.providerCostUsd) / usdPerProfile(env)) * 1e6) / 1e6,
+          profileEvents,
+          emailEvents,
+        }
+      }
+
       // 5. Classify. Identical mapping to the source adapter (the client
       //    already turned HTTP/transport conditions into AdapterResult
-      //    statuses); only data and cost differ, because of pay-per-attempt.
+      //    statuses); only data and cost differ, because of adaptive events.
       if (outcome.status === 'ambiguous') {
         // Unknown spend: cost_units null so the wrapper parks the operation for
         // reconciliation instead of inferring a charge. Never retried.
@@ -442,20 +529,22 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
           error: outcome.error ?? 'provider error',
         }
       }
+      const billing = finalizedBilling()
+      if (!billing || (outcome.status === 'ok' && billing.profileEvents + billing.emailEvents !== 1)) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt(),
+          cost_units: null,
+          error: 'ambiguous provider outcome: finalized billing evidence is unavailable',
+        }
+      }
       if (outcome.status === 'no_result') {
-        /*
-         * The actor ran and returned zero profile rows. PAY-PER-ATTEMPT: we
-         * charge the attempt, exactly as we do for a returned profile with no
-         * email. UNVERIFIED EDGE: the live probe measured the charge for a
-         * returned-row-with-no-email run, not for a zero-row run. If an invoice
-         * ever shows $0.00 for zero rows, this branch (and only this branch)
-         * should drop to cost_units 0.
-         */
         return {
           status: 'no_result',
           data: null,
           receipt: providerReceipt({ emails_found: 0, email_state: 'not_found', profiles_attempted: 1 }),
-          cost_units: 1,
+          cost_units: billing.costUnits,
         }
       }
 
@@ -486,7 +575,17 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
             ...(normalized.profile.company ? { company: normalized.profile.company } : {}),
             ...(normalized.profile.title ? { title: normalized.profile.title } : {}),
           }),
-          cost_units: 1,
+          cost_units: billing.costUnits,
+        }
+      }
+
+      if (billing.emailEvents !== 1) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt(),
+          cost_units: null,
+          error: 'ambiguous provider outcome: returned email lacks its frozen billing event',
         }
       }
 
@@ -506,7 +605,7 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
          * for one. (Only the first address becomes a contact point; the rest
          * are not silently dropped into a second billable unit.)
          */
-        cost_units: 1,
+        cost_units: billing.costUnits,
       }
     },
   }

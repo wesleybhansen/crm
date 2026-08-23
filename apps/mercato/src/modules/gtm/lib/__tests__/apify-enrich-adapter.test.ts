@@ -3,9 +3,11 @@ import { enrichAdapterList } from '../adapters/registry'
 import { fixtureEnrichAdapter } from '../adapters/fixture'
 import {
   APIFY_MIN_CHARGE_USD,
+  runActorSync,
   type ApifyFetchInit,
   type ApifyFetchLike,
   type ApifyFetchResponse,
+  type ApifyRunOutcome,
 } from '../adapters/apify/client'
 import {
   APIFY_ENRICH_ACTOR,
@@ -24,6 +26,8 @@ import {
 import {
   APIFY_ENRICH_ADAPTER_ID,
   APIFY_ENRICH_PROVISIONAL_LICENSE,
+  APIFY_ENRICH_RECEIPT_FIELDS,
+  type ApifyEnrichRunActorFn,
   apifyEnrichEnabled,
   createApifyEnrichAdapter,
   resolveEnrichMaxChargeUsd,
@@ -94,6 +98,35 @@ function abortError(): Error {
   return err
 }
 
+function finalizedFakeRunner(fetchImpl: ApifyFetchLike): ApifyEnrichRunActorFn {
+  return async (actorId, input, options): Promise<ApifyRunOutcome> => {
+    const outcome = await runActorSync(actorId, input, { ...options, fetchImpl })
+    if (outcome.status !== 'ok' && outcome.status !== 'no_result') return outcome
+    const first = outcome.items[0]
+    const emails =
+      first && typeof first === 'object' && !Array.isArray(first)
+        ? (first as Record<string, unknown>).emails
+        : null
+    const emailEvent = Array.isArray(emails) && emails.length > 0
+    const providerCostUsd = outcome.status === 'no_result'
+      ? 0
+      : emailEvent
+        ? APIFY_MEASURED_USD.profile_with_email
+        : APIFY_MEASURED_USD.profile_without_email
+    return {
+      ...outcome,
+      runId: 'synthetic-finalized-run',
+      billingFinalized: true,
+      chargedEventCounts: {
+        profile: outcome.status === 'ok' && !emailEvent ? 1 : 0,
+        profile_with_email: outcome.status === 'ok' && emailEvent ? 1 : 0,
+      },
+      providerCostUsd,
+      pricingModel: 'PAY_PER_EVENT',
+    }
+  }
+}
+
 /*
  * VERIFIED profile-scraper payload shape (live probe 2026-07-24, recorded in
  * `Software Strategy/gtm-apify-verified-contract-2026-07-24.md`). The KEY SET
@@ -140,7 +173,11 @@ function expectReceiptContract(result: AdapterResult<unknown>) {
 
 function adapterWith(spec: FakeSpec, env: Record<string, string | undefined> = ENABLED_ENV) {
   const { fetchImpl, calls } = makeFetch(spec)
-  const adapter = createApifyEnrichAdapter({ fetchImpl, env, now })
+  const adapter = createApifyEnrichAdapter({
+    env,
+    now,
+    runActor: finalizedFakeRunner(fetchImpl),
+  })
   return { adapter, calls }
 }
 
@@ -229,7 +266,7 @@ describe('apify enrich adapter env gate', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Descriptor, and the pay-per-attempt cost model
+// Descriptor and adaptive event cost model
 // ---------------------------------------------------------------------------
 
 describe('apify enrich descriptor', () => {
@@ -252,8 +289,7 @@ describe('apify enrich descriptor', () => {
     }
   })
 
-  it('PAY-PER-ATTEMPT: pay_on_found is FALSE, because a live miss was still charged $0.01', () => {
-    // The contradiction that makes this adapter different from the source one.
+  it('keeps pay_on_found false because a no-email profile can still carry a profile event', () => {
     expect(adapter.descriptor.cost_model.pay_on_found).toBe(false)
     expect(adapter.descriptor.cost_model.unit).toBe('profile')
   })
@@ -286,7 +322,9 @@ describe('apify enrich descriptor', () => {
   it('declares timeout-is-ambiguous, the receipt fields, and no upstream deletion', () => {
     const descriptor = adapter.descriptor
     expect(descriptor.ambiguity_contract.timeout_is_ambiguous).toBe(true)
-    expect(descriptor.ambiguity_contract.receipt_fields).toEqual([...APIFY_RECEIPT_FIELDS])
+    expect(descriptor.ambiguity_contract.receipt_fields).toEqual([
+      ...APIFY_ENRICH_RECEIPT_FIELDS,
+    ])
     // deletion handled Noli-side (retention sweep + suppression)
     expect(descriptor.dsr.deletion_supported).toBe(false)
   })
@@ -439,8 +477,7 @@ describe('apify enrich status mapping', () => {
     expectReceiptContract(result)
     expect(result.receipt).toMatchObject({
       actor_id: APIFY_ENRICH_ACTOR.defaultActorId,
-      // VERIFIED: this endpoint surfaces no run id anywhere
-      run_id: null,
+      run_id: 'synthetic-finalized-run',
       item_count: 1,
       http_status: 201,
       emails_found: 1,
@@ -496,7 +533,7 @@ describe('apify enrich status mapping', () => {
     const result = await adapter.enrich(baseRequest)
     expect(result.status).toBe('ambiguous')
     expect(result.data).toBeNull()
-    // null, not 0 and not 1: pay-per-attempt does NOT let us assume a charge
+    // null, not 0 and not 1: ambiguity does not let us infer an event charge
     // when we do not know whether the run started
     expect(result.cost_units).toBeNull()
     expect(result.error).toContain('timeout')
@@ -527,11 +564,11 @@ describe('apify enrich status mapping', () => {
 })
 
 // ---------------------------------------------------------------------------
-// PAY-PER-ATTEMPT settlement (the money finding)
+// Adaptive event settlement
 // ---------------------------------------------------------------------------
 
-describe('apify enrich pay-per-attempt', () => {
-  it('an EMPTY emails array still settles a nonzero charge (a live miss cost $0.01)', async () => {
+describe('apify enrich adaptive event settlement', () => {
+  it('an empty emails array settles the finalized $0.004 profile event', async () => {
     const { adapter } = adapterWith({
       status: 201,
       body: JSON.stringify([profileItem({ emails: [] })]),
@@ -540,8 +577,7 @@ describe('apify enrich pay-per-attempt', () => {
 
     expect(result.status).toBe('no_result')
     expect(result.data).toBeNull()
-    // NOT zero: the provider billed the attempt
-    expect(result.cost_units).toBe(1)
+    expect(result.cost_units).toBe(0.4)
     expect(result.receipt).toMatchObject({
       emails_found: 0,
       email_state: 'not_found',
@@ -552,11 +588,11 @@ describe('apify enrich pay-per-attempt', () => {
     expect(result.receipt).toMatchObject({ company: 'Northwind Logistics' })
   })
 
-  it('a zero-row run is charged as an attempt too', async () => {
+  it('a zero-row, zero-event run reports zero charged units', async () => {
     const { adapter } = adapterWith({ status: 201, body: '[]' })
     const result = await adapter.enrich(baseRequest)
     expect(result.status).toBe('no_result')
-    expect(result.cost_units).toBe(1)
+    expect(result.cost_units).toBe(0)
     expect(result.receipt).toMatchObject({ emails_found: 0, email_state: 'not_found' })
   })
 
@@ -567,7 +603,11 @@ describe('apify enrich pay-per-attempt', () => {
       status: 201,
       body: JSON.stringify([profileItem({ emails: [] })]),
     })
-    const adapter = createApifyEnrichAdapter({ fetchImpl, env: ENABLED_ENV, now })
+    const adapter = createApifyEnrichAdapter({
+      env: ENABLED_ENV,
+      now,
+      runActor: finalizedFakeRunner(fetchImpl),
+    })
     const candidate = em.create(GtmCandidate, {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
@@ -599,12 +639,12 @@ describe('apify enrich pay-per-attempt', () => {
     // no contact point was written ...
     expect(summary.enriched).toBe(0)
     expect(em.table(GtmContactPoint)).toHaveLength(0)
-    // ... and the customer was STILL charged, because Apify still billed us:
-    // 1 profile x 2,500 quoted x 2 markup = 5,000 credits ($0.02 at 2x on $0.01)
+    // ... and the customer is charged only for the finalized $0.004 event:
+    // 0.4 quoted units x 2,500 credits x 2 markup = 2,000 credits.
     const op = ledger.listOperations()[0]
     expect(op.status).toBe('charged')
-    expect(op.chargedCredits).toBe(5_000)
-    expect(summary.credits).toBe(5_000)
+    expect(op.chargedCredits).toBe(2_000)
+    expect(summary.credits).toBe(2_000)
   })
 })
 
@@ -842,7 +882,11 @@ describe('apify enrich mandatory spend cap', () => {
       status: 201,
       body: JSON.stringify([profileItem()]),
     })
-    const adapter = createApifyEnrichAdapter({ fetchImpl, env: ENABLED_ENV, now })
+    const adapter = createApifyEnrichAdapter({
+      env: ENABLED_ENV,
+      now,
+      runActor: finalizedFakeRunner(fetchImpl),
+    })
     const candidate = em.create(GtmCandidate, {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
