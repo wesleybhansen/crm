@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C1 inert lifecycle closeout and C2 dark mailbox lifecycle implemented and locally verified. The module remains inert: no provider call, shared or production migration, deployment, outreach, or customer exposure is authorized by this spec.
+**Status:** C0-R25 implemented through the owner-only dark provider golden motion and deployed on the controlled CRM host. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -882,9 +882,9 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 
 | Phase | Status | Date | Notes |
 |---|---|---|---|
-| R25-A - exact verifier contract | Completed locally | 2026-08-23 | Apify actor/build/rate, conservative proof mapping, canonical spend cap, and redacted evidence frozen |
-| R25-B - deterministic implementation | Completed locally | 2026-08-23 | 74/75 CRM GTM suites and 815 tests pass (only the opt-in PostgreSQL suite skipped); CRM/Hub typechecks and production builds pass; Hub 1,229 tests pass; no provider call, schema, mailbox, or email change |
-| R25-C - owner-only golden motion | Corrective patch in progress | 2026-08-23 | The first owned Gmail run safely returned risky/free-provider with SMTP method and no send, but exposed a provider metadata/billing mismatch: Apify charged $0.004 while the initial ledger settled $0.001 before markup; verifier was disabled immediately pending the observed-per-row settlement patch and one clean rerun |
+| R25-A - exact verifier contract | Completed and dark-deployed | 2026-08-23 | Apify actor/build/rate, conservative proof mapping, canonical spend cap, and redacted evidence frozen; merged in CRM PR #65 and corrected in PR #66 |
+| R25-B - deterministic implementation | Completed and dark-deployed | 2026-08-23 | 74/75 CRM GTM suites and 816 tests pass (only the opt-in PostgreSQL suite skipped); CRM/Hub typechecks and production builds pass; Hub 1,229 tests pass; no schema, mailbox, or email-send change |
+| R25-C - owner-only golden motion | Completed dark | 2026-08-23 | A corrected rerun on one owned Gmail address returned the expected conservative risky/free-provider result with SMTP method and confidence 5. Apify charged `$0.004`; the canonical ledger reserved 5,000 credits and charged 2,000 after the 2x markup. Transitions were `reserved` -> `provider_started` -> `charged`; the durable receipt contained no raw address, no message was sent, and all product-facing fixture rows were soft-deleted after verification. |
 
 ## 36. Changelog
 
@@ -930,3 +930,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Approved R25's exact Apify email-verification contract. The selected build can promote only explicit non-catch-all SMTP proof; incomplete results stay honestly risky, not-found, or unknown. LeadMagic/Bouncer and every email execution or ingestion gate remain off.
 - 2026-08-23: Completed R25-A/B locally. Added the separately gated Apify verifier, immutable provider cap and event settlement, redacted provenance, selected-provider catalog disclosure, and customer-language Hub results; all deterministic validation passed without a provider call.
 - 2026-08-23: The first owner-only R25 golden returned a conservative risky/free-provider result with explicit SMTP method, build `0.1.49`, no ambiguity, and no email send. Apify's run ledger charged `$0.004` despite confidence 5, contradicting the published event-threshold description; Noli initially settled only the `$0.001` start event before markup. The capability was disabled immediately and the contract was version-bumped to charge every emitted row before any rerun.
+- 2026-08-23: Completed the corrected R25 owner-only golden. The same pinned build returned the expected conservative risky/free-provider classification for one owned address and again billed `$0.004`; Noli reserved 5,000 credits and settled exactly 2,000 after markup. The canonical transitions were `reserved` -> `provider_started` -> `charged`, the durable provider receipt remained address-redacted, no email was sent, and the disposable product rows were soft-deleted. The exact verifier gate is on only for the owner-only dark flow; execution, mailbox ingestion, LeadMagic, Bouncer, and public GTM promotion remain off.
