@@ -192,6 +192,17 @@ test.describe('GTM R2 no-send activation rehearsal', () => {
     })
     expect(postalResponse.status()).toBe(200)
 
+    const overviewResponse = await postGtm(request, '/internal/gtm/overview', {
+      noliUserId: GTM_FIXTURE_NOLI_USER_ID,
+    })
+    expect(overviewResponse.status()).toBe(200)
+    const overview = await body(overviewResponse)
+    expect(overview.workspace).toMatchObject({
+      id: imported.data.workspaceId,
+      postal_address: '100 Synthetic Way, Test City, CA 94105',
+      postal_address_set: true,
+    })
+
     const draftResponse = await postGtm(request, '/internal/gtm/campaigns', {
       op: 'draft-state',
       noliUserId: GTM_FIXTURE_NOLI_USER_ID,
