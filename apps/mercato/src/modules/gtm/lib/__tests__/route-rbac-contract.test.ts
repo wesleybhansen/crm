@@ -13,6 +13,7 @@ describe('GTM internal route RBAC contract', () => {
     // account-free compliance path and carries no represented noliUserId.
     const protectedRoutes = routeNames.filter((name) => name !== 'removal-request')
     expect(protectedRoutes).toEqual([
+      'auto-refill',
       'campaigns',
       'candidates',
       'chat',

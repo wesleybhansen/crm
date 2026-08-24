@@ -19,6 +19,7 @@ import { projectCampaignCredits, type CreditProjection } from './project-credits
 import { computeExecutionEligibility, type EligibilityResult } from '../eligibility'
 import {
   GtmAuditEvent,
+  GtmAutoRefillPolicy,
   GtmCampaign,
   GtmCampaignVersion,
   GtmCandidate,
@@ -334,6 +335,7 @@ export async function computeDraftState(
       sender_mailbox_id: settings.mailbox_connection_id,
       sender,
       duplicate_override: settings.duplicate_override,
+      auto_refill: settings.auto_refill,
       // CAN-SPAM sender address frozen into the snapshot: the reviewer
       // approves the exact footer address, and setting or changing it
       // invalidates the reviewed draft hash.
@@ -796,6 +798,12 @@ export async function invalidateCurrentVersion(
   })
 
   await em.transactional(async (tem) => {
+    const autoRefillPolicy = await tem.findOne(GtmAutoRefillPolicy, {
+      campaignId: campaign.id,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      deletedAt: null,
+    })
     if (version && !version.invalidatedAt) {
       // Only the invalidation stamp changes; snapshot and content_hash stay
       // frozen forever (the version is an immutable record).
@@ -806,6 +814,12 @@ export async function invalidateCurrentVersion(
     campaign.status = 'draft'
     campaign.currentVersionId = null
     tem.persist(campaign)
+    if (autoRefillPolicy) {
+      autoRefillPolicy.status = 'blocked'
+      autoRefillPolicy.blockedReason = 'campaign_version_invalidated'
+      autoRefillPolicy.fence += 1
+      tem.persist(autoRefillPolicy)
+    }
     const audit = tem.create(GtmAuditEvent, {
       organizationId: ctx.organizationId,
       tenantId: ctx.tenantId,
@@ -816,7 +830,11 @@ export async function invalidateCurrentVersion(
       objectId: version?.id ?? campaign.currentVersionId,
       objectVersion: version?.version ?? null,
       requestId: ctx.requestId ?? null,
-      metadata: { campaign_id: campaign.id, reason },
+      metadata: {
+        campaign_id: campaign.id,
+        reason,
+        auto_refill_policy_id: autoRefillPolicy?.id ?? null,
+      },
     })
     tem.persist(audit)
     await tem.flush()

@@ -241,6 +241,34 @@ const campaignChannelMixSchema = z.object({
   x: z.boolean().optional(),
 })
 
+const campaignAutoRefillSchema = z.object({
+  enabled: z.boolean().optional(),
+  target_accepted_per_day: z.number().int().min(1).max(25).optional(),
+  max_raw_candidates_per_day: z.number().int().min(1).max(100).optional(),
+  max_credits_per_day: z.number().int().min(1).max(2_500_000).optional(),
+  run_hour_local: z.number().int().min(0).max(23).optional(),
+  plan_hash: z.string().regex(/^[a-f0-9]{64}$/).optional().nullable(),
+}).superRefine((value, ctx) => {
+  if (value.enabled === true && !value.plan_hash) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['plan_hash'],
+      message: 'plan_hash is required when auto-refill is enabled',
+    })
+  }
+  if (
+    value.target_accepted_per_day != null
+    && value.max_raw_candidates_per_day != null
+    && value.target_accepted_per_day > value.max_raw_candidates_per_day
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['target_accepted_per_day'],
+      message: 'target_accepted_per_day cannot exceed max_raw_candidates_per_day',
+    })
+  }
+})
+
 // daily_cap is deliberately NOT capped here: the campaign library rejects
 // values above the hard ceiling with an explicit, testable error code.
 const campaignSettingsSchema = z.object({
@@ -255,6 +283,7 @@ const campaignSettingsSchema = z.object({
   jitter_minutes: z.number().int().min(0).max(120).optional(),
   mailbox_connection_id: idString.optional().nullable(),
   duplicate_override: z.boolean().optional(),
+  auto_refill: campaignAutoRefillSchema.optional(),
 })
 
 export const gtmCampaignsBodySchema = z.discriminatedUnion('op', [
@@ -315,6 +344,7 @@ export const gtmCampaignsBodySchema = z.discriminatedUnion('op', [
       jitter_minutes: z.number().int().min(0).max(120),
       mailbox_connection_id: idString.nullable(),
       duplicate_override: z.boolean(),
+      auto_refill: campaignAutoRefillSchema.optional(),
     }),
   }),
   z.object({
@@ -386,6 +416,49 @@ export const gtmCampaignsBodySchema = z.discriminatedUnion('op', [
     postal_address: z.string().max(2000).optional().nullable(),
   }),
 ])
+
+const autoRefillLimitsSchema = z.object({
+  targetAccepted: z.number().int().min(1).max(25),
+  maxRawCandidates: z.number().int().min(1).max(100),
+  maxCredits: z.number().int().min(1).max(2_500_000),
+}).superRefine((value, ctx) => {
+  if (value.targetAccepted > value.maxRawCandidates) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['targetAccepted'],
+      message: 'targetAccepted cannot exceed maxRawCandidates',
+    })
+  }
+})
+
+export const gtmAutoRefillBodySchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('plan'),
+    noliUserId: idString,
+    campaignId: idString,
+    limits: autoRefillLimitsSchema,
+    run_hour_local: z.number().int().min(0).max(23),
+  }),
+  z.object({
+    op: z.literal('status'),
+    noliUserId: idString,
+    campaignId: idString,
+  }),
+  z.object({
+    op: z.literal('activate'),
+    noliUserId: idString,
+    campaignId: idString,
+    expected_content_hash: z.string().regex(/^[a-f0-9]{64}$/),
+    expected_plan_hash: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+  z.object({
+    op: z.literal('pause'),
+    noliUserId: idString,
+    campaignId: idString,
+  }),
+])
+
+export type GtmAutoRefillBody = z.infer<typeof gtmAutoRefillBodySchema>
 
 export type GtmCampaignsBody = z.infer<typeof gtmCampaignsBodySchema>
 

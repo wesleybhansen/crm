@@ -784,6 +784,176 @@ export class GtmCampaignVersion {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'gtm_auto_refill_policies' })
+@Index({ name: 'gtm_auto_refill_policies_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'gtm_auto_refill_policies_org_tenant_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+@Unique({ name: 'gtm_auto_refill_policies_org_tenant_campaign_unique', properties: ['organizationId', 'tenantId', 'campaignId'] })
+export class GtmAutoRefillPolicy {
+  [OptionalProps]?: 'id' | 'status' | 'fence' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => GtmWorkspace, { fieldName: 'workspace_id', mapToPk: true })
+  workspaceId!: string
+
+  @ManyToOne(() => GtmPlay, { fieldName: 'play_id', mapToPk: true })
+  playId!: string
+
+  @ManyToOne(() => GtmCampaign, { fieldName: 'campaign_id', mapToPk: true })
+  campaignId!: string
+
+  @ManyToOne(() => GtmCampaignVersion, { fieldName: 'campaign_version_id', mapToPk: true })
+  campaignVersionId!: string
+
+  // Noli Core identities are cross-system plain UUIDs, not ORM relations.
+  @Property({ name: 'represented_noli_user_id', type: 'uuid' })
+  representedNoliUserId!: string
+
+  @Property({ name: 'noli_organization_id', type: 'uuid' })
+  noliOrganizationId!: string
+
+  // CRM user identity re-resolved from the represented Noli user at activation.
+  @Property({ name: 'requested_by_user_id', type: 'uuid' })
+  requestedByUserId!: string
+
+  // pending_schedule | active | paused | blocked
+  @Property({ type: 'text', default: 'pending_schedule' })
+  status: string = 'pending_schedule'
+
+  @Property({ name: 'policy_hash', type: 'text' })
+  policyHash!: string
+
+  @Property({ name: 'campaign_content_hash', type: 'text' })
+  campaignContentHash!: string
+
+  @Property({ name: 'plan_hash', type: 'text' })
+  planHash!: string
+
+  @Property({ name: 'target_accepted_per_day', type: 'integer' })
+  targetAcceptedPerDay!: number
+
+  @Property({ name: 'max_raw_candidates_per_day', type: 'integer' })
+  maxRawCandidatesPerDay!: number
+
+  @Property({ name: 'max_credits_per_day', type: 'integer' })
+  maxCreditsPerDay!: number
+
+  @Property({ name: 'run_hour_local', type: 'integer' })
+  runHourLocal!: number
+
+  @Property({ type: 'text' })
+  timezone!: string
+
+  @Property({ name: 'scheduled_job_id', type: 'text' })
+  scheduledJobId!: string
+
+  @Property({ type: 'integer', default: 0 })
+  fence: number = 0
+
+  @Property({ name: 'blocked_reason', type: 'text', nullable: true })
+  blockedReason?: string | null
+
+  @Property({ name: 'last_cycle_local_date', type: 'text', nullable: true })
+  lastCycleLocalDate?: string | null
+
+  @Property({ name: 'last_cycle_at', type: 'timestamptz', nullable: true })
+  lastCycleAt?: Date | null
+
+  @Property({ name: 'last_success_at', type: 'timestamptz', nullable: true })
+  lastSuccessAt?: Date | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gtm_auto_refill_cycles' })
+@Index({ name: 'gtm_auto_refill_cycles_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'gtm_auto_refill_cycles_policy_status_idx', properties: ['policyId', 'status'] })
+@Unique({ name: 'gtm_auto_refill_cycles_policy_local_date_unique', properties: ['policyId', 'localDate'] })
+export class GtmAutoRefillCycle {
+  [OptionalProps]?: 'id' | 'status' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => GtmAutoRefillPolicy, { fieldName: 'policy_id', mapToPk: true })
+  policyId!: string
+
+  @ManyToOne(() => GtmCampaign, { fieldName: 'campaign_id', mapToPk: true })
+  campaignId!: string
+
+  @ManyToOne(() => GtmCampaignVersion, { fieldName: 'campaign_version_id', mapToPk: true })
+  campaignVersionId!: string
+
+  @ManyToOne(() => GtmPlay, { fieldName: 'play_id', mapToPk: true })
+  playId!: string
+
+  @ManyToOne(() => GtmResearchRun, {
+    fieldName: 'research_run_id',
+    mapToPk: true,
+    nullable: true,
+  })
+  researchRunId?: string | null
+
+  // YYYY-MM-DD in the policy timezone.
+  @Property({ name: 'local_date', type: 'text' })
+  localDate!: string
+
+  @Property({ name: 'policy_hash', type: 'text' })
+  policyHash!: string
+
+  @Property({ name: 'campaign_content_hash', type: 'text' })
+  campaignContentHash!: string
+
+  @Property({ name: 'plan_hash', type: 'text' })
+  planHash!: string
+
+  // planned | running | completed | failed | blocked | reconciliation_required
+  @Property({ type: 'text', default: 'planned' })
+  status: string = 'planned'
+
+  @Property({ name: 'failure_code', type: 'text', nullable: true })
+  failureCode?: string | null
+
+  // Count-only, bounded research outcome. Never provider rows or person data.
+  @Property({ type: 'jsonb', nullable: true })
+  result?: Record<string, unknown> | null
+
+  @Property({ name: 'started_at', type: 'timestamptz', nullable: true })
+  startedAt?: Date | null
+
+  @Property({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt?: Date | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'gtm_enrollments' })
 @Index({ name: 'gtm_enrollments_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'gtm_enrollments_org_tenant_campaign_idx', properties: ['organizationId', 'tenantId', 'campaignId'] })
