@@ -111,6 +111,14 @@ R40 must stop and keep execution/ingestion off if any of the following occurs:
 - any suppression, bounce, complaint, or mailbox pause before dispatch;
 - daily source credits above 25,000 or sends above one.
 
+## Production deployment observation
+
+PR `#82` merged as `3e687d9aecadbfa5b64d39eb4ed46b8f5b6041c9` after the CRM regression, full test, ephemeral integration, and Docker-image lanes passed. Production was fast-forwarded to that exact commit and built successfully. Execution, mailbox ingestion, and auto-refill were still unset during deployment, so no queue item, campaign launch, attempt, or provider call could occur.
+
+The first dedicated worker start then failed closed because the production `yarn workspaces focus @open-mercato/app --production` layer omitted `imapflow`. The repository root declared the mail packages, but the app workspace that owns the GTM runtime did not. The full development install masked that packaging boundary. The worker was stopped before ingestion was enabled. The app itself remained healthy; Nginx needed one restart after the app container IP changed and then returned HTTP 200 again.
+
+R41 makes `imapflow`, `mailparser`, and `nodemailer` direct app production dependencies and adds a manifest regression test. The worker must import and remain running from the rebuilt production image before mailbox ingestion is enabled. No GTM execution flag may change until that proof passes.
+
 ## Remaining R40 sequence
 
 1. Merge and deploy the app-worker discovery correction plus the isolated Redis-backed GTM mailbox worker.
