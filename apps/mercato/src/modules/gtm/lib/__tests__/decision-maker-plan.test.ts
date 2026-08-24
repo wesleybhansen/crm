@@ -85,9 +85,9 @@ describe('decision-maker plan and qualification', () => {
       company_position: 1,
       attempt: 1,
       max_profiles: 5,
-      provider_units: 50,
+      provider_units: 60,
       quoted_credits_per_unit: 250,
-      maximum_credits: 25_000,
+      maximum_credits: 30_000,
       price_version: APIFY_COMPANY_EMPLOYEES_REQUIRED_PRICE_VERSION,
     }))
     expect(first.companies[0]?.domain).toBe('first-dental.com')

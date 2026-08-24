@@ -1,10 +1,14 @@
 import type { ApifyRunOutcome } from '../adapters/apify/client'
 import {
   APIFY_COMPANY_EMPLOYEES_ACTOR_ENV,
+  APIFY_COMPANY_EMPLOYEES_ACTOR_BUILD,
   APIFY_COMPANY_EMPLOYEES_ACTOR_ID,
   APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD,
   APIFY_COMPANY_EMPLOYEES_ADAPTER_ID,
   APIFY_COMPANY_EMPLOYEES_BASIC_PROFILE_USD,
+  APIFY_COMPANY_EMPLOYEES_DATASET_BYTES,
+  APIFY_COMPANY_EMPLOYEES_DATASET_FIELDS,
+  APIFY_COMPANY_EMPLOYEES_FULL_PROFILE_USD,
   APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_UNITS,
   APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_USD,
   APIFY_COMPANY_EMPLOYEES_PRICE_VERSION_ENV,
@@ -73,6 +77,10 @@ function outcome(values: Partial<ApifyRunOutcome> = {}): ApifyRunOutcome {
       'https://api.apify.com/v2/acts/harvestapi~linkedin-company-employees/run-sync-get-dataset-items?token=[redacted]',
     attemptedAt: CLOCK.toISOString(),
     error: null,
+    billingFinalized: true,
+    chargedEventCounts: { 'actor-start': 1 },
+    providerCostUsd: APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD,
+    pricingModel: 'PAY_PER_EVENT',
     ...values,
   }
 }
@@ -107,6 +115,20 @@ function employeeItem(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function fullEmployeeItem(overrides: Record<string, unknown> = {}) {
+  return employeeItem({
+    currentPosition: [{ companyName: 'Example Dental' }],
+    experience: [{
+      position: 'Practice Owner',
+      companyName: 'Example Dental',
+      companyLinkedinUrl: 'https://www.linkedin.com/company/3617662',
+      companyId: '3617662',
+      endDate: { text: 'Present' },
+    }],
+    ...overrides,
+  })
+}
+
 describe('Apify company-employees decision-maker contract', () => {
   it('extracts only stable numeric company ids from source evidence', () => {
     expect(linkedInCompanyIdsFromEvidence([
@@ -129,7 +151,7 @@ describe('Apify company-employees decision-maker contract', () => {
     })).toBe(false)
   })
 
-  it('reserves the provider minimum while settling at the conservative profile price', () => {
+  it('reserves the provider minimum while quoting the frozen full-profile price', () => {
     const adapter = createApifyCompanyEmployeesAdapter({ env: ENABLED_ENV, now })
     expect(adapter.descriptor).toEqual(expect.objectContaining({
       adapter_id: APIFY_COMPANY_EMPLOYEES_ADAPTER_ID,
@@ -142,27 +164,28 @@ describe('Apify company-employees decision-maker contract', () => {
       }),
     }))
     expect(APIFY_COMPANY_EMPLOYEES_BASIC_PROFILE_USD).toBe(0.003)
-    expect(APIFY_COMPANY_EMPLOYEES_QUOTED_PROFILE_USD).toBe(0.004)
+    expect(APIFY_COMPANY_EMPLOYEES_FULL_PROFILE_USD).toBe(0.008)
+    expect(APIFY_COMPANY_EMPLOYEES_QUOTED_PROFILE_USD).toBe(0.008)
     expect(APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD).toBe(0.02)
     expect(APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_USD).toBe(0.05)
-    expect(APIFY_COMPANY_EMPLOYEES_PROFILE_UNITS).toBe(4)
+    expect(APIFY_COMPANY_EMPLOYEES_PROFILE_UNITS).toBe(8)
     expect(APIFY_COMPANY_EMPLOYEES_START_UNITS).toBe(20)
     expect(APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_UNITS).toBe(50)
     expect(adapter.quote(PLAN)).toEqual({
       max_companies: 1,
       max_profiles: 5,
-      provider_units: 50,
+      provider_units: 60,
       billable_unit: 'apify_millidollar',
       quoted_credits_per_unit: 250,
-      estimated_credits_before_markup: 12_500,
+      estimated_credits_before_markup: 15_000,
     })
     expect(adapter.quote({ ...PLAN, max_profiles: 25 })).toEqual(expect.objectContaining({
-      provider_units: 120,
-      estimated_credits_before_markup: 30_000,
+      provider_units: 220,
+      estimated_credits_before_markup: 55_000,
     }))
   })
 
-  it('builds only the bounded all-at-once Basic request', () => {
+  it('builds only the bounded all-at-once full-profile request', () => {
     expect(buildApifyCompanyEmployeesInput(PLAN)).toEqual({
       profileScraperMode: APIFY_COMPANY_EMPLOYEES_PROFILE_MODE,
       maxItems: 5,
@@ -206,6 +229,14 @@ describe('Apify company-employees decision-maker contract', () => {
         position: 'Owner',
         companyName: 'Example Dental',
         companyLinkedinUrl: 'https://www.linkedin.com/company/another-company/',
+      }],
+    }), CLOCK.toISOString(), COMPANIES)).toBeNull()
+    expect(normalizeApifyCompanyEmployeeItem(employeeItem({
+      currentPosition: [{
+        position: 'Former Owner',
+        companyName: 'Example Dental',
+        companyLinkedinUrl: 'https://www.linkedin.com/company/example-dental/',
+        current: false,
       }],
     }), CLOCK.toISOString(), COMPANIES)).toBeNull()
   })
@@ -271,6 +302,32 @@ describe('Apify company-employees decision-maker contract', () => {
     }), CLOCK.toISOString(), COMPANIES)).toBeNull()
   })
 
+  it('uses only a current full-profile experience with a strong frozen company alias', () => {
+    expect(normalizeApifyCompanyEmployeeItem(
+      fullEmployeeItem(),
+      CLOCK.toISOString(),
+      COMPANIES,
+    )).toEqual(expect.objectContaining({ current_title: 'Practice Owner' }))
+    expect(normalizeApifyCompanyEmployeeItem(fullEmployeeItem({
+      experience: [{
+        position: 'Former Owner',
+        companyName: 'Example Dental',
+        companyLinkedinUrl: 'https://www.linkedin.com/company/3617662',
+        companyId: '3617662',
+        endDate: { text: 'Dec 2024' },
+      }],
+    }), CLOCK.toISOString(), COMPANIES)).toBeNull()
+    expect(normalizeApifyCompanyEmployeeItem(fullEmployeeItem({
+      experience: [{
+        position: 'Practice Owner',
+        companyName: 'Another Company',
+        companyLinkedinUrl: 'https://www.linkedin.com/company/9999999',
+        companyId: '9999999',
+        endDate: { text: 'Present' },
+      }],
+    }), CLOCK.toISOString(), COMPANIES)).toBeNull()
+  })
+
   it('rejects a multi-company plan before provider contact', async () => {
     const runActor = jest.fn()
     const result = await createApifyCompanyEmployeesAdapter({
@@ -293,11 +350,13 @@ describe('Apify company-employees decision-maker contract', () => {
     expect(runActor).not.toHaveBeenCalled()
   })
 
-  it('executes once, excludes raw body data, and charges returned profiles plus one start', async () => {
+  it('executes once, excludes raw body data, and settles the finalized provider charge', async () => {
     const runActor = jest.fn(async () => outcome({
-      items: [employeeItem()],
+      items: [fullEmployeeItem()],
       itemCount: 1,
       bodySnippet: '[{"about":"synthetic personal biography"}]',
+      chargedEventCounts: { 'actor-start': 1, 'full-profile': 1 },
+      providerCostUsd: 0.028,
     }))
     const result = await createApifyCompanyEmployeesAdapter({
       env: ENABLED_ENV,
@@ -311,18 +370,25 @@ describe('Apify company-employees decision-maker contract', () => {
       companyBatchMode: 'all_at_once',
     }))
     expect(runActor.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
+      build: APIFY_COMPANY_EMPLOYEES_ACTOR_BUILD,
       maxItems: 5,
       maxChargeUsd: 0.05,
+      datasetFields: [...APIFY_COMPANY_EMPLOYEES_DATASET_FIELDS],
+      maxDatasetBodyBytes: APIFY_COMPANY_EMPLOYEES_DATASET_BYTES,
     }))
     expect(result).toEqual(expect.objectContaining({
       status: 'ok',
-      cost_units: 24,
+      cost_units: 28,
       data: [expect.objectContaining({ current_title: 'Practice Owner' })],
       receipt: expect.objectContaining({
         actor_id: APIFY_COMPANY_EMPLOYEES_ACTOR_ID,
+        actor_build: APIFY_COMPANY_EMPLOYEES_ACTOR_BUILD,
         profile_mode: APIFY_COMPANY_EMPLOYEES_PROFILE_MODE,
         actor_start_billed: true,
         item_count: 1,
+        billing_finalized: true,
+        provider_cost_usd: 0.028,
+        charged_event_counts: { 'actor-start': 1, 'full-profile': 1 },
       }),
     }))
     expect(result.receipt).not.toHaveProperty('body_snippet')
@@ -334,12 +400,34 @@ describe('Apify company-employees decision-maker contract', () => {
       now,
       runActor: async () => outcome({
         kind: 'no_result', status: 'no_result', items: [], itemCount: 0,
+        providerCostUsd: 0.02,
       }),
     }).resolve(PLAN)
     expect(result).toEqual(expect.objectContaining({
       status: 'no_result',
       cost_units: 20,
       receipt: expect.objectContaining({ actor_start_billed: true }),
+    }))
+  })
+
+  it('parks a result whose durable run billing is not finalized', async () => {
+    const result = await createApifyCompanyEmployeesAdapter({
+      env: ENABLED_ENV,
+      now,
+      runActor: async () => outcome({
+        items: [fullEmployeeItem()],
+        itemCount: 1,
+        billingFinalized: false,
+        chargedEventCounts: null,
+        providerCostUsd: null,
+        pricingModel: null,
+      }),
+    }).resolve(PLAN)
+    expect(result).toEqual(expect.objectContaining({
+      status: 'ambiguous',
+      data: null,
+      cost_units: null,
+      error: expect.stringContaining('receipt was not finalized'),
     }))
   })
 
@@ -371,13 +459,15 @@ describe('Apify company-employees decision-maker contract', () => {
       env: ENABLED_ENV,
       now,
       runActor: async () => outcome({
-        items: [employeeItem(), { unexpected: true }],
+        items: [fullEmployeeItem(), { unexpected: true }],
         itemCount: 2,
+        chargedEventCounts: { 'actor-start': 1, 'full-profile': 2 },
+        providerCostUsd: 0.036,
       }),
     }).resolve(PLAN)
     expect(result).toEqual(expect.objectContaining({
       status: 'partial',
-      cost_units: 28,
+      cost_units: 36,
       data: [expect.objectContaining({ current_title: 'Practice Owner' })],
       receipt: expect.objectContaining({
         item_count: 2,

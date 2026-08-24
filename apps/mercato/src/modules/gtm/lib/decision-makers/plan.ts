@@ -262,7 +262,7 @@ export function buildDecisionMakerPlan(args: {
     terms_version: frozen.terms_version,
     descriptor_hash: frozen.descriptor_hash,
     note: companies.length > 0
-      ? 'One company is checked at a time so every person stays attributable. Basic profile discovery creates named people only; verified email remains a separate gate.'
+      ? 'One company is checked at a time so every person stays attributable. Full-profile employment evidence creates named people only; verified email remains a separate gate.'
       : 'Every eligible accepted company in this run has been checked for this lead set.',
   }
 }

@@ -57,6 +57,10 @@ function actorOutcome(values: Partial<ApifyRunOutcome> = {}): ApifyRunOutcome {
     requestUrl: 'https://api.apify.test/redacted',
     attemptedAt: CLOCK.toISOString(),
     error: null,
+    billingFinalized: true,
+    chargedEventCounts: { 'actor-start': 1, 'full-profile': 1 },
+    providerCostUsd: 0.028,
+    pricingModel: 'PAY_PER_EVENT',
     ...values,
   }
 }
@@ -160,7 +164,7 @@ describe('decision-maker execution', () => {
     })
     expect(result).toEqual(expect.objectContaining({
       outcome: 'ok',
-      charged_credits: 12_000,
+      charged_credits: 14_000,
       reconciliation_required: false,
       people_created: 1,
       matches_created: 1,
@@ -173,8 +177,8 @@ describe('decision-maker execution', () => {
     expect(runActor).toHaveBeenCalledTimes(1)
     expect(ledger.listOperations()[0]).toEqual(expect.objectContaining({
       status: 'charged',
-      estimatedCredits: 25_000,
-      chargedCredits: 12_000,
+      estimatedCredits: 30_000,
+      chargedCredits: 14_000,
     }))
     const people = em.table(GtmCandidate).filter((candidate) => candidate.entityKind === 'person')
     expect(people).toHaveLength(1)
