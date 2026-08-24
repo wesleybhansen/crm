@@ -328,6 +328,12 @@ describe('Apify company-employees decision-maker contract', () => {
     }), CLOCK.toISOString(), COMPANIES)).toBeNull()
   })
 
+  it('rejects a current position that carries no independent employer binding', () => {
+    expect(normalizeApifyCompanyEmployeeItem(employeeItem({
+      currentPosition: [{ position: 'Practice Owner' }],
+    }), CLOCK.toISOString(), COMPANIES)).toBeNull()
+  })
+
   it('rejects a multi-company plan before provider contact', async () => {
     const runActor = jest.fn()
     const result = await createApifyCompanyEmployeesAdapter({

@@ -440,13 +440,7 @@ export function normalizeApifyCompanyEmployeeItem(
     return Boolean(
       entry.companyName && normalizedCompanyName(entry.companyName) === parentName,
     )
-  }) ?? (
-    positions.length === 1
-    && !positions[0].companyUrl
-    && !positions[0].companyName
-      ? positions[0]
-      : null
-  )
+  })
   if (!position) return null
   const location = locationIdentity(row.location)
   const identity: CandidateIdentity = {
