@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0-R29 is merged and dark-deployed through the additive canonical credit correction. R30 is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+**Status:** C0-R31 is merged and dark-deployed through exact lead-table email readiness. R32 exact recipient-by-step review is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -1015,10 +1015,37 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 
 | Phase | Status | Date | Notes |
 |---|---|---|---|
-| R31-A - exact candidate email rollup | Completed locally | 2026-08-23 | Additive state/count projection and deterministic precedence tests implemented with the existing two grouped queries; CRM passes 78 suites/858 tests with the opt-in PostgreSQL suite skipped |
-| R31-B - actionable People-table state | Completed locally | 2026-08-23 | Exact customer labels and public-website provider name added to the Origami-style lead table; Hub passes 1,238 tests, typecheck, and production build; verification remains a separate safety gate |
+| R31-A - exact candidate email rollup | Completed and dark-deployed | 2026-08-23 | Additive state/count projection and deterministic precedence tests implemented with the existing two grouped queries; exact CRM main `3a8e5937940ab9dc5d50531e7b7ba0a2ed038dda` is deployed app-only with no migration or flag change |
+| R31-B - actionable People-table state | Completed and dark-deployed | 2026-08-23 | Exact customer labels and public-website provider name are deployed on exact Hub main `c7079fbdd184a09f361219209da266fb912eaf7c`; signed-out GTM access remains protected and verification remains a separate safety gate |
 
-## 41. Changelog
+## 41. R32 exact recipient-by-step campaign review (approved 2026-08-23)
+
+### 41.1 Approval read contract
+
+- The campaign draft response must preserve every frozen recipient-by-email-step artifact required to understand the exact approval envelope. Each rendered row exposes additive `step_key`, `step_order`, `content_hash`, `word_count`, and `quality_issues` fields alongside the existing recipient, subject, body, missing-field, provenance, and review truth.
+- `content_hash` is the immutable rendered-message hash already consumed by campaign approval and execution; the read route does not synthesize or recompute it. Step identity/order come from the frozen campaign draft and cannot be inferred from array position.
+- The additive fields do not remove or reinterpret any existing response field. A rolling Hub deployment remains readable against the CRM-first rollout order.
+
+### 41.2 Origami-style review and safety boundary
+
+- Hub groups rendered rows by recipient without overwriting later steps, sorts them by frozen step order/key, and displays the sequence map, delay, provenance, word count, deterministic quality findings, exact subject/body/footer, and a short display of the exact step hash.
+- The Review stage reports recipient count, email steps per recipient, and exact rendered-message coverage. Approval fails closed in the UI when any recipient-by-email-step row is absent or any rendered row needs review; CRM's existing authoritative approval checks remain unchanged.
+- R32 adds no entity, migration, provider/model call, mailbox capability, execution capability, configuration/flag change, public GTM promotion, or customer exposure. Rollback is the prior Hub and CRM applications with no data change.
+
+### 41.3 Acceptance
+
+- CRM route-shape coverage proves that two rendered rows for the same recipient retain distinct step identity, order, hash, word count, and quality findings.
+- Hub contract coverage proves rows are grouped rather than overwritten, the full sequence map and exact recipient-by-step review are present, and incomplete or quality-invalid sequences block the approval control.
+- Full CRM GTM and Hub suites, both typechecks, focused CRM lint, Hub production build, and `git diff --check` must pass before merge. Roll out CRM first, dark-deploy app-only, then merge/deploy Hub. External-effect gates remain off.
+
+### 41.4 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R32-A - additive exact-step response | Completed locally | 2026-08-23 | CRM response and deterministic route-shape test implemented without schema or external effects; 79 suites/859 tests pass with only the opt-in PostgreSQL suite and seven tests skipped; typecheck and focused lint pass |
+| R32-B - exact sequence approval review | Completed locally | 2026-08-23 | Origami-style sequence map and recipient-by-step review implemented with fail-closed incomplete/quality handling; Hub passes 1,239/1,239 tests, typecheck, and production build |
+
+## 42. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1071,3 +1098,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Added R30's bounded public-company-website contact fallback. The exact Apify website crawler is separately dark-gated, quote/confirm capped, same-domain only, receipt-redacted, and billed from finalized platform usage. It produces source-backed `found` addresses only; independent verification and all campaign/send gates remain unchanged and off.
 - 2026-08-23: Dark-deployed the R30 retention-bound contract and completed one bounded surrounding golden motion. The accepted-company resolver created one accepted person; exact profile enrichment found one work address; verification stayed honestly `unknown`; canonical Noli Core charged 12,000, 5,000, and 2,000 credits with no ambiguity. The earlier profile short-circuited the website fallback as designed, and no email, mailbox ingestion, execution, or public GTM promotion occurred.
 - 2026-08-23: Added R31's exact candidate email-readiness projection and People-table labels so found, risky, catch-all, unknown, ambiguous, and absent contact states no longer collapse into `Not verified`. This is additive read/UI work only and changes no external-effect gate.
+- 2026-08-23: Dark-deployed R31 CRM-first, then Hub, with no migration or flag change. Added R32's exact recipient-by-step campaign read model and approval review so later sequence steps can no longer be hidden by recipient-level row collapse. External-effect gates remain off.

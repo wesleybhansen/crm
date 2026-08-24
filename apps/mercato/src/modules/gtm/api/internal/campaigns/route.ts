@@ -75,7 +75,7 @@ function campaignShape(campaign: GtmCampaign) {
   }
 }
 
-function draftShape(draft: CampaignDraftState) {
+export function shapeCampaignDraft(draft: CampaignDraftState) {
   return {
     content_hash: draft.contentHash,
     eligibility: draft.eligibility,
@@ -100,12 +100,16 @@ function draftShape(draft: CampaignDraftState) {
     })),
     rendered: draft.rendered.map((row) => ({
       candidate_id: row.candidateId,
+      step_key: row.stepKey,
+      step_order: row.stepOrder,
       subject: row.subject,
       body_html: row.bodyHtml,
       body_text: row.bodyText,
       content_hash: row.contentHash,
       needs_review: row.needsReview,
       missing_fields: row.missingFields,
+      word_count: row.wordCount,
+      quality_issues: row.qualityIssues,
       // template merge vs AI draft (locked voice); display metadata for the
       // reviewer, both freeze identically.
       provenance: row.provenance,
@@ -256,7 +260,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         campaign: campaignShape(campaign),
-        draft: draftShape(draft),
+        draft: shapeCampaignDraft(draft),
       })
     }
 
