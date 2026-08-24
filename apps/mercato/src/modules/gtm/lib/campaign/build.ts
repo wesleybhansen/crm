@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import type { LockMode } from '@mikro-orm/core'
 import { computeExecutionEligibility, type EligibilityResult } from '../eligibility'
 import { GtmAuditEvent, GtmCampaign, GtmPlay } from '../../data/entities'
 
@@ -33,7 +34,11 @@ export interface CampaignEm {
     where: Record<string, unknown>,
     options?: { orderBy?: Record<string, 'asc' | 'desc'>; limit?: number },
   ): Promise<T[]>
-  findOne<T extends object>(entityClass: new () => T, where: Record<string, unknown>): Promise<T | null>
+  findOne<T extends object>(
+    entityClass: new () => T,
+    where: Record<string, unknown>,
+    options?: { lockMode?: LockMode },
+  ): Promise<T | null>
 }
 
 // Identity resolved server-side at the route boundary (SPEC-066 section 5).
@@ -51,6 +56,7 @@ export class GtmCampaignError extends Error {
       | 'play_not_executable'
       | 'campaign_not_found'
       | 'candidate_not_found'
+      | 'message_not_found'
       | 'workspace_not_found'
       | 'postal_address_required'
       | 'sender_changed'
@@ -58,6 +64,7 @@ export class GtmCampaignError extends Error {
       | 'stale_draft'
       | 'daily_cap_exceeds_ceiling'
       | 'invalid_settings'
+      | 'invalid_message'
       | 'invalid_channel_mix'
       | 'no_recipients'
       | 'mailbox_policy_conflict'
@@ -385,6 +392,53 @@ export function parseStoredAiDrafts(
       }
     }
     out[candidateId] = sequence
+  }
+  return out
+}
+
+export type StoredMessageOverride = {
+  subject: string
+  body_text: string
+  edited_by_user_id: string
+  source_message_hash: string
+  step_key: string
+  step_order: number
+}
+
+export function parseStoredMessageOverrides(
+  campaign: GtmCampaign,
+): Record<string, Record<string, StoredMessageOverride>> {
+  const raw = (campaign.channelMix ?? {}) as Record<string, unknown>
+  const overrides = raw.message_overrides
+  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) return {}
+  const out: Record<string, Record<string, StoredMessageOverride>> = {}
+  for (const [candidateId, value] of Object.entries(overrides as Record<string, unknown>)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const candidateOverrides: Record<string, StoredMessageOverride> = {}
+    for (const [stepKey, stepValue] of Object.entries(value as Record<string, unknown>)) {
+      if (!stepValue || typeof stepValue !== 'object' || Array.isArray(stepValue)) continue
+      const record = stepValue as Record<string, unknown>
+      if (
+        typeof record.subject !== 'string'
+        || !record.subject
+        || typeof record.body_text !== 'string'
+        || !record.body_text
+        || typeof record.edited_by_user_id !== 'string'
+        || typeof record.source_message_hash !== 'string'
+        || typeof record.step_key !== 'string'
+        || record.step_key !== stepKey
+        || typeof record.step_order !== 'number'
+      ) continue
+      candidateOverrides[stepKey] = {
+        subject: record.subject,
+        body_text: record.body_text,
+        edited_by_user_id: record.edited_by_user_id,
+        source_message_hash: record.source_message_hash,
+        step_key: stepKey,
+        step_order: record.step_order,
+      }
+    }
+    if (Object.keys(candidateOverrides).length > 0) out[candidateId] = candidateOverrides
   }
   return out
 }

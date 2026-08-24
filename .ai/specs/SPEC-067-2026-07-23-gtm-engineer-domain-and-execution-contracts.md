@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0-R31 is merged and dark-deployed through exact lead-table email readiness. R32 exact recipient-by-step review is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+**Status:** C0-R32 is merged and dark-deployed through exact recipient-by-step campaign review. R33 deterministic manual step editing is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -1042,10 +1042,47 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 
 | Phase | Status | Date | Notes |
 |---|---|---|---|
-| R32-A - additive exact-step response | Completed locally | 2026-08-23 | CRM response and deterministic route-shape test implemented without schema or external effects; 79 suites/859 tests pass with only the opt-in PostgreSQL suite and seven tests skipped; typecheck and focused lint pass |
-| R32-B - exact sequence approval review | Completed locally | 2026-08-23 | Origami-style sequence map and recipient-by-step review implemented with fail-closed incomplete/quality handling; Hub passes 1,239/1,239 tests, typecheck, and production build |
+| R32-A - additive exact-step response | Completed and dark-deployed | 2026-08-23 | Exact CRM main `513991019dcd0404c60fcf9e58a7012b16febf31` is deployed app-only as image `sha256:3e64d70313670caa836dfeadf239912f65d60d2ca5af216697865b05bc3f51b5`; no migration or flag changed |
+| R32-B - exact sequence approval review | Completed and dark-deployed | 2026-08-23 | Exact Hub main `ea7a8366c2ba76f7bdcc6a52d69b8c0f44080170` is live on `app.noliai.com`; Hub and platform exact-main regression suites and production build passed; signed-out GTM access remains protected |
 
-## 42. Changelog
+## 42. R33 deterministic exact-step manual editing (approved 2026-08-23)
+
+### 42.1 API and storage contract
+
+- Add campaign operation `update-message` for one exact draft recipient and one exact automated email step. The request binds `campaignId`, `candidateId`, `step_key`, the current 64-character `expected_content_hash`, the current 64-character `expected_message_hash`, `subject`, and core `body_text`.
+- The operation is a registered command requiring `gtm.edit`. It re-resolves the represented user and exact organization/tenant scope through the existing internal route boundary. Candidate or message absence remains opaque; stale draft or message hashes return `409 stale_draft` before mutation.
+- Manual copy is stored additively under `gtm_campaigns.channel_mix.message_overrides[candidateId][stepKey]`; no table, column, migration, provider call, or model call is added. Rendering precedence is manual override, then stored AI draft, then deterministic template. A later successful explicit AI redraft clears that recipient's manual overrides so the newly requested artifact becomes visible.
+- The command takes a pessimistic write lock on the scoped campaign row before recomputing either hash. Concurrent editors serialize; after the first commit, the loser observes a different draft hash and fails stale instead of overwriting the first edit.
+- The draft response adds `body_text_core` and extends display-only provenance with `manual`. The exact frozen `body_text`, HTML, footer, message hash, approval hash, and approval/execution contracts remain authoritative and unchanged.
+
+### 42.2 Safety and product behavior
+
+- Manual editing is available only while `campaign.status='draft'` and `current_version_id` is absent. An approved or launched version is never mutated or implicitly invalidated; the user must explicitly invalidate it before editing.
+- The server trims and bounds subject/body, normalizes line endings, rejects template and compliance-footer tokens, and accepts only 12-130 core words. The postal address and one-click unsubscribe footer remain system-owned and are appended through the existing deterministic renderer.
+- Before persistence, the server renders the prospective exact row and rejects any deterministic quality issue or copy that is not materially distinct from another automated email step for the same recipient.
+- The write and a GTM audit event commit in one transaction. The audit contains only campaign/candidate/step identifiers, source/result hashes, and word count; it never stores subject, body, address, or recipient email.
+- Hub exposes `Edit step` from both People preview and exact Review. The inline editor shows core word count, states that no AI/provider call occurs, displays the locked-footer boundary, supports Cmd/Ctrl+Enter and Escape, and echoes both captured hashes on save. A stale response cancels the editor, reloads truth, and requires a new review.
+
+### 42.3 Acceptance
+
+- CRM deterministic coverage proves exact-step isolation, new draft/message hashes, manual provenance, stale-hash refusal, approved-version immutability, token/footer/length refusal, cross-step distinctness, and PII-free audit metadata.
+- Route-shape and authorization coverage prove additive `body_text_core`, manual provenance, and least-privilege `gtm.edit`. Existing campaign render, approval, and AI-draft suites must remain green.
+- Hub contract and proxy coverage prove the exact request fields, locked-footer UI, manual provenance, no-model copy, and mandatory idempotency header. Full CRM GTM and Hub suites, both typechecks, focused CRM lint, Hub production build, and `git diff --check` must pass before merge.
+
+### 42.4 Migration and backward compatibility
+
+- This is additive API and JSON-draft state only. Existing callers may ignore `body_text_core` and the new `manual` provenance value; no field, URL, method, command, entity, column, or stored enum is removed or narrowed.
+- Deploy CRM before Hub. An older Hub ignores the additive response. If Hub rolls back after CRM, saved manual overrides continue rendering safely. If CRM rolls back, the unknown JSON field remains inert and the draft safely reverts to existing AI/template rendering until CRM is restored; no approved artifact is altered because R33 refuses edits after approval.
+- Rollback is the prior CRM and Hub applications with all execution, ingestion, provider, and public-exposure gates unchanged.
+
+### 42.5 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R33-A - exact manual edit command | Completed locally | 2026-08-23 | Additive JSON override, campaign-row lock, double-hash concurrency binding, deterministic safety validation, and redacted audit implemented without schema or external effects; 80/81 suites and 868/875 tests pass with only the opt-in PostgreSQL suite and seven tests skipped; typecheck, focused lint, and diff check pass |
+| R33-B - Hub exact-step editor | Completed locally | 2026-08-23 | People and Review expose per-step editing with locked footer, manual provenance, and stale-truth reload; Hub passes 1,240/1,240 tests, typecheck, production build, and diff check |
+
+## 43. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1099,3 +1136,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Dark-deployed the R30 retention-bound contract and completed one bounded surrounding golden motion. The accepted-company resolver created one accepted person; exact profile enrichment found one work address; verification stayed honestly `unknown`; canonical Noli Core charged 12,000, 5,000, and 2,000 credits with no ambiguity. The earlier profile short-circuited the website fallback as designed, and no email, mailbox ingestion, execution, or public GTM promotion occurred.
 - 2026-08-23: Added R31's exact candidate email-readiness projection and People-table labels so found, risky, catch-all, unknown, ambiguous, and absent contact states no longer collapse into `Not verified`. This is additive read/UI work only and changes no external-effect gate.
 - 2026-08-23: Dark-deployed R31 CRM-first, then Hub, with no migration or flag change. Added R32's exact recipient-by-step campaign read model and approval review so later sequence steps can no longer be hidden by recipient-level row collapse. External-effect gates remain off.
+- 2026-08-23: Dark-deployed R32 CRM-first, then Hub, with no migration or flag change. Added R33's double-hash-bound manual editor for one recipient and one email step; the system-owned footer, immutable approval boundary, and every external-effect gate remain unchanged.

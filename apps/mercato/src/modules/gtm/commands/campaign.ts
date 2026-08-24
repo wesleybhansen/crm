@@ -3,6 +3,11 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { approveCampaign, type ApproveCampaignResult } from '../lib/campaign/approve'
 import type { CampaignEm, GtmCtx } from '../lib/campaign/build'
+import {
+  updateManualMessage,
+  type UpdateManualMessageInput,
+  type UpdateManualMessageResult,
+} from '../lib/campaign/manual-message'
 import { launchCampaign, type ExecutionEm, type LaunchResult } from '../lib/execute/schedule'
 import {
   transitionCampaignLifecycle,
@@ -48,6 +53,28 @@ const approveCommand: CommandHandler<ApproveInput, ApproveCampaignResult> = {
       version_id: result.version.id,
       content_hash: result.version.contentHash,
       already_approved: result.alreadyApproved,
+    },
+  }),
+}
+
+const updateMessageCommand: CommandHandler<UpdateManualMessageInput, UpdateManualMessageResult> = {
+  id: 'gtm.campaigns.update-message',
+  async execute(input, runtime) {
+    const em = runtime.container.resolve('em') as EntityManager as unknown as CampaignEm
+    return updateManualMessage(em, resolveGtmContext(runtime), input)
+  },
+  buildLog: ({ input, result }) => ({
+    actionLabel: 'Edit one GTM campaign message',
+    resourceKind: 'gtm.campaign',
+    resourceId: input.campaignId,
+    organizationId: result.campaign.organizationId,
+    tenantId: result.campaign.tenantId,
+    snapshotAfter: {
+      candidate_id: input.candidateId,
+      step_key: input.stepKey,
+      previous_message_hash: result.previousMessageHash,
+      message_hash: result.message.contentHash,
+      draft_hash: result.draft.contentHash,
     },
   }),
 }
@@ -102,6 +129,7 @@ function lifecycleCommand(
 }
 
 registerCommand(approveCommand)
+registerCommand(updateMessageCommand)
 registerCommand(launchCommand)
 registerCommand(lifecycleCommand('pause'))
 registerCommand(lifecycleCommand('resume'))

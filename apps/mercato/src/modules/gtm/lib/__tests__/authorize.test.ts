@@ -28,6 +28,7 @@ describe('GTM server-side feature authorization', () => {
     for (const op of [
       'create',
       'update-template',
+      'update-message',
       'exclude',
       'include',
       'invalidate',

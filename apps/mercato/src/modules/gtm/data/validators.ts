@@ -286,6 +286,17 @@ export const gtmCampaignsBodySchema = z.discriminatedUnion('op', [
     template: campaignTemplateSchema,
   }),
   z.object({
+    op: z.literal('update-message'),
+    noliUserId: idString,
+    campaignId: idString,
+    candidateId: idString,
+    step_key: z.string().trim().min(1).max(200),
+    expected_content_hash: z.string().regex(/^[a-f0-9]{64}$/),
+    expected_message_hash: z.string().regex(/^[a-f0-9]{64}$/),
+    subject: z.string().trim().min(1).max(500),
+    body_text: z.string().min(1).max(20_000),
+  }),
+  z.object({
     op: z.literal('exclude'),
     noliUserId: idString,
     campaignId: idString,

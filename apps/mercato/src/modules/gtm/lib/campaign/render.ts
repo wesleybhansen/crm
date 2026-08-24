@@ -4,8 +4,10 @@ import {
   MAX_EMAIL_BODY_WORDS,
   MIN_EMAIL_BODY_WORDS,
   parseStoredAiDrafts,
+  parseStoredMessageOverrides,
   templateForEmailStep,
   type StoredAiDraft,
+  type StoredMessageOverride,
 } from './build'
 import { GtmCampaign, GtmCandidate, GtmEvidence, GtmPlay } from '../../data/entities'
 
@@ -57,6 +59,7 @@ export type RenderedPreview = {
   subject: string
   bodyHtml: string
   bodyText: string
+  bodyTextCore: string
   contentHash: string
   needsReview: boolean
   missingFields: string[]
@@ -65,7 +68,7 @@ export type RenderedPreview = {
   // How the copy was produced: the deterministic merge template, or an AI
   // draft written in the workspace's locked voice (lib/campaign/ai-draft.ts).
   // Both freeze identically; provenance is display metadata for the reviewer.
-  provenance: 'template' | 'ai'
+  provenance: 'template' | 'ai' | 'manual'
 }
 
 const MERGE_FIELDS = ['first_name', 'company', 'signal', 'why_now'] as const
@@ -174,7 +177,7 @@ function finalizeRender(
   bodyHtmlCore: string,
   postalAddress: string | null,
   missing: Set<string>,
-  provenance: 'template' | 'ai',
+  provenance: 'template' | 'ai' | 'manual',
 ): RenderedPreview {
   const address = typeof postalAddress === 'string' && postalAddress.trim() ? postalAddress.trim() : null
   if (!address) missing.add('postal_address')
@@ -198,6 +201,7 @@ function finalizeRender(
     subject,
     bodyHtml,
     bodyText,
+    bodyTextCore,
     contentHash: messageContentHash(subject, bodyHtml, bodyText, step.key),
     needsReview: missing.size > 0 || qualityIssues.length > 0,
     missingFields: [...missing].sort(),
@@ -244,6 +248,19 @@ export function renderAiDraftForCandidate(
   return finalizeRender(candidateId, step, subject, bodyTextCore, bodyHtmlCore, postalAddress, missing, 'ai')
 }
 
+export function renderManualOverrideForCandidate(
+  override: Pick<StoredMessageOverride, 'subject' | 'body_text'>,
+  candidateId: string,
+  postalAddress: string | null = null,
+  step: Pick<StepSpec, 'key' | 'order'> = { key: 'email_1', order: 1 },
+): RenderedPreview {
+  const missing = new Set<string>()
+  const subject = override.subject.replace(/[{}]/g, '')
+  const bodyTextCore = override.body_text.replace(/[{}]/g, '')
+  const bodyHtmlCore = escapeHtml(bodyTextCore).replace(/\n/g, '<br/>')
+  return finalizeRender(candidateId, step, subject, bodyTextCore, bodyHtmlCore, postalAddress, missing, 'manual')
+}
+
 export async function renderMessages(
   em: CampaignEm,
   ctx: GtmCtx,
@@ -276,6 +293,7 @@ export async function renderMessages(
   // a stored draft renders from it (voice-grounded copy), everyone else stays
   // on the deterministic template. Both paths append the same footer + hash.
   const aiDrafts = parseStoredAiDrafts(campaign)
+  const manualOverrides = parseStoredMessageOverrides(campaign)
 
   const candidateIds = candidates.map((candidate) => candidate.id)
   const evidence = candidateIds.length
@@ -313,6 +331,10 @@ export async function renderMessages(
       why_now: whyNow,
     }
     const candidateRows = emailSteps.map((step) => {
+      const manualOverride = manualOverrides[candidate.id]?.[step.key]
+      if (manualOverride) {
+        return renderManualOverrideForCandidate(manualOverride, candidate.id, postalAddress, step)
+      }
       const stored = aiDrafts[candidate.id]?.[step.key]
       if (stored) {
         return renderAiDraftForCandidate(stored, candidate.id, postalAddress, step)
