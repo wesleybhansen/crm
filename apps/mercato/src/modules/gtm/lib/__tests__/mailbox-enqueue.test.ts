@@ -1,5 +1,6 @@
 import { EmailConnection } from '../../../email/data/schema'
 import { enqueueMailboxIngestion } from '../inbound/enqueue'
+import { resolveGtmMailboxQueueStrategy } from '../inbound/queue-contract'
 import { FakeEm } from './support/fake-em'
 
 const ORG = '00000000-0000-4000-8000-000000000001'
@@ -23,6 +24,21 @@ async function seedMailbox(em: FakeEm, overrides: Partial<EmailConnection> = {})
 }
 
 describe('GTM mailbox ingestion enqueue', () => {
+  it('allows a GTM-only async queue without widening the global queue strategy', () => {
+    expect(resolveGtmMailboxQueueStrategy({
+      GTM_MAILBOX_QUEUE_STRATEGY: 'async',
+      QUEUE_STRATEGY: undefined,
+    })).toBe('async')
+    expect(resolveGtmMailboxQueueStrategy({
+      GTM_MAILBOX_QUEUE_STRATEGY: undefined,
+      QUEUE_STRATEGY: 'async',
+    })).toBe('async')
+    expect(resolveGtmMailboxQueueStrategy({
+      GTM_MAILBOX_QUEUE_STRATEGY: undefined,
+      QUEUE_STRATEGY: undefined,
+    })).toBe('local')
+  })
+
   it('constructs no queue while ingestion or async strategy is disabled', async () => {
     const em = new FakeEm()
     await seedMailbox(em)

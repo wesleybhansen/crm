@@ -353,7 +353,8 @@ export async function POST(req: Request) {
           reason: 'GTM_MAILBOX_INGESTION_ENABLED is not true; no job was written',
         })
       }
-      if (process.env.QUEUE_STRATEGY !== 'async') {
+      const { resolveGtmMailboxQueueStrategy } = await import('../../../lib/inbound/queue-contract')
+      if (resolveGtmMailboxQueueStrategy() !== 'async') {
         return NextResponse.json(
           { ok: false, error: 'Mailbox ingestion requires the async queue strategy' },
           { status: 503 },

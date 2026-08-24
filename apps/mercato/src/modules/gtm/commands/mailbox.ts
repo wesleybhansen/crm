@@ -16,6 +16,7 @@ import {
 } from '../lib/inbound/enqueue'
 import {
   GTM_MAILBOX_INGEST_QUEUE,
+  resolveGtmMailboxQueueStrategy,
   type GtmMailboxIngestJob,
 } from '../lib/inbound/queue-contract'
 
@@ -74,7 +75,7 @@ const enqueueCommand: CommandHandler<
     const em = runtime.container.resolve('em') as EntityManager as unknown as ExecutionEm
     return enqueueMailboxIngestion(em, resolveGtmContext(runtime), input, {
       ingestionEnabled: process.env.GTM_MAILBOX_INGESTION_ENABLED === 'true',
-      queueStrategy: process.env.QUEUE_STRATEGY ?? 'local',
+      queueStrategy: resolveGtmMailboxQueueStrategy(),
       createQueue: () => createQueue<GtmMailboxIngestJob>(GTM_MAILBOX_INGEST_QUEUE, 'async', {
         connection: { url: getRedisUrl('QUEUE') },
       }),

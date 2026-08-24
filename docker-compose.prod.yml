@@ -50,6 +50,8 @@ services:
       PORT: 3000
       HOSTNAME: 0.0.0.0
       ATTACHMENTS_PARTITION_LANDING_PAGE_IMAGES_ROOT: /app/apps/mercato/storage/attachments/landingPageImages
+      GTM_MAILBOX_QUEUE_STRATEGY: async
+      QUEUE_REDIS_URL: redis://redis:6379
       DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
     working_dir: /app/apps/mercato
     command: ["sh", "-c", "cp .mercato/next/standalone/apps/mercato/server.js .mercato/next/standalone/apps/mercato/server.cjs && node .mercato/next/standalone/apps/mercato/server.cjs"]
@@ -62,6 +64,28 @@ services:
       - attachments_storage:/app/apps/mercato/storage
     depends_on:
       postgres:
+        condition: service_healthy
+    networks:
+      - launchos-network
+
+  gtm-mailbox-worker:
+    image: open-mercato-app
+    container_name: launchos-gtm-mailbox-worker
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      QUEUE_STRATEGY: async
+      QUEUE_REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
+    working_dir: /app/apps/mercato
+    command: ["node", "/app/packages/cli/bin/mercato", "queue", "worker", "gtm-mailbox-ingest", "--concurrency=1"]
+    depends_on:
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - launchos-network
@@ -106,6 +130,21 @@ services:
     networks:
       - launchos-network
 
+  redis:
+    image: redis:7-alpine
+    container_name: launchos-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - launchos-network
+
   nginx:
     image: nginx:alpine
     container_name: launchos-nginx
@@ -141,6 +180,8 @@ volumes:
     name: launchos-vault-logs
   attachments_storage:
     name: launchos-attachments-storage
+  redis_data:
+    name: launchos-redis-data
 
 networks:
   launchos-network:
