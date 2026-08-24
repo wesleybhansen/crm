@@ -1,8 +1,8 @@
 {
   "contractVersion": "noli.ams-crm.dark-contract-canary-pin.v1",
   "sourceRepository": "wesleybhansen/crm",
-  "sourceCommit": "e8b6e803bc11e683667e3e84c3eb4b2d225f1d29",
-  "sourceTree": "a19b130edd87a766149f6ec06119061e01414141",
+  "sourceCommit": "1539cb278174a5c60a40415dfa58d4afcebb4741",
+  "sourceTree": "5a37fcb2fd9c30627c5c2fb6892f9ccee3783d80",
   "descriptorSha256": "765ee17a4232aa1e41de8f3c41c8c75b8b812c7301a19a65df50fbc0208f0d2c",
   "sourceFiles": [
     {
@@ -11,7 +11,7 @@
     },
     {
       "path": "apps/mercato/src/modules/integrations_api/api/internal/ams-contract/v1/route.ts",
-      "sha256": "ffb939ea9c0671eac0eac42b571f43f6a1c0a1b31af13eebbf44073ebf50d954"
+      "sha256": "b7bd2c6e0a596f9c1b50750ee386566e74dd3c1e1a38cbad6c7e0ec830a9e90c"
     }
   ],
   "canaryConstraints": {

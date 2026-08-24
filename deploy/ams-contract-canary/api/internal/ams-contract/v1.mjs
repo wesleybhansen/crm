@@ -75,6 +75,7 @@ export function buildContractResponseV1(headers, environment) {
       rollout: {
         commandShadowIntake: false,
         eligibilityLeases: false,
+        authorityProjection: false,
         eventPublication: false,
         providerDispatch: false,
       },

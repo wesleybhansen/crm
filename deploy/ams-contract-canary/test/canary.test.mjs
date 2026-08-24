@@ -43,6 +43,7 @@ test('requires a bounded bearer secret and always reports a dark rollout', () =>
   assert.deepEqual(result.body.rollout, {
     commandShadowIntake: false,
     eligibilityLeases: false,
+    authorityProjection: false,
     eventPublication: false,
     providerDispatch: false,
   })
