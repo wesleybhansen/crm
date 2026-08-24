@@ -159,8 +159,9 @@ describe('buildReviewedLeadExport', () => {
 
   it('uses only the latest contextual verdict for a candidate', async () => {
     const em = new FakeEm()
-    const { play, candidate } = await seedAcceptedMatch(em)
+    const { play, candidate, match } = await seedAcceptedMatch(em)
     const laterRun = await seedRun(em, play)
+    const laterCreatedAt = new Date(match.createdAt.getTime() + 1_000)
     em.persist(em.create(GtmCandidateMatch, {
       organizationId: ORG,
       tenantId: TENANT,
@@ -171,7 +172,9 @@ describe('buildReviewedLeadExport', () => {
       fitStatus: 'rejected',
       fitScore: '20',
       rejectReason: 'outside_geography',
-      createdAt: new Date('2026-08-24T00:00:00.000Z'),
+      // Stay later than the seeded verdict regardless of the wall clock on
+      // the runner (the old fixed timestamp became earlier after midnight).
+      createdAt: laterCreatedAt,
     }))
     await em.flush()
 
