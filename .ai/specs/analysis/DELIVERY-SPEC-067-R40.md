@@ -119,15 +119,15 @@ The first dedicated worker start then failed closed because the production `yarn
 
 R41 makes `imapflow`, `mailparser`, and `nodemailer` direct app production dependencies and adds a manifest regression test. The worker must import and remain running from the rebuilt production image before mailbox ingestion is enabled. No GTM execution flag may change until that proof passes.
 
-## Remaining R40 sequence
+## R40 closeout status
 
-1. Merge and deploy the app-worker discovery correction plus the isolated Redis-backed GTM mailbox worker.
-2. Re-verify the approved version has one recipient, one rendered row, no missing fields, no quality issues, exact sender, one-send cap, and the frozen auto-refill block.
-3. Baseline Gmail ingestion without reading history, enable execution and mailbox ingestion, launch, and run one tick.
-4. Verify one SMTP acceptance and definitive delivery to the owned recipient.
-5. Ingest one owner reply and prove exact correlation plus atomic enrollment stop.
-6. Exercise the HTTPS unsubscribe POST, prove idempotent suppression/cancellation/audit, and prove a new campaign excludes the address.
-7. Verify campaign analytics, provider history, mailbox health, token/spend telemetry, and canonical money reconciliation.
-8. Clear the owner fixture through the deletion/retention path after evidence capture.
-9. Add the customer-owned address input to GTM setup/onboarding and retain the campaign review/settings editor as a correction path.
-10. Only after those checks are clean, activate the bounded auto-refill schedule and publish GTM onboarding to the smallest owner/customer cohort. Execution remains review-and-approve, never automatic enrollment or send.
+1. **Complete:** the app-worker discovery correction, Redis-backed mailbox worker, and production runtime dependencies were merged and deployed. The app and dedicated worker remained healthy with zero restarts during the controlled lifecycle.
+2. **Complete:** the approved version contained exactly one owner-controlled recipient, one rendered row, the frozen sender/footer/content hash, a one-send cap, and no missing or ambiguous review fields.
+3. **Complete:** Gmail ingestion was baselined without a historical sweep. Execution and ingestion were enabled only for the bounded pilot, one attempt was claimed, and one provider transport was contacted.
+4. **Complete:** the provider accepted exactly one SMTP submission and the owner confirmed delivery in the owned recipient inbox. No second send was authorized or attempted.
+5. **Complete:** one owner reply was ingested and correlated by exact headers. The send attempt moved to `replied`, and the enrollment stopped atomically with reason `email_reply`.
+6. **Complete:** the public HTTPS unsubscribe endpoint returned 200 for the first RFC 8058 POST and its replay. Exactly one durable suppression and one audit row exist; a new campaign draft excludes the address.
+7. **Complete:** all 24 provider operations are terminal, none are unresolved, and the canonical ledger contains 16 charged, six partially charged, and two refunded outcomes. GTM AI telemetry contains no rows for this provider-only pilot. Execution, mailbox ingestion, and auto-refill were returned to `false` after observation.
+8. **Partial pending R43 rollout:** the deletion request anonymized the GTM candidate, evidence, contact point, rendered message, reply draft, and provider receipt, but correctly reported `partial` because the linked CRM `email_messages` row remained outside the old GTM deletion authority. R43 now anonymizes only the exact organization/tenant/message ids linked through the removed candidate's reply or inbound-event graph, severs those links, and resumes the existing `crm_email` DSR operation idempotently. Local validation: focused removal suite 15/15, complete GTM suite 87 suites and 911 tests passed with one opt-in suite/seven tests skipped, CRM typecheck, focused lint, and `git diff --check` passed. Production status must remain partial until this exact change is merged, deployed, and replayed successfully.
+9. **Complete:** CRM PR `#84` merged as `61be34a161f82fd06c33666160a0e09d304baf1c` after every CI lane passed and was deployed with all three runtime gates off. Hub PR `#263` merged as `29ebc177d265e01ec629732e11e92720e3a7155a`; its full local 1,270-test suite and typecheck passed, Vercel preview/production deployments passed, and GitHub's two zero-step jobs were unavailable only because of the account billing limit. GTM Setup now collects the sending customer's own mailing address; campaign review remains an editable correction path, and approval stays blocked when the address is absent or changed.
+10. **Held outside this owner pilot:** auto-refill remains off, customer/public GTM promotion remains off, and execution remains review-and-approve. A synthetic footer address is not a customer default and cannot authorize prospect outreach. Wider activation requires a separate explicit release decision after R43 production replay is complete.

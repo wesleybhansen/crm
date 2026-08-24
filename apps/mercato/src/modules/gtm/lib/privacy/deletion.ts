@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { EmailMessage } from '../../../email/data/schema'
 import {
   GtmAuditEvent,
   GtmCampaignVersion,
@@ -37,6 +38,7 @@ export type DeletionResult = {
   relationsAnonymized: number
   renderedMessagesAnonymized: number
   repliesAnonymized: number
+  emailMessagesAnonymized: number
   providerReceiptsRedacted: number
   dsrOperations: number
 }
@@ -55,6 +57,7 @@ function resultFromStoredRequest(request: GtmDeletionRequest): DeletionResult {
     relationsAnonymized: count('relations_anonymized'),
     renderedMessagesAnonymized: count('rendered_messages_anonymized'),
     repliesAnonymized: count('replies_anonymized'),
+    emailMessagesAnonymized: count('email_messages_anonymized'),
     providerReceiptsRedacted: count('provider_receipts_redacted'),
     dsrOperations: count('dsr_operations'),
   }
@@ -86,6 +89,70 @@ export function redactReceipt(receipt: Record<string, unknown> | null | undefine
     }
   }
   return redacted
+}
+
+const REMOVED_EMAIL_ADDRESS = 'removed@deleted.invalid'
+
+function linkedEmailMessageIds(
+  ...groups: Array<Array<{ emailMessageId?: string | null }>>
+): string[] {
+  return [
+    ...new Set(
+      groups
+        .flatMap((rows) => rows.map((row) => row.emailMessageId))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  ]
+}
+
+function anonymizeEmailMessage(row: EmailMessage, now: Date): void {
+  const originalHash = digest({
+    from_address: row.fromAddress,
+    to_address: row.toAddress,
+    cc: row.cc,
+    bcc: row.bcc,
+    subject: row.subject,
+    body_html: row.bodyHtml,
+    body_text: row.bodyText,
+    thread_id: row.threadId,
+    contact_id: row.contactId,
+    deal_id: row.dealId,
+    campaign_id: row.campaignId,
+    metadata: row.metadata,
+    sentiment: row.sentiment,
+  })
+  row.fromAddress = REMOVED_EMAIL_ADDRESS
+  row.toAddress = REMOVED_EMAIL_ADDRESS
+  row.cc = null
+  row.bcc = null
+  row.subject = '[removed]'
+  row.bodyHtml = ''
+  row.bodyText = null
+  row.threadId = null
+  row.contactId = null
+  row.dealId = null
+  row.campaignId = null
+  row.metadata = { removed: true, original_hash: originalHash }
+  row.sentiment = null
+  row.deletedAt = now
+  row.updatedAt = now
+}
+
+function completeLocalEmailOperation(
+  operation: GtmDsrOperation,
+  recordsAnonymized: number,
+  now: Date,
+): void {
+  operation.status = 'completed'
+  operation.nextAttemptAt = null
+  operation.lastError = null
+  operation.receipt = {
+    completed_locally: true,
+    completed_at: now.toISOString(),
+    records_anonymized: recordsAnonymized,
+  }
+  operation.completedAt = now
+  operation.updatedAt = now
 }
 
 function redactSnapshot(
@@ -255,6 +322,178 @@ function providerDsrStatus(provider: string): string {
   return 'blocked_authority'
 }
 
+async function resumePartialEmailDeletion(
+  em: ExecutionEm,
+  request: GtmDeletionRequest,
+  now: Date,
+): Promise<DeletionResult> {
+  const counts = resultFromStoredRequest(request)
+  const tenantRequests = await em.find(GtmDeletionRequest, {
+    scope: 'tenant_email',
+    addressHash: request.addressHash,
+    status: 'partial',
+    deletedAt: null,
+  })
+
+  for (const tenantRequest of tenantRequests) {
+    if (tenantRequest.legalHold) continue
+    const operation = await em.findOne(GtmDsrOperation, {
+      deletionRequestId: tenantRequest.id,
+      organizationId: tenantRequest.organizationId,
+      tenantId: tenantRequest.tenantId,
+      provider: 'crm_email',
+      kind: 'local_anonymize',
+      deletedAt: null,
+    })
+    if (!operation || operation.status === 'completed') continue
+    if (!['blocked_authority', 'failed', 'pending'].includes(operation.status)) continue
+    const claimed = await em.nativeUpdate(
+      GtmDsrOperation,
+      {
+        id: operation.id,
+        organizationId: tenantRequest.organizationId,
+        tenantId: tenantRequest.tenantId,
+        status: operation.status,
+      },
+      {
+        status: 'in_progress',
+        startedAt: now,
+        attemptCount: operation.attemptCount + 1,
+        updatedAt: now,
+      },
+    )
+    if (claimed !== 1) continue
+
+    // The raw address has already been removed from contact points by the
+    // first pass. Recover only candidates stamped by this exact tenant DSR;
+    // then walk their enrollment links. This deliberately avoids a broad
+    // organization-level email sweep.
+    const scopedCandidates = await em.find(GtmCandidate, {
+      organizationId: tenantRequest.organizationId,
+      tenantId: tenantRequest.tenantId,
+      deletedAt: null,
+    })
+    const candidateIds = scopedCandidates
+      .filter((candidate) => candidate.identity?.removal_request_id === tenantRequest.id)
+      .map((candidate) => candidate.id)
+    const enrollments = candidateIds.length
+      ? await em.find(GtmEnrollment, {
+          organizationId: tenantRequest.organizationId,
+          tenantId: tenantRequest.tenantId,
+          candidateId: { $in: candidateIds },
+        })
+      : []
+    const enrollmentIds = enrollments.map((row) => row.id)
+    const [replies, inboundEvents] = enrollmentIds.length
+      ? await Promise.all([
+          em.find(GtmReply, {
+            organizationId: tenantRequest.organizationId,
+            tenantId: tenantRequest.tenantId,
+            enrollmentId: { $in: enrollmentIds },
+          }),
+          em.find(GtmInboundEvent, {
+            organizationId: tenantRequest.organizationId,
+            tenantId: tenantRequest.tenantId,
+            enrollmentId: { $in: enrollmentIds },
+          }),
+        ])
+      : [[], []]
+    const emailMessageIds = linkedEmailMessageIds(replies, inboundEvents)
+    // A pre-existing blocked operation with no remaining exact link cannot
+    // be completed honestly. Leave it partial for operator reconciliation.
+    if (emailMessageIds.length === 0) continue
+    const messages = await em.find(EmailMessage, {
+      organizationId: tenantRequest.organizationId,
+      tenantId: tenantRequest.tenantId,
+      id: { $in: emailMessageIds },
+    })
+
+    await em.transactional(async (tem) => {
+      for (const message of messages) {
+        anonymizeEmailMessage(message, now)
+        tem.persist(message)
+      }
+      for (const reply of replies) {
+        if (reply.emailMessageId && emailMessageIds.includes(reply.emailMessageId)) {
+          reply.emailMessageId = null
+        }
+        reply.draftResponse = null
+        reply.updatedAt = now
+        tem.persist(reply)
+      }
+      for (const event of inboundEvents) {
+        if (event.emailMessageId && emailMessageIds.includes(event.emailMessageId)) {
+          event.emailMessageId = null
+        }
+        event.providerMessageId = null
+        event.rfcMessageId = null
+        event.evidenceRedacted = { removed: true, original_hash: digest(event.evidenceRedacted) }
+        event.updatedAt = now
+        tem.persist(event)
+      }
+      completeLocalEmailOperation(operation, messages.length, now)
+      tem.persist(operation)
+      tem.persist(
+        tem.create(GtmAuditEvent, {
+          organizationId: tenantRequest.organizationId,
+          tenantId: tenantRequest.tenantId,
+          actor: 'system',
+          actorUserId: null,
+          action: 'gtm.privacy.crm_email_anonymized',
+          objectType: 'gtm_deletion_request',
+          objectId: tenantRequest.id,
+          requestId: null,
+          metadata: { email_messages: messages.length, resumed: true },
+        }),
+      )
+      await tem.flush()
+    })
+
+    const tenantOps = await em.find(GtmDsrOperation, {
+      deletionRequestId: tenantRequest.id,
+      organizationId: tenantRequest.organizationId,
+      tenantId: tenantRequest.tenantId,
+      deletedAt: null,
+    })
+    const priorTenantCounts = tenantRequest.resultCounts ?? {}
+    const priorEmailCount = priorTenantCounts.email_messages_anonymized
+    tenantRequest.status = tenantOps.some((row) => row.status !== 'completed')
+      ? 'partial'
+      : 'completed'
+    tenantRequest.completedAt = now
+    tenantRequest.resultCounts = {
+      ...priorTenantCounts,
+      email_messages_anonymized:
+        (typeof priorEmailCount === 'number' ? priorEmailCount : 0) + messages.length,
+      dsr_operations: tenantOps.length,
+    }
+    tenantRequest.updatedAt = now
+    em.persist(tenantRequest)
+    await em.flush()
+    counts.emailMessagesAnonymized += messages.length
+  }
+
+  const allTenantRequests = await em.find(GtmDeletionRequest, {
+    scope: 'tenant_email',
+    addressHash: request.addressHash,
+    deletedAt: null,
+  })
+  request.status =
+    allTenantRequests.length > 0 && allTenantRequests.every((row) => row.status === 'completed')
+      ? 'completed'
+      : 'partial'
+  request.completedAt = now
+  request.resultCounts = {
+    ...(request.resultCounts ?? {}),
+    email_messages_anonymized: counts.emailMessagesAnonymized,
+  }
+  request.updatedAt = now
+  em.persist(request)
+  await em.flush()
+  counts.request = request
+  return counts
+}
+
 export async function executeRemovalDeletion(
   em: ExecutionEm,
   input: {
@@ -274,13 +513,17 @@ export async function executeRemovalDeletion(
     relationsAnonymized: 0,
     renderedMessagesAnonymized: 0,
     repliesAnonymized: 0,
+    emailMessagesAnonymized: 0,
     providerReceiptsRedacted: 0,
     dsrOperations: 0,
   }
   // A permanent suppression can outlive buggy or delayed provider imports.
   // An exact replay with no newly reachable rows returns its durable result,
   // while a later re-sourced row reopens only the local fan-out work.
-  if ((request.status === 'completed' || request.status === 'partial') && input.points.length === 0) {
+  if (request.status === 'partial' && input.points.length === 0) {
+    return resumePartialEmailDeletion(em, request, now)
+  }
+  if (request.status === 'completed' && input.points.length === 0) {
     return resultFromStoredRequest(request)
   }
   if (request.legalHold) {
@@ -362,7 +605,14 @@ export async function executeRemovalDeletion(
       em.find(GtmInboundEvent, { organizationId, tenantId, enrollmentId: { $in: enrollmentIds } }),
       em.find(GtmCampaignVersion, { organizationId, tenantId, id: { $in: versionIds } }),
     ])
-    const hadEmailMessage = replies.some((row) => Boolean(row.emailMessageId))
+    const emailMessageIds = linkedEmailMessageIds(replies, inboundEvents)
+    const emailMessages = emailMessageIds.length
+      ? await em.find(EmailMessage, {
+          organizationId,
+          tenantId,
+          id: { $in: emailMessageIds },
+        })
+      : []
 
     await em.transactional(async (tem) => {
       for (const candidate of candidates) {
@@ -422,6 +672,9 @@ export async function executeRemovalDeletion(
       }
       for (const row of replies) {
         row.draftResponse = null
+        if (row.emailMessageId && emailMessageIds.includes(row.emailMessageId)) {
+          row.emailMessageId = null
+        }
         row.updatedAt = now
         tem.persist(row)
       }
@@ -437,7 +690,16 @@ export async function executeRemovalDeletion(
       }
       for (const row of inboundEvents) {
         row.evidenceRedacted = { removed: true, original_hash: digest(row.evidenceRedacted) }
+        row.providerMessageId = null
+        row.rfcMessageId = null
+        if (row.emailMessageId && emailMessageIds.includes(row.emailMessageId)) {
+          row.emailMessageId = null
+        }
         row.updatedAt = now
+        tem.persist(row)
+      }
+      for (const row of emailMessages) {
+        anonymizeEmailMessage(row, now)
         tem.persist(row)
       }
       for (const row of chatMessages) {
@@ -471,6 +733,7 @@ export async function executeRemovalDeletion(
             relations: candidateRelations.length,
             rendered_messages: rendered.length,
             replies: replies.length,
+            email_messages: emailMessages.length,
             provider_receipts: providerOperations.length + attempts.length,
           },
         }),
@@ -484,6 +747,7 @@ export async function executeRemovalDeletion(
     counts.relationsAnonymized += candidateRelations.length
     counts.renderedMessagesAnonymized += rendered.length
     counts.repliesAnonymized += replies.length
+    counts.emailMessagesAnonymized += emailMessages.length
     counts.providerReceiptsRedacted += providerOperations.length + attempts.length
 
     await ensureDsrOperation(
@@ -505,16 +769,18 @@ export async function executeRemovalDeletion(
       counts.dsrOperations += 1
       hasBlockedDsr = true
     }
-    if (hadEmailMessage) {
-      await ensureDsrOperation(
+    if (emailMessageIds.length > 0) {
+      const operation = await ensureDsrOperation(
         em,
         tenantRequest,
         { organizationId, tenantId },
-        { provider: 'crm_email', kind: 'local_anonymize', status: 'blocked_authority' },
+        { provider: 'crm_email', kind: 'local_anonymize', status: 'completed' },
         now,
       )
+      completeLocalEmailOperation(operation, emailMessages.length, now)
+      em.persist(operation)
+      await em.flush()
       counts.dsrOperations += 1
-      hasBlockedDsr = true
     }
     for (const provider of new Set(providerOperations.map((row) => row.provider))) {
       const status = providerDsrStatus(provider)
@@ -545,6 +811,7 @@ export async function executeRemovalDeletion(
       relations_anonymized: candidateRelations.length,
       rendered_messages_anonymized: rendered.length,
       replies_anonymized: replies.length,
+      email_messages_anonymized: emailMessages.length,
       provider_receipts_redacted: providerOperations.length + attempts.length,
       dsr_operations: tenantOps.length,
     }
@@ -562,6 +829,7 @@ export async function executeRemovalDeletion(
     relations_anonymized: counts.relationsAnonymized,
     rendered_messages_anonymized: counts.renderedMessagesAnonymized,
     replies_anonymized: counts.repliesAnonymized,
+    email_messages_anonymized: counts.emailMessagesAnonymized,
     provider_receipts_redacted: counts.providerReceiptsRedacted,
     dsr_operations: counts.dsrOperations,
   }

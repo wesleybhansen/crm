@@ -174,7 +174,8 @@ export async function applyRemovalRequest(
       deletion.contactPointsAnonymized +
       deletion.relationsAnonymized +
       deletion.renderedMessagesAnonymized +
-      deletion.repliesAnonymized,
+      deletion.repliesAnonymized +
+      deletion.emailMessagesAnonymized,
     dsrOperations: deletion.dsrOperations,
   }
 }
