@@ -86,6 +86,13 @@ export const DEFAULT_DAILY_CAP = 25
 // silently (the user asked for a volume we refuse to send).
 export const DAILY_CAP_CEILING = 50
 export const DEFAULT_JITTER_MINUTES = 10
+export const DEFAULT_AUTO_REFILL_TARGET_ACCEPTED = 5
+export const DEFAULT_AUTO_REFILL_MAX_RAW_CANDIDATES = 25
+export const DEFAULT_AUTO_REFILL_MAX_CREDITS = 250_000
+export const DEFAULT_AUTO_REFILL_RUN_HOUR_LOCAL = 7
+export const AUTO_REFILL_TARGET_ACCEPTED_CEILING = 25
+export const AUTO_REFILL_MAX_RAW_CANDIDATES_CEILING = 100
+export const AUTO_REFILL_MAX_CREDITS_CEILING = 2_500_000
 export const DEFAULT_SEND_WINDOW = {
   start_hour: 9,
   end_hour: 17,
@@ -93,6 +100,17 @@ export const DEFAULT_SEND_WINDOW = {
 } as const
 
 export type SendWindow = { start_hour: number; end_hour: number; timezone: string }
+
+export type CampaignAutoRefillSettings = {
+  enabled: boolean
+  target_accepted_per_day: number
+  max_raw_candidates_per_day: number
+  max_credits_per_day: number
+  run_hour_local: number
+  plan_hash: string | null
+}
+
+export type CampaignAutoRefillSettingsInput = Partial<CampaignAutoRefillSettings>
 
 export function isValidTimeZone(timezone: string): boolean {
   try {
@@ -112,6 +130,9 @@ export type CampaignSettings = {
   mailbox_connection_id: string | null
   // explicit override for duplicate-across-campaigns protection (section 8)
   duplicate_override: boolean
+  // A standing, separately activated research authorization. It never enrolls
+  // or sends; approved recipients remain bound by the immutable version.
+  auto_refill: CampaignAutoRefillSettings
 }
 
 export type CampaignSettingsInput = Partial<{
@@ -120,7 +141,46 @@ export type CampaignSettingsInput = Partial<{
   jitter_minutes: number
   mailbox_connection_id: string | null
   duplicate_override: boolean
+  auto_refill: CampaignAutoRefillSettingsInput | null
 }>
+
+export function normalizeAutoRefillSettings(
+  input?: CampaignAutoRefillSettingsInput | null,
+): CampaignAutoRefillSettings {
+  const raw = input ?? {}
+  const enabled = raw.enabled === true
+  const targetAccepted = raw.target_accepted_per_day ?? DEFAULT_AUTO_REFILL_TARGET_ACCEPTED
+  const maxRaw = raw.max_raw_candidates_per_day ?? DEFAULT_AUTO_REFILL_MAX_RAW_CANDIDATES
+  const maxCredits = raw.max_credits_per_day ?? DEFAULT_AUTO_REFILL_MAX_CREDITS
+  const runHour = raw.run_hour_local ?? DEFAULT_AUTO_REFILL_RUN_HOUR_LOCAL
+  const planHash = enabled ? (raw.plan_hash ?? null) : null
+  if (!Number.isInteger(targetAccepted) || targetAccepted < 1 || targetAccepted > AUTO_REFILL_TARGET_ACCEPTED_CEILING) {
+    throw new GtmCampaignError('invalid_settings', `auto_refill.target_accepted_per_day must be an integer between 1 and ${AUTO_REFILL_TARGET_ACCEPTED_CEILING}`)
+  }
+  if (!Number.isInteger(maxRaw) || maxRaw < 1 || maxRaw > AUTO_REFILL_MAX_RAW_CANDIDATES_CEILING) {
+    throw new GtmCampaignError('invalid_settings', `auto_refill.max_raw_candidates_per_day must be an integer between 1 and ${AUTO_REFILL_MAX_RAW_CANDIDATES_CEILING}`)
+  }
+  if (targetAccepted > maxRaw) {
+    throw new GtmCampaignError('invalid_settings', 'auto_refill target cannot exceed its raw-candidate ceiling')
+  }
+  if (!Number.isInteger(maxCredits) || maxCredits < 1 || maxCredits > AUTO_REFILL_MAX_CREDITS_CEILING) {
+    throw new GtmCampaignError('invalid_settings', `auto_refill.max_credits_per_day must be an integer between 1 and ${AUTO_REFILL_MAX_CREDITS_CEILING}`)
+  }
+  if (!Number.isInteger(runHour) || runHour < 0 || runHour > 23) {
+    throw new GtmCampaignError('invalid_settings', 'auto_refill.run_hour_local must be an integer between 0 and 23')
+  }
+  if (enabled && (!planHash || !/^[a-f0-9]{64}$/.test(planHash))) {
+    throw new GtmCampaignError('invalid_settings', 'auto_refill requires the exact current 64-character plan hash')
+  }
+  return {
+    enabled,
+    target_accepted_per_day: targetAccepted,
+    max_raw_candidates_per_day: maxRaw,
+    max_credits_per_day: maxCredits,
+    run_hour_local: runHour,
+    plan_hash: planHash,
+  }
+}
 
 export function normalizeSettings(input?: CampaignSettingsInput | null): CampaignSettings {
   const raw = input ?? {}
@@ -162,6 +222,7 @@ export function normalizeSettings(input?: CampaignSettingsInput | null): Campaig
     jitter_minutes: jitter,
     mailbox_connection_id: raw.mailbox_connection_id ?? null,
     duplicate_override: raw.duplicate_override === true,
+    auto_refill: normalizeAutoRefillSettings(raw.auto_refill),
   }
 }
 

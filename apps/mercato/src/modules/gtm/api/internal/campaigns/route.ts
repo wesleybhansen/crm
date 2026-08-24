@@ -107,6 +107,7 @@ export function shapeCampaignDraft(draft: CampaignDraftState) {
       mailbox_connection_id: draft.settings.mailbox_connection_id,
       sender: draft.sender,
       duplicate_override: draft.settings.duplicate_override,
+      auto_refill: draft.settings.auto_refill,
       // CAN-SPAM sender address presence so the UI can prompt before approve
       postal_address: draft.postalAddress,
       postal_address_set: draft.postalAddress != null,

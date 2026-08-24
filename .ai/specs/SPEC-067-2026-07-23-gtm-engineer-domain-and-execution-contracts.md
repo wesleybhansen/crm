@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0-R33 is merged and dark-deployed through deterministic exact-step manual editing. R34 sequence and delivery-settings editing is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+**Status:** C0-R37 is merged and owner-only dark-deployed through campaign analytics and bounded persisted Strategist continuity. R38's CRM auto-refill foundation is locally verified and pending release; its separate runtime gate remains off. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -1164,9 +1164,64 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | Phase | Status | Date | Notes |
 |---|---|---|---|
 | R36-A - count-only CRM analytics | Completed locally | 2026-08-24 | 82/83 GTM suites and 883/890 tests pass with only the opt-in PostgreSQL suite and seven tests skipped; TypeScript, focused lint, and diff checks pass; no migration or external effect |
-| R36-B - Hub Analytics screen | Planned | 2026-08-24 | Noli design system with Origami information-architecture parity; Usage remains separate |
+| R36-B - Hub Analytics screen | Completed and dark-deployed | 2026-08-24 | CRM PR #78 and Hub PR #259 are merged and deployed owner-only; Analytics remains count-only and Usage remains separate |
 
-## 45. Changelog
+## 45. R37 persisted Strategist continuity (completed 2026-08-24)
+
+### 45.1 Product and safety contract
+
+- The Hub Strategist resumes the latest persisted workspace thread, lists bounded recent conversations, and starts an explicit new chat without changing CRM chat storage or model authority.
+- The Hub parser accepts at most 50 threads and 200 messages, validates workspace/thread identity and strict ordering, drops unknown/internal fields, hides tool rows, and preserves only the existing human-confirmed `confirm_research_run` action.
+- Request fencing prevents stale workspace or thread responses from replacing the current selection. Existing quote/confirm/provider gates remain authoritative; resuming a conversation never executes a tool or provider call by itself.
+
+### 45.2 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R37-A - bounded persisted chat continuity | Completed and dark-deployed | 2026-08-24 | Hub PR #260 merged as `2989b0111eefd713d895d1abb1dfccb440137bca`; 1,256 Hub tests, typecheck, production build, exact-main regressions, and signed-out access checks passed |
+
+## 46. R38 bounded campaign auto-refill (approved 2026-08-24)
+
+### 46.1 Product boundary and Origami parity
+
+- R38 adds the missing Origami-style campaign auto-refill control: while active, Noli runs one bounded weekday research cycle for the campaign's exact Audience Play and places newly accepted identities into People for review.
+- Auto-refill never edits an approved campaign version, creates or repoints an enrollment, drafts or approves a recipient message, launches a campaign, claims a send attempt, opens a mailbox, or sends an email. Adding any newly found person to outreach still requires a fresh exact recipient-by-step campaign approval.
+- Campaign draft settings carry a canonical `auto_refill` block with `enabled`, `target_accepted_per_day`, `max_raw_candidates_per_day`, `max_credits_per_day`, `run_hour_local`, and the exact source `plan_hash`. Disabled is the backward-compatible default.
+- The Hub must show both the accepted-person target and raw/credit ceilings. It must describe the outcome as people queued for review, not automatically contacted leads.
+
+### 46.2 Immutable policy, schedule, and daily cycle
+
+- Enabling the draft setting does not spend. Approval freezes the exact block inside the existing campaign content hash. A separate `gtm.launch` activation requires the current approved campaign-version hash and the same source-plan hash.
+- `gtm_auto_refill_policies` is the durable standing authorization. It binds exact organization, tenant, workspace, play, campaign, campaign version, represented Noli user, resolved CRM user, Noli organization, policy hash, plan hash, limits, timezone, local run hour, status, fence, and last-cycle truth. One live row exists per campaign.
+- Activation registers one organization-scoped platform schedule at `0 <run_hour_local> * * 1-5` in the frozen campaign timezone, targeting the `gtm-auto-refill` queue and requiring `gtm.launch`. The schedule id is deterministic from the policy id. Pausing first changes the policy status/fence, then unregisters the schedule; a scheduler failure therefore cannot authorize provider work.
+- `gtm_auto_refill_cycles` is the run claim and history. The unique `(policy_id, local_date)` boundary permits at most one cycle per campaign-local weekday even under duplicate scheduler delivery. Each cycle freezes policy/version/plan hashes, links at most one normal `GtmResearchRun`, and stores only bounded count/status/credit diagnostics.
+- A campaign-version invalidation blocks the associated policy in the same CRM transaction. An already claimed bounded provider cycle may finish, but no later cycle may start until the owner approves and reactivates a current version.
+
+### 46.3 Identity, money, and failure contract
+
+- `GTM_AUTO_REFILL_ENABLED` is a separate off-by-default runtime gate. The worker returns before reading its payload, resolving dependencies, loading credentials, reserving credits, or constructing an adapter unless both the GTM module and auto-refill gates are true.
+- On every cycle the worker re-resolves the represented Noli user and primary Noli organization, maps the Clerk identity back to the exact stored CRM user/org/tenant, and rechecks `gtm.launch`. Identity, entitlement, or role drift blocks the policy before spend.
+- Before claiming a cycle the worker rebuilds the current source plan from the current play and eligible adapter descriptors. Any play, geography, provider, rights, terms, price, capability, limit, or plan-hash drift blocks the policy and creates no provider operation.
+- The normal canonical Noli Core quote/reserve/start/single-flight/settle-or-reconcile research path remains the only money path. The per-day credit ceiling must admit at least one quoted batch, and no cycle can reserve beyond the frozen limit.
+- A cycle that reaches unresolved provider or ledger truth becomes `reconciliation_required` and blocks the policy. It is never retried automatically. A deterministic pre-provider failure records a failed/blocked cycle without provider output; the next day remains disabled until the owner explicitly repairs and reactivates safety-sensitive failures.
+
+### 46.4 API, acceptance, migration, and release
+
+- Add an internal auto-refill API with `plan`, `status`, `activate`, and `pause`. It uses shared-secret application authentication plus represented-user resolution, requires `gtm.view` for reads and `gtm.launch` for activation/pause, scopes every row by organization and tenant, and returns no credential, provider body, person data, or represented-user identifier.
+- Deterministic coverage must prove canonical setting normalization; exact plan/content-hash activation; stale/foreign/version-invalid refusal; scheduler registration and pause ordering; gate-before-payload/dependency behavior; identity/RBAC revalidation; policy and local-date idempotency; plan drift; raw/credit ceilings; reconciliation blocking; redacted diagnostics; and zero enrollment/send mutation.
+- ORM entities are source of truth. Generate one additive GTM migration plus synchronized snapshot; apply/reapply it on a disposable full current-main database and require a second generator pass with no GTM drift.
+- R38 may merge and deploy owner-only dark with `GTM_AUTO_REFILL_ENABLED=false`. No provider call is part of local verification. A later controlled owner-only cycle requires the exact gate, a current approved policy, an explicit bounded daily budget, and execution/mailbox/public-promotion gates still off.
+- Rollback is the auto-refill gate off, every policy paused, scheduler records unregistered, and the prior CRM/Hub applications. Additive policy/cycle tables and historical research/provider evidence remain inert and are not dropped.
+
+### 46.5 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R38-A - immutable settings/policy/cycle contract | Completed locally | 2026-08-24 | Current-main CRM foundation from exact `dae9e7f7aad68142e6283a170f0fc4962f700166`; 86/87 GTM suites and 903/910 tests pass with only the opt-in PostgreSQL suite and seven tests skipped; TypeScript, module lint, diff checks, generated migration apply/reapply, and generator no-drift pass; no provider, mailbox, email, schedule, or production state changed |
+| R38-B - Hub settings and review-queue UX | Planned | 2026-08-24 | Noli design system with Origami interaction parity; must say new people wait for review |
+| R38-C - owner-only dark validation | Planned | 2026-08-24 | Gate remains off through merge/deploy; any golden cycle is separately bounded and non-sending |
+
+## 47. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1223,3 +1278,6 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Dark-deployed R32 CRM-first, then Hub, with no migration or flag change. Added R33's double-hash-bound manual editor for one recipient and one email step; the system-owned footer, immutable approval boundary, and every external-effect gate remain unchanged.
 - 2026-08-24: Dark-deployed R33 CRM-first, then Hub, on exact current-main artifacts. Completed R34's migration-free sequence, delivery-settings, and represented-user sender editing contract locally; every external-effect gate remains unchanged and off.
 - 2026-08-24: Approved R36's count-only current-version campaign analytics contract. Provider acceptance, confirmed delivery, delivery failures, human replies, and positive/referral outcomes remain separate; no external-effect gate changes.
+- 2026-08-24: Dark-deployed R36 CRM-first and Hub second, then dark-deployed R37's bounded persisted Strategist continuity. Signed-out GTM access remains opaque and no external-effect gate changed.
+- 2026-08-24: Approved R38's bounded campaign auto-refill foundation. Auto-refill may source at most one frozen weekday research cycle per campaign-local date and queues results for review; it cannot enroll recipients or send, and its separate runtime gate remains off.
+- 2026-08-24: Completed R38-A locally with a generator-owned additive migration, exact policy and plan hashes, tenant-scoped weekday scheduling, duplicate-cycle prevention, represented-user reauthorization, count-only outcomes, and explicit no-enrollment/no-send tests. The runtime gate remains off pending dark release and Hub controls.

@@ -6996,6 +6996,678 @@
         }
       },
       "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "play_id": {
+          "name": "play_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "campaign_version_id": {
+          "name": "campaign_version_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "represented_noli_user_id": {
+          "name": "represented_noli_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "noli_organization_id": {
+          "name": "noli_organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "requested_by_user_id": {
+          "name": "requested_by_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'pending_schedule'",
+          "mappedType": "text"
+        },
+        "policy_hash": {
+          "name": "policy_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "campaign_content_hash": {
+          "name": "campaign_content_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "plan_hash": {
+          "name": "plan_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "target_accepted_per_day": {
+          "name": "target_accepted_per_day",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "max_raw_candidates_per_day": {
+          "name": "max_raw_candidates_per_day",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "max_credits_per_day": {
+          "name": "max_credits_per_day",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "run_hour_local": {
+          "name": "run_hour_local",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "scheduled_job_id": {
+          "name": "scheduled_job_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "fence": {
+          "name": "fence",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "0",
+          "mappedType": "integer"
+        },
+        "blocked_reason": {
+          "name": "blocked_reason",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "last_cycle_local_date": {
+          "name": "last_cycle_local_date",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "last_cycle_at": {
+          "name": "last_cycle_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "last_success_at": {
+          "name": "last_success_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "gtm_auto_refill_policies",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "gtm_auto_refill_policies_org_tenant_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_auto_refill_policies_org_tenant_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_auto_refill_policies_org_tenant_campaign_unique",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "campaign_id"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "gtm_auto_refill_policies_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "gtm_auto_refill_policies_workspace_id_foreign": {
+          "constraintName": "gtm_auto_refill_policies_workspace_id_foreign",
+          "columnNames": [
+            "workspace_id"
+          ],
+          "localTableName": "public.gtm_auto_refill_policies",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_workspaces",
+          "updateRule": "cascade"
+        },
+        "gtm_auto_refill_policies_play_id_foreign": {
+          "constraintName": "gtm_auto_refill_policies_play_id_foreign",
+          "columnNames": [
+            "play_id"
+          ],
+          "localTableName": "public.gtm_auto_refill_policies",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_plays",
+          "updateRule": "cascade"
+        },
+        "gtm_auto_refill_policies_campaign_id_foreign": {
+          "constraintName": "gtm_auto_refill_policies_campaign_id_foreign",
+          "columnNames": [
+            "campaign_id"
+          ],
+          "localTableName": "public.gtm_auto_refill_policies",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_campaigns",
+          "updateRule": "cascade"
+        },
+        "gtm_auto_refill_policies_campaign_version_id_foreign": {
+          "constraintName": "gtm_auto_refill_policies_campaign_version_id_foreign",
+          "columnNames": [
+            "campaign_version_id"
+          ],
+          "localTableName": "public.gtm_auto_refill_policies",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_campaign_versions",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "policy_id": {
+          "name": "policy_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "campaign_version_id": {
+          "name": "campaign_version_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "play_id": {
+          "name": "play_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "research_run_id": {
+          "name": "research_run_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "local_date": {
+          "name": "local_date",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "policy_hash": {
+          "name": "policy_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "campaign_content_hash": {
+          "name": "campaign_content_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "plan_hash": {
+          "name": "plan_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'planned'",
+          "mappedType": "text"
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "gtm_auto_refill_cycles",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "gtm_auto_refill_cycles_policy_status_idx",
+          "columnNames": [
+            "policy_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_auto_refill_cycles_org_tenant_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_auto_refill_cycles_policy_local_date_unique",
+          "columnNames": [
+            "policy_id",
+            "local_date"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "gtm_auto_refill_cycles_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "gtm_auto_refill_cycles_policy_id_foreign": {
+          "constraintName": "gtm_auto_refill_cycles_policy_id_foreign",
+          "columnNames": [
+            "policy_id"
+          ],
+          "localTableName": "public.gtm_auto_refill_cycles",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_auto_refill_policies",
+          "updateRule": "cascade"
+        },
+        "gtm_auto_refill_cycles_campaign_id_foreign": {
+          "constraintName": "gtm_auto_refill_cycles_campaign_id_foreign",
+          "columnNames": [
+            "campaign_id"
+          ],
+          "localTableName": "public.gtm_auto_refill_cycles",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_campaigns",
+          "updateRule": "cascade"
+        },
+        "gtm_auto_refill_cycles_campaign_version_id_foreign": {
+          "constraintName": "gtm_auto_refill_cycles_campaign_version_id_foreign",
+          "columnNames": [
+            "campaign_version_id"
+          ],
+          "localTableName": "public.gtm_auto_refill_cycles",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_campaign_versions",
+          "updateRule": "cascade"
+        },
+        "gtm_auto_refill_cycles_play_id_foreign": {
+          "constraintName": "gtm_auto_refill_cycles_play_id_foreign",
+          "columnNames": [
+            "play_id"
+          ],
+          "localTableName": "public.gtm_auto_refill_cycles",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_plays",
+          "updateRule": "cascade"
+        },
+        "gtm_auto_refill_cycles_research_run_id_foreign": {
+          "constraintName": "gtm_auto_refill_cycles_research_run_id_foreign",
+          "columnNames": [
+            "research_run_id"
+          ],
+          "localTableName": "public.gtm_auto_refill_cycles",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_research_runs",
+          "deleteRule": "set null",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
     }
   ],
   "nativeEnums": {}

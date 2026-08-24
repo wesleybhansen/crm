@@ -3,6 +3,8 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import {
   GtmCampaignVersion,
   GtmAiTelemetry,
+  GtmAutoRefillCycle,
+  GtmAutoRefillPolicy,
   GtmCandidate,
   GtmCandidateMatch,
   GtmCandidateRelation,
@@ -196,6 +198,25 @@ export class FakeEm implements ResearchEm, RetentionEm, CampaignEm, ExecutionEm,
           GtmCampaignVersion,
           (row) => row.campaignId === entity.campaignId && row.version === entity.version,
           'gtm_campaign_versions_campaign_version_unique',
+        )
+      }
+      if (entity instanceof GtmAutoRefillPolicy) {
+        this.assertUnique(
+          entity,
+          GtmAutoRefillPolicy,
+          (row) =>
+            row.organizationId === entity.organizationId
+            && row.tenantId === entity.tenantId
+            && row.campaignId === entity.campaignId,
+          'gtm_auto_refill_policies_org_tenant_campaign_unique',
+        )
+      }
+      if (entity instanceof GtmAutoRefillCycle) {
+        this.assertUnique(
+          entity,
+          GtmAutoRefillCycle,
+          (row) => row.policyId === entity.policyId && row.localDate === entity.localDate,
+          'gtm_auto_refill_cycles_policy_local_date_unique',
         )
       }
       if (entity instanceof GtmIcpVersion) {

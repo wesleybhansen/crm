@@ -75,6 +75,10 @@ export function researchFeatureForOp(op: string): GtmFeature {
   return op === 'execute' || op === 'retention-sweep' ? 'gtm.launch' : 'gtm.edit'
 }
 
+export function autoRefillFeatureForOp(op: string): GtmFeature {
+  return op === 'plan' || op === 'status' ? 'gtm.view' : 'gtm.launch'
+}
+
 export function strategyFeatureForOp(op: string): GtmFeature {
   return STRATEGY_READ_OPS.has(op) ? 'gtm.view' : 'gtm.edit'
 }
