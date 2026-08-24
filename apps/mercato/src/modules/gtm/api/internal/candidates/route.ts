@@ -22,9 +22,10 @@ import type { GtmCandidate, GtmCandidateMatch } from '../../../data/entities'
  * Ops (body.op, default 'list'):
  * - 'list'   filtered by runId and/or workspaceId and/or fitStatus, capped at
  *            100 rows, ordered fit_score desc. Each row also carries
- *            has_verified_email (a verified email contact point exists) and
- *            evidence_count, computed via two grouped queries over the page's
- *            candidate ids (lib/listing.ts; never one query per candidate)
+ *            has_verified_email, exact best email_verification_state,
+ *            email_contact_count, and evidence_count, computed via two grouped
+ *            queries over the page's candidate ids (lib/listing.ts; never one
+ *            query per candidate)
  * - 'review' manual verdict override for one candidate; the change writes a
  *            gtm_audit_events row in the same transaction
  * - 'export' explicit, audited reviewed-lead export: latest play-contextual
@@ -422,6 +423,8 @@ export async function POST(req: Request) {
         return {
           ...shapeCandidate(candidate, match),
           has_verified_email: extra?.hasVerifiedEmail ?? false,
+          email_verification_state: extra?.emailVerificationState ?? null,
+          email_contact_count: extra?.emailContactCount ?? 0,
           evidence_count: extra?.evidenceCount ?? 0,
           // Provenance (privacy policy 3.2): where this record came from and
           // when it was observed. Derived from the evidence rows already

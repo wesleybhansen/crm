@@ -180,9 +180,70 @@ describe('candidateEnrichment', () => {
     await em.flush()
 
     const rollup = await candidateEnrichment(em, ctx, [verified.id, found.id, bare.id])
-    expect(rollup.get(verified.id)).toMatchObject({ hasVerifiedEmail: true, evidenceCount: 2 })
-    expect(rollup.get(found.id)).toMatchObject({ hasVerifiedEmail: false, evidenceCount: 0 })
-    expect(rollup.get(bare.id)).toMatchObject({ hasVerifiedEmail: false, evidenceCount: 0 })
+    expect(rollup.get(verified.id)).toMatchObject({
+      hasVerifiedEmail: true,
+      emailVerificationState: 'verified',
+      emailContactCount: 1,
+      evidenceCount: 2,
+    })
+    expect(rollup.get(found.id)).toMatchObject({
+      hasVerifiedEmail: false,
+      emailVerificationState: 'found',
+      emailContactCount: 1,
+      evidenceCount: 0,
+    })
+    expect(rollup.get(bare.id)).toMatchObject({
+      hasVerifiedEmail: false,
+      emailVerificationState: null,
+      emailContactCount: 0,
+      evidenceCount: 0,
+    })
+  })
+
+  it('reports the safest actionable email state without hiding lesser rows', async () => {
+    const em = new FakeEm()
+    const run = await seedRun(em, await seedPlay(em))
+    const candidate = await seedCandidate(em, run, {
+      verificationState: 'provider_ambiguous',
+      evidenceClaim: null,
+    })
+    for (const verificationState of ['unknown', 'found', 'verified']) {
+      em.persist(
+        em.create(GtmContactPoint, {
+          organizationId: ORG,
+          tenantId: TENANT,
+          candidateId: candidate.id,
+          channel: 'email',
+          value: `${verificationState}@fixture.example`,
+          verificationState,
+        }),
+      )
+    }
+    await em.flush()
+
+    const entry = (await candidateEnrichment(em, ctx, [candidate.id])).get(candidate.id)
+    expect(entry).toMatchObject({
+      hasVerifiedEmail: true,
+      emailVerificationState: 'verified',
+      emailContactCount: 4,
+    })
+  })
+
+  it('maps an unrecognized persisted email state to unknown instead of overclaiming readiness', async () => {
+    const em = new FakeEm()
+    const run = await seedRun(em, await seedPlay(em))
+    const candidate = await seedCandidate(em, run, {
+      verificationState: 'provider_new_state',
+      evidenceClaim: null,
+    })
+    await em.flush()
+
+    const entry = (await candidateEnrichment(em, ctx, [candidate.id])).get(candidate.id)
+    expect(entry).toMatchObject({
+      hasVerifiedEmail: false,
+      emailVerificationState: 'unknown',
+      emailContactCount: 1,
+    })
   })
 
   it('a verified non-email channel does not count as a verified email', async () => {
@@ -202,7 +263,12 @@ describe('candidateEnrichment', () => {
     await em.flush()
 
     const rollup = await candidateEnrichment(em, ctx, [candidate.id])
-    expect(rollup.get(candidate.id)).toMatchObject({ hasVerifiedEmail: false, evidenceCount: 0 })
+    expect(rollup.get(candidate.id)).toMatchObject({
+      hasVerifiedEmail: false,
+      emailVerificationState: null,
+      emailContactCount: 0,
+      evidenceCount: 0,
+    })
   })
 
   it('is org-isolated and ignores soft-deleted contact points and evidence', async () => {
