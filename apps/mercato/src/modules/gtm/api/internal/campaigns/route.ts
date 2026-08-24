@@ -10,6 +10,10 @@ import { isUuid } from '../../../lib/play-shape'
 import { GtmCampaignError, type CampaignEm } from '../../../lib/campaign/build'
 import type { GtmCampaign } from '../../../data/entities'
 import type { ApproveCampaignResult, CampaignDraftState } from '../../../lib/campaign/approve'
+import type {
+  UpdateManualMessageInput,
+  UpdateManualMessageResult,
+} from '../../../lib/campaign/manual-message'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 
 /*
@@ -33,6 +37,8 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
  *                     reviewer must echo back on approve
  * - 'update-template' re-renders on next draft-state; invalidates the
  *                     current approved version if any
+ * - 'update-message'  replaces one draft recipient-by-step artifact after
+ *                     exact draft + message hash checks; no model call
  * - 'exclude' / 'include'  manual recipient overrides; invalidate likewise
  * - 'approve'         the immutable freeze (lib/campaign/approve.ts):
  *                     eligibility recheck, exclusion recompute, version +
@@ -105,13 +111,13 @@ export function shapeCampaignDraft(draft: CampaignDraftState) {
       subject: row.subject,
       body_html: row.bodyHtml,
       body_text: row.bodyText,
+      body_text_core: row.bodyTextCore,
       content_hash: row.contentHash,
       needs_review: row.needsReview,
       missing_fields: row.missingFields,
       word_count: row.wordCount,
       quality_issues: row.qualityIssues,
-      // template merge vs AI draft (locked voice); display metadata for the
-      // reviewer, both freeze identically.
+      // template merge, AI draft, or manual override; display metadata only.
       provenance: row.provenance,
     })),
     exclusions: {
@@ -129,6 +135,7 @@ function errorResponse(err: GtmCampaignError) {
     err.code === 'campaign_not_found' ||
     err.code === 'play_not_found' ||
     err.code === 'candidate_not_found' ||
+    err.code === 'message_not_found' ||
     err.code === 'workspace_not_found'
   ) {
     return opaqueNotFound()
@@ -273,6 +280,44 @@ export async function POST(req: Request) {
         ok: true,
         campaign: campaignShape(result.campaign),
         invalidated: result.invalidated,
+      })
+    }
+
+    if (body.op === 'update-message') {
+      if (!isUuid(body.candidateId)) return opaqueNotFound()
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const executed = await commandBus.execute<
+        UpdateManualMessageInput,
+        UpdateManualMessageResult
+      >('gtm.campaigns.update-message', {
+        input: {
+          campaignId: body.campaignId,
+          candidateId: body.candidateId,
+          stepKey: body.step_key,
+          expectedContentHash: body.expected_content_hash,
+          expectedMessageHash: body.expected_message_hash,
+          subject: body.subject,
+          bodyText: body.body_text,
+        },
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId: ctx.organizationId,
+          organizationIds: [ctx.organizationId],
+          request: req,
+        },
+      })
+      return NextResponse.json({
+        ok: true,
+        campaign: campaignShape(executed.result.campaign),
+        draft: shapeCampaignDraft(executed.result.draft),
+        edited: {
+          candidate_id: body.candidateId,
+          step_key: body.step_key,
+          previous_message_hash: executed.result.previousMessageHash,
+          content_hash: executed.result.message.contentHash,
+        },
       })
     }
 

@@ -341,6 +341,48 @@ describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)',
     expect(calls).toHaveLength(2)
   })
 
+  it('a successful explicit AI redraft replaces a prior manual override for that recipient', async () => {
+    const { em, campaign, a } = await setup()
+    await lockVoice(em)
+    campaign.channelMix = {
+      ...((campaign.channelMix ?? {}) as Record<string, unknown>),
+      message_overrides: {
+        [a.id]: {
+          email_1: {
+            subject: 'Prior manual subject',
+            body_text: 'This prior manual message contains enough specific words to remain inside the deterministic quality boundary today.',
+            edited_by_user_id: ctx.userId,
+            source_message_hash: 'a'.repeat(64),
+            step_key: 'email_1',
+            step_order: 1,
+          },
+        },
+      },
+    }
+    const before = await computeDraftState(em, ctx, campaign)
+    expect(before.rendered.find((row) => row.candidateId === a.id)?.provenance).toBe('manual')
+
+    const result = await regenerateMessageForCandidate(em, ctx, {
+      model: jsonModel(
+        'Replacement AI subject',
+        'This replacement AI message uses a grounded signal and offers one concise low-friction next action today.',
+      ),
+      meter: makeMeterSpy().meter,
+    }, {
+      campaignId: campaign.id,
+      candidateId: a.id,
+      idempotencyKey: 'replace-manual-1',
+    })
+
+    expect(result.provenance).toBe('ai')
+    const after = await computeDraftState(em, ctx, campaign)
+    expect(after.rendered.find((row) => row.candidateId === a.id)).toMatchObject({
+      provenance: 'ai',
+      subject: 'Replacement AI subject',
+    })
+    expect(((campaign.channelMix ?? {}) as Record<string, unknown>).message_overrides).toEqual({})
+  })
+
   it('invalidates an approved version and re-freezes the AI copy on re-approval', async () => {
     const { em, campaign, a } = await setup()
     await lockVoice(em)

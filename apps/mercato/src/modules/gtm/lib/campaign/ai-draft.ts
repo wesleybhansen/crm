@@ -438,6 +438,9 @@ export async function regenerateMessageForCandidate(
     const drafts = { ...((mix.ai_drafts ?? {}) as Record<string, unknown>) }
     drafts[input.candidateId] = stored
     mix.ai_drafts = drafts
+    const manualOverrides = { ...((mix.message_overrides ?? {}) as Record<string, unknown>) }
+    delete manualOverrides[input.candidateId]
+    mix.message_overrides = manualOverrides
     campaign.channelMix = mix
     tem.persist(campaign)
     await tem.flush()

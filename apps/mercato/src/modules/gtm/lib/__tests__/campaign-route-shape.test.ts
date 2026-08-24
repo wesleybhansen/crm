@@ -1,4 +1,5 @@
 import { shapeCampaignDraft } from '../../api/internal/campaigns/route'
+import { gtmCampaignsBodySchema } from '../../data/validators'
 import type { CampaignDraftState } from '../campaign/approve'
 
 describe('campaign draft response shape', () => {
@@ -37,6 +38,7 @@ describe('campaign draft response shape', () => {
           subject: 'First subject',
           bodyHtml: '<p>First body</p>',
           bodyText: 'First body',
+          bodyTextCore: 'First body',
           contentHash: 'message-hash-1',
           needsReview: false,
           missingFields: [],
@@ -51,12 +53,13 @@ describe('campaign draft response shape', () => {
           subject: 'Second subject',
           bodyHtml: '<p>Second body</p>',
           bodyText: 'Second body',
+          bodyTextCore: 'Second body',
           contentHash: 'message-hash-2',
           needsReview: true,
           missingFields: ['signal'],
           wordCount: 17,
           qualityIssues: ['body_too_short'],
-          provenance: 'ai',
+          provenance: 'manual',
         },
       ],
       exclusions: { entries: [], summary: { total: 1, excluded: 0, byReason: {} } },
@@ -69,6 +72,7 @@ describe('campaign draft response shape', () => {
         step_key: 'email_1',
         step_order: 1,
         content_hash: 'message-hash-1',
+        body_text_core: 'First body',
         word_count: 42,
         quality_issues: [],
       }),
@@ -77,9 +81,29 @@ describe('campaign draft response shape', () => {
         step_key: 'email_2',
         step_order: 2,
         content_hash: 'message-hash-2',
+        body_text_core: 'Second body',
         word_count: 17,
         quality_issues: ['body_too_short'],
+        provenance: 'manual',
       }),
     ])
+  })
+
+  it('accepts only an exact double-hash-bound manual message write shape', () => {
+    const valid = {
+      op: 'update-message',
+      noliUserId: 'user-1',
+      campaignId: 'campaign-1',
+      candidateId: 'candidate-1',
+      step_key: 'email_2',
+      expected_content_hash: 'a'.repeat(64),
+      expected_message_hash: 'b'.repeat(64),
+      subject: 'A bounded subject',
+      body_text: 'A bounded body with enough space for deterministic server validation.',
+    }
+    expect(gtmCampaignsBodySchema.safeParse(valid).success).toBe(true)
+    expect(gtmCampaignsBodySchema.safeParse({ ...valid, expected_message_hash: 'short' }).success).toBe(false)
+    expect(gtmCampaignsBodySchema.safeParse({ ...valid, expected_content_hash: 'z'.repeat(64) }).success).toBe(false)
+    expect(gtmCampaignsBodySchema.safeParse({ ...valid, body_text: '' }).success).toBe(false)
   })
 })
