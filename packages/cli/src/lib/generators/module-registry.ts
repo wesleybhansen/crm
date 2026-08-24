@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import ts from 'typescript'
 import type { PackageResolver } from '../resolver'
 import {
   calculateStructureChecksum,
@@ -266,8 +267,41 @@ async function processWorkers(options: {
     const segs = relPath.split('/')
     const file = segs.pop()!
     const name = file.replace(/\.ts$/, '')
+    const sourceFile = path.join(
+      fromApp ? roots.appBase : roots.pkgBase,
+      'workers',
+      ...relPath.split('/'),
+    )
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/workers/${[...segs, name].join('/')}`
-    if (!(await moduleHasExport(importPath, 'metadata'))) continue
+    // Inspect the discovered source file, not its generated relative import.
+    // A relative import is resolved from this generator module and silently
+    // drops app-local workers whose path only makes sense in the generated
+    // registry. Static inspection is intentional: importing a worker here
+    // executes its dependency graph during generation, which can fail before
+    // app aliases/runtime-only dependencies are available and hide a valid
+    // convention file without an error.
+    const source = fs.readFileSync(sourceFile, 'utf8')
+    const sourceKind = sourceFile.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS
+    const parsed = ts.createSourceFile(
+      sourceFile,
+      source,
+      ts.ScriptTarget.ES2020,
+      true,
+      sourceKind,
+    )
+    const exportsMetadata = parsed.statements.some((statement) => {
+      const isExported = ts.canHaveModifiers(statement)
+        && ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+      if (isExported && ts.isVariableStatement(statement)) {
+        return statement.declarationList.declarations.some(
+          (declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === 'metadata',
+        )
+      }
+      if (!ts.isExportDeclaration(statement) || !statement.exportClause) return false
+      return ts.isNamedExports(statement.exportClause)
+        && statement.exportClause.elements.some((element) => element.name.text === 'metadata')
+    })
+    if (!exportsMetadata) continue
     const importName = `Worker${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
     const metaName = `WorkerMeta${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
     imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)

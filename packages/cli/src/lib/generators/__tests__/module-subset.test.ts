@@ -239,6 +239,27 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(output).toContain('features:')
   })
 
+  it('registers an app-local worker by inspecting its discovered source file', async () => {
+    scaffoldModule(tmpDir, 'worker_mod', 'app', ['index.ts'])
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'worker_mod', 'workers', 'owner-pilot.ts'),
+      [
+        "import 'runtime-only-worker-dependency'",
+        "export const metadata = { queue: 'owner-pilot', id: 'worker-mod:owner-pilot', concurrency: 1 }",
+        'export default async function handle(): Promise<void> {}',
+      ].join('\n'),
+    )
+    const resolver = createMockResolver(tmpDir, [{ id: 'worker_mod', from: '@app' }])
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain("from '../../src/modules/worker_mod/workers/owner-pilot'")
+    expect(output).toContain('workers:')
+    expect(output).toContain("'worker_mod:workers:owner-pilot'")
+  })
+
   it('mixed subset: core module + app module, then remove core module', async () => {
     scaffoldModule(tmpDir, 'core_mod', 'pkg', [
       'backend/page.tsx',
@@ -321,6 +342,26 @@ describe('generateModuleRegistryCli with module subsets', () => {
     expect(output).toContain('features:')
     expect(output).toContain('setup:')
     expect(output).toContain('dashboardWidgets:')
+  })
+
+  it('CLI output includes app-local workers', async () => {
+    scaffoldModule(tmpDir, 'worker_mod', 'app', ['index.ts'])
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'worker_mod', 'workers', 'owner-pilot.ts'),
+      [
+        "import 'runtime-only-worker-dependency'",
+        "export const metadata = { queue: 'owner-pilot', id: 'worker-mod:owner-pilot', concurrency: 1 }",
+        'export default async function handle(): Promise<void> {}',
+      ].join('\n'),
+    )
+    const resolver = createMockResolver(tmpDir, [{ id: 'worker_mod', from: '@app' }])
+
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.cli.generated.ts')!
+    expect(output).toContain("from '../../src/modules/worker_mod/workers/owner-pilot'")
+    expect(output).toContain('workers:')
   })
 
   it('handles disabling a module that was previously enabled', async () => {
