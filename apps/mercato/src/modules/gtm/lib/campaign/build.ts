@@ -179,6 +179,13 @@ export type ChannelMixInput = {
   x?: boolean
 }
 
+export type CampaignSequenceInput = {
+  emails: number
+  email_delay_days: number[]
+  linkedin: boolean
+  x: boolean
+}
+
 export type StepSpec = {
   // stable key within the draft; resolved to a GtmStep row id at approval
   key: string
@@ -251,6 +258,29 @@ export function buildSteps(channelMix?: ChannelMixInput | null): StepSpec[] {
     })
   }
   return steps
+}
+
+export function buildEditableSequence(input: CampaignSequenceInput): StepSpec[] {
+  if (!Number.isInteger(input.emails) || input.emails < 1 || input.emails > 3) {
+    throw new GtmCampaignError('invalid_channel_mix', 'emails must be an integer between 1 and 3')
+  }
+  if (
+    input.email_delay_days.length !== input.emails
+    || input.email_delay_days.some((delay) => !Number.isInteger(delay) || delay < 0 || delay > 30)
+    || input.email_delay_days[0] !== 0
+    || input.email_delay_days.some((delay, index) => index > 0 && delay <= input.email_delay_days[index - 1])
+  ) {
+    throw new GtmCampaignError(
+      'invalid_channel_mix',
+      'email_delay_days must contain one strictly increasing day offset per email, beginning at 0 and ending by day 30',
+    )
+  }
+  const steps = buildSteps({ emails: input.emails, linkedin: input.linkedin, x: input.x })
+  return steps.map((step) => {
+    if (step.channel !== 'email') return step
+    const index = Number(step.key.slice('email_'.length)) - 1
+    return { ...step, delay_days: input.email_delay_days[index] }
+  })
 }
 
 // ---------------------------------------------------------------------------

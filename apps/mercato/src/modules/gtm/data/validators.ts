@@ -280,6 +280,39 @@ export const gtmCampaignsBodySchema = z.discriminatedUnion('op', [
     campaignId: idString,
   }),
   z.object({
+    op: z.literal('list-senders'),
+    noliUserId: idString,
+  }),
+  z.object({
+    op: z.literal('update-sequence'),
+    noliUserId: idString,
+    campaignId: idString,
+    expected_content_hash: z.string().regex(/^[a-f0-9]{64}$/),
+    sequence: z.object({
+      emails: z.number().int().min(1).max(3),
+      email_delay_days: z.array(z.number().int().min(0).max(30)).min(1).max(3),
+      linkedin: z.boolean(),
+      x: z.boolean(),
+    }),
+  }),
+  z.object({
+    op: z.literal('update-settings'),
+    noliUserId: idString,
+    campaignId: idString,
+    expected_content_hash: z.string().regex(/^[a-f0-9]{64}$/),
+    settings: z.object({
+      daily_cap: z.number().int().min(1).max(10000),
+      send_window: z.object({
+        start_hour: z.number().int().min(0).max(23),
+        end_hour: z.number().int().min(1).max(24),
+        timezone: z.string().trim().min(1).max(100),
+      }),
+      jitter_minutes: z.number().int().min(0).max(120),
+      mailbox_connection_id: idString.nullable(),
+      duplicate_override: z.boolean(),
+    }),
+  }),
+  z.object({
     op: z.literal('update-template'),
     noliUserId: idString,
     campaignId: idString,

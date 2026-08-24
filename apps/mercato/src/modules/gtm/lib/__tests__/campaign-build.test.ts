@@ -2,6 +2,7 @@ import { FakeEm } from './support/fake-em'
 import { ctx, seedPlay, WORKSPACE } from './support/campaign-fixtures'
 import {
   buildSteps,
+  buildEditableSequence,
   createCampaign,
   DAILY_CAP_CEILING,
   DEFAULT_DAILY_CAP,
@@ -60,6 +61,31 @@ describe('buildSteps (campaign step plan)', () => {
     expect(dm!.mode).toBe('manual_social')
     expect(dm!.social_action).toBe('dm')
     expect(dm!.dependency_kind).toBe('none')
+  })
+
+  it('builds a canonical editable sequence with explicit absolute email offsets', () => {
+    const steps = buildEditableSequence({
+      emails: 3,
+      email_delay_days: [0, 4, 10],
+      linkedin: true,
+      x: false,
+    })
+    expect(steps.filter((step) => step.channel === 'email').map((step) => step.delay_days)).toEqual([0, 4, 10])
+    expect(steps.map((step) => step.order)).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it.each([
+    [2, [0]],
+    [2, [1, 4]],
+    [3, [0, 4, 4]],
+    [2, [0, 31]],
+  ])('rejects an invalid editable sequence (%s emails at %j)', (emails, emailDelayDays) => {
+    expect(() => buildEditableSequence({
+      emails,
+      email_delay_days: emailDelayDays,
+      linkedin: false,
+      x: false,
+    })).toThrow(expect.objectContaining({ code: 'invalid_channel_mix' }))
   })
 })
 
