@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0-R38 is merged and owner-only dark-deployed through bounded campaign auto-refill controls. The separate auto-refill runtime gate remains off, and no campaign schedule or cycle exists. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+**Status:** C0-R39 is merged and owner-only dark-deployed through executable enrichment quote truth. The separate auto-refill runtime gate remains off, and no campaign schedule or cycle exists. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -1244,7 +1244,7 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | Phase | Status | Date | Notes |
 |---|---|---|---|
 | R39-A - executable quote truth | Completed locally | 2026-08-24 | Migration-free CRM route/plan/test correction; no provider, mailbox, email, flag, schedule, or production state changed. |
-| R39-B - current-main release and owner-only read validation | Pending | 2026-08-24 | Deploy dark, refresh the same selected-play quote, and require zero re-quoted work for the consumed candidate with zero new provider operations. |
+| R39-B - current-main release and owner-only read validation | Completed and dark-deployed | 2026-08-24 | CRM PR #80 merged and deployed as exact main `ba6d8efaca839e4121258b5f86c871b17f8757c7`; Hub PR #262 deployed as exact main `6a5dd933297e6652915cf367c563fcae56d35e81`. The owner refreshed the same selected-play plan and received an already-checked state with no confirm/run action. Provider-operation rows remained exactly 20 with the same latest timestamp, while auto-refill policies, cycles, and send attempts remained zero. |
 
 ## 48. Changelog
 
@@ -1307,3 +1307,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-24: Approved R38's bounded campaign auto-refill foundation. Auto-refill may source at most one frozen weekday research cycle per campaign-local date and queues results for review; it cannot enroll recipients or send, and its separate runtime gate remains off.
 - 2026-08-24: Completed R38-A locally with a generator-owned additive migration, exact policy and plan hashes, tenant-scoped weekday scheduling, duplicate-cycle prevention, represented-user reauthorization, count-only outcomes, and explicit no-enrollment/no-send tests. The runtime gate remains off pending dark release and Hub controls.
 - 2026-08-24: Dark-deployed R38 CRM and Hub, adopted the already-proven production schema in the migration ledger, and verified zero policy rows, cycles, or schedules while the runtime gate remained off. Added R39 after the owner-only People flow exposed a quote for an already-consumed enrichment operation; plan schema v5 now omits exact non-fingerprinted terminal work and parks unresolved operations before confirmation.
+- 2026-08-24: Dark-deployed R39 CRM-first and Hub second on exact current-main artifacts. The same owner-only enrichment preview now reports that the accepted people were already checked, exposes no confirm/run action, and creates no provider operation, auto-refill policy/cycle, or send attempt. Execution, mailbox ingestion, auto-refill, LeadMagic, Bouncer, and public GTM promotion remain off.
