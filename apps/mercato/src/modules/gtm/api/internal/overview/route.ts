@@ -105,10 +105,22 @@ export async function POST(req: Request) {
       { fields: ['id', 'executionEligibility'] },
     )
 
+    const { readWorkspacePostalAddress } = await import('../../../lib/workspace-settings')
+    const postalAddress = readWorkspacePostalAddress(workspace)
+
     return NextResponse.json({
       ok: true,
       workspace: workspace
-        ? { id: workspace.id, name: workspace.name, status: workspace.status }
+        ? {
+            id: workspace.id,
+            name: workspace.name,
+            status: workspace.status,
+            // The signed-in customer's own sender address. The Hub uses this
+            // to make the workspace-level compliance setting editable before
+            // campaign creation; it is never replaced with a Noli default.
+            postal_address: postalAddress,
+            postal_address_set: postalAddress != null,
+          }
         : null,
       plays: plays.map((play) => shapePlaySummary(play)),
       counts: buildPlayCounts(allEligibilities.map((row) => row.executionEligibility)),
