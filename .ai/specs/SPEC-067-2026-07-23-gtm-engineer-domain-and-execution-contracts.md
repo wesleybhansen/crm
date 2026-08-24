@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0-R37 is merged and owner-only dark-deployed through campaign analytics and bounded persisted Strategist continuity. R38's CRM auto-refill foundation is locally verified and pending release; its separate runtime gate remains off. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+**Status:** C0-R38 is merged and owner-only dark-deployed through bounded campaign auto-refill controls. The separate auto-refill runtime gate remains off, and no campaign schedule or cycle exists. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -1217,11 +1217,36 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 
 | Phase | Status | Date | Notes |
 |---|---|---|---|
-| R38-A - immutable settings/policy/cycle contract | Completed locally | 2026-08-24 | Current-main CRM foundation from exact `dae9e7f7aad68142e6283a170f0fc4962f700166`; 86/87 GTM suites and 903/910 tests pass with only the opt-in PostgreSQL suite and seven tests skipped; TypeScript, module lint, diff checks, generated migration apply/reapply, and generator no-drift pass; no provider, mailbox, email, schedule, or production state changed |
-| R38-B - Hub settings and review-queue UX | Planned | 2026-08-24 | Noli design system with Origami interaction parity; must say new people wait for review |
-| R38-C - owner-only dark validation | Planned | 2026-08-24 | Gate remains off through merge/deploy; any golden cycle is separately bounded and non-sending |
+| R38-A - immutable settings/policy/cycle contract | Completed and dark-deployed | 2026-08-24 | CRM PR #79 merged as `b33921882b857df94747ee9cd528a125986d8fdd`; the exact generated schema was already present on the controlled host, so migration `Migration20260824081513_gtm` was adopted in the ledger only after exact read-only schema proof. Source and ledger both contain eight GTM migrations. |
+| R38-B - Hub settings and review-queue UX | Completed and dark-deployed | 2026-08-24 | Hub PR #261 merged on main `ac47506df9afb5983341cda2aa74bce6be7a9867`; production deployment `dpl_SNfd8Ycx3MuTSi7cY6Za3rUfyQnU` is ready on `app.noliai.com`; 1,268 Hub tests, typecheck, production build, and diff checks passed. |
+| R38-C - owner-only dark validation | Completed dark | 2026-08-24 | The runtime gate remains off. Production has zero auto-refill policy rows, zero cycle rows, and zero `gtm-auto-refill` schedules. The deployed owner UI exposes bounded settings and queues future findings for review; no cycle, provider call, enrollment, mailbox action, or send was created. |
 
-## 47. Changelog
+## 47. R39 executable enrichment quote truth (approved 2026-08-24)
+
+### 47.1 Problem and invariant
+
+- Owner-only dark validation found a 10,000-credit enrichment preview for one accepted person even though that person's exact non-fingerprinted Apify profile-enrichment operation was already terminal and the execution waterfall would deterministically make no provider call.
+- A quote must describe executable work. The user must not be asked to approve a charge ceiling for an operation that the canonical idempotency boundary will necessarily suppress.
+
+### 47.2 Contract
+
+- Enrichment plan schema v5 reads tenant-scoped `contact_enrich` shadow projections for the selected candidates and freezes their provider/status truth into the plan hash.
+- Candidate-level suppression applies only when the adapter's operation key is exactly candidate plus adapter. Adapters with an additional request fingerprint remain eligible because the existing shadow does not retain enough identity to distinguish old input from corrected input.
+- `reserved` remains executable. Terminal/released operations are omitted from provider units and reported through `operations_already_consumed`. `provider_started`, `reconciliation_required`, missing mirrors, and other unresolved pre-terminal states are omitted and reported through `operations_requiring_reconciliation`; they are never silently retried.
+- The route rebuilds this plan immediately before execution, so any operation-state drift invalidates the approved hash. The execution waterfall and canonical ledger remain the authoritative single-flight and money boundaries.
+- R39 adds no entity, migration, provider capability, flag, mailbox capability, send capability, or public exposure. It makes no external provider call.
+
+### 47.3 Acceptance and status
+
+- Deterministic coverage proves consumed suppression, reserved continuation, unresolved-operation parking, and non-inference for request-fingerprinted adapters.
+- The full GTM baseline passes 86/87 suites and 907/914 tests with only the opt-in PostgreSQL suite and seven tests skipped. Mercato typecheck, focused lint, focused quote tests, full package/application production build, and `git diff --check` pass.
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R39-A - executable quote truth | Completed locally | 2026-08-24 | Migration-free CRM route/plan/test correction; no provider, mailbox, email, flag, schedule, or production state changed. |
+| R39-B - current-main release and owner-only read validation | Pending | 2026-08-24 | Deploy dark, refresh the same selected-play quote, and require zero re-quoted work for the consumed candidate with zero new provider operations. |
+
+## 48. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1281,3 +1306,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-24: Dark-deployed R36 CRM-first and Hub second, then dark-deployed R37's bounded persisted Strategist continuity. Signed-out GTM access remains opaque and no external-effect gate changed.
 - 2026-08-24: Approved R38's bounded campaign auto-refill foundation. Auto-refill may source at most one frozen weekday research cycle per campaign-local date and queues results for review; it cannot enroll recipients or send, and its separate runtime gate remains off.
 - 2026-08-24: Completed R38-A locally with a generator-owned additive migration, exact policy and plan hashes, tenant-scoped weekday scheduling, duplicate-cycle prevention, represented-user reauthorization, count-only outcomes, and explicit no-enrollment/no-send tests. The runtime gate remains off pending dark release and Hub controls.
+- 2026-08-24: Dark-deployed R38 CRM and Hub, adopted the already-proven production schema in the migration ledger, and verified zero policy rows, cycles, or schedules while the runtime gate remained off. Added R39 after the owner-only People flow exposed a quote for an already-consumed enrichment operation; plan schema v5 now omits exact non-fingerprinted terminal work and parks unresolved operations before confirmation.
