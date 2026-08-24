@@ -313,6 +313,12 @@ describe('Apify public website email adapter', () => {
       data: null,
       cost_units: null,
       error: expect.stringContaining('finalized billing evidence'),
+      receipt: expect.objectContaining({
+        billing_finalized: true,
+        charged_event_counts: { result: 1 },
+        provider_cost_usd: 0.004,
+        pricing_model: 'PAY_PER_EVENT',
+      }),
     })
     expect(calls).toHaveLength(2)
   })

@@ -419,6 +419,24 @@ function finalizedProviderCost(
   return { costUsd: roundedCostUsd, counts: run.chargedEventCounts }
 }
 
+// A signed, terminal run receipt can still be useful operator evidence when
+// it does not match the contract we approved for automatic settlement. Keep
+// the provider's bounded total and event counts, but never turn this evidence
+// into a successful adapter result: the caller remains ambiguous and requires
+// an explicit reconciliation decision.
+function finalizedProviderEvidence(
+  run: ApifyRunRecord,
+  maxChargeUsd: number,
+): { costUsd: number; counts: Record<string, number>; pricingModel: string } | null {
+  if (!run.pricingInfo.pricingModel || run.usageTotalUsd == null) return null
+  if (run.usageTotalUsd > maxChargeUsd + 1e-9) return null
+  return {
+    costUsd: Math.round(run.usageTotalUsd * 1e8) / 1e8,
+    counts: run.chargedEventCounts,
+    pricingModel: run.pricingInfo.pricingModel,
+  }
+}
+
 async function defaultSleep(delayMs: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
 }
@@ -627,8 +645,19 @@ export async function runActorWithFinalizedBilling(
     ? finalizedProviderCost(finalRun, options.billingContract, maxChargeUsd)
     : null
   if (!finalRun || finalRun.id !== startRun.id || finalRun.status !== 'SUCCEEDED' || !billing) {
+    const evidence = finalRun
+      && finalRun.id === startRun.id
+      && finalRun.status === 'SUCCEEDED'
+      ? finalizedProviderEvidence(finalRun, maxChargeUsd)
+      : null
     return {
       ...withRun,
+      ...(evidence ? {
+        billingFinalized: true,
+        chargedEventCounts: evidence.counts,
+        providerCostUsd: evidence.costUsd,
+        pricingModel: evidence.pricingModel,
+      } : {}),
       kind: 'invalid_schema',
       status: 'ambiguous',
       items: [],

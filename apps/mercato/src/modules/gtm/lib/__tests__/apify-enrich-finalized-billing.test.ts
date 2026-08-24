@@ -287,6 +287,12 @@ describe('Apify profile enrichment finalized billing', () => {
     expect(result.cost_units).toBeNull()
     expect(result.data).toBeNull()
     expect(result.error).toContain('finalized billing evidence')
+    expect(result.receipt).toMatchObject({
+      billing_finalized: true,
+      charged_event_counts: { profile: 1 },
+      provider_cost_usd: 0.005,
+      pricing_model: 'PAY_PER_EVENT',
+    })
     expect(calls).toHaveLength(2)
   })
 
