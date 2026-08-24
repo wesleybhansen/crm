@@ -21,31 +21,44 @@ import {
 } from './source'
 import {
   APIFY_DEFAULT_TIMEOUT_MS,
-  runActorSync,
+  runActorWithFinalizedBilling,
   type ApifyFetchLike,
+  type ApifyFinalizedBillingContract,
   type ApifyRunOutcome,
 } from './client'
 
 export const APIFY_COMPANY_EMPLOYEES_ADAPTER_ID = 'apify-linkedin-company-employees'
 export const APIFY_COMPANY_EMPLOYEES_ACTOR_ID = 'harvestapi/linkedin-company-employees'
+export const APIFY_COMPANY_EMPLOYEES_ACTOR_BUILD = '0.0.157'
 export const APIFY_COMPANY_EMPLOYEES_SIGNAL = 'company_decision_maker'
 export const APIFY_COMPANY_EMPLOYEES_ACTOR_ENV = 'GTM_APIFY_ACTOR_LINKEDIN_COMPANY_EMPLOYEES'
 export const APIFY_COMPANY_EMPLOYEES_PRICE_VERSION_ENV =
   'GTM_APIFY_COMPANY_EMPLOYEES_PRICE_VERSION'
 export const APIFY_COMPANY_EMPLOYEES_REQUIRED_PRICE_VERSION =
-  'harvestapi-linkedin-company-employees-basic-min-0.05-2026-08-22'
-// A Short-mode result does not reliably identify its source company when an
-// Actor run contains more than one company. Keep one immutable company per
-// operation so the echoed query can safely bind every accepted row.
+  'harvestapi-linkedin-company-employees-full-0.0.157-finalized-events-2026-08-24'
+// Keep one immutable company per operation. Full-mode work history supplies
+// the strong current-employer URL/id that Short rows omitted in the R40 live
+// run, while the sole echoed query prevents cross-company attribution.
 export const APIFY_COMPANY_EMPLOYEES_MAX_COMPANIES = 1
 export const APIFY_COMPANY_EMPLOYEES_MAX_PROFILES = 25
-export const APIFY_COMPANY_EMPLOYEES_PROFILE_MODE = 'Short ($4 per 1k)'
+export const APIFY_COMPANY_EMPLOYEES_PROFILE_MODE = 'Full ($8 per 1k)'
+export const APIFY_COMPANY_EMPLOYEES_DATASET_BYTES = 5_000_000
+export const APIFY_COMPANY_EMPLOYEES_DATASET_FIELDS = [
+  'linkedinUrl',
+  'firstName',
+  'lastName',
+  'fullName',
+  'location',
+  'currentPosition',
+  'currentPositions',
+  'experience',
+  '_meta',
+] as const
 
 export const APIFY_COMPANY_EMPLOYEES_BASIC_PROFILE_USD = 0.003
-// The public price table says $3/1k Basic profiles while the actor input
-// schema still labels Short mode $4/1k. Quote and settle at the higher bound
-// until a canonical provider receipt resolves the discrepancy.
-export const APIFY_COMPANY_EMPLOYEES_QUOTED_PROFILE_USD = 0.004
+export const APIFY_COMPANY_EMPLOYEES_FULL_PROFILE_USD = 0.008
+export const APIFY_COMPANY_EMPLOYEES_QUOTED_PROFILE_USD =
+  APIFY_COMPANY_EMPLOYEES_FULL_PROFILE_USD
 export const APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD = 0.02
 // The Actor metadata currently declares a $0.05 minimum
 // `maxTotalChargeUsd`. A smaller reservation is rejected before a run starts,
@@ -60,6 +73,15 @@ export const APIFY_COMPANY_EMPLOYEES_START_UNITS =
   APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD / APIFY_MILLIDOLLAR_USD
 export const APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_UNITS =
   APIFY_COMPANY_EMPLOYEES_MIN_CHARGE_USD / APIFY_MILLIDOLLAR_USD
+export const APIFY_COMPANY_EMPLOYEES_EVENT_PRICES_USD = {
+  'actor-start': APIFY_COMPANY_EMPLOYEES_ACTOR_START_USD,
+  'full-profile': APIFY_COMPANY_EMPLOYEES_FULL_PROFILE_USD,
+} as const
+
+const APIFY_COMPANY_EMPLOYEES_BILLING_CONTRACT: ApifyFinalizedBillingContract = {
+  pricingModel: 'PAY_PER_EVENT',
+  eventPricesUsd: APIFY_COMPANY_EMPLOYEES_EVENT_PRICES_USD,
+}
 
 type CompanyEmployeesEnv = Record<string, string | undefined>
 
@@ -130,9 +152,12 @@ type CompanyEmployeesRunActor = (
   input: Record<string, unknown>,
   options: {
     token: string
+    build: string
     timeoutMs: number
     maxItems: number
     maxChargeUsd: number
+    datasetFields: string[]
+    maxDatasetBodyBytes: number
     now: () => Date
   },
 ) => Promise<ApifyRunOutcome>
@@ -142,6 +167,8 @@ export type ApifyCompanyEmployeesDeps = {
   now?: () => Date
   runActor?: CompanyEmployeesRunActor
   fetchImpl?: ApifyFetchLike
+  finalizationDelayMs?: number
+  sleep?: (delayMs: number) => Promise<void>
 }
 
 function processEnv(): CompanyEmployeesEnv {
@@ -307,6 +334,8 @@ type CurrentPosition = {
   title: string
   companyName: string
   companyUrl: string
+  companyId: string
+  current: boolean
 }
 
 function currentPositions(value: unknown): CurrentPosition[] {
@@ -316,8 +345,32 @@ function currentPositions(value: unknown): CurrentPosition[] {
       title: text(row.position) ?? text(row.title) ?? '',
       companyName: text(row.companyName) ?? '',
       companyUrl: safeLinkedInUrl(row.companyLinkedinUrl, 'company') ?? '',
+      companyId: text(row.companyId) ?? '',
+      // `currentPosition(s)` is itself a current-only provider field. Some
+      // Short rows additionally carry the boolean while Full rows do not.
+      current: row.current !== false,
     }))
-    .filter((row) => row.title)
+    .filter((row) => row.current && row.title)
+}
+
+function presentEndDate(value: unknown): boolean {
+  const direct = text(value)
+  if (direct) return direct.toLowerCase() === 'present'
+  const row = record(value)
+  return text(row?.text)?.toLowerCase() === 'present'
+}
+
+function currentExperience(value: unknown): CurrentPosition[] {
+  if (!Array.isArray(value)) return []
+  return value.map(record).filter((row): row is Record<string, unknown> => row != null)
+    .map((row) => ({
+      title: text(row.position) ?? text(row.title) ?? '',
+      companyName: text(row.companyName) ?? '',
+      companyUrl: safeLinkedInUrl(row.companyLinkedinUrl, 'company') ?? '',
+      companyId: text(row.companyId) ?? '',
+      current: row.current === true || presentEndDate(row.endDate),
+    }))
+    .filter((row) => row.current && row.title)
 }
 
 function normalizedCompanyName(value: string): string {
@@ -352,9 +405,9 @@ export function normalizeApifyCompanyEmployeeItem(
   if (!profileUrl || !name) return null
 
   // The live Actor contract echoes the submitted company query in `_meta`.
-  // Short-mode rows are safe only when both the frozen plan and that echo
-  // contain the same sole company. A batched echo can prove the batch but not
-  // which company produced a particular person, so it is rejected.
+  // Rows are safe only when both the frozen plan and that echo contain the
+  // same sole company. A batched echo can prove the batch but not which
+  // company produced a particular person, so it is rejected.
   if (companies.length !== 1) return null
   const parent = companies[0]
   const echoed = echoedCompanyUrls(row)
@@ -369,7 +422,10 @@ export function normalizeApifyCompanyEmployeeItem(
   const parentCompanyIds = new Set(
     normalizeLinkedInCompanyIds(parent.linkedin_company_ids ?? []),
   )
-  const positions = currentPositions(row.currentPositions ?? row.currentPosition)
+  const positions = [
+    ...currentPositions(row.currentPositions ?? row.currentPosition),
+    ...currentExperience(row.experience),
+  ]
   const parentName = normalizedCompanyName(parent.name)
   const position = positions.find((entry) => {
     // Prefer the strongest field and never let a matching display name
@@ -380,16 +436,11 @@ export function normalizeApifyCompanyEmployeeItem(
       return companyByUrl.has(normalizedCompanyUrl(entry.companyUrl))
         || Boolean(companyId && parentCompanyIds.has(companyId))
     }
+    if (entry.companyId) return parentCompanyIds.has(entry.companyId)
     return Boolean(
       entry.companyName && normalizedCompanyName(entry.companyName) === parentName,
     )
-  }) ?? (
-    positions.length === 1
-    && !positions[0].companyUrl
-    && !positions[0].companyName
-      ? positions[0]
-      : null
-  )
+  })
   if (!position) return null
   const location = locationIdentity(row.location)
   const identity: CandidateIdentity = {
@@ -421,7 +472,7 @@ export function normalizeApifyCompanyEmployeeItem(
           parent_company_match_id: parent.match_id,
           parent_company_url: parent.linkedin_url,
           current_title: position.title,
-          company_binding: 'single_company_query_echo_with_alias_v2',
+          company_binding: 'single_company_query_echo_with_current_experience_v3',
         },
       }],
     },
@@ -429,18 +480,36 @@ export function normalizeApifyCompanyEmployeeItem(
 }
 
 function receipt(
-  outcome: Pick<ApifyRunOutcome, 'actorId' | 'runId' | 'itemCount' | 'kind' | 'httpStatus' | 'requestUrl' | 'attemptedAt'>,
+  outcome: Pick<
+    ApifyRunOutcome,
+    | 'actorId'
+    | 'runId'
+    | 'itemCount'
+    | 'kind'
+    | 'httpStatus'
+    | 'requestUrl'
+    | 'attemptedAt'
+    | 'billingFinalized'
+    | 'chargedEventCounts'
+    | 'providerCostUsd'
+    | 'pricingModel'
+  >,
   extras: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
     actor_id: outcome.actorId,
     run_id: outcome.runId,
+    actor_build: APIFY_COMPANY_EMPLOYEES_ACTOR_BUILD,
     item_count: outcome.itemCount,
     profile_mode: APIFY_COMPANY_EMPLOYEES_PROFILE_MODE,
     provider_status: outcome.kind,
     http_status: outcome.httpStatus,
     request_url: outcome.requestUrl,
     attempted_at: outcome.attemptedAt,
+    billing_finalized: outcome.billingFinalized ?? false,
+    charged_event_counts: outcome.chargedEventCounts ?? null,
+    provider_cost_usd: outcome.providerCostUsd ?? null,
+    pricing_model: outcome.pricingModel ?? null,
     ...extras,
   }
 }
@@ -456,10 +525,15 @@ function refusal(
     receipt: {
       actor_id: actorId,
       run_id: null,
+      actor_build: APIFY_COMPANY_EMPLOYEES_ACTOR_BUILD,
       item_count: 0,
       profile_mode: APIFY_COMPANY_EMPLOYEES_PROFILE_MODE,
       provider_status: 'disabled',
       attempted_at: attemptedAt,
+      billing_finalized: false,
+      charged_event_counts: null,
+      provider_cost_usd: null,
+      pricing_model: null,
     },
     cost_units: 0,
     error,
@@ -473,13 +547,19 @@ export function createApifyCompanyEmployeesAdapter(
   const now = deps.now ?? (() => new Date())
   const descriptor = apifyCompanyEmployeesDescriptor(env)
   const runActor: CompanyEmployeesRunActor = deps.runActor ?? ((actorId, input, options) =>
-    runActorSync(actorId, input, {
+    runActorWithFinalizedBilling(actorId, input, {
       token: options.token,
+      build: options.build,
       timeoutMs: options.timeoutMs,
       maxItems: options.maxItems,
       maxChargeUsd: options.maxChargeUsd,
+      datasetFields: options.datasetFields,
+      maxDatasetBodyBytes: options.maxDatasetBodyBytes,
       now: options.now,
       fetchImpl: deps.fetchImpl,
+      billingContract: APIFY_COMPANY_EMPLOYEES_BILLING_CONTRACT,
+      finalizationDelayMs: deps.finalizationDelayMs,
+      sleep: deps.sleep,
     }))
 
   return {
@@ -551,15 +631,18 @@ export function createApifyCompanyEmployeesAdapter(
       }
       const outcome = await runActor(actorId, input, {
         token,
+        build: APIFY_COMPANY_EMPLOYEES_ACTOR_BUILD,
         timeoutMs: timeoutMs(env),
         maxItems: cap,
         maxChargeUsd,
+        datasetFields: [...APIFY_COMPANY_EMPLOYEES_DATASET_FIELDS],
+        maxDatasetBodyBytes: APIFY_COMPANY_EMPLOYEES_DATASET_BYTES,
         now,
       })
       const providerReceipt = (extras: Record<string, unknown> = {}) => receipt(outcome, {
         max_charge_usd: maxChargeUsd,
         company_batch_mode: 'all_at_once',
-        company_binding: 'single_company_query_echo_with_alias_v2',
+        company_binding: 'single_company_query_echo_with_current_experience_v3',
         companies_submitted: companies.length,
         job_titles_submitted: jobTitles.length,
         ...extras,
@@ -582,12 +665,22 @@ export function createApifyCompanyEmployeesAdapter(
           error: outcome.error ?? 'provider error',
         }
       }
+      if (!outcome.billingFinalized || outcome.providerCostUsd == null) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt(),
+          cost_units: null,
+          error: 'provider_billing_unknown: company-employees receipt was not finalized',
+        }
+      }
+      const costUnits = outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
       if (outcome.status === 'no_result') {
         return {
           status: 'no_result',
           data: null,
           receipt: providerReceipt({ actor_start_billed: true }),
-          cost_units: APIFY_COMPANY_EMPLOYEES_START_UNITS,
+          cost_units: costUnits,
         }
       }
       const observations = outcome.items
@@ -611,8 +704,7 @@ export function createApifyCompanyEmployeesAdapter(
           parser_dropped_rows: Math.max(0, outcome.itemCount - observations.length),
           actor_start_billed: true,
         }),
-        cost_units: APIFY_COMPANY_EMPLOYEES_START_UNITS
-          + outcome.itemCount * APIFY_COMPANY_EMPLOYEES_PROFILE_UNITS,
+        cost_units: costUnits,
       }
     },
   }

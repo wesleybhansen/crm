@@ -49,6 +49,8 @@ The bounded source run is `77671077-41a9-4c56-8ede-e6cd291c5ede`.
 
 The account-specific Apify receipts show that the current decision-maker Actor charges `$0.020` for the start and `$0.003` for each short profile. That is lower than the frozen conservative `$0.004` quote input, so the maximum authorization remained safe. The two schema-binding failures are product-quality evidence: Noli withheld ambiguous people rather than silently associating them with a company.
 
+R45's read-only receipt/dataset reconciliation confirmed that the parser was not the defect. Each provider row echoed the exact sole submitted company URL, but every returned current-position company differed from the frozen company; one row also carried a contradictory LinkedIn company URL and company id. The Short-mode rows therefore remain withheld. The replacement contract uses build `0.0.157` Full-mode current work history, a durable run id, and finalized account event prices (`$0.020` start and `$0.008` per full profile). It still requires the sole exact query echo plus independently matching current company URL/frozen numeric id/non-contradicted name; it does not weaken identity binding.
+
 Because the selected source did not produce a trustworthy person, R40 uses a separately labeled owner-controlled pilot identity for the transport lifecycle. It is not represented as a provider-sourced lead, is retained for 14 days, has `owned_inbox_only=true`, and is covered by a PII-free `gtm.owner_pilot.recipient_seeded` audit event.
 
 ## Campaign envelope and budgets
