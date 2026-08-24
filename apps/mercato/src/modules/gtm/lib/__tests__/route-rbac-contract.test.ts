@@ -9,9 +9,10 @@ describe('GTM internal route RBAC contract', () => {
       .map((entry) => entry.name)
       .sort()
 
-    // The removal route is the sole intentional exception: it is the public,
-    // account-free compliance path and carries no represented noliUserId.
-    const protectedRoutes = routeNames.filter((name) => name !== 'removal-request')
+    // The removal route is the account-free compliance path. The retention
+    // route is a shared-secret scheduled compliance process. Neither carries
+    // a represented noliUserId, and neither exposes customer workspace reads.
+    const protectedRoutes = routeNames.filter((name) => !['removal-request', 'retention'].includes(name))
     expect(protectedRoutes).toEqual([
       'auto-refill',
       'campaigns',
@@ -48,5 +49,18 @@ describe('GTM internal route RBAC contract', () => {
       expect(source).toContain('noliUserId: body.noliUserId')
       expect(source).not.toContain('noliUserId: userId')
     }
+  })
+
+  it('keeps the global retention process shared-secret-only and caller-unscoped', () => {
+    const route = readFileSync(
+      path.resolve(__dirname, '../../api/internal/retention/route.ts'),
+      'utf8',
+    )
+
+    expect(route).toContain('requireProcessAuth(req, process.env.NOLI_INTERNAL_SERVICE_SECRET)')
+    expect(route).toContain('sweepExpiredCandidates(')
+    expect(route).not.toContain('req.json(')
+    expect(route).not.toContain('orgId:')
+    expect(route).not.toContain('now:')
   })
 })
