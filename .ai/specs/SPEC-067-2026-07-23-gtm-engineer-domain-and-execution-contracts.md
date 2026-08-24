@@ -1246,7 +1246,35 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R39-A - executable quote truth | Completed locally | 2026-08-24 | Migration-free CRM route/plan/test correction; no provider, mailbox, email, flag, schedule, or production state changed. |
 | R39-B - current-main release and owner-only read validation | Completed and dark-deployed | 2026-08-24 | CRM PR #80 merged and deployed as exact main `ba6d8efaca839e4121258b5f86c871b17f8757c7`; Hub PR #262 deployed as exact main `6a5dd933297e6652915cf367c563fcae56d35e81`. The owner refreshed the same selected-play plan and received an already-checked state with no confirm/run action. Provider-operation rows remained exactly 20 with the same latest timestamp, while auto-refill policies, cycles, and send attempts remained zero. |
 
-## 48. Changelog
+## 48. R40 bounded owner production lifecycle (approved 2026-08-24)
+
+### 48.1 Authority and hard boundary
+
+- R40 is authorized to complete one production lifecycle with one owner-controlled sender, one owner-controlled recipient, one message, one reply, one unsubscribe, and exact reconciliation. It authorizes no prospect email, bulk outreach, public customer promotion, or hidden widening.
+- The owner-controlled transport identity must be explicitly labeled and audited. It must never be represented as a provider-sourced lead, included in an export, or retained past the bounded pilot evidence window.
+- LeadMagic and Bouncer remain excluded. DataForSEO and contract-pinned Apify capabilities remain the selected source stack.
+
+### 48.2 Budgets and activation order
+
+- The campaign daily cap is one and duplicate override is false. The only auto-refill block authorized for approval is one accepted identity, five raw rows, and 25,000 credits per weekday at 09:00 America/Los_Angeles. The current exact source quote is 10,500 credits for five rows.
+- Auto-refill may be frozen into the immutable campaign approval, but its runtime gate and schedule remain off until the send, reply, suppression, and money lifecycle is clean.
+- Execution and mailbox ingestion may be enabled only after a current v2 unsubscribe keyring, an explicit HTTPS public base, a valid physical postal address, exactly one recipient, and exact approval are all present.
+
+### 48.3 Provider outcome honesty
+
+- The first R40 source run returned five company rows, accepted three, rejected two, charged 10,500 credits, and created no duplicate identity. Three bounded decision-maker resolutions created no trustworthy person: one definitive no-result and two schema-binding failures that exposed no person output.
+- The two ambiguous provider operations were reconciled against exact Apify account run ledgers, at `$0.026`/13,000 credits and `$0.023`/11,500 credits after markup. No operation was retried, every canonical/local shadow is terminal, and unusable rows remain withheld.
+- Full PII-free evidence, exact production ids, owner/legal decisions, budgets, stop conditions, and the remaining lifecycle sequence are recorded in `analysis/DELIVERY-SPEC-067-R40.md`.
+
+### 48.4 Current status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R40-A - production preflight and unsubscribe key rotation | Completed | 2026-08-24 | CRM/schema/sender/provider posture verified; explicit HTTPS base and v2 rotatable key configured from a recovery-backed environment edit |
+| R40-B - bounded source and provider reconciliation | Completed | 2026-08-24 | Five-row source batch plus three one-company resolution attempts are terminal; ambiguous rows were withheld and exact account charges reconciled |
+| R40-C - one-recipient approval envelope | Waiting on valid sender postal address | 2026-08-24 | One owner-controlled recipient, manually reviewed one-step copy, one-send daily cap, and exact auto-refill limits are frozen in the draft; execution, ingestion, schedule, and public promotion remain off |
+
+## 49. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1308,3 +1336,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-24: Completed R38-A locally with a generator-owned additive migration, exact policy and plan hashes, tenant-scoped weekday scheduling, duplicate-cycle prevention, represented-user reauthorization, count-only outcomes, and explicit no-enrollment/no-send tests. The runtime gate remains off pending dark release and Hub controls.
 - 2026-08-24: Dark-deployed R38 CRM and Hub, adopted the already-proven production schema in the migration ledger, and verified zero policy rows, cycles, or schedules while the runtime gate remained off. Added R39 after the owner-only People flow exposed a quote for an already-consumed enrichment operation; plan schema v5 now omits exact non-fingerprinted terminal work and parks unresolved operations before confirmation.
 - 2026-08-24: Dark-deployed R39 CRM-first and Hub second on exact current-main artifacts. The same owner-only enrichment preview now reports that the accepted people were already checked, exposes no confirm/run action, and creates no provider operation, auto-refill policy/cycle, or send attempt. Execution, mailbox ingestion, auto-refill, LeadMagic, Bouncer, and public GTM promotion remain off.
+- 2026-08-24: Approved and began R40's bounded owner production lifecycle. Production preflight, v2 unsubscribe rotation, one capped source batch, exact provider-ledger reconciliation, and a one-recipient/one-message approval envelope are complete; the valid physical sender postal address remains the only approval/send gate, and every execution, ingestion, auto-refill, and public-promotion control remains off.
