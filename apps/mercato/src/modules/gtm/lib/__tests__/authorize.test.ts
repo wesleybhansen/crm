@@ -21,7 +21,7 @@ const ctx = {
 
 describe('GTM server-side feature authorization', () => {
   it('maps every campaign operation onto its least-privilege feature', () => {
-    for (const op of ['list', 'draft-state', 'status']) {
+    for (const op of ['list', 'draft-state', 'list-senders', 'status']) {
       expect(campaignFeatureForOp(op)).toBe('gtm.view')
     }
     expect(campaignFeatureForOp('approve')).toBe('gtm.approve')
@@ -29,6 +29,8 @@ describe('GTM server-side feature authorization', () => {
       'create',
       'update-template',
       'update-message',
+      'update-sequence',
+      'update-settings',
       'exclude',
       'include',
       'invalidate',

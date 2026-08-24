@@ -106,4 +106,34 @@ describe('campaign draft response shape', () => {
     expect(gtmCampaignsBodySchema.safeParse({ ...valid, expected_content_hash: 'z'.repeat(64) }).success).toBe(false)
     expect(gtmCampaignsBodySchema.safeParse({ ...valid, body_text: '' }).success).toBe(false)
   })
+
+  it('accepts exact-hash sequence and settings edits plus the safe sender read', () => {
+    const base = {
+      noliUserId: 'user-1',
+      campaignId: 'campaign-1',
+      expected_content_hash: 'a'.repeat(64),
+    }
+    expect(gtmCampaignsBodySchema.safeParse({
+      ...base,
+      op: 'update-sequence',
+      sequence: { emails: 2, email_delay_days: [0, 5], linkedin: true, x: false },
+    }).success).toBe(true)
+    expect(gtmCampaignsBodySchema.safeParse({
+      ...base,
+      op: 'update-settings',
+      settings: {
+        daily_cap: 15,
+        send_window: { start_hour: 8, end_hour: 16, timezone: 'America/Los_Angeles' },
+        jitter_minutes: 10,
+        mailbox_connection_id: null,
+        duplicate_override: false,
+      },
+    }).success).toBe(true)
+    expect(gtmCampaignsBodySchema.safeParse({ op: 'list-senders', noliUserId: 'user-1' }).success).toBe(true)
+    expect(gtmCampaignsBodySchema.safeParse({
+      ...base,
+      op: 'update-sequence',
+      sequence: { emails: 2, email_delay_days: [0, 31], linkedin: false, x: false },
+    }).success).toBe(false)
+  })
 })

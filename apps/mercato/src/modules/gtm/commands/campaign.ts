@@ -8,6 +8,13 @@ import {
   type UpdateManualMessageInput,
   type UpdateManualMessageResult,
 } from '../lib/campaign/manual-message'
+import {
+  updateCampaignSequence,
+  updateCampaignSettings,
+  type UpdateCampaignDraftResult,
+  type UpdateCampaignSequenceInput,
+  type UpdateCampaignSettingsInput,
+} from '../lib/campaign/draft-config'
 import { launchCampaign, type ExecutionEm, type LaunchResult } from '../lib/execute/schedule'
 import {
   transitionCampaignLifecycle,
@@ -79,6 +86,51 @@ const updateMessageCommand: CommandHandler<UpdateManualMessageInput, UpdateManua
   }),
 }
 
+const updateSequenceCommand: CommandHandler<UpdateCampaignSequenceInput, UpdateCampaignDraftResult> = {
+  id: 'gtm.campaigns.update-sequence',
+  async execute(input, runtime) {
+    const em = runtime.container.resolve('em') as EntityManager as unknown as CampaignEm
+    return updateCampaignSequence(em, resolveGtmContext(runtime), input)
+  },
+  buildLog: ({ input, result }) => ({
+    actionLabel: 'Edit GTM campaign sequence',
+    resourceKind: 'gtm.campaign',
+    resourceId: input.campaignId,
+    organizationId: result.campaign.organizationId,
+    tenantId: result.campaign.tenantId,
+    snapshotAfter: {
+      email_steps: input.sequence.emails,
+      email_delay_days: input.sequence.email_delay_days,
+      linkedin: input.sequence.linkedin,
+      x: input.sequence.x,
+      draft_hash: result.draft.contentHash,
+    },
+  }),
+}
+
+const updateSettingsCommand: CommandHandler<UpdateCampaignSettingsInput, UpdateCampaignDraftResult> = {
+  id: 'gtm.campaigns.update-settings',
+  async execute(input, runtime) {
+    const em = runtime.container.resolve('em') as EntityManager as unknown as CampaignEm
+    return updateCampaignSettings(em, resolveGtmContext(runtime), input)
+  },
+  buildLog: ({ input, result }) => ({
+    actionLabel: 'Edit GTM campaign delivery settings',
+    resourceKind: 'gtm.campaign',
+    resourceId: input.campaignId,
+    organizationId: result.campaign.organizationId,
+    tenantId: result.campaign.tenantId,
+    snapshotAfter: {
+      daily_cap: result.draft.settings.daily_cap,
+      send_window: result.draft.settings.send_window,
+      jitter_minutes: result.draft.settings.jitter_minutes,
+      mailbox_connection_id: result.draft.settings.mailbox_connection_id,
+      duplicate_override: result.draft.settings.duplicate_override,
+      draft_hash: result.draft.contentHash,
+    },
+  }),
+}
+
 const launchCommand: CommandHandler<LaunchInput, LaunchResult> = {
   id: 'gtm.campaigns.launch',
   async execute(input, runtime) {
@@ -130,6 +182,8 @@ function lifecycleCommand(
 
 registerCommand(approveCommand)
 registerCommand(updateMessageCommand)
+registerCommand(updateSequenceCommand)
+registerCommand(updateSettingsCommand)
 registerCommand(launchCommand)
 registerCommand(lifecycleCommand('pause'))
 registerCommand(lifecycleCommand('resume'))

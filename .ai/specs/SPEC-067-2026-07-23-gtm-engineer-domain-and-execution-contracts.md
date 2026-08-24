@@ -1,7 +1,7 @@
 # SPEC-067: GTM Engineer durable domain, execution, and provider contracts
 
 **Date:** 2026-07-23 PDT
-**Status:** C0-R32 is merged and dark-deployed through exact recipient-by-step campaign review. R33 deterministic manual step editing is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
+**Status:** C0-R33 is merged and dark-deployed through deterministic exact-step manual editing. R34 sequence and delivery-settings editing is locally verified and pending release. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
 **Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
@@ -1079,10 +1079,54 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 
 | Phase | Status | Date | Notes |
 |---|---|---|---|
-| R33-A - exact manual edit command | Completed locally | 2026-08-23 | Additive JSON override, campaign-row lock, double-hash concurrency binding, deterministic safety validation, and redacted audit implemented without schema or external effects; 80/81 suites and 868/875 tests pass with only the opt-in PostgreSQL suite and seven tests skipped; typecheck, focused lint, and diff check pass |
-| R33-B - Hub exact-step editor | Completed locally | 2026-08-23 | People and Review expose per-step editing with locked footer, manual provenance, and stale-truth reload; Hub passes 1,240/1,240 tests, typecheck, production build, and diff check |
+| R33-A - exact manual edit command | Completed and dark-deployed | 2026-08-24 | Exact CRM main `bf89b955768ddad09f4e95859fceddafe167095c` is deployed app-only as image `sha256:ab8e80f2b404dc459802679733ef7e078df6797ecff4fa6752d39916dee0aa65`; no migration, external call, or flag changed |
+| R33-B - Hub exact-step editor | Completed and dark-deployed | 2026-08-24 | Exact Hub main `5707e386d58f1fcd7ed98f6f1fd567ffe53b20ed` is live on `app.noliai.com`; exact-main regressions passed and signed-out GTM access remains protected |
 
-## 43. Changelog
+## 43. R34 editable sequence and delivery envelope (approved 2026-08-24)
+
+### 43.1 Problem and proposed solution
+
+- The five-stage campaign builder can review the exact recipient-by-step batch, but its sequence map and delivery settings are read-only after draft creation. That prevents the owner from operating the Origami-style Template and Settings stages without discarding and rebuilding the campaign.
+- Add `update-sequence` and `update-settings` campaign operations. Both require `gtm.edit`, a Hub `Idempotency-Key`, and the exact current 64-character draft content hash. Both take a pessimistic write lock, recompute current truth, and return `409 stale_draft` before mutation when another edit won.
+- Add read-only `list-senders`, scoped to the represented user's active, personal `email_connections` rows. It returns only id, provider, address, primary status, and update time. OAuth, SMTP, and IMAP credentials never leave CRM.
+
+### 43.2 Canonical sequence and settings contracts
+
+- Editable sequence input contains one to three email steps, one absolute day offset per email, and optional manual LinkedIn connect/follow-up and X direct-message tasks. Email 1 is day 0; later offsets must be strictly increasing whole days through day 30. The server derives stable step keys, order, mode, dependency, and social-action fields instead of accepting arbitrary executable shapes.
+- Removing an email step prunes its stored AI and manual copy. Retained stable email keys retain their reviewed copy. This prevents removed copy from silently reappearing if a step is added again later.
+- Editable settings contain the one-to-50 daily cap, whole-hour local send window, valid IANA timezone, zero-to-120-minute deterministic jitter ceiling, optional represented-user personal mailbox id, and explicit duplicate override. Monday through Friday remains the already-enforced scheduler rule and is displayed honestly rather than exposed as a control that the scheduler cannot honor.
+- Sequence, settings, selected sender material, recipients, exact rendered messages, compliance footer, and projected cost remain bound into the existing canonical approval hash. Approved versions are immutable; the owner must explicitly invalidate before either new write is accepted.
+
+### 43.3 Risks and impact review
+
+| Failure scenario | Severity | Mitigation | Residual risk |
+|---|---|---|---|
+| Concurrent editor overwrites reviewed timing or sender | High | Campaign row lock plus exact draft-hash comparison | A user must reload and intentionally reapply a stale edit |
+| Removed step copy returns after a later add | High | Prune removed step keys from both AI drafts and manual overrides in the same transaction | Retained stable steps intentionally keep their copy |
+| Caller selects another user's mailbox or obtains credentials | Critical | Exact org, tenant, user, active, personal-mailbox query; metadata-only response | Organization-wide sender pooling remains unsupported |
+| Duplicate override widens recipient overlap unintentionally | High | Conservative false default and explicit warning in Settings | An authorized editor can intentionally enable the override |
+| UI implies configurable weekdays that runtime ignores | Medium | Surface the authoritative Monday-through-Friday rule as read-only copy | Custom weekday sets remain future scope |
+
+### 43.4 Acceptance, integration coverage, and compliance
+
+- CRM deterministic tests cover canonical timing validation, removed-step pruning, hash changes, stale refusal, approved-version immutability, represented-user sender scoping, credential non-disclosure, exact settings binding, redacted audits, route schemas, and least-privilege feature mapping.
+- Hub contract and proxy tests cover the operable Template and Settings stages, exact-hash requests, mandatory idempotency, sender metadata read, Monday-through-Friday truth, and explicit duplicate override. Hub typecheck, production build, full tests, and diff check must pass.
+- CRM full GTM tests, typecheck, focused lint, and diff check must pass. R34 adds no entity, column, migration, provider/model/mailbox call, send capability, ingestion capability, flag change, public promotion, or customer exposure.
+
+### 43.5 Migration, rollout, and rollback
+
+- R34 is additive API and existing JSON-draft state only. Existing callers can ignore the new operations and sender response. No durable schema contract is narrowed.
+- Deploy CRM before Hub. Older Hub code ignores the new operations; the new Hub must not deploy against a CRM that lacks them. Rollback is the immediately prior CRM and Hub applications. Unknown JSON remains inert, while every approved version remains immutable.
+- Keep `GTM_EXECUTION_ENABLED`, mailbox ingestion, LeadMagic, Bouncer, and public GTM promotion off. R34 does not authorize an email or provider call.
+
+### 43.6 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R34-A - exact sequence/settings commands and sender catalog | Completed locally | 2026-08-24 | CRM passes 81/82 suites and 879/886 tests with only the opt-in PostgreSQL suite and seven tests skipped; typecheck, focused lint, and diff check pass; no migration or external effect |
+| R34-B - operable Template and Settings stages | Completed locally | 2026-08-24 | Hub passes 1,241/1,241 tests, typecheck, production build, and diff check using the Noli design system with Origami workflow parity as the interaction reference |
+
+## 44. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1137,3 +1181,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Added R31's exact candidate email-readiness projection and People-table labels so found, risky, catch-all, unknown, ambiguous, and absent contact states no longer collapse into `Not verified`. This is additive read/UI work only and changes no external-effect gate.
 - 2026-08-23: Dark-deployed R31 CRM-first, then Hub, with no migration or flag change. Added R32's exact recipient-by-step campaign read model and approval review so later sequence steps can no longer be hidden by recipient-level row collapse. External-effect gates remain off.
 - 2026-08-23: Dark-deployed R32 CRM-first, then Hub, with no migration or flag change. Added R33's double-hash-bound manual editor for one recipient and one email step; the system-owned footer, immutable approval boundary, and every external-effect gate remain unchanged.
+- 2026-08-24: Dark-deployed R33 CRM-first, then Hub, on exact current-main artifacts. Completed R34's migration-free sequence, delivery-settings, and represented-user sender editing contract locally; every external-effect gate remains unchanged and off.

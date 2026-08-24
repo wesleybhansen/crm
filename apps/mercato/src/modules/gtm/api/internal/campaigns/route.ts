@@ -14,6 +14,11 @@ import type {
   UpdateManualMessageInput,
   UpdateManualMessageResult,
 } from '../../../lib/campaign/manual-message'
+import type {
+  UpdateCampaignDraftResult,
+  UpdateCampaignSequenceInput,
+  UpdateCampaignSettingsInput,
+} from '../../../lib/campaign/draft-config'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 
 /*
@@ -35,6 +40,12 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
  * - 'draft-state'     recipients + rendered previews + exclusions +
  *                     projected credits + the draft content_hash the
  *                     reviewer must echo back on approve
+ * - 'list-senders'    active personal mailbox metadata for the represented
+ *                     user; credentials never leave the CRM
+ * - 'update-sequence' edits the canonical draft step plan after an exact
+ *                     draft-hash check; removed step copy is pruned
+ * - 'update-settings' edits the canonical cap, window, jitter, sender, and
+ *                     duplicate policy after an exact draft-hash check
  * - 'update-template' re-renders on next draft-state; invalidates the
  *                     current approved version if any
  * - 'update-message'  replaces one draft recipient-by-step artifact after
@@ -257,6 +268,11 @@ export async function POST(req: Request) {
       })
     }
 
+    if (body.op === 'list-senders') {
+      const { listCampaignSenders } = await import('../../../lib/campaign/draft-config')
+      return NextResponse.json({ ok: true, senders: await listCampaignSenders(em, ctx) })
+    }
+
     // Every other op targets an existing campaign.
     if (!isUuid(body.campaignId)) return opaqueNotFound()
     const approveLib = await import('../../../lib/campaign/approve')
@@ -268,6 +284,60 @@ export async function POST(req: Request) {
         ok: true,
         campaign: campaignShape(campaign),
         draft: shapeCampaignDraft(draft),
+      })
+    }
+
+    if (body.op === 'update-sequence') {
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const executed = await commandBus.execute<
+        UpdateCampaignSequenceInput,
+        UpdateCampaignDraftResult
+      >('gtm.campaigns.update-sequence', {
+        input: {
+          campaignId: body.campaignId,
+          expectedContentHash: body.expected_content_hash,
+          sequence: body.sequence,
+        },
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId: ctx.organizationId,
+          organizationIds: [ctx.organizationId],
+          request: req,
+        },
+      })
+      return NextResponse.json({
+        ok: true,
+        campaign: campaignShape(executed.result.campaign),
+        draft: shapeCampaignDraft(executed.result.draft),
+      })
+    }
+
+    if (body.op === 'update-settings') {
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const executed = await commandBus.execute<
+        UpdateCampaignSettingsInput,
+        UpdateCampaignDraftResult
+      >('gtm.campaigns.update-settings', {
+        input: {
+          campaignId: body.campaignId,
+          expectedContentHash: body.expected_content_hash,
+          settings: body.settings,
+        },
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId: ctx.organizationId,
+          organizationIds: [ctx.organizationId],
+          request: req,
+        },
+      })
+      return NextResponse.json({
+        ok: true,
+        campaign: campaignShape(executed.result.campaign),
+        draft: shapeCampaignDraft(executed.result.draft),
       })
     }
 
