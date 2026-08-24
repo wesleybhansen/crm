@@ -35,6 +35,8 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
  * - 'list'            workspace-wide campaign summaries (optionally filtered
  *                     by workspaceId), org+tenant self-scoped, soft-deleted
  *                     excluded, capped at 50, newest first (lib/listing.ts)
+ * - 'analytics'       count-only current-version outcomes for one workspace;
+ *                     provider acceptance is not reported as delivery
  * - 'create'          drafts a campaign on an EXECUTABLE play (section 7
  *                     boundary 4; strategy_only plays fail closed)
  * - 'draft-state'     recipients + rendered previews + exclusions +
@@ -233,6 +235,15 @@ export async function POST(req: Request) {
           play_id: campaign.playId,
         })),
         cap: GTM_LIST_CAP,
+      })
+    }
+
+    if (body.op === 'analytics') {
+      if (!isUuid(body.workspaceId)) return opaqueNotFound()
+      const { getCampaignAnalytics } = await import('../../../lib/campaign/analytics')
+      return NextResponse.json({
+        ok: true,
+        analytics: await getCampaignAnalytics(em, ctx, body.workspaceId),
       })
     }
 
