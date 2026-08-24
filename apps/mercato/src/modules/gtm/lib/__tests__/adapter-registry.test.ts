@@ -39,7 +39,9 @@ import {
   APIFY_WEBSITE_EMAIL_ADAPTER_ID,
   APIFY_WEBSITE_EMAIL_ENABLED_ENV,
   APIFY_WEBSITE_EMAIL_PRICE_VERSION_ENV,
+  APIFY_WEBSITE_EMAIL_REQUIRED_RETENTION_DAYS,
   APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION,
+  APIFY_WEBSITE_EMAIL_RETENTION_DAYS_ENV,
 } from '../adapters/apify/website-email'
 
 describe('adapter registry environment boundaries', () => {
@@ -149,6 +151,8 @@ describe('adapter registry environment boundaries', () => {
     process.env[APIFY_WEBSITE_EMAIL_ENABLED_ENV] = 'true'
     process.env[APIFY_WEBSITE_EMAIL_PRICE_VERSION_ENV] =
       APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION
+    process.env[APIFY_WEBSITE_EMAIL_RETENTION_DAYS_ENV] =
+      String(APIFY_WEBSITE_EMAIL_REQUIRED_RETENTION_DAYS)
 
     expect(enrichAdapterList().map((adapter) => adapter.descriptor.adapter_id)).toEqual([
       APIFY_ENRICH_ADAPTER_ID,

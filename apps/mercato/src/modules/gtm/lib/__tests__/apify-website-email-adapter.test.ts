@@ -14,7 +14,10 @@ import {
   APIFY_WEBSITE_EMAIL_MEMORY_MBYTES,
   APIFY_WEBSITE_EMAIL_PRICE_VERSION_ENV,
   APIFY_WEBSITE_EMAIL_PROVIDER_CAP_USD,
+  APIFY_WEBSITE_EMAIL_REQUIRED_RETENTION_DAYS,
   APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION,
+  APIFY_WEBSITE_EMAIL_RETENTION_DAYS_ENV,
+  apifyWebsiteEmailDescriptor,
   apifyWebsiteEmailEnabled,
   buildApifyWebsiteEmailInput,
   createApifyWebsiteEmailAdapter,
@@ -44,6 +47,7 @@ const ENABLED_ENV = {
   GTM_APIFY_PRICE_VERSION: APIFY_REQUIRED_PRICE_VERSION,
   [APIFY_WEBSITE_EMAIL_ENABLED_ENV]: 'true',
   [APIFY_WEBSITE_EMAIL_PRICE_VERSION_ENV]: APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION,
+  [APIFY_WEBSITE_EMAIL_RETENTION_DAYS_ENV]: String(APIFY_WEBSITE_EMAIL_REQUIRED_RETENTION_DAYS),
 }
 
 const request: EnrichRequest = {
@@ -133,7 +137,7 @@ function runRecord(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Apify public website email adapter', () => {
-  it('ships dark behind its own exact actor, terms, and price gate', async () => {
+  it('ships dark behind its own exact actor, terms, price, and account-retention gate', async () => {
     const runActor = jest.fn(async () => outcome([]))
     const adapter = createApifyWebsiteEmailAdapter({
       env: { ...ENABLED_ENV, [APIFY_WEBSITE_EMAIL_ENABLED_ENV]: 'false' },
@@ -142,6 +146,9 @@ describe('Apify public website email adapter', () => {
     })
 
     expect(apifyWebsiteEmailEnabled({ ...ENABLED_ENV, [APIFY_WEBSITE_EMAIL_ENABLED_ENV]: 'false' })).toBe(false)
+    expect(apifyWebsiteEmailEnabled({ ...ENABLED_ENV, [APIFY_WEBSITE_EMAIL_RETENTION_DAYS_ENV]: '90' })).toBe(false)
+    expect(apifyWebsiteEmailDescriptor(ENABLED_ENV).constraints.license.retention_days)
+      .toBe(APIFY_WEBSITE_EMAIL_REQUIRED_RETENTION_DAYS)
     await expect(adapter.enrich(request)).resolves.toMatchObject({
       status: 'error',
       cost_units: 0,

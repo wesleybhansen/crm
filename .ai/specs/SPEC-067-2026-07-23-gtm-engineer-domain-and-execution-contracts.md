@@ -979,9 +979,9 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 
 ### 39.3 Rights, retention, release, and rollback
 
-- This capability inherits the already approved Apify customer-use/terms/selected-stack gates and adds `GTM_APIFY_WEBSITE_EMAIL_ENABLED` plus the exact price-contract version `apify-website-content-crawler-0.3.94-free-usage-cap-0.01-2026-08-23`. An arbitrary actor override, stale price version, missing token, or disabled broad gate cannot register or call it.
+- This capability inherits the already approved Apify customer-use/terms/selected-stack gates and adds `GTM_APIFY_WEBSITE_EMAIL_ENABLED`, an exact account-retention gate of `7` days, and the exact price-contract version `apify-website-content-crawler-0.3.94-free-usage-cap-0.01-retention-7d-2026-08-23`. An arbitrary actor override, stale price version, mismatched retention, missing token, or disabled broad gate cannot register or call it.
 - Public-page observation is evidence, not permission to send. Campaign eligibility still requires accepted fit, an independently `verified` address, current suppression checks, exact approval binding, and every execution gate. Role or risky addresses do not become campaign-ready merely because they were published.
-- The provider declares no supported DSR deletion API for this adapter. CRM retains only the bounded evidence and contact record under its existing deletion/retention paths. Before any customer-facing activation, the owner must read-verify the account's actual default dataset retention and either prove it matches the frozen posture or add a crash-safe cleanup contract; the generic provider default must not be assumed to equal account truth.
+- The provider declares no supported DSR deletion API for this adapter. CRM retains only the bounded evidence and contact record under its existing deletion/retention paths. A read-only account probe on 2026-08-23 verified a 7-day dataset-retention setting for the configured Apify account; registration now requires that exact frozen value. A changed account setting requires a new reviewed contract or a crash-safe cleanup contract before activation.
 - R30 adds no entity, migration, route shape removal, mailbox capability, send capability, or public exposure. The optional adapter methods are backward-compatible; plan-version changes intentionally invalidate stale quotes. Rollback is the prior CRM image plus the website-email gate off. Any already-started canonical provider operation must be reconciled before retry.
 
 ### 39.4 Acceptance and implementation status
@@ -993,6 +993,7 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 |---|---|---|---|
 | R30-A - domain custody and bounded website adapter | Completed locally | 2026-08-23 | Parent-domain propagation, plan/hash binding, exact pinned crawl, same-domain evidence, and finalized usage settlement are implemented behind a separate dark gate |
 | R30-B - deterministic verification | Completed locally | 2026-08-23 | Focused tests pass 52/52; the full GTM baseline passes 78 suites/856 tests with one opt-in PostgreSQL suite and seven tests skipped. TypeScript and focused lint pass; no provider call occurred |
+| R30-C - account-retention closure | Completed locally | 2026-08-23 | Read-only account metadata verified 7-day dataset retention and exact successful actor build `0.3.94`; eligibility and descriptor now fail closed on the frozen 7-day contract |
 
 ## 40. Changelog
 
