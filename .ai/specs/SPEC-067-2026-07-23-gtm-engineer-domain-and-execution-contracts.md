@@ -1126,7 +1126,47 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R34-A - exact sequence/settings commands and sender catalog | Completed locally | 2026-08-24 | CRM passes 81/82 suites and 879/886 tests with only the opt-in PostgreSQL suite and seven tests skipped; typecheck, focused lint, and diff check pass; no migration or external effect |
 | R34-B - operable Template and Settings stages | Completed locally | 2026-08-24 | Hub passes 1,241/1,241 tests, typecheck, production build, and diff check using the Noli design system with Origami workflow parity as the interaction reference |
 
-## 44. Changelog
+## 44. R36 honest campaign outcome analytics (approved 2026-08-24)
+
+### 44.1 Problem and proposed solution
+
+- The owner can operate research, people, campaigns, inbox, senders, and provider usage, but cannot yet see campaign outcomes in one truthful read model. Provider acceptance, delivery confirmation, delivery failures, and human replies must not collapse into one success metric.
+- Add read-only campaign operation `analytics` for one represented-user workspace. It returns count-only current-version outcomes across at most the newest 50 live campaigns and requires only `gtm.view`.
+- Add a separate Hub Analytics screen. Existing Usage remains the money, provider-operation, and AI-cost surface; Analytics is the campaign-outcome surface.
+
+### 44.2 Truth and privacy contract
+
+- Provider-accepted recipients are unique current-version enrollments with an accepted timestamp or an accepted-chain state. This proves provider acceptance, not inbox placement or human attention.
+- Confirmed-delivered recipients require a durable delivered timestamp or delivered state. Bounced and complained recipients remain separate. Opens and clicks are absent because GTM does not possess authoritative events for them.
+- Human reply recipients require an inbound durable reply explicitly typed `human_reply` or `social_reply`. Delivery-system events and legacy rows without a human event kind do not count. Positive recipients are the unique subset classified `interested` or `referral`; unknown classifications remain explicitly unclassified.
+- The response contains campaign identity and counts only. It never returns recipient addresses, message bodies, evidence, provider receipts, mailbox credentials, or reply content. Every query filters exact organization, tenant, workspace, soft-delete state, and current campaign version.
+
+### 44.3 Risks and impact review
+
+| Failure scenario | Severity | Mitigation | Residual risk |
+|---|---|---|---|
+| SMTP acceptance is displayed as delivery | High | Distinct `provider_accepted_recipients` and `confirmed_delivered_recipients` fields plus explicit UI copy | Provider delivery events remain dependent on mailbox/provider ingestion |
+| Retries inflate recipient outcomes | High | Recipient metrics deduplicate by current-version enrollment while attempt totals remain explicit | A person enrolled in two campaigns counts once in each campaign |
+| Old campaign versions contaminate the current report | High | Enrollment and attempt reads bind the campaign's exact current version | Historical-version analytics remain future scope |
+| Delivery events are mistaken for human replies | High | Only explicit human or social reply event kinds enter reply metrics | Legacy untyped replies are conservatively omitted |
+| Cross-tenant or content leakage | Critical | Exact org and tenant predicates on every query; count-only projection; deterministic isolation and non-disclosure tests | Campaign names remain owner-authored display labels |
+| Large workspaces create unbounded reads | Medium | Newest 50 campaigns, one extra row only for truncation truth, then bounded enrollment/attempt/reply reads | Older campaigns require a future paginated history surface |
+
+### 44.4 API, acceptance, and backward compatibility
+
+- `POST /internal/gtm/campaigns` accepts additive body `{op:'analytics', noliUserId, workspaceId}`. Existing operations and response fields remain unchanged. The response reports `scope='current_campaign_versions'`, `campaign_limit`, and `truncated` so the Hub cannot imply complete history when the bound is reached.
+- Deterministic CRM coverage proves org, tenant, workspace, soft-delete, and current-version isolation; unique-recipient deduplication; accepted-versus-delivered truth; human-versus-system reply separation; positive and unclassified outcomes; response non-disclosure; limit/truncation; schema validation; and least-privilege authorization.
+- Hub coverage must prove the first-class Analytics navigation, honest labels, count-only response validation, bounded-history disclosure, loading/error/empty states, and the absence of invented open/click metrics.
+- R36 adds no entity, column, migration, write command, provider call, model call, mailbox call, email, feature flag, public promotion, or customer exposure. Deploy CRM before Hub. Rollback is the immediately prior CRM and Hub applications.
+
+### 44.5 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R36-A - count-only CRM analytics | Completed locally | 2026-08-24 | 82/83 GTM suites and 883/890 tests pass with only the opt-in PostgreSQL suite and seven tests skipped; TypeScript, focused lint, and diff checks pass; no migration or external effect |
+| R36-B - Hub Analytics screen | Planned | 2026-08-24 | Noli design system with Origami information-architecture parity; Usage remains separate |
+
+## 45. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1182,3 +1222,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Dark-deployed R31 CRM-first, then Hub, with no migration or flag change. Added R32's exact recipient-by-step campaign read model and approval review so later sequence steps can no longer be hidden by recipient-level row collapse. External-effect gates remain off.
 - 2026-08-23: Dark-deployed R32 CRM-first, then Hub, with no migration or flag change. Added R33's double-hash-bound manual editor for one recipient and one email step; the system-owned footer, immutable approval boundary, and every external-effect gate remain unchanged.
 - 2026-08-24: Dark-deployed R33 CRM-first, then Hub, on exact current-main artifacts. Completed R34's migration-free sequence, delivery-settings, and represented-user sender editing contract locally; every external-effect gate remains unchanged and off.
+- 2026-08-24: Approved R36's count-only current-version campaign analytics contract. Provider acceptance, confirmed delivery, delivery failures, human replies, and positive/referral outcomes remain separate; no external-effect gate changes.

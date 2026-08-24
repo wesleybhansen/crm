@@ -266,6 +266,11 @@ export const gtmCampaignsBodySchema = z.discriminatedUnion('op', [
     workspaceId: idString.optional(),
   }),
   z.object({
+    op: z.literal('analytics'),
+    noliUserId: idString,
+    workspaceId: idString,
+  }),
+  z.object({
     op: z.literal('create'),
     noliUserId: idString,
     workspaceId: idString,
