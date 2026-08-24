@@ -339,6 +339,7 @@ function receipt(
     | 'requestUrl'
     | 'attemptedAt'
     | 'billingFinalized'
+    | 'chargedEventCounts'
     | 'providerCostUsd'
     | 'pricingModel'
   >,
@@ -355,6 +356,7 @@ function receipt(
     request_url: outcome.requestUrl,
     attempted_at: outcome.attemptedAt,
     billing_finalized: outcome.billingFinalized ?? false,
+    charged_event_counts: outcome.chargedEventCounts ?? null,
     pricing_model: outcome.pricingModel ?? null,
     provider_cost_usd: outcome.providerCostUsd ?? null,
     domain_sha256: domainHash,
@@ -373,6 +375,7 @@ function refusal(actorId: string, attemptedAt: string, error: string): AdapterRe
       provider_status: 'disabled',
       attempted_at: attemptedAt,
       billing_finalized: false,
+      charged_event_counts: null,
       pricing_model: null,
       provider_cost_usd: null,
       pages_scoped: 0,
