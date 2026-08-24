@@ -16,6 +16,13 @@ type ContactPointRow = {
   verificationState: string
 }
 
+export type EnrichmentOperationProjection = {
+  candidateId?: string | null
+  kind: string
+  provider: string
+  localStatusMirror?: string | null
+}
+
 const TERMINAL_VERIFICATION_STATES = new Set([
   'verified',
   'risky',
@@ -44,11 +51,13 @@ export type EnrichmentProviderQuote = {
 }
 
 export type EnrichmentPlan = {
-  schema_version: '4'
+  schema_version: '5'
   plan_hash: string
   candidates_considered: number
   candidates_needing_enrichment: number
   emails_needing_verification: number
+  operations_already_consumed: number
+  operations_requiring_reconciliation: number
   maximum_credits: number
   providers: EnrichmentProviderQuote[]
   note: string
@@ -74,6 +83,7 @@ export function buildEnrichmentPlan(
   enrichAdapters: EnrichAdapter[],
   verifyAdapters: VerifyAdapter[],
   markup = defaultMarkupMultiplier(),
+  existingOperations: EnrichmentOperationProjection[] = [],
 ): EnrichmentPlan {
   const reachableCandidates = candidates.filter(
     (candidate) => candidate.entityKind === undefined || candidate.entityKind === 'person',
@@ -94,6 +104,81 @@ export function buildEnrichmentPlan(
   )
   const needingEnrichment = unresolved.filter(
     (candidate) => !(emailByCandidate.get(candidate.id)?.length),
+  )
+
+  // For adapters whose execution key is exactly candidate + adapter, a local
+  // provider-operation shadow is sufficient to prove that the canonical
+  // reserve will not start another provider call. Do not apply this inference
+  // to adapters with request fingerprints: the shadow does not retain enough
+  // identity to tell an old request from a newly corrected input.
+  const operationStates = new Map<string, Set<string>>()
+  for (const operation of existingOperations) {
+    if (
+      !operation.candidateId
+      || operation.kind !== 'contact_enrich'
+      || !reachableCandidateIds.has(operation.candidateId)
+    ) continue
+    const key = `${operation.candidateId}:${operation.provider}`
+    const states = operationStates.get(key) ?? new Set<string>()
+    states.add(operation.localStatusMirror?.trim() || 'unknown')
+    operationStates.set(key, states)
+  }
+  type OperationDisposition = 'available' | 'consumed' | 'reconciliation'
+  const dispositionFor = (
+    candidate: CandidateRow,
+    adapter: EnrichAdapter,
+  ): OperationDisposition => {
+    if (adapter.operationFingerprint) return 'available'
+    const states = operationStates.get(`${candidate.id}:${adapter.descriptor.adapter_id}`)
+    if (!states || states.size === 0 || [...states].every((state) => state === 'reserved')) {
+      return 'available'
+    }
+    if (
+      states.has('provider_started')
+      || states.has('reconciliation_required')
+      || states.has('estimated')
+      || states.has('unknown')
+    ) return 'reconciliation'
+    if ([...states].some((state) =>
+      state === 'charged'
+      || state === 'partially_charged'
+      || state === 'refunded'
+      || state === 'released',
+    )) return 'consumed'
+    // A shadow vocabulary outside the canonical contract cannot safely prove
+    // either retry eligibility or completion.
+    return 'reconciliation'
+  }
+  const eligibleByAdapter = new Map<string, CandidateRow[]>()
+  const consumedKeys = new Set<string>()
+  const reconciliationKeys = new Set<string>()
+  for (const adapter of enrichAdapters) {
+    if (usable(adapter)) eligibleByAdapter.set(adapter.descriptor.adapter_id, [])
+  }
+  for (const candidate of needingEnrichment) {
+    for (const adapter of enrichAdapters) {
+      if (!usable(adapter)) continue
+      if (adapter.supportsCandidate && !adapter.supportsCandidate({
+        entity_kind: candidate.entityKind ?? 'person',
+        identity: candidate.identity ?? null,
+      })) continue
+      const disposition = dispositionFor(candidate, adapter)
+      const operationKey = `${candidate.id}:${adapter.descriptor.adapter_id}`
+      if (disposition === 'consumed') {
+        consumedKeys.add(operationKey)
+        continue
+      }
+      if (disposition === 'reconciliation') {
+        reconciliationKeys.add(operationKey)
+        // The waterfall parks this candidate and does not reach any later
+        // adapter after an unresolved canonical/provider operation.
+        break
+      }
+      eligibleByAdapter.get(adapter.descriptor.adapter_id)?.push(candidate)
+    }
+  }
+  const candidatesNeedingEnrichment = new Set(
+    [...eligibleByAdapter.values()].flatMap((rows) => rows.map((candidate) => candidate.id)),
   )
   // Verification is address-scoped, not row-scoped. One normalized address is
   // verified once and the terminal result is reused for duplicate contact
@@ -128,11 +213,7 @@ export function buildEnrichmentPlan(
   // finds points, so this is a max per candidate, not a sum across adapters.
   const maximumNewPoints = needingEnrichment.reduce((sum, candidate) => {
     const perAdapter = enrichAdapters.flatMap((adapter) => {
-      if (!usable(adapter)) return []
-      if (adapter.supportsCandidate && !adapter.supportsCandidate({
-        entity_kind: candidate.entityKind ?? 'person',
-        identity: candidate.identity ?? null,
-      })) return []
+      if (!eligibleByAdapter.get(adapter.descriptor.adapter_id)?.some((row) => row.id === candidate.id)) return []
       const ceiling = adapter.maxContactPointsPerCandidate ?? 1
       return [Number.isSafeInteger(ceiling) && ceiling > 0 ? ceiling : 1]
     })
@@ -158,18 +239,13 @@ export function buildEnrichmentPlan(
     })
   }
   for (const adapter of enrichAdapters) {
-    const units = adapter.supportsCandidate
-      ? needingEnrichment.filter((candidate) => adapter.supportsCandidate?.({
-          entity_kind: candidate.entityKind ?? 'person',
-          identity: candidate.identity ?? null,
-        })).length
-      : needingEnrichment.length
+    const units = eligibleByAdapter.get(adapter.descriptor.adapter_id)?.length ?? 0
     add(adapter, units)
   }
   for (const adapter of verifyAdapters) add(adapter, verificationCeiling)
 
   const frozen = {
-    schema_version: '4' as const,
+    schema_version: '5' as const,
     candidate_ids: unresolved.map((candidate) => candidate.id).sort(),
     candidate_company_domains: unresolved
       .map((candidate) => [
@@ -191,18 +267,39 @@ export function buildEnrichmentPlan(
         return left < right ? -1 : left > right ? 1 : 0
       }),
     candidates_considered: reachableCandidates.length,
-    candidates_needing_enrichment: needingEnrichment.length,
+    candidates_needing_enrichment: candidatesNeedingEnrichment.size,
     emails_needing_verification: verificationCeiling,
+    operations_already_consumed: consumedKeys.size,
+    operations_requiring_reconciliation: reconciliationKeys.size,
+    existing_enrichment_operations: existingOperations
+      .filter((operation) =>
+        operation.candidateId
+        && reachableCandidateIds.has(operation.candidateId)
+        && operation.kind === 'contact_enrich',
+      )
+      .map((operation) => [
+        operation.candidateId,
+        operation.provider,
+        operation.localStatusMirror?.trim() || 'unknown',
+      ])
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
     providers,
   }
+  const note = reconciliationKeys.size > 0
+    ? 'One or more prior provider operations must be reconciled before they can be retried.'
+    : consumedKeys.size > 0
+      ? 'Maximum authorized ceiling. Previously completed lookups are not re-quoted.'
+      : 'Maximum authorized ceiling. Found-only misses and waterfall short-circuits can reduce actual credits.'
   return {
     schema_version: frozen.schema_version,
     plan_hash: immutableHash(frozen),
     candidates_considered: reachableCandidates.length,
-    candidates_needing_enrichment: needingEnrichment.length,
+    candidates_needing_enrichment: candidatesNeedingEnrichment.size,
     emails_needing_verification: verificationCeiling,
+    operations_already_consumed: consumedKeys.size,
+    operations_requiring_reconciliation: reconciliationKeys.size,
     maximum_credits: providers.reduce((sum, provider) => sum + provider.max_credits, 0),
     providers,
-    note: 'Maximum authorized ceiling. Found-only misses and waterfall short-circuits can reduce actual credits.',
+    note,
   }
 }

@@ -130,6 +130,7 @@ export async function POST(req: Request) {
       GtmCandidateMatch,
       GtmCandidateRelation,
       GtmContactPoint,
+      GtmProviderOperation,
       GtmAuditEvent,
     } = entities
 
@@ -281,11 +282,22 @@ export async function POST(req: Request) {
       )
     }
     const { buildEnrichmentPlan } = await import('../../../lib/enrich/plan')
+    const existingEnrichmentOperations = candidateIds.length
+      ? await em.find(GtmProviderOperation, {
+          organizationId,
+          tenantId,
+          candidateId: { $in: candidateIds },
+          kind: 'contact_enrich',
+          deletedAt: null,
+        }, { orderBy: { createdAt: 'desc' }, limit: 1000 })
+      : []
     const plan = buildEnrichmentPlan(
       enrichmentCandidates,
       contactPoints,
       enrichAdapters,
       verifyAdapters,
+      undefined,
+      existingEnrichmentOperations,
     )
     if (body.op === 'plan') {
       return NextResponse.json({ ok: true, plan })

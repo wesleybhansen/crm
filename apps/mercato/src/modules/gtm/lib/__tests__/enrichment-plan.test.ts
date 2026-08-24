@@ -166,7 +166,7 @@ describe('immutable enrichment quote', () => {
       [fixtureEnrichAdapter],
       [fixtureVerifyAdapter],
     )
-    expect(first.schema_version).toBe('4')
+    expect(first.schema_version).toBe('5')
     expect(changedIdentity.plan_hash).not.toBe(first.plan_hash)
   })
 
@@ -229,5 +229,118 @@ describe('immutable enrichment quote', () => {
     expect(plan.providers).toEqual(expect.arrayContaining([
       expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 5 }),
     ]))
+  })
+
+  it('does not re-quote a consumed candidate and adapter operation', () => {
+    const plan = buildEnrichmentPlan(
+      [{ id: 'c-1', entityKind: 'person' }],
+      [],
+      [fixtureEnrichAdapter],
+      [fixtureVerifyAdapter],
+      2,
+      [{
+        candidateId: 'c-1',
+        kind: 'contact_enrich',
+        provider: 'fixture-enrich',
+        localStatusMirror: 'charged',
+      }],
+    )
+
+    expect(plan).toMatchObject({
+      schema_version: '5',
+      candidates_needing_enrichment: 0,
+      emails_needing_verification: 0,
+      operations_already_consumed: 1,
+      operations_requiring_reconciliation: 0,
+      maximum_credits: 0,
+      providers: [],
+    })
+    expect(plan.note).toContain('Previously completed lookups')
+  })
+
+  it('keeps a reserved operation executable but parks an unresolved provider start', () => {
+    const reserved = buildEnrichmentPlan(
+      [{ id: 'c-1', entityKind: 'person' }],
+      [],
+      [fixtureEnrichAdapter],
+      [],
+      2,
+      [{
+        candidateId: 'c-1',
+        kind: 'contact_enrich',
+        provider: 'fixture-enrich',
+        localStatusMirror: 'reserved',
+      }],
+    )
+    const parked = buildEnrichmentPlan(
+      [{ id: 'c-1', entityKind: 'person' }],
+      [],
+      [fixtureEnrichAdapter],
+      [],
+      2,
+      [{
+        candidateId: 'c-1',
+        kind: 'contact_enrich',
+        provider: 'fixture-enrich',
+        localStatusMirror: 'provider_started',
+      }],
+    )
+
+    expect(reserved.candidates_needing_enrichment).toBe(1)
+    expect(reserved.maximum_credits).toBeGreaterThan(0)
+    expect(parked).toMatchObject({
+      candidates_needing_enrichment: 0,
+      operations_requiring_reconciliation: 1,
+      maximum_credits: 0,
+    })
+    expect(parked.note).toContain('reconciled')
+  })
+
+  it('does not infer request-fingerprinted operations from a candidate-level shadow', () => {
+    const fingerprinted = {
+      ...fixtureEnrichAdapter,
+      operationFingerprint: () => 'request-v2',
+    }
+    const plan = buildEnrichmentPlan(
+      [{ id: 'c-1', entityKind: 'person' }],
+      [],
+      [fingerprinted],
+      [],
+      2,
+      [{
+        candidateId: 'c-1',
+        kind: 'contact_enrich',
+        provider: 'fixture-enrich',
+        localStatusMirror: 'charged',
+      }],
+    )
+
+    expect(plan.candidates_needing_enrichment).toBe(1)
+    expect(plan.operations_already_consumed).toBe(0)
+    expect(plan.maximum_credits).toBeGreaterThan(0)
+  })
+
+  it('does not quote adapters after a parked operation in waterfall order', () => {
+    const laterAdapter = {
+      ...fixtureEnrichAdapter,
+      descriptor: { ...fixtureEnrichAdapter.descriptor, adapter_id: 'later-enrich' },
+    }
+    const plan = buildEnrichmentPlan(
+      [{ id: 'c-1', entityKind: 'person' }],
+      [],
+      [fixtureEnrichAdapter, laterAdapter],
+      [],
+      2,
+      [{
+        candidateId: 'c-1',
+        kind: 'contact_enrich',
+        provider: 'fixture-enrich',
+        localStatusMirror: 'reconciliation_required',
+      }],
+    )
+
+    expect(plan.providers).toEqual([])
+    expect(plan.candidates_needing_enrichment).toBe(0)
+    expect(plan.operations_requiring_reconciliation).toBe(1)
   })
 })
