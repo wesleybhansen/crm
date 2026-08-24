@@ -8,6 +8,7 @@ import {
   normalizeRemovalEmail,
 } from '../removal-request'
 import { computeExclusions, hashAddress } from '../campaign/exclusions'
+import { EmailMessage } from '../../../email/data/schema'
 import {
   GtmAuditEvent,
   GtmCandidateRelation,
@@ -16,10 +17,74 @@ import {
   GtmDsrOperation,
   GtmEnrollment,
   GtmEvidence,
+  GtmInboundEvent,
   GtmRenderedMessage,
+  GtmReply,
   GtmSendAttempt,
   GtmSuppression,
 } from '../../data/entities'
+
+async function seedLinkedInboundEmail(
+  em: FakeEm,
+  input: { enrollment: GtmEnrollment; attempt: GtmSendAttempt; address: string; occurredAt: Date },
+) {
+  const message = em.create(EmailMessage, {
+    organizationId: input.enrollment.organizationId,
+    tenantId: input.enrollment.tenantId,
+    accountId: null,
+    direction: 'inbound',
+    fromAddress: input.address,
+    toAddress: 'sender@fixture.example',
+    cc: `copy-${input.address}`,
+    bcc: null,
+    subject: `Reply from ${input.address}`,
+    bodyHtml: `<p>Please remove ${input.address}</p>`,
+    bodyText: `Please remove ${input.address}`,
+    threadId: `thread-${input.address}`,
+    metadata: { provider_message_id: `provider-${input.address}`, from: input.address },
+    sentiment: 'neutral',
+    createdAt: input.occurredAt,
+  })
+  const event = em.create(GtmInboundEvent, {
+    organizationId: input.enrollment.organizationId,
+    tenantId: input.enrollment.tenantId,
+    mailboxConnectionId: null,
+    provider: 'gmail',
+    providerEventId: `event-${message.id}`,
+    dedupeKey: `dedupe-${message.id}`,
+    eventKind: 'human_reply',
+    providerMessageId: `provider-${message.id}`,
+    rfcMessageId: `<${message.id}@fixture.example>`,
+    emailMessageId: message.id,
+    sendAttemptId: input.attempt.id,
+    enrollmentId: input.enrollment.id,
+    correlationMethod: 'header',
+    correlationConfidence: 'exact_header',
+    evidenceRedacted: { from: input.address },
+    processingState: 'processed',
+    occurredAt: input.occurredAt,
+    processedAt: input.occurredAt,
+  })
+  const reply = em.create(GtmReply, {
+    organizationId: input.enrollment.organizationId,
+    tenantId: input.enrollment.tenantId,
+    enrollmentId: input.enrollment.id,
+    sendAttemptId: input.attempt.id,
+    stepId: null,
+    channel: 'email',
+    direction: 'inbound',
+    emailMessageId: message.id,
+    inboundEventId: event.id,
+    eventKind: 'human_reply',
+    correlationConfidence: 'exact_header',
+    draftResponse: { body: `Reply to ${input.address}` },
+  })
+  em.persist(message)
+  em.persist(event)
+  em.persist(reply)
+  await em.flush()
+  return { message, event, reply }
+}
 
 /*
  * Public prospect-removal request (privacy policy 3.8). Every address here is
@@ -324,6 +389,165 @@ describe('prospect removal request', () => {
 
     for (const row of [...requests, ...operations, ...(await em.find(GtmAuditEvent, {}))]) {
       expect(JSON.stringify(row)).not.toContain(address)
+    }
+  })
+
+  it('anonymizes the exact linked CRM email row and severs both GTM links', async () => {
+    const em = new FakeEm()
+    const clock = fixedClock(LAUNCH_ISO)
+    const fixture = await seedLaunchedCampaign(em, { clock, recipients: 1, emails: 1 })
+    const enrollment = fixture.enrollments[0]
+    const attempt = fixture.attempts[0]
+    const address = fixture.addressFor(enrollment)
+    const { message, event, reply } = await seedLinkedInboundEmail(em, {
+      enrollment,
+      attempt,
+      address,
+      occurredAt: clock.now(),
+    })
+
+    const result = await applyRemovalRequest(em, { email: address }, { clock })
+
+    expect(result.deletionStatus).toBe('completed')
+    expect(message).toMatchObject({
+      fromAddress: 'removed@deleted.invalid',
+      toAddress: 'removed@deleted.invalid',
+      cc: null,
+      bcc: null,
+      subject: '[removed]',
+      bodyHtml: '',
+      bodyText: null,
+      threadId: null,
+      contactId: null,
+      dealId: null,
+      campaignId: null,
+      sentiment: null,
+    })
+    expect(message.deletedAt).toBeInstanceOf(Date)
+    expect(message.metadata).toMatchObject({ removed: true })
+    expect(message.metadata?.original_hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(reply.emailMessageId).toBeNull()
+    expect(reply.draftResponse).toBeNull()
+    expect(event.emailMessageId).toBeNull()
+    expect(event.evidenceRedacted).toMatchObject({ removed: true })
+
+    const tenantRequest = (await em.find(GtmDeletionRequest, { scope: 'tenant_email' }))[0]
+    const emailOperation = await em.findOne(GtmDsrOperation, {
+      deletionRequestId: tenantRequest.id,
+      provider: 'crm_email',
+    })
+    expect(emailOperation).toMatchObject({
+      status: 'completed',
+      receipt: { completed_locally: true, records_anonymized: 1 },
+    })
+    for (const row of [message, event, reply, emailOperation]) {
+      expect(JSON.stringify(row)).not.toContain(address)
+      expect(JSON.stringify(row)).not.toContain(address.split('@')[1])
+    }
+  })
+
+  it('resumes a legacy partial crm_email operation after the contact point is already removed', async () => {
+    const em = new FakeEm()
+    const clock = fixedClock(LAUNCH_ISO)
+    const fixture = await seedLaunchedCampaign(em, { clock, recipients: 1, emails: 1 })
+    const enrollment = fixture.enrollments[0]
+    const attempt = fixture.attempts[0]
+    const candidate = fixture.candidates[0]
+    const address = fixture.addressFor(enrollment)
+    const addressHash = hashAddress(address)
+    const point = (await em.find(GtmContactPoint, { candidateId: candidate.id }))[0]
+    const { message, event, reply } = await seedLinkedInboundEmail(em, {
+      enrollment,
+      attempt,
+      address,
+      occurredAt: clock.now(),
+    })
+    const globalRequest = em.create(GtmDeletionRequest, {
+      organizationId: GLOBAL_SUPPRESSION_ORG_ID,
+      tenantId: GLOBAL_SUPPRESSION_TENANT_ID,
+      idempotencyKey: `global-email:${addressHash}`,
+      scope: 'global_email',
+      addressHash,
+      status: 'partial',
+      legalHold: false,
+      requestedAt: clock.now(),
+      resultCounts: {
+        candidates_anonymized: 1,
+        contact_points_anonymized: 1,
+        dsr_operations: 2,
+      },
+    })
+    const tenantRequest = em.create(GtmDeletionRequest, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      idempotencyKey: `tenant-email:${TENANT}:${addressHash}`,
+      scope: 'tenant_email',
+      addressHash,
+      status: 'partial',
+      legalHold: false,
+      requestedAt: clock.now(),
+      resultCounts: { candidates_anonymized: 1, contact_points_anonymized: 1, dsr_operations: 2 },
+    })
+    const localOperation = em.create(GtmDsrOperation, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      deletionRequestId: tenantRequest.id,
+      provider: 'gtm_local',
+      kind: 'local_anonymize',
+      idempotencyKey: `${tenantRequest.id}:${ORG}:gtm_local:local_anonymize`,
+      status: 'completed',
+      completedAt: clock.now(),
+    })
+    const emailOperation = em.create(GtmDsrOperation, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      deletionRequestId: tenantRequest.id,
+      provider: 'crm_email',
+      kind: 'local_anonymize',
+      idempotencyKey: `${tenantRequest.id}:${ORG}:crm_email:local_anonymize`,
+      status: 'blocked_authority',
+    })
+    candidate.identity = { removed: true, removal_request_id: tenantRequest.id }
+    point.value = `removed:${addressHash}`
+    point.deletedAt = clock.now()
+    em.persist(candidate)
+    em.persist(point)
+    em.persist(globalRequest)
+    em.persist(tenantRequest)
+    em.persist(localOperation)
+    em.persist(emailOperation)
+    await em.flush()
+
+    const result = await applyRemovalRequest(em, { email: address }, { clock })
+
+    expect(result).toMatchObject({
+      suppressionCreated: true,
+      deletionStatus: 'completed',
+    })
+    expect(message).toMatchObject({
+      fromAddress: 'removed@deleted.invalid',
+      toAddress: 'removed@deleted.invalid',
+      subject: '[removed]',
+      bodyHtml: '',
+    })
+    expect(message.deletedAt).toBeInstanceOf(Date)
+    expect(reply.emailMessageId).toBeNull()
+    expect(event.emailMessageId).toBeNull()
+    expect(emailOperation.status).toBe('completed')
+    expect(tenantRequest.status).toBe('completed')
+    expect(globalRequest.status).toBe('completed')
+    expect(tenantRequest.resultCounts).toMatchObject({ email_messages_anonymized: 1 })
+    expect(globalRequest.resultCounts).toMatchObject({ email_messages_anonymized: 1 })
+    const replay = await applyRemovalRequest(em, { email: address.toUpperCase() }, { clock })
+    expect(replay.recordsAnonymized).toBe(result.recordsAnonymized)
+    expect(
+      (await em.find(GtmAuditEvent, {})).filter(
+        (row) => row.action === 'gtm.privacy.crm_email_anonymized',
+      ),
+    ).toHaveLength(1)
+    for (const row of [message, event, reply, emailOperation, tenantRequest, globalRequest]) {
+      expect(JSON.stringify(row)).not.toContain(address)
+      expect(JSON.stringify(row)).not.toContain(address.split('@')[1])
     }
   })
 
