@@ -994,8 +994,31 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 | R30-A - domain custody and bounded website adapter | Completed locally | 2026-08-23 | Parent-domain propagation, plan/hash binding, exact pinned crawl, same-domain evidence, and finalized usage settlement are implemented behind a separate dark gate |
 | R30-B - deterministic verification | Completed locally | 2026-08-23 | Focused tests pass 52/52; the full GTM baseline passes 78 suites/856 tests with one opt-in PostgreSQL suite and seven tests skipped. TypeScript and focused lint pass; no provider call occurred |
 | R30-C - account-retention closure | Completed locally | 2026-08-23 | Read-only account metadata verified 7-day dataset retention and exact successful actor build `0.3.94`; eligibility and descriptor now fail closed on the frozen 7-day contract |
+| R30-D - dark deployment and surrounding golden | Completed dark | 2026-08-23 | Exact CRM main `08a135a478ce4d9479c8fa0b5db7f04b355c8b22` is deployed with the separately gated adapter owner-only. A one-company resolver plus one-person enrichment golden settled 12,000 + 5,000 + 2,000 credits through canonical transitions with no ambiguity. Profile discovery found one address, so the website fallback correctly did not run; execution, mailbox ingestion, and public GTM promotion remained off. |
 
-## 40. Changelog
+## 40. R31 exact lead-table email readiness (approved 2026-08-23)
+
+### 40.1 Read model and customer boundary
+
+- The candidate list must not collapse every non-verified contact into one `Not verified` boolean. `found`, `risky`, `catch_all`, `provider_ambiguous`, `unknown`, and `not_found` each imply a different owner action and remain distinct in the People table.
+- The existing two-query candidate rollup reads all live scoped email contact points, returns an additive `email_verification_state` plus `email_contact_count`, and retains `has_verified_email` for rolling-deploy compatibility. No address value is added to the list response.
+- When multiple addresses exist, the summary selects the safest actionable state in this order: `verified`, `found`, `risky`, `catch_all`, `provider_ambiguous`, `unknown`, `not_found`. The source drawer remains authoritative for every individual address. An unrecognized stored state maps to `unknown`, never `verified`.
+- Hub labels the exact state in customer language and states the action: verification pending, do not auto-send, resolve the provider result, or delivery unproven. `Verified` means eligible for review, not permission to send.
+
+### 40.2 Release and acceptance
+
+- R31 is an additive read-contract and UI change only. It adds no entity, migration, provider call, model call, mailbox capability, execution capability, public GTM promotion, or customer exposure.
+- Deterministic acceptance covers honest zero/found/verified rollups, multi-address precedence, unknown future-state fail-closed behavior, non-email isolation, no N+1 query regression, and every Hub readiness label.
+- Rollout order is CRM before Hub so the UI receives exact state immediately; the boolean fallback exists only to keep a mixed-version deployment readable. Rollback is the prior Hub and CRM images with no data change.
+
+### 40.3 Implementation status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| R31-A - exact candidate email rollup | Completed locally | 2026-08-23 | Additive state/count projection and deterministic precedence tests implemented with the existing two grouped queries; CRM passes 78 suites/858 tests with the opt-in PostgreSQL suite skipped |
+| R31-B - actionable People-table state | Completed locally | 2026-08-23 | Exact customer labels and public-website provider name added to the Origami-style lead table; Hub passes 1,238 tests, typecheck, and production build; verification remains a separate safety gate |
+
+## 41. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1046,3 +1069,5 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-23: Added R28 after the exact R27 Apify run proved adaptive event billing: one `$0.004` profile event and zero `$0.01` email-search events. Profile enrichment now preserves a durable run id, waits for finalized event counts, validates the frozen price map and total before reading output, and settles exact cost or parks ambiguity. The historical owner-only operation's 3,000-credit overcharge remains explicitly recorded for a future additive canonical compensation; no email, verifier, mailbox, execution, schema, or public-exposure gate changed.
 - 2026-08-23: Completed R29 outside CRM with one additive, replay-safe 3,000-credit Noli Core adjustment for the immutable R27 overcharge. The original operation and usage rows remain unchanged; the adjustment was read-verified and replay-verified before R30 began.
 - 2026-08-23: Added R30's bounded public-company-website contact fallback. The exact Apify website crawler is separately dark-gated, quote/confirm capped, same-domain only, receipt-redacted, and billed from finalized platform usage. It produces source-backed `found` addresses only; independent verification and all campaign/send gates remain unchanged and off.
+- 2026-08-23: Dark-deployed the R30 retention-bound contract and completed one bounded surrounding golden motion. The accepted-company resolver created one accepted person; exact profile enrichment found one work address; verification stayed honestly `unknown`; canonical Noli Core charged 12,000, 5,000, and 2,000 credits with no ambiguity. The earlier profile short-circuited the website fallback as designed, and no email, mailbox ingestion, execution, or public GTM promotion occurred.
+- 2026-08-23: Added R31's exact candidate email-readiness projection and People-table labels so found, risky, catch-all, unknown, ambiguous, and absent contact states no longer collapse into `Not verified`. This is additive read/UI work only and changes no external-effect gate.

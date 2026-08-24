@@ -56,6 +56,11 @@ export type CandidateEnrichment = {
   // A GtmContactPoint with channel 'email' and verification_state 'verified'
   // exists for the candidate.
   hasVerifiedEmail: boolean
+  // Best customer-actionable state across this candidate's live email rows.
+  // This is deliberately not a boolean: `unknown`, `risky`, and
+  // `provider_ambiguous` have different next actions in the People table.
+  emailVerificationState: CandidateEmailVerificationState | null
+  emailContactCount: number
   evidenceCount: number
   // Provenance rollup: where this person's data came from and when it was
   // observed. Surfaced to the customer for transparency and used to answer a
@@ -66,6 +71,31 @@ export type CandidateEnrichment = {
   firstObservedAt: Date | null
   lastObservedAt: Date | null
   confidence: number | null
+}
+
+export type CandidateEmailVerificationState =
+  | 'verified'
+  | 'found'
+  | 'risky'
+  | 'catch_all'
+  | 'provider_ambiguous'
+  | 'unknown'
+  | 'not_found'
+
+const EMAIL_STATE_PRIORITY: Record<CandidateEmailVerificationState, number> = {
+  verified: 7,
+  found: 6,
+  risky: 5,
+  catch_all: 4,
+  provider_ambiguous: 3,
+  unknown: 2,
+  not_found: 1,
+}
+
+function candidateEmailState(value: string): CandidateEmailVerificationState {
+  return Object.hasOwn(EMAIL_STATE_PRIORITY, value)
+    ? value as CandidateEmailVerificationState
+    : 'unknown'
 }
 
 // How many distinct source labels are returned inline; the rest are counted.
@@ -117,6 +147,8 @@ export async function candidateEnrichment(
   for (const id of candidateIds) {
     rollup.set(id, {
       hasVerifiedEmail: false,
+      emailVerificationState: null,
+      emailContactCount: 0,
       evidenceCount: 0,
       sources: [],
       sourcesExtra: 0,
@@ -129,13 +161,22 @@ export async function candidateEnrichment(
   if (candidateIds.length === 0) return rollup
 
   const scope = { ...scopedWhere(ctx), candidateId: { $in: candidateIds } }
-  const [verifiedEmails, evidence] = await Promise.all([
-    em.find(GtmContactPoint, { ...scope, channel: 'email', verificationState: 'verified' }),
+  const [emailPoints, evidence] = await Promise.all([
+    em.find(GtmContactPoint, { ...scope, channel: 'email' }),
     em.find(GtmEvidence, scope),
   ])
-  for (const point of verifiedEmails) {
+  for (const point of emailPoints) {
     const entry = rollup.get(point.candidateId)
-    if (entry) entry.hasVerifiedEmail = true
+    if (!entry) continue
+    const state = candidateEmailState(point.verificationState)
+    entry.emailContactCount += 1
+    entry.hasVerifiedEmail ||= state === 'verified'
+    if (
+      entry.emailVerificationState === null
+      || EMAIL_STATE_PRIORITY[state] > EMAIL_STATE_PRIORITY[entry.emailVerificationState]
+    ) {
+      entry.emailVerificationState = state
+    }
   }
   // Provenance is derived from the SAME evidence rows already fetched above,
   // so transparency costs zero additional queries.
