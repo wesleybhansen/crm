@@ -39,8 +39,10 @@ export const APIFY_WEBSITE_EMAIL_ACTOR_BUILD = '0.3.94'
 export const APIFY_WEBSITE_EMAIL_ACTOR_ENV = 'GTM_APIFY_ACTOR_WEBSITE_CONTENT'
 export const APIFY_WEBSITE_EMAIL_ENABLED_ENV = 'GTM_APIFY_WEBSITE_EMAIL_ENABLED'
 export const APIFY_WEBSITE_EMAIL_PRICE_VERSION_ENV = 'GTM_APIFY_WEBSITE_EMAIL_PRICE_VERSION'
+export const APIFY_WEBSITE_EMAIL_RETENTION_DAYS_ENV = 'GTM_APIFY_WEBSITE_EMAIL_RETENTION_DAYS'
 export const APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION =
-  'apify-website-content-crawler-0.3.94-free-usage-cap-0.01-2026-08-23'
+  'apify-website-content-crawler-0.3.94-free-usage-cap-0.01-retention-7d-2026-08-23'
+export const APIFY_WEBSITE_EMAIL_REQUIRED_RETENTION_DAYS = 7
 export const APIFY_WEBSITE_EMAIL_PROVIDER_CAP_USD = 0.01
 export const APIFY_WEBSITE_EMAIL_MAX_PAGES = 5
 export const APIFY_WEBSITE_EMAIL_MAX_ADDRESSES = 5
@@ -96,6 +98,8 @@ export function apifyWebsiteEmailApproved(
     && (env[APIFY_PRICE_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_PRICE_VERSION
     && (env[APIFY_WEBSITE_EMAIL_PRICE_VERSION_ENV] ?? '').trim()
       === APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION
+    && (env[APIFY_WEBSITE_EMAIL_RETENTION_DAYS_ENV] ?? '').trim()
+      === String(APIFY_WEBSITE_EMAIL_REQUIRED_RETENTION_DAYS)
     && configuredActor(env) === APIFY_WEBSITE_EMAIL_ACTOR_ID
   )
 }
@@ -136,7 +140,7 @@ export function apifyWebsiteEmailDescriptor(
         export: approved,
         customer_display: approved,
         outreach_allowed: approved,
-        retention_days: 90,
+        retention_days: APIFY_WEBSITE_EMAIL_REQUIRED_RETENTION_DAYS,
       },
       rate_limits: { requests_per_minute: 20, concurrent: 1 },
       max_batch: 1,
