@@ -177,6 +177,7 @@ export class IntegrationsApiSuppressionVersion {
 @Index({ name: 'integrations_api_ams_events_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Unique({ name: 'integrations_api_ams_events_event_unique', properties: ['organizationId', 'tenantId', 'eventId'] })
 @Unique({ name: 'integrations_api_ams_events_nonce_unique', properties: ['organizationId', 'tenantId', 'nonceDigest'] })
+@Unique({ name: 'integrations_api_ams_events_projection_unique', properties: ['organizationId', 'tenantId', 'projectionDigest'] })
 export class IntegrationsApiAmsEvent {
   [OptionalProps]?: 'id' | 'state' | 'createdAt' | 'updatedAt'
 
@@ -219,6 +220,12 @@ export class IntegrationsApiAmsEvent {
   @Property({ name: 'nonce_digest', type: 'text' })
   nonceDigest!: string
 
+  @Property({ name: 'projection_digest', type: 'text', nullable: true })
+  projectionDigest?: string | null
+
+  @Property({ name: 'signed_envelope', type: 'jsonb', nullable: true })
+  signedEnvelope?: Record<string, unknown> | null
+
   @Property({ name: 'key_version', type: 'text' })
   keyVersion!: string
 
@@ -228,8 +235,8 @@ export class IntegrationsApiAmsEvent {
   @Property({ name: 'expires_at', type: 'timestamptz' })
   expiresAt!: Date
 
-  @Property({ type: 'text', default: 'pending' })
-  state: string = 'pending'
+  @Property({ type: 'text', default: 'held_dark' })
+  state: string = 'held_dark'
 
   @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
   createdAt: Date = new Date()

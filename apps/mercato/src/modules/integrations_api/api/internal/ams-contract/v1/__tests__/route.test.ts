@@ -35,6 +35,7 @@ describe('AMS CRM contract discovery v1', () => {
     expect(body.rollout).toEqual({
       commandShadowIntake: false,
       eligibilityLeases: false,
+      authorityProjection: false,
       eventPublication: false,
       providerDispatch: false,
     })
@@ -48,11 +49,15 @@ describe('AMS CRM contract discovery v1', () => {
     })
     process.env.NOLI_AMS_CRM_COMMAND_SHADOW_V1_ENABLED = 'true'
     process.env.NOLI_CRM_AMS_ELIGIBILITY_V1_ENABLED = 'TRUE'
+    process.env.NOLI_CRM_AMS_AUTHORITY_PROJECTION_V1_ENABLED = 'TRUE'
+    process.env.NOLI_CRM_AMS_EVENTS_V1_ENABLED = 'true'
 
     const body = await (await GET(request())).json()
     expect(body.acceptedCommandKeyVersions).toEqual(['ams-command-2026-08'])
     expect(body.rollout.commandShadowIntake).toBe(true)
     expect(body.rollout.eligibilityLeases).toBe(false)
+    expect(body.rollout.authorityProjection).toBe(false)
+    expect(body.rollout.eventPublication).toBe(false)
     expect(JSON.stringify(body)).not.toContain('BEGIN PUBLIC KEY')
   })
 })

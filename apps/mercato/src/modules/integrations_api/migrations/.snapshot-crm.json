@@ -417,6 +417,24 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "projection_digest": {
+          "name": "projection_digest",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "signed_envelope": {
+          "name": "signed_envelope",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "key_version": {
           "name": "key_version",
           "type": "text",
@@ -453,7 +471,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "'pending'",
+          "default": "'held_dark'",
           "mappedType": "text"
         },
         "created_at": {
@@ -502,6 +520,18 @@
           "constraint": false,
           "primary": false,
           "unique": false
+        },
+        {
+          "keyName": "integrations_api_ams_events_projection_unique",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "projection_digest"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
         },
         {
           "keyName": "integrations_api_ams_events_nonce_unique",

@@ -1,5 +1,6 @@
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 import './commands/ams-crm'
+import './commands/ams-crm-authority'
 
 export const metadata: ModuleInfo = {
   name: 'integrations_api',

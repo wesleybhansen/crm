@@ -45,7 +45,10 @@ export async function GET(request: Request) {
       rollout: {
         commandShadowIntake: process.env.NOLI_AMS_CRM_COMMAND_SHADOW_V1_ENABLED === 'true',
         eligibilityLeases: process.env.NOLI_CRM_AMS_ELIGIBILITY_V1_ENABLED === 'true',
-        eventPublication: process.env.NOLI_CRM_AMS_EVENTS_V1_ENABLED === 'true',
+        authorityProjection: process.env.NOLI_CRM_AMS_AUTHORITY_PROJECTION_V1_ENABLED === 'true',
+        // No publisher is registered in this tranche. An obsolete environment
+        // value must not be able to imply that delivery exists.
+        eventPublication: false,
         providerDispatch: false,
       },
     },
