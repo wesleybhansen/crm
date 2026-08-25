@@ -61,10 +61,18 @@ export default function EmailPage() {
       } else {
         setShowCompose(true)
       }
-      // Clean up URL
-      window.history.replaceState({}, '', window.location.pathname)
     }
   }, [])
+
+  const closeCompose = () => {
+    setShowCompose(false)
+    setComposeTo('')
+    setComposeSubject('')
+    setComposeBody('')
+    setComposeContactId('')
+    setComposeName('')
+    window.history.replaceState({}, '', window.location.pathname)
+  }
 
   useEffect(() => {
     const params = filter !== 'all' ? `?direction=${filter}` : ''
@@ -160,8 +168,8 @@ export default function EmailPage() {
           contactId={composeContactId || undefined}
           initialSubject={composeSubject}
           initialBody={composeBody}
-          onClose={() => { setShowCompose(false); setComposeTo(''); setComposeSubject(''); setComposeBody(''); setComposeContactId(''); setComposeName('') }}
-          onSent={() => { setShowCompose(false); setComposeTo(''); setComposeSubject(''); setComposeBody(''); setComposeContactId(''); setComposeName(''); loadMessages() }}
+          onClose={closeCompose}
+          onSent={() => { closeCompose(); loadMessages() }}
         />
       )}
     </div>
