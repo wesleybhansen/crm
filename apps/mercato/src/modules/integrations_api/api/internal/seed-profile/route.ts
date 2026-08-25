@@ -1,6 +1,13 @@
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  buildNoliOnboardingSeed,
+  gtmBusinessContext,
+  gtmIcpStarter,
+  gtmVoiceStarter,
+  type NoliOnboardingSeed,
+} from '../../../lib/onboarding-seed'
 
 /*
  * Internal connectivity endpoint (Noli U-1: one scan, five configured products).
@@ -11,13 +18,101 @@ import type { EntityManager } from '@mikro-orm/postgresql'
  * stages, brand, socials, services) so the CRM welcome flow opens already
  * configured instead of empty.
  *
- * Merge semantics: never clobber what the user already set. If onboarding is
- * already complete this is a no-op; otherwise only currently-empty fields are
- * filled in.
+ * Merge semantics: never clobber what the user already set. Empty CRM fields
+ * are filled once, while confirmed Intel Hub context can refresh the GTM
+ * starter without overwriting customer-authored ICP or voice versions.
  */
 export const metadata = {
   path: '/internal/seed-profile',
   POST: { requireAuth: false },
+}
+
+type GtmSeedReceipt = {
+  status: 'ready' | 'not_entitled' | 'disabled' | 'failed'
+  workspaceId?: string
+  workspaceCreated?: boolean
+  icpDraftCreated?: boolean
+  voiceDraftCreated?: boolean
+}
+
+async function ensureGtmStarter(
+  container: { resolve: (name: string) => unknown },
+  em: EntityManager,
+  auth: { orgId?: unknown; tenantId?: unknown; userId?: unknown },
+  seed: NoliOnboardingSeed,
+  requestId: string | null,
+): Promise<GtmSeedReceipt> {
+  try {
+    const { gtmEnabled } = await import('@/modules/gtm/lib/flags')
+    if (!gtmEnabled()) return { status: 'disabled' }
+    const organizationId = auth.orgId as string
+    const tenantId = auth.tenantId as string
+    const userId = auth.userId as string
+    const { hasGtmFeature } = await import('@/modules/gtm/lib/authorize')
+    if (!(await hasGtmFeature(container as never, { organizationId, tenantId, userId }, 'gtm.edit'))) {
+      return { status: 'not_entitled' }
+    }
+
+    const { GtmWorkspace, GtmAuditEvent } = await import('@/modules/gtm/data/entities')
+    let workspace = await em.findOne(
+      GtmWorkspace,
+      { organizationId, tenantId, deletedAt: null },
+      { orderBy: { createdAt: 'asc' } },
+    )
+    const workspaceCreated = !workspace
+    if (!workspace) {
+      workspace = em.create(GtmWorkspace, {
+        id: crypto.randomUUID(),
+        organizationId,
+        tenantId,
+        name: seed.businessName ? `${seed.businessName} growth` : 'Growth workspace',
+        status: 'active',
+        settings: { default: true },
+      })
+      em.persist(workspace)
+      em.persist(em.create(GtmAuditEvent, {
+        id: crypto.randomUUID(), organizationId, tenantId, actor: 'agent',
+        action: 'gtm.workspace.onboarding_seeded', objectType: 'gtm_workspace', objectId: workspace.id,
+        requestId, metadata: { source: 'noli_intel_hub', context_version: seed.contextVersion },
+      }))
+    }
+    workspace.businessContext = {
+      ...(workspace.businessContext ?? {}),
+      ...gtmBusinessContext(seed),
+    }
+    await em.flush()
+
+    const { listVersions, createVersion } = await import('@/modules/gtm/lib/versions')
+    const ctx = { organizationId, tenantId, userId }
+    const provenance = { source: 'noli_intel_hub', status: 'unverified', context_version: seed.contextVersion }
+    const icpExisting = await listVersions(em as never, ctx, 'icp', workspace.id)
+    const voiceExisting = await listVersions(em as never, ctx, 'voice', workspace.id)
+    let icpDraftCreated = false
+    let voiceDraftCreated = false
+    if (icpExisting.length === 0) {
+      await createVersion(em as never, ctx, 'icp', {
+        workspaceId: workspace.id,
+        content: gtmIcpStarter(seed),
+        author: 'agent',
+        provenance,
+      })
+      icpDraftCreated = true
+    }
+    if (voiceExisting.length === 0) {
+      await createVersion(em as never, ctx, 'voice', {
+        workspaceId: workspace.id,
+        content: gtmVoiceStarter(seed),
+        author: 'agent',
+        provenance,
+        derivedFrom: { source: 'noli_intel_hub', context_version: seed.contextVersion },
+      })
+      voiceDraftCreated = true
+    }
+    return { status: 'ready', workspaceId: workspace.id, workspaceCreated, icpDraftCreated, voiceDraftCreated }
+  } catch (error) {
+    console.error('[internal.seed-profile] GTM starter failed', error)
+    return { status: 'failed' }
+  }
 }
 
 export async function POST(req: Request) {
@@ -49,6 +144,7 @@ export async function POST(req: Request) {
   if (!noliUserId) {
     return NextResponse.json({ ok: false, error: 'noliUserId required' }, { status: 400 })
   }
+  const onboardingSeed = buildNoliOnboardingSeed(body)
 
   try {
     // 3. noli-core user → Clerk id → Mercato auth context (provisions user+org
@@ -77,10 +173,6 @@ export async function POST(req: Request) {
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId as string,
     })
-    if (existing?.onboardingComplete) {
-      return NextResponse.json({ ok: true, seeded: false, reason: 'onboarding already complete' })
-    }
-
     // 4. Build the upsert input: incoming values fill only EMPTY fields.
     const has = (v: unknown) =>
       Array.isArray(v) ? v.length > 0 : v && typeof v === 'object' ? Object.keys(v).length > 0 : Boolean(v)
@@ -88,6 +180,7 @@ export async function POST(req: Request) {
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
     }
+    if (!existing?.onboardingComplete) input.onboardingComplete = true
     const put = (key: string, existingVal: unknown, incoming: unknown) => {
       if (!has(existingVal) && has(incoming)) input[key] = incoming
     }
@@ -108,7 +201,8 @@ export async function POST(req: Request) {
 
     // U-52: the audit's drafted follow-up email becomes a real, reusable
     // email template (idempotent by name; never duplicates).
-    let template = false
+    let templateCreated = false
+    let templateReady = false
     const fu = rec(body.followUpEmail)
     const fuSubject = str(fu.subject, 200)
     const fuBody = str(fu.body, 4000)
@@ -121,7 +215,9 @@ export async function POST(req: Request) {
           name,
           deletedAt: null,
         })
-        if (!prior) {
+        if (prior) {
+          templateReady = true
+        } else {
           const esc = (s: string) =>
             s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
           const tpl = new EmailTemplate()
@@ -135,31 +231,53 @@ export async function POST(req: Request) {
             .join('\n')
           tpl.category = 'sequence'
           await em.persistAndFlush(tpl)
-          template = true
+          templateCreated = true
+          templateReady = true
         }
       } catch (err) {
         console.error('[internal.seed-profile] template create failed', err)
       }
     }
 
-    if (Object.keys(input).length <= 2) {
-      return NextResponse.json({ ok: true, seeded: template, template, reason: 'profile already filled' })
-    }
-
     // 5. Upsert through the same command the authed PUT route uses.
-    const { businessProfileUpsertSchema } = await import(
-      '@open-mercato/core/modules/customers/data/validators'
-    )
-    const parsed = businessProfileUpsertSchema.parse(input)
-    const commandBus = container.resolve('commandBus') as {
-      execute: (name: string, payload: unknown) => Promise<unknown>
+    let profileSeeded = false
+    if (Object.keys(input).length > 2) {
+      const { businessProfileUpsertSchema } = await import(
+        '@open-mercato/core/modules/customers/data/validators'
+      )
+      const parsed = businessProfileUpsertSchema.parse(input)
+      const commandBus = container.resolve('commandBus') as {
+        execute: (name: string, payload: unknown) => Promise<unknown>
+      }
+      await commandBus.execute('customers.business_profile.upsert', {
+        input: parsed,
+        ctx: { container, auth, request: req },
+      })
+      profileSeeded = true
     }
-    await commandBus.execute('customers.business_profile.upsert', {
-      input: parsed,
-      ctx: { container, auth, request: req },
-    })
 
-    return NextResponse.json({ ok: true, seeded: true, template })
+    const gtm = await ensureGtmStarter(
+      container as { resolve: (name: string) => unknown },
+      em,
+      auth,
+      onboardingSeed,
+      req.headers.get('x-request-id'),
+    )
+    return NextResponse.json({
+      ok: true,
+      seeded: true,
+      created: profileSeeded || templateCreated || Boolean(gtm.workspaceCreated || gtm.icpDraftCreated || gtm.voiceDraftCreated),
+      template: templateReady,
+      firstValue: {
+        crm: {
+          status: templateReady ? 'ready' : 'context_seeded',
+          onboardingComplete: true,
+          pipelineConfigured: has(existing?.pipelineStages) || has(input.pipelineStages),
+          followUpDraftReady: templateReady,
+        },
+        gtm,
+      },
+    })
   } catch (err) {
     console.error('[internal.seed-profile]', err)
     return NextResponse.json({ ok: false, error: 'Seed failed' }, { status: 500 })
