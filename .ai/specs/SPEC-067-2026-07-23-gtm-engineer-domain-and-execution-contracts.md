@@ -3,7 +3,7 @@
 **Date:** 2026-07-23 PDT
 **Status:** C0-R39 is merged and owner-only dark-deployed through executable enrichment quote truth. The separate auto-refill runtime gate remains off, and no campaign schedule or cycle exists. DataForSEO and the exact selected Apify capabilities may run only through their separately gated quote/confirm contracts. Automated email execution, mailbox ingestion, LeadMagic, Bouncer, public GTM promotion, and customer exposure remain off.
 **Authority:** `~/dev/Noli AI/Software Strategy/gtm-engineer-build-plan-2026-07-23.md`. Companion: noli-platform `docs/specs/GTM-SPEC-01-2026-07-23-audience-plays-and-noli-core-credit-contracts.md` (Audience Plays engine, canonical noli-core credit ledger, Launchpad boundary).
-**Launch classification:** optional-parallel, feature-flagged, OFF for the current Noli launch candidate.
+**Launch classification:** included in every paid Noli plan as of the AUG-18 product decision; fail-closed Hub and CRM runtime gates remain operational kill switches, not plan segmentation.
 **Spec numbering note:** The July branch used SPEC-066. Current main now owns SPEC-066 for the AUG-04 CRM regression-quality program, so the GTM contract is reconciled as SPEC-067 without changing its product scope.
 
 All citations verified against CRM `main` at `dfa6b3aa99e4a0580a15c88c2774975f6ac14c87` on 2026-07-23.
@@ -1293,7 +1293,15 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - The public prospect-removal path is part of customer release. It deletes any matching prospect rows, stops queued outreach, and writes platform-wide suppression without disclosing whether a row existed.
 - The service-only `POST /internal/gtm/retention` process route runs the existing global 90-day candidate sweep under `NOLI_INTERNAL_SERVICE_SECRET`. The caller cannot supply an organization, cutoff, or actor. The route returns count-only results and must be scheduled daily before the public privacy disclosure can claim routine deletion.
 
-## 49. Changelog
+## 49. AUG-18 shared-context onboarding and first value
+
+- The Noli Hub's owner-confirmed Intel Hub context may create the organization's default GTM workspace during the existing service-authenticated CRM profile seed. Identity is still re-resolved through the CRM entitlement boundary, `gtm.edit` is rechecked, and every read/write remains scoped by organization plus tenant.
+- The seed stores the confirmed business context with `source=noli_intel_hub`, a bounded context version, and explicit verification status. It creates at most one unlocked version-one ICP starter and one unlocked version-one voice starter only when no live version exists. Both carry agent provenance and `status=unverified` / `needs_review`; inferred content is never locked or represented as customer-confirmed.
+- Repeated seed calls merge the newest confirmed Intel Hub block into workspace context but never overwrite an existing ICP/voice version, approved campaign, play, provider result, mailbox, enrollment, or app-owned CRM customization. The CRM standalone onboarding flag is completed because Hub context already supplied the shared questions; genuinely CRM-specific setup remains just in time.
+- The response distinguishes setup from value: CRM returns a configured-pipeline/follow-up-draft receipt and GTM returns workspace/starter creation truth. No model, provider, credit, mailbox, campaign, enrollment, send, public-promotion, or auto-refill action occurs in this path.
+- Rollback is the CRM deployment plus either runtime gate off. Existing additive workspace/version/audit rows remain inert and reviewable; no schema rollback is required.
+
+## 50. Changelog
 
 - 2026-07-23: Initial Tranche 0 contract freeze (documentation only; no implementation).
 - 2026-08-02: Added accepted-yield sourcing, `fit-v3` criterion-aware qualification, funnel diagnostics, and authoritative provider billing/ambiguity rules. Implementation remains local, uncommitted, flag-off, and undeployed.
@@ -1359,3 +1367,4 @@ R7 adds no route, field, entity, migration, feature id, queue, or generated cont
 - 2026-08-24: Approved and began R40's bounded owner production lifecycle. Production preflight, v2 unsubscribe rotation, one capped source batch, exact provider-ledger reconciliation, and a one-recipient/one-message approval envelope are complete; the valid physical sender postal address remains the only approval/send gate, and every execution, ingestion, auto-refill, and public-promotion control remains off.
 - 2026-08-24: The owner authorized a synthetic address for the owner-to-owner transport proof only, and campaign version `a19b38ad-476c-401e-ab46-925513af2027` was approved with one recipient. R40 also corrected the generator defect that omitted every app-local worker and added an isolated Redis-backed GTM mailbox worker without changing the global queue strategy. No message was launched or sent by this code change.
 - 2026-08-24: Added R47's customer-release boundary: paid-plan GTM entitlement propagation, prospecting-before-address semantics, public removal disclosure, canonical provider metering language, and a shared-secret global retention process route. Provider, mailbox, execution, and auto-refill activation remain independently gated.
+- 2026-08-25: Added AUG-18 shared-context onboarding. Hub-confirmed context now completes the duplicate CRM welcome gate and creates an idempotent, unlocked, explicitly unverified GTM ICP/voice starter without any model, provider, credit, campaign, enrollment, mailbox, or send side effect. GTM is included in every paid Noli plan; feature flags remain fail-closed operational controls.
