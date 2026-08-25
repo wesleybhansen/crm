@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Mail, Send, Inbox } from 'lucide-react'
 import { EmailComposeModal } from '@/components/EmailComposeModal'
 
@@ -20,6 +21,11 @@ type EmailMessage = {
   clicked_at: string | null
 }
 
+type FirstValueResponse = {
+  ok: boolean
+  data: { ready: true; subject: string; body: string } | null
+}
+
 export default function EmailPage() {
   const t = useT()
   const translate = (key: string, fallback: string) => translateWithFallback(t, key, fallback)
@@ -29,6 +35,7 @@ export default function EmailPage() {
   const [showCompose, setShowCompose] = useState(false)
   const [composeTo, setComposeTo] = useState('')
   const [composeSubject, setComposeSubject] = useState('')
+  const [composeBody, setComposeBody] = useState('')
   const [composeContactId, setComposeContactId] = useState('')
   const [composeName, setComposeName] = useState('')
 
@@ -40,7 +47,20 @@ export default function EmailPage() {
       setComposeSubject(params.get('subject') || '')
       setComposeContactId(params.get('contactId') || '')
       setComposeName(params.get('name') || '')
-      setShowCompose(true)
+      const template = params.get('template')
+      if (template === 'first-value') {
+        apiCall<FirstValueResponse>('/api/onboarding/first-value', { credentials: 'include' })
+          .then(({ result }) => {
+            if (result?.ok && result.data?.ready) {
+              setComposeSubject(result.data.subject || '')
+              setComposeBody(result.data.body || '')
+            }
+            setShowCompose(true)
+          })
+          .catch(() => setShowCompose(true))
+      } else {
+        setShowCompose(true)
+      }
       // Clean up URL
       window.history.replaceState({}, '', window.location.pathname)
     }
@@ -139,8 +159,9 @@ export default function EmailPage() {
           contactEmail={composeTo}
           contactId={composeContactId || undefined}
           initialSubject={composeSubject}
-          onClose={() => { setShowCompose(false); setComposeTo(''); setComposeSubject(''); setComposeContactId(''); setComposeName('') }}
-          onSent={() => { setShowCompose(false); setComposeTo(''); setComposeSubject(''); setComposeContactId(''); setComposeName(''); loadMessages() }}
+          initialBody={composeBody}
+          onClose={() => { setShowCompose(false); setComposeTo(''); setComposeSubject(''); setComposeBody(''); setComposeContactId(''); setComposeName('') }}
+          onSent={() => { setShowCompose(false); setComposeTo(''); setComposeSubject(''); setComposeBody(''); setComposeContactId(''); setComposeName(''); loadMessages() }}
         />
       )}
     </div>

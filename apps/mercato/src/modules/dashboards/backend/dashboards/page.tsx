@@ -8,6 +8,9 @@ import {
   ArrowUpRight, Target, Activity, X, Mic, Sparkles } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 interface ActionItem { type: string; title: string; description: string; href: string; priority: number }
 interface DashboardData {
@@ -22,16 +25,33 @@ interface DashboardData {
   personaName?: string
 }
 
+interface FirstValueDraft {
+  kind: 'follow_up_draft'
+  ready: true
+  id: string
+  subject: string
+  body: string
+}
+
+interface FirstValueResponse {
+  ok: boolean
+  data: FirstValueDraft | null
+}
+
 const actionIcons: Record<string, any> = {
   deal: DollarSign, lead: Users, contact: Users, task: CheckCircle2,
   'getting-started': Zap, form: FileText, email: Mail,
 }
 
 export default function SimpleDashboard() {
+  const t = useT()
+  const translate = (key: string, fallback: string) => translateWithFallback(t, key, fallback)
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [greeting, setGreeting] = useState('')
   const [hasProfile, setHasProfile] = useState(true)
+  const [firstValue, setFirstValue] = useState<FirstValueDraft | null>(null)
+  const [firstValueExpanded, setFirstValueExpanded] = useState(false)
   const [dismissedItems, setDismissedItems] = useState<Set<string>>(() => {
     try {
       const cookie = document.cookie.split('; ').find(c => c.startsWith('crm_dismissed_actions='))
@@ -57,6 +77,10 @@ export default function SimpleDashboard() {
       .then(r => r.json())
       .then(d => { if (d.ok) setData(d.data); setLoading(false) })
       .catch(() => setLoading(false))
+
+    apiCall<FirstValueResponse>('/api/onboarding/first-value', { credentials: 'include' })
+      .then(({ result }) => { if (result?.ok && result.data?.ready) setFirstValue(result.data) })
+      .catch(() => {})
 
     // Background: trigger email intelligence sync if overdue (>12 hours)
     fetch('/api/email/intelligence-settings', { credentials: 'include' })
@@ -133,9 +157,42 @@ export default function SimpleDashboard() {
         </div>
       </div>
 
-      {/* First win: a brand-new account's first moment should be an AI action,
-          not a wall of zeros. One click opens Scout with the command prefilled. */}
-      {isNewUser && !dismissedItems.has('first-win:card') && (
+      {/* First win: a brand-new account's first moment should be a useful artifact, not a wall of zeros. */}
+      {isNewUser && firstValue?.ready && (
+        <section className="mb-8 overflow-hidden rounded-xl border border-accent/30 bg-gradient-to-br from-accent/[.10] via-card to-card" aria-labelledby="first-value-heading">
+          <div className="flex flex-col gap-5 p-5 sm:p-6">
+            <div className="flex items-start gap-4">
+              <div className="size-11 rounded-xl bg-accent/15 flex items-center justify-center shrink-0 ring-1 ring-accent/20">
+                <Mail className="size-5 text-accent" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-[10px] font-bold uppercase tracking-[.16em] text-accent">{translate('noli.dashboard.firstValue.eyebrow', 'Ready from your business brief')}</p>
+                <h2 id="first-value-heading" className="mt-1 text-lg font-semibold tracking-tight">{translate('noli.dashboard.firstValue.title', 'Your first follow-up is ready')}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{translate('noli.dashboard.firstValue.description', 'Noli drafted this from the business context you confirmed. Review it before sending.')}</p>
+              </div>
+            </div>
+            <div className="rounded-lg border bg-background/70 p-4">
+              <p className="text-xs font-medium text-muted-foreground">{translate('noli.dashboard.firstValue.subject', 'Subject')}</p>
+              <p className="mt-1 text-sm font-semibold">{firstValue.subject}</p>
+              <p className={`mt-3 whitespace-pre-line text-sm leading-6 text-muted-foreground ${firstValueExpanded ? '' : 'line-clamp-3'}`}>
+                {firstValue.body}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" onClick={() => { window.location.href = '/backend/email?compose=true&template=first-value' }}>
+                <Send className="size-3.5 mr-1.5" /> {translate('noli.dashboard.firstValue.useDraft', 'Use this draft')}
+              </Button>
+              <Button type="button" size="sm" variant="outline" aria-expanded={firstValueExpanded} onClick={() => setFirstValueExpanded(value => !value)}>
+                {firstValueExpanded
+                  ? translate('noli.dashboard.firstValue.showLess', 'Show less')
+                  : translate('noli.dashboard.firstValue.reviewFull', 'Review full draft')}
+              </Button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {isNewUser && !firstValue?.ready && !dismissedItems.has('first-win:card') && (
         <div className="mb-8 rounded-xl border-2 border-accent/30 bg-accent/5 px-5 py-4 flex flex-wrap items-center gap-4">
           <div className="size-10 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
             <Sparkles className="size-5 text-accent" />

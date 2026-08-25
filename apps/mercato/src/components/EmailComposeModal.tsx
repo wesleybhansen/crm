@@ -17,6 +17,7 @@ interface EmailComposeProps {
   contactEmail: string
   contactId?: string
   initialSubject?: string
+  initialBody?: string
   onClose: () => void
   onSent?: () => void
 }
@@ -27,10 +28,10 @@ const PROVIDER_LABELS: Record<string, string> = {
   smtp: 'SMTP',
 }
 
-export function EmailComposeModal({ contactName, contactEmail, contactId, initialSubject, onClose, onSent }: EmailComposeProps) {
+export function EmailComposeModal({ contactName, contactEmail, contactId, initialSubject, initialBody, onClose, onSent }: EmailComposeProps) {
   const [to, setTo] = useState(contactEmail)
   const [subject, setSubject] = useState(initialSubject || '')
-  const [body, setBody] = useState('')
+  const [body, setBody] = useState(initialBody || '')
   const [sending, setSending] = useState(false)
   const [drafting, setDrafting] = useState(false)
   const [sent, setSent] = useState(false)
