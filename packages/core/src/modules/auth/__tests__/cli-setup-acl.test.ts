@@ -30,6 +30,7 @@ const testModules: Module[] = [
   { id: 'staff', setup: { defaultRoleFeatures: { admin: ['staff.*', 'staff.leave_requests.manage'], employee: ['staff.leave_requests.send', 'staff.my_availability.view', 'staff.my_availability.manage', 'staff.my_leave_requests.view', 'staff.my_leave_requests.send'] } } },
   { id: 'translations', setup: { defaultRoleFeatures: { admin: ['translations.*'], employee: ['translations.view', 'translations.manage'] } } },
   { id: 'example', setup: { defaultRoleFeatures: { admin: ['example.*'], employee: ['example.*', 'example.widgets.*'] } } },
+  { id: 'gtm', setup: { defaultRoleFeatures: { superadmin: ['gtm.view', 'gtm.edit', 'gtm.approve', 'gtm.launch'], admin: ['gtm.view', 'gtm.edit', 'gtm.approve', 'gtm.launch'], employee: ['gtm.view'] } } },
 ]
 registerModules(testModules)
 registerCliModules(testModules)
@@ -145,4 +146,33 @@ describe('auth CLI setup seeds ACLs', () => {
       'translations.manage',
     ]))
   }, 20000)
+
+  it('reconciles newly introduced default permissions for existing tenant roles', async () => {
+    const seedRoles = cli.find((c: any) => c.command === 'seed-roles')!
+    const existingAdminAcl = {
+      role: { id: 'r-admin', name: 'admin' },
+      tenantId: 'tenant-1',
+      featuresJson: ['auth.*'],
+      isSuperAdmin: false,
+    }
+
+    findOne.mockImplementation(async (Entity: any, where: any) => {
+      if (where?.name === 'superadmin') return { id: 'r-superadmin', name: 'superadmin' }
+      if (where?.name === 'admin') return { id: 'r-admin', name: 'admin' }
+      if (where?.name === 'employee') return { id: 'r-employee', name: 'employee' }
+      if (where?.role?.name === 'admin') return existingAdminAcl
+      return null
+    })
+
+    await seedRoles.run(['--tenant', 'tenant-1'])
+
+    expect(existingAdminAcl.featuresJson).toEqual(expect.arrayContaining([
+      'auth.*',
+      'gtm.view',
+      'gtm.edit',
+      'gtm.approve',
+      'gtm.launch',
+    ]))
+    expect(persistAndFlush).toHaveBeenCalledWith(existingAdminAcl)
+  })
 })

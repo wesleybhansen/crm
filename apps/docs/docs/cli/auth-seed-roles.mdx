@@ -1,10 +1,10 @@
 ---
 title: mercato auth seed-roles
 sidebar_label: auth seed-roles
-description: Ensures baseline roles exist for the authentication module.
+description: Ensures baseline roles and their additive default permissions exist.
 ---
 
-`yarn mercato auth seed-roles` inserts or verifies the default role set used by the authentication module.
+`yarn mercato auth seed-roles` inserts or verifies the default role set and reconciles the additive default permissions declared by enabled modules.
 
 ## Usage
 
@@ -14,9 +14,11 @@ yarn mercato auth seed-roles
 
 ## Behavior
 
-- Runs inside a transaction and guarantees the roles `employee`, `admin`, and `superadmin` exist.
-- Existing roles are left untouched; missing ones are created with `tenantId = null` so they can be reused across tenants.
-- Outputs `Inserted role <name>` when a role is created and `Roles ensured` when complete.
+- Guarantees the tenant-scoped roles `employee`, `admin`, and `superadmin` exist.
+- Adds any missing default permissions declared by enabled modules to those role ACLs.
+- Preserves existing permissions and organization restrictions; it does not remove or narrow custom ACLs.
+- Invalidates the tenant's RBAC cache after reconciliation.
+- Outputs `Roles and default permissions ensured` when complete.
 
 ## When to Run
 

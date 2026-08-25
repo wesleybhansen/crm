@@ -5,7 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { ensureRoles, setupInitialTenant } from './lib/setup-app'
+import { ensureDefaultRoleAcls, ensureRoles, setupInitialTenant } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
 import { computeEmailHash } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -183,9 +183,16 @@ const seedRoles: ModuleCli = {
     const tenantId = args.tenantId ?? args.tenant ?? args.tenant_id ?? null
     const { resolve } = await createRequestContainer()
     const em = resolve<EntityManager>('em')
+    const modules = getCliModules()
+    const reconcileTenant = async (id: string) => {
+      await ensureRoles(em, { tenantId: id })
+      await ensureDefaultRoleAcls(em, id, modules)
+      const rbac = resolve<{ invalidateTenantCache?: (tenantId: string) => Promise<void> }>('rbacService')
+      await rbac.invalidateTenantCache?.(id)
+      console.log('🛡️ Roles and default permissions ensured for tenant', id)
+    }
     if (tenantId) {
-      await ensureRoles(em, { tenantId })
-      console.log('🛡️ Roles ensured for tenant', tenantId)
+      await reconcileTenant(tenantId)
       return
     }
     const tenants = await em.find(Tenant, {})
@@ -196,8 +203,7 @@ const seedRoles: ModuleCli = {
     for (const tenant of tenants) {
       const id = tenant.id ? String(tenant.id) : null
       if (!id) continue
-      await ensureRoles(em, { tenantId: id })
-      console.log('🛡️ Roles ensured for tenant', id)
+      await reconcileTenant(id)
     }
   },
 }
