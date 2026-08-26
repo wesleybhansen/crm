@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 const mockFindNoliUserById = jest.fn()
+const mockFindPrimaryOrgIdForUser = jest.fn()
 const mockResolveClerkUserToAuthContext = jest.fn()
 const mockCreateRequestContainer = jest.fn()
 
@@ -39,6 +40,7 @@ function createKnex() {
 
 jest.mock('@open-mercato/shared/lib/noli/core-client', () => ({
   findNoliUserById: (...args: unknown[]) => mockFindNoliUserById(...args),
+  findPrimaryOrgIdForUser: (...args: unknown[]) => mockFindPrimaryOrgIdForUser(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/clerk', () => ({
@@ -55,6 +57,7 @@ const originalEnv = process.env
 const serviceSecret = 'test-internal-service-secret'
 const noliUserId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
+const crmOrganizationId = '44444444-4444-4444-8444-444444444444'
 const tenantId = '33333333-3333-4333-8333-333333333333'
 
 function request(body: unknown, authorization = `Bearer ${serviceSecret}`): Request {
@@ -73,7 +76,8 @@ describe('CRM internal COS metrics boundary', () => {
     contactRow = { total_contacts: '11' }
     process.env = { ...originalEnv, NOLI_INTERNAL_SERVICE_SECRET: serviceSecret }
     mockFindNoliUserById.mockResolvedValue({ clerk_user_id: 'clerk-user-1' })
-    mockResolveClerkUserToAuthContext.mockResolvedValue({ orgId: organizationId, tenantId })
+    mockFindPrimaryOrgIdForUser.mockResolvedValue(organizationId)
+    mockResolveClerkUserToAuthContext.mockResolvedValue({ orgId: crmOrganizationId, tenantId })
     mockCreateRequestContainer.mockResolvedValue({
       resolve: () => ({ getKnex: () => createKnex() }),
     })
@@ -102,7 +106,7 @@ describe('CRM internal COS metrics boundary', () => {
   })
 
   it('refuses a current-organization mismatch before database access', async () => {
-    mockResolveClerkUserToAuthContext.mockResolvedValue({ orgId: 'another-org', tenantId })
+    mockFindPrimaryOrgIdForUser.mockResolvedValue('another-noli-org')
     const response = await POST(request({ noliUserId, organizationId }))
     expect(response.status).toBe(403)
     expect(mockCreateRequestContainer).not.toHaveBeenCalled()
@@ -119,7 +123,7 @@ describe('CRM internal COS metrics boundary', () => {
     expect(queryScopes).toHaveLength(2)
     for (const scope of queryScopes) {
       expect(scope.filters).toEqual(expect.arrayContaining([
-        ['organization_id', organizationId],
+        ['organization_id', crmOrganizationId],
         ['tenant_id', tenantId],
       ]))
       expect(scope.nulls).toEqual(['deleted_at'])

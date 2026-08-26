@@ -44,10 +44,16 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
-    const noliUser = await findNoliUserById(noliUserId)
+    const { findNoliUserById, findPrimaryOrgIdForUser } = await import('@open-mercato/shared/lib/noli/core-client')
+    const [noliUser, currentNoliOrgId] = await Promise.all([
+      findNoliUserById(noliUserId),
+      findPrimaryOrgIdForUser(noliUserId),
+    ])
     if (!noliUser?.clerk_user_id) {
       return NextResponse.json({ ok: false, error: 'Noli user not found' }, { status: 404 })
+    }
+    if (currentNoliOrgId !== organizationId) {
+      return NextResponse.json({ ok: false, error: 'CRM access unavailable' }, { status: 403 })
     }
 
     const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
@@ -55,9 +61,7 @@ export async function POST(req: Request) {
     if (!auth?.orgId || !auth.tenantId) {
       return NextResponse.json({ ok: false, error: 'CRM access unavailable' }, { status: 403 })
     }
-    if (String(auth.orgId) !== organizationId) {
-      return NextResponse.json({ ok: false, error: 'CRM access unavailable' }, { status: 403 })
-    }
+    const crmOrganizationId = String(auth.orgId)
     const tenantId = String(auth.tenantId)
 
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
@@ -66,7 +70,7 @@ export async function POST(req: Request) {
 
     const [deals, contacts] = await Promise.all([
       knex('customer_deals')
-        .where('organization_id', organizationId)
+        .where('organization_id', crmOrganizationId)
         .where('tenant_id', tenantId)
         .whereNull('deleted_at')
         .select(
@@ -75,7 +79,7 @@ export async function POST(req: Request) {
         )
         .first(),
       knex('customer_entities')
-        .where('organization_id', organizationId)
+        .where('organization_id', crmOrganizationId)
         .where('tenant_id', tenantId)
         .whereNull('deleted_at')
         .count({ total_contacts: '*' })
