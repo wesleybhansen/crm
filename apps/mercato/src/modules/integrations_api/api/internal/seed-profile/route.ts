@@ -2,10 +2,13 @@ import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
+  buildCrmFirstValueDraft,
   buildNoliOnboardingSeed,
   gtmBusinessContext,
   gtmIcpStarter,
   gtmVoiceStarter,
+  isLegacyNoliFirstValueTemplate,
+  NOLI_FIRST_VALUE_TEMPLATE_MARKER,
   type NoliOnboardingSeed,
 } from '../../../lib/onboarding-seed'
 
@@ -202,33 +205,45 @@ export async function POST(req: Request) {
     // U-52: the audit's drafted follow-up email becomes a real, reusable
     // email template (idempotent by name; never duplicates).
     let templateCreated = false
+    let templateUpdated = false
     let templateReady = false
-    const fu = rec(body.followUpEmail)
-    const fuSubject = str(fu.subject, 200)
-    const fuBody = str(fu.body, 4000)
-    if (fuSubject && fuBody) {
+    const firstValueDraft = buildCrmFirstValueDraft(onboardingSeed)
+    const hasFirstValueContext = Boolean(
+      onboardingSeed.businessName || onboardingSeed.businessDescription || onboardingSeed.idealClients,
+    )
+    if (hasFirstValueContext) {
       try {
         const { EmailTemplate } = await import('@/modules/email/data/schema')
         const name = 'Follow-up: new inquiry (drafted by your Noli team)'
         const prior = await em.findOne(EmailTemplate, {
           organizationId: auth.orgId as string,
+          tenantId: auth.tenantId as string,
           name,
           deletedAt: null,
         })
+        const esc = (value: string) =>
+          value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const bodyHtml = [
+          NOLI_FIRST_VALUE_TEMPLATE_MARKER,
+          ...firstValueDraft.body
+            .split(/\n{2,}/)
+            .map((paragraph) => `<p>${esc(paragraph).replace(/\n/g, '<br>')}</p>`),
+        ].join('\n')
         if (prior) {
+          if (isLegacyNoliFirstValueTemplate(prior.subject, prior.bodyHtml)) {
+            prior.subject = firstValueDraft.subject
+            prior.bodyHtml = bodyHtml
+            await em.flush()
+            templateUpdated = true
+          }
           templateReady = true
         } else {
-          const esc = (s: string) =>
-            s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
           const tpl = new EmailTemplate()
           tpl.tenantId = auth.tenantId as string
           tpl.organizationId = auth.orgId as string
           tpl.name = name
-          tpl.subject = fuSubject
-          tpl.bodyHtml = fuBody
-            .split(/\n{2,}/)
-            .map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`)
-            .join('\n')
+          tpl.subject = firstValueDraft.subject
+          tpl.bodyHtml = bodyHtml
           tpl.category = 'sequence'
           await em.persistAndFlush(tpl)
           templateCreated = true
@@ -267,6 +282,7 @@ export async function POST(req: Request) {
       ok: true,
       seeded: true,
       created: profileSeeded || templateCreated || Boolean(gtm.workspaceCreated || gtm.icpDraftCreated || gtm.voiceDraftCreated),
+      updated: templateUpdated,
       template: templateReady,
       firstValue: {
         crm: {

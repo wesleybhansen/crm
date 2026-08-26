@@ -1,8 +1,10 @@
 import {
+  buildCrmFirstValueDraft,
   buildNoliOnboardingSeed,
   gtmBusinessContext,
   gtmIcpStarter,
   gtmVoiceStarter,
+  isLegacyNoliFirstValueTemplate,
 } from '../onboarding-seed'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -40,6 +42,27 @@ describe('Noli onboarding seed contract', () => {
     const sparse = buildNoliOnboardingSeed({ businessName: 'Acme' })
     expect(gtmIcpStarter(sparse).summary).toMatch(/not been confirmed/i)
     expect(gtmVoiceStarter(sparse).style_summary).toMatch(/not been confirmed/i)
+  })
+
+  it('turns confirmed questionnaire answers into a complete customer-facing CRM draft', () => {
+    const draft = buildCrmFirstValueDraft(buildNoliOnboardingSeed({
+      businessName: 'Noli AI',
+      businessDescription: 'You provide a pre-assembled AI team orchestrated by a Chief of Staff to handle marketing, business development, and project management for solopreneurs and small teams.',
+      idealClients: 'Your ideal customers are solopreneurs, freelancers, and small teams who want to automate operations without hiring employees.',
+    }))
+
+    expect(draft.subject).toBe('A quick follow-up from Noli AI')
+    expect(draft.body).toMatch(/We help solopreneurs, freelancers, and small teams/)
+    expect(draft.body).toMatch(/pre-assembled AI team orchestrated by a Chief of Staff/)
+    expect(draft.body).not.toMatch(/interest in You provide|helps Your ideal customers|\bsmal\b|[—–]/)
+  })
+
+  it('recognizes only the previous deterministic Noli draft for a safe in-place refresh', () => {
+    expect(isLegacyNoliFirstValueTemplate(
+      'Following up with Noli AI',
+      '<p>Hi {{first_name}},</p><p>Thanks for your interest in You provide services. Noli AI helps Your ideal customers, and I would be glad to learn what you are working toward.</p><p>Would a short conversation this week be useful? Reply with a time that works.</p>',
+    )).toBe(true)
+    expect(isLegacyNoliFirstValueTemplate('My edited subject', '<p>My customer-approved copy.</p>')).toBe(false)
   })
 
   it('wires shared context to the CRM completion gate and reviewable GTM seed', () => {
