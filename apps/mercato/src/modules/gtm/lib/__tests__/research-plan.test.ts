@@ -1,4 +1,8 @@
 import { fixtureSourceAdapter, fixtureSourceDescriptor } from '../adapters/fixture'
+import {
+  fixtureConsumerSourceAdapter,
+  fixtureConsumerSourceDescriptor,
+} from '../adapters/fixture-consumer'
 import type { SourceAdapter } from '../adapters/types'
 import {
   APIFY_COMPANY_REQUIRED_PRICE_VERSION,
@@ -38,20 +42,66 @@ const approvedCompanySource = createApifyCompanySourceAdapter({
 })
 
 describe('buildSourcePlan fail-closed boundaries', () => {
-  it('fails closed on a strategy_only play (section 7 ladder boundary 1)', () => {
+  it('does not let a legacy business source serve a consumer play', () => {
     const plan = buildSourcePlan({ ...executablePlay, marketType: 'b2c' }, adapters)
     expect(plan.ok).toBe(false)
     if (!plan.ok) {
-      expect(plan.code).toBe('play_not_executable')
-      expect(plan.reason).toContain('strategy guidance only')
+      expect(plan.code).toBe('empty_adapter_plan')
+      expect(plan.unsupportedDimensions).toContainEqual(expect.objectContaining({
+        adapter_id: 'fixture-source',
+        dimension: 'license',
+        reason: expect.stringContaining('consumer'),
+      }))
     }
   })
 
-  it('recomputes eligibility from the play fields, never trusting a stored value', () => {
-    // Non-US geography must fail even if a caller claimed the play executable.
+  it('keeps non-US provider research fail-closed', () => {
     const plan = buildSourcePlan({ ...executablePlay, geography: 'Berlin, Germany' }, adapters)
     expect(plan.ok).toBe(false)
-    if (!plan.ok) expect(plan.code).toBe('play_not_executable')
+    if (!plan.ok) expect(plan.code).toBe('play_not_researchable')
+  })
+
+  it('prices safe US consumer leads only through an explicit consumer contract', () => {
+    const plan = buildSourcePlan({
+      marketType: 'b2c',
+      geography: 'Los Angeles, California',
+      signal: 'Public workshop information request',
+      signalKind: 'social_engagement',
+      entityUnit: 'people',
+      audience: 'People who requested a local market update at a public workshop',
+    }, [fixtureConsumerSourceAdapter], { targetAccepted: 2, maxRawCandidates: 5 })
+    expect(plan.ok).toBe(true)
+    if (plan.ok) {
+      expect(plan.policy).toEqual(expect.objectContaining({
+        lead_mode: 'consumer',
+        research_eligibility: 'provider_runnable',
+        outreach_mode: 'manual_only',
+        execution_eligibility: 'strategy_only',
+      }))
+      expect(plan.adapterPlan).toEqual([
+        expect.objectContaining({
+          adapter_id: fixtureConsumerSourceDescriptor.adapter_id,
+          maxCandidates: 5,
+          billableUnit: 'public_profile',
+        }),
+      ])
+    }
+  })
+
+  it('blocks sensitive consumer targeting before a provider quote', () => {
+    const plan = buildSourcePlan({
+      marketType: 'b2c',
+      geography: 'United States',
+      signal: 'Recent foreclosure filing',
+      signalKind: 'social_engagement',
+      entityUnit: 'people',
+      audience: 'Homeowners in foreclosure',
+    }, [fixtureConsumerSourceAdapter])
+    expect(plan.ok).toBe(false)
+    if (!plan.ok) {
+      expect(plan.code).toBe('play_not_researchable')
+      expect(plan.reason).toContain('sensitive')
+    }
   })
 
   it('fails closed on an unsupported signal with an empty adapter plan', () => {
@@ -187,7 +237,7 @@ describe('buildSourcePlan pricing and limits', () => {
         ['fixture-source-b', 15],
       ])
       expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
-      expect(plan.schemaVersion).toBe('7')
+      expect(plan.schemaVersion).toBe('8')
     }
   })
 

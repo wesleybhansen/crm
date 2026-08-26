@@ -40,6 +40,12 @@ export type AdapterLicenseConstraints = {
   customer_display: boolean
   outreach_allowed: boolean
   retention_days: number | null
+  // SPEC-069. Missing means legacy business-only. Consumer use is never
+  // inferred from a credential, a wildcard capability, or outreach_allowed.
+  audience_modes?: Array<'business' | 'consumer'>
+  manual_outreach_allowed?: boolean
+  automated_email_allowed?: boolean
+  public_profile_contact_allowed?: boolean
 }
 
 export type AdapterRateLimits = {
@@ -311,6 +317,53 @@ export type CapabilityRequest = {
 export type CapabilityCoverage = {
   covered: boolean
   reason?: string
+}
+
+export type AdapterAudienceUse = 'business' | 'consumer'
+
+export type AdapterAudienceRights = {
+  allowed: boolean
+  reason?: string
+}
+
+/**
+ * Customer-serving rights are checked independently from technical
+ * capability. Legacy descriptors retain their current business behavior but
+ * can never serve consumer records without every explicit SPEC-069 right.
+ */
+export function adapterAudienceRights(
+  descriptor: AdapterDescriptor,
+  audience: AdapterAudienceUse,
+): AdapterAudienceRights {
+  const license = descriptor.constraints.license
+  if (license.status !== 'approved' && license.status !== 'test_only') {
+    return { allowed: false, reason: `provider license is ${license.status}` }
+  }
+  if (!license.terms_version || !license.export || !license.customer_display) {
+    return { allowed: false, reason: 'provider customer display or export rights are incomplete' }
+  }
+  if (audience === 'business') {
+    if (license.audience_modes && !license.audience_modes.includes('business')) {
+      return { allowed: false, reason: 'provider contract excludes business audience use' }
+    }
+    if (!license.outreach_allowed) {
+      return { allowed: false, reason: 'provider contract does not permit customer outreach use' }
+    }
+    return { allowed: true }
+  }
+
+  if (!license.audience_modes?.includes('consumer')) {
+    return { allowed: false, reason: 'consumer customer-serving rights are not approved' }
+  }
+  if (
+    license.manual_outreach_allowed !== true
+    || license.public_profile_contact_allowed !== true
+    || license.retention_days == null
+    || !descriptor.dsr.deletion_supported
+  ) {
+    return { allowed: false, reason: 'consumer display, manual-use, retention, or deletion rights are incomplete' }
+  }
+  return { allowed: true }
 }
 
 function norm(value: string | null | undefined): string {

@@ -263,6 +263,29 @@ export class GtmPlay {
   @Property({ name: 'eligibility_evaluated_at', type: 'timestamptz', nullable: true })
   eligibilityEvaluatedAt?: Date | null
 
+  // SPEC-069. Additive research and outreach policy. The legacy execution
+  // fields above keep their exact governed US-B2B automated-email meaning.
+  @Property({ name: 'lead_mode', type: 'text', nullable: true })
+  leadMode?: string | null
+
+  @Property({ name: 'research_eligibility', type: 'text', nullable: true })
+  researchEligibility?: string | null
+
+  @Property({ name: 'research_eligibility_reason', type: 'text', nullable: true })
+  researchEligibilityReason?: string | null
+
+  @Property({ name: 'outreach_mode', type: 'text', nullable: true })
+  outreachMode?: string | null
+
+  @Property({ name: 'outreach_policy_reason', type: 'text', nullable: true })
+  outreachPolicyReason?: string | null
+
+  @Property({ name: 'policy_flags', type: 'jsonb', nullable: true })
+  policyFlags?: string[] | null
+
+  @Property({ name: 'policy_evaluated_at', type: 'timestamptz', nullable: true })
+  policyEvaluatedAt?: Date | null
+
   @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
   createdAt: Date = new Date()
 
@@ -665,6 +688,96 @@ export class GtmContactPoint {
 
   @Property({ name: 'verified_at', type: 'timestamptz', nullable: true })
   verifiedAt?: Date | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+// A consumer message is a reviewable work product, never an execution job.
+// No send/dispatch identifier exists on this table by design: create/copy/open
+// actions cannot cross the manual-only outreach boundary in SPEC-069.
+@Entity({ tableName: 'gtm_manual_outreach_drafts' })
+@Index({ name: 'gtm_manual_outreach_drafts_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'gtm_manual_outreach_drafts_scope_idx',
+  properties: ['organizationId', 'tenantId', 'workspaceId', 'playId', 'candidateId'],
+})
+@Unique({
+  name: 'gtm_manual_outreach_drafts_org_idempotency_unique',
+  properties: ['organizationId', 'tenantId', 'idempotencyKeyHash'],
+})
+export class GtmManualOutreachDraft {
+  [OptionalProps]?: 'id' | 'status' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => GtmWorkspace, { fieldName: 'workspace_id', mapToPk: true, deleteRule: 'cascade' })
+  workspaceId!: string
+
+  @ManyToOne(() => GtmPlay, { fieldName: 'play_id', mapToPk: true, deleteRule: 'cascade' })
+  playId!: string
+
+  @ManyToOne(() => GtmCandidate, { fieldName: 'candidate_id', mapToPk: true, deleteRule: 'cascade' })
+  candidateId!: string
+
+  @ManyToOne(() => GtmCandidateMatch, { fieldName: 'match_id', mapToPk: true, deleteRule: 'cascade' })
+  matchId!: string
+
+  // linkedin | x | public_profile
+  @Property({ type: 'text' })
+  channel!: string
+
+  // Server-selected from retained public candidate provenance. The caller
+  // never supplies an arbitrary URL.
+  @Property({ name: 'destination_url', type: 'text' })
+  destinationUrl!: string
+
+  @Property({ name: 'body_text', type: 'text' })
+  bodyText!: string
+
+  @Property({ name: 'content_hash', type: 'text' })
+  contentHash!: string
+
+  @Property({ name: 'evidence_hash', type: 'text' })
+  evidenceHash!: string
+
+  @Property({ type: 'text', nullable: true })
+  model?: string | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  provenance?: Record<string, unknown> | null
+
+  @Property({ name: 'idempotency_key_hash', type: 'text' })
+  idempotencyKeyHash!: string
+
+  // draft | copied | opened | dismissed
+  @Property({ type: 'text', default: 'draft' })
+  status: string = 'draft'
+
+  @Property({ name: 'copied_at', type: 'timestamptz', nullable: true })
+  copiedAt?: Date | null
+
+  @Property({ name: 'opened_at', type: 'timestamptz', nullable: true })
+  openedAt?: Date | null
+
+  @Property({ name: 'dismissed_at', type: 'timestamptz', nullable: true })
+  dismissedAt?: Date | null
+
+  @Property({ name: 'retention_expires_at', type: 'timestamptz' })
+  retentionExpiresAt!: Date
 
   @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
   createdAt: Date = new Date()

@@ -1,5 +1,6 @@
 import type { EnrichAdapter, SourceAdapter, VerifyAdapter } from './types'
 import { fixtureEnrichAdapter, fixtureSourceAdapter, fixtureVerifyAdapter } from './fixture'
+import { fixtureConsumerSourceAdapter } from './fixture-consumer'
 import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
 import { apifyEnrichEnabled, createApifyEnrichAdapter } from './apify/enrich'
 import { createDataForSeoMapsAdapter, dataForSeoEnabled } from './dataforseo/maps'
@@ -58,6 +59,7 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   const registry: Record<string, SourceAdapter> = {}
   if (fixtureAdaptersEnabled()) {
     registry[fixtureSourceAdapter.descriptor.adapter_id] = fixtureSourceAdapter
+    registry[fixtureConsumerSourceAdapter.descriptor.adapter_id] = fixtureConsumerSourceAdapter
   }
   if (apifySourceEnabled()) {
     const apify = createApifySourceAdapter()

@@ -113,6 +113,11 @@ describe('buildImportedPlayValues', () => {
     expect(values.supportedChannels).toEqual(['email', 'linkedin'])
     expect(values.likelyBuyer).toBe('Founder or head of ops')
     expect(values.executionEligibility).toBe('executable')
+    expect(values.leadMode).toBe('business')
+    expect(values.researchEligibility).toBe('provider_runnable')
+    expect(values.outreachMode).toBe('automated_email')
+    expect(values.policyFlags).toEqual([])
+    expect(values.policyEvaluatedAt).toBe(now)
     expect(values.eligibilityEvaluatedAt).toBe(now)
   })
 
@@ -148,6 +153,9 @@ describe('buildImportedPlayValues', () => {
     )
     expect(b2c.executionEligibility).toBe('strategy_only')
     expect(b2c.eligibilityReason).toContain('Consumer audiences')
+    expect(b2c.leadMode).toBe('consumer')
+    expect(b2c.researchEligibility).toBe('provider_runnable')
+    expect(b2c.outreachMode).toBe('manual_only')
 
     const nonUs = buildImportedPlayValues(
       { market_type: 'b2b', geography: 'Berlin, Germany' } as never,
@@ -155,5 +163,7 @@ describe('buildImportedPlayValues', () => {
       HEX_HASH,
     )
     expect(nonUs.executionEligibility).toBe('strategy_only')
+    expect(nonUs.researchEligibility).toBe('import_only')
+    expect(nonUs.outreachMode).toBe('manual_only')
   })
 })

@@ -45,4 +45,20 @@ describe('GTM artifact quality v1', () => {
       artifact: { ...failure.artifact, disposition: 'deliver', messages: ['Send again'] },
     }).hardFailures).toContain('wrong_disposition')
   })
+
+  it('keeps realtor-serving consumer work grounded and structurally manual-only', () => {
+    const fixture = GTM_ARTIFACT_FIXTURES_V1.find((row) => row.kind === 'manual_outreach')!
+    expect(evaluateGtmArtifact(fixture).passed).toBe(true)
+    expect(evaluateGtmArtifact({
+      ...fixture,
+      artifact: {
+        ...fixture.artifact,
+        outreach_mode: 'automated_email',
+        allowed_actions: ['send'],
+      },
+    }).hardFailures).toEqual(expect.arrayContaining([
+      'consumer_automation_boundary_missing',
+      'unsafe_consumer_action',
+    ]))
+  })
 })

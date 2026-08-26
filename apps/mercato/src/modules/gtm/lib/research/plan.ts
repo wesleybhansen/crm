@@ -1,7 +1,12 @@
 import crypto from 'crypto'
-import { capabilityCovers, type AdapterDescriptor, type SourceAdapter } from '../adapters/types'
-import { computeExecutionEligibility } from '../eligibility'
+import {
+  adapterAudienceRights,
+  capabilityCovers,
+  type AdapterDescriptor,
+  type SourceAdapter,
+} from '../adapters/types'
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
+import { computeGtmPolicy, policyInputFromPlay, type GtmPolicyResult } from '../policy'
 import { compileQualificationProfile, type QualificationProfile } from './qualify'
 
 /*
@@ -9,10 +14,9 @@ import { compileQualificationProfile, type QualificationProfile } from './qualif
  * framework imports, no side effects: the route persists what this returns.
  *
  * Fail-closed rules implemented here:
- * - Boundary 1 of the section 7 ladder: a non-executable play can never be
- *   priced or planned. Eligibility is RECOMPUTED from the play's own market
- *   and geography fields; the stored value and the caller's claims are never
- *   trusted.
+ * - SPEC-069 separates research eligibility from automated-email execution.
+ *   Research policy is recomputed from canonical play fields and every source
+ *   must also carry exact business/consumer customer-serving rights.
  * - A requested dimension with no covering adapter capability surfaces as an
  *   unsupportedDimensions entry BEFORE any spend (section 11.1).
  * - An empty adapter plan is a typed plan error, never a silent empty run.
@@ -33,6 +37,9 @@ export type PlanPlayInput = {
   signalKind?: string | null
   entityUnit?: string | null
   audience?: string | null
+  sourceHint?: string | null
+  whyNow?: string | null
+  recommendedAngle?: string | null
   providerQuery?: Record<string, unknown> | null
   recencyWindow?: string | null
 }
@@ -91,7 +98,7 @@ export type UnsupportedDimension = {
 }
 
 export type SourcePlanErrorCode =
-  | 'play_not_executable'
+  | 'play_not_researchable'
   | 'missing_play_dimensions'
   | 'empty_adapter_plan'
 
@@ -104,7 +111,7 @@ export type SourcePlanFailure = {
 
 export type SourcePlanSuccess = {
   ok: true
-  schemaVersion: '7'
+  schemaVersion: '8'
   planHash: string
   adapterPlan: SourcePlanBatch[]
   estimatedCredits: number
@@ -120,6 +127,7 @@ export type SourcePlanSuccess = {
   // priced plans.
   geography: string
   entityKind: 'person' | 'company'
+  policy: GtmPolicyResult
 }
 
 export type SourcePlanResult = SourcePlanSuccess | SourcePlanFailure
@@ -151,17 +159,6 @@ export function descriptorHash(descriptor: AdapterDescriptor): string {
   return immutableHash(descriptor)
 }
 
-function customerUseAllowed(descriptor: AdapterDescriptor): boolean {
-  const license = descriptor.constraints.license
-  return (
-    (license.status === 'approved' || license.status === 'test_only') &&
-    Boolean(license.terms_version) &&
-    license.export &&
-    license.customer_display &&
-    license.outreach_allowed
-  )
-}
-
 // Maps a capabilityCovers reason string onto the dimension it names, so the
 // caller can show which requested dimension is unsupported.
 function dimensionFromReason(reason: string): string {
@@ -191,17 +188,12 @@ export function buildSourcePlan(
   limits?: ResearchLimitsInput | null,
   markupMultiplier: number = defaultMarkupMultiplier(),
 ): SourcePlanResult {
-  // Boundary 1 (section 7): recompute eligibility server-side; anything other
-  // than 'executable' fails closed before any pricing.
-  const eligibility = computeExecutionEligibility({
-    market_type: play.marketType ?? null,
-    geography: play.geography ?? null,
-  })
-  if (eligibility.execution_eligibility !== 'executable') {
+  const policy = computeGtmPolicy(policyInputFromPlay(play))
+  if (policy.research_eligibility !== 'provider_runnable') {
     return {
       ok: false,
-      code: 'play_not_executable',
-      reason: eligibility.eligibility_reason,
+      code: 'play_not_researchable',
+      reason: policy.research_eligibility_reason,
       unsupportedDimensions: [],
     }
   }
@@ -251,11 +243,15 @@ export function buildSourcePlan(
   for (const adapter of adapters) {
     const descriptor = adapter.descriptor
     if (descriptor.layer !== 'source') continue
-    if (!customerUseAllowed(descriptor)) {
+    const rights = adapterAudienceRights(
+      descriptor,
+      policy.lead_mode === 'consumer' ? 'consumer' : 'business',
+    )
+    if (!rights.allowed) {
       unsupportedDimensions.push({
         adapter_id: descriptor.adapter_id,
         dimension: 'license',
-        reason: `provider license is ${descriptor.constraints.license.status}`,
+        reason: rights.reason ?? 'provider customer-serving rights are incomplete',
       })
       continue
     }
@@ -356,7 +352,7 @@ export function buildSourcePlan(
       : estimatedCredits
 
   const pricedPlan = {
-    schemaVersion: '7' as const,
+    schemaVersion: '8' as const,
     adapterPlan,
     estimatedCredits,
     plannedRawCapacity,
@@ -374,6 +370,7 @@ export function buildSourcePlan(
     query,
     geography: rawGeography,
     entityKind,
+    policy,
   }
   return {
     ok: true,

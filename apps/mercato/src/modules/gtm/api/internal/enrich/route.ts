@@ -142,6 +142,7 @@ export async function POST(req: Request) {
       deletedAt: null,
     }
     let runId: string | null = null
+    let scopedPlay: import('../../../data/entities').GtmPlay | null = null
     if (body.runId) {
       if (!isUuid(body.runId)) return opaqueNotFound()
       const run = await em.findOne(GtmResearchRun, {
@@ -153,6 +154,13 @@ export async function POST(req: Request) {
       if (!run) return opaqueNotFound()
       runId = run.id
       candidateWhere.researchRunId = run.id
+      scopedPlay = await em.findOne(GtmPlay, {
+        id: run.playId,
+        organizationId,
+        tenantId,
+        deletedAt: null,
+      })
+      if (!scopedPlay) return opaqueNotFound()
     } else if (body.workspaceId) {
       if (!isUuid(body.workspaceId)) return opaqueNotFound()
       candidateWhere.workspaceId = body.workspaceId
@@ -167,6 +175,32 @@ export async function POST(req: Request) {
         deletedAt: null,
       })
       if (!play) return opaqueNotFound()
+      if (scopedPlay && scopedPlay.id !== play.id) return opaqueNotFound()
+      scopedPlay = play
+    }
+    if (body.op !== 'status') {
+      if (!scopedPlay) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'Choose one play before planning email enrichment',
+            code: 'play_scope_required',
+          },
+          { status: 422 },
+        )
+      }
+      const { computeGtmPolicy, policyInputFromPlay } = await import('../../../lib/policy')
+      const policy = computeGtmPolicy(policyInputFromPlay(scopedPlay))
+      if (policy.outreach_mode !== 'automated_email') {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'Email enrichment is unavailable for manual-only outreach',
+            code: 'manual_outreach_only',
+          },
+          { status: 422 },
+        )
+      }
     }
 
     // Spec 4.1 step 6: enrichment considers candidates accepted in the

@@ -1,4 +1,5 @@
 import { computeExecutionEligibility, isUsGeography } from '../eligibility'
+import { computeGtmPolicy, consumerPolicyFlags } from '../policy'
 
 describe('isUsGeography', () => {
   it('accepts explicit US country markers', () => {
@@ -81,5 +82,95 @@ describe('computeExecutionEligibility', () => {
     for (const input of cases) {
       expect(computeExecutionEligibility(input).eligibility_reason.length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('computeGtmPolicy', () => {
+  it('preserves governed B2B automation while separating research policy', () => {
+    expect(computeGtmPolicy({
+      market_type: 'b2b',
+      geography: 'Denver, Colorado',
+      audience: 'Independent accounting firms',
+    })).toEqual(expect.objectContaining({
+      lead_mode: 'business',
+      research_eligibility: 'provider_runnable',
+      outreach_mode: 'automated_email',
+      execution_eligibility: 'executable',
+      policy_flags: [],
+    }))
+  })
+
+  it('allows safe US consumer research but keeps outreach strictly manual', () => {
+    expect(computeGtmPolicy({
+      market_type: 'b2c',
+      geography: 'Los Angeles, California',
+      audience: 'People who publicly requested information at a neighborhood home-design workshop',
+      signal: 'Public workshop information request',
+    })).toEqual(expect.objectContaining({
+      lead_mode: 'consumer',
+      research_eligibility: 'provider_runnable',
+      outreach_mode: 'manual_only',
+      execution_eligibility: 'strategy_only',
+      policy_flags: [],
+    }))
+  })
+
+  it('keeps non-US and mixed audiences import-only and manual', () => {
+    expect(computeGtmPolicy({ market_type: 'b2c', geography: 'Paris, France' })).toEqual(
+      expect.objectContaining({ research_eligibility: 'import_only', outreach_mode: 'manual_only' }),
+    )
+    expect(computeGtmPolicy({ market_type: 'mixed', geography: 'United States' })).toEqual(
+      expect.objectContaining({ research_eligibility: 'import_only', outreach_mode: 'manual_only' }),
+    )
+  })
+
+  it('blocks unknown geography and market type', () => {
+    expect(computeGtmPolicy({ market_type: 'b2c', geography: '' })).toEqual(
+      expect.objectContaining({ research_eligibility: 'blocked', outreach_mode: 'blocked' }),
+    )
+    expect(computeGtmPolicy({ market_type: 'consumer', geography: 'US' })).toEqual(
+      expect.objectContaining({ research_eligibility: 'blocked', outreach_mode: 'blocked' }),
+    )
+  })
+
+  it('blocks sensitive consumer criteria found in free text or provider filters', () => {
+    const cases = [
+      { audience: 'Homeowners in foreclosure' },
+      { signal: 'Recently diagnosed with cancer' },
+      { recommended_angle: 'Help for expectant parents' },
+      { provider_query: { source_search_keywords: ['high school students'] } },
+      { why_now: 'Recently filed for bankruptcy' },
+      { audience: '17 year olds interested in a summer program' },
+      { audience: 'Black homeowners in coastal California' },
+      { audience: 'Adults ages 25 to 40 who recently moved' },
+      { provider_query: { source_search_keywords: ['undocumented residents'] } },
+      { signal: 'Recently received an eviction notice' },
+    ]
+    for (const value of cases) {
+      const result = computeGtmPolicy({ market_type: 'b2c', geography: 'US', ...value })
+      expect(result.research_eligibility).toBe('blocked')
+      expect(result.outreach_mode).toBe('blocked')
+      expect(result.policy_flags.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('does not block a professional audience merely because its practice area is sensitive', () => {
+    expect(computeGtmPolicy({
+      market_type: 'b2b',
+      geography: 'US',
+      audience: 'Estate planning attorneys',
+      signal: 'Public law firm practice area',
+    })).toEqual(expect.objectContaining({
+      research_eligibility: 'provider_runnable',
+      outreach_mode: 'automated_email',
+    }))
+  })
+
+  it('returns finite safe policy codes instead of source text', () => {
+    expect(consumerPolicyFlags({
+      audience: 'Recently divorced parents with tax liens',
+    })).toEqual(expect.arrayContaining([
+      'sensitive_legal_or_financial_event',
+    ]))
   })
 })

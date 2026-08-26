@@ -4,7 +4,7 @@ import {
   type ImportAudiencePlayBody,
   type ImportedPlayInput,
 } from '../data/validators'
-import { computeExecutionEligibility } from './eligibility'
+import { computeGtmPolicy } from './policy'
 import { classifySignalKind, isSignalKind, type SignalKind } from './signal-taxonomy'
 
 /*
@@ -60,6 +60,13 @@ export type ImportedPlayValues = {
   executionEligibility: 'executable' | 'strategy_only' | 'unsupported'
   eligibilityReason: string
   eligibilityEvaluatedAt: Date
+  leadMode: 'business' | 'consumer' | 'mixed' | 'unknown'
+  researchEligibility: 'provider_runnable' | 'import_only' | 'blocked'
+  researchEligibilityReason: string
+  outreachMode: 'automated_email' | 'manual_only' | 'blocked'
+  outreachPolicyReason: string
+  policyFlags: string[]
+  policyEvaluatedAt: Date
 }
 
 function normalizePlayIdentityPart(value: unknown): string {
@@ -96,10 +103,17 @@ export function buildImportedPlayValues(
   now: () => Date = () => new Date(),
 ): ImportedPlayValues {
   const sourceHint = play.source_hint ?? play.source ?? null
-  const eligibility = computeExecutionEligibility({
+  const policy = computeGtmPolicy({
     market_type: play.market_type ?? null,
     geography: play.geography ?? null,
+    audience: play.audience ?? null,
+    signal: play.signal ?? null,
+    source_hint: sourceHint,
+    why_now: play.why_now ?? null,
+    recommended_angle: play.recommended_angle ?? null,
+    provider_query: play.provider_query ?? null,
   })
+  const evaluatedAt = now()
   return {
     source: 'imported',
     importedReportTokenHash: normalizeReportTokenHash(reportTokenHash),
@@ -125,8 +139,15 @@ export function buildImportedPlayValues(
     confidence: play.confidence ?? null,
     confidenceRationale: play.confidence_rationale ?? null,
     likelyBuyer: likelyBuyer ?? null,
-    executionEligibility: eligibility.execution_eligibility,
-    eligibilityReason: eligibility.eligibility_reason,
-    eligibilityEvaluatedAt: now(),
+    executionEligibility: policy.execution_eligibility,
+    eligibilityReason: policy.eligibility_reason,
+    eligibilityEvaluatedAt: evaluatedAt,
+    leadMode: policy.lead_mode,
+    researchEligibility: policy.research_eligibility,
+    researchEligibilityReason: policy.research_eligibility_reason,
+    outreachMode: policy.outreach_mode,
+    outreachPolicyReason: policy.outreach_policy_reason,
+    policyFlags: policy.policy_flags,
+    policyEvaluatedAt: evaluatedAt,
   }
 }

@@ -723,6 +723,14 @@ describe('candidateDedupeKey', () => {
         urls: ['https://linkedin.com/in/alex-example'],
       },
     })
+    const providerAlias = candidateDedupeKey({
+      entity_kind: 'person',
+      identity: {
+        name: 'A. Example',
+        linkedin_url: 'https://www.linkedin.com/in/alex-example?trk=public_profile',
+      },
+    })
     expect(first).toBe(renamed)
+    expect(first).toBe(providerAlias)
   })
 })

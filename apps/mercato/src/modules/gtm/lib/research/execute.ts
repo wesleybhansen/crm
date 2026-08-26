@@ -20,6 +20,7 @@ import {
   GtmEvidence,
   GtmProviderOperation,
   GtmResearchRun,
+  GtmSuppression,
 } from '../../data/entities'
 
 /*
@@ -113,6 +114,7 @@ export type BatchOutcome = {
   candidateMatchesCreated: number
   candidatesReused: number
   duplicatesSkipped: number
+  suppressedSkipped: number
   rawCandidatesFound: number
   accepted: number
   review: number
@@ -128,6 +130,7 @@ export type ResearchFunnel = {
   candidateMatchesCreated: number
   candidatesReused: number
   duplicatesSkipped: number
+  suppressedSkipped: number
   evidenceQualified: number
   accepted: number
   review: number
@@ -153,6 +156,7 @@ export type ResearchRunExecutionResult = {
   candidateMatchesCreated: number
   candidatesReused: number
   duplicatesSkipped: number
+  suppressedSkipped: number
   evidenceInserted: number
   funnel: ResearchFunnel
   batches: BatchOutcome[]
@@ -167,7 +171,13 @@ export function candidateDedupeKey(candidate: Pick<Candidate, 'entity_kind' | 'i
   const identity = (candidate.identity ?? {}) as Record<string, unknown>
   const name = normalizePart(identity.name)
   const profileUrl = candidate.entity_kind === 'person'
-    ? canonicalLinkedInProfileUrl(identity.urls)
+    ? canonicalLinkedInProfileUrl([
+        identity.linkedin_url,
+        identity.linkedinUrl,
+        identity.profile_url,
+        identity.profileUrl,
+        ...(Array.isArray(identity.urls) ? identity.urls : []),
+      ])
     : ''
   const domainOrCity =
     normalizePart(identity.domain) || normalizePart(identity.city) || normalizePart(identity.location)
@@ -175,6 +185,17 @@ export function candidateDedupeKey(candidate: Pick<Candidate, 'entity_kind' | 'i
     ? `${candidate.entity_kind}|linkedin|${profileUrl}`
     : `${candidate.entity_kind}|${name}|${domainOrCity}`
   return crypto.createHash('sha256').update(material).digest('hex')
+}
+
+export function consumerProfileDedupeKey(value: unknown): string | null {
+  const profileUrl = canonicalLinkedInProfileUrl([value])
+  if (!profileUrl) return null
+  return crypto.createHash('sha256').update(`person|linkedin|${profileUrl}`).digest('hex')
+}
+
+export function normalizeConsumerProfileUrl(value: unknown): string | null {
+  const profileUrl = canonicalLinkedInProfileUrl([value])
+  return profileUrl ? `https://${profileUrl}` : null
 }
 
 function canonicalLinkedInProfileUrl(value: unknown): string {
@@ -253,6 +274,7 @@ export async function executeResearchRun(
   let candidateMatchesCreated = 0
   let candidatesReused = 0
   let duplicatesSkipped = 0
+  let suppressedSkipped = 0
   let evidenceInserted = 0
   let rawCandidatesFound = 0
   let evidenceQualified = 0
@@ -282,6 +304,7 @@ export async function executeResearchRun(
       candidateMatchesCreated: 0,
       candidatesReused: 0,
       duplicatesSkipped: 0,
+      suppressedSkipped: 0,
       rawCandidatesFound: 0,
       accepted: 0,
       review: 0,
@@ -608,6 +631,7 @@ export async function executeResearchRun(
     let batchMatchesCreated = 0
     let batchReused = 0
     let batchDuplicates = 0
+    let batchSuppressed = 0
     let batchAccepted = 0
     let batchReview = 0
     let batchRejected = 0
@@ -642,6 +666,17 @@ export async function executeResearchRun(
         referenceTime: qualificationReferenceTime,
       }, evidenceAssessment.validEvidence)
       const dedupeKey = candidateDedupeKey(candidate)
+      const globallySuppressed = await em.findOne(GtmSuppression, {
+        scope: 'global',
+        channel: 'public_profile',
+        addressHash: dedupeKey,
+        deletedAt: null,
+      })
+      if (globallySuppressed) {
+        batchSuppressed += 1
+        suppressedSkipped += 1
+        continue
+      }
       const qualification = {
         reason: fit.reason,
         breakdown: fit.breakdown,
@@ -817,6 +852,7 @@ export async function executeResearchRun(
       candidateMatchesCreated: batchMatchesCreated,
       candidatesReused: batchReused,
       duplicatesSkipped: batchDuplicates,
+      suppressedSkipped: batchSuppressed,
       rawCandidatesFound: found.length,
       accepted: batchAccepted,
       review: batchReview,
@@ -856,6 +892,7 @@ export async function executeResearchRun(
     candidateMatchesCreated,
     candidatesReused,
     duplicatesSkipped,
+    suppressedSkipped,
     evidenceQualified,
     accepted,
     review,
@@ -874,6 +911,7 @@ export async function executeResearchRun(
     candidateMatchesCreated,
     candidatesReused,
     duplicatesSkipped,
+    suppressedSkipped,
     evidenceInserted,
     funnel,
     batches,
@@ -898,6 +936,7 @@ export async function executeResearchRun(
         candidate_matches_created: candidateMatchesCreated,
         candidates_reused: candidatesReused,
         duplicates_skipped: duplicatesSkipped,
+        suppressed_skipped: suppressedSkipped,
         evidence_inserted: evidenceInserted,
         funnel: {
           target_accepted: funnel.targetAccepted,
@@ -907,6 +946,7 @@ export async function executeResearchRun(
           candidate_matches_created: funnel.candidateMatchesCreated,
           candidates_reused: funnel.candidatesReused,
           duplicates_skipped: funnel.duplicatesSkipped,
+          suppressed_skipped: funnel.suppressedSkipped,
           evidence_qualified: funnel.evidenceQualified,
           accepted: funnel.accepted,
           review: funnel.review,
@@ -928,6 +968,7 @@ export async function executeResearchRun(
           candidate_matches_created: batch.candidateMatchesCreated,
           candidates_reused: batch.candidatesReused,
           duplicates_skipped: batch.duplicatesSkipped,
+          suppressed_skipped: batch.suppressedSkipped,
           raw_candidates_found: batch.rawCandidatesFound,
           accepted: batch.accepted,
           review: batch.review,

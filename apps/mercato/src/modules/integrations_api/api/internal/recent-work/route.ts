@@ -11,7 +11,8 @@ import { classifyRecentWorkIdentity, summarizeRecentWorkPartitions } from '../..
  *
  * done      → outbound emails sent, meeting briefs prepared, automations run,
  *             landing pages published, leads captured
- * needs_you → pending bookings to confirm, pending inbox proposals
+ * needs_you → pending bookings, inbox proposals, and manual-only consumer GTM
+ *             work that is ready for the represented user
  */
 export const metadata = {
   path: '/internal/recent-work',
@@ -102,6 +103,27 @@ export async function POST(req: Request) {
     if (identity.state === 'empty') return NextResponse.json({ events: [] })
     const orgId = identity.organizationId
 
+    // GTM data is always tenant-scoped as well as organization-scoped. Resolve
+    // that second boundary from the represented Noli identity rather than
+    // inferring it from a row or accepting it from the caller. A GTM scope
+    // failure degrades only those queue partitions; the rest of the work feed
+    // remains available and reports `partial: true`.
+    let gtmTenantId: string | null = null
+    let gtmScopeError: Error | null = null
+    try {
+      const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
+      const gtmAuth = await resolveClerkUserToAuthContext(noliUser.clerk_user_id)
+      if (!gtmAuth?.tenantId || !gtmAuth.orgId || gtmAuth.orgId !== orgId) {
+        throw new Error('GTM identity scope mismatch')
+      }
+      gtmTenantId = gtmAuth.tenantId
+    } catch (err) {
+      gtmScopeError = err instanceof Error ? err : new Error('GTM identity scope unavailable')
+    }
+
+    const unavailableGtmPartition = () =>
+      Promise.reject(gtmScopeError ?? new Error('GTM identity scope unavailable'))
+
     const partitionNames = [
       'emails',
       'briefs',
@@ -111,6 +133,8 @@ export async function POST(req: Request) {
       'pendingBookings',
       'proposals',
       'stallingDeals',
+      'gtmConsumerLeads',
+      'gtmManualDrafts',
     ] as const
     const partitionResults = await Promise.allSettled([
         knex('email_messages')
@@ -169,6 +193,60 @@ export async function POST(req: Request) {
           .where('updated_at', '<', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
           .count({ n: '*' })
           .first(),
+        gtmTenantId
+          ? knex('gtm_candidate_matches as candidate_match')
+              .innerJoin('gtm_plays as play', function joinConsumerPlay() {
+                this.on('play.id', '=', 'candidate_match.play_id')
+                  .andOn('play.organization_id', '=', 'candidate_match.organization_id')
+                  .andOn('play.tenant_id', '=', 'candidate_match.tenant_id')
+              })
+              .innerJoin('gtm_candidates as candidate', function joinCandidate() {
+                this.on('candidate.id', '=', 'candidate_match.candidate_id')
+                  .andOn('candidate.organization_id', '=', 'candidate_match.organization_id')
+                  .andOn('candidate.tenant_id', '=', 'candidate_match.tenant_id')
+              })
+              .leftJoin('gtm_manual_outreach_drafts as manual_draft', function joinActiveDraft() {
+                this.on('manual_draft.candidate_id', '=', 'candidate_match.candidate_id')
+                  .andOn('manual_draft.play_id', '=', 'candidate_match.play_id')
+                  .andOn('manual_draft.organization_id', '=', 'candidate_match.organization_id')
+                  .andOn('manual_draft.tenant_id', '=', 'candidate_match.tenant_id')
+                  .onIn('manual_draft.status', ['draft', 'copied', 'opened'])
+                  .onNull('manual_draft.deleted_at')
+              })
+              .where('candidate_match.organization_id', orgId)
+              .where('candidate_match.tenant_id', gtmTenantId)
+              .where('candidate_match.fit_status', 'accepted')
+              .where('play.lead_mode', 'consumer')
+              .where('play.outreach_mode', 'manual_only')
+              .whereNull('candidate_match.deleted_at')
+              .whereNull('candidate.deleted_at')
+              .whereNull('play.deleted_at')
+              .whereNull('manual_draft.id')
+              .orderBy('candidate_match.updated_at', 'desc')
+              .limit(8)
+              .select(
+                'candidate_match.id',
+                'candidate_match.updated_at',
+                'candidate.identity',
+              )
+          : unavailableGtmPartition(),
+        gtmTenantId
+          ? knex('gtm_manual_outreach_drafts as manual_draft')
+              .innerJoin('gtm_candidates as candidate', function joinDraftCandidate() {
+                this.on('candidate.id', '=', 'manual_draft.candidate_id')
+                  .andOn('candidate.organization_id', '=', 'manual_draft.organization_id')
+                  .andOn('candidate.tenant_id', '=', 'manual_draft.tenant_id')
+              })
+              .where('manual_draft.organization_id', orgId)
+              .where('manual_draft.tenant_id', gtmTenantId)
+              .where('manual_draft.status', 'draft')
+              .whereNull('manual_draft.deleted_at')
+              .whereNull('candidate.deleted_at')
+              .where('manual_draft.retention_expires_at', '>', new Date())
+              .orderBy('manual_draft.updated_at', 'desc')
+              .limit(8)
+              .select('manual_draft.id', 'manual_draft.updated_at', 'candidate.identity')
+          : unavailableGtmPartition(),
       ])
     const { failedPartitions, totalFailure } = summarizeRecentWorkPartitions(partitionNames, partitionResults)
     if (failedPartitions.length > 0) {
@@ -187,6 +265,8 @@ export async function POST(req: Request) {
       pendingBookingsResult,
       proposalsResult,
       stallingDealsResult,
+      gtmConsumerLeadsResult,
+      gtmManualDraftsResult,
     ] = partitionResults
     const emails = emailsResult.status === 'fulfilled' ? emailsResult.value : []
     const briefs = briefsResult.status === 'fulfilled' ? briefsResult.value : []
@@ -196,10 +276,17 @@ export async function POST(req: Request) {
     const pendingBookings = pendingBookingsResult.status === 'fulfilled' ? pendingBookingsResult.value : []
     const proposals = proposalsResult.status === 'fulfilled' ? proposalsResult.value : []
     const stallingDeals = stallingDealsResult.status === 'fulfilled' ? stallingDealsResult.value : { n: 0 }
+    const gtmConsumerLeads = gtmConsumerLeadsResult.status === 'fulfilled' ? gtmConsumerLeadsResult.value : []
+    const gtmManualDrafts = gtmManualDraftsResult.status === 'fulfilled' ? gtmManualDraftsResult.value : []
 
     const iso = (v: unknown) =>
       v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString()
     const events: Array<Record<string, unknown>> = []
+    const candidateName = (identityValue: unknown) => {
+      if (!identityValue || typeof identityValue !== 'object' || Array.isArray(identityValue)) return 'a consumer lead'
+      const name = (identityValue as Record<string, unknown>).name
+      return typeof name === 'string' && name.trim() ? name.trim().slice(0, 100) : 'a consumer lead'
+    }
 
     for (const e of emails as Array<Record<string, unknown>>) {
       events.push({
@@ -292,6 +379,30 @@ export async function POST(req: Request) {
         title: `${stalled} open deal${stalled === 1 ? ' has' : 's have'} not moved in a week`,
         detail: 'Worth a nudge or a stage update.',
         url: 'https://crm.noliai.com/backend',
+        kind: 'needs_you',
+      })
+    }
+    for (const lead of gtmConsumerLeads as Array<Record<string, unknown>>) {
+      const name = candidateName(lead.identity)
+      events.push({
+        id: `gtm-consumer-lead-${lead.id}`,
+        at: iso(lead.updated_at),
+        specialist: 'GTM Engineer',
+        title: `Prepare a personal message for ${name}`,
+        detail: 'Review the evidence, then copy a draft and contact them yourself.',
+        url: 'https://app.noliai.com/dashboard/gtm',
+        kind: 'needs_you',
+      })
+    }
+    for (const draft of gtmManualDrafts as Array<Record<string, unknown>>) {
+      const name = candidateName(draft.identity)
+      events.push({
+        id: `gtm-manual-draft-${draft.id}`,
+        at: iso(draft.updated_at),
+        specialist: 'GTM Engineer',
+        title: `Personal message ready for ${name}`,
+        detail: 'Copy it and open the public profile. Noli will not send it.',
+        url: 'https://app.noliai.com/dashboard/gtm',
         kind: 'needs_you',
       })
     }

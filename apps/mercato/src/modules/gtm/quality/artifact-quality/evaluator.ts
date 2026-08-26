@@ -79,6 +79,21 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
         qualityFailures.push('draft_too_long')
       }
     }
+  } else if (fixture.kind === 'manual_outreach') {
+    if (artifact.outreach_mode !== 'manual_only') hardFailures.push('consumer_automation_boundary_missing')
+    const destination = typeof artifact.public_destination === 'string' ? artifact.public_destination : ''
+    if (!/^https:\/\//.test(destination)) hardFailures.push('public_destination_missing')
+    const body = typeof artifact.body === 'string' ? artifact.body.trim() : ''
+    const wordCount = body ? body.split(/\s+/).length : 0
+    if (wordCount < 20 || wordCount > 110) qualityFailures.push('manual_draft_length')
+    if (strings(artifact.grounded_fact_refs).length === 0) qualityFailures.push('grounding_refs_missing')
+    const actions = strings(artifact.allowed_actions)
+    if (
+      actions.length === 0
+      || actions.some((action) => !['copy_message', 'open_public_profile', 'dismiss'].includes(action))
+    ) {
+      hardFailures.push('unsafe_consumer_action')
+    }
   } else if (fixture.kind === 'failure_honesty') {
     if (typeof artifact.reason_code !== 'string' || !artifact.reason_code) hardFailures.push('failure_reason_missing')
     if (artifact.retryable !== false) qualityFailures.push('retry_posture_ambiguous')

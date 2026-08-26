@@ -4,12 +4,14 @@ import type { Clock, ExecutionEm } from './execute/schedule'
 import { hashAddress } from './campaign/exclusions'
 import {
   GtmAuditEvent,
+  GtmCandidate,
   GtmContactPoint,
   GtmEnrollment,
   GtmSendAttempt,
   GtmSuppression,
 } from '../data/entities'
 import { executeRemovalDeletion } from './privacy/deletion'
+import { consumerProfileDedupeKey, normalizeConsumerProfileUrl } from './research/execute'
 export {
   GLOBAL_SUPPRESSION_ORG_ID,
   GLOBAL_SUPPRESSION_TENANT_ID,
@@ -85,6 +87,12 @@ export type RemovalRequestInput = {
   source?: string | null
 }
 
+export type ProfileRemovalRequestInput = {
+  profileUrl: string
+  reason?: string | null
+  source?: string | null
+}
+
 export type RemovalRequestResult = {
   ok: true
   suppressed: true
@@ -119,7 +127,7 @@ export async function applyRemovalRequest(
   const addressHash = hashAddress(address)
   const source = typeof input.source === 'string' && input.source.trim() ? input.source.trim() : 'public_form'
 
-  const suppressionCreated = await writeGlobalSuppression(em, { addressHash, source, now })
+  const suppressionCreated = await writeGlobalSuppression(em, { addressHash, source, channel: 'email', now })
 
   // Everything already queued for this address, across every org. The
   // contact-point match is case-insensitive at the DB (values are stored as
@@ -180,17 +188,72 @@ export async function applyRemovalRequest(
   }
 }
 
+export async function applyProfileRemovalRequest(
+  em: ExecutionEm,
+  input: ProfileRemovalRequestInput,
+  deps: { clock?: Clock } = {},
+): Promise<RemovalRequestResult> {
+  const now = deps.clock?.now() ?? new Date()
+  const normalizedProfile = normalizeConsumerProfileUrl(input.profileUrl)
+  const addressHash = consumerProfileDedupeKey(input.profileUrl)
+  if (!normalizedProfile || !addressHash) throw new Error('invalid_profile_url')
+  const source = typeof input.source === 'string' && input.source.trim() ? input.source.trim() : 'public_form'
+  const suppressionCreated = await writeGlobalSuppression(em, {
+    addressHash,
+    source,
+    channel: 'public_profile',
+    now,
+  })
+  const candidates = await em.find(GtmCandidate, {
+    entityKind: 'person',
+    dedupeKey: addressHash,
+    deletedAt: null,
+  })
+  const points = candidates.map((candidate) => ({
+    id: candidate.id,
+    organizationId: candidate.organizationId,
+    tenantId: candidate.tenantId,
+    candidateId: candidate.id,
+    value: normalizedProfile,
+  }))
+  const deletion = await executeRemovalDeletion(
+    em,
+    { addressHash, normalizedAddress: normalizedProfile, points },
+    { clock: deps.clock },
+  )
+  return {
+    ok: true,
+    suppressed: true,
+    addressHash,
+    suppressionCreated,
+    enrollmentsStopped: 0,
+    attemptsCancelled: 0,
+    deletionRequestId: deletion.request.id,
+    deletionStatus: deletion.request.status,
+    recordsAnonymized:
+      deletion.candidatesAnonymized
+      + deletion.evidenceAnonymized
+      + deletion.contactPointsAnonymized
+      + deletion.relationsAnonymized
+      + deletion.renderedMessagesAnonymized
+      + deletion.repliesAnonymized
+      + deletion.emailMessagesAnonymized
+      + deletion.manualDraftsAnonymized,
+    dsrOperations: deletion.dsrOperations,
+  }
+}
+
 /* ── Global suppression (idempotent) ───────────────────────────────────── */
 
 async function writeGlobalSuppression(
   em: ExecutionEm,
-  args: { addressHash: string; source: string; now: Date },
+  args: { addressHash: string; source: string; channel: 'email' | 'public_profile'; now: Date },
 ): Promise<boolean> {
   const insert = async (): Promise<boolean> =>
     em.transactional(async (tem) => {
       const existing = await tem.findOne(GtmSuppression, {
         scope: 'global',
-        channel: 'email',
+        channel: args.channel,
         addressHash: args.addressHash,
         deletedAt: null,
       })
@@ -200,7 +263,7 @@ async function writeGlobalSuppression(
           organizationId: GLOBAL_SUPPRESSION_ORG_ID,
           tenantId: GLOBAL_SUPPRESSION_TENANT_ID,
           scope: 'global',
-          channel: 'email',
+          channel: args.channel,
           addressHash: args.addressHash,
           // Deliberately null: hash only, never the readable address.
           addressDisplay: null,
@@ -222,7 +285,7 @@ async function writeGlobalSuppression(
           metadata: {
             address_hash: args.addressHash,
             scope: 'global',
-            channel: 'email',
+            channel: args.channel,
             source: args.source,
           },
         }),

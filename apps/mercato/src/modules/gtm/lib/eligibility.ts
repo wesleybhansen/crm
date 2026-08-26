@@ -66,7 +66,7 @@ export function computeExecutionEligibility(play: EligibilityInput): Eligibility
       execution_eligibility: 'strategy_only',
       eligibility_reason:
         play.market_type === 'b2c'
-          ? 'Consumer audiences are strategy guidance only. Automated execution supports US B2B audiences.'
+          ? 'Consumer audiences can produce approved-source leads and personal manual outreach. Automated execution supports US B2B audiences only.'
           : 'Mixed audiences are strategy guidance only. Automated execution supports US B2B audiences.',
     }
   }

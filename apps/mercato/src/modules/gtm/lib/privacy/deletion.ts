@@ -14,6 +14,7 @@ import {
   GtmEnrollment,
   GtmEvidence,
   GtmInboundEvent,
+  GtmManualOutreachDraft,
   GtmProviderOperation,
   GtmRenderedMessage,
   GtmReply,
@@ -39,6 +40,7 @@ export type DeletionResult = {
   renderedMessagesAnonymized: number
   repliesAnonymized: number
   emailMessagesAnonymized: number
+  manualDraftsAnonymized: number
   providerReceiptsRedacted: number
   dsrOperations: number
 }
@@ -58,6 +60,7 @@ function resultFromStoredRequest(request: GtmDeletionRequest): DeletionResult {
     renderedMessagesAnonymized: count('rendered_messages_anonymized'),
     repliesAnonymized: count('replies_anonymized'),
     emailMessagesAnonymized: count('email_messages_anonymized'),
+    manualDraftsAnonymized: count('manual_drafts_anonymized'),
     providerReceiptsRedacted: count('provider_receipts_redacted'),
     dsrOperations: count('dsr_operations'),
   }
@@ -514,6 +517,7 @@ export async function executeRemovalDeletion(
     renderedMessagesAnonymized: 0,
     repliesAnonymized: 0,
     emailMessagesAnonymized: 0,
+    manualDraftsAnonymized: 0,
     providerReceiptsRedacted: 0,
     dsrOperations: 0,
   }
@@ -572,7 +576,7 @@ export async function executeRemovalDeletion(
     await em.flush()
     const candidateIds = [...new Set(points.map((point) => point.candidateId))]
     const candidateIdSet = new Set(candidateIds)
-    const [candidates, candidateMatches, candidateRelations, evidence, contactPoints, enrollments, providerOperations, chatMessages] =
+    const [candidates, candidateMatches, candidateRelations, evidence, contactPoints, enrollments, providerOperations, chatMessages, manualDrafts] =
       await Promise.all([
         em.find(GtmCandidate, { organizationId, tenantId, id: { $in: candidateIds } }),
         em.find(GtmCandidateMatch, { organizationId, tenantId, candidateId: { $in: candidateIds } }),
@@ -592,6 +596,12 @@ export async function executeRemovalDeletion(
           organizationId,
           tenantId,
           toolRef: { $in: candidateIds },
+        }),
+        em.find(GtmManualOutreachDraft, {
+          organizationId,
+          tenantId,
+          candidateId: { $in: candidateIds },
+          deletedAt: null,
         }),
       ])
     // Capture graph dependencies before local anonymization clears them.
@@ -707,6 +717,18 @@ export async function executeRemovalDeletion(
         row.updatedAt = now
         tem.persist(row)
       }
+      for (const row of manualDrafts) {
+        row.destinationUrl = 'https://removed.invalid/'
+        row.bodyText = '[removed]'
+        row.contentHash = digest({ removed: tenantRequest.id, draft: row.id })
+        row.evidenceHash = digest({ removed: tenantRequest.id, evidence: row.id })
+        row.provenance = { removed: true, removal_request_id: tenantRequest.id }
+        row.status = 'dismissed'
+        row.dismissedAt = now
+        row.deletedAt = now
+        row.updatedAt = now
+        tem.persist(row)
+      }
       for (const row of versions) {
         row.snapshot = redactSnapshot(row.snapshot, {
           normalizedAddress: input.normalizedAddress,
@@ -734,6 +756,7 @@ export async function executeRemovalDeletion(
             rendered_messages: rendered.length,
             replies: replies.length,
             email_messages: emailMessages.length,
+            manual_outreach_drafts: manualDrafts.length,
             provider_receipts: providerOperations.length + attempts.length,
           },
         }),
@@ -748,6 +771,7 @@ export async function executeRemovalDeletion(
     counts.renderedMessagesAnonymized += rendered.length
     counts.repliesAnonymized += replies.length
     counts.emailMessagesAnonymized += emailMessages.length
+    counts.manualDraftsAnonymized += manualDrafts.length
     counts.providerReceiptsRedacted += providerOperations.length + attempts.length
 
     await ensureDsrOperation(
@@ -812,6 +836,7 @@ export async function executeRemovalDeletion(
       rendered_messages_anonymized: rendered.length,
       replies_anonymized: replies.length,
       email_messages_anonymized: emailMessages.length,
+      manual_drafts_anonymized: manualDrafts.length,
       provider_receipts_redacted: providerOperations.length + attempts.length,
       dsr_operations: tenantOps.length,
     }
@@ -830,6 +855,7 @@ export async function executeRemovalDeletion(
     rendered_messages_anonymized: counts.renderedMessagesAnonymized,
     replies_anonymized: counts.repliesAnonymized,
     email_messages_anonymized: counts.emailMessagesAnonymized,
+    manual_drafts_anonymized: counts.manualDraftsAnonymized,
     provider_receipts_redacted: counts.providerReceiptsRedacted,
     dsr_operations: counts.dsrOperations,
   }

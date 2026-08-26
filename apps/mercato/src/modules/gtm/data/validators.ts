@@ -225,6 +225,36 @@ export const gtmCandidatesBodySchema = z.object({
 export type GtmResearchRunsBody = z.infer<typeof gtmResearchRunsBodySchema>
 export type GtmCandidatesBody = z.infer<typeof gtmCandidatesBodySchema>
 
+// SPEC-069 manual-only consumer outreach. No send/dispatch op is accepted.
+export const gtmManualOutreachBodySchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('list'),
+    noliUserId: idString,
+    workspaceId: idString,
+    playId: idString.optional(),
+    candidateId: idString.optional(),
+  }),
+  z.object({
+    op: z.literal('create'),
+    noliUserId: idString,
+    workspaceId: idString,
+    playId: idString,
+    candidateId: idString,
+    matchId: idString,
+    channel: z.enum(['linkedin', 'x', 'public_profile']),
+    // Server-injected from the Idempotency-Key header.
+    idempotency_key: idString,
+  }),
+  z.object({
+    op: z.literal('mark'),
+    noliUserId: idString,
+    draftId: idString,
+    action: z.enum(['copied', 'opened', 'dismissed']),
+  }),
+])
+
+export type GtmManualOutreachBody = z.infer<typeof gtmManualOutreachBodySchema>
+
 // ---------------------------------------------------------------------------
 // Tranche 5: campaign drafting + immutable batch approval (SPEC-066
 // sections 4, 7, 8, 12)
