@@ -156,6 +156,19 @@ const US_STATE_NAMES = [
   'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming',
 ] as const
 
+const US_STATE_ABBREVIATIONS: Record<string, (typeof US_STATE_NAMES)[number] | 'district of columbia'> = {
+  al: 'alabama', ak: 'alaska', az: 'arizona', ar: 'arkansas', ca: 'california', co: 'colorado',
+  ct: 'connecticut', de: 'delaware', dc: 'district of columbia', fl: 'florida', ga: 'georgia',
+  hi: 'hawaii', id: 'idaho', il: 'illinois', in: 'indiana', ia: 'iowa', ks: 'kansas',
+  ky: 'kentucky', la: 'louisiana', me: 'maine', md: 'maryland', ma: 'massachusetts',
+  mi: 'michigan', mn: 'minnesota', ms: 'mississippi', mo: 'missouri', mt: 'montana',
+  ne: 'nebraska', nv: 'nevada', nh: 'new hampshire', nj: 'new jersey', nm: 'new mexico',
+  ny: 'new york', nc: 'north carolina', nd: 'north dakota', oh: 'ohio', ok: 'oklahoma',
+  or: 'oregon', pa: 'pennsylvania', ri: 'rhode island', sc: 'south carolina',
+  sd: 'south dakota', tn: 'tennessee', tx: 'texas', ut: 'utah', vt: 'vermont',
+  va: 'virginia', wa: 'washington', wv: 'west virginia', wi: 'wisconsin', wy: 'wyoming',
+}
+
 const TRACKING_PARAMETER = /^(?:utm_.+|fbclid|gclid|dclid|msclkid|mc_[ce]id|trk|trackingId|ref_src)$/i
 
 function matchedSignals(content: string, definitions: Array<[string, RegExp]>): string[] {
@@ -208,6 +221,33 @@ function normalizedPhrase(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function stateNamesIn(value: string, primaryLocation?: string | null): Set<string> {
+  const normalized = ` ${normalizedPhrase(value)} `
+  const states = new Set<string>(
+    US_STATE_NAMES.filter((state) => normalized.includes(` ${state} `)),
+  )
+  if (normalized.includes(' district of columbia ')) states.add('district of columbia')
+
+  const abbreviationPatterns = [/,\s*([a-z]{2})(?=\b)/gi]
+  const primary = primaryLocation?.trim()
+  if (primary) {
+    abbreviationPatterns.push(
+      new RegExp(`\\b${escapeRegExp(primary)}(?:\\s*,\\s*|\\s+)([a-z]{2})(?=\\b)`, 'gi'),
+    )
+  }
+  for (const pattern of abbreviationPatterns) {
+    for (const match of value.matchAll(pattern)) {
+      const state = US_STATE_ABBREVIATIONS[(match[1] ?? '').toLowerCase()]
+      if (state) states.add(state)
+    }
+  }
+  return states
+}
+
 /**
  * Returns the requested locality only when the returned provider material
  * independently contains its most-specific place name. The requested search
@@ -224,6 +264,7 @@ export function demonstratedOpportunityLocation(
   const material = ` ${normalizedPhrase(returnedMaterial)} `
   const target = normalizedPhrase(primary)
   if (!target || !material.includes(` ${target} `)) return null
+  if (opportunityHasContradictoryUsState(returnedMaterial, requested)) return null
   return requested
 }
 
@@ -231,11 +272,11 @@ export function opportunityHasContradictoryUsState(
   returnedMaterial: string,
   expectedGeography: string,
 ): boolean {
-  const expected = normalizedPhrase(expectedGeography)
-  const observed = normalizedPhrase(returnedMaterial)
-  const expectedStates = US_STATE_NAMES.filter((state) => expected.includes(state))
-  const observedStates = US_STATE_NAMES.filter((state) => observed.includes(state))
-  return observedStates.length > 0 && observedStates.every((state) => !expectedStates.includes(state))
+  const primary = expectedGeography.split(',')[0]?.trim() ?? null
+  const expectedStates = stateNamesIn(expectedGeography, primary)
+  if (expectedStates.size === 0) return false
+  const observedStates = stateNamesIn(returnedMaterial, primary)
+  return observedStates.size > 0 && [...observedStates].every((state) => !expectedStates.has(state))
 }
 
 export type RealtorOpportunitySuitability = {

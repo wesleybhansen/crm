@@ -52,6 +52,15 @@ describe('opportunity quality primitives', () => {
     expect(
       opportunityHasContradictoryUsState('I am selling my South Florida home.', 'Austin, Texas'),
     ).toBe(true)
+    expect(
+      opportunityHasContradictoryUsState('First home-buying advice requested in Austin, MN.', 'Austin, Texas'),
+    ).toBe(true)
+    expect(
+      demonstratedOpportunityLocation('First home-buying advice requested in Austin, MN.', 'Austin, Texas'),
+    ).toBeNull()
+    expect(
+      demonstratedOpportunityLocation('First home-buying advice requested in Austin, TX.', 'Austin, Texas'),
+    ).toBe('Austin, Texas')
   })
 
   it('distinguishes consumer housing demand from generic seller language and agent marketing', () => {
