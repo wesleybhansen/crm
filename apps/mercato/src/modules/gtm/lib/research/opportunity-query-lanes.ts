@@ -24,6 +24,9 @@ const REALTOR_NEGATIVE_TERMS = [
   'agent leads',
 ]
 
+const REALTOR_PLAY =
+  /\b(?:realtor|real estate|homeowners?|home ?buyers?|home ?sellers?|buying a home|selling a home|homeownership|housing)\b/i
+
 function values(value: unknown): string[] {
   if (typeof value === 'string' && value.trim()) return [value.trim()]
   if (!Array.isArray(value)) return []
@@ -66,32 +69,47 @@ function inferredLane(play: PlanPlayInput): OpportunityIntentLane {
   return classifyOpportunityIntent(text).kind ?? 'local_audience'
 }
 
-function positiveSeeds(intent: OpportunityIntentLane): string[] {
+function realtorSeeds(intent: OpportunityIntentLane): string[] {
   if (intent === 'buyer_intent') {
-    return ['buying a home questions', 'looking for a home', 'moving to the area home search']
+    return ['first time home buyer question', 'looking to buy a home', 'moving here home search']
   }
   if (intent === 'seller_intent') {
-    return ['selling a home questions', 'home value or pricing questions', 'preparing a home for sale']
+    return ['thinking of selling my home', 'what is my home worth', 'preparing a home to sell']
   }
   if (intent === 'mixed_intent') {
-    return ['buying or selling a home questions', 'move and home decision', 'local housing questions']
+    return ['buying or selling a home question', 'moving and home decision', 'local housing question']
   }
-  return ['neighborhood homeowner community', 'local housing workshop or event', 'local homeownership discussion']
+  return ['homeowner community', 'home buyer workshop', 'local housing discussion']
 }
 
 function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-x-demand-opportunities') return 100
-  if (adapterId === 'apify-linkedin-post-search') return 200
+  if (adapterId === 'apify-linkedin-demand-opportunities') return 200
   return 700
 }
 
-function sourcePrefix(adapterId: string): string {
+function marketName(geography: string): string {
+  return geography.split(',')[0]?.trim() || geography
+}
+
+function genericSeeds(play: PlanPlayInput): string[] {
+  const query = play.providerQuery ?? {}
+  const supplied = values(query.source_search_keywords)
+  const authored = [play.audience, play.signal]
+    .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+    .map((value) => value.replace(/\b(?:people|publicly|recent|current|demonstrating|considering|preparing)\b/gi, ' '))
+  return unique([...supplied, ...authored])
+}
+
+function sourceSeed(adapterId: string, geography: string, seed: string): string {
+  const market = marketName(geography)
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
-    return 'forum community event discussion'
+    return `${market} ${seed} forum community event discussion`
   }
-  if (adapterId === 'apify-reddit-demand-opportunities') return 'question discussion'
-  if (adapterId === 'apify-linkedin-post-search') return 'public discussion'
-  return ''
+  if (adapterId === 'apify-reddit-demand-opportunities') return `${market} ${seed}`
+  if (adapterId === 'apify-linkedin-demand-opportunities') return `${market} ${seed}`
+  if (adapterId === 'apify-x-demand-opportunities') return `${market} ${seed}`
+  return `${market} ${seed}`
 }
 
 function bounded(value: string, max: number): string {
@@ -106,9 +124,15 @@ function queryFor(args: {
   seed: string
   negativeTerms: string[]
 }): string {
-  const exclusions = args.negativeTerms.map((term) => (term.includes(' ') ? `-"${term}"` : `-${term}`)).join(' ')
+  // Negative Google operators are useful for organic web search, but Reddit,
+  // LinkedIn, and X Actors treat some or all of them as literal text. That
+  // sharply reduced recall in the first controlled benchmark. Social noise is
+  // removed after retrieval by the frozen exclusion rubric instead.
+  const exclusions = args.adapterId === 'dataforseo-organic-demand-opportunities'
+    ? args.negativeTerms.map((term) => (term.includes(' ') ? `-"${term}"` : `-${term}`)).join(' ')
+    : ''
   return bounded(
-    [sourcePrefix(args.adapterId), args.geography, args.seed, exclusions].filter(Boolean).join(' '),
+    [sourceSeed(args.adapterId, args.geography, args.seed), exclusions].filter(Boolean).join(' '),
     sourceMaxQueryLength(args.adapterId),
   )
 }
@@ -126,10 +150,17 @@ export function buildOpportunityQueryLanes(
   const providerQuery = play.providerQuery ?? {}
   const intent = inferredLane(play)
   const geography = (play.geography ?? '').trim().replace(/\s+/g, ' ')
-  const supplied = values(providerQuery.source_search_keywords)
-  const seeds = unique([...supplied, ...positiveSeeds(intent)]).slice(0, Math.max(1, Math.min(maxLanes, 3)))
-  const negativeTerms = REALTOR_NEGATIVE_TERMS
-  return seeds.map((seed, index) => {
+  const playText = [play.audience, play.signal, ...values(providerQuery.audience_keywords)].join(' ')
+  const realtor = REALTOR_PLAY.test(playText)
+  const seeds = unique(realtor ? realtorSeeds(intent) : genericSeeds(play))
+  // X has a material per-run initialization charge. One bounded query per play
+  // keeps the same source coverage without paying that fixed charge three
+  // times; the other sources retain three independently quoted lanes.
+  const sourceLaneCap = adapterId === 'apify-x-demand-opportunities' ? 1 : 3
+  const laneCap = Math.max(1, Math.min(maxLanes, sourceLaneCap))
+  const selectedSeeds = seeds.slice(0, laneCap)
+  const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
+  return selectedSeeds.map((seed, index) => {
     const id = `${intent}:${index + 1}`
     const query = queryFor({ adapterId, geography, seed, negativeTerms })
     return {
@@ -139,7 +170,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v1',
+        query_lane_version: 'opportunity-query-v2',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

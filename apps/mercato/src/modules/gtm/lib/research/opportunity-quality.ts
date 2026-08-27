@@ -220,22 +220,20 @@ export function calibratedOpportunityConfidence(args: {
 
 export function opportunityEvidenceText(
   identity: CandidateIdentity | Record<string, unknown>,
-  evidence: CandidateEvidence[],
+  _evidence: CandidateEvidence[],
 ): string {
   const row = identity as Record<string, unknown>
+  // Only provider-returned content belongs in semantic qualification. Several
+  // adapters retain the submitted search query in the evidence claim for
+  // provenance. Including that claim here lets a targeting term prove its own
+  // relevance (and lets negative search operators trigger exclusion rules),
+  // recreating the query-leakage defect that content-only intent classification
+  // is designed to prevent.
   const identityValues = [
     row.name,
     row.audience_description,
-    row.location,
-    row.city,
-    row.region,
-    row.platform,
-    row.opportunity_kind,
   ].filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
-  const evidenceValues = evidence.flatMap((item) => [
-    item.claim,
-  ])
-  return [...identityValues, ...evidenceValues].join('\n')
+  return identityValues.join('\n')
 }
 
 const RANK_STOP_WORDS = new Set([

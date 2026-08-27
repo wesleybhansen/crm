@@ -268,7 +268,10 @@ function expectedAudience(play: FitPlayInput): string[] {
   return [
     play.audience,
     play.signal,
-    ...queryStrings(query, ['audience_keywords', 'topics', 'source_search_keywords']),
+    // Audience keywords are customer-authored qualification anchors. Source
+    // search keywords are provider targeting and cannot prove that a returned
+    // result actually fits the play.
+    ...queryStrings(query, ['audience_keywords', 'topics']),
   ].filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
 }
 
@@ -347,6 +350,8 @@ function scoreOpportunity(
       ? 'unknown'
       : semanticallyMatches(audienceExpected, observedText)
         ? 'pass'
+        : isRealtorOpportunityRelevant(observedText, expectedIntent)
+          ? 'pass'
         : observedText.trim()
           ? 'fail'
           : 'unknown'
@@ -523,6 +528,18 @@ function scoreOpportunity(
     contradictions,
     profile,
     criteria,
+  )
+}
+
+function isRealtorOpportunityRelevant(observedText: string, expectedIntent: string[]): boolean {
+  const contentIntent = classifyOpportunityIntent(observedText).kind
+  if (contentIntent && intentMatchesLane(expectedIntent, contentIntent)) return true
+  if (!expectedIntent.includes('local_audience')) return false
+  // Local-audience discovery is broader than individual buying or selling
+  // intent, but it still needs a demonstrated housing/homeowner venue rather
+  // than a generic local community result.
+  return /\b(?:homeowners?|home ?buyers?|home ?sellers?|homeownership|housing|real estate|neighbou?rhood association)\b/i.test(
+    observedText,
   )
 }
 

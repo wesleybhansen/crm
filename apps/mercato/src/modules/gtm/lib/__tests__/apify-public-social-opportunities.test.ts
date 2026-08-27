@@ -348,7 +348,7 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).not.toHaveBeenCalled()
   })
 
-  it('plans Reddit and X as separate metered shortfall lanes', () => {
+  it('plans Reddit and one fixed-charge-aware X shortfall lane', () => {
     const adapters = [
       createApifyRedditOpportunityAdapter({
         env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
@@ -378,11 +378,9 @@ describe('Apify public social demand opportunities', () => {
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
-        APIFY_X_OPPORTUNITY_CONFIG.adapterId,
-        APIFY_X_OPPORTUNITY_CONFIG.adapterId,
       ])
       expect(result.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(20)
-      expect(new Set(result.adapterPlan.map((batch) => `${batch.adapter_id}:${batch.queryLaneId}`)).size).toBe(6)
+      expect(new Set(result.adapterPlan.map((batch) => `${batch.adapter_id}:${batch.queryLaneId}`)).size).toBe(4)
       expect(result.adapterPlan.every((batch) => batch.billableUnit === 'apify_millidollar')).toBe(true)
     }
   })

@@ -7,6 +7,7 @@ import {
   createApifyCompanySourceAdapter,
 } from '../adapters/apify/company-source'
 import { APIFY_REQUIRED_PRICE_VERSION, APIFY_REQUIRED_TERMS_VERSION } from '../adapters/apify/source'
+import { buildOpportunityQueryLanes } from '../research/opportunity-query-lanes'
 import { buildSourcePlan, DEFAULT_MAX_CANDIDATES, MAX_CANDIDATES_HARD_CAP, type PlanPlayInput } from '../research/plan'
 
 const executablePlay: PlanPlayInput = {
@@ -181,6 +182,64 @@ describe('buildSourcePlan fail-closed boundaries', () => {
         }),
       )
     }
+  })
+
+  it('keeps social queries concise and applies negative operators only to web search', () => {
+    const play = {
+      marketType: 'b2c' as const,
+      geography: 'Austin, Texas',
+      signal: 'Public questions from people preparing to buy a home',
+      signalKind: 'social_engagement',
+      entityUnit: 'opportunities',
+      audience: 'Austin first-time home buyers',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }
+    const social = buildSourcePlan(play, [fixtureConsumerSourceAdapter], { maxRawCandidates: 6 })
+    expect(social.ok).toBe(true)
+    if (social.ok) {
+      expect(social.adapterPlan).toHaveLength(3)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v2')).toBe(true)
+      const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
+      expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
+      expect(new Set(queries).size).toBe(3)
+    }
+  })
+
+  it('uses one economical X lane and keeps search-engine exclusions out of social queries', () => {
+    const play = {
+      geography: 'Austin, Texas',
+      audience: 'Austin homeowners considering selling a home',
+      signal: 'A public question demonstrates home-selling intent',
+      providerQuery: { opportunity_intent_lane: 'seller_intent' },
+    }
+    const x = buildOpportunityQueryLanes(play, 'apify-x-demand-opportunities')
+    const reddit = buildOpportunityQueryLanes(play, 'apify-reddit-demand-opportunities')
+    const web = buildOpportunityQueryLanes(play, 'dataforseo-organic-demand-opportunities')
+
+    expect(x).toHaveLength(1)
+    expect(reddit).toHaveLength(3)
+    expect(web).toHaveLength(3)
+    expect([...x, ...reddit].every((lane) => !lane.query.includes('-jobs'))).toBe(true)
+    expect(web.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
+    expect(new Set(web.map((lane) => lane.query)).size).toBe(3)
+  })
+
+  it('does not inject realtor terminology into a non-real-estate consumer play', () => {
+    const lanes = buildOpportunityQueryLanes(
+      {
+        geography: 'Seattle, Washington',
+        audience: 'Independent ceramic artists looking for local studio communities',
+        signal: 'A current public discussion about kiln access and shared studio space',
+        providerQuery: {
+          opportunity_intent_lane: 'local_audience',
+          source_search_keywords: ['ceramic artist studio community', 'shared kiln discussion'],
+        },
+      },
+      'apify-reddit-demand-opportunities',
+    )
+    expect(lanes).toHaveLength(3)
+    expect(lanes.every((lane) => !/home|housing|realtor/i.test(lane.query))).toBe(true)
+    expect(lanes[0]?.query).toContain('ceramic artist studio community')
   })
 
   it('blocks sensitive consumer targeting before a provider quote', () => {
