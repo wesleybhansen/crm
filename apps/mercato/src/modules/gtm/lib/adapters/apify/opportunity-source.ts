@@ -51,6 +51,7 @@ export const APIFY_OPPORTUNITY_SOURCE_ACTOR_ID = 'harvestapi/linkedin-post-searc
 export const APIFY_OPPORTUNITY_SOURCE_ACTOR_BUILD = '0.0.104'
 export const APIFY_OPPORTUNITY_SOURCE_SIGNAL = 'social_engagement'
 export const APIFY_OPPORTUNITY_SOURCE_ACTOR_ENV = 'GTM_APIFY_ACTOR_LINKEDIN_POST_SEARCH'
+export const APIFY_OPPORTUNITY_SOURCE_ENABLED_ENV = 'GTM_APIFY_LINKEDIN_OPPORTUNITY_ENABLED'
 export const APIFY_OPPORTUNITY_SOURCE_PRICE_VERSION_ENV = 'GTM_APIFY_LINKEDIN_POST_SEARCH_PRICE_VERSION'
 export const APIFY_OPPORTUNITY_SOURCE_REQUIRED_PRICE_VERSION =
   'harvestapi-linkedin-post-search-0.0.104-free-bronze-events-2026-08-26'
@@ -134,7 +135,12 @@ export function apifyOpportunitySourceApproved(env: OpportunitySourceEnv = proce
 }
 
 export function apifyOpportunitySourceEnabled(env: OpportunitySourceEnv = processEnv()): boolean {
-  return apifyEnabled(env) && apifyToken(env) !== null && apifyOpportunitySourceApproved(env)
+  return (
+    env[APIFY_OPPORTUNITY_SOURCE_ENABLED_ENV] === 'true' &&
+    apifyEnabled(env) &&
+    apifyToken(env) !== null &&
+    apifyOpportunitySourceApproved(env)
+  )
 }
 
 export function apifyOpportunitySourceDescriptor(env: OpportunitySourceEnv = processEnv()): AdapterDescriptor {
@@ -577,11 +583,15 @@ export function createApifyOpportunitySourceAdapter(deps: ApifyOpportunitySource
         }
       }
       if (outcome.status === 'error') {
+        const finalizedCostUnits =
+          outcome.billingFinalized && outcome.providerCostUsd != null
+            ? outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
+            : 0
         return {
           status: 'error',
           data: null,
           receipt: providerReceipt(),
-          cost_units: 0,
+          cost_units: finalizedCostUnits,
           error: outcome.error ?? 'provider error',
         }
       }
@@ -638,10 +648,10 @@ export function createApifyOpportunitySourceAdapter(deps: ApifyOpportunitySource
         .filter((candidate): candidate is Candidate => candidate != null)
       if (candidates.length === 0) {
         return {
-          status: 'ambiguous',
+          status: 'error',
           data: null,
           receipt: providerReceipt({ parser_dropped_rows: outcome.itemCount }),
-          cost_units: null,
+          cost_units: costUnits,
           error: 'invalid_schema: provider posts contained no safe public opportunity',
         }
       }

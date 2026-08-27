@@ -5,11 +5,13 @@ import {
   APIFY_OPPORTUNITY_SOURCE_ACTOR_ID,
   APIFY_OPPORTUNITY_SOURCE_ADAPTER_ID,
   APIFY_OPPORTUNITY_SOURCE_DATASET_FIELDS,
+  APIFY_OPPORTUNITY_SOURCE_ENABLED_ENV,
   APIFY_OPPORTUNITY_SOURCE_EVENT_PRICES_USD,
   APIFY_OPPORTUNITY_SOURCE_PRICE_VERSION_ENV,
   APIFY_OPPORTUNITY_SOURCE_REQUIRED_PRICE_VERSION,
   APIFY_OPPORTUNITY_SOURCE_SIGNAL,
   apifyOpportunitySourceApproved,
+  apifyOpportunitySourceEnabled,
   apifyOpportunitySourceDescriptor,
   buildApifyOpportunityInput,
   createApifyOpportunitySourceAdapter,
@@ -85,6 +87,16 @@ function outcome(values: Partial<ApifyRunOutcome> = {}): ApifyRunOutcome {
 }
 
 describe('Apify demand-opportunity source contract', () => {
+  it('keeps LinkedIn opportunity retrieval operationally held unless explicitly enabled', () => {
+    expect(apifyOpportunitySourceEnabled(ENABLED_ENV)).toBe(false)
+    expect(
+      apifyOpportunitySourceEnabled({
+        ...ENABLED_ENV,
+        [APIFY_OPPORTUNITY_SOURCE_ENABLED_ENV]: 'true',
+      }),
+    ).toBe(true)
+  })
+
   it('is an exact-version, consumer-manual source that cannot automate outreach', () => {
     expect(apifyOpportunitySourceApproved(ENABLED_ENV)).toBe(true)
     expect(
@@ -333,7 +345,7 @@ describe('Apify demand-opportunity source contract', () => {
     expect(result.cost_units).toBeCloseTo(1.05, 10)
   })
 
-  it('parks billing or output drift instead of refunding a charged provider run', async () => {
+  it('parks unknown billing drift but charges finalized rows that fail safe normalization', async () => {
     const mismatched = createApifyOpportunitySourceAdapter({
       env: ENABLED_ENV,
       now,
@@ -357,9 +369,38 @@ describe('Apify demand-opportunity source contract', () => {
         }),
     })
     await expect(unsafeRow.search(PLAN)).resolves.toMatchObject({
-      status: 'ambiguous',
-      cost_units: null,
+      status: 'error',
+      cost_units: outcome().providerCostUsd! / 0.001,
+      receipt: expect.objectContaining({
+        billing_finalized: true,
+        parser_dropped_rows: 1,
+      }),
       error: expect.stringContaining('no safe public opportunity'),
+    })
+  })
+
+  it('preserves exact finalized cost when the actor terminates with a provider error', async () => {
+    const providerCostUsd = APIFY_OPPORTUNITY_SOURCE_EVENT_PRICES_USD['apify-actor-start']
+    const adapter = createApifyOpportunitySourceAdapter({
+      env: ENABLED_ENV,
+      now,
+      runActor: async () =>
+        outcome({
+          kind: 'timeout',
+          status: 'error',
+          items: [],
+          itemCount: 0,
+          error: 'provider_error: actor timed out after finalized billing',
+          chargedEventCounts: { 'apify-actor-start': 1 },
+          providerCostUsd,
+        }),
+    })
+
+    await expect(adapter.search(PLAN)).resolves.toMatchObject({
+      status: 'error',
+      data: null,
+      cost_units: providerCostUsd / 0.001,
+      error: expect.stringContaining('timed out after finalized billing'),
     })
   })
 

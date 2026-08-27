@@ -417,6 +417,13 @@ owner benchmark returned one rejected row at 738,750 internal credits, while
 leaving its adapter and exact billing contract available for a later bounded
 retest on an improved account tier or actor contract.
 
+LinkedIn opportunity retrieval is independently operationally held unless
+`GTM_APIFY_LINKEDIN_OPPORTUNITY_ENABLED=true`. The owner benchmark observed the
+frozen Actor exceed its one-minute run limit after returning a charged post,
+which made the run terminal but required operator reconciliation. Contract and
+rate approval remain recorded, but a timed-out Actor is not placed into a new
+customer quote until a bounded retest demonstrates terminal receipt behavior.
+
 ## 13. Acceptance tests
 
 1. US B2B remains provider-runnable and automated-email eligible.
@@ -470,3 +477,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-27: The query-v8 seller recall pass showed that long exact-phrase searches still produced fewer than ten unique rows and that DataForSEO task `40102` (No Search Results) and other definitive application errors carried a nonzero final task cost despite being treated as refunds. Added `opportunity-query-v9`: shorter seller-discovery queries with the required listing/recruiting/news exclusions, plus exact settlement from every explicit final DataForSEO task cost. `40102` is a charged `no_result`; other definitive errors remain failures but are charged when the provider receipt reports a nonzero cost. Missing or over-reservation billing remains ambiguous and fail-closed.
 - 2026-08-27: The completed 120-row query-v6-through-v9 labeling pool met the twelve-play coverage floor but pre-label semantic review found stale 2004/2010/2013 pages, an inactive `No upcoming events` calendar, listing/rental/job noise, and unrelated association mentions retaining high numeric scores. Added `fit-v7-quality-v10`: content-derived relative and leading publication dates, content-derived event dates, explicit inactive-destination rejection, narrower local-participation proof, additional realtor noise exclusions, stronger deterministic reranking penalties, and verdict-aware score ceilings so rejected or unresolved rows cannot outrank accepted evidence. No provider call is required to requalify the frozen pool against this revision; human labels and every section 12.3 threshold remain release gates.
 - 2026-08-27: Zero-spend quality-v10 requalification cleanly separated accepted, unresolved, and rejected rows but showed that broad query-v9 pages still left most top-ten slots irrelevant or stale. Added `opportunity-query-v10` with five separately billed organic lanes per realtor play focused on current registration, schedule, class, meeting, registry, and public-question surfaces; newest-first exact-market and auto-discovery Reddit lanes; and `fit-v7-quality-v11` date/liveness hardening for labeled numeric dates, leading month-year snippets, numeric event dates, and additional inactive-destination language. Explicit provider publication timestamps remain authoritative so a current post is not rejected merely for discussing older history.
+- 2026-08-27: The first query-v10 local-audience run proved two distinct billing outcomes. Finalized billed rows that fail safe opportunity normalization now settle as charged provider errors with zero retained candidates instead of creating false reconciliation work. Unknown billing still parks. The LinkedIn opportunity Actor separately exceeded its frozen one-minute run limit after billing a post, so LinkedIn now has an independent fail-closed operational switch while its rights and exact price contract remain intact.
