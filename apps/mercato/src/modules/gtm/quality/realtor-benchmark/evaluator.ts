@@ -85,11 +85,7 @@ export function evaluateRealtorBenchmark(
   )
   const precisionAt10 = ratio(top10.filter((label) => label.relevantToPlay).length, top10.length)
   const geographyCorrectness = ratio(labels.filter((label) => label.geographyCorrect).length, labels.length)
-  const intentCorrectness = ratio(labels.filter((label) => {
-    const play = playById.get(label.playId)
-    return label.systemIntent === play?.lane
-      || (label.systemIntent === 'mixed_intent' && (play?.lane === 'buyer_intent' || play?.lane === 'seller_intent'))
-  }).length, labels.length)
+  const intentCorrectness = ratio(labels.filter((label) => label.intentCorrect).length, labels.length)
   const liveAccessibleDestinations = ratio(
     labels.filter((label) => label.liveAccessible && label.currentWithinWindow).length,
     labels.length,
