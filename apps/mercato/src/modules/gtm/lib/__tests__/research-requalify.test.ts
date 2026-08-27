@@ -5,7 +5,7 @@ import {
   GtmEvidence,
   GtmResearchRun,
 } from '../../data/entities'
-import { FIT_SCORER_VERSION } from '../research/qualify'
+import { FIT_SCORER_REVISION, FIT_SCORER_VERSION } from '../research/qualify'
 import { requalifyResearchRun } from '../research/requalify'
 import { FakeEm } from './support/fake-em'
 
@@ -122,6 +122,7 @@ describe('requalifyResearchRun', () => {
 
     expect(result).toEqual({
       scorerVersion: FIT_SCORER_VERSION,
+      scorerRevision: FIT_SCORER_REVISION,
       alreadyCurrent: false,
       candidates: 3,
       rescored: 2,
@@ -237,5 +238,87 @@ describe('requalifyResearchRun', () => {
     await expect(requalifyResearchRun({ em, run, actorUserId: USER })).rejects.toThrow(
       'research_run_missing_frozen_play',
     )
+  })
+
+  it('demotes legacy adapter-injected opportunity geography before rescoring paid output', async () => {
+    const em = new FakeEm()
+    const run = em.create(GtmResearchRun, {
+      id: RUN_ID,
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: WORKSPACE,
+      playId: '50000000-0000-4000-8000-000000000002',
+      status: 'completed',
+      startedAt: STARTED,
+      inputSnapshot: {
+        play: {
+          entity_unit: 'opportunities',
+          geography: 'Austin, Texas',
+          audience: 'Austin homeowners publicly asking how to sell a home',
+          signal: 'Public seller intent conversations',
+          provider_query: {
+            locations: ['Austin, Texas'],
+            opportunity_intent_lane: 'seller_intent',
+          },
+        },
+      },
+      providerPlan: {},
+    })
+    const candidate = em.create(GtmCandidate, {
+      id: '60000000-0000-4000-8000-000000000010',
+      organizationId: ORG,
+      tenantId: TENANT,
+      researchRunId: RUN_ID,
+      workspaceId: WORKSPACE,
+      entityKind: 'opportunity',
+      identity: {
+        name: 'Five generic seller tips',
+        opportunity_kind: 'post',
+        platform: 'Reddit',
+        intent_kind: 'seller_intent',
+        audience_description: 'General real-estate marketing content',
+        access_type: 'public',
+        location: 'Austin, Texas',
+        urls: ['https://reddit.com/r/example/comments/generic-seller-tips'],
+        recommended_action: 'Review the discussion and contribute a helpful answer if the venue permits it.',
+        message_angle: 'Explain one useful home-selling consideration without making unsupported claims.',
+      },
+      dedupeKey: 'legacy-targeting-location',
+      fitStatus: 'accepted',
+      fitScore: '90',
+      qualificationVersion: 'fit-v7',
+      qualification: { reason: 'meets_fit_rules' },
+    })
+    const evidence = em.create(GtmEvidence, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      candidateId: candidate.id,
+      claim: 'A generic post lists five tips for home sellers.',
+      sourceUrl: 'https://reddit.com/r/example/comments/generic-seller-tips',
+      providerRef: {
+        provider: 'apify-reddit-demand-opportunities',
+        query: 'Austin seller intent',
+      },
+      observedAt: STARTED,
+      confidence: '0.8',
+      qualityStatus: 'strong',
+      qualityIssues: [],
+    })
+    for (const row of [run, candidate, evidence]) em.persist(row)
+    await em.flush()
+
+    const result = await requalifyResearchRun({ em, run, actorUserId: USER })
+
+    expect(result.alreadyCurrent).toBe(false)
+    expect(candidate.identity).toEqual(expect.objectContaining({
+      location: null,
+      provider_location: 'Austin, Texas',
+    }))
+    expect(candidate.fitStatus).not.toBe('accepted')
+    expect(candidate.qualification).toEqual(expect.objectContaining({
+      criteria: expect.arrayContaining([
+        expect.objectContaining({ id: 'geography.location', status: 'unknown' }),
+      ]),
+    }))
   })
 })

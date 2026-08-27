@@ -4,7 +4,7 @@ import type { Candidate, SourceAdapter } from '../adapters/types'
 import { GtmCreditLedgerError, type GtmCreditLedger, type GtmSettleOutcome } from '../credits/ledger'
 import { creditsForUnits, defaultMarkupMultiplier, providerSpendCapUsd } from '../credits/markup'
 import type { SourcePlanBatch } from './plan'
-import { ruleBasedFitScorer, type FitScorer } from './qualify'
+import { FIT_SCORER_REVISION, ruleBasedFitScorer, type FitScorer } from './qualify'
 import { assessEvidence } from './evidence-quality'
 import {
   canonicalOpportunityUrl as canonicalizeOpportunityUrl,
@@ -687,6 +687,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
         continue
       }
       const qualification = {
+        scorer_revision: FIT_SCORER_REVISION,
         reason: fit.reason,
         breakdown: fit.breakdown,
         unknowns: fit.unknowns,

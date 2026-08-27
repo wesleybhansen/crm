@@ -31,6 +31,7 @@ import {
 import {
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
+  demonstratedOpportunityLocation,
 } from '../../research/opportunity-quality'
 
 const APIFY_MILLIDOLLAR_USD = 0.001
@@ -131,10 +132,11 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
       query: queryText(plan, 700),
       maxResults,
       contentType: 'posts',
-      sort: 'new',
+      sort: 'relevance',
       timeFilter: redditTimeFilter(plan),
-      autoDiscoverSubreddits: true,
-      maxSubreddits: 10,
+      // A precise city/intent query is safer than actor-generated subreddit
+      // expansion, which returned unrelated global posts in the benchmark.
+      autoDiscoverSubreddits: false,
     }
   },
   normalize: normalizeRedditOpportunity,
@@ -373,13 +375,14 @@ function commonIdentity(args: {
   name: string
   platform: SocialPlatform
   content: string
-  query: string
   sourceUrl: string
-  location: string | null
+  requestedLocation: string | null
+  locationEvidence: string
   engagement: number
   people?: CandidateIdentity['people_to_follow']
 }): CandidateIdentity {
   const demonstratedIntent = classifyOpportunityIntent(args.content)
+  const demonstratedLocation = demonstratedOpportunityLocation(args.locationEvidence, args.requestedLocation)
   return {
     name: args.name,
     opportunity_kind: 'thread',
@@ -389,8 +392,8 @@ function commonIdentity(args: {
     activity_level: activityLevel(args.engagement),
     engagement_count: args.engagement,
     access_type: 'public',
-    location: args.location,
-    provider_location: args.location,
+    location: demonstratedLocation,
+    provider_location: args.requestedLocation,
     urls: [args.sourceUrl],
     participation_rules: `Review the current ${args.platform} community and thread rules. Use only public context and do not automate contact or posting.`,
     recommended_action:
@@ -404,6 +407,7 @@ function commonIdentity(args: {
 export function normalizeRedditOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
   const row = record(value)
   if (!row || text(row._type, 20)?.toLowerCase() !== 'post') return null
+  if (row._status != null && text(row._status, 20)?.toLowerCase() !== 'found') return null
   if (row.isNsfw === true || row.isLocked === true || row.isArchived === true) return null
   const sourceUrl = safePlatformUrl(row.permalink, 'Reddit')
   const title = text(row.title, 180)
@@ -421,9 +425,9 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
     name: title,
     platform: 'Reddit',
     content,
-    query: context.query,
     sourceUrl,
-    location: context.location,
+    requestedLocation: context.location,
+    locationEvidence: `${content}\n${subreddit ?? ''}`,
     engagement,
     people:
       author && author !== '[deleted]'
@@ -446,8 +450,8 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
       {
         claim:
           engagement > 0
-            ? `Public Reddit discussion matched the approved demand query and showed ${engagement} visible score and comment signals.`
-            : 'Public Reddit discussion matched the approved demand query.',
+            ? `The approved public source returned this Reddit discussion with ${engagement} visible score and comment signals.`
+            : 'The approved public source returned this Reddit discussion.',
         source_url: sourceUrl,
         observed_at: observed,
         confidence: calibratedOpportunityConfidence({
@@ -456,13 +460,14 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
           observedAt: observed,
           attemptedAt: context.attemptedAt,
           engagement,
-          location: context.location,
+          location: identity.location ?? null,
         }),
         detail: {
           provider: 'apify',
           actor_id: context.actorId,
           provider_post_id: text(row.id, 200),
           subreddit,
+          requested_location: context.location,
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,
@@ -495,9 +500,9 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
     name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
     platform: 'X',
     content,
-    query: context.query,
     sourceUrl,
-    location: context.location,
+    requestedLocation: context.location,
+    locationEvidence: `${content}\n${text(author?.description, 180) ?? ''}`,
     engagement,
     people:
       name || screenName
@@ -520,8 +525,8 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
       {
         claim:
           engagement > 0
-            ? `Public X post matched the approved demand query and showed ${engagement} visible interactions.`
-            : 'Public X post matched the approved demand query.',
+            ? `The approved public source returned this X post with ${engagement} visible interactions.`
+            : 'The approved public source returned this X post.',
         source_url: sourceUrl,
         observed_at: observed,
         confidence: calibratedOpportunityConfidence({
@@ -530,12 +535,13 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
           observedAt: observed,
           attemptedAt: context.attemptedAt,
           engagement,
-          location: context.location,
+          location: identity.location ?? null,
         }),
         detail: {
           provider: 'apify',
           actor_id: context.actorId,
           provider_post_id: text(row.postId, 200),
+          requested_location: context.location,
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,

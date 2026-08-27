@@ -7,6 +7,7 @@ import {
   type GtmResearchRun,
 } from '../../data/entities'
 import {
+  FIT_SCORER_REVISION,
   FIT_SCORER_VERSION,
   ruleBasedFitScorer,
   summarizeFitResults,
@@ -27,6 +28,7 @@ export interface RequalifyEm {
 
 export type RequalifyResearchRunResult = {
   scorerVersion: typeof FIT_SCORER_VERSION
+  scorerRevision: typeof FIT_SCORER_REVISION
   alreadyCurrent: boolean
   candidates: number
   rescored: number
@@ -83,6 +85,66 @@ function dataForSeoTarget(
     : null
 }
 
+const LEGACY_TARGETING_LOCATION_ADAPTERS = new Set([
+  'apify-reddit-demand-opportunities',
+  'apify-x-demand-opportunities',
+  'dataforseo-organic-demand-opportunities',
+])
+
+function locationIdentity(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\b(?:united states(?: of america)?|usa|us)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function frozenTargetLocations(play: FitPlayInput): string[] {
+  const providerLocations = play.providerQuery?.locations
+  return [
+    ...(typeof play.geography === 'string' ? [play.geography] : []),
+    ...(Array.isArray(providerLocations)
+      ? providerLocations.filter((value): value is string => typeof value === 'string')
+      : typeof providerLocations === 'string' ? [providerLocations] : []),
+  ].map((value) => value.trim()).filter(Boolean)
+}
+
+/**
+ * The first paid realtor benchmark was stored before social/organic adapters
+ * separated provider targeting from returned evidence. Those adapter versions
+ * copied the requested market into identity.location for every row. Replays
+ * must demote that legacy value to provider_location before fit-v7 scores it;
+ * otherwise requalification would preserve the exact geography false-positive
+ * the corrected adapters prevent on new runs.
+ */
+function demoteLegacyTargetingLocation(args: {
+  identity: CandidateIdentity
+  entityKind: string
+  evidence: GtmEvidence[]
+  play: FitPlayInput
+  priorScorerRevision: unknown
+}): CandidateIdentity {
+  if (args.entityKind !== 'opportunity' || args.priorScorerRevision === FIT_SCORER_REVISION) {
+    return args.identity
+  }
+  const provider = args.evidence.find((row) =>
+    LEGACY_TARGETING_LOCATION_ADAPTERS.has(String(row.providerRef?.provider ?? '')),
+  )?.providerRef?.provider
+  if (!provider) return args.identity
+  const location = typeof args.identity.location === 'string' ? args.identity.location.trim() : ''
+  if (!location) return args.identity
+  const normalized = locationIdentity(location)
+  const matchesTarget = frozenTargetLocations(args.play)
+    .some((target) => locationIdentity(target) === normalized)
+  if (!matchesTarget) return args.identity
+  return {
+    ...args.identity,
+    location: null,
+    provider_location: args.identity.provider_location ?? location,
+  }
+}
+
 function executionWithDistribution(
   run: GtmResearchRun,
   result: RequalifyResearchRunResult,
@@ -111,6 +173,7 @@ function executionWithDistribution(
       },
       requalification: {
         scorer_version: result.scorerVersion,
+        scorer_revision: result.scorerRevision,
         candidates: result.candidates,
         rescored: result.rescored,
         manual_overrides_preserved: result.manualOverridesPreserved,
@@ -202,6 +265,7 @@ export async function requalifyResearchRun(input: {
     ? execution.requalification as Record<string, unknown>
     : {}
   const alreadyCurrent = priorRequalification.scorer_version === FIT_SCORER_VERSION
+    && priorRequalification.scorer_revision === FIT_SCORER_REVISION
     && targets.every(({ candidate, match }) =>
       manuallyReviewed.has(match?.id ?? candidate.id)
       || (match?.qualificationVersion ?? candidate.qualificationVersion) === FIT_SCORER_VERSION,
@@ -220,6 +284,7 @@ export async function requalifyResearchRun(input: {
     })))
     return {
       scorerVersion: FIT_SCORER_VERSION,
+      scorerRevision: FIT_SCORER_REVISION,
       alreadyCurrent: true,
       candidates: targets.length,
       rescored: 0,
@@ -253,9 +318,17 @@ export async function requalifyResearchRun(input: {
         .filter((row) => row.qualityStatus !== 'invalid')
         .map(candidateEvidence)
       const providerLocation = dataForSeoTarget(storedEvidence, play)
-      const identity = providerLocation && !candidate.identity.provider_location
+      const priorQualification = (match?.qualification ?? candidate.qualification) as Record<string, unknown> | null
+      const baseIdentity = providerLocation && !candidate.identity.provider_location
         ? { ...candidate.identity, provider_location: providerLocation }
         : candidate.identity
+      const identity = demoteLegacyTargetingLocation({
+        identity: baseIdentity as CandidateIdentity,
+        entityKind: candidate.entityKind,
+        evidence: storedEvidence,
+        play,
+        priorScorerRevision: priorQualification?.scorer_revision,
+      })
       const entityKind =
         candidate.entityKind === 'person'
         || candidate.entityKind === 'company'
@@ -268,6 +341,7 @@ export async function requalifyResearchRun(input: {
       }, play, usableEvidence)
       candidate.identity = identity
       const qualification = {
+        scorer_revision: FIT_SCORER_REVISION,
         reason: fit.reason,
         breakdown: fit.breakdown,
         unknowns: fit.unknowns,
@@ -301,6 +375,7 @@ export async function requalifyResearchRun(input: {
     const distribution = summarizeFitResults(fitResults)
     const result: RequalifyResearchRunResult = {
       scorerVersion: FIT_SCORER_VERSION,
+      scorerRevision: FIT_SCORER_REVISION,
       alreadyCurrent: false,
       candidates: targets.length,
       rescored,
@@ -321,6 +396,7 @@ export async function requalifyResearchRun(input: {
       requestId: input.requestId ?? null,
       metadata: {
         scorer_version: result.scorerVersion,
+        scorer_revision: result.scorerRevision,
         candidates: result.candidates,
         rescored: result.rescored,
         manual_overrides_preserved: result.manualOverridesPreserved,
@@ -337,6 +413,7 @@ export async function requalifyResearchRun(input: {
   const distribution = summarizeFitResults(fitResults)
   return {
     scorerVersion: FIT_SCORER_VERSION,
+    scorerRevision: FIT_SCORER_REVISION,
     alreadyCurrent: false,
     candidates: targets.length,
     rescored,

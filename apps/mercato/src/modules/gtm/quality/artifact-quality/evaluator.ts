@@ -5,6 +5,7 @@ import {
   type GtmArtifactFixture,
 } from './schemas'
 import {
+  assessRealtorOpportunitySuitability,
   classifyOpportunityIntent,
   realtorOpportunityNoiseReasons,
 } from '../../lib/research/opportunity-quality'
@@ -154,6 +155,15 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
       if (!label.liveAccessible) detected.push('dead_or_inaccessible_destination')
       if (realtorOpportunityNoiseReasons(label.observedContent, destination).length > 0) {
         detected.push('realtor_false_positive')
+      }
+      if (
+        !assessRealtorOpportunitySuitability(
+          label.observedContent,
+          label.expectedIntent,
+          destination,
+        ).relevant
+      ) {
+        detected.push('realtor_demand_not_demonstrated')
       }
       if (!label.usefulEnoughToActOn) detected.push('not_useful_enough_to_act_on')
       if (label.duplicateOf) detected.push('duplicate_destination')

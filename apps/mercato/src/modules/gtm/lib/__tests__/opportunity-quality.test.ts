@@ -1,8 +1,11 @@
 import {
+  assessRealtorOpportunitySuitability,
   assessOpportunityDestination,
   calibratedOpportunityConfidence,
   canonicalOpportunityUrl,
   classifyOpportunityIntent,
+  demonstratedOpportunityLocation,
+  opportunityHasContradictoryUsState,
   rankOpportunityCandidates,
   realtorOpportunityNoiseReasons,
   opportunityEvidenceText,
@@ -38,6 +41,37 @@ describe('opportunity quality primitives', () => {
     expect(text).toContain('first-time buyer')
     expect(text).not.toContain('seller leads')
     expect(realtorOpportunityNoiseReasons(text)).toEqual([])
+  })
+
+  it('treats a requested market as targeting until returned material proves it', () => {
+    expect(demonstratedOpportunityLocation('Unrelated global discussion', 'Austin, Texas')).toBeNull()
+    expect(
+      demonstratedOpportunityLocation('Question posted in r/Austin by a local home buyer', 'Austin, Texas'),
+    ).toBe('Austin, Texas')
+    expect(
+      opportunityHasContradictoryUsState('I am selling my South Florida home.', 'Austin, Texas'),
+    ).toBe(true)
+  })
+
+  it('distinguishes consumer housing demand from generic seller language and agent marketing', () => {
+    expect(
+      assessRealtorOpportunitySuitability(
+        'I am moving to Austin and looking to buy a home. Which neighborhoods should I compare?',
+        'buyer_intent',
+      ).relevant,
+    ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'OfferUp seller preparing to move a collectible card collection.',
+        'seller_intent',
+      ).relevant,
+    ).toBe(false)
+    expect(
+      assessRealtorOpportunitySuitability(
+        "I'm a realtor. Contact me for five buyer tips.",
+        'buyer_intent',
+      ).reasons,
+    ).toEqual(expect.arrayContaining(['agent_self_promotion', 'generic_advice_content']))
   })
 
   it('canonicalizes tracking variants and source aliases into one destination', () => {

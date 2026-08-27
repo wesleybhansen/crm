@@ -184,7 +184,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     }
   })
 
-  it('keeps social queries concise and applies negative operators only to web search', () => {
+  it('keeps source-specific queries concise and versions the frozen lane contract', () => {
     const play = {
       marketType: 'b2c' as const,
       geography: 'Austin, Texas',
@@ -198,14 +198,14 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v2')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v3')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(new Set(queries).size).toBe(3)
     }
   })
 
-  it('uses one economical X lane and keeps search-engine exclusions out of social queries', () => {
+  it('uses one economical X lane and applies exclusions only where source syntax supports them', () => {
     const play = {
       geography: 'Austin, Texas',
       audience: 'Austin homeowners considering selling a home',
@@ -219,7 +219,8 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(x).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(3)
-    expect([...x, ...reddit].every((lane) => !lane.query.includes('-jobs'))).toBe(true)
+    expect(x.every((lane) => !lane.query.includes('-jobs'))).toBe(true)
+    expect(reddit.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
     expect(web.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
     expect(new Set(web.map((lane) => lane.query)).size).toBe(3)
   })

@@ -247,6 +247,34 @@ describe('Apify public social demand opportunities', () => {
     expect(x?.identity.intent_kind).toBe('local_audience')
   })
 
+  it('does not stamp the requested market onto unrelated returned posts', () => {
+    const context = {
+      query: 'Austin home seller question',
+      location: 'Austin, Texas',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    }
+    const reddit = normalizeRedditOpportunity(
+      redditPost({
+        title: 'OfferUp seller preparing to move collectibles',
+        body: 'A card seller is packing a collection.',
+        subreddit: 'collectibles',
+      }),
+      context,
+    )
+    const x = normalizeXOpportunity(
+      xPost({
+        postText: 'Generic seller preparing to move a collection.',
+        author: { name: 'Example', screenName: 'example', description: 'Collector' },
+      }),
+      { ...context, actorId: APIFY_X_OPPORTUNITY_CONFIG.actorId },
+    )
+    expect(reddit?.identity.location).toBeNull()
+    expect(reddit?.identity.provider_location).toBe('Austin, Texas')
+    expect(x?.identity.location).toBeNull()
+    expect(x?.identity.provider_location).toBe('Austin, Texas')
+  })
+
   it('builds bounded, posts-only, recent inputs from one approved discovery phrase', async () => {
     const redditRun = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
     const reddit = createApifyRedditOpportunityAdapter({
@@ -261,10 +289,9 @@ describe('Apify public social demand opportunities', () => {
         query: 'South Bay buying or selling a home',
         maxResults: 5,
         contentType: 'posts',
-        sort: 'new',
+        sort: 'relevance',
         timeFilter: 'week',
-        autoDiscoverSubreddits: true,
-        maxSubreddits: 10,
+        autoDiscoverSubreddits: false,
       },
       expect.objectContaining({
         build: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorBuild,
