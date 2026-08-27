@@ -24,12 +24,14 @@ function label(playId: string, rank: number): RealtorBenchmarkLabel {
           ? `Homeowner asking how to prepare and price a home to sell in ${play.market}.`
           : `Public ${play.market} neighborhood community and housing discussion.`,
     sanitizedObservedLocation: play.geography,
+    sourcePublishedAt: play.lane === 'local_audience' ? null : '2026-08-25T20:00:00.000Z',
     observedAt: '2026-08-26T20:00:00.000Z',
     eventStartAt: null,
     systemIntent: play.lane,
     systemDisposition: 'accepted',
     relevantToPlay: true,
     geographyCorrect: true,
+    currentWithinWindow: true,
     liveAccessible: true,
     usefulEnoughToActOn: rank <= 8,
     duplicateOfHash: rank === 10 && playId === REALTOR_BENCHMARK_PLAYS[0].id
@@ -84,6 +86,7 @@ describe('controlled realtor opportunity benchmark', () => {
           ...row,
           relevantToPlay: index < 6,
           systemIntent: index < 7 ? row.systemIntent : null,
+          currentWithinWindow: index < 8,
           liveAccessible: index < 8,
           usefulEnoughToActOn: index < 5,
           duplicateOfHash: index < 2 ? label(play.id, 10).destinationHash : null,
