@@ -72,6 +72,24 @@ describe('opportunity quality primitives', () => {
         'buyer_intent',
       ).reasons,
     ).toEqual(expect.arrayContaining(['agent_self_promotion', 'generic_advice_content']))
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Google Ads case study: a Phoenix brokerage reduced cost per lead and generated more qualified seller leads.',
+        'seller_intent',
+      ).reasons,
+    ).toContain('marketing_case_study')
+    expect(
+      assessRealtorOpportunitySuitability(
+        'I am selling my current house so I can buy a smaller home. What should I repair first?',
+        'seller_intent',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'mixed_intent', reasons: [] })
+    expect(
+      assessRealtorOpportunitySuitability(
+        'First-time buyer moving to Austin and looking for a home near a walkable neighborhood.',
+        'buyer_intent',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
   })
 
   it('canonicalizes tracking variants and source aliases into one destination', () => {
@@ -189,6 +207,11 @@ describe('opportunity quality primitives', () => {
     expect(realtorOpportunityNoiseReasons('Join our brokerage. We are hiring realtors.')).toContain(
       'agent_recruiting',
     )
+    expect(
+      realtorOpportunityNoiseReasons(
+        'Google Ads case study: 72% lower cost per lead and 14 qualified seller leads for a real estate company.',
+      ),
+    ).toContain('marketing_case_study')
     expect(realtorOpportunityNoiseReasons('How should I price my home before selling?')).toEqual([])
   })
 

@@ -138,6 +138,83 @@ describe('ruleBasedFitScorer', () => {
     expect(result.contradictions).toContain('exclusion.realtor_noise')
   })
 
+  it('rejects a real-estate advertising case study that contains seller-lead language', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Google Ads case study: lower cost per lead for a Phoenix real estate company',
+          opportunity_kind: 'post',
+          platform: 'LinkedIn',
+          audience_description:
+            'A brokerage campaign generated qualified seller leads after Google Ads optimization.',
+          location: 'Phoenix, Arizona',
+          access_type: 'public',
+          source_published_at: '2026-08-25T15:15:35.672Z',
+          urls: ['https://www.linkedin.com/posts/example-case-study'],
+          recommended_action: 'Read the full post and decide whether a manual contribution is appropriate.',
+          message_angle: 'Offer useful local context only when it answers a real consumer question.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Phoenix, Arizona',
+        audience: 'Phoenix homeowners preparing to sell',
+        signal: 'A current public seller question demonstrates intent',
+        referenceTime: '2026-08-27T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.contradictions).toContain('exclusion.realtor_noise')
+  })
+
+  it('accepts a seller question that also mentions the home the consumer plans to buy next', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Selling before buying a smaller home',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          audience_description:
+            'I am selling my Phoenix house so I can buy a smaller home. What should I repair first?',
+          location: 'Phoenix, Arizona',
+          access_type: 'public',
+          source_published_at: '2026-08-26T15:00:00.000Z',
+          urls: ['https://www.reddit.com/r/phoenix/comments/example/selling_before_buying'],
+          recommended_action: 'Read the full thread and answer the repair question manually.',
+          message_angle: 'Explain which repairs matter before mentioning professional help.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Phoenix, Arizona',
+        audience: 'Phoenix homeowners preparing to sell',
+        signal: 'A current public seller question demonstrates intent',
+        referenceTime: '2026-08-27T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('accepted')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'opportunity.intent',
+          status: 'pass',
+          observed: expect.arrayContaining(['mixed_intent']),
+        }),
+      ]),
+    )
+  })
+
   it('does not trust a provider intent label when returned content proves a different lane', () => {
     const result = ruleBasedFitScorer.score(
       {

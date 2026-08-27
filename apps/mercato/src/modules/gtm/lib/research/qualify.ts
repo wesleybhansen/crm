@@ -78,7 +78,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v4' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v5' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -259,6 +259,16 @@ function expectedOpportunityIntent(play: FitPlayInput): string[] {
 
 function intentMatchesLane(expected: string[], observed: string): boolean {
   if (expected.includes(observed)) return true
+  // A result can demonstrate both buyer and seller language while still
+  // satisfying a frozen single-intent lane. Preserve the requested signal
+  // instead of discarding a seller question merely because the author also
+  // mentions the home they intend to buy next (and vice versa).
+  if (
+    observed === 'mixed_intent'
+    && (expected.includes('buyer_intent') || expected.includes('seller_intent'))
+  ) {
+    return true
+  }
   // A mixed lane deliberately asks for either demonstrated buyer or seller
   // demand. Do not require an individual result to prove both kinds of intent;
   // that would reject the precise single-intent results the lane is meant to
