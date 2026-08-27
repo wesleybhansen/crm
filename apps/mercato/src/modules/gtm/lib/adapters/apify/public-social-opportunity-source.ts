@@ -46,6 +46,7 @@ type SocialPlatform = 'Reddit' | 'X'
 export type PublicSocialOpportunityConfig = {
   adapterId: string
   platform: SocialPlatform
+  enabledEnv?: string
   actorId: string
   actorBuild: string
   actorEnv: string
@@ -145,6 +146,7 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
 export const APIFY_X_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-x-demand-opportunities',
   platform: 'X',
+  enabledEnv: 'GTM_APIFY_X_OPPORTUNITY_ENABLED',
   actorId: 'scraper_one/x-posts-search',
   actorBuild: '0.0.153',
   actorEnv: 'GTM_APIFY_ACTOR_X_POST_SEARCH',
@@ -213,7 +215,13 @@ export function publicSocialOpportunityEnabled(
   config: PublicSocialOpportunityConfig,
   env: SocialEnv = process.env,
 ): boolean {
-  return apifyEnabled(env) && apifyToken(env) !== null && publicSocialOpportunityApproved(config, env)
+  const capabilityEnabled = config.enabledEnv == null || envValue(env, config.enabledEnv) === 'true'
+  return (
+    capabilityEnabled
+    && apifyEnabled(env)
+    && apifyToken(env) !== null
+    && publicSocialOpportunityApproved(config, env)
+  )
 }
 
 export function publicSocialOpportunityDescriptor(

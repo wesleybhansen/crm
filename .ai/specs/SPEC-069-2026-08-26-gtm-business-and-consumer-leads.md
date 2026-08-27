@@ -273,7 +273,7 @@ manual-only. A credential alone never activates one.
 |---|---|---|---|
 | Apify LinkedIn post search | Public LinkedIn posts with buyer, seller, or local-audience demand | `harvestapi/linkedin-post-search` build `0.0.104`; start, post, and no-result events; comments, reactions, and nested profile enrichment off | Exact actor/build rate version plus consumer-opportunity approval |
 | Apify Reddit search | Public, non-sensitive Reddit threads; locked, archived, NSFW, quarantined, and sensitive results dropped | `clearpath/reddit-search-scraper` build `0.0.66`; actor-start, dataset-item, and result-scraped events | `GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED` plus exact rate version |
-| Apify X post search | Public, recent X posts with bounded buyer, seller, mixed, or local intent | `scraper_one/x-posts-search` build `0.0.153`; initialization and result-item events | `GTM_APIFY_X_OPPORTUNITY_USE_APPROVED` plus exact rate version |
+| Apify X post search | Public, recent X posts with bounded buyer, seller, mixed, or local intent | `scraper_one/x-posts-search` build `0.0.153`; initialization and result-item events | `GTM_APIFY_X_OPPORTUNITY_ENABLED`, `GTM_APIFY_X_OPPORTUNITY_USE_APPROVED`, and exact rate version |
 | DataForSEO organic Live Advanced | Public indexed communities, forums, events, discussions, creator pages, and other demand destinations | `/v3/serp/google/organic/live/advanced`; `$0.002` per ten organic results; depth at most 50; price-multiplying operators refused | `GTM_DATAFORSEO_CONSUMER_OPPORTUNITY_USE_APPROVED`, exact terms/retention, and exact organic price version |
 
 Apify Google Maps and the governed business-source adapters remain available for
@@ -390,6 +390,15 @@ truncation. The response excludes provider payloads, prompts, secrets, personal
 contact data, and unrestricted free text. Existing provider-operation and
 candidate/evidence rows are sufficient; quality-v2 adds no database migration.
 
+An adapter can be contract-approved yet operationally held when observed cost
+per useful opportunity is unacceptable. The X source therefore additionally
+fails closed unless `GTM_APIFY_X_OPPORTUNITY_ENABLED=true`. Its customer-use
+approval and frozen rate version remain separate rights and pricing facts; the
+operational switch does not rewrite either. Production keeps X held after the
+owner benchmark returned one rejected row at 738,750 internal credits, while
+leaving its adapter and exact billing contract available for a later bounded
+retest on an improved account tier or actor contract.
+
 ## 13. Acceptance tests
 
 1. US B2B remains provider-runnable and automated-email eligible.
@@ -431,3 +440,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-26: Added exact, finalized-billing opportunity adapters for LinkedIn, Reddit, X, and DataForSEO organic search; separated public-opportunity rights from public-profile contact rights; added safe tenant-scoped GTM MCP tools; and made the named GTM regression gates required in CRM and Hub CI. Current local gates: CRM GTM 93 passing suites / 978 passing tests (one suite and seven tests intentionally skipped), Hub GTM regression 240/240, full Hub 1,441/1,441, marketing 29/29, and CRM, Hub, and marketing typechecks clean.
 - 2026-08-26: Recorded the production audit after the foundation release (four adapters and customer release enabled, zero GTM production rows) and specified the additive quality-v2 closeout: evidence-only intent, play-specific `fit-v7`, bounded source-query lanes, canonical deduplication, freshness/access checks, calibrated ranking, twelve-play realtor benchmark, adversarial fixtures, responsive breakpoints, exact counsel delta, and tenant-scoped production quality diagnostics.
 - 2026-08-27: The first two bounded realtor benchmark passes exposed synthetic geography (requested markets copied into social and organic rows), broad seller-word false positives, generic agent content, and noisy actor auto-discovery. Added the `fit-v7-quality-v3` revision marker, evidence-proven locality, wrong-state rejection, realtor consumer-demand suitability, source-specific query-v3 syntax, precise Reddit search without actor-generated subreddit expansion, honest provider claims, explicit event-date parsing, and adversarial fixtures for targeting-only geography, marketplace sellers, and agent listicles. Existing paid runs can be requalified without another provider call because idempotency now includes the scorer revision as well as `fit-v7`.
+- 2026-08-27: Added an independent fail-closed X opportunity operational switch after production quality diagnostics showed one rejected result at 738,750 internal credits. Contract approval and rate truth remain intact; X stays held until a labeled benchmark and current account tier demonstrate acceptable quality and cost per useful opportunity.
