@@ -1,4 +1,5 @@
 import { fixtureConsumerSourceAdapter } from '../adapters/fixture-consumer'
+import type { SourceAdapter } from '../adapters/types'
 import { createCampaign } from '../campaign/build'
 import { FixtureLedger } from '../credits/ledger'
 import {
@@ -248,5 +249,75 @@ describe('consumer lead lifecycle regression', () => {
     )
     expect(em.table(GtmCampaign)).toHaveLength(0)
     expect(em.table(GtmSendAttempt)).toHaveLength(0)
+
+    const firstOpportunity = opportunities[0]
+    firstOpportunity.identity = {
+      ...firstOpportunity.identity,
+      stale_parser_field: 'must be removed by the next observation',
+    }
+    const refreshedAdapter: SourceAdapter = {
+      ...fixtureConsumerSourceAdapter,
+      async search(searchPlan) {
+        const fetched = await fixtureConsumerSourceAdapter.search(searchPlan)
+        if (!fetched.data) return fetched
+        return {
+          ...fetched,
+          data: fetched.data.map((candidate, index) =>
+            index === 0
+              ? {
+                  ...candidate,
+                  identity: {
+                    ...candidate.identity,
+                    activity_level: 'medium',
+                    audience_description: 'A refreshed current snapshot from the public destination',
+                  },
+                }
+              : candidate,
+          ),
+        }
+      },
+    }
+    const refreshedRun = em.create(GtmResearchRun, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      status: 'running',
+      providerPlan: {
+        schemaVersion: plan.schemaVersion,
+        planHash: plan.planHash,
+        adapterPlan: plan.adapterPlan,
+        policy: plan.policy,
+        query: plan.query,
+      },
+      limits: plan.limits,
+      estimatedCredits: String(plan.estimatedCredits),
+    })
+    em.persist(refreshedRun)
+    await em.flush()
+
+    const refreshed = await executeResearchRun({
+      em,
+      ledger: new FixtureLedger({ poolBalance: 100 }),
+      adapters: {
+        [refreshedAdapter.descriptor.adapter_id]: refreshedAdapter,
+      },
+      run: refreshedRun,
+      play,
+      noliOrgId: '77777777-7777-4777-8777-777777777777',
+      noliUserId: USER,
+      markupMultiplier: 2,
+      now: () => new Date('2026-08-27T12:00:00.000Z'),
+    })
+
+    expect(refreshed.candidatesInserted).toBe(0)
+    expect(refreshed.candidatesReused).toBeGreaterThan(0)
+    expect(firstOpportunity.identity).toEqual(
+      expect.objectContaining({
+        activity_level: 'medium',
+        audience_description: 'A refreshed current snapshot from the public destination',
+      }),
+    )
+    expect(firstOpportunity.identity).not.toHaveProperty('stale_parser_field')
   })
 })

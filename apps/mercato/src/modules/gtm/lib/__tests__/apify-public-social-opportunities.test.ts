@@ -325,6 +325,55 @@ describe('Apify public social demand opportunities', () => {
     expect(x?.identity.provider_location).toBe('Austin, Texas')
   })
 
+  it('uses an actually returned, frozen market subreddit as location evidence', () => {
+    const candidate = normalizeRedditOpportunity(
+      redditPost({
+        title: 'Thinking of selling our home this fall',
+        body: 'We are considering selling and would value local advice.',
+        subreddit: 'AustinHousing',
+      }),
+      {
+        query: 'self:yes "selling our home"',
+        location: 'Austin, Texas',
+        scopedSubreddits: ['Austin', 'AskAustin', 'AustinHousing'],
+        attemptedAt: CLOCK.toISOString(),
+        actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+      },
+    )
+
+    expect(candidate?.identity.location).toBe('Austin, Texas')
+    expect(candidate?.evidence[0]?.detail).toMatchObject({
+      subreddit: 'AustinHousing',
+      location_basis: 'scoped_returned_subreddit',
+    })
+  })
+
+  it('passes frozen subreddit scopes to the actor and keeps auto-discovery off', async () => {
+    const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor,
+    })
+    await adapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        reddit_subreddits: ['Austin', 'AskAustin', 'AustinHousing'],
+      },
+    })
+
+    expect(runActor).toHaveBeenCalledWith(
+      APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+      expect.objectContaining({
+        subreddits: ['Austin', 'AskAustin', 'AustinHousing'],
+        autoDiscoverSubreddits: false,
+        sort: 'new',
+      }),
+      expect.any(Object),
+    )
+  })
+
   it('builds bounded, posts-only, recent inputs from one approved discovery phrase', async () => {
     const redditRun = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
     const reddit = createApifyRedditOpportunityAdapter({
@@ -339,8 +388,9 @@ describe('Apify public social demand opportunities', () => {
         query: 'South Bay buying or selling a home',
         maxResults: 5,
         contentType: 'posts',
-        sort: 'relevance',
+        sort: 'new',
         timeFilter: 'week',
+        subreddits: [],
         autoDiscoverSubreddits: false,
       },
       expect.objectContaining({

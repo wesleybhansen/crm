@@ -151,6 +151,30 @@ describe('opportunity quality primitives', () => {
     ).toBe(true)
     expect(
       assessRealtorOpportunitySuitability(
+        'Austin Community Registry for neighborhood associations and homeowner organizations.',
+        'local_audience',
+        null,
+        'community',
+      ).relevant,
+    ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Upcoming Austin first-time home buyer workshop and homebuyer education class.',
+        'buyer_intent',
+        null,
+        'community',
+      ).relevant,
+    ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Upcoming Austin home seller workshop about preparing a house for sale.',
+        'seller_intent',
+        null,
+        'event',
+      ).relevant,
+    ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
         'I am looking to buy a home in Denver and need help comparing neighborhoods.',
         'buyer_intent',
         null,

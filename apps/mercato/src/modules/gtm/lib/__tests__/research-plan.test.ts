@@ -198,7 +198,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v5')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v6')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(new Set(queries).size).toBe(3)
@@ -213,18 +213,27 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       providerQuery: { opportunity_intent_lane: 'seller_intent' },
     }
     const x = buildOpportunityQueryLanes(play, 'apify-x-demand-opportunities')
+    const linkedin = buildOpportunityQueryLanes(play, 'apify-linkedin-demand-opportunities')
     const reddit = buildOpportunityQueryLanes(play, 'apify-reddit-demand-opportunities')
     const web = buildOpportunityQueryLanes(play, 'dataforseo-organic-demand-opportunities')
 
     expect(x).toHaveLength(1)
+    expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(3)
     expect(x.every((lane) => !lane.query.includes('-jobs'))).toBe(true)
     expect(
-      reddit.every(
-        (lane) => !/[()"]|\bAND\b|subreddit:|-jobs/i.test(lane.query),
-      ),
+      reddit.every((lane) => /self:yes|homeowner|homebuyer|neighborhood/i.test(lane.query)),
     ).toBe(true)
+    expect(
+      reddit.every((lane) => Array.isArray(lane.providerQuery.reddit_subreddits)),
+    ).toBe(true)
+    expect(reddit[0]?.providerQuery.reddit_subreddits).toEqual([
+      'Austin',
+      'AskAustin',
+      'AustinHousing',
+      'AustinRealEstate',
+    ])
     expect(web.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([

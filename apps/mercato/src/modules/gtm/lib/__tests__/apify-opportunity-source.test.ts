@@ -267,16 +267,12 @@ describe('Apify demand-opportunity source contract', () => {
     expect(plan.ok).toBe(true)
     if (plan.ok) {
       expect(plan.entityKind).toBe('opportunity')
-      expect(plan.adapterPlan).toHaveLength(3)
+      expect(plan.adapterPlan).toHaveLength(1)
       expect(plan.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(5)
       expect(plan.adapterPlan.every((batch) => batch.adapter_id === APIFY_OPPORTUNITY_SOURCE_ADAPTER_ID)).toBe(true)
       expect(plan.adapterPlan.every((batch) => batch.billableUnit === 'apify_millidollar')).toBe(true)
-      expect(plan.adapterPlan.every((batch) => batch.providerUnits === 10)).toBe(true)
-      expect(plan.adapterPlan.map((batch) => batch.queryLaneId)).toEqual([
-        'seller_intent:1',
-        'seller_intent:2',
-        'seller_intent:3',
-      ])
+      expect(plan.adapterPlan[0].providerUnits).toBeCloseTo(10.05, 10)
+      expect(plan.adapterPlan.map((batch) => batch.queryLaneId)).toEqual(['seller_intent:1'])
     }
   })
 

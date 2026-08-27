@@ -720,7 +720,27 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
               evidenceRows: 0,
             }
           }
-          if (insertCandidate) tem.persist(row)
+          if (insertCandidate) {
+            tem.persist(row)
+          } else if (row.entityKind === 'opportunity' && candidate.entity_kind === 'opportunity') {
+            // Opportunity identities are a current snapshot of one canonical
+            // public destination. Reusing the dedupe row must not strand an
+            // older parser classification, publication timestamp, or access
+            // state while the run-level qualification is computed from a
+            // newer provider observation.
+            row.identity = { ...(candidate.identity as Record<string, unknown>) }
+            row.fitStatus = fit.verdict
+            row.fitScore = String(fit.fitScore)
+            row.rejectReason = fit.verdict === 'accepted' ? null : fit.reason
+            row.qualityStatus = evidenceAssessment.status
+            row.qualityScore = String(evidenceAssessment.score)
+            row.qualification = qualification
+            row.qualificationVersion = fit.version
+            row.retentionExpiresAt = new Date(
+              now().getTime() + CANDIDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+            )
+            tem.persist(row)
+          }
           const match = tem.create(GtmCandidateMatch, {
             organizationId: run.organizationId,
             tenantId: run.tenantId,

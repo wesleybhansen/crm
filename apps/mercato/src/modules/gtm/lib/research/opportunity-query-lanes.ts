@@ -108,26 +108,55 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string): string[
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
     if (intent === 'buyer_intent') {
-      return ['I am looking to buy a home advice', 'moving here house hunting recommendations', 'first time home buyer need advice']
+      return [
+        'self:yes ("buy a home" OR "buying a home" OR "house hunting")',
+        'self:yes ("first-time home buyer" OR "first time home buyer")',
+        'self:yes ("moving here" OR relocating) (home OR house)',
+      ]
     }
     if (intent === 'seller_intent') {
-      return ['I am thinking of selling my home advice', 'I need to sell my house question', 'my home worth considering selling']
+      return [
+        'self:yes ("sell my home" OR "selling my house" OR "selling our home")',
+        'self:yes ("thinking of selling" OR "considering selling") (home OR house)',
+        'self:yes ("home worth" OR "house worth") (sell OR selling)',
+      ]
     }
     if (intent === 'mixed_intent') {
-      return ['buy before selling home question', 'moving here sell my home advice', 'buying and selling home decision']
+      return [
+        'self:yes ("buy before selling" OR "sell before buying") home',
+        'self:yes ("selling our home" OR "sell my home") (moving OR relocating)',
+        'self:yes ("buying and selling" OR "sell and buy") home',
+      ]
     }
-    return ['neighborhood homeowners community', 'homebuyer workshop event', 'local housing questions discussion']
+    return [
+      '(homeowner OR "home buyer" OR housing) (question OR advice OR discussion)',
+      '(homebuyer OR homeowner) (workshop OR event OR class)',
+      '(neighborhood OR community) (homeowner OR housing OR moving)',
+    ]
   }
-  if (intent === 'buyer_intent') {
-    return ['"I am looking to buy a home" advice', '"moving to" "house hunting" recommendations', '"first-time home buyer" "need advice"']
+  const socialSeeds: Record<OpportunityIntentLane, string[]> = {
+    buyer_intent: [
+      '("buying a home" OR "house hunting") AND (question OR advice) NOT realtor',
+      '("first-time home buyer" OR "moving here") AND (question OR advice) NOT realtor',
+      '(homebuyer OR relocating) AND (workshop OR community) NOT realtor',
+    ],
+    seller_intent: [
+      '("selling my home" OR "selling our home") AND (question OR advice) NOT realtor',
+      '("thinking of selling" OR "home worth") AND (question OR advice) NOT realtor',
+      '(homeowner OR "home seller") AND (workshop OR community) NOT realtor',
+    ],
+    mixed_intent: [
+      '("buy before selling" OR "sell before buying") AND home NOT realtor',
+      '("buying and selling" OR relocating) AND home NOT realtor',
+      '(homebuyer OR homeowner) AND (workshop OR community) NOT realtor',
+    ],
+    local_audience: [
+      '("homebuyer workshop" OR "homeowner association") AND community NOT realtor',
+      '(neighborhood OR community) AND (homeowner OR housing) NOT realtor',
+      '(homebuyer OR homeowner) AND (event OR group) NOT realtor',
+    ],
   }
-  if (intent === 'seller_intent') {
-    return ['"I am thinking of selling my home" advice', '"I need to sell my house" question', '"my home worth" "considering selling"']
-  }
-  if (intent === 'mixed_intent') {
-    return ['"buy before selling" home question', '"moving to" "sell my home" advice', '"buying and selling" home decision']
-  }
-  return ['"homebuyer workshop" upcoming', '"homeowner association" community', '"housing event" registration']
+  return socialSeeds[intent]
 }
 
 function sourceMaxQueryLength(adapterId: string): number {
@@ -138,6 +167,17 @@ function sourceMaxQueryLength(adapterId: string): number {
 
 function marketName(geography: string): string {
   return geography.split(',')[0]?.trim() || geography
+}
+
+export function realtorMarketSubreddits(geography: string): string[] {
+  const compact = marketName(geography).replace(/[^a-z0-9]/gi, '')
+  if (!compact) return []
+  return unique([
+    compact,
+    `Ask${compact}`,
+    `${compact}Housing`,
+    `${compact}RealEstate`,
+  ])
 }
 
 function genericSeeds(play: PlanPlayInput): string[] {
@@ -167,9 +207,9 @@ function sourceSeed(
     return `${quoted(market)} ${seed} ${exclusions}`
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
-    return `${market} ${seed}`
+    return seed
   }
-  if (adapterId === 'apify-linkedin-demand-opportunities') return `${quoted(market)} ${seed}`
+  if (adapterId === 'apify-linkedin-demand-opportunities') return `${quoted(market)} AND ${seed}`
   if (adapterId === 'apify-x-demand-opportunities') return `${market} ${seed}`
   return `${market} ${seed}`
 }
@@ -210,8 +250,14 @@ export function buildOpportunityQueryLanes(
   const seeds = unique(realtor ? realtorSeeds(intent, adapterId) : genericSeeds(play))
   // X has a material per-run initialization charge. One bounded query per play
   // keeps the same source coverage without paying that fixed charge three
-  // times; the other sources retain three independently quoted lanes.
-  const sourceLaneCap = adapterId === 'apify-x-demand-opportunities' ? 1 : 3
+  // times. LinkedIn also stays at one boolean query because the live actor can
+  // outlast the synchronous wait boundary. Reddit and organic search retain
+  // three independently quoted lanes.
+  const sourceLaneCap =
+    adapterId === 'apify-x-demand-opportunities'
+    || adapterId === 'apify-linkedin-demand-opportunities'
+      ? 1
+      : 3
   const laneCap = Math.max(1, Math.min(maxLanes, sourceLaneCap))
   const selectedSeeds = seeds.slice(0, laneCap)
   const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
@@ -225,12 +271,15 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v5',
+        query_lane_version: 'opportunity-query-v6',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
         source_search_keywords: [query],
         negative_terms: negativeTerms,
+        ...(adapterId === 'apify-reddit-demand-opportunities'
+          ? { reddit_subreddits: realtorMarketSubreddits(geography) }
+          : {}),
       },
     }
   })

@@ -66,6 +66,7 @@ export type PublicSocialOpportunityConfig = {
 type NormalizeContext = {
   query: string
   location: string | null
+  scopedSubreddits?: string[]
   attemptedAt: string
   actorId: string
 }
@@ -130,14 +131,17 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
     'subredditInfo',
   ],
   buildInput(plan, maxResults) {
+    const subreddits = redditSubreddits(plan)
     return {
       query: queryText(plan, 700),
       maxResults,
       contentType: 'posts',
-      sort: 'relevance',
+      sort: 'new',
       timeFilter: redditTimeFilter(plan),
-      // A precise city/intent query is safer than actor-generated subreddit
-      // expansion, which returned unrelated global posts in the benchmark.
+      subreddits,
+      // Frozen market subreddits plus a precise intent query are safer than
+      // actor-generated community expansion, which returned unrelated global
+      // posts in the controlled benchmark.
       autoDiscoverSubreddits: false,
     }
   },
@@ -348,6 +352,38 @@ function redditTimeFilter(plan: SourceSearchPlan): '' | 'hour' | 'day' | 'week' 
   return 'month'
 }
 
+function redditSubreddits(plan: SourceSearchPlan): string[] {
+  const values = plan.provider_query?.reddit_subreddits
+  if (!Array.isArray(values)) return []
+  const seen = new Set<string>()
+  return values
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim().replace(/^\/?r\//i, ''))
+    .filter((value) => /^[a-z0-9_]{2,50}$/i.test(value))
+    .filter((value) => {
+      const key = value.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, 8)
+}
+
+function scopedSubredditLocation(
+  subreddit: string | null,
+  scopedSubreddits: string[] | undefined,
+  requestedLocation: string | null,
+): string | null {
+  if (!subreddit || !requestedLocation || !scopedSubreddits?.length) return null
+  const returned = subreddit.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const isScoped = scopedSubreddits.some(
+    (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '') === returned,
+  )
+  if (!isScoped) return null
+  const market = requestedLocation.split(',')[0]?.toLowerCase().replace(/[^a-z0-9]/g, '') ?? ''
+  return market && returned.includes(market) ? requestedLocation : null
+}
+
 function activityLevel(count: number): NonNullable<CandidateIdentity['activity_level']> {
   if (count >= 25) return 'high'
   if (count >= 5) return 'medium'
@@ -450,6 +486,12 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
           ]
         : undefined,
   })
+  const subredditLocation = scopedSubredditLocation(
+    subreddit,
+    context.scopedSubreddits,
+    context.location,
+  )
+  if (subredditLocation) identity.location = subredditLocation
   identity.member_count = memberCount || null
   const publishedAt = sourcePublishedAt(row.createdAt)
   identity.source_published_at = publishedAt
@@ -478,6 +520,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
           actor_id: context.actorId,
           provider_post_id: text(row.id, 200),
           subreddit,
+          location_basis: subredditLocation ? 'scoped_returned_subreddit' : null,
           requested_location: context.location,
           source_published_at: publishedAt,
           visible_engagement: engagement,
@@ -801,6 +844,8 @@ export function createPublicSocialOpportunityAdapter(
       const context = {
         query,
         location: locationText(plan),
+        scopedSubreddits:
+          config.platform === 'Reddit' ? redditSubreddits(plan) : undefined,
         attemptedAt: outcome.attemptedAt,
         actorId,
       }
