@@ -212,6 +212,16 @@ describe('opportunity quality primitives', () => {
         'Google Ads case study: 72% lower cost per lead and 14 qualified seller leads for a real estate company.',
       ),
     ).toContain('marketing_case_study')
+    expect(
+      realtorOpportunityNoiseReasons(
+        'Another beautiful home successfully Listed & Sold in Chandler! This lovely 3-bedroom, 2-bath home is located in an excellent neighborhood.',
+      ),
+    ).toContain('completed_listing_promotion')
+    expect(
+      realtorOpportunityNoiseReasons(
+        'I just sold my Phoenix home and need help buying a smaller place nearby. Where should I look?',
+      ),
+    ).not.toContain('completed_listing_promotion')
     expect(realtorOpportunityNoiseReasons('How should I price my home before selling?')).toEqual([])
   })
 

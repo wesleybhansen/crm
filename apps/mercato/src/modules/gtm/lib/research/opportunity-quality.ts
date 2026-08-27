@@ -73,6 +73,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     'marketing_case_study',
     /\b(?:case stud(?:y|ies)|cost per (?:lead|acquisition)|conversion rate|ad spend|google ads|ppc(?: marketing)?|campaign (?:period|performance|optimization)|qualified (?:buyer|seller) leads?|generate more (?:buyer|seller) leads?|high[- ]intent (?:buyer|seller) leads?|real estate (?:seo|marketing|advertising) (?:agency|specialist|campaign))\b/i,
   ],
+  [
+    'completed_listing_promotion',
+    /\b(?:successfully\s+(?:listed\s*(?:&|and)\s*)?sold|(?:just|recently)\s+sold\s*(?::|!|\bthis\s+(?:beautiful\s+)?(?:home|property|listing)\b)|sold\s+(?:this|another)\s+(?:beautiful\s+)?(?:home|property|listing)|another\s+(?:beautiful\s+)?home\s+(?:successfully\s+)?(?:listed\s*(?:&|and)\s*)?sold)\b/i,
+  ],
 ]
 
 const REALTOR_HOUSING_CONTEXT =

@@ -99,7 +99,7 @@ describe('GTM artifact quality v3', () => {
 
   it('requires semantic, geography, liveness, usefulness, and noise reasons on adversarial results', () => {
     const adversarial = GTM_ARTIFACT_FIXTURES_V2.filter((row) => row.id.startsWith('gtm-q-v2-'))
-    expect(adversarial).toHaveLength(9)
+    expect(adversarial).toHaveLength(10)
     for (const fixture of adversarial) expect(evaluateGtmArtifact(fixture).passed).toBe(true)
 
     const leakage = adversarial.find((row) => row.id === 'gtm-q-v2-query-intent-leakage')!

@@ -173,6 +173,41 @@ describe('ruleBasedFitScorer', () => {
     expect(result.contradictions).toContain('exclusion.realtor_noise')
   })
 
+  it('rejects a completed listing promotion that contains seller and location language', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Another beautiful home successfully listed and sold in Chandler',
+          opportunity_kind: 'post',
+          platform: 'LinkedIn',
+          audience_description:
+            'Another beautiful home successfully listed and sold in Chandler. This lovely 3-bedroom, 2-bath home is in an excellent neighborhood.',
+          location: 'Phoenix, Arizona',
+          access_type: 'public',
+          source_published_at: '2026-08-25T20:25:34.899Z',
+          urls: ['https://www.linkedin.com/posts/example-completed-listing'],
+          recommended_action: 'Read the post and decide whether to contribute manually.',
+          message_angle: 'Offer local context only when it answers an active consumer need.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Phoenix, Arizona',
+        audience: 'Phoenix homeowners preparing to sell',
+        signal: 'A current public seller question demonstrates intent',
+        referenceTime: '2026-08-27T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.contradictions).toContain('exclusion.realtor_noise')
+  })
+
   it('accepts a seller question that also mentions the home the consumer plans to buy next', () => {
     const result = ruleBasedFitScorer.score(
       {
