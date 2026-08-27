@@ -247,6 +247,13 @@ export function buildSourcePlan(
     }
   }
 
+  // Plays use customer-facing surface nouns (community, forum, group, post,
+  // event, ...), while source-adapter contracts intentionally expose the one
+  // canonical provider unit `opportunities`. Capability matching and the
+  // frozen provider call must use that canonical unit or a valid community
+  // play fails closed as an empty plan despite having approved coverage.
+  const providerEntityUnit = entityKind === 'opportunity' ? 'opportunities' : entityUnit
+
   // V1 is US-only and eligibility above has already proven a US geography, so
   // the capability request uses the country code; the play's raw geography
   // text stays in the query for the provider.
@@ -290,7 +297,7 @@ export function buildSourcePlan(
     }
     const coverage = capabilityCovers(descriptor, {
       signal_kind: signalKind,
-      entity_unit: entityUnit,
+      entity_unit: providerEntityUnit,
       geography: geographyCode,
     })
     if (!coverage.covered) {
@@ -347,7 +354,7 @@ export function buildSourcePlan(
       if (requestedCandidates <= 0) break
       const quote = adapter.quote({
         signal_kind: signalKind,
-        entity_unit: entityUnit,
+        entity_unit: providerEntityUnit,
         geography: geographyCode,
         query: plannedSource.query,
         provider_query: plannedSource.providerQuery ?? undefined,
@@ -358,7 +365,7 @@ export function buildSourcePlan(
         adapter_id: descriptor.adapter_id,
         capability: {
           signal_kind: signalKind,
-          entity_unit: entityUnit,
+          entity_unit: providerEntityUnit,
           entity_kind: entityKind,
           geography: geographyCode,
         },
