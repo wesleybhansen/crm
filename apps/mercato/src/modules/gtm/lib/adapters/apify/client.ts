@@ -47,6 +47,10 @@ import type { AdapterResultStatus } from '../types'
 export const APIFY_API_BASE = 'https://api.apify.com/v2'
 export const APIFY_DEFAULT_TIMEOUT_MS = 60_000
 export const APIFY_FINALIZED_BILLING_DELAY_MS = 10_000
+// Apify's terminal run status can become visible before usageTotalUsd catches
+// up with chargedEventCounts. Re-read the same durable run (never restart the
+// Actor) a small, bounded number of times before declaring billing ambiguous.
+export const APIFY_FINALIZED_BILLING_READ_ATTEMPTS = 3
 // Response bodies are truncated before they reach a receipt: receipts are
 // stored jsonb and read by humans, not a place for a full provider payload.
 export const APIFY_BODY_SNIPPET_LIMIT = 500
@@ -419,6 +423,41 @@ function finalizedProviderCost(
   return { costUsd: roundedCostUsd, counts: run.chargedEventCounts }
 }
 
+/**
+ * Distinguishes eventual-consistency evidence from hard contract drift.
+ * Missing prices, missing usage, or a usage/count mismatch may converge on a
+ * later GET of the same run. A changed price, unexpected billed event, or
+ * over-cap total must remain ambiguous immediately instead of being waited
+ * into acceptance.
+ */
+function finalizedBillingCanStillConverge(
+  run: ApifyRunRecord,
+  contract: ApifyFinalizedBillingContract,
+  maxChargeUsd: number,
+): boolean {
+  if (run.pricingInfo.pricingModel !== contract.pricingModel) return false
+  if (contract.pricingModel === 'FREE') {
+    if (Object.values(run.chargedEventCounts).some((count) => count > 0)) return false
+    return run.usageTotalUsd == null
+  }
+  const providerPrices = run.pricingInfo.pricingPerEvent?.actorChargeEvents ?? {}
+  for (const [event, expectedPrice] of Object.entries(contract.eventPricesUsd)) {
+    const observedPrice = providerPrices[event]?.eventPriceUsd
+    if (observedPrice == null) return true
+    if (observedPrice !== expectedPrice) return false
+  }
+  for (const [event, count] of Object.entries(run.chargedEventCounts)) {
+    if (count > 0 && contract.eventPricesUsd[event] == null) return false
+  }
+  const costUsd = Object.entries(run.chargedEventCounts).reduce(
+    (sum, [event, count]) => sum + count * (contract.eventPricesUsd[event] ?? 0),
+    0,
+  )
+  const roundedCostUsd = Math.round(costUsd * 1e6) / 1e6
+  if (roundedCostUsd > maxChargeUsd + 1e-9) return false
+  return run.usageTotalUsd == null || Math.abs(run.usageTotalUsd - roundedCostUsd) > 1e-6
+}
+
 // A signed, terminal run receipt can still be useful operator evidence when
 // it does not match the contract we approved for automatic settlement. Keep
 // the provider's bounded total and event counts, but never turn this evidence
@@ -640,10 +679,58 @@ export async function runActorWithFinalizedBilling(
     }
   }
   const detailEnvelope = detailPayload as { data?: unknown }
-  const finalRun = parseRunRecord(detailEnvelope?.data)
-  const billing = finalRun
+  let finalRun = parseRunRecord(detailEnvelope?.data)
+  let billing = finalRun
     ? finalizedProviderCost(finalRun, options.billingContract, maxChargeUsd)
     : null
+  let billingReadAttempts = 1
+  while (
+    finalRun
+    && finalRun.id === startRun.id
+    && finalRun.status === 'SUCCEEDED'
+    && !billing
+    && finalizedBillingCanStillConverge(finalRun, options.billingContract, maxChargeUsd)
+    && billingReadAttempts < APIFY_FINALIZED_BILLING_READ_ATTEMPTS
+  ) {
+    await (options.sleep ?? defaultSleep)(finalizationDelayMs)
+    billingReadAttempts += 1
+    try {
+      const retried = await fetchTextWithTimeout(
+        fetchImpl,
+        `${APIFY_API_BASE}/actor-runs/${encodeURIComponent(startRun.id)}`,
+        { method: 'GET', headers },
+        timeoutMs,
+      )
+      if (retried.response.status < 200 || retried.response.status >= 300) {
+        return {
+          ...withRun,
+          kind: 'transport_unknown',
+          status: 'ambiguous',
+          items: [],
+          error: `provider_error: finalized run receipt returned HTTP ${retried.response.status}`,
+        }
+      }
+      let retriedPayload: unknown
+      try {
+        retriedPayload = JSON.parse(retried.body)
+      } catch {
+        retriedPayload = null
+      }
+      finalRun = parseRunRecord((retriedPayload as { data?: unknown } | null)?.data)
+      billing = finalRun
+        ? finalizedProviderCost(finalRun, options.billingContract, maxChargeUsd)
+        : null
+    } catch (error) {
+      const message = redactToken(error instanceof Error ? error.message : String(error), options.token)
+      return {
+        ...withRun,
+        kind: 'transport_unknown',
+        status: 'ambiguous',
+        items: [],
+        error: `transport_unknown: finalized run receipt unavailable (${message})`,
+      }
+    }
+  }
   if (!finalRun || finalRun.id !== startRun.id || finalRun.status !== 'SUCCEEDED' || !billing) {
     const evidence = finalRun
       && finalRun.id === startRun.id
