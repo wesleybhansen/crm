@@ -44,6 +44,7 @@ function item(overrides: Record<string, unknown> = {}) {
     title: 'South Bay first-time home buyer questions',
     url: 'https://www.reddit.com/r/SouthBayLA/comments/example/buying_a_home/',
     description: 'Local buyers discuss moving to the South Bay and starting a home search.',
+    timestamp: '2026-08-25 17:00:00 +00:00',
     ...overrides,
   }
 }
@@ -217,7 +218,10 @@ describe('DataForSEO organic demand-opportunity source', () => {
     })
     expect(candidate).toMatchObject({
       entity_kind: 'opportunity',
-      identity: expected,
+      identity: {
+        ...expected,
+        source_published_at: '2026-08-25T17:00:00.000Z',
+      },
     })
     expect(candidate?.identity.recommended_action).toMatch(/manually|decide whether/i)
     expect(candidate?.identity).not.toHaveProperty('email')
@@ -304,6 +308,104 @@ describe('DataForSEO organic demand-opportunity source', () => {
         depth: 20,
       },
     ])
+  })
+
+  it('flattens current discussion, perspective, and event blocks with provider publication evidence', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(
+      response([
+        {
+          type: 'discussions_and_forums',
+          rank_group: 2,
+          rank_absolute: 2,
+          items: [
+            {
+              type: 'discussions_and_forums_element',
+              title: 'Austin first-time home buyer questions',
+              url: 'https://www.reddit.com/r/AustinHousing/comments/example/first_home/',
+              description: 'Austin residents discuss buying a first home and ask current questions.',
+              timestamp: '2026-08-25 16:00:00 +00:00',
+              posts_count: 14,
+            },
+          ],
+        },
+        {
+          type: 'perspectives',
+          rank_group: 3,
+          rank_absolute: 3,
+          items: [
+            {
+              type: 'perspectives_element',
+              title: 'Moving to Austin and looking for a home',
+              url: 'https://www.youtube.com/watch?v=public-housing-question',
+              description: 'A current public conversation about moving to Austin and buying a home.',
+              timestamp: '2026-08-24 09:30:00 +00:00',
+            },
+          ],
+        },
+        {
+          type: 'events',
+          rank_group: 4,
+          rank_absolute: 4,
+          items: [
+            {
+              type: 'events_element',
+              title: 'Austin first-time home buyer workshop September 12 2026',
+              url: 'https://www.google.com/search?q=austin+buyer+workshop',
+              description: 'An Austin workshop for people preparing to buy a first home.',
+              timestamp: '2026-08-23 10:00:00 +00:00',
+            },
+            {
+              type: 'events_element',
+              title: 'Austin first-time home buyer workshop September 12 2026',
+              url: 'https://www.meetup.com/austin-home-buyers/events/123',
+              description: 'An Austin workshop for people preparing to buy a first home.',
+              timestamp: '2026-08-23 10:00:00 +00:00',
+            },
+          ],
+        },
+      ]),
+    ) as unknown as typeof fetch
+    const adapter = createDataForSeoOpportunityAdapter({
+      env: approvedEnv,
+      fetchImpl,
+      now: () => CLOCK,
+    })
+
+    const result = await adapter.search({
+      ...plan,
+      provider_query: {
+        search_query: 'Austin home buyer questions community event',
+        locations: ['Austin, Texas'],
+      },
+    })
+
+    expect(result).toMatchObject({ status: 'ok', cost_units: 2 })
+    expect(result.data).toHaveLength(3)
+    expect(result.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          identity: expect.objectContaining({
+            opportunity_kind: 'thread',
+            source_published_at: '2026-08-25T16:00:00.000Z',
+            engagement_count: 14,
+          }),
+        }),
+        expect.objectContaining({
+          identity: expect.objectContaining({
+            opportunity_kind: 'post',
+            source_published_at: '2026-08-24T09:30:00.000Z',
+          }),
+        }),
+        expect.objectContaining({
+          identity: expect.objectContaining({
+            opportunity_kind: 'event',
+            platform: 'Meetup',
+            source_published_at: '2026-08-23T10:00:00.000Z',
+          }),
+        }),
+      ]),
+    )
+    expect(result.data?.some((candidate) => candidate.identity.urls?.some((url) => url.includes('google.com')))).toBe(false)
   })
 
   it('retains the charged no-result receipt without inventing an opportunity', async () => {

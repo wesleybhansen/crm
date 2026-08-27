@@ -73,9 +73,43 @@ function inferredLane(play: PlanPlayInput): OpportunityIntentLane {
   return classifyOpportunityIntent(text).kind ?? 'local_audience'
 }
 
-function realtorSeeds(intent: OpportunityIntentLane): string[] {
+function realtorSeeds(intent: OpportunityIntentLane, adapterId: string): string[] {
+  if (adapterId === 'dataforseo-organic-demand-opportunities') {
+    if (intent === 'buyer_intent') {
+      return [
+        'moving here buy home reddit forum',
+        'first time home buyer workshop meetup event',
+        'home buyer questions community discussion',
+      ]
+    }
+    if (intent === 'seller_intent') {
+      return [
+        'selling my house reddit forum',
+        'thinking about selling home question discussion',
+        'home seller workshop meetup event',
+      ]
+    }
+    if (intent === 'mixed_intent') {
+      return [
+        'buy or sell home question reddit forum',
+        'moving housing decision community discussion',
+        'home buyer seller workshop meetup event',
+      ]
+    }
+    return [
+      'homeowners neighborhood association community',
+      'real estate discussion meetup group',
+      'homebuyer workshop housing event',
+    ]
+  }
+  if (adapterId === 'apify-reddit-demand-opportunities') {
+    if (intent === 'buyer_intent') return ['moving buy home', 'first time home buyer', 'house hunting']
+    if (intent === 'seller_intent') return ['sell my house', 'selling home question', 'home value']
+    if (intent === 'mixed_intent') return ['buy sell home question', 'moving housing decision', 'local housing']
+    return ['homeowners community', 'neighborhood housing', 'local home buyer']
+  }
   if (intent === 'buyer_intent') {
-    return ['first time home buyer help', 'looking to buy a home', 'moving here and house hunting']
+    return ['first time home buyer question', 'looking to buy a home', 'moving here house hunting']
   }
   if (intent === 'seller_intent') {
     return ['thinking of selling my home', 'what is my home worth', 'preparing my house to sell']
@@ -120,16 +154,13 @@ function sourceSeed(
     const exclusions = negativeTerms
       .map((term) => (term.includes(' ') ? `-${quoted(term)}` : `-${term}`))
       .join(' ')
-    return `${quoted(market)} ${quoted(seed)} (forum OR community OR event OR discussion) ${exclusions}`
+    return `${quoted(market)} ${seed} ${exclusions}`
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
-    const exclusions = negativeTerms
-      .map((term) => (term.includes(' ') ? `-${quoted(term)}` : `-${term}`))
-      .join(' ')
-    return `(${quoted(market)} OR subreddit:${market.replace(/[^a-z0-9]/gi, '')}) AND ${quoted(seed)} ${exclusions}`
+    return `${market} ${seed}`
   }
-  if (adapterId === 'apify-linkedin-demand-opportunities') return `${quoted(market)} ${quoted(seed)}`
-  if (adapterId === 'apify-x-demand-opportunities') return `${market} ${quoted(seed)}`
+  if (adapterId === 'apify-linkedin-demand-opportunities') return `${quoted(market)} ${seed}`
+  if (adapterId === 'apify-x-demand-opportunities') return `${market} ${seed}`
   return `${market} ${seed}`
 }
 
@@ -166,7 +197,7 @@ export function buildOpportunityQueryLanes(
   const geography = (play.geography ?? '').trim().replace(/\s+/g, ' ')
   const playText = [play.audience, play.signal, ...values(providerQuery.audience_keywords)].join(' ')
   const realtor = REALTOR_PLAY.test(playText)
-  const seeds = unique(realtor ? realtorSeeds(intent) : genericSeeds(play))
+  const seeds = unique(realtor ? realtorSeeds(intent, adapterId) : genericSeeds(play))
   // X has a material per-run initialization charge. One bounded query per play
   // keeps the same source coverage without paying that fixed charge three
   // times; the other sources retain three independently quoted lanes.
@@ -184,7 +215,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v3',
+        query_lane_version: 'opportunity-query-v4',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
