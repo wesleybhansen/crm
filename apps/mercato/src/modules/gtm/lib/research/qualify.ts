@@ -78,7 +78,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v9' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v10' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -355,6 +355,7 @@ function scoreOpportunity(
     evidence,
     referenceTime,
     maxAgeDays: recencyDays(play.recencyWindow),
+    content: observedText,
   })
   const isRealtorPlay = /\b(?:realtor|real estate|homeowners?|home buyer|home seller|buying a home|selling a home|home for sale|price a home|housing)\b/i.test(
     [...audienceExpected, ...expectedIntent, ...geographyExpected].join(' '),
@@ -512,31 +513,32 @@ function scoreOpportunity(
   }
   const fitScore = Object.values(breakdown).reduce((sum, value) => sum + value, 0)
   if (noise.length > 0) {
-    return result(fitScore, 'rejected', FIT_REASONS.realtorNoise, breakdown, unknowns, contradictions, profile, criteria)
+    return result(Math.min(fitScore, 15), 'rejected', FIT_REASONS.realtorNoise, breakdown, unknowns, contradictions, profile, criteria)
   }
   if (destination.status === 'fail') {
     const reason = destination.issues.includes('event_expired')
+      || destination.issues.includes('destination_inactive')
       ? FIT_REASONS.expiredDestination
       : destination.issues.includes('missing_or_invalid_public_destination')
         ? FIT_REASONS.missingDestination
         : FIT_REASONS.inaccessibleDestination
-    return result(fitScore, 'rejected', reason, breakdown, unknowns, contradictions, profile, criteria)
+    return result(Math.min(fitScore, 20), 'rejected', reason, breakdown, unknowns, contradictions, profile, criteria)
   }
   if (intentStatus === 'fail') {
-    return result(fitScore, 'rejected', FIT_REASONS.intentMismatch, breakdown, unknowns, contradictions, profile, criteria)
+    return result(Math.min(fitScore, 30), 'rejected', FIT_REASONS.intentMismatch, breakdown, unknowns, contradictions, profile, criteria)
   }
   if (audienceStatus === 'fail') {
-    return result(fitScore, 'rejected', FIT_REASONS.audienceMismatch, breakdown, unknowns, contradictions, profile, criteria)
+    return result(Math.min(fitScore, 25), 'rejected', FIT_REASONS.audienceMismatch, breakdown, unknowns, contradictions, profile, criteria)
   }
   if (geoStatus === 'fail') {
-    return result(fitScore, 'rejected', FIT_REASONS.outsideGeography, breakdown, unknowns, contradictions, profile, criteria)
+    return result(Math.min(fitScore, 20), 'rejected', FIT_REASONS.outsideGeography, breakdown, unknowns, contradictions, profile, criteria)
   }
   if (freshStatus === 'fail') {
-    return result(fitScore, 'rejected', FIT_REASONS.staleSignal, breakdown, unknowns, contradictions, profile, criteria)
+    return result(Math.min(fitScore, 10), 'rejected', FIT_REASONS.staleSignal, breakdown, unknowns, contradictions, profile, criteria)
   }
   if (criteria.some((row) => row.hard && row.status === 'unknown')) {
     return result(
-      fitScore,
+      Math.min(fitScore, FIT_ACCEPT_THRESHOLD - 1),
       'review',
       FIT_REASONS.criterionUnknown,
       breakdown,
@@ -551,7 +553,7 @@ function scoreOpportunity(
   }
   if (fitScore >= FIT_REVIEW_THRESHOLD) {
     return result(
-      fitScore,
+      Math.min(fitScore, FIT_ACCEPT_THRESHOLD - 1),
       'review',
       avgConfidence < 0.5 ? FIT_REASONS.weakEvidence : FIT_REASONS.review,
       breakdown,
