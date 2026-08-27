@@ -812,11 +812,15 @@ export function createPublicSocialOpportunityAdapter(
         }
       }
       if (outcome.status === 'error') {
+        const finalizedCostUnits =
+          outcome.billingFinalized && outcome.providerCostUsd != null
+            ? outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
+            : 0
         return {
           status: 'error',
           data: null,
           receipt: providerReceipt(),
-          cost_units: 0,
+          cost_units: finalizedCostUnits,
           error: outcome.error ?? 'provider error',
         }
       }
@@ -873,10 +877,10 @@ export function createPublicSocialOpportunityAdapter(
         .filter((candidate): candidate is Candidate => candidate != null)
       if (candidates.length === 0) {
         return {
-          status: 'ambiguous',
+          status: 'error',
           data: null,
           receipt: providerReceipt({ parser_dropped_rows: outcome.itemCount }),
-          cost_units: null,
+          cost_units: costUnits,
           error: 'invalid_schema: provider rows contained no safe public opportunity',
         }
       }

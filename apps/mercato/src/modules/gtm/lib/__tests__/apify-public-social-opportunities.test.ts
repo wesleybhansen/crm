@@ -488,6 +488,57 @@ describe('Apify public social demand opportunities', () => {
     expect(result.error).toContain('unapproved public social event')
   })
 
+  it('charges finalized provider work when every returned row fails safe normalization', async () => {
+    const config = APIFY_REDDIT_OPPORTUNITY_CONFIG
+    const billed = outcome(
+      config,
+      redditPost({
+        permalink: 'javascript:alert(1)',
+      }),
+    )
+    const result = await createApifyRedditOpportunityAdapter({
+      env: envFor(config),
+      now,
+      runActor: async () => billed,
+    }).search(plan)
+
+    expect(result).toMatchObject({
+      status: 'error',
+      data: null,
+      cost_units: billed.providerCostUsd! / 0.001,
+      receipt: {
+        billing_finalized: true,
+        parser_dropped_rows: 1,
+      },
+      error: expect.stringContaining('no safe public opportunity'),
+    })
+  })
+
+  it('preserves an exact finalized cost on a terminal provider error', async () => {
+    const config = APIFY_REDDIT_OPPORTUNITY_CONFIG
+    const billed = outcome(config, redditPost(), {
+      kind: 'server_error',
+      status: 'error',
+      items: [],
+      itemCount: 0,
+      error: 'provider_error: actor failed after one charged start event',
+      chargedEventCounts: { 'apify-actor-start': 1 },
+      providerCostUsd: config.eventPricesUsd['apify-actor-start'],
+    })
+    const result = await createApifyRedditOpportunityAdapter({
+      env: envFor(config),
+      now,
+      runActor: async () => billed,
+    }).search(plan)
+
+    expect(result).toMatchObject({
+      status: 'error',
+      data: null,
+      cost_units: config.eventPricesUsd['apify-actor-start'] / 0.001,
+      error: expect.stringContaining('failed after one charged start event'),
+    })
+  })
+
   it('rejects sensitive demand queries before any actor contact', async () => {
     const runActor = jest.fn()
     const result = await createApifyRedditOpportunityAdapter({
