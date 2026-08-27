@@ -176,11 +176,13 @@ describe('Apify public social demand opportunities', () => {
         engagement_count: 20,
         member_count: 82_000,
         access_type: 'public',
+        source_published_at: '2026-08-25T17:00:00.000Z',
         people_to_follow: [{ name: 'local_question' }],
       },
       evidence: [
         {
           source_url: 'https://www.reddit.com/r/SouthBayLA/comments/example/moving_to_the_south_bay/',
+          observed_at: CLOCK.toISOString(),
         },
       ],
     })
@@ -217,6 +219,7 @@ describe('Apify public social demand opportunities', () => {
         platform: 'X',
         intent_kind: 'seller_intent',
         engagement_count: 25,
+        source_published_at: '2026-08-25T18:00:00.000Z',
         people_to_follow: [
           {
             name: 'Jamie Example',
@@ -224,8 +227,19 @@ describe('Apify public social demand opportunities', () => {
           },
         ],
       },
-      evidence: [{ source_url: 'https://x.com/example/status/123' }],
+      evidence: [{ source_url: 'https://x.com/example/status/123', observed_at: CLOCK.toISOString() }],
     })
+  })
+
+  it('keeps missing publication time unknown instead of substituting retrieval time', () => {
+    const candidate = normalizeRedditOpportunity(redditPost({ createdAt: null }), {
+      query: plan.query,
+      location: 'South Bay, California',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    })
+    expect(candidate?.identity.source_published_at).toBeNull()
+    expect(candidate?.evidence[0]?.observed_at).toBe(CLOCK.toISOString())
   })
 
   it('keeps Reddit and X intent independent from the targeting query', () => {

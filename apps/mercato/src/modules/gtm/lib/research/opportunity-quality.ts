@@ -237,6 +237,12 @@ function newestObservedAt(evidence: CandidateEvidence[]): Date | null {
   return values[0] ?? null
 }
 
+function validDate(value: unknown): Date | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? date : null
+}
+
 export function assessOpportunityDestination(args: {
   identity: CandidateIdentity | Record<string, unknown>
   evidence: CandidateEvidence[]
@@ -258,15 +264,22 @@ export function assessOpportunityDestination(args: {
   else if (access === 'unknown' || access == null) issues.push('destination_access_unknown')
   else if (access !== 'public' && access !== 'ticketed') issues.push('destination_not_public')
 
-  const newest = newestObservedAt(args.evidence)
+  const kind = typeof identity.opportunity_kind === 'string' ? identity.opportunity_kind : null
+  const published = validDate(identity.source_published_at)
+  // A post/thread's age must come from the platform's publication timestamp.
+  // evidence.observed_at is retrieval time and cannot prove that content is
+  // inside a play's recency window. Stable destinations such as communities
+  // and forums may use the time Noli actually observed the public page.
+  const freshnessObservation = kind === 'post' || kind === 'thread'
+    ? published
+    : newestObservedAt(args.evidence)
   const ageDays =
-    newest && args.referenceTime
-      ? Math.max(0, (args.referenceTime.getTime() - newest.getTime()) / 86_400_000)
+    freshnessObservation && args.referenceTime
+      ? Math.max(0, (args.referenceTime.getTime() - freshnessObservation.getTime()) / 86_400_000)
       : null
   if (args.maxAgeDays != null && ageDays != null && ageDays > args.maxAgeDays) issues.push('stale_destination')
   if (args.maxAgeDays != null && ageDays == null) issues.push('destination_freshness_unknown')
 
-  const kind = typeof identity.opportunity_kind === 'string' ? identity.opportunity_kind : null
   const eventStart = typeof identity.event_start_at === 'string' ? new Date(identity.event_start_at) : null
   if (kind === 'event') {
     if (!eventStart || !Number.isFinite(eventStart.getTime())) issues.push('event_time_unknown')
@@ -286,7 +299,7 @@ export function assessOpportunityDestination(args: {
     canonicalUrl,
     status: hardFailure ? 'fail' : issues.length > 0 ? 'unknown' : 'pass',
     issues,
-    newestObservation: newest?.toISOString() ?? null,
+    newestObservation: freshnessObservation?.toISOString() ?? null,
     ageDays,
   }
 }

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const GTM_ARTIFACT_RUBRIC_VERSION = 'gtm-artifact-quality-v2'
+export const GTM_ARTIFACT_RUBRIC_VERSION = 'gtm-artifact-quality-v3'
 
 const opportunityQualityLabelSchema = z.object({
   source: z.enum(['synthetic', 'sanitized_live']),
@@ -9,6 +9,10 @@ const opportunityQualityLabelSchema = z.object({
   expectedIntent: z.enum(['buyer_intent', 'seller_intent', 'local_audience', 'mixed_intent']),
   observedContent: z.string().min(1).max(2_000),
   observedLocation: z.string().min(1).max(200).nullable(),
+  // Retrieval time proves when Noli observed a destination, not when a post
+  // or thread was published. The source timestamp is therefore explicit and
+  // nullable so missing publication metadata cannot silently become fresh.
+  sourcePublishedAt: z.string().datetime().nullable(),
   observedAt: z.string().datetime(),
   referenceTime: z.string().datetime(),
   eventStartAt: z.string().datetime().nullable().default(null),
