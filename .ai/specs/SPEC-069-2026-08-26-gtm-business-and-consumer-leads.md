@@ -325,6 +325,17 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
+`opportunity-query-v4` keeps actor-native syntax explicit. Reddit receives
+short natural-language searches without Boolean expressions, subreddit
+directives, quoted phrases, or negative operators that its actor may interpret
+literally. DataForSEO receives three market-scoped buyer, seller, or
+local-audience variants and retains supported negative terms. The organic
+normalizer consumes both ordinary organic rows and the provider's structured
+`discussions_and_forums`, `perspectives`, and direct-destination `events`
+children. It preserves provider publication timestamps and discussion counts;
+Google-hosted event-search redirects are not actionable destinations and are
+discarded.
+
 Rows are normalized before qualification. Canonical destination identity strips
 tracking parameters and fragments, normalizes source aliases, and collapses
 repeated conversations across query lanes while preserving separately observed
@@ -441,3 +452,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-26: Recorded the production audit after the foundation release (four adapters and customer release enabled, zero GTM production rows) and specified the additive quality-v2 closeout: evidence-only intent, play-specific `fit-v7`, bounded source-query lanes, canonical deduplication, freshness/access checks, calibrated ranking, twelve-play realtor benchmark, adversarial fixtures, responsive breakpoints, exact counsel delta, and tenant-scoped production quality diagnostics.
 - 2026-08-27: The first two bounded realtor benchmark passes exposed synthetic geography (requested markets copied into social and organic rows), broad seller-word false positives, generic agent content, and noisy actor auto-discovery. Added the `fit-v7-quality-v3` revision marker, evidence-proven locality, wrong-state rejection, realtor consumer-demand suitability, source-specific query-v3 syntax, precise Reddit search without actor-generated subreddit expansion, honest provider claims, explicit event-date parsing, and adversarial fixtures for targeting-only geography, marketplace sellers, and agent listicles. Existing paid runs can be requalified without another provider call because idempotency now includes the scorer revision as well as `fit-v7`.
 - 2026-08-27: Added an independent fail-closed X opportunity operational switch after production quality diagnostics showed one rejected result at 738,750 internal credits. Contract approval and rate truth remain intact; X stays held until a labeled benchmark and current account tier demonstrate acceptable quality and cost per useful opportunity.
+- 2026-08-27: Added `opportunity-query-v4` source-native realtor queries and expanded DataForSEO normalization to retain structured discussion, perspective, and direct event destinations with their provider publication timestamps and discussion counts. Google event-search redirects remain excluded because they do not provide a stable destination for a manual customer action.

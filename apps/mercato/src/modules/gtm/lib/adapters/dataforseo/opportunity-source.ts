@@ -193,9 +193,12 @@ function platformName(hostname: string): string {
   return host
 }
 
-function opportunityKind(url: URL, text: string): OpportunityKind | null {
+function opportunityKind(url: URL, text: string, resultType: string): OpportunityKind | null {
   const host = url.hostname.toLowerCase().replace(/^www\./, '')
   const path = url.pathname.toLowerCase()
+  if (resultType === 'discussions_and_forums_element') return 'thread'
+  if (resultType === 'perspectives_element') return 'post'
+  if (resultType === 'events_element') return 'event'
   if (host.endsWith('reddit.com')) return path.includes('/comments/') ? 'thread' : 'community'
   if (host.endsWith('meetup.com') || host.endsWith('eventbrite.com')) return 'event'
   if (host.endsWith('facebook.com')) {
@@ -257,18 +260,29 @@ function explicitEventStartAt(value: string): string | null {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null
 }
 
+function strictProviderTimestamp(value: unknown): string | null {
+  const raw = stringValue(value)
+  if (!raw) return null
+  const date = new Date(raw)
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null
+}
+
 export function normalizeDataForSeoOpportunityItem(
   item: Record<string, unknown>,
   context: { keyword: string; location: string; observedAt: string },
 ): Candidate | null {
-  if (stringValue(item.type)?.toLowerCase() !== 'organic') return null
+  const resultType = stringValue(item.type)?.toLowerCase() ?? ''
+  if (!['organic', 'discussions_and_forums_element', 'perspectives_element', 'events_element'].includes(resultType)) {
+    return null
+  }
   const url = safePublicUrl(item.url)
   const title = boundedText(item.title, 180)
   const description = boundedText(item.description, 500)
   if (!url || !title) return null
   const searchable = `${title} ${description ?? ''} ${url.pathname}`
   if (SENSITIVE_CONSUMER_TARGETING.test(searchable)) return null
-  const kind = opportunityKind(url, searchable)
+  if (resultType === 'events_element' && /(^|\.)google\.[a-z.]+$/i.test(url.hostname)) return null
+  const kind = opportunityKind(url, searchable, resultType)
   if (!kind) return null
   if (!LOCAL_AUDIENCE.test(searchable) && !BUYER_INTENT.test(searchable) && !SELLER_INTENT.test(searchable)) {
     return null
@@ -278,6 +292,8 @@ export function normalizeDataForSeoOpportunityItem(
   const platform = platformName(url.hostname)
   const demonstratedLocation = demonstratedOpportunityLocation(searchable, context.location)
   const eventStartAt = kind === 'event' ? explicitEventStartAt(searchable) : null
+  const sourcePublishedAt = strictProviderTimestamp(item.timestamp)
+  const engagementCount = Math.max(0, finiteNumber(item.posts_count) ?? 0)
   return {
     entity_kind: 'opportunity',
     identity: {
@@ -292,6 +308,8 @@ export function normalizeDataForSeoOpportunityItem(
       activity_level: 'unknown',
       access_type: kind === 'event' ? 'unknown' : kind === 'group' ? 'approval_required' : 'public',
       event_start_at: eventStartAt,
+      source_published_at: sourcePublishedAt,
+      engagement_count: engagementCount,
       participation_rules:
         'Check current community or event rules before participating. Be useful, disclose affiliation when relevant, and do not automate contact.',
       recommended_action: recommendedAction(kind),
@@ -305,14 +323,14 @@ export function normalizeDataForSeoOpportunityItem(
         confidence: calibratedOpportunityConfidence({
           content: searchable,
           sourceUrl: url.toString(),
-          observedAt: context.observedAt,
+          observedAt: sourcePublishedAt ?? context.observedAt,
           attemptedAt: context.observedAt,
-          engagement: 0,
+          engagement: engagementCount,
           location: demonstratedLocation,
         }),
         detail: {
           provider: 'dataforseo',
-          result_type: 'organic',
+          result_type: resultType,
           platform,
           requested_location: context.location,
           rank_group: finiteNumber(item.rank_group),
@@ -333,11 +351,24 @@ function taskFrom(payload: unknown): Record<string, unknown> {
   return Array.isArray(root.tasks) ? objectValue(root.tasks[0]) : {}
 }
 
-function organicItems(task: Record<string, unknown>): Record<string, unknown>[] {
+function opportunityItems(task: Record<string, unknown>): Record<string, unknown>[] {
   const result = Array.isArray(task.result) ? objectValue(task.result[0]) : {}
-  return Array.isArray(result.items)
-    ? result.items.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
-    : []
+  if (!Array.isArray(result.items)) return []
+  return result.items.flatMap((value) => {
+    const item = objectValue(value)
+    const type = stringValue(item.type)?.toLowerCase()
+    if (type === 'organic') return [item]
+    if (!['discussions_and_forums', 'perspectives', 'events'].includes(type ?? '')) return []
+    if (!Array.isArray(item.items)) return []
+    return item.items
+      .map((nested) => objectValue(nested))
+      .filter((nested) => Boolean(stringValue(nested.url)) && Boolean(stringValue(nested.title)))
+      .map((nested) => ({
+        ...nested,
+        rank_group: finiteNumber(nested.rank_group) ?? finiteNumber(item.rank_group),
+        rank_absolute: finiteNumber(nested.rank_absolute) ?? finiteNumber(item.rank_absolute),
+      }))
+  })
 }
 
 export function dataForSeoOpportunityQuery(plan: SourceSearchPlan): {
@@ -553,7 +584,7 @@ export function createDataForSeoOpportunityAdapter(
         }
         const result = objectValue(Array.isArray(task.result) ? task.result[0] : {})
         const observedAt = stringValue(result.datetime) ?? now().toISOString()
-        const candidates = organicItems(task)
+        const candidates = opportunityItems(task)
           .slice(0, maxCandidates)
           .map((item) =>
             normalizeDataForSeoOpportunityItem(item, {
