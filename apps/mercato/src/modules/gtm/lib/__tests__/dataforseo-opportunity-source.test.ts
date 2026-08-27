@@ -165,12 +165,14 @@ describe('DataForSEO organic demand-opportunity source', () => {
     )
     expect(result).toMatchObject({ ok: true, entityKind: 'opportunity' })
     if (!result.ok) throw new Error(result.reason)
-    expect(result.adapterPlan).toHaveLength(3)
+    expect(result.adapterPlan).toHaveLength(5)
     expect(result.adapterPlan).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ queryLaneId: 'mixed_intent:1' }),
         expect.objectContaining({ queryLaneId: 'mixed_intent:2' }),
         expect.objectContaining({ queryLaneId: 'mixed_intent:3' }),
+        expect.objectContaining({ queryLaneId: 'mixed_intent:4' }),
+        expect.objectContaining({ queryLaneId: 'mixed_intent:5' }),
       ]),
     )
     expect(result.adapterPlan.every((batch) =>
@@ -178,7 +180,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
       && batch.providerUnits === 1
       && batch.billableUnit === 'organic_serp_10_results',
     )).toBe(true)
-    expect(result.adapterPlan.reduce((sum, batch) => sum + batch.providerUnits, 0)).toBe(3)
+    expect(result.adapterPlan.reduce((sum, batch) => sum + batch.providerUnits, 0)).toBe(5)
   })
 
   it.each([

@@ -325,16 +325,18 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v9` keeps actor-native syntax explicit and separately quotes
+`opportunity-query-v10` keeps actor-native syntax explicit and separately quotes
 three Reddit strategies: exact market/state community scope, broader
 intent-community scope with the market embedded in the query, and one bounded
 auto-discovery lane whose discovered scope never counts as intent or geography
-evidence. The current actor contract supports phrases, Boolean and field
-operators; relevance sorting remains inside the frozen 30-day window.
-DataForSEO receives three full market-and-state variants for each buyer, seller,
-or local-audience play, targeted respectively at direct discussions, public
-groups, events, and community directories while retaining supported realtor
-negative terms. The organic normalizer consumes both ordinary organic rows and
+evidence. Exact-market and auto-discovery Reddit lanes sort newest inside the
+frozen 30-day window; the broader intent-community lane retains relevance sort.
+DataForSEO receives five separately quoted full market-and-state variants for
+each buyer, seller, mixed, or local-audience play. Narrow queries target current
+registrations, schedules, classes, public meetings, registries, and direct
+consumer questions so broad stale pages do not compete with participation
+surfaces inside one keyword. Supported realtor negative terms remain in every
+organic lane. The organic normalizer consumes both ordinary organic rows and
 the provider's structured
 `discussions_and_forums`, `perspectives`, and direct-destination `events`
 children. It preserves provider publication timestamps and discussion counts;
@@ -467,3 +469,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-27: The query-v7 recall pass exposed a planner/adapter contract defect: source-domain `site:` operators were frozen into organic queries even though the priced DataForSEO adapter correctly rejects operators that can multiply the base charge. Added `opportunity-query-v8`, which expresses the same Reddit, Facebook-group, Eventbrite, Meetup, and Nextdoor discovery intent with ordinary price-safe terms, plus a shared regression assertion that every planned organic realtor lane is accepted by the adapter's frozen-price operator contract.
 - 2026-08-27: The query-v8 seller recall pass showed that long exact-phrase searches still produced fewer than ten unique rows and that DataForSEO task `40102` (No Search Results) and other definitive application errors carried a nonzero final task cost despite being treated as refunds. Added `opportunity-query-v9`: shorter seller-discovery queries with the required listing/recruiting/news exclusions, plus exact settlement from every explicit final DataForSEO task cost. `40102` is a charged `no_result`; other definitive errors remain failures but are charged when the provider receipt reports a nonzero cost. Missing or over-reservation billing remains ambiguous and fail-closed.
 - 2026-08-27: The completed 120-row query-v6-through-v9 labeling pool met the twelve-play coverage floor but pre-label semantic review found stale 2004/2010/2013 pages, an inactive `No upcoming events` calendar, listing/rental/job noise, and unrelated association mentions retaining high numeric scores. Added `fit-v7-quality-v10`: content-derived relative and leading publication dates, content-derived event dates, explicit inactive-destination rejection, narrower local-participation proof, additional realtor noise exclusions, stronger deterministic reranking penalties, and verdict-aware score ceilings so rejected or unresolved rows cannot outrank accepted evidence. No provider call is required to requalify the frozen pool against this revision; human labels and every section 12.3 threshold remain release gates.
+- 2026-08-27: Zero-spend quality-v10 requalification cleanly separated accepted, unresolved, and rejected rows but showed that broad query-v9 pages still left most top-ten slots irrelevant or stale. Added `opportunity-query-v10` with five separately billed organic lanes per realtor play focused on current registration, schedule, class, meeting, registry, and public-question surfaces; newest-first exact-market and auto-discovery Reddit lanes; and `fit-v7-quality-v11` date/liveness hardening for labeled numeric dates, leading month-year snippets, numeric event dates, and additional inactive-destination language. Explicit provider publication timestamps remain authoritative so a current post is not rejected merely for discussing older history.

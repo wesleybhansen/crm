@@ -91,29 +91,37 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     if (intent === 'buyer_intent') {
       return [
-        'Reddit ("buying a home" OR "house hunting" OR relocating) (question OR advice)',
-        'Eventbrite ("first-time home buyer" OR "homebuyer workshop" OR "buyer seminar") 2026',
-        '"Facebook group" ("buying a home" OR "moving to" OR homebuyer)',
+        '("first-time homebuyer" OR "home buyer") (workshop OR class OR seminar) (register OR schedule) 2026',
+        '"homebuyer education" (class OR workshop) (calendar OR registration) 2026',
+        'Reddit ("buying a home" OR "house hunting" OR "moving to") (question OR advice) 2026',
+        '"homebuyer assistance" (workshop OR class) (register OR calendar) 2026',
+        '"housing counseling" homebuyer (class OR workshop) registration 2026',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        'Reddit homeowners selling home advice',
-        'Facebook homeowner group selling home',
-        'home seller workshop valuation event 2026',
+        '("home seller seminar" OR "selling your home workshop") (register OR schedule) 2026',
+        '("home valuation workshop" OR "seller education class") (register OR event) 2026',
+        'Reddit ("selling my house" OR "thinking of selling") (question OR advice) 2026',
+        '("downsizing workshop" OR "home transition workshop") homeowners (register OR event) 2026',
+        '("prepare your home to sell" OR "home selling class") (calendar OR registration) 2026',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        'Reddit ("buy before selling" OR "sell before buying") home',
-        '"Facebook group" ("buying and selling" OR "sell and buy") home',
-        '("home buyer" "home seller") (workshop OR seminar) 2026',
+        'Reddit ("buy before selling" OR "sell before buying") home (question OR advice) 2026',
+        '("buy before selling" OR "sell before buying") (workshop OR seminar) registration 2026',
+        '("home buyer" "home seller") (class OR workshop) (register OR schedule) 2026',
+        '("buying and selling a home" OR relocating) (seminar OR class) 2026',
+        '("sell and buy" home) (event OR workshop) registration 2026',
       ]
     }
     return [
-      '(Meetup OR Eventbrite) (homebuyer OR homeowner OR housing) (workshop OR event OR group) 2026',
-      '("Facebook group" OR Nextdoor) (homeowner OR homebuyer OR neighborhood)',
-      '("neighborhood association" OR "community registry" OR "housing forum") (directory OR group OR event)',
+      '("neighborhood association" OR "community council") (calendar OR meetings OR events) 2026',
+      '("homeowner association" OR "community association") ("public meeting" OR events OR join) 2026',
+      '("homebuyer workshop" OR "housing workshop") (calendar OR registration) 2026',
+      '("neighborhood registry" OR "community directory") (association OR group)',
+      '(Meetup OR Eventbrite) (homebuyer OR homeowner OR housing) (workshop OR event) 2026',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
@@ -272,7 +280,7 @@ function queryFor(args: {
 export function buildOpportunityQueryLanes(
   play: PlanPlayInput,
   adapterId: string,
-  maxLanes = 3,
+  maxLanes = 5,
 ): OpportunityQueryLane[] {
   const providerQuery = play.providerQuery ?? {}
   const intent = inferredLane(play)
@@ -283,13 +291,17 @@ export function buildOpportunityQueryLanes(
   // X has a material per-run initialization charge. One bounded query per play
   // keeps the same source coverage without paying that fixed charge three
   // times. LinkedIn also stays at one boolean query because the live actor can
-  // outlast the synchronous wait boundary. Reddit and organic search retain
-  // three independently quoted lanes.
+  // outlast the synchronous wait boundary. Reddit retains three independently
+  // quoted scopes. Organic search stays cheap per quoted SERP and gets five
+  // narrow lanes so live participation surfaces do not compete with broad,
+  // stale result pages inside one keyword.
   const sourceLaneCap =
     adapterId === 'apify-x-demand-opportunities'
     || adapterId === 'apify-linkedin-demand-opportunities'
       ? 1
-      : 3
+      : adapterId === 'dataforseo-organic-demand-opportunities'
+        ? 5
+        : 3
   const laneCap = Math.max(1, Math.min(maxLanes, sourceLaneCap))
   const selectedSeeds = seeds.slice(0, laneCap)
   const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
@@ -303,7 +315,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v9',
+        query_lane_version: 'opportunity-query-v10',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -314,7 +326,7 @@ export function buildOpportunityQueryLanes(
             ? {
                 reddit_subreddits: realtorMarketSubreddits(geography),
                 reddit_auto_discover: false,
-                reddit_sort: 'relevance',
+                reddit_sort: 'new',
               }
             : index === 1
               ? {
@@ -326,7 +338,7 @@ export function buildOpportunityQueryLanes(
                   reddit_subreddits: [],
                   reddit_auto_discover: true,
                   reddit_max_subreddits: 12,
-                  reddit_sort: 'relevance',
+                  reddit_sort: 'new',
                 }
           : {}),
       },
