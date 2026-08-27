@@ -114,6 +114,32 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     }
   })
 
+  it.each(['community', 'forum', 'group', 'thread', 'post', 'event'])(
+    'canonicalizes the customer-facing %s unit into the provider opportunity contract',
+    (entityUnit) => {
+      const plan = buildSourcePlan(
+        {
+          marketType: 'b2c',
+          geography: 'Austin, Texas',
+          signal: 'A current public destination gathers locally relevant housing participants.',
+          signalKind: 'social_engagement',
+          entityUnit,
+          audience: 'Public local housing communities and events in Austin',
+          providerQuery: { opportunity_intent_lane: 'local_audience' },
+        },
+        [fixtureConsumerSourceAdapter],
+        { targetAccepted: 2, maxRawCandidates: 3 },
+      )
+
+      expect(plan.ok).toBe(true)
+      if (plan.ok) {
+        expect(plan.entityKind).toBe('opportunity')
+        expect(plan.adapterPlan).not.toHaveLength(0)
+        expect(plan.adapterPlan.every((batch) => batch.capability.entity_unit === 'opportunities')).toBe(true)
+      }
+    },
+  )
+
   it('freezes multiple source-specific consumer query lanes as separately quoted batches', () => {
     const plan = buildSourcePlan(
       {
