@@ -307,6 +307,23 @@ describe('DataForSEO organic demand-opportunity source', () => {
     expect(old?.identity.event_start_at).toBe('2024-06-01T12:00:00.000Z')
   })
 
+  it('does not turn a requested market into evidence for an identically named city in another state', () => {
+    const candidate = normalizeDataForSeoOpportunityItem(
+      item({
+        title: 'What to consider when buying a first home in Austin, MN?',
+        url: 'https://www.reddit.com/r/example/comments/austin-minnesota-home-buying',
+        description: 'A first-time home buyer asks for local advice in Austin, MN.',
+      }),
+      {
+        keyword: 'Austin Texas first-time home buyer questions',
+        location: 'Austin,Texas,United States',
+        observedAt: CLOCK.toISOString(),
+      },
+    )
+    expect(candidate?.identity.location).toBeNull()
+    expect(candidate?.identity.provider_location).toBe('Austin,Texas,United States')
+  })
+
   it.each([
     ['price-multiplying operator', 'site:reddit.com South Bay home buyers', 'unpriced_query_operator'],
     ['sensitive targeting', 'South Bay foreclosure homeowner forum', 'unsafe_consumer_targeting'],
