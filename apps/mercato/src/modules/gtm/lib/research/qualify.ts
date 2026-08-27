@@ -1,8 +1,11 @@
 import type { Candidate, CandidateEvidence } from '../adapters/types'
 import { isUsGeography } from '../eligibility'
 import {
+  assessRealtorOpportunitySuitability,
   assessOpportunityDestination,
   classifyOpportunityIntent,
+  demonstratedOpportunityLocation,
+  opportunityHasContradictoryUsState,
   opportunityEvidenceText,
   realtorOpportunityNoiseReasons,
 } from './opportunity-quality'
@@ -75,6 +78,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v3' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -287,11 +291,14 @@ function geographyCriterionStatus(
   observed: string[],
   targeting: string[],
   countryCode: string | null,
+  returnedText: string,
 ): CriterionStatus {
   if (expected.length === 0) return 'unknown'
-  if (observed.length === 0) return 'unknown'
   const expectedUs = expected.every((value) => isUsGeography(value))
   if (expectedUs && countryCode && countryCode !== 'US' && countryCode !== 'USA') return 'fail'
+  if (expected.some((value) => opportunityHasContradictoryUsState(returnedText, value))) return 'fail'
+  if (expected.some((value) => demonstratedOpportunityLocation(returnedText, value))) return 'pass'
+  if (observed.length === 0) return 'unknown'
   const expectedTokens = expected.flatMap(meaningfulTokens).filter((value) => value !== 'united' && value !== 'states')
   const observedTokens = new Set(observed.flatMap(meaningfulTokens))
   if (expectedTokens.length === 0 && expectedUs) return countryCode === 'US' || countryCode === 'USA' ? 'pass' : 'unknown'
@@ -339,6 +346,17 @@ function scoreOpportunity(
     referenceTime,
     maxAgeDays: recencyDays(play.recencyWindow),
   })
+  const isRealtorPlay = /\b(?:realtor|real estate|homeowners?|home buyer|home seller|buying a home|selling a home|home for sale|price a home|housing)\b/i.test(
+    [...audienceExpected, ...expectedIntent, ...geographyExpected].join(' '),
+  )
+  const requestedIntent = expectedIntent.find((value) =>
+    ['buyer_intent', 'seller_intent', 'local_audience', 'mixed_intent'].includes(value),
+  ) as 'buyer_intent' | 'seller_intent' | 'local_audience' | 'mixed_intent' | undefined
+  const suitability = assessRealtorOpportunitySuitability(
+    observedText,
+    requestedIntent ?? null,
+    destination.canonicalUrl,
+  )
   const accessObserved = stringValue(identity, ['access_type'])
   const destinationObserved = [
     ...(destination.canonicalUrl ? [destination.canonicalUrl] : []),
@@ -348,9 +366,9 @@ function scoreOpportunity(
   const audienceStatus =
     audienceExpected.length === 0
       ? 'unknown'
-      : semanticallyMatches(audienceExpected, observedText)
+      : isRealtorPlay && suitability.relevant
         ? 'pass'
-        : isRealtorOpportunityRelevant(observedText, expectedIntent)
+        : !isRealtorPlay && semanticallyMatches(audienceExpected, observedText)
           ? 'pass'
         : observedText.trim()
           ? 'fail'
@@ -359,10 +377,21 @@ function scoreOpportunity(
   const intentStatus =
     expectedIntent.length === 0 || observedIntent == null
       ? 'unknown'
-      : intentMatchesLane(expectedIntent, observedIntent)
+      : isRealtorPlay
+        ? suitability.relevant
+          && (requestedIntent === 'local_audience' || intentMatchesLane(expectedIntent, observedIntent))
+          ? 'pass'
+          : 'fail'
+        : intentMatchesLane(expectedIntent, observedIntent)
         ? 'pass'
         : 'fail'
-  const geoStatus = geographyCriterionStatus(geographyExpected, locations, targetingLocations, countryCode)
+  const geoStatus = geographyCriterionStatus(
+    geographyExpected,
+    locations,
+    targetingLocations,
+    countryCode,
+    observedText,
+  )
   const freshStatus: CriterionStatus = destination.issues.includes('stale_destination')
     || destination.issues.includes('event_expired')
     ? 'fail'
@@ -372,9 +401,6 @@ function scoreOpportunity(
       : 'pass'
   const actionStatus: CriterionStatus =
     recommendedAction && recommendedAction.length >= 20 && messageAngle && messageAngle.length >= 20 ? 'pass' : 'unknown'
-  const isRealtorPlay = /\b(?:realtor|real estate|homeowners?|home buyer|home seller|buying a home|selling a home|home for sale|price a home|housing)\b/i.test(
-    [...audienceExpected, ...expectedIntent, ...geographyExpected].join(' '),
-  )
   const noise = isRealtorPlay
     ? realtorOpportunityNoiseReasons(observedText, destination.canonicalUrl)
     : []
@@ -415,7 +441,13 @@ function scoreOpportunity(
       'geography',
       'Location',
       geographyExpected,
-      [...locations, ...targetingLocations],
+      [
+        ...locations,
+        ...targetingLocations,
+        ...geographyExpected
+          .map((value) => demonstratedOpportunityLocation(observedText, value))
+          .filter((value): value is string => Boolean(value)),
+      ],
       geoStatus,
     ),
     criterion(
@@ -480,11 +512,11 @@ function scoreOpportunity(
         : FIT_REASONS.inaccessibleDestination
     return result(fitScore, 'rejected', reason, breakdown, unknowns, contradictions, profile, criteria)
   }
-  if (audienceStatus === 'fail') {
-    return result(fitScore, 'rejected', FIT_REASONS.audienceMismatch, breakdown, unknowns, contradictions, profile, criteria)
-  }
   if (intentStatus === 'fail') {
     return result(fitScore, 'rejected', FIT_REASONS.intentMismatch, breakdown, unknowns, contradictions, profile, criteria)
+  }
+  if (audienceStatus === 'fail') {
+    return result(fitScore, 'rejected', FIT_REASONS.audienceMismatch, breakdown, unknowns, contradictions, profile, criteria)
   }
   if (geoStatus === 'fail') {
     return result(fitScore, 'rejected', FIT_REASONS.outsideGeography, breakdown, unknowns, contradictions, profile, criteria)
@@ -528,18 +560,6 @@ function scoreOpportunity(
     contradictions,
     profile,
     criteria,
-  )
-}
-
-function isRealtorOpportunityRelevant(observedText: string, expectedIntent: string[]): boolean {
-  const contentIntent = classifyOpportunityIntent(observedText).kind
-  if (contentIntent && intentMatchesLane(expectedIntent, contentIntent)) return true
-  if (!expectedIntent.includes('local_audience')) return false
-  // Local-audience discovery is broader than individual buying or selling
-  // intent, but it still needs a demonstrated housing/homeowner venue rather
-  // than a generic local community result.
-  return /\b(?:homeowners?|home ?buyers?|home ?sellers?|homeownership|housing|real estate|neighbou?rhood association)\b/i.test(
-    observedText,
   )
 }
 

@@ -16,6 +16,7 @@ import {
 import {
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
+  demonstratedOpportunityLocation,
 } from '../../research/opportunity-quality'
 
 export const DATAFORSEO_OPPORTUNITY_ADAPTER_ID = 'dataforseo-organic-demand-opportunities'
@@ -245,6 +246,17 @@ function messageAngle(intent: Candidate['identity']['intent_kind']): string {
   return 'Contribute locally useful information that fits the community or event context.'
 }
 
+const MONTH_NAME =
+  /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+20\d{2}\b/i
+const ISO_CALENDAR_DATE = /\b20\d{2}-\d{2}-\d{2}\b/
+
+function explicitEventStartAt(value: string): string | null {
+  const match = value.match(ISO_CALENDAR_DATE)?.[0] ?? value.match(MONTH_NAME)?.[0]
+  if (!match) return null
+  const date = new Date(match.replace(/(\d)(?:st|nd|rd|th)\b/i, '$1'))
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null
+}
+
 export function normalizeDataForSeoOpportunityItem(
   item: Record<string, unknown>,
   context: { keyword: string; location: string; observedAt: string },
@@ -264,12 +276,14 @@ export function normalizeDataForSeoOpportunityItem(
   const demonstratedIntent = classifyOpportunityIntent(searchable)
   const intent = demonstratedIntent.kind
   const platform = platformName(url.hostname)
+  const demonstratedLocation = demonstratedOpportunityLocation(searchable, context.location)
+  const eventStartAt = kind === 'event' ? explicitEventStartAt(searchable) : null
   return {
     entity_kind: 'opportunity',
     identity: {
       name: title,
       urls: [url.toString()],
-      location: context.location,
+      location: demonstratedLocation,
       provider_location: context.location,
       opportunity_kind: kind,
       platform,
@@ -277,6 +291,7 @@ export function normalizeDataForSeoOpportunityItem(
       audience_description: description ?? `${title} on ${platform}`,
       activity_level: 'unknown',
       access_type: kind === 'event' ? 'unknown' : kind === 'group' ? 'approval_required' : 'public',
+      event_start_at: eventStartAt,
       participation_rules:
         'Check current community or event rules before participating. Be useful, disclose affiliation when relevant, and do not automate contact.',
       recommended_action: recommendedAction(kind),
@@ -293,12 +308,13 @@ export function normalizeDataForSeoOpportunityItem(
           observedAt: context.observedAt,
           attemptedAt: context.observedAt,
           engagement: 0,
-          location: context.location,
+          location: demonstratedLocation,
         }),
         detail: {
           provider: 'dataforseo',
           result_type: 'organic',
           platform,
+          requested_location: context.location,
           rank_group: finiteNumber(item.rank_group),
           rank_absolute: finiteNumber(item.rank_absolute),
           demonstrated_intent_signals: [

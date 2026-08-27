@@ -32,6 +32,7 @@ import {
 import {
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
+  demonstratedOpportunityLocation,
 } from '../../research/opportunity-quality'
 
 /*
@@ -264,7 +265,7 @@ function safeAuthor(row: Record<string, unknown>): {
 
 export function normalizeApifyOpportunityItem(
   value: unknown,
-  context: { attemptedAt: string; query: string },
+  context: { attemptedAt: string; query: string; requestedLocation?: string | null },
 ): Candidate | null {
   const row = record(value)
   if (!row) return null
@@ -273,9 +274,14 @@ export function normalizeApifyOpportunityItem(
   if (!sourceUrl) return null
   const content = text(row.content, 800)
   const author = safeAuthor(row)
+  const authorInfo = text(record(row.author)?.info, 180)
   const interactions = engagementCount(row)
   const observed = observedAt(row, context.attemptedAt)
   const demonstratedIntent = classifyOpportunityIntent(content ?? '')
+  const demonstratedLocation = demonstratedOpportunityLocation(
+    `${content ?? ''}\n${authorInfo ?? ''}`,
+    context.requestedLocation,
+  )
   const identity: CandidateIdentity = {
     name: opportunityName(content, author.name),
     opportunity_kind: 'post',
@@ -285,6 +291,8 @@ export function normalizeApifyOpportunityItem(
     activity_level: activityLevel(interactions),
     engagement_count: interactions,
     access_type: 'public',
+    location: demonstratedLocation,
+    provider_location: context.requestedLocation ?? null,
     urls: [sourceUrl],
     recommended_action:
       'Read the full discussion and contribute a useful response only when it is relevant and the platform rules permit it.',
@@ -296,7 +304,7 @@ export function normalizeApifyOpportunityItem(
     identity.people_to_follow = [
       {
         name: author.name,
-        role: text(record(row.author)?.info, 180),
+        role: authorInfo,
         profile_url: author.profileUrl,
       },
     ]
@@ -308,8 +316,8 @@ export function normalizeApifyOpportunityItem(
       {
         claim:
           interactions > 0
-            ? `Public LinkedIn post matched the approved demand query and showed ${interactions} visible interactions.`
-            : 'Public LinkedIn post matched the approved demand query.',
+            ? `The approved public source returned this LinkedIn post with ${interactions} visible interactions.`
+            : 'The approved public source returned this LinkedIn post.',
         source_url: sourceUrl,
         observed_at: observed,
         confidence: calibratedOpportunityConfidence({
@@ -318,7 +326,7 @@ export function normalizeApifyOpportunityItem(
           observedAt: observed,
           attemptedAt: context.attemptedAt,
           engagement: interactions,
-          location: null,
+          location: demonstratedLocation,
         }),
         detail: {
           provider: 'apify',
@@ -326,6 +334,7 @@ export function normalizeApifyOpportunityItem(
           provider_post_id: text(row.id, 200),
           author_name: author.name,
           query: context.query.slice(0, 200),
+          requested_location: context.requestedLocation ?? null,
           visible_interactions: interactions,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,
@@ -356,6 +365,15 @@ function providerQueryText(plan: SourceSearchPlan): string {
     text(plan.query, 200) ??
     ''
   )
+}
+
+function providerLocationText(plan: SourceSearchPlan): string | null {
+  const values = plan.provider_query?.locations
+  if (Array.isArray(values)) {
+    const location = values.find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+    if (location) return text(location, 180)
+  }
+  return text(plan.geography, 180)
 }
 
 export function buildApifyOpportunityInput(plan: SourceSearchPlan): Record<string, unknown> {
@@ -610,6 +628,7 @@ export function createApifyOpportunitySourceAdapter(deps: ApifyOpportunitySource
           normalizeApifyOpportunityItem(item, {
             attemptedAt: outcome.attemptedAt,
             query: providerQueryText(plan),
+            requestedLocation: providerLocationText(plan),
           }),
         )
         .filter((candidate): candidate is Candidate => candidate != null)

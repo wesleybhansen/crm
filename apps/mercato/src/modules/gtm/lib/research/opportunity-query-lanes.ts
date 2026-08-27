@@ -19,9 +19,13 @@ const REALTOR_NEGATIVE_TERMS = [
   'jobs',
   'recruiting',
   'just listed',
+  'new listing',
   'market update',
   'real estate news',
   'agent leads',
+  'contact me',
+  'buyer tips',
+  'seller tips',
 ]
 
 const REALTOR_PLAY =
@@ -71,10 +75,10 @@ function inferredLane(play: PlanPlayInput): OpportunityIntentLane {
 
 function realtorSeeds(intent: OpportunityIntentLane): string[] {
   if (intent === 'buyer_intent') {
-    return ['first time home buyer question', 'looking to buy a home', 'moving here home search']
+    return ['first time home buyer help', 'looking to buy a home', 'moving here and house hunting']
   }
   if (intent === 'seller_intent') {
-    return ['thinking of selling my home', 'what is my home worth', 'preparing a home to sell']
+    return ['thinking of selling my home', 'what is my home worth', 'preparing my house to sell']
   }
   if (intent === 'mixed_intent') {
     return ['buying or selling a home question', 'moving and home decision', 'local housing question']
@@ -101,14 +105,31 @@ function genericSeeds(play: PlanPlayInput): string[] {
   return unique([...supplied, ...authored])
 }
 
-function sourceSeed(adapterId: string, geography: string, seed: string): string {
+function quoted(value: string): string {
+  return `"${value.replace(/"/g, '').trim()}"`
+}
+
+function sourceSeed(
+  adapterId: string,
+  geography: string,
+  seed: string,
+  negativeTerms: string[],
+): string {
   const market = marketName(geography)
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
-    return `${market} ${seed} forum community event discussion`
+    const exclusions = negativeTerms
+      .map((term) => (term.includes(' ') ? `-${quoted(term)}` : `-${term}`))
+      .join(' ')
+    return `${quoted(market)} ${quoted(seed)} (forum OR community OR event OR discussion) ${exclusions}`
   }
-  if (adapterId === 'apify-reddit-demand-opportunities') return `${market} ${seed}`
-  if (adapterId === 'apify-linkedin-demand-opportunities') return `${market} ${seed}`
-  if (adapterId === 'apify-x-demand-opportunities') return `${market} ${seed}`
+  if (adapterId === 'apify-reddit-demand-opportunities') {
+    const exclusions = negativeTerms
+      .map((term) => (term.includes(' ') ? `-${quoted(term)}` : `-${term}`))
+      .join(' ')
+    return `(${quoted(market)} OR subreddit:${market.replace(/[^a-z0-9]/gi, '')}) AND ${quoted(seed)} ${exclusions}`
+  }
+  if (adapterId === 'apify-linkedin-demand-opportunities') return `${quoted(market)} ${quoted(seed)}`
+  if (adapterId === 'apify-x-demand-opportunities') return `${market} ${quoted(seed)}`
   return `${market} ${seed}`
 }
 
@@ -124,15 +145,8 @@ function queryFor(args: {
   seed: string
   negativeTerms: string[]
 }): string {
-  // Negative Google operators are useful for organic web search, but Reddit,
-  // LinkedIn, and X Actors treat some or all of them as literal text. That
-  // sharply reduced recall in the first controlled benchmark. Social noise is
-  // removed after retrieval by the frozen exclusion rubric instead.
-  const exclusions = args.adapterId === 'dataforseo-organic-demand-opportunities'
-    ? args.negativeTerms.map((term) => (term.includes(' ') ? `-"${term}"` : `-${term}`)).join(' ')
-    : ''
   return bounded(
-    [sourceSeed(args.adapterId, args.geography, args.seed), exclusions].filter(Boolean).join(' '),
+    sourceSeed(args.adapterId, args.geography, args.seed, args.negativeTerms),
     sourceMaxQueryLength(args.adapterId),
   )
 }
@@ -170,7 +184,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v2',
+        query_lane_version: 'opportunity-query-v3',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

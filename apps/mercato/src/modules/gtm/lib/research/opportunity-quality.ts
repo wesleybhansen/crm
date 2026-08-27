@@ -61,7 +61,33 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:real estate news|housing market news|weekly market update|mortgage rates? (?:rose|fell|today)|market report)\b/i,
   ],
   ['real_estate_job', /\b(?:real estate|property) (?:job|career|vacancy|position|employment)\b/i],
+  [
+    'agent_self_promotion',
+    /\b(?:i(?:'m| am) (?:a )?(?:realtor|real estate agent)|contact me|call me|dm me|message me|book (?:a )?(?:call|consultation)|your local realtor|i help (?:home ?buyers?|home ?sellers?|people buy|people sell))\b/i,
+  ],
+  [
+    'generic_advice_content',
+    /\b(?:\d+|five|six|seven|eight|nine|ten) (?:tips?|things?|steps?|mistakes?|questions?) (?:for|every) (?:home ?buyers?|home ?sellers?)\b|\b(?:buyer|seller) tips?\b/i,
+  ],
 ]
+
+const REALTOR_HOUSING_CONTEXT =
+  /\b(?:home|house|housing|property|condo|townhome|homeowner|home ?buyer|home ?seller|first[- ]time buyer|mortgage|down payment|closing costs?|real estate)\b/i
+const CONSUMER_NEED_OR_QUESTION =
+  /\?|\b(?:i|we|my|our|me|us)\b|\b(?:ask(?:ing|ed)?|questions?|does anyone|can anyone|looking for|need help|recommend|where should|what should|how (?:do|can|should)|should (?:i|we)|can (?:i|we))\b/i
+const PARTICIPATION_SURFACE =
+  /\b(?:community|forum|group|thread|discussion|question|event|workshop|seminar|webinar|class|meetup|panel|association|club|neighbou?rhood|homeowners?)\b/i
+const EDUCATIONAL_EVENT = /\b(?:event|workshop|seminar|webinar|class|meetup|panel|clinic|q\s*&\s*a)\b/i
+
+const US_STATE_NAMES = [
+  'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware',
+  'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa', 'kansas', 'kentucky',
+  'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota', 'mississippi',
+  'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire', 'new jersey', 'new mexico',
+  'new york', 'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania',
+  'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont',
+  'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming',
+] as const
 
 const TRACKING_PARAMETER = /^(?:utm_.+|fbclid|gclid|dclid|msclkid|mc_[ce]id|trk|trackingId|ref_src)$/i
 
@@ -96,6 +122,81 @@ export function classifyOpportunityIntent(content: string): OpportunityIntentCla
 export function realtorOpportunityNoiseReasons(content: string, sourceUrl: string | null = null): string[] {
   const material = `${content}\n${sourceUrl ?? ''}`
   return REALTOR_NOISE.filter(([, pattern]) => pattern.test(material)).map(([reason]) => reason)
+}
+
+function normalizedPhrase(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Returns the requested locality only when the returned provider material
+ * independently contains its most-specific place name. The requested search
+ * location itself is targeting provenance and cannot prove geography.
+ */
+export function demonstratedOpportunityLocation(
+  returnedMaterial: string,
+  requestedLocation: string | null | undefined,
+): string | null {
+  const requested = requestedLocation?.trim().replace(/\s+/g, ' ')
+  if (!requested) return null
+  const primary = requested.split(',')[0]?.trim()
+  if (!primary) return null
+  const material = ` ${normalizedPhrase(returnedMaterial)} `
+  const target = normalizedPhrase(primary)
+  if (!target || !material.includes(` ${target} `)) return null
+  return requested
+}
+
+export function opportunityHasContradictoryUsState(
+  returnedMaterial: string,
+  expectedGeography: string,
+): boolean {
+  const expected = normalizedPhrase(expectedGeography)
+  const observed = normalizedPhrase(returnedMaterial)
+  const expectedStates = US_STATE_NAMES.filter((state) => expected.includes(state))
+  const observedStates = US_STATE_NAMES.filter((state) => observed.includes(state))
+  return observedStates.length > 0 && observedStates.every((state) => !expectedStates.includes(state))
+}
+
+export type RealtorOpportunitySuitability = {
+  relevant: boolean
+  demonstratedIntent: DemonstratedOpportunityIntent
+  reasons: string[]
+}
+
+/**
+ * A realtor opportunity must demonstrate a housing context and either a real
+ * consumer need/question or a participation surface. Generic agent marketing
+ * and educational listicles are not demand, even if they contain buyer/seller
+ * words and look complete.
+ */
+export function assessRealtorOpportunitySuitability(
+  content: string,
+  expectedIntent: DemonstratedOpportunityIntent,
+  sourceUrl: string | null = null,
+): RealtorOpportunitySuitability {
+  const intent = classifyOpportunityIntent(content).kind
+  const reasons = realtorOpportunityNoiseReasons(content, sourceUrl)
+  const housing = REALTOR_HOUSING_CONTEXT.test(content)
+  const consumerNeed = CONSUMER_NEED_OR_QUESTION.test(content)
+  const surface = PARTICIPATION_SURFACE.test(content)
+  const educationalEvent = EDUCATIONAL_EVENT.test(content)
+  const laneMatches =
+    expectedIntent == null
+    || intent === expectedIntent
+    || (intent === 'mixed_intent' && (expectedIntent === 'buyer_intent' || expectedIntent === 'seller_intent'))
+    || (expectedIntent === 'mixed_intent'
+      && (intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'))
+  const relevant = expectedIntent === 'local_audience'
+    ? housing && surface && reasons.length === 0
+    : housing && laneMatches && (consumerNeed || educationalEvent) && reasons.length === 0
+  if (!housing) reasons.push('missing_housing_context')
+  if (!laneMatches) reasons.push('intent_lane_mismatch')
+  if (expectedIntent === 'local_audience' && !surface) reasons.push('missing_participation_surface')
+  if (expectedIntent !== 'local_audience' && !consumerNeed && !educationalEvent) {
+    reasons.push('missing_consumer_need_or_event')
+  }
+  return { relevant, demonstratedIntent: intent, reasons: [...new Set(reasons)] }
 }
 
 export function canonicalOpportunityUrl(values: unknown): string | null {
@@ -302,16 +403,27 @@ export function opportunityRelevanceScore(
   const location = [identity.location, identity.city, identity.region].filter(Boolean).join(' ')
   const geography = play.geography ?? ''
   const engagement = Math.max(0, Number(identity.engagement_count ?? identity.member_count ?? 0))
+  const realtorPlay = REALTOR_HOUSING_CONTEXT.test(audience)
+  const suitability = assessRealtorOpportunitySuitability(text, intent, destination.canonicalUrl)
+  const demonstratedLocation = geography
+    ? demonstratedOpportunityLocation(`${text}\n${location}`, geography)
+    : null
+  const contradictoryState = geography
+    ? opportunityHasContradictoryUsState(`${text}\n${location}`, geography)
+    : false
   const noise = realtorOpportunityNoiseReasons(text, destination.canonicalUrl)
 
   let score = 0
-  score += destination.status === 'pass' ? 18 : destination.status === 'unknown' ? 6 : 0
-  score += Math.min(30, overlapScore(audience, text) * 45)
-  score += intent && observedIntent === intent ? 24 : observedIntent == null ? 0 : 6
-  score += geography && location ? Math.min(14, overlapScore(geography, location) * 28) : 0
+  score += destination.status === 'pass' ? 15 : destination.status === 'unknown' ? 4 : -25
+  score += realtorPlay
+    ? suitability.relevant ? 35 : -35
+    : Math.min(30, overlapScore(audience, text) * 45)
+  score += intent && observedIntent === intent ? 18 : observedIntent == null ? 0 : 3
+  score += demonstratedLocation ? 24 : geography ? -12 : 0
+  if (contradictoryState) score -= 45
   score += destination.ageDays == null ? 2 : destination.ageDays <= 7 ? 9 : destination.ageDays <= 30 ? 5 : 0
   score += Math.min(5, Math.log10(engagement + 1) * 2.5)
-  score -= noise.length * 35
+  score -= noise.length * 45
   return Math.round(Math.max(0, Math.min(100, score)) * 100) / 100
 }
 

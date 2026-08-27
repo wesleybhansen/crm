@@ -334,6 +334,21 @@ adapter-name or fixed default confidence does not. A model reranker may be
 introduced only as a separately metered, quoted operation with a frozen prompt,
 schema, model, and evaluation gate; it is not implicit in this closeout.
 
+Requested geography is frozen targeting provenance, not returned evidence.
+LinkedIn, Reddit, X, and organic-search adapters may retain that request as
+`provider_location`, but populate the opportunity's `location` and receive a
+location confidence contribution only when the returned post, author context,
+community name, title/snippet, or URL independently names the requested market.
+`fit-v7-quality-v3` keeps targeting-only geography explicit as unknown, rejects
+a demonstrated contradictory state, and never accepts it as a location pass.
+
+Realtor demand is also narrower than the presence of buyer/seller vocabulary.
+Buyer and seller lanes require housing context plus a returned consumer
+question/need or a relevant educational event. Local-audience lanes require a
+housing/homeowner context and an actual participation surface. Agent promotion,
+generic buyer/seller listicles, marketplace sellers, listing inventory, and
+unrelated moving language are false positives.
+
 Production destination checks fail closed on malformed/non-HTTPS URLs,
 non-public access markers, archived or locked conversations, expired events,
 unsupported hosts, and observations outside the play's recency window. Network
@@ -415,3 +430,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-26: Implemented the additive policy, provider-rights contract, deterministic consumer adapter, named-person lifecycle, manual-draft route/data model, privacy/removal/retention handling, responsive Hub views, action-queue integration, and counsel-review disclosure drafts. Generated migration `Migration20260826221317` was rehearsed statement-for-statement against an isolated temporary PostgreSQL database with GTM prerequisites; the repository-wide empty-database migration chain remains blocked earlier by the documented unrelated auth baseline.
 - 2026-08-26: Added exact, finalized-billing opportunity adapters for LinkedIn, Reddit, X, and DataForSEO organic search; separated public-opportunity rights from public-profile contact rights; added safe tenant-scoped GTM MCP tools; and made the named GTM regression gates required in CRM and Hub CI. Current local gates: CRM GTM 93 passing suites / 978 passing tests (one suite and seven tests intentionally skipped), Hub GTM regression 240/240, full Hub 1,441/1,441, marketing 29/29, and CRM, Hub, and marketing typechecks clean.
 - 2026-08-26: Recorded the production audit after the foundation release (four adapters and customer release enabled, zero GTM production rows) and specified the additive quality-v2 closeout: evidence-only intent, play-specific `fit-v7`, bounded source-query lanes, canonical deduplication, freshness/access checks, calibrated ranking, twelve-play realtor benchmark, adversarial fixtures, responsive breakpoints, exact counsel delta, and tenant-scoped production quality diagnostics.
+- 2026-08-27: The first two bounded realtor benchmark passes exposed synthetic geography (requested markets copied into social and organic rows), broad seller-word false positives, generic agent content, and noisy actor auto-discovery. Added the `fit-v7-quality-v3` revision marker, evidence-proven locality, wrong-state rejection, realtor consumer-demand suitability, source-specific query-v3 syntax, precise Reddit search without actor-generated subreddit expansion, honest provider claims, explicit event-date parsing, and adversarial fixtures for targeting-only geography, marketplace sellers, and agent listicles. Existing paid runs can be requalified without another provider call because idempotency now includes the scorer revision as well as `fit-v7`.

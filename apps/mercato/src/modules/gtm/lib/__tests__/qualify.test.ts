@@ -176,6 +176,96 @@ describe('ruleBasedFitScorer', () => {
     )
   })
 
+  it('keeps requested geography unknown until returned opportunity content proves the market', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'How should I prepare my home to sell?',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          audience_description: 'I am preparing my home to sell. What should I repair first?',
+          provider_location: 'Austin, Texas',
+          access_type: 'public',
+          urls: ['https://reddit.com/r/homeowners/comments/example'],
+          recommended_action: 'Read the current conversation and contribute one useful response manually.',
+          message_angle: 'Answer the repair question before mentioning professional services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin homeowners preparing to sell',
+        signal: 'A public home-selling question',
+        providerQuery: { opportunity_intent_lane: 'seller_intent', locations: ['Austin, Texas'] },
+      },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('review')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'geography.location', status: 'unknown' }),
+      ]),
+    )
+  })
+
+  it('rejects a demonstrated wrong-state opportunity even when its lane is correct', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'South Florida home sale question',
+          opportunity_kind: 'thread',
+          platform: 'LinkedIn',
+          audience_description: 'I am selling my South Florida home. What should I repair first?',
+          provider_location: 'Austin, Texas',
+          access_type: 'public',
+          urls: ['https://www.linkedin.com/posts/example-wrong-market'],
+          recommended_action: 'Read the current conversation and contribute one useful response manually.',
+          message_angle: 'Answer the repair question before mentioning professional services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin homeowners preparing to sell',
+        signal: 'A public home-selling question',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.outsideGeography)
+  })
+
+  it('rejects an identically named city in the wrong state before awarding locality credit', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Austin Minnesota home sale question',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          audience_description: 'I am selling my Austin, Minnesota home. What should I repair first?',
+          access_type: 'public',
+          urls: ['https://reddit.com/r/example/comments/austin-minnesota-home-sale'],
+          recommended_action: 'Read the current conversation and contribute one useful response manually.',
+          message_angle: 'Answer the repair question before mentioning professional services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin homeowners preparing to sell',
+        signal: 'A public home-selling question',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.outsideGeography)
+  })
+
   it('does not let a provenance claim with negative query terms reject a useful result', () => {
     const result = ruleBasedFitScorer.score(
       {
