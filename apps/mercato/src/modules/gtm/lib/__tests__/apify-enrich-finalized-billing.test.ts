@@ -152,6 +152,35 @@ describe('Apify profile enrichment finalized billing', () => {
     expect(JSON.stringify(result.receipt)).not.toContain(TOKEN)
   })
 
+  it('re-reads the same terminal run when usage lags finalized event counts', async () => {
+    const staleUsage = runRecord({ profile: 1, profile_with_email: 0 }, 0)
+    const finalized = runRecord({ profile: 1, profile_with_email: 0 }, 0.004)
+    const { adapter, calls } = finalizedAdapter([
+      response(201, {
+        data: { id: RUN_ID, status: 'SUCCEEDED', defaultDatasetId: DATASET_ID },
+      }),
+      response(200, { data: staleUsage }),
+      response(200, { data: finalized }),
+      response(200, [profile([])]),
+    ])
+
+    const result = await adapter.enrich(request)
+
+    expect(result.status).toBe('no_result')
+    expect(result.cost_units).toBe(0.4)
+    expect(result.receipt).toMatchObject({
+      run_id: RUN_ID,
+      billing_finalized: true,
+      provider_cost_usd: 0.004,
+      charged_event_counts: { profile: 1, profile_with_email: 0 },
+    })
+    expect(calls).toHaveLength(4)
+    expect(calls[1].url).toContain(`/actor-runs/${RUN_ID}`)
+    expect(calls[2].url).toContain(`/actor-runs/${RUN_ID}`)
+    expect(calls[3].url).toContain(`/datasets/${DATASET_ID}/items`)
+    expect(calls.filter((call) => call.init.method === 'POST')).toHaveLength(1)
+  })
+
   it('charges exactly 2,000 credits after markup for the finalized profile-only miss', async () => {
     const run = runRecord({ profile: 1, profile_with_email: 0 }, 0.004)
     const { adapter } = finalizedAdapter([
