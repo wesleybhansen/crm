@@ -142,7 +142,7 @@ describe('opportunity quality primitives', () => {
     ).toBe(false)
     expect(
       assessRealtorOpportunitySuitability(
-        'Where in Denver feels like home for a first-time buyer who wants a walkable neighborhood?',
+        'Where in Denver feels like home for a new resident who wants a walkable neighborhood?',
         'local_audience',
         null,
         'thread',
@@ -156,6 +156,31 @@ describe('opportunity quality primitives', () => {
         'thread',
       ).relevant,
     ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'I need advice clearing the contents of my late sister’s Austin home before an estate sale.',
+        'local_audience',
+        null,
+        'thread',
+      ).relevant,
+    ).toBe(false)
+  })
+
+  it('rejects generic lifestyle promotion and estate-content sales as housing demand', () => {
+    const lifestylePromotion =
+      'WalletHub ranked Tampa among the most pet-friendly cities. When people relocate, they are choosing a lifestyle. Where can I walk the dog before work? There is a bigger real estate story here.'
+    expect(realtorOpportunityNoiseReasons(lifestylePromotion)).toContain('market_lifestyle_promotion')
+    expect(
+      assessRealtorOpportunitySuitability(lifestylePromotion, 'buyer_intent', null, 'post').relevant,
+    ).toBe(false)
+
+    const estateContents =
+      'I need advice clearing my late sister’s South Austin home after she passed away. I need to sell furniture and find an estate liquidator or bulk buyout service.'
+    expect(realtorOpportunityNoiseReasons(estateContents)).toContain('sensitive_personal_crisis')
+    expect(classifyOpportunityIntent(estateContents).kind).toBeNull()
+    expect(
+      assessRealtorOpportunitySuitability(estateContents, 'seller_intent', null, 'thread').relevant,
+    ).toBe(false)
   })
 
   it('canonicalizes tracking variants and source aliases into one destination', () => {

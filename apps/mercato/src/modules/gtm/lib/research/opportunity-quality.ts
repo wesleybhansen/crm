@@ -19,7 +19,15 @@ export type OpportunityDestinationAssessment = {
 }
 
 const BUYER_SIGNALS: Array<[string, RegExp]> = [
-  ['buy', /\b(?:buy|buying|buyer|buyers)\b/i],
+  [
+    'buy a home',
+    /\b(?:buy(?:ing)?|purchase|purchasing) (?:a|my|our|the)? ?(?:first|current|next|new|smaller|larger)? ?(?:home|house|condo|townhome|property)\b|\b(?:home|house|condo|townhome|property) (?:purchase|buyer)\b/i,
+  ],
+  ['home buyer', /\b(?:home|property) ?buyers?\b|\bbuyers? (?:and|or) sellers?\b/i],
+  [
+    'buy before or after selling',
+    /\bbuy(?:ing)? (?:or|before|after) sell(?:ing)? (?:a|my|our|the)? ?(?:home|house|property)\b|\bbuying (?:the )?(?:next|another) one\b/i,
+  ],
   ['first-time buyer', /\bfirst[- ]time (?:home ?buyer|buyer|home)\b/i],
   ['home search', /\b(?:house hunt|house hunting|home search|searching for (?:a )?home)\b/i],
   ['financing education', /\b(?:mortgage|pre[- ]?approval|down payment|closing costs?)\b/i],
@@ -28,7 +36,11 @@ const BUYER_SIGNALS: Array<[string, RegExp]> = [
 ]
 
 const SELLER_SIGNALS: Array<[string, RegExp]> = [
-  ['sell', /\b(?:sell|selling|seller|sellers)\b/i],
+  [
+    'sell a home',
+    /\b(?:sell|selling) (?:a|my|our|the)? ?(?:[a-z]+ ){0,2}(?:home|house|condo|townhome|property)\b|\b(?:home|house|property) (?:sale|seller)\b|\bhome ?sellers?\b/i,
+  ],
+  ['buyer and seller audience', /\bbuyers? (?:and|or) sellers?\b/i],
   ['listing a home', /\blist(?:ing)? (?:a|my|our|the)? ?(?:home|house|property)\b/i],
   ['home value', /\b(?:home value|home valuation|house worth|home worth|pricing my home)\b/i],
   ['pricing a home', /\bpric(?:e|ing) (?:a|my|our|the)? ?(?:home|house|property)\b/i],
@@ -86,8 +98,16 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:let(?:'|’)s connect (?:tampa )?professionals?|real estate professionals? (?:network|meetup)|realtor networking|broker networking)\b/i,
   ],
   [
+    'market_lifestyle_promotion',
+    /\b(?:wallethub|ranked?|ranking|study|report)\b.{0,240}\b(?:cities?|real estate|housing|relocat(?:e|ing|ion)|rental listings?)\b|\b(?:but there(?:'|’)s a bigger real estate story|when people relocate, they aren(?:'|’)t simply choosing)\b/i,
+  ],
+  [
     'non_owner_or_solicitation_mismatch',
     /\b(?:i (?:lease|rent) (?:and|so) (?:do not|don(?:'|’)t) own|i(?:'m| am) not (?:the )?homeowner|not (?:the )?(?:owner|homeowner)|tips? to deter solicitors|stop (?:door[- ]to[- ]door )?salespeople)\b/i,
+  ],
+  [
+    'sensitive_personal_crisis',
+    /\b(?:passed away|passed last month|bereav(?:ed|ement)|grieving|late (?:sister|brother|mother|father|parent|spouse|partner)|below the poverty line|financial hardship|medical crisis)\b/i,
   ],
 ]
 
@@ -96,9 +116,11 @@ const REALTOR_HOUSING_CONTEXT =
 const CONSUMER_QUESTION =
   /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =
-  /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:actively\s+)?(?:thinking (?:about|of)|considering|planning(?: to)?|preparing(?: to)?|trying(?: to)?|looking(?: to| for)|need(?:ing)?(?: to)?|want(?:ing)?(?: to)?|wondering|unsure|confused|stressed)\b/i
+  /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:actively\s+)?(?:thinking (?:about|of)|considering|planning(?: to)?|preparing(?: to)?|trying(?: to)?|looking(?: to| for)|need(?:ing)?(?: to)?|want(?:ing)?(?: to)?|moving|relocating|wondering|unsure|confused|stressed)\b/i
 const DEMONSTRATED_HOUSING_STATUS =
   /\b(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\s+(?:moving|looking|planning|preparing|trying|considering|thinking|needing|wanting)\b/i
+const FIRST_PERSON_HOUSING_IDENTITY =
+  /\b(?:i|we)(?:'m|'re| am| are)\s+(?:a\s+)?(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\b/i
 const PARTICIPATION_SURFACE =
   /\b(?:community|forum|group|thread|discussion|question|event|workshop|seminar|webinar|class|meetup|panel|association|club|neighbou?rhood|homeowners?)\b/i
 const EDUCATIONAL_EVENT = /\b(?:event|workshop|seminar|webinar|class|meetup|panel|clinic|q\s*&\s*a)\b/i
@@ -209,6 +231,10 @@ export function assessRealtorOpportunitySuitability(
     CONSUMER_QUESTION.test(content)
     || FIRST_PERSON_HOUSING_NEED.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
+  const directConsumerNeed =
+    FIRST_PERSON_HOUSING_NEED.test(content)
+    || DEMONSTRATED_HOUSING_STATUS.test(content)
+    || FIRST_PERSON_HOUSING_IDENTITY.test(content)
   const surface = PARTICIPATION_SURFACE.test(content)
   const educationalEvent = EDUCATIONAL_EVENT.test(content)
   const participationVenue = ['community', 'forum', 'group', 'thread'].includes(opportunityKind ?? '')
@@ -220,14 +246,18 @@ export function assessRealtorOpportunitySuitability(
     || (intent === 'mixed_intent' && (expectedIntent === 'buyer_intent' || expectedIntent === 'seller_intent'))
     || (expectedIntent === 'mixed_intent'
       && (intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'))
-  const localParticipation = participationVenue || scheduledEvent || (opportunityKind === 'post' && surface && consumerNeed)
+  const localParticipation =
+    participationVenue
+    || scheduledEvent
+    || (opportunityKind === 'post' && surface && directConsumerNeed)
+  const directDemand = opportunityKind === 'post' ? directConsumerNeed : consumerNeed
   const relevant = expectedIntent === 'local_audience'
-    ? housing && localParticipation && reasons.length === 0
-    : housing && laneMatches && (consumerNeed || scheduledEvent || venueConsumerDemand) && reasons.length === 0
+    ? housing && laneMatches && localParticipation && reasons.length === 0
+    : housing && laneMatches && (directDemand || scheduledEvent || venueConsumerDemand) && reasons.length === 0
   if (!housing) reasons.push('missing_housing_context')
   if (!laneMatches) reasons.push('intent_lane_mismatch')
   if (expectedIntent === 'local_audience' && !localParticipation) reasons.push('missing_consumer_participation')
-  if (expectedIntent !== 'local_audience' && !consumerNeed && !scheduledEvent && !venueConsumerDemand) {
+  if (expectedIntent !== 'local_audience' && !directDemand && !scheduledEvent && !venueConsumerDemand) {
     reasons.push('missing_consumer_need_or_event')
   }
   return { relevant, demonstratedIntent: intent, reasons: [...new Set(reasons)] }
