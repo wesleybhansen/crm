@@ -32,6 +32,7 @@ import {
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
   demonstratedOpportunityLocation,
+  sensitiveConsumerOpportunityReasons,
 } from '../../research/opportunity-quality'
 
 const APIFY_MILLIDOLLAR_USD = 0.001
@@ -423,7 +424,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   if (!sourceUrl || !title) return null
   const body = text(row.body, 600)
   const content = body ? `${title}. ${body}` : title
-  if (SENSITIVE_TARGETING.test(content)) return null
+  if (SENSITIVE_TARGETING.test(content) || sensitiveConsumerOpportunityReasons(content).length > 0) return null
   const subreddit = text(row.subreddit, 100)
   const subredditInfo = record(row.subredditInfo)
   if (subredditInfo?.isNsfw === true || subredditInfo?.isQuarantined === true) return null
@@ -496,7 +497,12 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
   if (!row) return null
   const sourceUrl = safePlatformUrl(row.postUrl, 'X')
   const content = text(row.postText, 800)
-  if (!sourceUrl || !content || SENSITIVE_TARGETING.test(content)) return null
+  if (
+    !sourceUrl
+    || !content
+    || SENSITIVE_TARGETING.test(content)
+    || sensitiveConsumerOpportunityReasons(content).length > 0
+  ) return null
   const engagement = Math.min(
     10_000_000,
     nonNegativeInteger(row.replyCount) +

@@ -33,6 +33,7 @@ import {
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
   demonstratedOpportunityLocation,
+  sensitiveConsumerOpportunityReasons,
 } from '../../research/opportunity-quality'
 
 /*
@@ -273,6 +274,7 @@ export function normalizeApifyOpportunityItem(
   const sourceUrl = safeLinkedInUrl(row.linkedinUrl, '/posts/')
   if (!sourceUrl) return null
   const content = text(row.content, 800)
+  if (content && sensitiveConsumerOpportunityReasons(content).length > 0) return null
   const author = safeAuthor(row)
   const authorInfo = text(record(row.author)?.info, 180)
   const interactions = engagementCount(row)

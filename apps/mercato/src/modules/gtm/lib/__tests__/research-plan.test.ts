@@ -198,7 +198,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v4')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v5')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(new Set(queries).size).toBe(3)
@@ -228,9 +228,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(web.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('selling my house reddit forum'),
-        expect.stringContaining('thinking about selling home question discussion'),
-        expect.stringContaining('home seller workshop meetup event'),
+        expect.stringContaining('"I am thinking about selling my home" question'),
+        expect.stringContaining('"I need to sell my house" advice forum'),
+        expect.stringContaining('"home seller" upcoming workshop'),
       ]),
     )
     expect(new Set(web.map((lane) => lane.query)).size).toBe(3)

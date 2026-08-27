@@ -111,6 +111,25 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
   ],
 ]
 
+const SENSITIVE_CONSUMER_OPPORTUNITY: Array<[string, RegExp]> = [
+  [
+    'sensitive_health_or_disability',
+    /\b(?:disab(?:led|ility)|medical (?:condition|crisis|debt)|health condition|mental health|pregnan(?:t|cy)|substance (?:use|abuse)|addiction|opioid|overdose|sober living|recovery (?:home|house|housing))\b/i,
+  ],
+  [
+    'sensitive_housing_instability',
+    /\b(?:homeless(?:ness)?|unhoused|housing (?:insecurity|instability)|no place to stay|sleeping (?:in|on) (?:my|a) (?:car|couch)|couch surf(?:ing)?|about to be evicted|being evicted|cannot pay (?:my )?rent|can(?:'|’)t pay (?:my )?rent|predatory landlord|domestic violence|abuse survivor)\b/i,
+  ],
+  [
+    'sensitive_minor_or_protected_trait',
+    /\b(?:minor|underage|child(?:ren)?(?:'s)? housing|sex offender|sexual orientation|gender identity|immigration status|citizenship status|racial identity|ethnic identity|religious affiliation)\b/i,
+  ],
+  [
+    'sensitive_bereavement_or_financial_distress',
+    /\b(?:passed away|bereav(?:ed|ement)|grieving|late (?:sister|brother|mother|father|parent|spouse|partner)|below the poverty line|bankrupt(?:cy)?|foreclos(?:e|ed|ure)|tax delinquen(?:t|cy)|financial hardship)\b/i,
+  ],
+]
+
 const REALTOR_HOUSING_CONTEXT =
   /\b(?:home|house|housing|property|condo|townhome|homeowner|home ?buyer|home ?seller|first[- ]time buyer|mortgage|down payment|closing costs?|real estate)\b/i
 const CONSUMER_QUESTION =
@@ -169,7 +188,20 @@ export function classifyOpportunityIntent(content: string): OpportunityIntentCla
 
 export function realtorOpportunityNoiseReasons(content: string, sourceUrl: string | null = null): string[] {
   const material = `${content}\n${sourceUrl ?? ''}`
-  return REALTOR_NOISE.filter(([, pattern]) => pattern.test(material)).map(([reason]) => reason)
+  return [
+    ...REALTOR_NOISE.filter(([, pattern]) => pattern.test(material)).map(([reason]) => reason),
+    ...sensitiveConsumerOpportunityReasons(material),
+  ].filter((reason, index, reasons) => reasons.indexOf(reason) === index)
+}
+
+/**
+ * Returns only evidence-grounded safety reasons found in provider-returned
+ * content. Search targeting is deliberately not accepted as proof here.
+ */
+export function sensitiveConsumerOpportunityReasons(content: string): string[] {
+  return SENSITIVE_CONSUMER_OPPORTUNITY
+    .filter(([, pattern]) => pattern.test(content))
+    .map(([reason]) => reason)
 }
 
 function normalizedPhrase(value: string): string {

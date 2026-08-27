@@ -17,6 +17,7 @@ import {
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
   demonstratedOpportunityLocation,
+  sensitiveConsumerOpportunityReasons,
 } from '../../research/opportunity-quality'
 
 export const DATAFORSEO_OPPORTUNITY_ADAPTER_ID = 'dataforseo-organic-demand-opportunities'
@@ -200,7 +201,8 @@ function opportunityKind(url: URL, text: string, resultType: string): Opportunit
   if (resultType === 'perspectives_element') return 'post'
   if (resultType === 'events_element') return 'event'
   if (host.endsWith('reddit.com')) return path.includes('/comments/') ? 'thread' : 'community'
-  if (host.endsWith('meetup.com') || host.endsWith('eventbrite.com')) return 'event'
+  if (host.endsWith('eventbrite.com')) return path.startsWith('/e/') ? 'event' : 'community'
+  if (host.endsWith('meetup.com')) return path.includes('/events/') ? 'event' : 'group'
   if (host.endsWith('facebook.com')) {
     if (path.includes('/groups/')) return 'group'
     if (path.includes('/events/')) return 'event'
@@ -252,12 +254,44 @@ function messageAngle(intent: Candidate['identity']['intent_kind']): string {
 const MONTH_NAME =
   /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+20\d{2}\b/i
 const ISO_CALENDAR_DATE = /\b20\d{2}-\d{2}-\d{2}\b/
+const MONTH_DAY =
+  /\b(?:(sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?),?\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i
 
-function explicitEventStartAt(value: string): string | null {
+const WEEKDAY_INDEX: Record<string, number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+}
+
+function explicitEventStartAt(value: string, referenceValue: string): string | null {
   const match = value.match(ISO_CALENDAR_DATE)?.[0] ?? value.match(MONTH_NAME)?.[0]
-  if (!match) return null
-  const date = new Date(match.replace(/(\d)(?:st|nd|rd|th)\b/i, '$1'))
-  return Number.isFinite(date.getTime()) ? date.toISOString() : null
+  if (match) {
+    const date = new Date(match.replace(/(\d)(?:st|nd|rd|th)\b/i, '$1'))
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null
+  }
+
+  const monthDay = value.match(MONTH_DAY)
+  const reference = new Date(referenceValue)
+  if (!monthDay || !Number.isFinite(reference.getTime())) return null
+  const weekday = monthDay[1]?.slice(0, 3).toLowerCase() ?? null
+  const month = monthDay[2]
+  const day = monthDay[3]
+  const candidates: Date[] = []
+  for (let year = reference.getUTCFullYear() - 3; year <= reference.getUTCFullYear() + 1; year += 1) {
+    const candidate = new Date(`${month} ${day}, ${year} 12:00:00 UTC`)
+    if (!Number.isFinite(candidate.getTime())) continue
+    if (weekday != null && candidate.getUTCDay() !== WEEKDAY_INDEX[weekday]) continue
+    candidates.push(candidate)
+  }
+  candidates.sort(
+    (left, right) =>
+      Math.abs(left.getTime() - reference.getTime()) - Math.abs(right.getTime() - reference.getTime()),
+  )
+  return candidates[0]?.toISOString() ?? null
 }
 
 function strictProviderTimestamp(value: unknown): string | null {
@@ -280,7 +314,10 @@ export function normalizeDataForSeoOpportunityItem(
   const description = boundedText(item.description, 500)
   if (!url || !title) return null
   const searchable = `${title} ${description ?? ''} ${url.pathname}`
-  if (SENSITIVE_CONSUMER_TARGETING.test(searchable)) return null
+  if (
+    SENSITIVE_CONSUMER_TARGETING.test(searchable)
+    || sensitiveConsumerOpportunityReasons(searchable).length > 0
+  ) return null
   if (resultType === 'events_element' && /(^|\.)google\.[a-z.]+$/i.test(url.hostname)) return null
   const kind = opportunityKind(url, searchable, resultType)
   if (!kind) return null
@@ -291,7 +328,7 @@ export function normalizeDataForSeoOpportunityItem(
   const intent = demonstratedIntent.kind
   const platform = platformName(url.hostname)
   const demonstratedLocation = demonstratedOpportunityLocation(searchable, context.location)
-  const eventStartAt = kind === 'event' ? explicitEventStartAt(searchable) : null
+  const eventStartAt = kind === 'event' ? explicitEventStartAt(searchable, context.observedAt) : null
   const sourcePublishedAt = strictProviderTimestamp(item.timestamp)
   const engagementCount = Math.max(0, finiteNumber(item.posts_count) ?? 0)
   return {
@@ -306,7 +343,14 @@ export function normalizeDataForSeoOpportunityItem(
       intent_kind: intent,
       audience_description: description ?? `${title} on ${platform}`,
       activity_level: 'unknown',
-      access_type: kind === 'event' ? 'unknown' : kind === 'group' ? 'approval_required' : 'public',
+      access_type:
+        kind === 'event'
+          ? url.hostname.toLowerCase().endsWith('eventbrite.com')
+            ? 'ticketed'
+            : 'public'
+          : kind === 'group'
+            ? 'approval_required'
+            : 'public',
       event_start_at: eventStartAt,
       source_published_at: sourcePublishedAt,
       engagement_count: engagementCount,

@@ -9,6 +9,7 @@ import {
   rankOpportunityCandidates,
   realtorOpportunityNoiseReasons,
   opportunityEvidenceText,
+  sensitiveConsumerOpportunityReasons,
 } from '../research/opportunity-quality'
 
 describe('opportunity quality primitives', () => {
@@ -181,6 +182,20 @@ describe('opportunity quality primitives', () => {
     expect(
       assessRealtorOpportunitySuitability(estateContents, 'seller_intent', null, 'thread').relevant,
     ).toBe(false)
+  })
+
+  it('hard-blocks vulnerability and protected-trait targeting before qualification', () => {
+    expect(
+      sensitiveConsumerOpportunityReasons(
+        'How can I achieve housing independence after opioid recovery and a stay in sober living?',
+      ),
+    ).toEqual(expect.arrayContaining(['sensitive_health_or_disability']))
+    expect(
+      sensitiveConsumerOpportunityReasons(
+        'I have no place to stay, cannot pay rent, and need help with a predatory landlord.',
+      ),
+    ).toEqual(expect.arrayContaining(['sensitive_housing_instability']))
+    expect(sensitiveConsumerOpportunityReasons('Austin homeowners discussing a neighborhood workshop.')).toEqual([])
   })
 
   it('canonicalizes tracking variants and source aliases into one destination', () => {
