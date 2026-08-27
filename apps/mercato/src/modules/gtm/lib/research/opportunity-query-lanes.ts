@@ -93,7 +93,7 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
       return [
         '("first-time homebuyer" OR "home buyer") (workshop OR class OR seminar) (register OR schedule) 2026',
         '"homebuyer education" (class OR workshop) (calendar OR registration) 2026',
-        'Reddit ("buying a home" OR "house hunting" OR "moving to") (question OR advice) 2026',
+        'Reddit ("buying a home" OR "house hunting" OR "first-time home buyer") (question OR advice) 2026',
         '"homebuyer assistance" (workshop OR class) (register OR calendar) 2026',
         '"housing counseling" homebuyer (class OR workshop) registration 2026',
       ]
@@ -117,20 +117,20 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
       ]
     }
     return [
-      '("neighborhood association" OR "community council") (calendar OR meetings OR events) 2026',
-      '("homeowner association" OR "community association") ("public meeting" OR events OR join) 2026',
-      '("homebuyer workshop" OR "housing workshop") (calendar OR registration) 2026',
-      '("neighborhood registry" OR "community directory") (association OR group)',
-      '(Meetup OR Eventbrite) (homebuyer OR homeowner OR housing) (workshop OR event) 2026',
+      '("neighborhood association" OR "community council") ("public meeting" OR "community forum") (attend OR agenda) 2026',
+      '("homeowner association" OR "neighborhood group") ("open meeting" OR "public event") 2026',
+      '("homebuyer education" OR "home seller education") (workshop OR class) (register OR schedule) 2026',
+      '(Meetup OR Eventbrite) ("first-time homebuyer" OR homeowner) (workshop OR meetup) 2026',
+      'Reddit (homeowner OR homebuyer OR "selling my home") (question OR discussion) 2026',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
     const location = redditLocationAnchor(geography)
     if (intent === 'buyer_intent') {
       return [
-        'self:yes ("buying a home" OR "house hunting" OR "first time home buyer" OR relocating)',
-        `self:yes ${location} ("buying a home" OR "house hunting" OR "moving to")`,
-        `${location} (homebuyer OR "house hunting" OR relocating OR "moving to")`,
+        'self:yes ("buying a home" OR "house hunting" OR "first time home buyer")',
+        `self:yes ${location} ("buying a home" OR "house hunting" OR "first time home buyer")`,
+        `${location} (homebuyer OR "house hunting" OR "buy a house")`,
       ]
     }
     if (intent === 'seller_intent') {
@@ -148,16 +148,16 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
       ]
     }
     return [
-      '(homeowner OR "home buyer" OR housing) (question OR advice OR discussion)',
-      `${location} (homebuyer OR homeowner OR housing OR moving) (community OR event OR workshop OR group)`,
-      `${location} (neighborhood OR community OR homeowner OR housing OR moving)`,
+      'self:yes (homeowner OR "home buyer" OR "home seller") (question OR advice OR discussion)',
+      `${location} (homebuyer OR homeowner OR "home seller") (meeting OR workshop OR event OR group)`,
+      `${location} ("neighborhood association" OR "community meeting" OR "homebuyer workshop" OR "homeowner question")`,
     ]
   }
   const socialSeeds: Record<OpportunityIntentLane, string[]> = {
     buyer_intent: [
-      '("buying a home" OR "house hunting" OR "moving to") AND ("I am" OR "we are") NOT (realtor OR agent OR broker OR mortgage OR lender)',
-      '("first-time home buyer" OR "moving here") AND (question OR advice) NOT realtor',
-      '(homebuyer OR relocating) AND (workshop OR community) NOT realtor',
+      '("buying a home" OR "house hunting" OR "first-time home buyer") AND ("I am" OR "we are") NOT (realtor OR agent OR broker OR mortgage OR lender)',
+      '("first-time home buyer" OR "buy a house") AND (question OR advice) NOT realtor',
+      '(homebuyer OR "buying a home") AND (workshop OR community) NOT realtor',
     ],
     seller_intent: [
       '("selling my home" OR "selling our home" OR "thinking of selling") AND ("I am" OR "we are") NOT (realtor OR agent OR broker OR mortgage OR lender)',
@@ -315,7 +315,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v10',
+        query_lane_version: 'opportunity-query-v11',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
