@@ -131,7 +131,7 @@ const SENSITIVE_CONSUMER_OPPORTUNITY: Array<[string, RegExp]> = [
 ]
 
 const REALTOR_HOUSING_CONTEXT =
-  /\b(?:home|house|housing|property|condo|townhome|homeowner|home ?buyer|home ?seller|first[- ]time buyer|mortgage|down payment|closing costs?|real estate)\b/i
+  /\b(?:home|house|housing|property|condo|townhome|homeowner|home ?buyer|home ?seller|first[- ]time buyer|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|community registry|homebuyer education)\b/i
 const CONSUMER_QUESTION =
   /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =
@@ -271,6 +271,9 @@ export function assessRealtorOpportunitySuitability(
   const educationalEvent = EDUCATIONAL_EVENT.test(content)
   const participationVenue = ['community', 'forum', 'group', 'thread'].includes(opportunityKind ?? '')
   const scheduledEvent = opportunityKind === 'event' && educationalEvent
+  const educationalAudienceChannel =
+    ['community', 'forum', 'group', 'event'].includes(opportunityKind ?? '')
+    && educationalEvent
   const venueConsumerDemand = participationVenue && VENUE_CONSUMER_DEMAND.test(content)
   const laneMatches =
     expectedIntent == null
@@ -281,15 +284,25 @@ export function assessRealtorOpportunitySuitability(
   const localParticipation =
     participationVenue
     || scheduledEvent
+    || educationalAudienceChannel
     || (opportunityKind === 'post' && surface && directConsumerNeed)
   const directDemand = opportunityKind === 'post' ? directConsumerNeed : consumerNeed
   const relevant = expectedIntent === 'local_audience'
-    ? housing && laneMatches && localParticipation && reasons.length === 0
-    : housing && laneMatches && (directDemand || scheduledEvent || venueConsumerDemand) && reasons.length === 0
+    ? housing && localParticipation && reasons.length === 0
+    : housing
+      && laneMatches
+      && (directDemand || scheduledEvent || educationalAudienceChannel || venueConsumerDemand)
+      && reasons.length === 0
   if (!housing) reasons.push('missing_housing_context')
   if (!laneMatches) reasons.push('intent_lane_mismatch')
   if (expectedIntent === 'local_audience' && !localParticipation) reasons.push('missing_consumer_participation')
-  if (expectedIntent !== 'local_audience' && !directDemand && !scheduledEvent && !venueConsumerDemand) {
+  if (
+    expectedIntent !== 'local_audience'
+    && !directDemand
+    && !scheduledEvent
+    && !educationalAudienceChannel
+    && !venueConsumerDemand
+  ) {
     reasons.push('missing_consumer_need_or_event')
   }
   return { relevant, demonstratedIntent: intent, reasons: [...new Set(reasons)] }

@@ -31,6 +31,7 @@ export const realtorBenchmarkLabelSchema = z.object({
   systemDisposition: z.enum(['accepted', 'review', 'rejected']),
   relevantToPlay: z.boolean(),
   geographyCorrect: z.boolean(),
+  intentCorrect: z.boolean(),
   currentWithinWindow: z.boolean(),
   liveAccessible: z.boolean(),
   usefulEnoughToActOn: z.boolean(),
