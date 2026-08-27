@@ -132,17 +132,20 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   ],
   buildInput(plan, maxResults) {
     const subreddits = redditSubreddits(plan)
+    const autoDiscoverSubreddits = subreddits.length === 0 && redditAutoDiscover(plan)
     return {
       query: queryText(plan, 700),
       maxResults,
       contentType: 'posts',
-      sort: 'new',
+      sort: redditSort(plan),
       timeFilter: redditTimeFilter(plan),
       subreddits,
-      // Frozen market subreddits plus a precise intent query are safer than
-      // actor-generated community expansion, which returned unrelated global
-      // posts in the controlled benchmark.
-      autoDiscoverSubreddits: false,
+      // Query-v7 uses three separately quoted strategies: local market scope,
+      // broader intent communities with a market-anchored query, and a final
+      // bounded auto-discovery lane. Returned content must still prove intent
+      // and geography; discovery scope is never treated as evidence.
+      autoDiscoverSubreddits,
+      ...(autoDiscoverSubreddits ? { maxSubreddits: redditMaxSubreddits(plan) } : {}),
     }
   },
   normalize: normalizeRedditOpportunity,
@@ -350,6 +353,22 @@ function redditTimeFilter(plan: SourceSearchPlan): '' | 'hour' | 'day' | 'week' 
   if (/today|24h|day/.test(raw)) return 'day'
   if (/year|365d/.test(raw)) return 'year'
   return 'month'
+}
+
+function redditSort(plan: SourceSearchPlan): 'relevance' | 'new' | 'top' | 'hot' | 'comments' {
+  const value = text(plan.provider_query?.reddit_sort, 20)?.toLowerCase()
+  return value && ['relevance', 'new', 'top', 'hot', 'comments'].includes(value)
+    ? value as 'relevance' | 'new' | 'top' | 'hot' | 'comments'
+    : 'new'
+}
+
+function redditAutoDiscover(plan: SourceSearchPlan): boolean {
+  return plan.provider_query?.reddit_auto_discover === true
+}
+
+function redditMaxSubreddits(plan: SourceSearchPlan): number {
+  const parsed = Number(plan.provider_query?.reddit_max_subreddits)
+  return Number.isSafeInteger(parsed) ? Math.max(1, Math.min(20, parsed)) : 12
 }
 
 function redditSubreddits(plan: SourceSearchPlan): string[] {

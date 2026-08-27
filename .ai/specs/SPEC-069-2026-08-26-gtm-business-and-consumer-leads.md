@@ -325,12 +325,17 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v4` keeps actor-native syntax explicit. Reddit receives
-short natural-language searches without Boolean expressions, subreddit
-directives, quoted phrases, or negative operators that its actor may interpret
-literally. DataForSEO receives three market-scoped buyer, seller, or
-local-audience variants and retains supported negative terms. The organic
-normalizer consumes both ordinary organic rows and the provider's structured
+`opportunity-query-v7` keeps actor-native syntax explicit and separately quotes
+three Reddit strategies: exact market/state community scope, broader
+intent-community scope with the market embedded in the query, and one bounded
+auto-discovery lane whose discovered scope never counts as intent or geography
+evidence. The current actor contract supports phrases, Boolean and field
+operators; relevance sorting remains inside the frozen 30-day window.
+DataForSEO receives three full market-and-state variants for each buyer, seller,
+or local-audience play, targeted respectively at direct discussions, public
+groups, events, and community directories while retaining supported realtor
+negative terms. The organic normalizer consumes both ordinary organic rows and
+the provider's structured
 `discussions_and_forums`, `perspectives`, and direct-destination `events`
 children. It preserves provider publication timestamps and discussion counts;
 Google-hosted event-search redirects are not actionable destinations and are
@@ -458,3 +463,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-27: Human review of all 24 query-v4 accepted rows found that professional Q&A, listing inventory, client-success posts, realtor networking, generic advice, and a renter rejecting solicitation could still resemble demand. Added `fit-v7-quality-v7`: a question mark or possessive home reference is no longer evidence of consumer intent; buyer/seller events must be actual event destinations; local discovery requires a public participation venue or demonstrated consumer participation; and five sanitized live failure classes now remain in the artifact-quality regression suite.
 - 2026-08-27: Zero-spend requalification reduced the same 226 query-v4 candidates to four accepts and exposed two final semantic errors: city-ranking lifestyle promotion could imitate a direct buyer question, and a bereavement-driven household-content liquidation request could imitate a home seller. Added `fit-v7-quality-v8`: buyer/seller terms are housing-bound, individual posts require demonstrated first-person demand, local discovery enforces its own intent lane, vulnerable personal-crisis content is excluded, and both sanitized failure classes remain in the artifact-quality regression suite.
 - 2026-08-27: The query-v6 Austin benchmark exposed an identically named city leak (`Austin, MN` treated as Austin, Texas) and an honesty issue where requested provider targeting appeared beside observed geography. Added `fit-v7-quality-v9`: state names and postal abbreviations now reject demonstrated wrong-state results before locality credit, and criterion evidence reports only result-grounded locations while retaining requested geography solely as targeting provenance.
+- 2026-08-27: The complete query-v6 four-market benchmark produced only 86 top-ten rows and left nine of twelve plays below the ten-row labeling floor. Provider receipts showed that exact-market Reddit scopes were frequently sparse or nonexistent while broad organic searches returned stale and promotional pages. Added `opportunity-query-v7`: three separately quoted Reddit scope strategies, bounded actor-native relevance discovery, state-qualified organic anchors, source-domain-specific buyer/seller/local queries, and stronger realtor promotional exclusions. Discovery scope remains targeting provenance and cannot prove locality or intent.
