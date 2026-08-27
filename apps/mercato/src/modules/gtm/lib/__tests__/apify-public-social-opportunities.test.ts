@@ -124,6 +124,16 @@ function outcome(
 }
 
 describe('Apify public social demand opportunities', () => {
+  it('pins X reservations to the production FREE account tier', () => {
+    expect(APIFY_X_OPPORTUNITY_CONFIG).toMatchObject({
+      actorBuild: '0.0.153',
+      requiredPriceVersion: 'scraper-one-x-post-search-0.0.153-free-events-2026-08-27',
+      eventPricesUsd: { init: 0.025, 'result-item': 0.00125 },
+      oneTimeQuoteUsd: 0.025,
+      perItemQuoteUsd: 0.00125,
+    })
+  })
+
   it.each([[APIFY_REDDIT_OPPORTUNITY_CONFIG], [APIFY_X_OPPORTUNITY_CONFIG]])(
     'requires the exact actor, use approval, and price version for $platform',
     (config) => {

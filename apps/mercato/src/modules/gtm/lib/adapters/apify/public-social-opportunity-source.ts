@@ -148,11 +148,15 @@ export const APIFY_X_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   actorEnv: 'GTM_APIFY_ACTOR_X_POST_SEARCH',
   useApprovalEnv: 'GTM_APIFY_X_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_X_POST_SEARCH_PRICE_VERSION',
-  requiredPriceVersion: 'scraper-one-x-post-search-0.0.153-events-2026-08-26',
-  eventPricesUsd: { init: 0.0025, 'result-item': 0.001 },
+  // The production Apify account is on FREE. Actor metadata rechecked through
+  // Apify's public API on 2026-08-27: FREE is $0.025 once per run and
+  // $0.00125 per result. Other tiers are cheaper, but a plan change must update
+  // this exact contract instead of silently changing the reservation math.
+  requiredPriceVersion: 'scraper-one-x-post-search-0.0.153-free-events-2026-08-27',
+  eventPricesUsd: { init: 0.025, 'result-item': 0.00125 },
   primaryResultEvent: 'result-item',
-  perItemQuoteUsd: 0.001,
-  oneTimeQuoteUsd: 0.0025,
+  perItemQuoteUsd: 0.00125,
+  oneTimeQuoteUsd: 0.025,
   datasetFields: [
     'postText',
     'postUrl',
