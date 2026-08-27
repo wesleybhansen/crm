@@ -1,5 +1,11 @@
 import type { Candidate, CandidateEvidence } from '../adapters/types'
 import { isUsGeography } from '../eligibility'
+import {
+  assessOpportunityDestination,
+  classifyOpportunityIntent,
+  opportunityEvidenceText,
+  realtorOpportunityNoiseReasons,
+} from './opportunity-quality'
 
 export type FitVerdict = 'accepted' | 'review' | 'rejected'
 
@@ -24,7 +30,11 @@ export type CriterionResult = {
 }
 
 export type QualificationProfile = {
-  version: 'qualification-profile-v1' | 'qualification-profile-v2' | 'qualification-profile-v3'
+  version:
+    | 'qualification-profile-v1'
+    | 'qualification-profile-v2'
+    | 'qualification-profile-v3'
+    | 'qualification-profile-v4'
   criteria: Array<{
     id: string
     dimension: CriterionResult['dimension']
@@ -38,7 +48,7 @@ export type FitResult = {
   fitScore: number
   verdict: FitVerdict
   reason: string
-  version: 'fit-v2' | 'fit-v3' | 'fit-v4' | 'fit-v5' | 'fit-v6'
+  version: 'fit-v2' | 'fit-v3' | 'fit-v4' | 'fit-v5' | 'fit-v6' | 'fit-v7'
   breakdown: FitBreakdown
   unknowns: string[]
   contradictions: string[]
@@ -64,7 +74,7 @@ export interface FitScorer {
 
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
-export const FIT_SCORER_VERSION = 'fit-v6' as const
+export const FIT_SCORER_VERSION = 'fit-v7' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -81,6 +91,12 @@ export const FIT_REASONS = {
   criterionUnknown: 'required_criterion_unknown',
   excluded: 'matches_exclusion_criterion',
   staleSignal: 'outside_signal_recency_window',
+  inaccessibleDestination: 'public_destination_inaccessible',
+  expiredDestination: 'public_destination_expired',
+  audienceMismatch: 'opportunity_audience_mismatch',
+  intentMismatch: 'opportunity_intent_mismatch',
+  irrelevantOpportunity: 'opportunity_not_relevant_to_play',
+  realtorNoise: 'realtor_false_positive',
 } as const
 
 const EMPTY_BREAKDOWN: FitBreakdown = {
@@ -164,44 +180,327 @@ function unitWantsOpportunity(entityUnit: string): boolean {
   ].includes(unit)
 }
 
-function scoreOpportunity(identity: Record<string, unknown>, evidence: CandidateEvidence[]): FitResult {
-  const urls = strings(identity.urls)
-  const publicUrl = stringValue(identity, ['url', 'source_url', 'destination_url']) ?? urls[0] ?? null
+function queryStrings(query: Record<string, unknown>, keys: string[]): string[] {
+  return [
+    ...new Set(
+      keys.flatMap((key) => {
+        const value = query[key]
+        if (typeof value === 'string' && value.trim()) return [value.trim()]
+        if (Array.isArray(value)) {
+          return value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+        }
+        return []
+      }),
+    ),
+  ]
+}
+
+const OPPORTUNITY_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'at',
+  'for',
+  'from',
+  'in',
+  'is',
+  'of',
+  'on',
+  'or',
+  'people',
+  'the',
+  'to',
+  'us',
+  'who',
+  'with',
+])
+
+function meaningfulTokens(value: string): string[] {
+  return canonicalTokens(value).filter((token) => token.length >= 3 && !OPPORTUNITY_STOP_WORDS.has(token))
+}
+
+function semanticallyMatches(expected: string[], observedText: string): boolean {
+  const observed = new Set(meaningfulTokens(observedText))
+  return expected.some((phrase) => {
+    const wanted = [...new Set(meaningfulTokens(phrase))]
+    if (wanted.length === 0) return false
+    const hits = wanted.filter((token) => observed.has(token)).length
+    const required = wanted.length <= 2 ? 1 : Math.max(2, Math.ceil(wanted.length * 0.4))
+    return hits >= required
+  })
+}
+
+function expectedOpportunityIntent(play: FitPlayInput): string[] {
+  const query = play.providerQuery ?? {}
+  const explicit = queryStrings(query, [
+    'opportunity_intent_lane',
+    'intent_kind',
+    'intent_kinds',
+    'opportunity_intent',
+  ])
+    .map((value) => normalized(value).replace(/ /g, '_'))
+    .filter((value) => ['buyer_intent', 'seller_intent', 'local_audience', 'mixed_intent'].includes(value))
+  if (explicit.length > 0) return [...new Set(explicit)]
+  const targetingText = [
+    play.audience,
+    play.signal,
+    ...queryStrings(query, ['source_search_keywords', 'search_query', 'topics', 'audiences']),
+  ]
+    .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+    .join('\n')
+  const inferred = classifyOpportunityIntent(targetingText).kind
+  return inferred ? [inferred] : []
+}
+
+function intentMatchesLane(expected: string[], observed: string): boolean {
+  if (expected.includes(observed)) return true
+  // A mixed lane deliberately asks for either demonstrated buyer or seller
+  // demand. Do not require an individual result to prove both kinds of intent;
+  // that would reject the precise single-intent results the lane is meant to
+  // collect. Local-audience discovery remains its own lane.
+  return expected.includes('mixed_intent')
+    && (observed === 'buyer_intent' || observed === 'seller_intent')
+}
+
+function expectedAudience(play: FitPlayInput): string[] {
+  const query = play.providerQuery ?? {}
+  return [
+    play.audience,
+    play.signal,
+    ...queryStrings(query, ['audience_keywords', 'topics', 'source_search_keywords']),
+  ].filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+}
+
+function expectedGeographies(play: FitPlayInput): string[] {
+  return [
+    play.geography,
+    ...queryStrings(play.providerQuery ?? {}, ['locations', 'geographies']),
+  ].filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+}
+
+function geographyCriterionStatus(
+  expected: string[],
+  observed: string[],
+  targeting: string[],
+  countryCode: string | null,
+): CriterionStatus {
+  if (expected.length === 0) return 'unknown'
+  if (observed.length === 0) return 'unknown'
+  const expectedUs = expected.every((value) => isUsGeography(value))
+  if (expectedUs && countryCode && countryCode !== 'US' && countryCode !== 'USA') return 'fail'
+  const expectedTokens = expected.flatMap(meaningfulTokens).filter((value) => value !== 'united' && value !== 'states')
+  const observedTokens = new Set(observed.flatMap(meaningfulTokens))
+  if (expectedTokens.length === 0 && expectedUs) return countryCode === 'US' || countryCode === 'USA' ? 'pass' : 'unknown'
+  if (expectedTokens.some((token) => observedTokens.has(token))) return 'pass'
+  if (targeting.length > 0 && semanticallyMatches(expected, targeting.join('\n'))) return 'unknown'
+  return 'fail'
+}
+
+function criterion(
+  id: string,
+  dimension: CriterionResult['dimension'],
+  label: string,
+  expected: string[],
+  observed: string[],
+  status: CriterionStatus,
+  hard = true,
+): CriterionResult {
+  return { id, dimension, label, expected, observed, status, hard }
+}
+
+function scoreOpportunity(
+  identity: Record<string, unknown>,
+  play: FitPlayInput,
+  evidence: CandidateEvidence[],
+  referenceTime: Date | null,
+): FitResult {
+  if (evidence.length === 0) {
+    return result(0, 'rejected', FIT_REASONS.noEvidence, EMPTY_BREAKDOWN, [], ['no_supporting_evidence'])
+  }
   const opportunityKind = stringValue(identity, ['opportunity_kind'])
   const platform = stringValue(identity, ['platform'])
-  const audience = stringValue(identity, ['audience_description'])
-  const intent = stringValue(identity, ['intent_kind'])
-  const location = stringValue(identity, ['location', 'city', 'region'])
   const recommendedAction = stringValue(identity, ['recommended_action'])
+  const messageAngle = stringValue(identity, ['message_angle'])
+  const observedText = opportunityEvidenceText(identity, evidence)
+  const demonstratedIntent = classifyOpportunityIntent(observedText)
+  const expectedIntent = expectedOpportunityIntent(play)
+  const audienceExpected = expectedAudience(play)
+  const geographyExpected = expectedGeographies(play)
+  const locations = observedValues(identity, ['location', 'city', 'region'])
+  const targetingLocations = observedValues(identity, ['provider_location'])
+  const countryCode = stringValue(identity, ['country_code', 'countryCode'])?.toUpperCase() ?? null
+  const destination = assessOpportunityDestination({
+    identity,
+    evidence,
+    referenceTime,
+    maxAgeDays: recencyDays(play.recencyWindow),
+  })
+  const accessObserved = stringValue(identity, ['access_type'])
+  const destinationObserved = [
+    ...(destination.canonicalUrl ? [destination.canonicalUrl] : []),
+    ...(accessObserved ? [accessObserved] : []),
+    ...destination.issues,
+  ]
+  const audienceStatus =
+    audienceExpected.length === 0
+      ? 'unknown'
+      : semanticallyMatches(audienceExpected, observedText)
+        ? 'pass'
+        : observedText.trim()
+          ? 'fail'
+          : 'unknown'
+  const observedIntent = demonstratedIntent.kind
+  const intentStatus =
+    expectedIntent.length === 0 || observedIntent == null
+      ? 'unknown'
+      : intentMatchesLane(expectedIntent, observedIntent)
+        ? 'pass'
+        : 'fail'
+  const geoStatus = geographyCriterionStatus(geographyExpected, locations, targetingLocations, countryCode)
+  const freshStatus: CriterionStatus = destination.issues.includes('stale_destination')
+    || destination.issues.includes('event_expired')
+    ? 'fail'
+    : destination.issues.includes('destination_freshness_unknown')
+      || destination.issues.includes('event_time_unknown')
+      ? 'unknown'
+      : 'pass'
+  const actionStatus: CriterionStatus =
+    recommendedAction && recommendedAction.length >= 20 && messageAngle && messageAngle.length >= 20 ? 'pass' : 'unknown'
+  const isRealtorPlay = /\b(?:realtor|real estate|homeowners?|home buyer|home seller|buying a home|selling a home|home for sale|price a home|housing)\b/i.test(
+    [...audienceExpected, ...expectedIntent, ...geographyExpected].join(' '),
+  )
+  const noise = isRealtorPlay
+    ? realtorOpportunityNoiseReasons(observedText, destination.canonicalUrl)
+    : []
+  const criteria: CriterionResult[] = [
+    criterion(
+      'opportunity.destination',
+      'account',
+      'Public destination',
+      ['live public HTTPS destination'],
+      destinationObserved,
+      destination.status,
+    ),
+    criterion(
+      'opportunity.audience',
+      'account',
+      'Play audience relevance',
+      audienceExpected,
+      observedText ? [observedText] : [],
+      audienceStatus,
+    ),
+    criterion(
+      'opportunity.intent',
+      'persona',
+      'Demand intent lane',
+      expectedIntent,
+      observedIntent
+        ? [
+            observedIntent,
+            ...demonstratedIntent.buyerSignals,
+            ...demonstratedIntent.sellerSignals,
+            ...demonstratedIntent.localAudienceSignals,
+          ]
+        : [],
+      intentStatus,
+    ),
+    criterion(
+      'geography.location',
+      'geography',
+      'Location',
+      geographyExpected,
+      [...locations, ...targetingLocations],
+      geoStatus,
+    ),
+    criterion(
+      'signal.freshness',
+      'signal',
+      'Destination freshness',
+      play.recencyWindow ? [play.recencyWindow] : ['current'],
+      [
+        ...(destination.newestObservation ? [destination.newestObservation] : []),
+        ...(destination.ageDays == null ? [] : [`${Math.floor(destination.ageDays)} days old`]),
+      ],
+      freshStatus,
+    ),
+    criterion(
+      'opportunity.actionability',
+      'signal',
+      'Manual next action',
+      ['specific venue-appropriate manual action and message angle'],
+      [recommendedAction, messageAngle].filter((value): value is string => Boolean(value)),
+      actionStatus,
+      false,
+    ),
+    criterion(
+      'exclusion.realtor_noise',
+      'exclusion',
+      'Realtor false positives',
+      ['no listing inventory, recruiting, lead sales, jobs, or generic news'],
+      noise,
+      noise.length > 0 ? 'fail' : 'pass',
+    ),
+  ]
+  const profile: QualificationProfile = {
+    version: 'qualification-profile-v4',
+    criteria: criteria.map(({ id, dimension, label, expected, hard }) => ({ id, dimension, label, expected, hard })),
+  }
+  const unknowns = [
+    ...(!opportunityKind ? ['opportunity_kind'] : []),
+    ...(!platform ? ['platform'] : []),
+    ...criteria.filter((row) => row.status === 'unknown').map((row) => row.id),
+  ]
+  const contradictions = criteria.filter((row) => row.status === 'fail').map((row) => row.id)
   const avgConfidence = averageConfidence(evidence)
-  const unknowns: string[] = []
-  if (!publicUrl) unknowns.push('public_destination')
-  if (!opportunityKind) unknowns.push('opportunity_kind')
-  if (!platform) unknowns.push('platform')
-  if (!audience) unknowns.push('audience_description')
-  if (!intent) unknowns.push('intent_kind')
-  if (!location) unknowns.push('geography')
-  if (!recommendedAction) unknowns.push('recommended_action')
-
-  if (!publicUrl || !/^https:\/\//i.test(publicUrl)) {
-    return result(0, 'rejected', FIT_REASONS.missingDestination, EMPTY_BREAKDOWN, unknowns, [
-      'missing_public_destination',
-    ])
-  }
-  if (evidence.length === 0) {
-    return result(0, 'rejected', FIT_REASONS.noEvidence, EMPTY_BREAKDOWN, unknowns, ['no_supporting_evidence'])
-  }
-
+  const earned = (status: CriterionStatus, pass: number, unknown: number) =>
+    status === 'pass' ? pass : status === 'unknown' ? unknown : 0
   const breakdown: FitBreakdown = {
-    identity: opportunityKind && platform ? 15 : 8,
-    account: audience ? 25 : 8,
-    persona: intent ? 20 : 8,
-    geography: location ? 15 : 7,
-    evidence: avgConfidence * 25,
+    identity: earned(destination.status, 15, 6),
+    account: earned(audienceStatus, 25, 7),
+    persona: earned(intentStatus, 20, 5),
+    geography: earned(geoStatus, 15, 5),
+    evidence:
+      avgConfidence * 12.5 + earned(freshStatus, 7.5, 2.5) + earned(actionStatus, 5, 1.5),
   }
   const fitScore = Object.values(breakdown).reduce((sum, value) => sum + value, 0)
-  if (fitScore >= FIT_ACCEPT_THRESHOLD && avgConfidence >= 0.5 && recommendedAction) {
-    return result(fitScore, 'accepted', FIT_REASONS.accepted, breakdown, unknowns, [])
+  if (noise.length > 0) {
+    return result(fitScore, 'rejected', FIT_REASONS.realtorNoise, breakdown, unknowns, contradictions, profile, criteria)
+  }
+  if (destination.status === 'fail') {
+    const reason = destination.issues.includes('event_expired')
+      ? FIT_REASONS.expiredDestination
+      : destination.issues.includes('missing_or_invalid_public_destination')
+        ? FIT_REASONS.missingDestination
+        : FIT_REASONS.inaccessibleDestination
+    return result(fitScore, 'rejected', reason, breakdown, unknowns, contradictions, profile, criteria)
+  }
+  if (audienceStatus === 'fail') {
+    return result(fitScore, 'rejected', FIT_REASONS.audienceMismatch, breakdown, unknowns, contradictions, profile, criteria)
+  }
+  if (intentStatus === 'fail') {
+    return result(fitScore, 'rejected', FIT_REASONS.intentMismatch, breakdown, unknowns, contradictions, profile, criteria)
+  }
+  if (geoStatus === 'fail') {
+    return result(fitScore, 'rejected', FIT_REASONS.outsideGeography, breakdown, unknowns, contradictions, profile, criteria)
+  }
+  if (freshStatus === 'fail') {
+    return result(fitScore, 'rejected', FIT_REASONS.staleSignal, breakdown, unknowns, contradictions, profile, criteria)
+  }
+  if (criteria.some((row) => row.hard && row.status === 'unknown')) {
+    return result(
+      fitScore,
+      'review',
+      FIT_REASONS.criterionUnknown,
+      breakdown,
+      unknowns,
+      contradictions,
+      profile,
+      criteria,
+    )
+  }
+  if (fitScore >= FIT_ACCEPT_THRESHOLD && avgConfidence >= 0.5 && actionStatus === 'pass') {
+    return result(fitScore, 'accepted', FIT_REASONS.accepted, breakdown, unknowns, contradictions, profile, criteria)
   }
   if (fitScore >= FIT_REVIEW_THRESHOLD) {
     return result(
@@ -210,10 +509,21 @@ function scoreOpportunity(identity: Record<string, unknown>, evidence: Candidate
       avgConfidence < 0.5 ? FIT_REASONS.weakEvidence : FIT_REASONS.review,
       breakdown,
       unknowns,
-      [],
+      contradictions,
+      profile,
+      criteria,
     )
   }
-  return result(fitScore, 'rejected', FIT_REASONS.belowThreshold, breakdown, unknowns, [])
+  return result(
+    fitScore,
+    'rejected',
+    FIT_REASONS.irrelevantOpportunity,
+    breakdown,
+    unknowns,
+    contradictions,
+    profile,
+    criteria,
+  )
 }
 
 function stringValue(identity: Record<string, unknown>, keys: string[]): string | null {
@@ -627,8 +937,62 @@ export function compileQualificationProfile(
   play: FitPlayInput,
   candidateKind: Candidate['entity_kind'],
 ): QualificationProfile {
+  if (candidateKind === 'opportunity') {
+    const rows: QualificationProfile['criteria'] = [
+      {
+        id: 'opportunity.destination',
+        dimension: 'account',
+        label: 'Public destination',
+        expected: ['live public HTTPS destination'],
+        hard: true,
+      },
+      {
+        id: 'opportunity.audience',
+        dimension: 'account',
+        label: 'Play audience relevance',
+        expected: expectedAudience(play),
+        hard: true,
+      },
+      {
+        id: 'opportunity.intent',
+        dimension: 'persona',
+        label: 'Demand intent lane',
+        expected: expectedOpportunityIntent(play),
+        hard: true,
+      },
+      {
+        id: 'geography.location',
+        dimension: 'geography',
+        label: 'Location',
+        expected: expectedGeographies(play),
+        hard: true,
+      },
+      {
+        id: 'signal.freshness',
+        dimension: 'signal',
+        label: 'Destination freshness',
+        expected: play.recencyWindow ? [play.recencyWindow] : ['current'],
+        hard: true,
+      },
+      {
+        id: 'opportunity.actionability',
+        dimension: 'signal',
+        label: 'Manual next action',
+        expected: ['specific venue-appropriate manual action and message angle'],
+        hard: false,
+      },
+      {
+        id: 'exclusion.realtor_noise',
+        dimension: 'exclusion',
+        label: 'Realtor false positives',
+        expected: ['no listing inventory, recruiting, lead sales, jobs, or generic news'],
+        hard: true,
+      },
+    ]
+    return { version: 'qualification-profile-v4', criteria: rows }
+  }
   return {
-    version: 'qualification-profile-v3',
+    version: 'qualification-profile-v4',
     criteria: compileDefinitions(play, candidateKind).map(({ id, dimension, label, expected, hard }) => ({
       id,
       dimension,
@@ -798,12 +1162,6 @@ export const ruleBasedFitScorer: FitScorer = {
       return result(0, 'rejected', FIT_REASONS.noEvidence, EMPTY_BREAKDOWN, [], ['no_supporting_evidence'])
     }
 
-    if (candidate.entity_kind === 'opportunity') {
-      return scoreOpportunity(identity, evidence)
-    }
-
-    const definitions = compileDefinitions(play, candidate.entity_kind)
-    const profile = compileQualificationProfile(play, candidate.entity_kind)
     const parsedReference =
       play.referenceTime instanceof Date
         ? play.referenceTime
@@ -811,6 +1169,12 @@ export const ruleBasedFitScorer: FitScorer = {
           ? new Date(play.referenceTime)
           : null
     const referenceTime = parsedReference && Number.isFinite(parsedReference.getTime()) ? parsedReference : null
+    if (candidate.entity_kind === 'opportunity') {
+      return scoreOpportunity(identity, play, evidence, referenceTime)
+    }
+
+    const definitions = compileDefinitions(play, candidate.entity_kind)
+    const profile = compileQualificationProfile(play, candidate.entity_kind)
     const criteria = definitions.map((definition) => evaluateCriterion(definition, identity, evidence, referenceTime))
     const domain = stringValue(identity, ['domain'])
     const company = stringValue(identity, ['company', 'company_name'])

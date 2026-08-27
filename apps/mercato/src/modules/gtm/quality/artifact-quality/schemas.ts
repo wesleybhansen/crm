@@ -1,9 +1,25 @@
 import { z } from 'zod'
 
-export const GTM_ARTIFACT_RUBRIC_VERSION = 'gtm-artifact-quality-v1'
+export const GTM_ARTIFACT_RUBRIC_VERSION = 'gtm-artifact-quality-v2'
+
+const opportunityQualityLabelSchema = z.object({
+  source: z.enum(['synthetic', 'sanitized_live']),
+  playAudience: z.string().min(1).max(500),
+  playGeography: z.string().min(1).max(200),
+  expectedIntent: z.enum(['buyer_intent', 'seller_intent', 'local_audience', 'mixed_intent']),
+  observedContent: z.string().min(1).max(2_000),
+  observedLocation: z.string().min(1).max(200).nullable(),
+  observedAt: z.string().datetime(),
+  referenceTime: z.string().datetime(),
+  eventStartAt: z.string().datetime().nullable().default(null),
+  liveAccessible: z.boolean(),
+  usefulEnoughToActOn: z.boolean(),
+  duplicateOf: z.string().max(200).nullable().default(null),
+  expectedReasons: z.array(z.string().min(1).max(100)).max(20).default([]),
+})
 
 export const gtmArtifactFixtureSchema = z.object({
-  id: z.string().regex(/^gtm-q-v1-[a-z0-9-]+$/),
+  id: z.string().regex(/^gtm-q-v[12]-[a-z0-9-]+$/),
   kind: z.enum([
     'audience_play',
     'qualification',
@@ -20,6 +36,7 @@ export const gtmArtifactFixtureSchema = z.object({
   prohibitedClaims: z.array(z.string().min(1).max(500)).max(30),
   expectedDisposition: z.enum(['deliver', 'review', 'suppress', 'blocked']),
   artifact: z.record(z.string(), z.unknown()),
+  opportunityQualityLabel: opportunityQualityLabelSchema.optional(),
   minimumScore: z.number().int().min(0).max(100).default(80),
 })
 

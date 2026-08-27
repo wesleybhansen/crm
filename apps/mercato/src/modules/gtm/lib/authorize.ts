@@ -39,7 +39,11 @@ export function executionFeatureForOp(op: string): GtmFeature {
 }
 
 export function reconciliationFeatureForOp(op: string): GtmFeature {
-  return op === 'list' || op === 'history' || op === 'catalog' || op === 'ai-telemetry'
+  return op === 'list'
+    || op === 'history'
+    || op === 'catalog'
+    || op === 'ai-telemetry'
+    || op === 'opportunity-quality'
     ? 'gtm.view'
     : 'gtm.approve'
 }

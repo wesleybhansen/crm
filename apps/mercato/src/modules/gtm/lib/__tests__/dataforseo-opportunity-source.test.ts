@@ -142,17 +142,22 @@ describe('DataForSEO organic demand-opportunity source', () => {
       { targetAccepted: 10, maxRawCandidates: 20 },
       2,
     )
-    expect(result).toMatchObject({
-      ok: true,
-      entityKind: 'opportunity',
-      adapterPlan: [
-        {
-          adapter_id: DATAFORSEO_OPPORTUNITY_ADAPTER_ID,
-          providerUnits: 2,
-          billableUnit: 'organic_serp_10_results',
-        },
-      ],
-    })
+    expect(result).toMatchObject({ ok: true, entityKind: 'opportunity' })
+    if (!result.ok) throw new Error(result.reason)
+    expect(result.adapterPlan).toHaveLength(3)
+    expect(result.adapterPlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ queryLaneId: 'mixed_intent:1' }),
+        expect.objectContaining({ queryLaneId: 'mixed_intent:2' }),
+        expect.objectContaining({ queryLaneId: 'mixed_intent:3' }),
+      ]),
+    )
+    expect(result.adapterPlan.every((batch) =>
+      batch.adapter_id === DATAFORSEO_OPPORTUNITY_ADAPTER_ID
+      && batch.providerUnits === 1
+      && batch.billableUnit === 'organic_serp_10_results',
+    )).toBe(true)
+    expect(result.adapterPlan.reduce((sum, batch) => sum + batch.providerUnits, 0)).toBe(3)
   })
 
   it.each([

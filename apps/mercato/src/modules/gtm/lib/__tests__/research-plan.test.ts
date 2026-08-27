@@ -114,6 +114,49 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     }
   })
 
+  it('freezes multiple source-specific consumer query lanes as separately quoted batches', () => {
+    const plan = buildSourcePlan(
+      {
+        marketType: 'b2c',
+        geography: 'Austin, Texas',
+        signal: 'Public questions from people preparing to buy a home',
+        signalKind: 'social_engagement',
+        entityUnit: 'opportunities',
+        audience: 'Austin first-time home buyers',
+        providerQuery: {
+          opportunity_intent_lane: 'buyer_intent',
+          source_search_keywords: ['first-time buyer questions', 'moving to Austin home search'],
+        },
+      },
+      [fixtureConsumerSourceAdapter],
+      { targetAccepted: 3, maxRawCandidates: 9 },
+    )
+
+    expect(plan.ok).toBe(true)
+    if (plan.ok) {
+      expect(plan.schemaVersion).toBe('9')
+      expect(plan.adapterPlan).toHaveLength(3)
+      expect(plan.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(9)
+      expect(new Set(plan.adapterPlan.map((batch) => batch.queryLaneId)).size).toBe(3)
+      expect(
+        plan.adapterPlan.every(
+          (batch) => batch.providerQuery?.opportunity_intent_lane === 'buyer_intent'
+            && typeof batch.providerQuery?.search_query === 'string'
+            && Array.isArray(batch.providerQuery?.negative_terms),
+        ),
+      ).toBe(true)
+      expect(plan.qualificationProfile).toEqual(
+        expect.objectContaining({
+          version: 'qualification-profile-v4',
+          criteria: expect.arrayContaining([
+            expect.objectContaining({ id: 'opportunity.audience' }),
+            expect.objectContaining({ id: 'opportunity.intent', expected: ['buyer_intent'] }),
+          ]),
+        }),
+      )
+    }
+  })
+
   it('blocks sensitive consumer targeting before a provider quote', () => {
     const plan = buildSourcePlan(
       {
@@ -276,7 +319,7 @@ describe('buildSourcePlan pricing and limits', () => {
         ['fixture-source-b', 15],
       ])
       expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
-      expect(plan.schemaVersion).toBe('8')
+      expect(plan.schemaVersion).toBe('9')
     }
   })
 

@@ -188,6 +188,20 @@ describe('Apify demand-opportunity source contract', () => {
     expect(mixed?.identity.intent_kind).toBe('mixed_intent')
   })
 
+  it('does not turn a seller-oriented search query into seller evidence', () => {
+    const content = 'South Bay neighborhood community breakfast for local residents.'
+    const sellerQuery = normalizeApifyOpportunityItem(post({ content }), {
+      attemptedAt: CLOCK.toISOString(),
+      query: 'homeowners preparing to sell a home',
+    })
+    const buyerQuery = normalizeApifyOpportunityItem(post({ content }), {
+      attemptedAt: CLOCK.toISOString(),
+      query: 'first-time buyers looking for a home',
+    })
+    expect(sellerQuery?.identity.intent_kind).toBe('local_audience')
+    expect(buyerQuery?.identity.intent_kind).toBe('local_audience')
+  })
+
   it('drops non-public and non-LinkedIn rows instead of storing weak evidence', () => {
     expect(
       normalizeApifyOpportunityItem(
@@ -240,17 +254,20 @@ describe('Apify demand-opportunity source contract', () => {
       { targetAccepted: 5, maxRawCandidates: 5 },
       2,
     )
-    expect(plan).toMatchObject({
-      ok: true,
-      entityKind: 'opportunity',
-      adapterPlan: [
-        {
-          adapter_id: APIFY_OPPORTUNITY_SOURCE_ADAPTER_ID,
-          billableUnit: 'apify_millidollar',
-          maxCandidates: 5,
-        },
-      ],
-    })
+    expect(plan.ok).toBe(true)
+    if (plan.ok) {
+      expect(plan.entityKind).toBe('opportunity')
+      expect(plan.adapterPlan).toHaveLength(3)
+      expect(plan.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(5)
+      expect(plan.adapterPlan.every((batch) => batch.adapter_id === APIFY_OPPORTUNITY_SOURCE_ADAPTER_ID)).toBe(true)
+      expect(plan.adapterPlan.every((batch) => batch.billableUnit === 'apify_millidollar')).toBe(true)
+      expect(plan.adapterPlan.every((batch) => batch.providerUnits === 10)).toBe(true)
+      expect(plan.adapterPlan.map((batch) => batch.queryLaneId)).toEqual([
+        'seller_intent:1',
+        'seller_intent:2',
+        'seller_intent:3',
+      ])
+    }
   })
 
   it('runs the immutable actor build, settles actual events, and returns bounded opportunities', async () => {

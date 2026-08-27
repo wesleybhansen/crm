@@ -228,6 +228,25 @@ describe('Apify public social demand opportunities', () => {
     })
   })
 
+  it('keeps Reddit and X intent independent from the targeting query', () => {
+    const context = {
+      query: 'people preparing to sell a home',
+      location: 'South Bay, California',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    }
+    const reddit = normalizeRedditOpportunity(
+      redditPost({ title: 'South Bay neighborhood community breakfast', body: 'Local residents are welcome.' }),
+      context,
+    )
+    const x = normalizeXOpportunity(
+      xPost({ postText: 'South Bay neighborhood community breakfast for local residents.' }),
+      { ...context, actorId: APIFY_X_OPPORTUNITY_CONFIG.actorId },
+    )
+    expect(reddit?.identity.intent_kind).toBe('local_audience')
+    expect(x?.identity.intent_kind).toBe('local_audience')
+  })
+
   it('builds bounded, posts-only, recent inputs from one approved discovery phrase', async () => {
     const redditRun = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
     const reddit = createApifyRedditOpportunityAdapter({
@@ -356,8 +375,14 @@ describe('Apify public social demand opportunities', () => {
     if (result.ok) {
       expect(result.adapterPlan.map((batch) => batch.adapter_id)).toEqual([
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_X_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_X_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
       ])
+      expect(result.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(20)
+      expect(new Set(result.adapterPlan.map((batch) => `${batch.adapter_id}:${batch.queryLaneId}`)).size).toBe(6)
       expect(result.adapterPlan.every((batch) => batch.billableUnit === 'apify_millidollar')).toBe(true)
     }
   })

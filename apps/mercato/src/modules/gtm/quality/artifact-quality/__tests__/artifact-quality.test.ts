@@ -1,12 +1,13 @@
 import { evaluateGtmArtifact } from '../evaluator'
 import { GTM_ARTIFACT_FIXTURES_V1 } from '../fixtures/v1/fixtures'
+import { GTM_ARTIFACT_FIXTURES_V2 } from '../fixtures/v2/fixtures'
 
-describe('GTM artifact quality v1', () => {
-  it('passes every checked-in excellent synthetic artifact', () => {
-    for (const fixture of GTM_ARTIFACT_FIXTURES_V1) {
+describe('GTM artifact quality v2', () => {
+  it('passes every checked-in excellent and correctly dispositioned adversarial artifact', () => {
+    for (const fixture of GTM_ARTIFACT_FIXTURES_V2) {
       expect(evaluateGtmArtifact(fixture)).toMatchObject({
         fixtureId: fixture.id,
-        rubricVersion: 'gtm-artifact-quality-v1',
+        rubricVersion: 'gtm-artifact-quality-v2',
         passed: true,
         hardFailures: [],
       })
@@ -94,5 +95,19 @@ describe('GTM artifact quality v1', () => {
         },
       }).hardFailures,
     ).toEqual(expect.arrayContaining(['consumer_automation_boundary_missing', 'unsafe_consumer_action']))
+  })
+
+  it('requires semantic, geography, liveness, usefulness, and noise reasons on adversarial results', () => {
+    const adversarial = GTM_ARTIFACT_FIXTURES_V2.filter((row) => row.id.startsWith('gtm-q-v2-'))
+    expect(adversarial).toHaveLength(4)
+    for (const fixture of adversarial) expect(evaluateGtmArtifact(fixture).passed).toBe(true)
+
+    const leakage = adversarial.find((row) => row.id === 'gtm-q-v2-query-intent-leakage')!
+    const result = evaluateGtmArtifact({
+      ...leakage,
+      artifact: { ...leakage.artifact, disposition: 'deliver', quality_reasons: [] },
+    })
+    expect(result.passed).toBe(false)
+    expect(result.hardFailures).toContain('wrong_disposition')
   })
 })

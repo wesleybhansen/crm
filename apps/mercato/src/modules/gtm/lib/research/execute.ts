@@ -7,6 +7,10 @@ import type { SourcePlanBatch } from './plan'
 import { ruleBasedFitScorer, type FitScorer } from './qualify'
 import { assessEvidence } from './evidence-quality'
 import {
+  canonicalOpportunityUrl as canonicalizeOpportunityUrl,
+  rankOpportunityCandidates,
+} from './opportunity-quality'
+import {
   GtmCandidate,
   GtmCandidateMatch,
   GtmEvidence,
@@ -195,24 +199,7 @@ export function candidateDedupeKey(candidate: Pick<Candidate, 'entity_kind' | 'i
 }
 
 function canonicalOpportunityUrl(value: unknown): string {
-  if (!Array.isArray(value)) return ''
-  for (const entry of value) {
-    if (typeof entry !== 'string') continue
-    try {
-      const url = new URL(entry)
-      if (url.protocol !== 'https:') continue
-      url.hostname = url.hostname.toLowerCase()
-      url.hash = ''
-      url.pathname = url.pathname.replace(/\/+$/, '') || '/'
-      for (const key of [...url.searchParams.keys()]) {
-        if (/^(?:utm_.+|fbclid|gclid)$/i.test(key)) url.searchParams.delete(key)
-      }
-      return url.toString().replace(/\/$/, '')
-    } catch {
-      continue
-    }
-  }
-  return ''
+  return canonicalizeOpportunityUrl(value) ?? ''
 }
 
 export function consumerProfileDedupeKey(value: unknown): string | null {
@@ -657,16 +644,22 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     // unresolved. The reserved credits remain escrowed and the receipt is
     // available to the operator; a later explicit reconciliation decides it.
     const providerRows = settlementPending ? [] : Array.isArray(result.data) ? result.data : []
+    const plannedEntityKind =
+      planned.capability.entity_kind ??
+      (planned.capability.entity_unit.toLowerCase().startsWith('compan') ? 'company' : 'person')
+    const rankedProviderRows =
+      plannedEntityKind === 'opportunity'
+        ? rankOpportunityCandidates(providerRows, { ...play, providerQuery: planned.providerQuery ?? play.providerQuery }, qualificationReferenceTime)
+        : providerRows
     // Adapter-side slicing is not a security boundary. Enforce the generic
     // remaining raw ceiling here even when a provider over-returns.
     const remainingRaw =
-      limits.maxRawCandidates > 0 ? Math.max(0, limits.maxRawCandidates - rawCandidatesFound) : providerRows.length
-    const found = providerRows.slice(0, remainingRaw)
+      limits.maxRawCandidates > 0
+        ? Math.max(0, limits.maxRawCandidates - rawCandidatesFound)
+        : rankedProviderRows.length
+    const found = rankedProviderRows.slice(0, remainingRaw)
     rawCandidatesFound += found.length
     for (const candidate of found) {
-      const plannedEntityKind =
-        planned.capability.entity_kind ??
-        (planned.capability.entity_unit.toLowerCase().startsWith('compan') ? 'company' : 'person')
       if (candidate.entity_kind !== plannedEntityKind) {
         batchFailure ??= `provider returned ${candidate.entity_kind} for frozen ${plannedEntityKind} plan`
         failureReason ??= batchFailure

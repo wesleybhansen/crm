@@ -241,6 +241,8 @@ describe('consumer lead lifecycle regression', () => {
     const opportunities = em.table(GtmCandidate)
     expect(opportunities).toHaveLength(4)
     expect(opportunities.every((candidate) => candidate.entityKind === 'opportunity')).toBe(true)
+    expect(opportunities.filter((candidate) => candidate.fitStatus === 'accepted')).toHaveLength(2)
+    expect(opportunities.filter((candidate) => candidate.fitStatus === 'rejected')).toHaveLength(2)
     expect(opportunities.map((candidate) => candidate.identity.intent_kind)).toEqual(
       expect.arrayContaining(['buyer_intent', 'seller_intent']),
     )
