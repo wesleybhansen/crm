@@ -220,12 +220,12 @@ function safeLinkedInUrl(value: unknown, pathPrefix?: '/posts/' | '/in/'): strin
   }
 }
 
-function observedAt(row: Record<string, unknown>, fallback: string): string {
+function sourcePublishedAt(row: Record<string, unknown>): string | null {
   const posted = record(row.postedAt)
   const value = text(posted?.date, 100)
-  if (!value) return fallback
+  if (!value) return null
   const date = new Date(value)
-  return Number.isFinite(date.getTime()) ? date.toISOString() : fallback
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null
 }
 
 function engagementCount(row: Record<string, unknown>): number {
@@ -276,7 +276,7 @@ export function normalizeApifyOpportunityItem(
   const author = safeAuthor(row)
   const authorInfo = text(record(row.author)?.info, 180)
   const interactions = engagementCount(row)
-  const observed = observedAt(row, context.attemptedAt)
+  const publishedAt = sourcePublishedAt(row)
   const demonstratedIntent = classifyOpportunityIntent(content ?? '')
   const demonstratedLocation = demonstratedOpportunityLocation(
     `${content ?? ''}\n${authorInfo ?? ''}`,
@@ -291,6 +291,7 @@ export function normalizeApifyOpportunityItem(
     activity_level: activityLevel(interactions),
     engagement_count: interactions,
     access_type: 'public',
+    source_published_at: publishedAt,
     location: demonstratedLocation,
     provider_location: context.requestedLocation ?? null,
     urls: [sourceUrl],
@@ -319,11 +320,11 @@ export function normalizeApifyOpportunityItem(
             ? `The approved public source returned this LinkedIn post with ${interactions} visible interactions.`
             : 'The approved public source returned this LinkedIn post.',
         source_url: sourceUrl,
-        observed_at: observed,
+        observed_at: context.attemptedAt,
         confidence: calibratedOpportunityConfidence({
           content: content ?? '',
           sourceUrl,
-          observedAt: observed,
+          observedAt: publishedAt ?? '',
           attemptedAt: context.attemptedAt,
           engagement: interactions,
           location: demonstratedLocation,
@@ -335,6 +336,7 @@ export function normalizeApifyOpportunityItem(
           author_name: author.name,
           query: context.query.slice(0, 200),
           requested_location: context.requestedLocation ?? null,
+          source_published_at: publishedAt,
           visible_interactions: interactions,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,

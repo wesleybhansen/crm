@@ -143,6 +143,7 @@ describe('Apify demand-opportunity source contract', () => {
         engagement_count: 21,
         activity_level: 'medium',
         access_type: 'public',
+        source_published_at: '2026-08-25T18:30:00.000Z',
         people_to_follow: [
           {
             name: 'Jamie Example',
@@ -155,7 +156,7 @@ describe('Apify demand-opportunity source contract', () => {
         {
           source_url:
             'https://www.linkedin.com/posts/jamie-example_selling-home-south-bay-activity-7486634839639523328',
-          observed_at: '2026-08-25T18:30:00.000Z',
+          observed_at: CLOCK.toISOString(),
         },
       ],
     })

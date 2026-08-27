@@ -169,6 +169,10 @@ export type CandidateIdentity = {
   member_count?: number | null
   engagement_count?: number | null
   access_type?: 'public' | 'approval_required' | 'ticketed' | 'unknown' | null
+  // Publication time reported by the source platform. This is deliberately
+  // distinct from evidence.observed_at (when Noli retrieved the row): using
+  // retrieval time as publication time makes old posts look fresh.
+  source_published_at?: string | null
   event_start_at?: string | null
   participation_rules?: string | null
   recommended_action?: string | null

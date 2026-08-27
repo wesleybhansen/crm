@@ -363,12 +363,13 @@ function safePlatformUrl(value: unknown, platform: SocialPlatform): string | nul
   }
 }
 
-function isoDate(value: unknown, fallback: string): string {
+function sourcePublishedAt(value: unknown): string | null {
+  if (value == null || (typeof value === 'string' && !value.trim())) return null
   const numeric = Number(value)
   const date = Number.isFinite(numeric)
     ? new Date(numeric > 10_000_000_000 ? numeric : numeric * 1_000)
     : new Date(String(value ?? ''))
-  return Number.isFinite(date.getTime()) ? date.toISOString() : fallback
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null
 }
 
 function commonIdentity(args: {
@@ -441,7 +442,8 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
         : undefined,
   })
   identity.member_count = memberCount || null
-  const observed = isoDate(row.createdAt, context.attemptedAt)
+  const publishedAt = sourcePublishedAt(row.createdAt)
+  identity.source_published_at = publishedAt
   const demonstratedIntent = classifyOpportunityIntent(content)
   return {
     entity_kind: 'opportunity',
@@ -453,11 +455,11 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
             ? `The approved public source returned this Reddit discussion with ${engagement} visible score and comment signals.`
             : 'The approved public source returned this Reddit discussion.',
         source_url: sourceUrl,
-        observed_at: observed,
+        observed_at: context.attemptedAt,
         confidence: calibratedOpportunityConfidence({
           content,
           sourceUrl,
-          observedAt: observed,
+          observedAt: publishedAt ?? '',
           attemptedAt: context.attemptedAt,
           engagement,
           location: identity.location ?? null,
@@ -468,6 +470,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
           provider_post_id: text(row.id, 200),
           subreddit,
           requested_location: context.location,
+          source_published_at: publishedAt,
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,
@@ -516,7 +519,8 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
         : undefined,
   })
   identity.opportunity_kind = 'post'
-  const observed = isoDate(row.timestamp, context.attemptedAt)
+  const publishedAt = sourcePublishedAt(row.timestamp)
+  identity.source_published_at = publishedAt
   const demonstratedIntent = classifyOpportunityIntent(content)
   return {
     entity_kind: 'opportunity',
@@ -528,11 +532,11 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
             ? `The approved public source returned this X post with ${engagement} visible interactions.`
             : 'The approved public source returned this X post.',
         source_url: sourceUrl,
-        observed_at: observed,
+        observed_at: context.attemptedAt,
         confidence: calibratedOpportunityConfidence({
           content,
           sourceUrl,
-          observedAt: observed,
+          observedAt: publishedAt ?? '',
           attemptedAt: context.attemptedAt,
           engagement,
           location: identity.location ?? null,
@@ -542,6 +546,7 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
           actor_id: context.actorId,
           provider_post_id: text(row.postId, 200),
           requested_location: context.location,
+          source_published_at: publishedAt,
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,

@@ -232,6 +232,7 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
       observedContent:
         'South Bay residents asking public questions about first-time home buying and local neighborhoods.',
       observedLocation: 'South Bay, California',
+      sourcePublishedAt: null,
       observedAt: '2026-08-25T18:00:00.000Z',
       referenceTime: '2026-08-26T18:00:00.000Z',
       eventStartAt: null,
@@ -280,6 +281,7 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
       observedContent:
         'Local homeowners choosing to attend a public workshop about preparing and pricing a home for sale.',
       observedLocation: 'South Bay, California',
+      sourcePublishedAt: '2026-08-25T18:00:00.000Z',
       observedAt: '2026-08-25T18:00:00.000Z',
       referenceTime: '2026-08-26T18:00:00.000Z',
       eventStartAt: '2026-09-13T00:30:00.000Z',

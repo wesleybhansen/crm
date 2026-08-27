@@ -140,6 +140,48 @@ describe('opportunity quality primitives', () => {
     expect(unknownAccess.issues).toContain('destination_access_unknown')
   })
 
+  it('uses source publication time for posts and never retrieval time as a freshness proxy', () => {
+    const referenceTime = new Date('2026-08-27T12:00:00.000Z')
+    const stale = assessOpportunityDestination({
+      identity: {
+        name: 'Old buyer thread',
+        opportunity_kind: 'thread',
+        access_type: 'public',
+        source_published_at: '2024-11-01T12:00:00.000Z',
+        urls: ['https://reddit.com/r/Austin/comments/old'],
+      },
+      evidence: [{
+        claim: 'Retrieved today',
+        source_url: 'https://reddit.com/r/Austin/comments/old',
+        observed_at: referenceTime.toISOString(),
+        confidence: 0.8,
+      }],
+      referenceTime,
+      maxAgeDays: 30,
+    })
+    expect(stale.status).toBe('fail')
+    expect(stale.issues).toContain('stale_destination')
+
+    const unknown = assessOpportunityDestination({
+      identity: {
+        name: 'Undated buyer thread',
+        opportunity_kind: 'thread',
+        access_type: 'public',
+        urls: ['https://reddit.com/r/Austin/comments/undated'],
+      },
+      evidence: [{
+        claim: 'Retrieved today',
+        source_url: 'https://reddit.com/r/Austin/comments/undated',
+        observed_at: referenceTime.toISOString(),
+        confidence: 0.8,
+      }],
+      referenceTime,
+      maxAgeDays: 30,
+    })
+    expect(unknown.status).toBe('unknown')
+    expect(unknown.issues).toContain('destination_freshness_unknown')
+  })
+
   it('detects common realtor false positives without flagging a genuine question', () => {
     expect(realtorOpportunityNoiseReasons('Just listed: 3 beds, 2 baths. MLS #12345')).toContain(
       'property_listing_inventory',
@@ -197,6 +239,7 @@ describe('opportunity quality primitives', () => {
         audience_description: 'First-time buyers asking how to buy a home in Austin.',
         location: 'Austin, Texas',
         access_type: 'public' as const,
+        source_published_at: observedAt,
         engagement_count: 18,
         urls: ['https://reddit.com/r/Austin/comments/buyer'],
       },

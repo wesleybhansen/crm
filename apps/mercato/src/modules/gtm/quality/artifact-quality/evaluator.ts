@@ -146,9 +146,16 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
       const demonstratedIntent = classifyOpportunityIntent(label.observedContent).kind
       if (demonstratedIntent !== label.expectedIntent) detected.push('semantic_intent_mismatch')
       if (!locationMatches(label.playGeography, label.observedLocation)) detected.push('geography_mismatch')
-      const observedAt = new Date(label.observedAt)
       const referenceTime = new Date(label.referenceTime)
-      if ((referenceTime.getTime() - observedAt.getTime()) / 86_400_000 > 30) detected.push('stale_destination')
+      const opportunityKind = String(artifact.opportunity_kind)
+      if (opportunityKind === 'post' || opportunityKind === 'thread') {
+        if (!label.sourcePublishedAt) detected.push('destination_freshness_unknown')
+        else if ((referenceTime.getTime() - new Date(label.sourcePublishedAt).getTime()) / 86_400_000 > 30) {
+          detected.push('stale_destination')
+        }
+      } else if ((referenceTime.getTime() - new Date(label.observedAt).getTime()) / 86_400_000 > 30) {
+        detected.push('stale_destination')
+      }
       if (label.eventStartAt && new Date(label.eventStartAt).getTime() < referenceTime.getTime()) {
         detected.push('expired_event')
       }
