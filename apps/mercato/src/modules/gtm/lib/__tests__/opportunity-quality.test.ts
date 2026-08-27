@@ -339,6 +339,88 @@ describe('opportunity quality primitives', () => {
     expect(unknown.issues).toContain('destination_freshness_unknown')
   })
 
+  it('derives stale publication dates from returned search content instead of retrieval time', () => {
+    const referenceTime = new Date('2026-08-27T12:00:00.000Z')
+    const relative = assessOpportunityDestination({
+      identity: {
+        name: 'Old seller thread',
+        opportunity_kind: 'thread',
+        access_type: 'public',
+        urls: ['https://forum.example/old-relative-thread'],
+      },
+      evidence: [{
+        claim: 'Retrieved today',
+        source_url: 'https://forum.example/old-relative-thread',
+        observed_at: referenceTime.toISOString(),
+        confidence: 0.8,
+      }],
+      referenceTime,
+      maxAgeDays: 30,
+      content: '3 years ago — How should I prepare my Denver home before selling?',
+    })
+    expect(relative.status).toBe('fail')
+    expect(relative.issues).toContain('stale_destination')
+    expect(relative.ageDays).toBeGreaterThan(1_000)
+
+    const dated = assessOpportunityDestination({
+      identity: {
+        name: 'Archived Austin forum answer',
+        opportunity_kind: 'thread',
+        access_type: 'public',
+        urls: ['https://forum.example/old-dated-thread'],
+      },
+      evidence: [{
+        claim: 'Retrieved today',
+        source_url: 'https://forum.example/old-dated-thread',
+        observed_at: referenceTime.toISOString(),
+        confidence: 0.8,
+      }],
+      referenceTime,
+      maxAgeDays: 30,
+      content: 'Sep 5, 2013 — I am thinking about selling my Austin house.',
+    })
+    expect(dated.status).toBe('fail')
+    expect(dated.issues).toContain('stale_destination')
+  })
+
+  it('rejects explicitly inactive destinations and derives event dates from returned content', () => {
+    const referenceTime = new Date('2026-08-27T12:00:00.000Z')
+    const inactive = assessOpportunityDestination({
+      identity: {
+        name: 'Tampa home seller workshop',
+        opportunity_kind: 'event',
+        access_type: 'public',
+        urls: ['https://events.example/tampa-seller-workshop'],
+      },
+      evidence: [],
+      referenceTime,
+      maxAgeDays: 30,
+      content: 'No upcoming events. Tampa home seller workshop calendar.',
+    })
+    expect(inactive.status).toBe('fail')
+    expect(inactive.issues).toContain('destination_inactive')
+
+    const upcoming = assessOpportunityDestination({
+      identity: {
+        name: 'Austin first-time buyer class',
+        opportunity_kind: 'event',
+        access_type: 'public',
+        urls: ['https://events.example/austin-buyer-class'],
+      },
+      evidence: [{
+        claim: 'Public event calendar',
+        source_url: 'https://events.example/austin-buyer-class',
+        observed_at: referenceTime.toISOString(),
+        confidence: 0.8,
+      }],
+      referenceTime,
+      maxAgeDays: 30,
+      content: 'Register for the Austin first-time homebuyer class on September 18, 2026.',
+    })
+    expect(upcoming.status).toBe('pass')
+    expect(upcoming.issues).not.toContain('event_time_unknown')
+  })
+
   it('detects common realtor false positives without flagging a genuine question', () => {
     expect(realtorOpportunityNoiseReasons('Just listed: 3 beds, 2 baths. MLS #12345')).toContain(
       'property_listing_inventory',
@@ -362,6 +444,37 @@ describe('opportunity quality primitives', () => {
       ),
     ).not.toContain('completed_listing_promotion')
     expect(realtorOpportunityNoiseReasons('How should I price my home before selling?')).toEqual([])
+    expect(realtorOpportunityNoiseReasons('Job opening at a local title company. Apply for this position.')).toContain(
+      'employment_listing',
+    )
+    expect(realtorOpportunityNoiseReasons('Three houses for rent near downtown Tampa.')).toContain(
+      'rental_or_venue_inventory',
+    )
+    expect(realtorOpportunityNoiseReasons('Home-made trailer for sale in Denver.')).toContain(
+      'non_property_home_phrase',
+    )
+    expect(realtorOpportunityNoiseReasons('Luxury home for sale in Phoenix, reduced to $895,000.')).toContain(
+      'property_listing_inventory',
+    )
+  })
+
+  it('requires public participation evidence for local-audience venues', () => {
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Austin Community Registry. Join neighborhood associations and attend public meetings.',
+        'local_audience',
+        null,
+        'community',
+      ).relevant,
+    ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Wedding venue and guest house near the Austin neighborhood association.',
+        'local_audience',
+        null,
+        'community',
+      ).relevant,
+    ).toBe(false)
   })
 
   it('calibrates confidence from demonstrated content, freshness, geography, and engagement', () => {
@@ -430,5 +543,70 @@ describe('opportunity quality primitives', () => {
       new Date(observedAt),
     )
     expect(ranked[0].identity.name).toBe('Austin first-time buyer questions')
+  })
+
+  it('ranks a fresh useful result above stale and irrelevant complete-looking results', () => {
+    const referenceTime = new Date('2026-08-27T12:00:00.000Z')
+    const evidence = (url: string) => [{
+      claim: 'Retrieved result',
+      source_url: url,
+      observed_at: referenceTime.toISOString(),
+      confidence: 0.82,
+    }]
+    const ranked = rankOpportunityCandidates(
+      [
+        {
+          entity_kind: 'opportunity' as const,
+          identity: {
+            name: 'Old Denver seller forum',
+            opportunity_kind: 'thread' as const,
+            platform: 'Forum',
+            audience_description: 'Sep 5, 2013 — How should I sell my Denver house?',
+            location: 'Denver, Colorado',
+            access_type: 'public' as const,
+            urls: ['https://forum.example/old-denver-seller'],
+          },
+          evidence: evidence('https://forum.example/old-denver-seller'),
+        },
+        {
+          entity_kind: 'opportunity' as const,
+          identity: {
+            name: 'Denver wedding venue',
+            opportunity_kind: 'community' as const,
+            platform: 'Directory',
+            audience_description: 'Wedding venue and guest house near a Denver neighborhood association.',
+            location: 'Denver, Colorado',
+            access_type: 'public' as const,
+            urls: ['https://directory.example/denver-wedding-venue'],
+          },
+          evidence: evidence('https://directory.example/denver-wedding-venue'),
+        },
+        {
+          entity_kind: 'opportunity' as const,
+          identity: {
+            name: 'Current Denver seller question',
+            opportunity_kind: 'thread' as const,
+            platform: 'Reddit',
+            audience_description: '1 day ago — I am preparing to sell my Denver home. Which repairs matter first?',
+            location: 'Denver, Colorado',
+            access_type: 'public' as const,
+            urls: ['https://reddit.com/r/Denver/comments/current-seller'],
+          },
+          evidence: evidence('https://reddit.com/r/Denver/comments/current-seller'),
+        },
+      ],
+      {
+        audience: 'Denver homeowners preparing to sell',
+        signal: 'Current questions about selling a home',
+        geography: 'Denver, Colorado',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      referenceTime,
+    )
+    expect(ranked.map((candidate) => candidate.identity.name)).toEqual([
+      'Current Denver seller question',
+      'Old Denver seller forum',
+      'Denver wedding venue',
+    ])
   })
 })

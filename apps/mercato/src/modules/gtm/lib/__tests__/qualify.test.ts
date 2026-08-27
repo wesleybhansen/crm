@@ -1,6 +1,7 @@
 import type { CandidateEvidence, CandidateIdentity } from '../adapters/types'
 import {
   FIT_ACCEPT_THRESHOLD,
+  FIT_REVIEW_THRESHOLD,
   FIT_REASONS,
   ruleBasedFitScorer,
   summarizeFitResults,
@@ -104,6 +105,74 @@ describe('ruleBasedFitScorer', () => {
 
     expect(result.verdict).toBe('rejected')
     expect(result.reason).toBe(FIT_REASONS.missingDestination)
+    expect(result.fitScore).toBeLessThan(FIT_REVIEW_THRESHOLD)
+  })
+
+  it('rejects an inactive event even when every other field looks complete', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Tampa home seller workshop calendar',
+          opportunity_kind: 'event',
+          platform: 'Events',
+          audience_description: 'No upcoming events. Tampa homeowners can learn how to prepare a home for sale.',
+          location: 'Tampa, Florida',
+          access_type: 'public',
+          urls: ['https://events.example/tampa-seller-workshop'],
+          recommended_action: 'Review the public event page before deciding whether to attend manually.',
+          message_angle: 'Answer active seller questions without inferring consent or private intent.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Tampa, Florida',
+        audience: 'Tampa homeowners preparing to sell',
+        signal: 'A current public seller question demonstrates intent',
+        referenceTime: '2026-08-27T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.expiredDestination)
+    expect(result.fitScore).toBeLessThan(FIT_REVIEW_THRESHOLD)
+  })
+
+  it('keeps rejected realtor noise below every reviewable result', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Luxury home for sale in Phoenix',
+          opportunity_kind: 'post',
+          platform: 'LinkedIn',
+          audience_description: 'Luxury home for sale in Phoenix, reduced to $895,000. Schedule a private tour.',
+          location: 'Phoenix, Arizona',
+          access_type: 'public',
+          source_published_at: '2026-08-27T10:00:00.000Z',
+          urls: ['https://linkedin.com/posts/phoenix-listing'],
+          recommended_action: 'Read the public post and decide whether a manual contribution is appropriate.',
+          message_angle: 'Offer a useful answer only when a real consumer question is present.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Phoenix, Arizona',
+        audience: 'Phoenix homeowners preparing to sell',
+        signal: 'A current public seller question demonstrates intent',
+        referenceTime: '2026-08-27T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.fitScore).toBeLessThan(FIT_REVIEW_THRESHOLD)
   })
 
   it('rejects a complete-looking realtor result whose returned content is generic market news', () => {

@@ -58,7 +58,7 @@ const LOCAL_AUDIENCE_SIGNALS: Array<[string, RegExp]> = [
 const REALTOR_NOISE: Array<[string, RegExp]> = [
   [
     'property_listing_inventory',
-    /\b(?:mls\s*#?|listed at|for sale at|new listing|just listed|price reduced|open house today|dream home alert|schedule (?:a )?(?:private )?tour|book (?:a )?showing|view (?:all )?(?:homes|properties|listings) for sale)\b|\b\d+\s*(?:bed|beds|br)\b.*\b\d+(?:\.\d+)?\s*(?:bath|baths|ba)\b/i,
+    /\b(?:mls\s*#?|listed at|listed for \$[\d,.]+|for sale at|luxury home for sale|new listing|just listed|price reduced|reduced to \$[\d,.]+|open house today|dream home alert|schedule (?:a )?(?:private )?tour|book (?:a )?showing|view (?:all )?(?:homes|properties|listings) for sale)\b|\b\d+\s*(?:bed|beds|br)\b.*\b\d+(?:\.\d+)?\s*(?:bath|baths|ba)\b/i,
   ],
   [
     'agent_recruiting',
@@ -73,6 +73,18 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:real estate news|housing market news|weekly market update|mortgage rates? (?:rose|fell|today)|market report)\b/i,
   ],
   ['real_estate_job', /\b(?:real estate|property) (?:job|career|vacancy|position|employment)\b/i],
+  [
+    'employment_listing',
+    /\b(?:job opening|currently hiring|staffing agency|apply for (?:the|this) (?:job|position)|full[- ]time position|part[- ]time position)\b/i,
+  ],
+  [
+    'rental_or_venue_inventory',
+    /\b(?:houses? for rent|entire home in|vacation rental|wedding venue|spa resort|guest house near|book your stay)\b/i,
+  ],
+  [
+    'non_property_home_phrase',
+    /\b(?:home[- ]made trailer|home trailer|home contents?|household contents?|sell (?:my|our|the) (?:furniture|collectibles?|trailer))\b/i,
+  ],
   [
     'agent_self_promotion',
     /\b(?:i(?:'m| am) (?:a )?(?:realtor|real estate agent|real estate broker|mortgage broker)|contact (?:me|us)|call (?:me|us)|dm (?:me|us)|message (?:me|us)|send (?:me|us) a message|reach out(?: to (?:me|us))?|book (?:a )?(?:call|consultation)|schedule (?:a )?(?:call|consultation)|your local realtor|i help (?:home ?buyers?|home ?sellers?|people buy|people sell)|i work with (?:buyers?|sellers?|investors?|homeowners?)|i hear this question from (?:buyers?|sellers?|homeowners?)|(?:i|we|our team) can help|let (?:me|us) help|follow me)\b|#\w*realtor\b/i,
@@ -145,6 +157,12 @@ const PARTICIPATION_SURFACE =
 const EDUCATIONAL_EVENT = /\b(?:event|workshop|seminar|webinar|class|meetup|panel|clinic|q\s*&\s*a)\b/i
 const VENUE_CONSUMER_DEMAND =
   /\b(?:people|homeowners?|home ?buyers?|home ?sellers?|buyers?|sellers?)\s+(?:ask(?:ing)?|seek(?:ing)?|look(?:ing)?|discuss(?:ing)?|consider(?:ing)?|plan(?:ning)?|prepar(?:ing)?|need(?:ing)?)\b|\b(?:buyer|seller|homeowner|homebuying|home[- ]selling|first[- ]home) questions?\b/i
+const PUBLIC_PARTICIPATION_EVIDENCE =
+  /\b(?:join(?:ing)?|membership|members?|meeting|calendar|upcoming events?|get involved|volunteer|register|attend|discussion|questions?|forum|community registry|community groups?|community organizations?|resident organizations?|public workshop|public seminar|neighbou?rhood college)\b/i
+const INACTIVE_DESTINATION =
+  /\b(?:no upcoming events?|event (?:has )?ended|past event|registration (?:is )?closed|event (?:was )?cancelled|event (?:was )?canceled|not currently scheduled|workshop unavailable)\b/i
+const MONTHS =
+  '(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
 
 const US_STATE_NAMES = [
   'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware',
@@ -323,10 +341,11 @@ export function assessRealtorOpportunitySuitability(
     || (expectedIntent === 'mixed_intent'
       && (intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'))
   const localParticipation =
-    participationVenue
+    (participationVenue && (PUBLIC_PARTICIPATION_EVIDENCE.test(content) || content.includes('?')))
     || scheduledEvent
     || educationalAudienceChannel
     || (opportunityKind === 'post' && surface && directConsumerNeed)
+    || (opportunityKind === 'thread' && surface && consumerNeed)
   const directDemand = opportunityKind === 'post' ? directConsumerNeed : consumerNeed
   const relevant = expectedIntent === 'local_audience'
     ? housing && localParticipation && reasons.length === 0
@@ -393,11 +412,56 @@ function validDate(value: unknown): Date | null {
   return Number.isFinite(date.getTime()) ? date : null
 }
 
+function parsedDate(value: string): Date | null {
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? date : null
+}
+
+function relativeContentDate(content: string, referenceTime: Date | null): Date | null {
+  if (!referenceTime) return null
+  const match = content.match(/\b(\d{1,4})\s*(y|yr|yrs|year|years|mo|mos|month|months|w|wk|wks|week|weeks|d|day|days)\s+ago\b/i)
+  if (!match) return null
+  const amount = Number(match[1])
+  if (!Number.isFinite(amount)) return null
+  const unit = match[2]?.toLowerCase() ?? ''
+  const days = unit.startsWith('y')
+    ? amount * 365
+    : unit.startsWith('mo')
+      ? amount * 30
+      : unit.startsWith('w')
+        ? amount * 7
+        : amount
+  return new Date(referenceTime.getTime() - days * 86_400_000)
+}
+
+function leadingContentDate(content: string): Date | null {
+  const monthDate = content.match(new RegExp(`^\\s*(${MONTHS}\\s+\\d{1,2},\\s+20\\d{2})\\s*[—–-]`, 'i'))
+  if (monthDate?.[1]) return parsedDate(`${monthDate[1]} UTC`)
+  const numericDate = content.match(/^\s*(\d{1,2}\/\d{1,2}\/20\d{2})\s*[—–-]/)
+  return numericDate?.[1] ? parsedDate(`${numericDate[1]} UTC`) : null
+}
+
+function datedEventCandidates(content: string): Date[] {
+  const patterns = [
+    new RegExp(`\\b(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)?,?\\s*(${MONTHS}\\s+\\d{1,2},?\\s+20\\d{2})\\b`, 'gi'),
+    new RegExp(`\\b(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)?,?\\s*(\\d{1,2}\\s+${MONTHS},?\\s+20\\d{2})\\b`, 'gi'),
+  ]
+  const dates: Date[] = []
+  for (const pattern of patterns) {
+    for (const match of content.matchAll(pattern)) {
+      const date = match[1] ? parsedDate(`${match[1]} UTC`) : null
+      if (date) dates.push(date)
+    }
+  }
+  return dates.sort((left, right) => left.getTime() - right.getTime())
+}
+
 export function assessOpportunityDestination(args: {
   identity: CandidateIdentity | Record<string, unknown>
   evidence: CandidateEvidence[]
   referenceTime: Date | null
   maxAgeDays: number | null
+  content?: string | null
 }): OpportunityDestinationAssessment {
   const identity = args.identity as Record<string, unknown>
   const canonicalUrl = canonicalOpportunityUrl([
@@ -408,6 +472,8 @@ export function assessOpportunityDestination(args: {
   ])
   const issues: string[] = []
   if (!canonicalUrl) issues.push('missing_or_invalid_public_destination')
+  const content = args.content?.trim() ?? ''
+  if (content && INACTIVE_DESTINATION.test(content)) issues.push('destination_inactive')
 
   const access = typeof identity.access_type === 'string' ? identity.access_type : null
   if (access === 'approval_required') issues.push('destination_requires_approval')
@@ -416,13 +482,14 @@ export function assessOpportunityDestination(args: {
 
   const kind = typeof identity.opportunity_kind === 'string' ? identity.opportunity_kind : null
   const published = validDate(identity.source_published_at)
+    ?? relativeContentDate(content, args.referenceTime)
+    ?? leadingContentDate(content)
   // A post/thread's age must come from the platform's publication timestamp.
   // evidence.observed_at is retrieval time and cannot prove that content is
   // inside a play's recency window. Stable destinations such as communities
   // and forums may use the time Noli actually observed the public page.
-  const freshnessObservation = kind === 'post' || kind === 'thread'
-    ? published
-    : newestObservedAt(args.evidence)
+  const freshnessObservation = published
+    ?? (kind === 'post' || kind === 'thread' ? null : newestObservedAt(args.evidence))
   const ageDays =
     freshnessObservation && args.referenceTime
       ? Math.max(0, (args.referenceTime.getTime() - freshnessObservation.getTime()) / 86_400_000)
@@ -430,7 +497,11 @@ export function assessOpportunityDestination(args: {
   if (args.maxAgeDays != null && ageDays != null && ageDays > args.maxAgeDays) issues.push('stale_destination')
   if (args.maxAgeDays != null && ageDays == null) issues.push('destination_freshness_unknown')
 
-  const eventStart = typeof identity.event_start_at === 'string' ? new Date(identity.event_start_at) : null
+  const explicitEventStart = validDate(identity.event_start_at)
+  const derivedEventDates = content ? datedEventCandidates(content) : []
+  const eventStart = explicitEventStart
+    ?? derivedEventDates.find((date) => !args.referenceTime || date.getTime() >= args.referenceTime.getTime())
+    ?? derivedEventDates.at(-1)
   if (kind === 'event') {
     if (!eventStart || !Number.isFinite(eventStart.getTime())) issues.push('event_time_unknown')
     else if (args.referenceTime && eventStart.getTime() < args.referenceTime.getTime()) issues.push('event_expired')
@@ -441,6 +512,7 @@ export function assessOpportunityDestination(args: {
       'missing_or_invalid_public_destination',
       'destination_requires_approval',
       'destination_not_public',
+      'destination_inactive',
       'stale_destination',
       'event_expired',
     ].includes(issue),
@@ -559,6 +631,7 @@ export function opportunityRelevanceScore(
     evidence: candidate.evidence,
     referenceTime,
     maxAgeDays: 30,
+    content: text,
   })
   const observedIntent = classifyOpportunityIntent(text).kind
   const intent = requestedIntent(play)
@@ -582,14 +655,14 @@ export function opportunityRelevanceScore(
   const noise = realtorOpportunityNoiseReasons(text, destination.canonicalUrl)
 
   let score = 0
-  score += destination.status === 'pass' ? 15 : destination.status === 'unknown' ? 4 : -25
+  score += destination.status === 'pass' ? 15 : destination.status === 'unknown' ? -4 : -35
   score += realtorPlay
     ? suitability.relevant ? 35 : -35
     : Math.min(30, overlapScore(audience, text) * 45)
   score += intent && observedIntent === intent ? 18 : observedIntent == null ? 0 : 3
   score += demonstratedLocation ? 24 : geography ? -12 : 0
   if (contradictoryState) score -= 45
-  score += destination.ageDays == null ? 2 : destination.ageDays <= 7 ? 9 : destination.ageDays <= 30 ? 5 : 0
+  score += destination.ageDays == null ? 0 : destination.ageDays <= 7 ? 9 : destination.ageDays <= 30 ? 5 : -12
   score += Math.min(5, Math.log10(engagement + 1) * 2.5)
   score -= noise.length * 45
   return Math.round(Math.max(0, Math.min(100, score)) * 100) / 100
