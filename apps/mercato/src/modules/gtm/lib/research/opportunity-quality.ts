@@ -21,7 +21,7 @@ export type OpportunityDestinationAssessment = {
 const BUYER_SIGNALS: Array<[string, RegExp]> = [
   [
     'buy a home',
-    /\b(?:buy(?:ing)?|purchase|purchasing) (?:a|my|our|the)? ?(?:first|current|next|new|smaller|larger)? ?(?:home|house|condo|townhome|property)\b|\b(?:home|house|condo|townhome|property) (?:purchase|buyer)\b/i,
+    /\b(?:buy(?:ing)?|purchase|purchasing) (?:a|my|our|the)? ?(?:first|current|next|new|smaller|larger)? ?(?:homes?|houses?|condos?|townhomes?|propert(?:y|ies))\b|\b(?:home|house|condo|townhome|property) (?:purchase|buyer)\b/i,
   ],
   ['home buyer', /\b(?:home|property) ?buyers?\b|\bbuyers? (?:and|or) sellers?\b/i],
   [
@@ -31,7 +31,6 @@ const BUYER_SIGNALS: Array<[string, RegExp]> = [
   ['first-time buyer', /\bfirst[- ]time (?:home ?buyer|buyer|home)\b/i],
   ['home search', /\b(?:house hunt|house hunting|home search|searching for (?:a )?home)\b/i],
   ['financing education', /\b(?:mortgage|pre[- ]?approval|down payment|closing costs?)\b/i],
-  ['relocation', /\b(?:relocat(?:e|ing|ion)|moving to|move to)\b/i],
   ['looking for a home', /\blooking for (?:a )?(?:home|house|condo|townhome)\b/i],
 ]
 
@@ -116,6 +115,22 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
   [
     'non_owner_or_solicitation_mismatch',
     /\b(?:i (?:lease|rent) (?:and|so) (?:do not|don(?:'|’)t) own|i(?:'m| am) not (?:the )?homeowner|not (?:the )?(?:owner|homeowner)|tips? to deter solicitors|stop (?:door[- ]to[- ]door )?salespeople)\b/i,
+  ],
+  [
+    'tenant_or_rental_dispute',
+    /\b(?:lease assignment|early (?:lease )?termination|end(?:ing)? (?:our|my|the) lease|property management company|apartment (?:was )?flooded|charged .*?(?:running toilet|water damage)|landlord (?:dispute|complaint)|security deposit dispute)\b/i,
+  ],
+  [
+    'service_directory_or_marketplace',
+    /\b(?:visit (?:the )?marketplace|marketplace by|directory of (?:local )?(?:service )?(?:professionals?|providers?|businesses?)|list of trusted [a-z -]{0,50}(?:professionals?|providers?|pros)|browse (?:local )?(?:service )?(?:professionals?|providers?|pros))\b/i,
+  ],
+  [
+    'search_or_event_aggregation_page',
+    /\b(?:events and things to do|search results? (?:for|page)|browse (?:all )?(?:upcoming )?events|primary image\b.{0,180}\bprimary image)\b/i,
+  ],
+  [
+    'real_estate_testimonial_or_investor_promotion',
+    /\b(?:couldn(?:'|’)t have asked for (?:a )?better.{0,120}(?:realtor|real estate agent)|first[- ]class realtor|trusted,? no[- ]hassle cash home buyer|we buy houses|sell your (?:home|house) for cash)\b/i,
   ],
   [
     'sensitive_personal_crisis',
@@ -605,6 +620,39 @@ function rankTokens(value: string): string[] {
     .replace(/[^a-z0-9]+/g, ' ')
     .split(/\s+/)
     .filter((token) => token.length >= 3 && !RANK_STOP_WORDS.has(token))
+}
+
+function opportunityConversationTokens(
+  candidate: Pick<Candidate, 'entity_kind' | 'identity' | 'evidence'>,
+): Set<string> {
+  if (candidate.entity_kind !== 'opportunity') return new Set()
+  const text = opportunityEvidenceText(candidate.identity, candidate.evidence)
+    .replace(/\bread more\b/gi, ' ')
+  return new Set(rankTokens(text))
+}
+
+/**
+ * Detects the same public conversation returned through different source
+ * paths without collapsing short, generic snippets. URL aliases are exact;
+ * text containment requires at least eighteen meaningful tokens and strong
+ * overlap in both directions.
+ */
+export function areRepeatedOpportunityConversations(
+  left: Pick<Candidate, 'entity_kind' | 'identity' | 'evidence'>,
+  right: Pick<Candidate, 'entity_kind' | 'identity' | 'evidence'>,
+): boolean {
+  if (left.entity_kind !== 'opportunity' || right.entity_kind !== 'opportunity') return false
+  const leftUrl = canonicalOpportunityUrl(left.identity.urls ?? [])
+  const rightUrl = canonicalOpportunityUrl(right.identity.urls ?? [])
+  if (leftUrl && rightUrl && leftUrl === rightUrl) return true
+  const leftTokens = opportunityConversationTokens(left)
+  const rightTokens = opportunityConversationTokens(right)
+  const smaller = Math.min(leftTokens.size, rightTokens.size)
+  const larger = Math.max(leftTokens.size, rightTokens.size)
+  if (smaller < 18 || larger === 0) return false
+  let overlap = 0
+  for (const token of leftTokens) if (rightTokens.has(token)) overlap += 1
+  return overlap / smaller >= 0.9 && overlap / larger >= 0.78
 }
 
 function overlapScore(expected: string, observed: string): number {

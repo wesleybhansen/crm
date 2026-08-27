@@ -7,6 +7,7 @@ import type { SourcePlanBatch } from './plan'
 import { FIT_SCORER_REVISION, ruleBasedFitScorer, type FitScorer } from './qualify'
 import { assessEvidence } from './evidence-quality'
 import {
+  areRepeatedOpportunityConversations,
   canonicalOpportunityUrl as canonicalizeOpportunityUrl,
   rankOpportunityCandidates,
 } from './opportunity-quality'
@@ -298,6 +299,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
   let outstandingReserved = 0
   let reconciliationRequired = false
   let failureReason: string | null = null
+  const seenOpportunityConversations: Candidate[] = []
 
   for (const planned of adapterPlan) {
     const batchNo = (adapterBatchCounters.get(planned.adapter_id) ?? 0) + 1
@@ -672,6 +674,20 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
         continue
       }
       const evidenceAssessment = assessEvidence(candidate.evidence ?? [], adapter.descriptor.evidence_policy, now())
+      if (
+        candidate.entity_kind === 'opportunity'
+        && evidenceAssessment.validEvidence.length > 0
+        && seenOpportunityConversations.some((seen) =>
+          areRepeatedOpportunityConversations(seen, candidate),
+        )
+      ) {
+        batchDuplicates += 1
+        duplicatesSkipped += 1
+        continue
+      }
+      if (candidate.entity_kind === 'opportunity' && evidenceAssessment.validEvidence.length > 0) {
+        seenOpportunityConversations.push(candidate)
+      }
       const fit = scorer.score(
         candidate,
         {

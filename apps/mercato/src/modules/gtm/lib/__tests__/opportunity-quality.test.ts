@@ -1,4 +1,5 @@
 import {
+  areRepeatedOpportunityConversations,
   assessRealtorOpportunitySuitability,
   assessOpportunityDestination,
   calibratedOpportunityConfidence,
@@ -215,6 +216,35 @@ describe('opportunity quality primitives', () => {
     expect(
       assessRealtorOpportunitySuitability(estateContents, 'seller_intent', null, 'thread').relevant,
     ).toBe(false)
+  })
+
+  it('rejects rental disputes, provider directories, event indexes, and promotional testimonials', () => {
+    const failures: Array<[string, 'buyer_intent' | 'local_audience', 'thread' | 'community' | 'event']> = [
+      [
+        'Lease assignment and early termination: our property management company says ending the lease is impossible because we are relocating to Denver.',
+        'buyer_intent',
+        'thread',
+      ],
+      [
+        'Looking for Homeowner Community Resource professionals in Tampa? Visit Marketplace by TheHomeMag for a list of trusted pros.',
+        'local_audience',
+        'community',
+      ],
+      [
+        'Home buyer seminar Events and Things to do in Austin, TX. Browse all upcoming events and workshops.',
+        'buyer_intent',
+        'community',
+      ],
+      [
+        "First-time homebuyer here. I couldn't have asked for a better realtor. She's a first-class realtor with a big heart.",
+        'buyer_intent',
+        'event',
+      ],
+    ]
+    for (const [content, lane, kind] of failures) {
+      expect(assessRealtorOpportunitySuitability(content, lane, null, kind).relevant).toBe(false)
+    }
+    expect(classifyOpportunityIntent(failures[0][0]).kind).not.toBe('buyer_intent')
   })
 
   it('hard-blocks vulnerability and protected-trait targeting before qualification', () => {
@@ -609,6 +639,34 @@ describe('opportunity quality primitives', () => {
       new Date(observedAt),
     )
     expect(ranked[0].identity.name).toBe('Austin first-time buyer questions')
+  })
+
+  it('recognizes repeated conversations across different public URLs', () => {
+    const observedAt = '2026-08-27T12:00:00.000Z'
+    const candidate = (url: string, description: string) => ({
+      entity_kind: 'opportunity' as const,
+      identity: {
+        name: 'Austin housing prices discussion',
+        opportunity_kind: 'thread' as const,
+        audience_description: description,
+        urls: [url],
+      },
+      evidence: [{ claim: 'Public discussion', source_url: url, observed_at: observedAt, confidence: 0.8 }],
+    })
+    const first = candidate(
+      'https://reddit.com/r/Austin/comments/one',
+      'I want to buy a house and have been looking since May, but housing prices around Hutto are getting unreasonably expensive for a developing area without much nearby.',
+    )
+    const repeated = candidate(
+      'https://example.test/mirror/austin-housing',
+      'I want to buy a house and have been looking since May. Housing prices around Hutto are getting unreasonably expensive for a developing area without much nearby.',
+    )
+    const distinct = candidate(
+      'https://reddit.com/r/Austin/comments/two',
+      'We are preparing to sell our Austin home and need advice about which repairs matter before choosing a listing price.',
+    )
+    expect(areRepeatedOpportunityConversations(first, repeated)).toBe(true)
+    expect(areRepeatedOpportunityConversations(first, distinct)).toBe(false)
   })
 
   it('ranks a fresh useful result above stale and irrelevant complete-looking results', () => {
