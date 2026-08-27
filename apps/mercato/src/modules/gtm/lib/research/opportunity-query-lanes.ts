@@ -91,28 +91,28 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     if (intent === 'buyer_intent') {
       return [
-        'site:reddit.com ("buying a home" OR "house hunting" OR relocating) (question OR advice)',
-        'site:eventbrite.com ("first-time home buyer" OR "homebuyer workshop" OR "buyer seminar") 2026',
-        'site:facebook.com/groups ("buying a home" OR "moving to" OR homebuyer)',
+        'Reddit ("buying a home" OR "house hunting" OR relocating) (question OR advice)',
+        'Eventbrite ("first-time home buyer" OR "homebuyer workshop" OR "buyer seminar") 2026',
+        '"Facebook group" ("buying a home" OR "moving to" OR homebuyer)',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        'site:reddit.com ("sell my home" OR "selling my house" OR "thinking of selling")',
-        'site:facebook.com/groups ("sell my home" OR "home worth" OR "thinking of selling")',
+        'Reddit ("sell my home" OR "selling my house" OR "thinking of selling" OR "selling our home")',
+        '"Facebook group" ("sell my home" OR "home worth" OR "thinking of selling" OR "selling our home")',
         '("home seller workshop" OR "seller seminar" OR "home valuation workshop") 2026',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        'site:reddit.com ("buy before selling" OR "sell before buying") home',
-        'site:facebook.com/groups ("buying and selling" OR "sell and buy") home',
+        'Reddit ("buy before selling" OR "sell before buying") home',
+        '"Facebook group" ("buying and selling" OR "sell and buy") home',
         '("home buyer" "home seller") (workshop OR seminar) 2026',
       ]
     }
     return [
-      '(site:meetup.com OR site:eventbrite.com) (homebuyer OR homeowner OR housing) (workshop OR event OR group) 2026',
-      '(site:facebook.com/groups OR site:nextdoor.com) (homeowner OR homebuyer OR neighborhood)',
+      '(Meetup OR Eventbrite) (homebuyer OR homeowner OR housing) (workshop OR event OR group) 2026',
+      '("Facebook group" OR Nextdoor) (homeowner OR homebuyer OR neighborhood)',
       '("neighborhood association" OR "community registry" OR "housing forum") (directory OR group OR event)',
     ]
   }
@@ -294,7 +294,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v7',
+        query_lane_version: 'opportunity-query-v8',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

@@ -30,6 +30,10 @@ export const DATAFORSEO_OPPORTUNITY_REQUIRED_PRICE_VERSION = 'google-organic-liv
 
 const PRICE_MULTIPLYING_QUERY_OPERATOR =
   /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|define|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
+
+export function hasPriceMultiplyingDataForSeoOpportunityQueryOperator(keyword: string): boolean {
+  return PRICE_MULTIPLYING_QUERY_OPERATOR.test(keyword)
+}
 const SENSITIVE_CONSUMER_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
 const BUYER_INTENT =
@@ -524,7 +528,7 @@ export function createDataForSeoOpportunityAdapter(
           error: 'bad_request: DataForSEO keyword exceeds 700 characters',
         }
       }
-      if (PRICE_MULTIPLYING_QUERY_OPERATOR.test(keyword)) {
+      if (hasPriceMultiplyingDataForSeoOpportunityQueryOperator(keyword)) {
         return {
           status: 'error',
           data: null,
