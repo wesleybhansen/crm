@@ -92,6 +92,72 @@ describe('opportunity quality primitives', () => {
     ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
   })
 
+  it('rejects polished professional content that only looks like consumer demand', () => {
+    const failures: Array<[string, 'buyer_intent' | 'seller_intent' | 'local_audience', string]> = [
+      [
+        'I hear this question from buyers all the time: wait, do I have to sign an agreement before looking at a house?',
+        'buyer_intent',
+        'post',
+      ],
+      [
+        'Dream Home Alert. Explore homes for sale and schedule a private tour today.',
+        'buyer_intent',
+        'post',
+      ],
+      [
+        'Clear to close. A milestone worth celebrating for my first-time buyer client.',
+        'buyer_intent',
+        'post',
+      ],
+      [
+        "Thinking about selling your home? Here are five questions worth answering. I can help—send me a message.",
+        'seller_intent',
+        'post',
+      ],
+      [
+        "Let's connect Tampa professionals. I'm a Florida REALTOR serving buyers and sellers.",
+        'local_audience',
+        'post',
+      ],
+      [
+        "Tips to deter solicitors: I rent and don't own this home, but salespeople keep knocking.",
+        'local_audience',
+        'thread',
+      ],
+    ]
+
+    for (const [content, lane, kind] of failures) {
+      expect(assessRealtorOpportunitySuitability(content, lane, null, kind).relevant).toBe(false)
+    }
+  })
+
+  it('requires a participation venue or demonstrated consumer participation for local discovery', () => {
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Austin neighborhoods are changing as more homeowners renovate garages.',
+        'local_audience',
+        null,
+        'post',
+      ).relevant,
+    ).toBe(false)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Where in Denver feels like home for a first-time buyer who wants a walkable neighborhood?',
+        'local_audience',
+        null,
+        'thread',
+      ).relevant,
+    ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'I am looking to buy a home in Denver and need help comparing neighborhoods.',
+        'buyer_intent',
+        null,
+        'thread',
+      ).relevant,
+    ).toBe(true)
+  })
+
   it('canonicalizes tracking variants and source aliases into one destination', () => {
     const x = canonicalOpportunityUrl([
       'https://mobile.twitter.com/Example/status/123/?utm_source=test&b=2&a=1#replies',
