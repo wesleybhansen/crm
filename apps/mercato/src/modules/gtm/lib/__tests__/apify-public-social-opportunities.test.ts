@@ -279,6 +279,24 @@ describe('Apify public social demand opportunities', () => {
     expect(x?.identity.intent_kind).toBe('local_audience')
   })
 
+  it('drops vulnerable housing-crisis conversations before they become candidates', () => {
+    const context = {
+      query: 'Tampa local housing questions',
+      location: 'Tampa, Florida',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    }
+    expect(
+      normalizeRedditOpportunity(
+        redditPost({
+          title: 'How can I achieve housing independence?',
+          body: 'I am in opioid recovery, currently in sober living, and dealing with a predatory landlord.',
+        }),
+        context,
+      ),
+    ).toBeNull()
+  })
+
   it('does not stamp the requested market onto unrelated returned posts', () => {
     const context = {
       query: 'Austin home seller question',

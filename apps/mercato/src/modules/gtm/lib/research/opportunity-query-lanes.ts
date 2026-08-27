@@ -26,6 +26,10 @@ const REALTOR_NEGATIVE_TERMS = [
   'contact me',
   'buyer tips',
   'seller tips',
+  'real estate marketing',
+  'lead generation',
+  'case study',
+  'housing market report',
 ]
 
 const REALTOR_PLAY =
@@ -77,47 +81,53 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string): string[
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     if (intent === 'buyer_intent') {
       return [
-        'moving here buy home reddit forum',
-        'first time home buyer workshop meetup event',
-        'home buyer questions community discussion',
+        '"I am looking to buy a home" question discussion',
+        '"moving to" "house hunting" advice forum',
+        '"first-time home buyer" upcoming workshop',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        'selling my house reddit forum',
-        'thinking about selling home question discussion',
-        'home seller workshop meetup event',
+        '"I am thinking about selling my home" question',
+        '"I need to sell my house" advice forum',
+        '"home seller" upcoming workshop',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        'buy or sell home question reddit forum',
-        'moving housing decision community discussion',
-        'home buyer seller workshop meetup event',
+        '"buy before selling" home question discussion',
+        '"moving to" "sell my home" advice forum',
+        '"home buyer" "home seller" upcoming workshop',
       ]
     }
     return [
-      'homeowners neighborhood association community',
-      'real estate discussion meetup group',
-      'homebuyer workshop housing event',
+      'neighborhood association directory homeowners community',
+      'homebuyer education upcoming events workshops',
+      'local housing questions community forum residents',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
-    if (intent === 'buyer_intent') return ['moving buy home', 'first time home buyer', 'house hunting']
-    if (intent === 'seller_intent') return ['sell my house', 'selling home question', 'home value']
-    if (intent === 'mixed_intent') return ['buy sell home question', 'moving housing decision', 'local housing']
-    return ['homeowners community', 'neighborhood housing', 'local home buyer']
+    if (intent === 'buyer_intent') {
+      return ['I am looking to buy a home advice', 'moving here house hunting recommendations', 'first time home buyer need advice']
+    }
+    if (intent === 'seller_intent') {
+      return ['I am thinking of selling my home advice', 'I need to sell my house question', 'my home worth considering selling']
+    }
+    if (intent === 'mixed_intent') {
+      return ['buy before selling home question', 'moving here sell my home advice', 'buying and selling home decision']
+    }
+    return ['neighborhood homeowners community', 'homebuyer workshop event', 'local housing questions discussion']
   }
   if (intent === 'buyer_intent') {
-    return ['first time home buyer question', 'looking to buy a home', 'moving here house hunting']
+    return ['"I am looking to buy a home" advice', '"moving to" "house hunting" recommendations', '"first-time home buyer" "need advice"']
   }
   if (intent === 'seller_intent') {
-    return ['thinking of selling my home', 'what is my home worth', 'preparing my house to sell']
+    return ['"I am thinking of selling my home" advice', '"I need to sell my house" question', '"my home worth" "considering selling"']
   }
   if (intent === 'mixed_intent') {
-    return ['buying or selling a home question', 'moving and home decision', 'local housing question']
+    return ['"buy before selling" home question', '"moving to" "sell my home" advice', '"buying and selling" home decision']
   }
-  return ['homeowner community', 'home buyer workshop', 'local housing discussion']
+  return ['"homebuyer workshop" upcoming', '"homeowner association" community', '"housing event" registration']
 }
 
 function sourceMaxQueryLength(adapterId: string): number {
@@ -215,7 +225,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v4',
+        query_lane_version: 'opportunity-query-v5',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

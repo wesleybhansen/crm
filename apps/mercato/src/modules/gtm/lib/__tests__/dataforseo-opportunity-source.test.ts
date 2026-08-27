@@ -251,6 +251,60 @@ describe('DataForSEO organic demand-opportunity source', () => {
         context,
       ),
     ).toBeNull()
+    expect(
+      normalizeDataForSeoOpportunityItem(
+        item({
+          title: 'Housing independence after opioid recovery',
+          description: 'A sober living discussion involving a predatory landlord.',
+        }),
+        context,
+      ),
+    ).toBeNull()
+  })
+
+  it('distinguishes event directories from dated events and resolves yearless dates conservatively', () => {
+    const context = {
+      keyword: 'Austin upcoming homebuyer workshop',
+      location: 'Austin,Texas,United States',
+      observedAt: '2026-08-27T12:00:00.000Z',
+    }
+    const directory = normalizeDataForSeoOpportunityItem(
+      item({
+        title: 'Austin home buyer seminars',
+        url: 'https://www.eventbrite.com/d/tx--austin/home-buyer-seminar/',
+        description: 'Upcoming local home buyer workshops and community events in Austin.',
+      }),
+      context,
+    )
+    expect(directory?.identity).toMatchObject({
+      opportunity_kind: 'community',
+      access_type: 'public',
+      event_start_at: null,
+    })
+
+    const upcoming = normalizeDataForSeoOpportunityItem(
+      item({
+        title: 'Austin first-time home buyer workshop',
+        url: 'https://www.eventbrite.com/e/austin-home-buyer-workshop-123',
+        description: 'First-time home buyers can register for the workshop on Tue, Sep 1.',
+      }),
+      context,
+    )
+    expect(upcoming?.identity).toMatchObject({
+      opportunity_kind: 'event',
+      access_type: 'ticketed',
+      event_start_at: '2026-09-01T12:00:00.000Z',
+    })
+
+    const old = normalizeDataForSeoOpportunityItem(
+      item({
+        title: 'Austin home buyer fair',
+        url: 'https://events.example.org/austin-home-buyer-fair',
+        description: 'The home buyer fair was held Saturday, June 1.',
+      }),
+      context,
+    )
+    expect(old?.identity.event_start_at).toBe('2024-06-01T12:00:00.000Z')
   })
 
   it.each([

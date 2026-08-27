@@ -222,6 +222,15 @@ describe('Apify demand-opportunity source contract', () => {
     ).toBeNull()
   })
 
+  it('drops sensitive consumer vulnerability before storing a LinkedIn opportunity', () => {
+    expect(
+      normalizeApifyOpportunityItem(
+        post({ content: 'A housing group for minors in opioid recovery and sober living.' }),
+        { attemptedAt: CLOCK.toISOString(), query: PLAN.query },
+      ),
+    ).toBeNull()
+  })
+
   it('quotes the provider minimum and then exact start-plus-post event cost', () => {
     const adapter = createApifyOpportunitySourceAdapter({
       env: ENABLED_ENV,
