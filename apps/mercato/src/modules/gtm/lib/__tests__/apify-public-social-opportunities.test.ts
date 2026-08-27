@@ -374,6 +374,36 @@ describe('Apify public social demand opportunities', () => {
     )
   })
 
+  it('uses one explicitly bounded auto-discovery lane without treating its scope as evidence', async () => {
+    const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor,
+    })
+    await adapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        reddit_subreddits: [],
+        reddit_auto_discover: true,
+        reddit_max_subreddits: 12,
+        reddit_sort: 'relevance',
+      },
+    })
+
+    expect(runActor).toHaveBeenCalledWith(
+      APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+      expect.objectContaining({
+        subreddits: [],
+        autoDiscoverSubreddits: true,
+        maxSubreddits: 12,
+        sort: 'relevance',
+      }),
+      expect.any(Object),
+    )
+  })
+
   it('builds bounded, posts-only, recent inputs from one approved discovery phrase', async () => {
     const redditRun = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
     const reddit = createApifyRedditOpportunityAdapter({
