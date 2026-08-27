@@ -46,7 +46,7 @@ const LOCAL_AUDIENCE_SIGNALS: Array<[string, RegExp]> = [
 const REALTOR_NOISE: Array<[string, RegExp]> = [
   [
     'property_listing_inventory',
-    /\b(?:mls\s*#?|listed at|for sale at|new listing|just listed|price reduced|open house today)\b|\b\d+\s*(?:bed|beds|br)\b.*\b\d+(?:\.\d+)?\s*(?:bath|baths|ba)\b/i,
+    /\b(?:mls\s*#?|listed at|for sale at|new listing|just listed|price reduced|open house today|dream home alert|schedule (?:a )?(?:private )?tour|book (?:a )?showing|view (?:all )?(?:homes|properties|listings) for sale)\b|\b\d+\s*(?:bed|beds|br)\b.*\b\d+(?:\.\d+)?\s*(?:bath|baths|ba)\b/i,
   ],
   [
     'agent_recruiting',
@@ -63,11 +63,11 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
   ['real_estate_job', /\b(?:real estate|property) (?:job|career|vacancy|position|employment)\b/i],
   [
     'agent_self_promotion',
-    /\b(?:i(?:'m| am) (?:a )?(?:realtor|real estate agent)|contact me|call me|dm me|message me|book (?:a )?(?:call|consultation)|your local realtor|i help (?:home ?buyers?|home ?sellers?|people buy|people sell))\b/i,
+    /\b(?:i(?:'m| am) (?:a )?(?:realtor|real estate agent|real estate broker|mortgage broker)|contact (?:me|us)|call (?:me|us)|dm (?:me|us)|message (?:me|us)|send (?:me|us) a message|reach out(?: to (?:me|us))?|book (?:a )?(?:call|consultation)|schedule (?:a )?(?:call|consultation)|your local realtor|i help (?:home ?buyers?|home ?sellers?|people buy|people sell)|i work with (?:buyers?|sellers?|investors?|homeowners?)|i hear this question from (?:buyers?|sellers?|homeowners?)|(?:i|we|our team) can help|let (?:me|us) help|follow me)\b|#\w*realtor\b/i,
   ],
   [
     'generic_advice_content',
-    /\b(?:\d+|five|six|seven|eight|nine|ten) (?:tips?|things?|steps?|mistakes?|questions?) (?:for|every) (?:home ?buyers?|home ?sellers?)\b|\b(?:buyer|seller) tips?\b/i,
+    /\b(?:\d+|five|six|seven|eight|nine|ten) (?:tips?|things?|steps?|mistakes?|questions?) (?:for|every) (?:home ?buyers?|home ?sellers?)\b|\b(?:buyer|seller) tips?\b|\b(?:thinking about selling your home|how much is your home worth|if i were buying (?:a|my) first home|home ?buyer(?:'s)? guide|buyers? aren(?:'|’)t just looking|questions worth answering before (?:you )?(?:buy|sell))\b/i,
   ],
   [
     'marketing_case_study',
@@ -77,19 +77,33 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     'completed_listing_promotion',
     /\b(?:successfully\s+(?:listed\s*(?:&|and)\s*)?sold|(?:just|recently)\s+sold\s*(?::|!|\bthis\s+(?:beautiful\s+)?(?:home|property|listing)\b)|sold\s+(?:this|another)\s+(?:beautiful\s+)?(?:home|property|listing)|another\s+(?:beautiful\s+)?home\s+(?:successfully\s+)?(?:listed\s*(?:&|and)\s*)?sold)\b/i,
   ],
+  [
+    'client_success_promotion',
+    /\b(?:clear to close|milestone worth celebrating|incredible transactions?|amazing clients?|closing table|client success|seller(?:'|’)s home|buyer(?:'|’)s agent|listing agent|sold for \$?[\d,.]+ (?:over|above) asking)\b/i,
+  ],
+  [
+    'professional_networking',
+    /\b(?:let(?:'|’)s connect (?:tampa )?professionals?|real estate professionals? (?:network|meetup)|realtor networking|broker networking)\b/i,
+  ],
+  [
+    'non_owner_or_solicitation_mismatch',
+    /\b(?:i (?:lease|rent) (?:and|so) (?:do not|don(?:'|’)t) own|i(?:'m| am) not (?:the )?homeowner|not (?:the )?(?:owner|homeowner)|tips? to deter solicitors|stop (?:door[- ]to[- ]door )?salespeople)\b/i,
+  ],
 ]
 
 const REALTOR_HOUSING_CONTEXT =
   /\b(?:home|house|housing|property|condo|townhome|homeowner|home ?buyer|home ?seller|first[- ]time buyer|mortgage|down payment|closing costs?|real estate)\b/i
 const CONSUMER_QUESTION =
-  /\?|\b(?:ask(?:ing|ed)?|questions?|does anyone|can anyone|need help|recommend|where should|what should|how (?:do|can|should)|should (?:i|we)|can (?:i|we))\b/i
+  /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =
-  /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:thinking|considering|planning|preparing|trying|looking|needing|wanting|wondering|unsure|confused|stressed)\b|\b(?:my|our)\s+(?:home|house|property|condo|townhome)\b/i
+  /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:actively\s+)?(?:thinking (?:about|of)|considering|planning(?: to)?|preparing(?: to)?|trying(?: to)?|looking(?: to| for)|need(?:ing)?(?: to)?|want(?:ing)?(?: to)?|wondering|unsure|confused|stressed)\b/i
 const DEMONSTRATED_HOUSING_STATUS =
   /\b(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\s+(?:moving|looking|planning|preparing|trying|considering|thinking|needing|wanting)\b/i
 const PARTICIPATION_SURFACE =
   /\b(?:community|forum|group|thread|discussion|question|event|workshop|seminar|webinar|class|meetup|panel|association|club|neighbou?rhood|homeowners?)\b/i
 const EDUCATIONAL_EVENT = /\b(?:event|workshop|seminar|webinar|class|meetup|panel|clinic|q\s*&\s*a)\b/i
+const VENUE_CONSUMER_DEMAND =
+  /\b(?:people|homeowners?|home ?buyers?|home ?sellers?|buyers?|sellers?)\s+(?:ask(?:ing)?|seek(?:ing)?|look(?:ing)?|discuss(?:ing)?|consider(?:ing)?|plan(?:ning)?|prepar(?:ing)?|need(?:ing)?)\b|\b(?:buyer|seller|homeowner|homebuying|home[- ]selling|first[- ]home) questions?\b/i
 
 const US_STATE_NAMES = [
   'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware',
@@ -186,6 +200,7 @@ export function assessRealtorOpportunitySuitability(
   content: string,
   expectedIntent: DemonstratedOpportunityIntent,
   sourceUrl: string | null = null,
+  opportunityKind: string | null = null,
 ): RealtorOpportunitySuitability {
   const intent = classifyOpportunityIntent(content).kind
   const reasons = realtorOpportunityNoiseReasons(content, sourceUrl)
@@ -196,19 +211,23 @@ export function assessRealtorOpportunitySuitability(
     || DEMONSTRATED_HOUSING_STATUS.test(content)
   const surface = PARTICIPATION_SURFACE.test(content)
   const educationalEvent = EDUCATIONAL_EVENT.test(content)
+  const participationVenue = ['community', 'forum', 'group', 'thread'].includes(opportunityKind ?? '')
+  const scheduledEvent = opportunityKind === 'event' && educationalEvent
+  const venueConsumerDemand = participationVenue && VENUE_CONSUMER_DEMAND.test(content)
   const laneMatches =
     expectedIntent == null
     || intent === expectedIntent
     || (intent === 'mixed_intent' && (expectedIntent === 'buyer_intent' || expectedIntent === 'seller_intent'))
     || (expectedIntent === 'mixed_intent'
       && (intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'))
+  const localParticipation = participationVenue || scheduledEvent || (opportunityKind === 'post' && surface && consumerNeed)
   const relevant = expectedIntent === 'local_audience'
-    ? housing && surface && reasons.length === 0
-    : housing && laneMatches && (consumerNeed || educationalEvent) && reasons.length === 0
+    ? housing && localParticipation && reasons.length === 0
+    : housing && laneMatches && (consumerNeed || scheduledEvent || venueConsumerDemand) && reasons.length === 0
   if (!housing) reasons.push('missing_housing_context')
   if (!laneMatches) reasons.push('intent_lane_mismatch')
-  if (expectedIntent === 'local_audience' && !surface) reasons.push('missing_participation_surface')
-  if (expectedIntent !== 'local_audience' && !consumerNeed && !educationalEvent) {
+  if (expectedIntent === 'local_audience' && !localParticipation) reasons.push('missing_consumer_participation')
+  if (expectedIntent !== 'local_audience' && !consumerNeed && !scheduledEvent && !venueConsumerDemand) {
     reasons.push('missing_consumer_need_or_event')
   }
   return { relevant, demonstratedIntent: intent, reasons: [...new Set(reasons)] }
@@ -432,7 +451,12 @@ export function opportunityRelevanceScore(
   const geography = play.geography ?? ''
   const engagement = Math.max(0, Number(identity.engagement_count ?? identity.member_count ?? 0))
   const realtorPlay = REALTOR_HOUSING_CONTEXT.test(audience)
-  const suitability = assessRealtorOpportunitySuitability(text, intent, destination.canonicalUrl)
+  const suitability = assessRealtorOpportunitySuitability(
+    text,
+    intent,
+    destination.canonicalUrl,
+    typeof identity.opportunity_kind === 'string' ? identity.opportunity_kind : null,
+  )
   const demonstratedLocation = geography
     ? demonstratedOpportunityLocation(`${text}\n${location}`, geography)
     : null

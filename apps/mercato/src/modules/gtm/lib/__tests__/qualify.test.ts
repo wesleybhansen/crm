@@ -386,7 +386,7 @@ describe('ruleBasedFitScorer', () => {
           name: 'Tampa homebuyer Q&A',
           opportunity_kind: 'post',
           platform: 'Facebook',
-          audience_description: 'First-time home buyers asking questions about buying a home in Tampa.',
+          audience_description: 'I am a first-time home buyer in Tampa. Where should I begin before buying a home?',
           location: 'Tampa, Florida',
           access_type: 'public',
           urls: ['https://facebook.example/tampa-homebuyer-qa'],

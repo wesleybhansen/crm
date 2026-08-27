@@ -78,7 +78,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v6' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v7' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -366,6 +366,7 @@ function scoreOpportunity(
     observedText,
     requestedIntent ?? null,
     destination.canonicalUrl,
+    opportunityKind,
   )
   const accessObserved = stringValue(identity, ['access_type'])
   const destinationObserved = [

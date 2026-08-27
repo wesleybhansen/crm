@@ -168,6 +168,7 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
           label.observedContent,
           label.expectedIntent,
           destination,
+          opportunityKind,
         ).relevant
       ) {
         detected.push('realtor_demand_not_demonstrated')
