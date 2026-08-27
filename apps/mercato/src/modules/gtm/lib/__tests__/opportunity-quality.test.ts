@@ -5,6 +5,7 @@ import {
   classifyOpportunityIntent,
   rankOpportunityCandidates,
   realtorOpportunityNoiseReasons,
+  opportunityEvidenceText,
 } from '../research/opportunity-quality'
 
 describe('opportunity quality primitives', () => {
@@ -19,6 +20,24 @@ describe('opportunity quality primitives', () => {
     )
     expect(classifyOpportunityIntent('How should I prepare my house for sale?').kind).toBe('seller_intent')
     expect(classifyOpportunityIntent('Unrelated technology conference agenda.').kind).toBeNull()
+  })
+
+  it('excludes provider targeting claims from semantic evidence', () => {
+    const text = opportunityEvidenceText(
+      {
+        name: 'Tampa homebuyer question',
+        audience_description: 'Where should a first-time buyer start in Tampa?',
+      },
+      [{
+        claim: 'Matched “seller leads -"market update" -"just listed"”.',
+        source_url: 'https://example.test/tampa-buyer',
+        observed_at: '2026-08-27T12:00:00.000Z',
+        confidence: 0.8,
+      }],
+    )
+    expect(text).toContain('first-time buyer')
+    expect(text).not.toContain('seller leads')
+    expect(realtorOpportunityNoiseReasons(text)).toEqual([])
   })
 
   it('canonicalizes tracking variants and source aliases into one destination', () => {

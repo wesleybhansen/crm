@@ -176,6 +176,44 @@ describe('ruleBasedFitScorer', () => {
     )
   })
 
+  it('does not let a provenance claim with negative query terms reject a useful result', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Tampa homebuyer Q&A',
+          opportunity_kind: 'post',
+          platform: 'Facebook',
+          audience_description: 'First-time home buyers asking questions about buying a home in Tampa.',
+          location: 'Tampa, Florida',
+          access_type: 'public',
+          urls: ['https://facebook.example/tampa-homebuyer-qa'],
+          recommended_action: 'Read the public conversation and contribute one useful answer manually.',
+          message_angle: 'Answer the buyer question directly before mentioning any professional service.',
+        },
+      },
+      {
+        entityUnit: 'post',
+        geography: 'Tampa, Florida',
+        audience: 'People preparing to buy a home in Tampa',
+        signal: 'A current question demonstrates home-buying intent.',
+        providerQuery: {
+          opportunity_intent_lane: 'buyer_intent',
+          audience_keywords: ['home buyer'],
+          source_search_keywords: ['Tampa home buyer -"just listed" -"market update"'],
+        },
+      },
+      [{
+        claim: 'Public result matched “Tampa home buyer -"just listed" -"market update"”.',
+        source_url: 'https://facebook.example/tampa-homebuyer-qa',
+        observed_at: '2026-08-27T12:00:00.000Z',
+        confidence: 0.88,
+      }],
+    )
+    expect(result.verdict).toBe('accepted')
+    expect(result.reason).toBe(FIT_REASONS.accepted)
+  })
+
   it('rejects a candidate located outside the play geography', () => {
     const abroad = {
       entity_kind: 'company' as const,
