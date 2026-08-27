@@ -199,7 +199,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v11')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v12')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -223,9 +223,13 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(5)
+    expect(web.every((lane) => lane.query.includes('"Austin, Texas"'))).toBe(true)
+    expect(web.every((lane) => !lane.query.includes('United States'))).toBe(true)
+    expect(web.filter((lane) => /reddit/i.test(lane.query)).every((lane) => !lane.query.includes('2026'))).toBe(true)
+    expect(web.every((lane) => !lane.query.includes('site:'))).toBe(true)
     expect(x.every((lane) => !lane.query.includes('-jobs'))).toBe(true)
     expect(
-      reddit.every((lane) => /self:yes|homeowner|homebuyer|home|house|neighborhood/i.test(lane.query)),
+      reddit.every((lane) => /homeowner|homebuyer|home|house|neighborhood/i.test(lane.query)),
     ).toBe(true)
     expect(
       reddit.every((lane) => Array.isArray(lane.providerQuery.reddit_subreddits)),
@@ -252,17 +256,17 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(web.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('"home seller seminar"'),
-        expect.stringContaining('"home valuation workshop"'),
-        expect.stringContaining('Reddit ("selling my house"'),
+        expect.stringContaining('"home seller workshop"'),
+        expect.stringContaining('Reddit "selling my house"'),
+        expect.stringContaining('Reddit "thinking of selling"'),
         expect.stringContaining('"downsizing workshop"'),
-        expect.stringContaining('"prepare your home to sell"'),
+        expect.stringContaining('"home selling class"'),
       ]),
     )
     expect(
       web.every((lane) => !hasPriceMultiplyingDataForSeoOpportunityQueryOperator(lane.query)),
     ).toBe(true)
-    expect(web.every((lane) => lane.query.includes('"Austin Texas"'))).toBe(true)
+    expect(web.every((lane) => lane.query.includes('"Austin, Texas"'))).toBe(true)
     expect(web.every((lane) => lane.query.length < 240)).toBe(true)
     expect(new Set(web.map((lane) => lane.query)).size).toBe(5)
   })

@@ -81,76 +81,85 @@ function inferredLane(play: PlanPlayInput): OpportunityIntentLane {
   return classifyOpportunityIntent(text).kind ?? 'local_audience'
 }
 
-function redditLocationAnchor(geography: string): string {
-  const market = marketName(geography)
-  const normalized = geography.replace(/,/g, ' ').trim().replace(/\s+/g, ' ')
-  return `(${quoted(market)} OR ${quoted(normalized)})`
+function sourceLocation(geography: string): string {
+  const withoutCountry = geography
+    .replace(/,?\s*(?:united states(?: of america)?|u\.?s\.?a\.?)\s*$/i, '')
+    .trim()
+  const parts = withoutCountry
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  return parts.slice(0, 2).join(', ') || withoutCountry
+}
+
+function redditLocationWords(geography: string): string {
+  return sourceLocation(geography).replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geography: string): string[] {
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     if (intent === 'buyer_intent') {
       return [
-        '("first-time homebuyer" OR "home buyer") (workshop OR class OR seminar) (register OR schedule) 2026',
-        '"homebuyer education" (class OR workshop) (calendar OR registration) 2026',
-        'Reddit ("buying a home" OR "house hunting" OR "first-time home buyer") (question OR advice) 2026',
-        '"homebuyer assistance" (workshop OR class) (register OR calendar) 2026',
-        '"housing counseling" homebuyer (class OR workshop) registration 2026',
+        '"first-time homebuyer workshop" (registration OR calendar) 2026',
+        '"homebuyer education class" (register OR schedule) 2026',
+        'Reddit "buying a home" "first time homebuyer"',
+        '"down payment assistance workshop" 2026',
+        '"housing counseling" homebuyer class 2026',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        '("home seller seminar" OR "selling your home workshop") (register OR schedule) 2026',
-        '("home valuation workshop" OR "seller education class") (register OR event) 2026',
-        'Reddit ("selling my house" OR "thinking of selling") (question OR advice) 2026',
-        '("downsizing workshop" OR "home transition workshop") homeowners (register OR event) 2026',
-        '("prepare your home to sell" OR "home selling class") (calendar OR registration) 2026',
+        '"home seller workshop" (registration OR calendar) 2026',
+        'Reddit "selling my house"',
+        'Reddit "thinking of selling" house',
+        '"downsizing workshop" homeowners 2026',
+        '"home selling class" 2026',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        'Reddit ("buy before selling" OR "sell before buying") home (question OR advice) 2026',
-        '("buy before selling" OR "sell before buying") (workshop OR seminar) registration 2026',
-        '("home buyer" "home seller") (class OR workshop) (register OR schedule) 2026',
-        '("buying and selling a home" OR relocating) (seminar OR class) 2026',
-        '("sell and buy" home) (event OR workshop) registration 2026',
+        'Reddit "buy before selling" home',
+        '"buy before selling workshop" 2026',
+        '"home buyer and seller class" 2026',
+        '"buying and selling a home seminar" 2026',
+        '"sell and buy a home workshop" 2026',
       ]
     }
     return [
-      '("neighborhood association" OR "community council") ("public meeting" OR "community forum") (attend OR agenda) 2026',
-      '("homeowner association" OR "neighborhood group") ("open meeting" OR "public event") 2026',
-      '("homebuyer education" OR "home seller education") (workshop OR class) (register OR schedule) 2026',
-      '(Meetup OR Eventbrite) ("first-time homebuyer" OR homeowner) (workshop OR meetup) 2026',
-      'Reddit (homeowner OR homebuyer OR "selling my home") (question OR discussion) 2026',
+      '"neighborhood association meeting" (agenda OR calendar) 2026',
+      '"community council meeting" housing 2026',
+      '"homebuyer workshop" 2026',
+      '"home seller workshop" 2026',
+      'Reddit homeowner housing discussion',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
-    const location = redditLocationAnchor(geography)
+    const location = redditLocationWords(geography)
     if (intent === 'buyer_intent') {
       return [
-        'self:yes ("buying a home" OR "house hunting" OR "first time home buyer")',
-        `self:yes ${location} ("buying a home" OR "house hunting" OR "first time home buyer")`,
-        `${location} (homebuyer OR "house hunting" OR "buy a house")`,
+        'buying a home first time home buyer',
+        `${location} buying a home house hunting`,
+        `${location} down payment assistance homebuyer`,
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        'self:yes ("sell my home" OR "selling my house" OR "selling our home")',
-        `self:yes ${location} ("thinking of selling" OR "considering selling" OR "home worth")`,
-        `${location} ("sell my house" OR "selling our home" OR "listing preparation")`,
+        'selling my house thinking of selling',
+        `${location} home value preparing to sell`,
+        `${location} downsizing selling home`,
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        'self:yes ("buy before selling" OR "sell before buying") home',
-        `self:yes ${location} ("selling our home" OR "sell my home") (moving OR relocating)`,
-        `${location} ("buying and selling" OR "sell and buy") home`,
+        'buy before selling sell before buying home',
+        `${location} selling home while buying`,
+        `${location} buy and sell a home`,
       ]
     }
     return [
-      'self:yes (homeowner OR "home buyer" OR "home seller") (question OR advice OR discussion)',
-      `${location} (homebuyer OR homeowner OR "home seller") (meeting OR workshop OR event OR group)`,
-      `${location} ("neighborhood association" OR "community meeting" OR "homebuyer workshop" OR "homeowner question")`,
+      'homeowner question housing discussion',
+      `${location} homebuyer workshop homeowner event`,
+      `${location} neighborhood association housing meeting`,
     ]
   }
   const socialSeeds: Record<OpportunityIntentLane, string[]> = {
@@ -231,7 +240,7 @@ function sourceSeed(
 ): string {
   const market = marketName(geography)
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
-    const location = geography.replace(/,/g, ' ').trim().replace(/\s+/g, ' ')
+    const location = sourceLocation(geography)
     const organicExclusions = new Set([
       'jobs',
       'recruiting',
@@ -315,7 +324,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v11',
+        query_lane_version: 'opportunity-query-v12',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
