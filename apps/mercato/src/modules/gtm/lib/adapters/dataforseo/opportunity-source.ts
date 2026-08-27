@@ -27,6 +27,7 @@ export const DATAFORSEO_ORGANIC_RESULTS_PER_SERP = 10
 export const DATAFORSEO_ORGANIC_MAX_DEPTH = 50
 export const DATAFORSEO_OPPORTUNITY_PRICE_VERSION_ENV = 'GTM_DATAFORSEO_ORGANIC_PRICE_VERSION'
 export const DATAFORSEO_OPPORTUNITY_REQUIRED_PRICE_VERSION = 'google-organic-live-advanced-2026-08-26'
+export const DATAFORSEO_NO_SEARCH_RESULTS_CODE = 40102
 
 const PRICE_MULTIPLYING_QUERY_OPERATOR =
   /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|define|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
@@ -590,6 +591,21 @@ export function createDataForSeoOpportunityAdapter(
           task_status_message: boundedText(task.status_message, 240),
           root_cost_usd: root.cost ?? null,
         })
+        const rootCost = finiteNumber(root.cost)
+        const taskCost = finiteNumber(task.cost)
+        const authoritativeCost =
+          taskCost != null ? Math.max(0, taskCost) : rootCost != null ? Math.max(0, rootCost) : null
+        const actualUnits =
+          authoritativeCost != null ? authoritativeCost / DATAFORSEO_ORGANIC_USD_PER_SERP : null
+        if (actualUnits != null && actualUnits > reservedUnits + 1e-9) {
+          return {
+            status: 'ambiguous',
+            data: null,
+            cost_units: null,
+            receipt: providerReceipt('billing_over_reservation'),
+            error: 'provider_billing_mismatch: DataForSEO cost exceeded the reserved ceiling',
+          }
+        }
         if (!response.ok || rootStatus !== 20000 || taskStatus !== 20000) {
           const failureCode =
             taskStatus && taskStatus !== 20000
@@ -599,35 +615,38 @@ export function createDataForSeoOpportunityAdapter(
                 : !response.ok
                   ? response.status
                   : 'missing_task_status'
+          if (actualUnits == null) {
+            return {
+              status: 'ambiguous',
+              data: null,
+              cost_units: null,
+              receipt: providerReceipt(`provider_error_${failureCode}_billing_unknown`),
+              error: `provider_billing_unknown: DataForSEO returned root ${rootStatus || 'unknown'} and task ${taskStatus || 'unknown'} without a final cost`,
+            }
+          }
+          if (response.ok && rootStatus === 20000 && taskStatus === DATAFORSEO_NO_SEARCH_RESULTS_CODE) {
+            return {
+              status: 'no_result',
+              data: null,
+              cost_units: actualUnits,
+              receipt: providerReceipt('no_result'),
+            }
+          }
           return {
             status: 'error',
             data: null,
-            cost_units: 0,
+            cost_units: actualUnits,
             receipt: providerReceipt(`provider_error_${failureCode}`),
             error: `provider_application_error: DataForSEO returned root ${rootStatus || 'unknown'} and task ${taskStatus || 'unknown'}`,
           }
         }
-        const rootCost = finiteNumber(root.cost)
-        const taskCost = finiteNumber(task.cost)
-        const authoritativeCost =
-          taskCost != null ? Math.max(0, taskCost) : rootCost != null ? Math.max(0, rootCost) : null
-        if (authoritativeCost == null) {
+        if (actualUnits == null) {
           return {
             status: 'ambiguous',
             data: null,
             cost_units: null,
             receipt: providerReceipt('missing_billing_receipt'),
             error: 'provider_billing_unknown: DataForSEO omitted task and root cost',
-          }
-        }
-        const actualUnits = authoritativeCost / DATAFORSEO_ORGANIC_USD_PER_SERP
-        if (actualUnits > reservedUnits + 1e-9) {
-          return {
-            status: 'ambiguous',
-            data: null,
-            cost_units: null,
-            receipt: providerReceipt('billing_over_reservation'),
-            error: 'provider_billing_mismatch: DataForSEO cost exceeded the reserved ceiling',
           }
         }
         const result = objectValue(Array.isArray(task.result) ? task.result[0] : {})

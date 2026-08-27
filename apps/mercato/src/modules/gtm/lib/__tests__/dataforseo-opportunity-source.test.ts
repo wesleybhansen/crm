@@ -69,6 +69,26 @@ function response(items: Record<string, unknown>[], cost = 0.004) {
   )
 }
 
+function applicationResponse(taskStatus: number, taskStatusMessage: string, cost = 0.002) {
+  return new Response(
+    JSON.stringify({
+      status_code: 20000,
+      status_message: 'Ok.',
+      cost,
+      tasks: [
+        {
+          id: 'organic-task-application-status',
+          status_code: taskStatus,
+          status_message: taskStatusMessage,
+          cost,
+          result: null,
+        },
+      ],
+    }),
+    { status: 200 },
+  )
+}
+
 describe('DataForSEO organic demand-opportunity source', () => {
   it('requires a separate consumer-opportunity and exact organic-price approval', () => {
     expect(dataForSeoOpportunityEnabled(approvedEnv)).toBe(true)
@@ -379,6 +399,51 @@ describe('DataForSEO organic demand-opportunity source', () => {
         depth: 20,
       },
     ])
+  })
+
+  it('treats DataForSEO 40102 as a charged no-result using the final task cost', async () => {
+    const adapter = createDataForSeoOpportunityAdapter({
+      env: approvedEnv,
+      fetchImpl: jest.fn().mockResolvedValue(
+        applicationResponse(40102, 'No Search Results.'),
+      ) as unknown as typeof fetch,
+    })
+
+    const result = await adapter.search(plan)
+
+    expect(result).toMatchObject({
+      status: 'no_result',
+      data: null,
+      cost_units: 1,
+      receipt: {
+        provider_status: 'no_result',
+        task_status_code: 40102,
+        task_cost_usd: 0.002,
+      },
+    })
+  })
+
+  it('retains the final provider cost on a definitive DataForSEO application error', async () => {
+    const adapter = createDataForSeoOpportunityAdapter({
+      env: approvedEnv,
+      fetchImpl: jest.fn().mockResolvedValue(
+        applicationResponse(40101, 'Internal SE Server Error.'),
+      ) as unknown as typeof fetch,
+    })
+
+    const result = await adapter.search(plan)
+
+    expect(result).toMatchObject({
+      status: 'error',
+      data: null,
+      cost_units: 1,
+      receipt: {
+        provider_status: 'provider_error_40101',
+        task_status_code: 40101,
+        task_cost_usd: 0.002,
+      },
+    })
+    expect(result.error).toContain('provider_application_error')
   })
 
   it('flattens current discussion, perspective, and event blocks with provider publication evidence', async () => {

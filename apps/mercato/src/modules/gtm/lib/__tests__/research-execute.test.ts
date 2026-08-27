@@ -727,6 +727,39 @@ describe('executeResearchRun', () => {
     expect(ledger.listOperations()[0].status).toBe('refunded')
     expect(em.table(GtmCandidate)).toHaveLength(0)
   })
+
+  it('charges an explicit final provider cost even when the provider outcome is a definitive error', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const adapter = spyAdapter()
+    adapter.search.mockResolvedValue({
+      status: 'error',
+      data: null,
+      cost_units: 2,
+      receipt: { provider_status: 'application_error', task_cost_units: 2 },
+      error: 'provider_application_error: request was processed but failed',
+    })
+    const run = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 5)],
+      query: 'a definitive provider error with final billed cost',
+      maxCandidates: 5,
+      maxCredits: 10,
+    })
+
+    const result = await executeResearchRun(deps(em, ledger, run, [adapter]))
+
+    expect(result.status).toBe('failed')
+    expect(result.reconciledCredits).toBe(4)
+    expect(result.batches[0]).toMatchObject({
+      outcome: 'error',
+      ledgerStatus: 'charged',
+      chargedCredits: 4,
+    })
+    expect(ledger.listOperations()[0]).toMatchObject({
+      status: 'charged',
+      chargedCredits: 4,
+    })
+  })
 })
 
 describe('candidateDedupeKey', () => {
