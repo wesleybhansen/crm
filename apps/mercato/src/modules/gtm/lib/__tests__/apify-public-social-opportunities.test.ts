@@ -7,6 +7,7 @@ import {
   normalizeRedditOpportunity,
   normalizeXOpportunity,
   publicSocialOpportunityApproved,
+  publicSocialOpportunityEnabled,
 } from '../adapters/apify/public-social-opportunity-source'
 import { APIFY_REQUIRED_PRICE_VERSION, APIFY_REQUIRED_TERMS_VERSION } from '../adapters/apify/source'
 import type { SourceSearchPlan } from '../adapters/types'
@@ -132,6 +133,23 @@ describe('Apify public social demand opportunities', () => {
       oneTimeQuoteUsd: 0.025,
       perItemQuoteUsd: 0.00125,
     })
+  })
+
+  it('keeps the high-fixed-cost X source held unless its capability switch is explicit', () => {
+    const env = envFor(APIFY_X_OPPORTUNITY_CONFIG)
+    expect(publicSocialOpportunityEnabled(APIFY_X_OPPORTUNITY_CONFIG, env)).toBe(false)
+    expect(
+      publicSocialOpportunityEnabled(APIFY_X_OPPORTUNITY_CONFIG, {
+        ...env,
+        GTM_APIFY_X_OPPORTUNITY_ENABLED: 'true',
+      }),
+    ).toBe(true)
+    expect(
+      publicSocialOpportunityEnabled(
+        APIFY_REDDIT_OPPORTUNITY_CONFIG,
+        envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      ),
+    ).toBe(true)
   })
 
   it.each([[APIFY_REDDIT_OPPORTUNITY_CONFIG], [APIFY_X_OPPORTUNITY_CONFIG]])(
