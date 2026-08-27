@@ -69,12 +69,20 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     'generic_advice_content',
     /\b(?:\d+|five|six|seven|eight|nine|ten) (?:tips?|things?|steps?|mistakes?|questions?) (?:for|every) (?:home ?buyers?|home ?sellers?)\b|\b(?:buyer|seller) tips?\b/i,
   ],
+  [
+    'marketing_case_study',
+    /\b(?:case stud(?:y|ies)|cost per (?:lead|acquisition)|conversion rate|ad spend|google ads|ppc(?: marketing)?|campaign (?:period|performance|optimization)|qualified (?:buyer|seller) leads?|generate more (?:buyer|seller) leads?|high[- ]intent (?:buyer|seller) leads?|real estate (?:seo|marketing|advertising) (?:agency|specialist|campaign))\b/i,
+  ],
 ]
 
 const REALTOR_HOUSING_CONTEXT =
   /\b(?:home|house|housing|property|condo|townhome|homeowner|home ?buyer|home ?seller|first[- ]time buyer|mortgage|down payment|closing costs?|real estate)\b/i
-const CONSUMER_NEED_OR_QUESTION =
-  /\?|\b(?:i|we|my|our|me|us)\b|\b(?:ask(?:ing|ed)?|questions?|does anyone|can anyone|looking for|need help|recommend|where should|what should|how (?:do|can|should)|should (?:i|we)|can (?:i|we))\b/i
+const CONSUMER_QUESTION =
+  /\?|\b(?:ask(?:ing|ed)?|questions?|does anyone|can anyone|need help|recommend|where should|what should|how (?:do|can|should)|should (?:i|we)|can (?:i|we))\b/i
+const FIRST_PERSON_HOUSING_NEED =
+  /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:thinking|considering|planning|preparing|trying|looking|needing|wanting|wondering|unsure|confused|stressed)\b|\b(?:my|our)\s+(?:home|house|property|condo|townhome)\b/i
+const DEMONSTRATED_HOUSING_STATUS =
+  /\b(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\s+(?:moving|looking|planning|preparing|trying|considering|thinking|needing|wanting)\b/i
 const PARTICIPATION_SURFACE =
   /\b(?:community|forum|group|thread|discussion|question|event|workshop|seminar|webinar|class|meetup|panel|association|club|neighbou?rhood|homeowners?)\b/i
 const EDUCATIONAL_EVENT = /\b(?:event|workshop|seminar|webinar|class|meetup|panel|clinic|q\s*&\s*a)\b/i
@@ -178,7 +186,10 @@ export function assessRealtorOpportunitySuitability(
   const intent = classifyOpportunityIntent(content).kind
   const reasons = realtorOpportunityNoiseReasons(content, sourceUrl)
   const housing = REALTOR_HOUSING_CONTEXT.test(content)
-  const consumerNeed = CONSUMER_NEED_OR_QUESTION.test(content)
+  const consumerNeed =
+    CONSUMER_QUESTION.test(content)
+    || FIRST_PERSON_HOUSING_NEED.test(content)
+    || DEMONSTRATED_HOUSING_STATUS.test(content)
   const surface = PARTICIPATION_SURFACE.test(content)
   const educationalEvent = EDUCATIONAL_EVENT.test(content)
   const laneMatches =
