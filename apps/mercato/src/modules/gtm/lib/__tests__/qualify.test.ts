@@ -61,13 +61,18 @@ describe('ruleBasedFitScorer', () => {
           intent_kind: 'buyer_intent',
           audience_description: 'People asking public questions about buying a first home locally',
           location: 'South Bay, California',
+          access_type: 'public',
           urls: ['https://community.example/south-bay/first-home-questions'],
           recommended_action: 'Answer one current question helpfully and disclose professional affiliation.',
+          message_angle: 'Explain the first-home process with practical South Bay examples before offering help.',
         },
       },
       {
         entityUnit: 'opportunities',
         geography: 'California, US',
+        audience: 'South Bay first-time home buyers',
+        signal: 'People asking public questions about buying a first home',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
       },
       strongEvidence,
     )
@@ -99,6 +104,76 @@ describe('ruleBasedFitScorer', () => {
 
     expect(result.verdict).toBe('rejected')
     expect(result.reason).toBe(FIT_REASONS.missingDestination)
+  })
+
+  it('rejects a complete-looking realtor result whose returned content is generic market news', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Weekly housing market update',
+          opportunity_kind: 'post',
+          platform: 'LinkedIn',
+          intent_kind: 'seller_intent',
+          audience_description: 'Generic real estate news and a weekly market report.',
+          location: 'South Bay, California',
+          access_type: 'public',
+          urls: ['https://www.linkedin.com/posts/example-market-update'],
+          recommended_action: 'Read the post and decide whether a manual reply would be useful.',
+          message_angle: 'Share a local observation only if it directly answers a current question.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'South Bay, California',
+        audience: 'South Bay homeowners considering selling',
+        signal: 'Asking how to prepare or price a home for sale',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.contradictions).toContain('exclusion.realtor_noise')
+  })
+
+  it('does not trust a provider intent label when returned content proves a different lane', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'South Bay neighborhood community breakfast',
+          opportunity_kind: 'event',
+          platform: 'Meetup',
+          intent_kind: 'seller_intent',
+          audience_description: 'A South Bay neighborhood community breakfast for local residents.',
+          location: 'South Bay, California',
+          access_type: 'public',
+          event_start_at: '2026-09-15T17:00:00.000Z',
+          urls: ['https://meetup.example/south-bay-community-breakfast'],
+          recommended_action: 'Review the agenda and attend manually only when the event rules permit it.',
+          message_angle: 'Offer one locally useful resource without implying that attendees plan to sell.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'South Bay, California',
+        audience: 'South Bay homeowners considering selling',
+        signal: 'Preparing to sell a home',
+        referenceTime: '2026-08-26T17:00:00.000Z',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.intentMismatch)
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'opportunity.intent', status: 'fail', observed: expect.arrayContaining(['local_audience']) }),
+      ]),
+    )
   })
 
   it('rejects a candidate located outside the play geography', () => {
@@ -225,7 +300,7 @@ describe('ruleBasedFitScorer', () => {
       strongEvidence,
     )
     expect(result.verdict).toBe('accepted')
-    expect(result.version).toBe('fit-v6')
+    expect(result.version).toBe('fit-v7')
     expect(result.criteria?.every((row) => row.status === 'pass')).toBe(true)
   })
 

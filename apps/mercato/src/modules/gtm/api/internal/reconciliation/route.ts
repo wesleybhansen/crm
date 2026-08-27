@@ -92,6 +92,13 @@ export async function POST(req: Request) {
       const telemetry = await getAiTelemetryDiagnostics(em, ctx)
       return NextResponse.json({ ok: true, telemetry })
     }
+    if (parsed.data.op === 'opportunity-quality') {
+      const { getOpportunityQualityDiagnostics } = await import(
+        '../../../lib/diagnostics/opportunity-quality'
+      )
+      const quality = await getOpportunityQualityDiagnostics(em, ctx)
+      return NextResponse.json({ ok: true, quality })
+    }
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const executed = await commandBus.execute<

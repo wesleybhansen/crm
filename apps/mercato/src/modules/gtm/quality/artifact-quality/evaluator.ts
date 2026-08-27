@@ -4,6 +4,10 @@ import {
   type GtmArtifactEvaluation,
   type GtmArtifactFixture,
 } from './schemas'
+import {
+  classifyOpportunityIntent,
+  realtorOpportunityNoiseReasons,
+} from '../../lib/research/opportunity-quality'
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
@@ -22,6 +26,20 @@ function sequenceIsDistinct(steps: unknown): boolean {
   const bodies = steps.map((step) => normalized(record(step)?.body ?? ''))
   if (bodies.some((body) => body.length < 30)) return false
   return new Set(bodies).size === bodies.length
+}
+
+const LOCATION_STOP_WORDS = new Set(['united', 'states', 'usa', 'us'])
+
+function locationMatches(expected: string, observed: string | null): boolean {
+  if (!observed) return false
+  const tokens = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(/\s+/)
+      .filter((token) => token.length >= 2 && !LOCATION_STOP_WORDS.has(token))
+  const actual = new Set(tokens(observed))
+  return tokens(expected).some((token) => actual.has(token))
 }
 
 export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifactEvaluation {
@@ -120,6 +138,43 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
       actions.some((action) => !['open_public_destination', 'review_evidence', 'save', 'dismiss'].includes(action))
     ) {
       hardFailures.push('unsafe_consumer_action')
+    }
+    const label = fixture.opportunityQualityLabel
+    if (label) {
+      const detected: string[] = []
+      const demonstratedIntent = classifyOpportunityIntent(label.observedContent).kind
+      if (demonstratedIntent !== label.expectedIntent) detected.push('semantic_intent_mismatch')
+      if (!locationMatches(label.playGeography, label.observedLocation)) detected.push('geography_mismatch')
+      const observedAt = new Date(label.observedAt)
+      const referenceTime = new Date(label.referenceTime)
+      if ((referenceTime.getTime() - observedAt.getTime()) / 86_400_000 > 30) detected.push('stale_destination')
+      if (label.eventStartAt && new Date(label.eventStartAt).getTime() < referenceTime.getTime()) {
+        detected.push('expired_event')
+      }
+      if (!label.liveAccessible) detected.push('dead_or_inaccessible_destination')
+      if (realtorOpportunityNoiseReasons(label.observedContent, destination).length > 0) {
+        detected.push('realtor_false_positive')
+      }
+      if (!label.usefulEnoughToActOn) detected.push('not_useful_enough_to_act_on')
+      if (label.duplicateOf) detected.push('duplicate_destination')
+
+      const reasons = strings(artifact.quality_reasons)
+      if (fixture.expectedDisposition === 'deliver') {
+        if (detected.length > 0) qualityFailures.push(...detected)
+      } else {
+        for (const reason of label.expectedReasons) {
+          if (!reasons.includes(reason)) qualityFailures.push(`quality_reason_missing:${reason}`)
+        }
+        for (const reason of detected) {
+          if (!label.expectedReasons.includes(reason)) qualityFailures.push(`unexpected_quality_issue:${reason}`)
+        }
+      }
+      if (demonstratedIntent && artifact.intent_kind !== demonstratedIntent) {
+        qualityFailures.push('intent_not_supported_by_returned_content')
+      }
+      if (label.source === 'sanitized_live' && artifact.sanitized_fixture !== true) {
+        hardFailures.push('live_fixture_not_sanitized')
+      }
     }
   } else if (fixture.kind === 'failure_honesty') {
     if (typeof artifact.reason_code !== 'string' || !artifact.reason_code) hardFailures.push('failure_reason_missing')

@@ -1,7 +1,7 @@
 # SPEC-069: GTM business leads and consumer demand opportunities
 
 **Date:** 2026-08-26 PDT
-**Status:** Implemented and locally validated on the dedicated current-main CRM and Noli branches. Production consumer sources and customer exposure remain separately fail-closed until their exact source contracts and release controls are verified.
+**Status:** The additive B2B/B2C foundation, four governed consumer-opportunity adapters, MCP tools, customer release gate, and manual-only Hub surfaces are merged and deployed. Production remains unused for GTM consumer research (zero plays, research runs, candidates, and provider operations at the 2026-08-26 read-only audit). The quality-v2 closeout below is in implementation and remains a release gate for a paid consumer run.
 **Authority:** Wesley Hansen's 2026-08-26 product decisions that GTM Engineer must support both B2B and true-consumer B2C demand discovery; that consumer work starts with the places, conversations, events, and engaged audiences where buyers gather; that named people are a useful optional second layer; and that automated cold outreach remains confined to the governed B2B lane while consumer participation or outreach is prepared for a human to perform manually.
 **Companions:** SPEC-067 (durable GTM domain and B2B execution), GTM-SPEC-01 (Audience Plays contract), GTM-SPEC-02 (v1 facade), and GTM-SPEC-04 (GTM workspace).
 
@@ -286,6 +286,95 @@ customer-serving rights, bounded inputs, and authoritative settlement evidence.
 No source adapter joins, follows, registers, posts, comments, sends a direct
 message, or claims that opening a destination completed an action.
 
+### 12.2 Quality-v2 retrieval and qualification closeout
+
+Consumer-opportunity intent is evidence, not targeting metadata. An adapter may
+use the frozen play and a source-specific query to retrieve candidates, but it
+must classify `buyer_intent`, `seller_intent`, or `local_audience` only from the
+returned row and retained evidence. The search query is recorded as targeting
+provenance and may turn an otherwise ambiguous row into `unknown`; it can never
+prove the row's intent. This applies uniformly to LinkedIn, Reddit, X,
+DataForSEO, fixtures, imports, and future adapters.
+
+The opportunity scorer advances additively to `fit-v7` and the frozen profile
+to `qualification-profile-v4`. Earlier versions remain readable. `fit-v7`
+evaluates the candidate against the exact play rather than awarding points for
+field presence. Its criterion-level result covers:
+
+- public and supported destination, access posture, and source evidence;
+- play audience/topic fit with observed supporting terms;
+- requested buyer, seller, or local-audience lane with evidence-only intent;
+- play geography, with explicit contradiction, demonstrated match, or unknown;
+- freshness and event timing relative to the run reference time;
+- actionability and a venue-appropriate manual next action; and
+- realtor false-positive exclusions, including property-listing inventory,
+  agent recruiting, agent-to-agent lead sales, generic news, jobs, and unrelated
+  promotional content.
+
+Every criterion preserves expected values, observed evidence, and
+`pass | fail | unknown | not_applicable`. Hard contradictions reject. Missing
+proof remains explicit and cannot become a pass because a provider populated a
+field. Acceptance requires demonstrated play relevance; an otherwise complete
+but irrelevant opportunity cannot cross the threshold.
+
+Retrieval uses a bounded, frozen set of source-specific query lanes instead of
+silently selecting the first keyword. Buyer, seller, and local-audience work are
+separate play lanes. Each adapter receives a small set of query variants suited
+to its source syntax, with realtor exclusions where the provider supports them.
+Every additional paid provider start or billable SERP is represented as a
+separate quoted batch in the immutable plan, reservation, confirmation, plan
+hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
+
+Rows are normalized before qualification. Canonical destination identity strips
+tracking parameters and fragments, normalizes source aliases, and collapses
+repeated conversations across query lanes while preserving separately observed
+evidence. Ranking is deterministic and evidence-aware: criterion fit,
+freshness, access, specificity, and independent engagement signals contribute;
+adapter-name or fixed default confidence does not. A model reranker may be
+introduced only as a separately metered, quoted operation with a frozen prompt,
+schema, model, and evaluation gate; it is not implicit in this closeout.
+
+Production destination checks fail closed on malformed/non-HTTPS URLs,
+non-public access markers, archived or locked conversations, expired events,
+unsupported hosts, and observations outside the play's recency window. Network
+liveness is verified only through the controlled benchmark's bounded checker;
+runtime qualification does not introduce an unquoted fetch or a DNS
+resolve/connect TOCTOU boundary.
+
+### 12.3 Realtor benchmark and frozen fixtures
+
+The release benchmark contains twelve frozen plays: buyer intent, seller intent,
+and local-audience discovery in four US markets. A controlled, quoted run labels
+roughly 100–200 returned opportunities using a versioned human-review sheet.
+Sanitized provider results become immutable regression fixtures; raw provider
+payloads, personal contact fields, secrets, and provider-only identifiers do not
+enter the repository.
+
+The benchmark release thresholds are:
+
+- precision at 10 at least 80 percent;
+- geography correctness at least 95 percent;
+- buyer/seller intent correctness at least 90 percent;
+- live and publicly accessible destinations at least 95 percent;
+- canonical duplicate rate no more than 10 percent;
+- useful enough to act on at least 70 percent; and
+- sensitive targeting and unsupported claims exactly zero.
+
+An automated fixture result cannot substitute for the human labels. A missed
+threshold keeps paid consumer expansion off and records the failing market,
+lane, source, and reject reason for another bounded iteration.
+
+### 12.4 Production quality diagnostics
+
+Tenant-scoped diagnostics aggregate only retained application metadata and safe
+review labels. Per source and in total they report useful accepted
+opportunities, cost per useful opportunity, dead/stale destination rate,
+parser/drop rate, canonical duplicate rate, human accept/reject reasons, and
+provider pricing/schema version drift. Windows are explicitly capped and report
+truncation. The response excludes provider payloads, prompts, secrets, personal
+contact data, and unrestricted free text. Existing provider-operation and
+candidate/evidence rows are sufficient; quality-v2 adds no database migration.
+
 ## 13. Acceptance tests
 
 1. US B2B remains provider-runnable and automated-email eligible.
@@ -305,10 +394,19 @@ message, or claims that opening a destination completed an action.
 15. Versioned artifact-quality fixtures cover B2B, a realtor buyer-intent community, a realtor seller-intent conversation, a local event, optional public people, sensitive refusals, manual copy, evidence honesty, and failure honesty.
 16. GTM has a named regression command and required CI job covering unit, integration-contract, MCP scoping/schema, fixture quality, Hub rendering/source-contract, and the unchanged B2B execution boundary.
 17. MCP listing/detail/review tools enforce required features and organization plus tenant scope, paginate finitely, and expose no paid-provider or execution side effect.
+18. LinkedIn, Reddit, and X intent classification does not change when only the search query changes; returned evidence alone determines a demonstrated buyer/seller label.
+19. `fit-v7` rejects a complete-looking but irrelevant result, preserves criterion-level unknowns, and accepts only a play-specific result with supported audience, geography, intent/lane, freshness, destination, and actionability.
+20. Query-lane expansion is bounded and every added provider request is visible in the immutable quote, reservation, plan hash, receipt, and final reconciliation.
+21. Canonicalization collapses tracking variants and repeated cross-query conversations without discarding separately observed evidence.
+22. Adversarial artifact fixtures cover query leakage, wrong geography, stale/expired destinations, listing inventory, agent recruiting, generic news, inaccessible groups, duplicates, fixed-confidence inflation, and weak-but-plausible copy.
+23. The twelve-play realtor benchmark meets every threshold in section 12.3 before paid customer consumer research is widened.
+24. Tenant-scoped quality diagnostics expose every metric in section 12.4, finite windows, drift state, and no raw provider payload or personal data.
+25. Signed-in Hub checks at 375, 768, 1024, and 1440 CSS pixels show no page-level horizontal overflow, clipped controls, consumer automation affordance, or touch target below 44 CSS pixels.
+26. Counsel disposition is recorded specifically for the consumer provisions covering public communities/posts/events, optional public profiles, manual-only participation, no consent inference, sensitive/minor exclusions, 30-day draft retention, removal, and customer responsibility for platform/community rules; earlier GTM approval is not inferred to cover the August 26 delta.
 
 ## 14. Release and rollback
 
-Deployment order is generated CRM migration, CRM application with the consumer research gate false, Noli application with manual-only UI inert until a consumer play is present, deterministic fixture/browser validation, exact production-source contract verification, counsel review of changed disclosures, then a bounded customer cohort. Rollback turns `GTM_CONSUMER_RESEARCH_ENABLED` false and rolls back the application version; the additive table and nullable columns may remain so removal, retention, and suppression obligations continue to work. B2B remains unchanged, and rollback never deletes prospect/draft rows or suppression obligations.
+Quality-v2 adds no migration. Deployment order is CRM application with the consumer research gate false, deterministic and adversarial regression gates, Noli application, signed-in responsive validation, counsel disposition of the exact consumer-copy delta, then the quoted twelve-play owner benchmark. The gate may be enabled only for that bounded run; a missed benchmark threshold turns it off before any wider customer use. Rollback turns `GTM_CONSUMER_RESEARCH_ENABLED` false and rolls back the application versions; retained rows remain available for deletion/DSR. B2B remains unchanged, and rollback never deletes prospect/draft rows or suppression obligations.
 
 ## 15. Changelog
 
@@ -316,3 +414,4 @@ Deployment order is generated CRM migration, CRM application with the consumer r
 - 2026-08-26: Clarified the consumer product around demand surfaces, added the first-vertical realtor buyer/seller opportunity contract, made named people secondary, and added MCP and dedicated regression requirements after review of the saved Origami lead-magnet, data-source pricing, and realtor campaign experience.
 - 2026-08-26: Implemented the additive policy, provider-rights contract, deterministic consumer adapter, named-person lifecycle, manual-draft route/data model, privacy/removal/retention handling, responsive Hub views, action-queue integration, and counsel-review disclosure drafts. Generated migration `Migration20260826221317` was rehearsed statement-for-statement against an isolated temporary PostgreSQL database with GTM prerequisites; the repository-wide empty-database migration chain remains blocked earlier by the documented unrelated auth baseline.
 - 2026-08-26: Added exact, finalized-billing opportunity adapters for LinkedIn, Reddit, X, and DataForSEO organic search; separated public-opportunity rights from public-profile contact rights; added safe tenant-scoped GTM MCP tools; and made the named GTM regression gates required in CRM and Hub CI. Current local gates: CRM GTM 93 passing suites / 978 passing tests (one suite and seven tests intentionally skipped), Hub GTM regression 240/240, full Hub 1,441/1,441, marketing 29/29, and CRM, Hub, and marketing typechecks clean.
+- 2026-08-26: Recorded the production audit after the foundation release (four adapters and customer release enabled, zero GTM production rows) and specified the additive quality-v2 closeout: evidence-only intent, play-specific `fit-v7`, bounded source-query lanes, canonical deduplication, freshness/access checks, calibrated ranking, twelve-play realtor benchmark, adversarial fixtures, responsive breakpoints, exact counsel delta, and tenant-scoped production quality diagnostics.

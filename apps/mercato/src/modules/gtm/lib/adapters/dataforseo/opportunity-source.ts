@@ -13,6 +13,10 @@ import {
   DATAFORSEO_REQUIRED_TERMS_VERSION,
   canonicalDataForSeoUsLocation,
 } from './maps'
+import {
+  calibratedOpportunityConfidence,
+  classifyOpportunityIntent,
+} from '../../research/opportunity-quality'
 
 export const DATAFORSEO_OPPORTUNITY_ADAPTER_ID = 'dataforseo-organic-demand-opportunities'
 export const DATAFORSEO_ORGANIC_URL = 'https://api.dataforseo.com/v3/serp/google/organic/live/advanced'
@@ -221,15 +225,6 @@ function opportunityKind(url: URL, text: string): OpportunityKind | null {
   return null
 }
 
-function intentKind(text: string): NonNullable<Candidate['identity']['intent_kind']> {
-  const buyer = BUYER_INTENT.test(text)
-  const seller = SELLER_INTENT.test(text)
-  if (buyer && seller) return 'mixed_intent'
-  if (buyer) return 'buyer_intent'
-  if (seller) return 'seller_intent'
-  return 'local_audience'
-}
-
 function recommendedAction(kind: OpportunityKind): string {
   if (kind === 'event') {
     return 'Open the event page, confirm the current audience and participation rules, then decide whether to attend, sponsor, or contribute manually.'
@@ -237,7 +232,7 @@ function recommendedAction(kind: OpportunityKind): string {
   return 'Open the public source, read the current rules and full conversation, then contribute one useful response manually. Do not automate posting or direct outreach.'
 }
 
-function messageAngle(intent: ReturnType<typeof intentKind>): string {
+function messageAngle(intent: Candidate['identity']['intent_kind']): string {
   if (intent === 'buyer_intent') {
     return 'Offer a useful local buying answer that resolves the question before mentioning your services.'
   }
@@ -266,7 +261,8 @@ export function normalizeDataForSeoOpportunityItem(
   if (!LOCAL_AUDIENCE.test(searchable) && !BUYER_INTENT.test(searchable) && !SELLER_INTENT.test(searchable)) {
     return null
   }
-  const intent = intentKind(searchable)
+  const demonstratedIntent = classifyOpportunityIntent(searchable)
+  const intent = demonstratedIntent.kind
   const platform = platformName(url.hostname)
   return {
     entity_kind: 'opportunity',
@@ -291,13 +287,25 @@ export function normalizeDataForSeoOpportunityItem(
         claim: `${title} appeared in public search results for “${context.keyword}” in ${context.location}.`,
         source_url: url.toString(),
         observed_at: context.observedAt,
-        confidence: 0.82,
+        confidence: calibratedOpportunityConfidence({
+          content: searchable,
+          sourceUrl: url.toString(),
+          observedAt: context.observedAt,
+          attemptedAt: context.observedAt,
+          engagement: 0,
+          location: context.location,
+        }),
         detail: {
           provider: 'dataforseo',
           result_type: 'organic',
           platform,
           rank_group: finiteNumber(item.rank_group),
           rank_absolute: finiteNumber(item.rank_absolute),
+          demonstrated_intent_signals: [
+            ...demonstratedIntent.buyerSignals,
+            ...demonstratedIntent.sellerSignals,
+            ...demonstratedIntent.localAudienceSignals,
+          ],
         },
       },
     ],

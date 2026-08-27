@@ -29,6 +29,10 @@ import {
   type ApifyFinalizedBillingContract,
   type ApifyRunOutcome,
 } from './client'
+import {
+  calibratedOpportunityConfidence,
+  classifyOpportunityIntent,
+} from '../../research/opportunity-quality'
 
 /*
  * Consumer demand-surface discovery.
@@ -239,21 +243,6 @@ function activityLevel(count: number): NonNullable<CandidateIdentity['activity_l
   return 'unknown'
 }
 
-function intentKind(content: string, query: string): NonNullable<CandidateIdentity['intent_kind']> {
-  const haystack = `${content} ${query}`.toLowerCase()
-  const buyer =
-    /\b(buy|buyer|buying|first[ -]?time|house hunt|home search|mortgage|pre-approval|relocat|moving to)\b/.test(
-      haystack,
-    )
-  const seller = /\b(sell|seller|selling|list|listing|home value|valuation|downsiz|move out|before market)\b/.test(
-    haystack,
-  )
-  if (buyer && seller) return 'mixed_intent'
-  if (seller) return 'seller_intent'
-  if (buyer) return 'buyer_intent'
-  return 'local_audience'
-}
-
 function opportunityName(content: string | null, authorName: string | null): string {
   if (content) {
     const compact = content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content
@@ -285,11 +274,13 @@ export function normalizeApifyOpportunityItem(
   const content = text(row.content, 800)
   const author = safeAuthor(row)
   const interactions = engagementCount(row)
+  const observed = observedAt(row, context.attemptedAt)
+  const demonstratedIntent = classifyOpportunityIntent(content ?? '')
   const identity: CandidateIdentity = {
     name: opportunityName(content, author.name),
     opportunity_kind: 'post',
     platform: 'LinkedIn',
-    intent_kind: intentKind(content ?? '', context.query),
+    intent_kind: demonstratedIntent.kind,
     audience_description: content ?? 'A public LinkedIn discussion matching the approved audience query.',
     activity_level: activityLevel(interactions),
     engagement_count: interactions,
@@ -320,8 +311,15 @@ export function normalizeApifyOpportunityItem(
             ? `Public LinkedIn post matched the approved demand query and showed ${interactions} visible interactions.`
             : 'Public LinkedIn post matched the approved demand query.',
         source_url: sourceUrl,
-        observed_at: observedAt(row, context.attemptedAt),
-        confidence: interactions > 0 ? 0.9 : 0.82,
+        observed_at: observed,
+        confidence: calibratedOpportunityConfidence({
+          content: content ?? '',
+          sourceUrl,
+          observedAt: observed,
+          attemptedAt: context.attemptedAt,
+          engagement: interactions,
+          location: null,
+        }),
         detail: {
           provider: 'apify',
           actor_id: APIFY_OPPORTUNITY_SOURCE_ACTOR_ID,
@@ -329,6 +327,11 @@ export function normalizeApifyOpportunityItem(
           author_name: author.name,
           query: context.query.slice(0, 200),
           visible_interactions: interactions,
+          demonstrated_intent_signals: [
+            ...demonstratedIntent.buyerSignals,
+            ...demonstratedIntent.sellerSignals,
+            ...demonstratedIntent.localAudienceSignals,
+          ],
         },
       },
     ],

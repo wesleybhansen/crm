@@ -28,16 +28,16 @@ import {
   type ApifyFinalizedBillingContract,
   type ApifyRunOutcome,
 } from './client'
+import {
+  calibratedOpportunityConfidence,
+  classifyOpportunityIntent,
+} from '../../research/opportunity-quality'
 
 const APIFY_MILLIDOLLAR_USD = 0.001
 const MAX_RESULTS = 25
 const MAX_DATASET_BODY_BYTES = 2_000_000
 const SENSITIVE_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
-const BUYER_INTENT =
-  /\b(?:buy(?:ing)?|buyer|house hunt|home search|first[- ]time home|moving to|move to|relocat(?:e|ing|ion)|looking for (?:a )?(?:home|house|condo))\b/i
-const SELLER_INTENT =
-  /\b(?:sell(?:ing)?|seller|list(?:ing)? (?:a|my|our|the)? ?(?:home|house|property)|home valuation|home worth|prepare (?:a|my|our|the)? ?(?:home|house) for sale)\b/i
 
 type SocialEnv = Record<string, string | undefined>
 type SocialPlatform = 'Reddit' | 'X'
@@ -337,16 +337,6 @@ function redditTimeFilter(plan: SourceSearchPlan): '' | 'hour' | 'day' | 'week' 
   return 'month'
 }
 
-function intentKind(content: string, query: string): NonNullable<CandidateIdentity['intent_kind']> {
-  const haystack = `${content} ${query}`
-  const buyer = BUYER_INTENT.test(haystack)
-  const seller = SELLER_INTENT.test(haystack)
-  if (buyer && seller) return 'mixed_intent'
-  if (buyer) return 'buyer_intent'
-  if (seller) return 'seller_intent'
-  return 'local_audience'
-}
-
 function activityLevel(count: number): NonNullable<CandidateIdentity['activity_level']> {
   if (count >= 25) return 'high'
   if (count >= 5) return 'medium'
@@ -389,11 +379,12 @@ function commonIdentity(args: {
   engagement: number
   people?: CandidateIdentity['people_to_follow']
 }): CandidateIdentity {
+  const demonstratedIntent = classifyOpportunityIntent(args.content)
   return {
     name: args.name,
     opportunity_kind: 'thread',
     platform: args.platform,
-    intent_kind: intentKind(args.content, args.query),
+    intent_kind: demonstratedIntent.kind,
     audience_description: args.content,
     activity_level: activityLevel(args.engagement),
     engagement_count: args.engagement,
@@ -446,6 +437,8 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
         : undefined,
   })
   identity.member_count = memberCount || null
+  const observed = isoDate(row.createdAt, context.attemptedAt)
+  const demonstratedIntent = classifyOpportunityIntent(content)
   return {
     entity_kind: 'opportunity',
     identity,
@@ -456,14 +449,26 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
             ? `Public Reddit discussion matched the approved demand query and showed ${engagement} visible score and comment signals.`
             : 'Public Reddit discussion matched the approved demand query.',
         source_url: sourceUrl,
-        observed_at: isoDate(row.createdAt, context.attemptedAt),
-        confidence: engagement > 0 ? 0.9 : 0.82,
+        observed_at: observed,
+        confidence: calibratedOpportunityConfidence({
+          content,
+          sourceUrl,
+          observedAt: observed,
+          attemptedAt: context.attemptedAt,
+          engagement,
+          location: context.location,
+        }),
         detail: {
           provider: 'apify',
           actor_id: context.actorId,
           provider_post_id: text(row.id, 200),
           subreddit,
           visible_engagement: engagement,
+          demonstrated_intent_signals: [
+            ...demonstratedIntent.buyerSignals,
+            ...demonstratedIntent.sellerSignals,
+            ...demonstratedIntent.localAudienceSignals,
+          ],
         },
       },
     ],
@@ -506,6 +511,8 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
         : undefined,
   })
   identity.opportunity_kind = 'post'
+  const observed = isoDate(row.timestamp, context.attemptedAt)
+  const demonstratedIntent = classifyOpportunityIntent(content)
   return {
     entity_kind: 'opportunity',
     identity,
@@ -516,13 +523,25 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
             ? `Public X post matched the approved demand query and showed ${engagement} visible interactions.`
             : 'Public X post matched the approved demand query.',
         source_url: sourceUrl,
-        observed_at: isoDate(row.timestamp, context.attemptedAt),
-        confidence: engagement > 0 ? 0.88 : 0.8,
+        observed_at: observed,
+        confidence: calibratedOpportunityConfidence({
+          content,
+          sourceUrl,
+          observedAt: observed,
+          attemptedAt: context.attemptedAt,
+          engagement,
+          location: context.location,
+        }),
         detail: {
           provider: 'apify',
           actor_id: context.actorId,
           provider_post_id: text(row.postId, 200),
           visible_engagement: engagement,
+          demonstrated_intent_signals: [
+            ...demonstratedIntent.buyerSignals,
+            ...demonstratedIntent.sellerSignals,
+            ...demonstratedIntent.localAudienceSignals,
+          ],
         },
       },
     ],

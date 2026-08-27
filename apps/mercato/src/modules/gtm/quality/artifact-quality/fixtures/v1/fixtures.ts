@@ -224,6 +224,22 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
     prohibitedClaims: ['these people are ready to buy', 'guaranteed leads', 'Noli joined the group'],
     expectedDisposition: 'deliver',
     minimumScore: 85,
+    opportunityQualityLabel: {
+      source: 'synthetic',
+      playAudience: 'South Bay first-time home buyers',
+      playGeography: 'South Bay, California',
+      expectedIntent: 'buyer_intent',
+      observedContent:
+        'South Bay residents asking public questions about first-time home buying and local neighborhoods.',
+      observedLocation: 'South Bay, California',
+      observedAt: '2026-08-25T18:00:00.000Z',
+      referenceTime: '2026-08-26T18:00:00.000Z',
+      eventStartAt: null,
+      liveAccessible: true,
+      usefulEnoughToActOn: true,
+      duplicateOf: null,
+      expectedReasons: [],
+    },
     artifact: {
       disposition: 'deliver',
       opportunity_kind: 'community',
@@ -240,6 +256,7 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
       evidence_refs: ['fixture:south-bay-buyer-community-1'],
       outreach_mode: 'manual_only',
       allowed_actions: ['open_public_destination', 'review_evidence', 'save', 'dismiss'],
+      quality_reasons: [],
     },
   },
   {
@@ -255,6 +272,22 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
     prohibitedClaims: ['attendees will sell', 'motivated sellers', 'Noli registered for the event'],
     expectedDisposition: 'deliver',
     minimumScore: 85,
+    opportunityQualityLabel: {
+      source: 'synthetic',
+      playAudience: 'South Bay homeowners preparing to sell',
+      playGeography: 'South Bay, California',
+      expectedIntent: 'seller_intent',
+      observedContent:
+        'Local homeowners choosing to attend a public workshop about preparing and pricing a home for sale.',
+      observedLocation: 'South Bay, California',
+      observedAt: '2026-08-25T18:00:00.000Z',
+      referenceTime: '2026-08-26T18:00:00.000Z',
+      eventStartAt: '2026-09-13T00:30:00.000Z',
+      liveAccessible: true,
+      usefulEnoughToActOn: true,
+      duplicateOf: null,
+      expectedReasons: [],
+    },
     artifact: {
       disposition: 'deliver',
       opportunity_kind: 'event',
@@ -270,6 +303,7 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
       evidence_refs: ['fixture:south-bay-seller-event-1'],
       outreach_mode: 'manual_only',
       allowed_actions: ['open_public_destination', 'review_evidence', 'save', 'dismiss'],
+      quality_reasons: [],
     },
   },
   {

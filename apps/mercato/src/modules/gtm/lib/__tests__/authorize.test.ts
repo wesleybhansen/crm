@@ -66,6 +66,7 @@ describe('GTM server-side feature authorization', () => {
     expect(reconciliationFeatureForOp('history')).toBe('gtm.view')
     expect(reconciliationFeatureForOp('catalog')).toBe('gtm.view')
     expect(reconciliationFeatureForOp('ai-telemetry')).toBe('gtm.view')
+    expect(reconciliationFeatureForOp('opportunity-quality')).toBe('gtm.view')
     expect(reconciliationFeatureForOp('apply')).toBe('gtm.approve')
   })
 

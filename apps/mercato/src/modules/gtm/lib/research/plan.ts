@@ -3,6 +3,7 @@ import { adapterAudienceRights, capabilityCovers, type AdapterDescriptor, type S
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
 import { computeGtmPolicy, policyInputFromPlay, type GtmPolicyResult } from '../policy'
 import { compileQualificationProfile, type QualificationProfile } from './qualify'
+import { buildOpportunityQueryLanes } from './opportunity-query-lanes'
 
 /*
  * Pure research-run planning (SPEC-066 sections 7 and 11.1). No ORM, no
@@ -80,6 +81,7 @@ export type SourcePlanBatch = {
   termsVersion: string
   descriptorHash: string
   providerQuery: Record<string, unknown> | null
+  queryLaneId?: string | null
   continuationPage?: number
   continuationOffset?: number | null
   adaptiveOrder: number
@@ -103,7 +105,7 @@ export type SourcePlanFailure = {
 
 export type SourcePlanSuccess = {
   ok: true
-  schemaVersion: '8'
+  schemaVersion: '9'
   planHash: string
   adapterPlan: SourcePlanBatch[]
   estimatedCredits: number
@@ -303,14 +305,36 @@ export function buildSourcePlan(
     eligibleAdapters.push(adapter)
   }
 
+  const plannedSources: Array<{
+    adapter: SourceAdapter
+    query: string
+    providerQuery: Record<string, unknown> | null
+    queryLaneId: string | null
+  }> = []
+  for (const adapter of eligibleAdapters) {
+    if (entityKind !== 'opportunity') {
+      plannedSources.push({ adapter, query, providerQuery: play.providerQuery ?? null, queryLaneId: null })
+      continue
+    }
+    plannedSources.push(
+      ...buildOpportunityQueryLanes(play, adapter.descriptor.adapter_id).map((lane) => ({
+        adapter,
+        query: lane.query,
+        providerQuery: lane.providerQuery,
+        queryLaneId: lane.id,
+      })),
+    )
+  }
+
   let remaining = maxRawCandidates
-  for (const [index, adapter] of eligibleAdapters.entries()) {
+  for (const [index, plannedSource] of plannedSources.entries()) {
+    const { adapter } = plannedSource
     const descriptor = adapter.descriptor
     if (remaining <= 0) continue
     // Divide the raw ceiling across every covering source. Execution calls
     // them in order and stops as soon as the accepted target is met, so the
     // quote is a maximum while later lanes are adaptive shortfall refills.
-    const lanesRemaining = eligibleAdapters.length - index
+    const lanesRemaining = plannedSources.length - index
     const fairShare = Math.ceil(remaining / Math.max(1, lanesRemaining))
     const pagination = descriptor.constraints.pagination
     const pageSize = pagination
@@ -325,8 +349,8 @@ export function buildSourcePlan(
         signal_kind: signalKind,
         entity_unit: entityUnit,
         geography: geographyCode,
-        query,
-        provider_query: play.providerQuery ?? undefined,
+        query: plannedSource.query,
+        provider_query: plannedSource.providerQuery ?? undefined,
         max_candidates: requestedCandidates,
       })
       if (quote.max_candidates <= 0 || quote.provider_units <= 0) break
@@ -348,7 +372,8 @@ export function buildSourcePlan(
         priceVersion: descriptor.cost_model.price_version,
         termsVersion: descriptor.constraints.license.terms_version,
         descriptorHash: descriptorHash(descriptor),
-        providerQuery: play.providerQuery ?? null,
+        providerQuery: plannedSource.providerQuery,
+        queryLaneId: plannedSource.queryLaneId,
         continuationPage: page,
         continuationOffset: pagination ? (page - 1) * pageSize : null,
         adaptiveOrder: adapterPlan.length + 1,
@@ -379,7 +404,7 @@ export function buildSourcePlan(
       : estimatedCredits
 
   const pricedPlan = {
-    schemaVersion: '8' as const,
+    schemaVersion: '9' as const,
     adapterPlan,
     estimatedCredits,
     plannedRawCapacity,

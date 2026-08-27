@@ -267,6 +267,19 @@ function hash(plan: SourceSearchPlan): string {
   return crypto.createHash('sha256').update(canonical(identity)).digest('hex')
 }
 
+function laneOffset(plan: SourceSearchPlan, candidateCount: number): number {
+  const providerQuery = plan.provider_query ?? {}
+  const laneId = typeof providerQuery.source_query_lane_id === 'string'
+    ? providerQuery.source_query_lane_id
+    : ''
+  const laneNumber = Number.parseInt(laneId.split(':').at(-1) ?? '1', 10)
+  if (!Number.isFinite(laneNumber) || laneNumber <= 1 || candidateCount === 0) return 0
+  // The fixture has three synthetic query lanes. Partition the stable rows so
+  // each lane exercises a different result instead of manufacturing duplicates
+  // merely because the provider fixture ignores query semantics.
+  return Math.ceil(((laneNumber - 1) * candidateCount) / 3) % candidateCount
+}
+
 export const fixtureConsumerSourceAdapter: SourceAdapter = {
   descriptor: fixtureConsumerSourceDescriptor,
   quote(plan) {
@@ -306,7 +319,12 @@ export const fixtureConsumerSourceAdapter: SourceAdapter = {
         error: rights.reason ?? coverage.reason ?? 'unsupported consumer fixture request',
       }
     }
-    const data = candidatesFor(plan).slice(0, Math.max(0, plan.max_candidates))
+    const candidates = candidatesFor(plan)
+    const count = Math.max(0, Math.floor(plan.max_candidates))
+    const start = laneOffset(plan, candidates.length)
+    const data = Array.from({ length: Math.min(count, candidates.length) }, (_, index) =>
+      candidates[(start + index) % candidates.length],
+    )
     return {
       status: data.length > 0 ? 'ok' : 'no_result',
       data: data.length > 0 ? data : null,
