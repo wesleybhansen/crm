@@ -133,6 +133,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:couldn(?:'|’)t have asked for (?:a )?better.{0,120}(?:realtor|real estate agent)|first[- ]class realtor|trusted,? no[- ]hassle cash home buyer|we buy houses|sell your (?:home|house) for cash)\b/i,
   ],
   [
+    'source_spam_or_adult_content',
+    /\b(?:shieldsquare captcha|captcha (?:challenge|page)|stockton on tees escorts?|adult escorts?|escort services?|adult entertainment|sex dating|casino bonus|online gambling)\b/i,
+  ],
+  [
     'sensitive_personal_crisis',
     /\b(?:passed away|passed last month|bereav(?:ed|ement)|grieving|late (?:sister|brother|mother|father|parent|spouse|partner)|below the poverty line|financial hardship|medical crisis)\b/i,
   ],

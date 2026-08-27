@@ -247,6 +247,15 @@ describe('opportunity quality primitives', () => {
     expect(classifyOpportunityIntent(failures[0][0]).kind).not.toBe('buyer_intent')
   })
 
+  it('hard-rejects captcha and adult-spam search results before they reach review', () => {
+    const spam =
+      'ShieldSquare Captcha - stockton on tees escorts. Tampa, Florida, United States. A homeowner in Chinese Camp. Hydrogen powers food truck meetup.'
+    expect(realtorOpportunityNoiseReasons(spam)).toContain('source_spam_or_adult_content')
+    expect(
+      assessRealtorOpportunitySuitability(spam, 'local_audience', 'https://spam.example/result', 'event').relevant,
+    ).toBe(false)
+  })
+
   it('hard-blocks vulnerability and protected-trait targeting before qualification', () => {
     expect(
       sensitiveConsumerOpportunityReasons(
