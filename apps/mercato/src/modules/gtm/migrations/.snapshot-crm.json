@@ -2261,6 +2261,70 @@
           "length": 6,
           "mappedType": "datetime"
         },
+        "lead_mode": {
+          "name": "lead_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "research_eligibility": {
+          "name": "research_eligibility",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "research_eligibility_reason": {
+          "name": "research_eligibility_reason",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "outreach_mode": {
+          "name": "outreach_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "outreach_policy_reason": {
+          "name": "outreach_policy_reason",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "policy_flags": {
+          "name": "policy_flags",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "policy_evaluated_at": {
+          "name": "policy_evaluated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -4565,6 +4629,335 @@
           ],
           "referencedTableName": "public.gtm_provider_operations",
           "deleteRule": "set null",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "play_id": {
+          "name": "play_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "candidate_id": {
+          "name": "candidate_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "match_id": {
+          "name": "match_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "destination_url": {
+          "name": "destination_url",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "body_text": {
+          "name": "body_text",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "evidence_hash": {
+          "name": "evidence_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "provenance": {
+          "name": "provenance",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "idempotency_key_hash": {
+          "name": "idempotency_key_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'draft'",
+          "mappedType": "text"
+        },
+        "copied_at": {
+          "name": "copied_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "opened_at": {
+          "name": "opened_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "dismissed_at": {
+          "name": "dismissed_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "retention_expires_at": {
+          "name": "retention_expires_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "gtm_manual_outreach_drafts",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "gtm_manual_outreach_drafts_scope_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "workspace_id",
+            "play_id",
+            "candidate_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_manual_outreach_drafts_org_tenant_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gtm_manual_outreach_drafts_org_idempotency_unique",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "idempotency_key_hash"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "gtm_manual_outreach_drafts_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "gtm_manual_outreach_drafts_workspace_id_foreign": {
+          "constraintName": "gtm_manual_outreach_drafts_workspace_id_foreign",
+          "columnNames": [
+            "workspace_id"
+          ],
+          "localTableName": "public.gtm_manual_outreach_drafts",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_workspaces",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "gtm_manual_outreach_drafts_play_id_foreign": {
+          "constraintName": "gtm_manual_outreach_drafts_play_id_foreign",
+          "columnNames": [
+            "play_id"
+          ],
+          "localTableName": "public.gtm_manual_outreach_drafts",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_plays",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "gtm_manual_outreach_drafts_candidate_id_foreign": {
+          "constraintName": "gtm_manual_outreach_drafts_candidate_id_foreign",
+          "columnNames": [
+            "candidate_id"
+          ],
+          "localTableName": "public.gtm_manual_outreach_drafts",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_candidates",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "gtm_manual_outreach_drafts_match_id_foreign": {
+          "constraintName": "gtm_manual_outreach_drafts_match_id_foreign",
+          "columnNames": [
+            "match_id"
+          ],
+          "localTableName": "public.gtm_manual_outreach_drafts",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.gtm_candidate_matches",
+          "deleteRule": "cascade",
           "updateRule": "cascade"
         }
       },

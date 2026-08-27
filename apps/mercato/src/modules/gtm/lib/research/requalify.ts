@@ -256,8 +256,14 @@ export async function requalifyResearchRun(input: {
       const identity = providerLocation && !candidate.identity.provider_location
         ? { ...candidate.identity, provider_location: providerLocation }
         : candidate.identity
+      const entityKind =
+        candidate.entityKind === 'person'
+        || candidate.entityKind === 'company'
+        || candidate.entityKind === 'opportunity'
+          ? candidate.entityKind
+          : 'company'
       const fit = scorer.score({
-        entity_kind: candidate.entityKind === 'person' ? 'person' : 'company',
+        entity_kind: entityKind,
         identity: identity as CandidateIdentity,
       }, play, usableEvidence)
       candidate.identity = identity

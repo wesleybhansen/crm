@@ -1,20 +1,13 @@
 import { fixtureSourceAdapter, fixtureSourceDescriptor } from '../adapters/fixture'
+import { fixtureConsumerSourceAdapter, fixtureConsumerSourceDescriptor } from '../adapters/fixture-consumer'
 import type { SourceAdapter } from '../adapters/types'
 import {
   APIFY_COMPANY_REQUIRED_PRICE_VERSION,
   APIFY_COMPANY_PRICE_VERSION_ENV,
   createApifyCompanySourceAdapter,
 } from '../adapters/apify/company-source'
-import {
-  APIFY_REQUIRED_PRICE_VERSION,
-  APIFY_REQUIRED_TERMS_VERSION,
-} from '../adapters/apify/source'
-import {
-  buildSourcePlan,
-  DEFAULT_MAX_CANDIDATES,
-  MAX_CANDIDATES_HARD_CAP,
-  type PlanPlayInput,
-} from '../research/plan'
+import { APIFY_REQUIRED_PRICE_VERSION, APIFY_REQUIRED_TERMS_VERSION } from '../adapters/apify/source'
+import { buildSourcePlan, DEFAULT_MAX_CANDIDATES, MAX_CANDIDATES_HARD_CAP, type PlanPlayInput } from '../research/plan'
 
 const executablePlay: PlanPlayInput = {
   marketType: 'b2b',
@@ -38,20 +31,106 @@ const approvedCompanySource = createApifyCompanySourceAdapter({
 })
 
 describe('buildSourcePlan fail-closed boundaries', () => {
-  it('fails closed on a strategy_only play (section 7 ladder boundary 1)', () => {
+  it('does not let a legacy business source serve a consumer play', () => {
     const plan = buildSourcePlan({ ...executablePlay, marketType: 'b2c' }, adapters)
     expect(plan.ok).toBe(false)
     if (!plan.ok) {
-      expect(plan.code).toBe('play_not_executable')
-      expect(plan.reason).toContain('strategy guidance only')
+      expect(plan.code).toBe('empty_adapter_plan')
+      expect(plan.unsupportedDimensions).toContainEqual(
+        expect.objectContaining({
+          adapter_id: 'fixture-source',
+          dimension: 'license',
+          reason: expect.stringContaining('consumer'),
+        }),
+      )
     }
   })
 
-  it('recomputes eligibility from the play fields, never trusting a stored value', () => {
-    // Non-US geography must fail even if a caller claimed the play executable.
+  it('keeps non-US provider research fail-closed', () => {
     const plan = buildSourcePlan({ ...executablePlay, geography: 'Berlin, Germany' }, adapters)
     expect(plan.ok).toBe(false)
-    if (!plan.ok) expect(plan.code).toBe('play_not_executable')
+    if (!plan.ok) expect(plan.code).toBe('play_not_researchable')
+  })
+
+  it('prices safe US consumer leads only through an explicit consumer contract', () => {
+    const plan = buildSourcePlan(
+      {
+        marketType: 'b2c',
+        geography: 'Los Angeles, California',
+        signal: 'Public workshop information request',
+        signalKind: 'social_engagement',
+        entityUnit: 'people',
+        audience: 'People who requested a local market update at a public workshop',
+      },
+      [fixtureConsumerSourceAdapter],
+      { targetAccepted: 2, maxRawCandidates: 5 },
+    )
+    expect(plan.ok).toBe(true)
+    if (plan.ok) {
+      expect(plan.policy).toEqual(
+        expect.objectContaining({
+          lead_mode: 'consumer',
+          research_eligibility: 'provider_runnable',
+          outreach_mode: 'manual_only',
+          execution_eligibility: 'strategy_only',
+        }),
+      )
+      expect(plan.adapterPlan).toEqual([
+        expect.objectContaining({
+          adapter_id: fixtureConsumerSourceDescriptor.adapter_id,
+          maxCandidates: 5,
+          billableUnit: 'public_profile',
+        }),
+      ])
+    }
+  })
+
+  it('plans consumer demand opportunities through the explicit consumer source contract', () => {
+    const plan = buildSourcePlan(
+      {
+        marketType: 'b2c',
+        geography: 'South Bay, California',
+        signal: 'Public buyer and seller intent conversations',
+        signalKind: 'social_engagement',
+        entityUnit: 'opportunities',
+        audience: 'People publicly discussing buying or selling a home in the South Bay',
+      },
+      [fixtureConsumerSourceAdapter],
+      { targetAccepted: 4, maxRawCandidates: 4 },
+    )
+
+    expect(plan.ok).toBe(true)
+    if (plan.ok) {
+      expect(plan.entityKind).toBe('opportunity')
+      expect(plan.adapterPlan[0]).toEqual(
+        expect.objectContaining({
+          adapter_id: fixtureConsumerSourceDescriptor.adapter_id,
+          capability: expect.objectContaining({
+            entity_kind: 'opportunity',
+            entity_unit: 'opportunities',
+          }),
+        }),
+      )
+    }
+  })
+
+  it('blocks sensitive consumer targeting before a provider quote', () => {
+    const plan = buildSourcePlan(
+      {
+        marketType: 'b2c',
+        geography: 'United States',
+        signal: 'Recent foreclosure filing',
+        signalKind: 'social_engagement',
+        entityUnit: 'people',
+        audience: 'Homeowners in foreclosure',
+      },
+      [fixtureConsumerSourceAdapter],
+    )
+    expect(plan.ok).toBe(false)
+    if (!plan.ok) {
+      expect(plan.code).toBe('play_not_researchable')
+      expect(plan.reason).toContain('sensitive')
+    }
   })
 
   it('fails closed on an unsupported signal with an empty adapter plan', () => {
@@ -97,10 +176,15 @@ describe('buildSourcePlan pricing and limits', () => {
         locations: ['San Diego, California'],
       },
     }
-    const plan = buildSourcePlan(play, [approvedCompanySource], {
-      targetAccepted: 5,
-      maxRawCandidates: 10,
-    }, 2)
+    const plan = buildSourcePlan(
+      play,
+      [approvedCompanySource],
+      {
+        targetAccepted: 5,
+        maxRawCandidates: 10,
+      },
+      2,
+    )
     expect(plan.ok).toBe(true)
     if (plan.ok) {
       expect(plan.adapterPlan).toEqual([
@@ -125,11 +209,13 @@ describe('buildSourcePlan pricing and limits', () => {
     expect(plan.ok).toBe(true)
     if (plan.ok) {
       expect(DEFAULT_MAX_CANDIDATES).toBe(25)
-      expect(plan.limits).toEqual(expect.objectContaining({
-        targetAccepted: 25,
-        maxRawCandidates: 100,
-        maxCandidates: 100,
-      }))
+      expect(plan.limits).toEqual(
+        expect.objectContaining({
+          targetAccepted: 25,
+          maxRawCandidates: 100,
+          maxCandidates: 100,
+        }),
+      )
       expect(plan.adapterPlan).toEqual([
         expect.objectContaining({
           adapter_id: 'fixture-source',
@@ -173,7 +259,10 @@ describe('buildSourcePlan pricing and limits', () => {
 
   it('allocates remaining candidates across additional covering adapters', () => {
     const secondAdapter: SourceAdapter = {
-      descriptor: { ...fixtureSourceDescriptor, adapter_id: 'fixture-source-b' },
+      descriptor: {
+        ...fixtureSourceDescriptor,
+        adapter_id: 'fixture-source-b',
+      },
       quote: fixtureSourceAdapter.quote,
       search: fixtureSourceAdapter.search,
     }
@@ -187,7 +276,7 @@ describe('buildSourcePlan pricing and limits', () => {
         ['fixture-source-b', 15],
       ])
       expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
-      expect(plan.schemaVersion).toBe('7')
+      expect(plan.schemaVersion).toBe('8')
     }
   })
 
@@ -211,11 +300,13 @@ describe('buildSourcePlan pricing and limits', () => {
     })
     expect(plan.ok).toBe(true)
     if (plan.ok) {
-      expect(plan.adapterPlan.map((batch) => ({
-        units: batch.maxCandidates,
-        page: batch.continuationPage,
-        offset: batch.continuationOffset,
-      }))).toEqual([
+      expect(
+        plan.adapterPlan.map((batch) => ({
+          units: batch.maxCandidates,
+          page: batch.continuationPage,
+          offset: batch.continuationOffset,
+        })),
+      ).toEqual([
         { units: 25, page: 1, offset: 0 },
         { units: 25, page: 2, offset: 25 },
       ])
@@ -260,38 +351,55 @@ describe('buildSourcePlan pricing and limits', () => {
   })
 
   it('freezes explicit accepted and raw targets plus the qualification profile', () => {
-    const plan = buildSourcePlan({
-      ...executablePlay,
-      providerQuery: {
-        industries: ['Software'],
-        company_keywords: ['revenue operations'],
-        exclude_industries: ['Consumer gambling'],
+    const plan = buildSourcePlan(
+      {
+        ...executablePlay,
+        providerQuery: {
+          industries: ['Software'],
+          company_keywords: ['revenue operations'],
+          exclude_industries: ['Consumer gambling'],
+        },
+        recencyWindow: 'last 30 days',
       },
-      recencyWindow: 'last 30 days',
-    }, adapters, { targetAccepted: 12, maxRawCandidates: 60 })
+      adapters,
+      { targetAccepted: 12, maxRawCandidates: 60 },
+    )
     expect(plan.ok).toBe(true)
     if (plan.ok) {
-      expect(plan.limits).toEqual(expect.objectContaining({
-        targetAccepted: 12, maxRawCandidates: 60, maxCandidates: 60,
-      }))
-      expect(plan.qualificationProfile.criteria.map((row) => row.id)).toEqual(expect.arrayContaining([
-        'account.industry', 'account.keywords', 'exclusion.industry', 'signal.recency',
-      ]))
-      expect(plan.adapterPlan[0]).toEqual(expect.objectContaining({
-        adaptiveOrder: 1, stopWhenTargetAccepted: true,
-      }))
+      expect(plan.limits).toEqual(
+        expect.objectContaining({
+          targetAccepted: 12,
+          maxRawCandidates: 60,
+          maxCandidates: 60,
+        }),
+      )
+      expect(plan.qualificationProfile.criteria.map((row) => row.id)).toEqual(
+        expect.arrayContaining(['account.industry', 'account.keywords', 'exclusion.industry', 'signal.recency']),
+      )
+      expect(plan.adapterPlan[0]).toEqual(
+        expect.objectContaining({
+          adaptiveOrder: 1,
+          stopWhenTargetAccepted: true,
+        }),
+      )
     }
   })
 
   it('hashes distinct Unicode keys independently of insertion order', () => {
-    const first = buildSourcePlan({
-      ...executablePlay,
-      providerQuery: { '\u00e9': ['one'], 'e\u0301': ['two'] },
-    }, adapters)
-    const second = buildSourcePlan({
-      ...executablePlay,
-      providerQuery: { 'e\u0301': ['two'], '\u00e9': ['one'] },
-    }, adapters)
+    const first = buildSourcePlan(
+      {
+        ...executablePlay,
+        providerQuery: { '\u00e9': ['one'], 'e\u0301': ['two'] },
+      },
+      adapters,
+    )
+    const second = buildSourcePlan(
+      {
+        ...executablePlay,
+        providerQuery: { 'e\u0301': ['two'], '\u00e9': ['one'] },
+      },
+      adapters,
+    )
     expect(first.ok && second.ok).toBe(true)
     if (first.ok && second.ok) expect(first.planHash).toBe(second.planHash)
   })

@@ -128,6 +128,7 @@ describe('sweepExpiredCandidates', () => {
       evidenceDeleted: 2,
       contactPointsDeleted: 1,
       relationsDeleted: 1,
+      manualDraftsDeleted: 0,
       skippedEnrolled: 1,
       batches: 1,
     })
@@ -167,6 +168,7 @@ describe('sweepExpiredCandidates', () => {
       candidates_deleted: 2,
       evidence_deleted: 3,
       contact_points_deleted: 3,
+      manual_drafts_deleted: 0,
       relations_deleted: 0,
       cutoff: NOW.toISOString(),
     })
@@ -221,6 +223,7 @@ describe('sweepExpiredCandidates', () => {
       evidenceDeleted: 0,
       contactPointsDeleted: 0,
       relationsDeleted: 0,
+      manualDraftsDeleted: 0,
       skippedEnrolled: 0,
       batches: 0,
     })

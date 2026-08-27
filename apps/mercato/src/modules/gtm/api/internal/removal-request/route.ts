@@ -6,6 +6,7 @@ export const openApi = gtmInternalOpenApi('Apply a scoped GTM removal request')
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ExecutionEm } from '../../../lib/execute/schedule'
 import { normalizeRemovalEmail } from '../../../lib/removal-request'
+import { normalizeConsumerProfileUrl } from '../../../lib/research/execute'
 
 /*
  * Internal prospect-removal endpoint (privacy policy section 3.8).
@@ -55,28 +56,35 @@ export async function POST(req: Request) {
 
   const raw = (await req.json().catch(() => ({}))) as Record<string, unknown>
   const email = normalizeRemovalEmail(raw.email)
-  if (!email) {
-    return NextResponse.json({ ok: false, error: 'A valid email is required' }, { status: 400 })
+  const profileUrl = normalizeConsumerProfileUrl(raw.profileUrl)
+  if (!email && !profileUrl) {
+    return NextResponse.json({ ok: false, error: 'A valid email or LinkedIn profile URL is required' }, { status: 400 })
   }
 
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager as unknown as ExecutionEm
-    const { applyRemovalRequest } = await import('../../../lib/removal-request')
-    const result = await applyRemovalRequest(em, {
-      email,
-      // reason is accepted from the requester but never persisted: it is
-      // free text that could carry personal detail we have no need to keep.
+    const { applyRemovalRequest, applyProfileRemovalRequest } = await import('../../../lib/removal-request')
+    const shared = {
       reason: typeof raw.reason === 'string' ? raw.reason : null,
       source: typeof raw.source === 'string' ? raw.source : null,
-    })
+    }
+    const results = []
+    if (email) results.push(await applyRemovalRequest(em, { email, ...shared }))
+    if (profileUrl) results.push(await applyProfileRemovalRequest(em, { profileUrl, ...shared }))
+    const requestIds = results.map((result) => result.deletionRequestId)
     return NextResponse.json({
       ok: true,
       suppressed: true,
-      enrollments_stopped: result.enrollmentsStopped,
-      deletion_request_id: result.deletionRequestId,
-      deletion_status: result.deletionStatus,
+      enrollments_stopped: results.reduce((sum, result) => sum + result.enrollmentsStopped, 0),
+      // Preserve the original scalar for compatibility and add the complete
+      // set when a requester supplies both identifiers.
+      deletion_request_id: requestIds[0],
+      deletion_request_ids: requestIds,
+      deletion_status: results.every((result) => result.deletionStatus === 'completed')
+        ? 'completed'
+        : 'partial',
     })
   } catch (err) {
     // Never interpolate the address into a log line.

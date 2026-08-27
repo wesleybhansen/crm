@@ -1,6 +1,7 @@
 import type { AdapterResult, SourceSearchPlan } from '../adapters/types'
 import { sourceAdapterRegistry } from '../adapters/registry'
 import { fixtureSourceAdapter } from '../adapters/fixture'
+import { fixtureConsumerSourceAdapter } from '../adapters/fixture-consumer'
 import {
   APIFY_MIN_CHARGE_USD,
   APIFY_STATUS_MAP,
@@ -200,10 +201,16 @@ describe('apify source adapter env gate', () => {
     try {
       expect(apifySourceEnabled()).toBe(false)
       const registry = sourceAdapterRegistry()
-      expect(Object.keys(registry)).toEqual([fixtureSourceAdapter.descriptor.adapter_id])
+      expect(Object.keys(registry)).toEqual([
+        fixtureSourceAdapter.descriptor.adapter_id,
+        fixtureConsumerSourceAdapter.descriptor.adapter_id,
+      ])
       expect(registry[fixtureSourceAdapter.descriptor.adapter_id]).toBe(fixtureSourceAdapter)
       expect(JSON.stringify(Object.keys(registry))).toBe(
-        JSON.stringify([fixtureSourceAdapter.descriptor.adapter_id]),
+        JSON.stringify([
+          fixtureSourceAdapter.descriptor.adapter_id,
+          fixtureConsumerSourceAdapter.descriptor.adapter_id,
+        ]),
       )
     } finally {
       process.env = saved
@@ -219,6 +226,7 @@ describe('apify source adapter env gate', () => {
       expect(apifySourceEnabled()).toBe(false)
       expect(Object.keys(sourceAdapterRegistry())).toEqual([
         fixtureSourceAdapter.descriptor.adapter_id,
+        fixtureConsumerSourceAdapter.descriptor.adapter_id,
       ])
     } finally {
       process.env = saved
@@ -237,6 +245,7 @@ describe('apify source adapter env gate', () => {
       const registry = sourceAdapterRegistry()
       expect(Object.keys(registry)).toEqual([
         fixtureSourceAdapter.descriptor.adapter_id,
+        fixtureConsumerSourceAdapter.descriptor.adapter_id,
         APIFY_SOURCE_ADAPTER_ID,
       ])
       expect(registry[fixtureSourceAdapter.descriptor.adapter_id]).toBe(fixtureSourceAdapter)

@@ -4,7 +4,7 @@ import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('Plan and execute gated GTM research')
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { gtmEnabled } from '../../../lib/flags'
+import { gtmConsumerResearchEnabled, gtmEnabled } from '../../../lib/flags'
 import { gtmResearchRunsBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
 import { buildSourcePlan } from '../../../lib/research/plan'
@@ -67,6 +67,7 @@ function shapeRun(run: GtmResearchRun) {
     started_at: run.startedAt ?? null,
     completed_at: run.completedAt ?? null,
     execution: (plan.execution as Record<string, unknown> | undefined) ?? null,
+    policy: (plan.policy as Record<string, unknown> | undefined) ?? null,
   }
 }
 
@@ -211,6 +212,17 @@ export async function POST(req: Request) {
         )
       }
 
+      if (plan.policy.lead_mode !== 'business' && !gtmConsumerResearchEnabled()) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'Consumer research is not enabled for this environment',
+            code: 'consumer_research_disabled',
+          },
+          { status: 422 },
+        )
+      }
+
       if (body.op === 'plan') {
         // Priced plan only; no run row is created.
         return NextResponse.json({
@@ -222,6 +234,7 @@ export async function POST(req: Request) {
             unsupportedDimensions: plan.unsupportedDimensions,
             limits: plan.limits,
             qualificationProfile: plan.qualificationProfile,
+            policy: plan.policy,
             schema_version: plan.schemaVersion,
             plan_hash: plan.planHash,
           },
@@ -243,6 +256,7 @@ export async function POST(req: Request) {
               planned_raw_capacity: plan.plannedRawCapacity,
               limits: plan.limits,
               qualificationProfile: plan.qualificationProfile,
+              policy: plan.policy,
               schema_version: plan.schemaVersion,
               plan_hash: plan.planHash,
             },
@@ -270,6 +284,10 @@ export async function POST(req: Request) {
               provider_query: play.providerQuery ?? null,
               recency_window: play.recencyWindow ?? null,
               execution_eligibility: play.executionEligibility,
+              lead_mode: plan.policy.lead_mode,
+              research_eligibility: plan.policy.research_eligibility,
+              outreach_mode: plan.policy.outreach_mode,
+              policy_flags: plan.policy.policy_flags,
             },
             requested_limits: body.limits ?? null,
             query: plan.query,
@@ -281,6 +299,7 @@ export async function POST(req: Request) {
             plannedRawCapacity: plan.plannedRawCapacity,
             unsupportedDimensions: plan.unsupportedDimensions,
             qualificationProfile: plan.qualificationProfile,
+            policy: plan.policy,
             query: plan.query,
           },
           limits: plan.limits,
@@ -316,6 +335,7 @@ export async function POST(req: Request) {
           unsupportedDimensions: plan.unsupportedDimensions,
           limits: plan.limits,
           qualificationProfile: plan.qualificationProfile,
+          policy: plan.policy,
           schema_version: plan.schemaVersion,
           plan_hash: plan.planHash,
         },
@@ -339,6 +359,18 @@ export async function POST(req: Request) {
 
 
       const frozenProviderPlan = (run.providerPlan ?? {}) as Record<string, unknown>
+      const frozenPolicy = frozenProviderPlan.policy as Record<string, unknown> | undefined
+      if (frozenPolicy && frozenPolicy.lead_mode !== 'business' && !gtmConsumerResearchEnabled()) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'Consumer research is not enabled for this environment',
+            code: 'consumer_research_disabled',
+          },
+          { status: 422 },
+        )
+      }
+
       const frozenPlanHash = typeof frozenProviderPlan.planHash === 'string'
         ? frozenProviderPlan.planHash
         : null

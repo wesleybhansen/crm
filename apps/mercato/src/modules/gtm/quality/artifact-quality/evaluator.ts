@@ -6,9 +6,7 @@ import {
 } from './schemas'
 
 function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
 function strings(value: unknown): string[] {
@@ -42,8 +40,8 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
   }
   if (artifact.disposition !== fixture.expectedDisposition) hardFailures.push('wrong_disposition')
   if (
-    (fixture.expectedDisposition === 'suppress' || fixture.expectedDisposition === 'blocked')
-    && strings(artifact.messages).length > 0
+    (fixture.expectedDisposition === 'suppress' || fixture.expectedDisposition === 'blocked') &&
+    strings(artifact.messages).length > 0
   ) {
     hardFailures.push('unsafe_message_present')
   }
@@ -58,7 +56,8 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
   } else if (fixture.kind === 'qualification') {
     const criteria = Array.isArray(artifact.criteria) ? artifact.criteria : []
     if (criteria.length < 2) qualityFailures.push('criterion_level_fit_missing')
-    if (criteria.some((criterion) => !record(criterion)?.evidence_ref)) qualityFailures.push('criterion_evidence_missing')
+    if (criteria.some((criterion) => !record(criterion)?.evidence_ref))
+      qualityFailures.push('criterion_evidence_missing')
     if (!strings(artifact.why_them).length) qualityFailures.push('why_them_missing')
   } else if (fixture.kind === 'research_plan') {
     if (!record(artifact.limits)) qualityFailures.push('limits_missing')
@@ -78,6 +77,49 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
       if (typeof draft?.body === 'string' && draft.body.trim().split(/\s+/).length > 120) {
         qualityFailures.push('draft_too_long')
       }
+    }
+  } else if (fixture.kind === 'manual_outreach') {
+    if (artifact.outreach_mode !== 'manual_only') hardFailures.push('consumer_automation_boundary_missing')
+    const destination = typeof artifact.public_destination === 'string' ? artifact.public_destination : ''
+    if (!/^https:\/\//.test(destination)) hardFailures.push('public_destination_missing')
+    const body = typeof artifact.body === 'string' ? artifact.body.trim() : ''
+    const wordCount = body ? body.split(/\s+/).length : 0
+    if (wordCount < 20 || wordCount > 110) qualityFailures.push('manual_draft_length')
+    if (strings(artifact.grounded_fact_refs).length === 0) qualityFailures.push('grounding_refs_missing')
+    const actions = strings(artifact.allowed_actions)
+    if (
+      actions.length === 0 ||
+      actions.some((action) => !['copy_message', 'open_public_profile', 'dismiss'].includes(action))
+    ) {
+      hardFailures.push('unsafe_consumer_action')
+    }
+  } else if (fixture.kind === 'opportunity') {
+    if (artifact.outreach_mode !== 'manual_only') hardFailures.push('consumer_automation_boundary_missing')
+    if (
+      !['community', 'forum', 'group', 'thread', 'post', 'event', 'creator_audience'].includes(
+        String(artifact.opportunity_kind),
+      )
+    ) {
+      qualityFailures.push('opportunity_kind_missing')
+    }
+    if (!['buyer_intent', 'seller_intent', 'local_audience', 'mixed_intent'].includes(String(artifact.intent_kind))) {
+      qualityFailures.push('intent_kind_missing')
+    }
+    const destination = typeof artifact.public_destination === 'string' ? artifact.public_destination : ''
+    if (!/^https:\/\//.test(destination)) hardFailures.push('public_destination_missing')
+    if (typeof artifact.audience_description !== 'string' || !artifact.audience_description.trim()) {
+      qualityFailures.push('audience_description_missing')
+    }
+    if (typeof artifact.recommended_action !== 'string' || !artifact.recommended_action.trim()) {
+      qualityFailures.push('recommended_action_missing')
+    }
+    if (strings(artifact.evidence_refs).length === 0) qualityFailures.push('grounding_refs_missing')
+    const actions = strings(artifact.allowed_actions)
+    if (
+      actions.length === 0 ||
+      actions.some((action) => !['open_public_destination', 'review_evidence', 'save', 'dismiss'].includes(action))
+    ) {
+      hardFailures.push('unsafe_consumer_action')
     }
   } else if (fixture.kind === 'failure_honesty') {
     if (typeof artifact.reason_code !== 'string' || !artifact.reason_code) hardFailures.push('failure_reason_missing')

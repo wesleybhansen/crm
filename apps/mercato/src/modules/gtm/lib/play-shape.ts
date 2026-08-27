@@ -38,6 +38,13 @@ export type GtmPlayRowLike = {
   executionEligibility: string
   eligibilityReason?: string | null
   eligibilityEvaluatedAt?: Date | null
+  leadMode?: string | null
+  researchEligibility?: string | null
+  researchEligibilityReason?: string | null
+  outreachMode?: string | null
+  outreachPolicyReason?: string | null
+  policyFlags?: string[] | null
+  policyEvaluatedAt?: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -53,6 +60,12 @@ export type GtmPlaySummary = {
   confidence: string | null
   execution_eligibility: string
   eligibility_reason: string | null
+  lead_mode: string | null
+  research_eligibility: string | null
+  research_eligibility_reason: string | null
+  outreach_mode: string | null
+  outreach_policy_reason: string | null
+  policy_flags: string[]
   created_at: string
 }
 
@@ -68,6 +81,7 @@ export type GtmPlayDetail = GtmPlaySummary & {
   confidence_rationale: string | null
   likely_buyer: string | null
   eligibility_evaluated_at: string | null
+  policy_evaluated_at: string | null
   updated_at: string
 }
 
@@ -93,6 +107,12 @@ export function shapePlaySummary(play: GtmPlayRowLike): GtmPlaySummary {
     confidence: play.confidence ?? null,
     execution_eligibility: play.executionEligibility,
     eligibility_reason: play.eligibilityReason ?? null,
+    lead_mode: play.leadMode ?? null,
+    research_eligibility: play.researchEligibility ?? null,
+    research_eligibility_reason: play.researchEligibilityReason ?? null,
+    outreach_mode: play.outreachMode ?? null,
+    outreach_policy_reason: play.outreachPolicyReason ?? null,
+    policy_flags: play.policyFlags ?? [],
     created_at: play.createdAt.toISOString(),
   }
 }
@@ -111,6 +131,7 @@ export function shapePlayDetail(play: GtmPlayRowLike): GtmPlayDetail {
     confidence_rationale: play.confidenceRationale ?? null,
     likely_buyer: play.likelyBuyer ?? null,
     eligibility_evaluated_at: iso(play.eligibilityEvaluatedAt),
+    policy_evaluated_at: iso(play.policyEvaluatedAt),
     updated_at: play.updatedAt.toISOString(),
   }
 }

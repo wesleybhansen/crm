@@ -106,6 +106,27 @@ jobs:
           path: .ai/qa/test-results/crm-quality/dry-run.json
           if-no-files-found: error
 
+  gtm-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run GTM deterministic and artifact-quality regressions
+        run: yarn test:gtm-regression
+
   ephemeral-integration:
     runs-on: ubuntu-latest
     env:

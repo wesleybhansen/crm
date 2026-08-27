@@ -231,8 +231,8 @@ export function apifySourceDescriptor(env: ApifyEnv = processEnv()): AdapterDesc
     },
     // The selected comments actor is pay-per-result, so a definitive
     // no-comment answer is free under its current rate card. Post search is
-    // not exposed because its current zero-result/start/nested-event charges
-    // cannot be reconciled by the synchronous client.
+    // not exposed from THIS people adapter. The separate opportunity adapter
+    // uses finalized event billing and disables nested people collection.
     cost_model: {
       unit: 'result',
       quoted_credits_per_unit: creditsPerResult(env),

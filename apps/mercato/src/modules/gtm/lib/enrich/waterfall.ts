@@ -539,7 +539,10 @@ export async function runEnrichmentWaterfall(
           geography: GEOGRAPHY,
           channel: 'email' as const,
           candidate: {
-            entity_kind: candidate.entityKind as 'person' | 'company',
+            // `accepted` is structurally filtered to people above. Keep the
+            // request literal so an opportunity can never be coerced into a
+            // contact-enrichment call if entity kinds expand again.
+            entity_kind: 'person' as const,
             identity: candidate.identity as unknown as CandidateIdentity,
           },
         }

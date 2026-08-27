@@ -10,6 +10,7 @@ import {
   fixtureSourceAdapter,
   fixtureVerifyAdapter,
 } from '../adapters/fixture'
+import { fixtureConsumerSourceAdapter } from '../adapters/fixture-consumer'
 import { APIFY_ENRICH_ADAPTER_ID } from '../adapters/apify/enrich'
 import {
   APIFY_COMPANY_PRICE_VERSION_ENV,
@@ -56,6 +57,7 @@ describe('adapter registry environment boundaries', () => {
     expect(fixtureAdaptersEnabled()).toBe(true)
     expect(sourceAdapterRegistry()).toEqual({
       [fixtureSourceAdapter.descriptor.adapter_id]: fixtureSourceAdapter,
+      [fixtureConsumerSourceAdapter.descriptor.adapter_id]: fixtureConsumerSourceAdapter,
     })
     expect(enrichAdapterList()).toEqual([fixtureEnrichAdapter])
     expect(verifyAdapterList()).toEqual([fixtureVerifyAdapter])
@@ -67,6 +69,7 @@ describe('adapter registry environment boundaries', () => {
     expect(fixtureAdaptersEnabled()).toBe(true)
     expect(Object.keys(sourceAdapterRegistry())).toEqual([
       fixtureSourceAdapter.descriptor.adapter_id,
+      fixtureConsumerSourceAdapter.descriptor.adapter_id,
     ])
   })
 
@@ -92,6 +95,7 @@ describe('adapter registry environment boundaries', () => {
     expect(fixtureAdaptersEnabled()).toBe(true)
     expect(sourceAdapterRegistry()).toEqual({
       [fixtureSourceAdapter.descriptor.adapter_id]: fixtureSourceAdapter,
+      [fixtureConsumerSourceAdapter.descriptor.adapter_id]: fixtureConsumerSourceAdapter,
     })
   })
 

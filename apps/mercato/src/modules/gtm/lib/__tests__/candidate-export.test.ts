@@ -255,6 +255,17 @@ describe('buildReviewedLeadExport', () => {
     })).rejects.toMatchObject({ code: 'scope_not_found' })
   })
 
+  it('never exports verified email for a manual-only consumer play', async () => {
+    const em = new FakeEm()
+    const { play } = await seedAcceptedMatch(em)
+    play.marketType = 'b2c'
+    play.geography = 'United States'
+    await expect(buildReviewedLeadExport(em, ctx, {
+      workspaceId: WORKSPACE,
+      playId: play.id,
+    })).rejects.toMatchObject({ code: 'manual_outreach_only' })
+  })
+
   it('reports rather than hiding rows beyond the 1,000-row export cap', async () => {
     const em = new FakeEm()
     const play = await seedPlay(em)

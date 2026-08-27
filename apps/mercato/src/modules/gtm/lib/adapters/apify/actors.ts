@@ -23,10 +23,10 @@ import type { Candidate, CandidateIdentity, ContactPoint } from '../types'
  * - `apidojo/tweet-scraper` (X): input AND output STILL UNVERIFIED and the
  *   capability is not selectable.
  * - `harvestapi/linkedin-post-search`: its current multi-event rate card bills
- *   posts, nested reactions/comments, zero-result queries and actor starts.
- *   The synchronous client cannot retrieve the authoritative run charge, so
- *   the capability is not selectable until the two-step receipt contract is
- *   implemented.
+ *   posts, optional reactions/comments, zero-result queries and actor starts.
+ *   It is intentionally not selected by this people-source adapter. The
+ *   separate opportunity-source adapter uses the finalized two-step receipt
+ *   client and keeps comments/reactions off to return public demand surfaces.
  * Pricing lives in APIFY_MEASURED_USD below, in DOLLARS. The selected actor
  * rates were rechecked against their public Apify Store pages on 2026-08-21.
  */
@@ -142,10 +142,10 @@ export const APIFY_MEASURED_USD = {
   // Free/Starter rate for the selected LinkedIn comments actor: $2 / 1,000.
   sourcing_per_result: 0.002,
   /*
-   * Current post-search rate components. These are recorded for planning the
-   * future two-step receipt client only; the capability is not selectable.
-   * The actor may also bill selected nested reactions, comments and profile
-   * enrichment, so post count alone is never authoritative settlement truth.
+   * Current post-search rate components. The consumer opportunity adapter
+   * freezes the exact current Actor build and reconciles finalized event
+   * counts. This people normalizer remains unselected because it would add
+   * separately billed reactions, comments, and profile data.
    */
   post_search_per_post: 0.002,
   post_search_zero_result: 0.001,

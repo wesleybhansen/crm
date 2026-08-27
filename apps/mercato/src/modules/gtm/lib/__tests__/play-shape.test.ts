@@ -28,6 +28,13 @@ const fullRow: GtmPlayRowLike = {
   executionEligibility: 'executable',
   eligibilityReason: 'US B2B audience with a findable source. Eligible for automated execution.',
   eligibilityEvaluatedAt: new Date('2026-07-23T10:00:00.000Z'),
+  leadMode: 'business',
+  researchEligibility: 'provider_runnable',
+  researchEligibilityReason: 'Approved business source required.',
+  outreachMode: 'automated_email',
+  outreachPolicyReason: 'Governed B2B email is available.',
+  policyFlags: [],
+  policyEvaluatedAt: new Date('2026-08-26T10:00:00.000Z'),
   createdAt: new Date('2026-07-23T09:00:00.000Z'),
   updatedAt: new Date('2026-07-23T09:30:00.000Z'),
 }
@@ -59,6 +66,12 @@ describe('shapePlaySummary', () => {
       confidence: 'medium',
       execution_eligibility: 'executable',
       eligibility_reason: fullRow.eligibilityReason,
+      lead_mode: 'business',
+      research_eligibility: 'provider_runnable',
+      research_eligibility_reason: fullRow.researchEligibilityReason,
+      outreach_mode: 'automated_email',
+      outreach_policy_reason: fullRow.outreachPolicyReason,
+      policy_flags: [],
       created_at: '2026-07-23T09:00:00.000Z',
     })
   })
@@ -80,6 +93,10 @@ describe('shapePlaySummary', () => {
     expect(summary.geography).toBeNull()
     expect(summary.confidence).toBeNull()
     expect(summary.eligibility_reason).toBeNull()
+    expect(summary.lead_mode).toBeNull()
+    expect(summary.research_eligibility).toBeNull()
+    expect(summary.outreach_mode).toBeNull()
+    expect(summary.policy_flags).toEqual([])
   })
 })
 
@@ -98,6 +115,7 @@ describe('shapePlayDetail', () => {
       confidence_rationale: fullRow.confidenceRationale,
       likely_buyer: 'Founder or head of ops',
       eligibility_evaluated_at: '2026-07-23T10:00:00.000Z',
+      policy_evaluated_at: '2026-08-26T10:00:00.000Z',
       updated_at: '2026-07-23T09:30:00.000Z',
     })
     // and everything from the summary shape

@@ -9,6 +9,7 @@ import {
   GtmPlay,
 } from '../data/entities'
 import { computeExclusions } from './campaign/exclusions'
+import { computeGtmPolicy, policyInputFromPlay } from './policy'
 
 /*
  * R26 reviewed-lead export. This is intentionally narrower than a raw table
@@ -88,7 +89,7 @@ export type ReviewedLeadExportResult = {
 
 export class ReviewedLeadExportError extends Error {
   constructor(
-    public code: 'scope_not_found' | 'scope_too_large' | 'idempotency_conflict',
+    public code: 'scope_not_found' | 'scope_too_large' | 'idempotency_conflict' | 'manual_outreach_only',
     message: string,
   ) {
     super(message)
@@ -236,6 +237,13 @@ export async function buildReviewedLeadExport(
     deletedAt: null,
   })
   if (!play) throw new ReviewedLeadExportError('scope_not_found', 'Export scope was not found')
+  const policy = computeGtmPolicy(policyInputFromPlay(play))
+  if (policy.outreach_mode !== 'automated_email') {
+    throw new ReviewedLeadExportError(
+      'manual_outreach_only',
+      'Verified-email export is unavailable for manual-only outreach',
+    )
+  }
 
   const matches = await em.find(
     GtmCandidateMatch,

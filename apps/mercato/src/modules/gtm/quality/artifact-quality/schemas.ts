@@ -10,6 +10,8 @@ export const gtmArtifactFixtureSchema = z.object({
     'research_plan',
     'sequence',
     'reply_draft',
+    'manual_outreach',
+    'opportunity',
     'failure_honesty',
   ]),
   scenario: z.string().min(1).max(500),

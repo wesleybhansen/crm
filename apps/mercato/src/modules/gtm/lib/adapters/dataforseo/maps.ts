@@ -150,7 +150,7 @@ const US_STATE_NAMES = new Map(
   Object.values(US_STATE_NAMES_BY_ABBREVIATION).map((name) => [name.toLowerCase(), name]),
 )
 
-function canonicalDataForSeoUsLocation(value: string): string | null {
+export function canonicalDataForSeoUsLocation(value: string): string | null {
   const parts = value.split(',').map((part) => part.trim()).filter(Boolean)
   if (parts.length === 0) return 'United States'
 

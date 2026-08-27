@@ -1,25 +1,10 @@
 import { FakeEm } from './support/fake-em'
 import { FixtureLedger } from '../credits/ledger'
-import {
-  PROVIDER_MIN_CHARGE_USD,
-  creditsForUnits,
-  creditsFromUsd,
-  providerSpendCapUsd,
-} from '../credits/markup'
+import { PROVIDER_MIN_CHARGE_USD, creditsForUnits, creditsFromUsd, providerSpendCapUsd } from '../credits/markup'
 import { fixtureSourceAdapter, fixtureSourceDescriptor } from '../adapters/fixture'
 import type { SourceAdapter, SourceSearchPlan } from '../adapters/types'
-import {
-  candidateDedupeKey,
-  executeResearchRun,
-  type ExecuteResearchRunDeps,
-} from '../research/execute'
-import {
-  GtmCandidate,
-  GtmCandidateMatch,
-  GtmEvidence,
-  GtmProviderOperation,
-  GtmResearchRun,
-} from '../../data/entities'
+import { candidateDedupeKey, executeResearchRun, type ExecuteResearchRunDeps } from '../research/execute'
+import { GtmCandidate, GtmCandidateMatch, GtmEvidence, GtmProviderOperation, GtmResearchRun } from '../../data/entities'
 
 const ORG = '11111111-1111-4111-8111-111111111111'
 const TENANT = '22222222-2222-4222-8222-222222222222'
@@ -48,7 +33,11 @@ function spyAdapter(adapterId = 'fixture-source'): SpyAdapter {
 function plannedBatch(adapterId: string, units: number) {
   return {
     adapter_id: adapterId,
-    capability: { signal_kind: 'hiring_activity', entity_unit: 'companies', geography: 'US' },
+    capability: {
+      signal_kind: 'hiring_activity',
+      entity_unit: 'companies',
+      geography: 'US',
+    },
     estimatedUnits: units,
     quotedCreditsPerUnit: 1,
     estimatedCredits: creditsForUnits(units, 1, 2),
@@ -71,19 +60,15 @@ function makeRun(
     playId: PLAY_ID,
     status: 'running',
     providerPlan: { adapterPlan: options.adapterPlan, query: options.query },
-    limits: { maxCandidates: options.maxCandidates, maxCredits: options.maxCredits },
-    estimatedCredits: String(
-      options.adapterPlan.reduce((sum, batch) => sum + batch.estimatedCredits, 0),
-    ),
+    limits: {
+      maxCandidates: options.maxCandidates,
+      maxCredits: options.maxCredits,
+    },
+    estimatedCredits: String(options.adapterPlan.reduce((sum, batch) => sum + batch.estimatedCredits, 0)),
   })
 }
 
-function deps(
-  em: FakeEm,
-  ledger: FixtureLedger,
-  run: GtmResearchRun,
-  adapters: SpyAdapter[],
-): ExecuteResearchRunDeps {
+function deps(em: FakeEm, ledger: FixtureLedger, run: GtmResearchRun, adapters: SpyAdapter[]): ExecuteResearchRunDeps {
   return {
     em,
     ledger,
@@ -171,7 +156,11 @@ describe('executeResearchRun', () => {
       adapterPlan: [
         {
           adapter_id: 'fixture-source',
-          capability: { signal_kind: 'hiring_activity', entity_unit: 'companies', geography: 'US' },
+          capability: {
+            signal_kind: 'hiring_activity',
+            entity_unit: 'companies',
+            geography: 'US',
+          },
           estimatedUnits: 25,
           quotedCreditsPerUnit: quoted,
           estimatedCredits: creditsForUnits(25, quoted, 2),
@@ -319,17 +308,19 @@ describe('executeResearchRun', () => {
     const shadow = em.table(GtmProviderOperation)[0]
     expect(shadow.localStatusMirror).toBe('provider_started')
     expect(shadow.settledAt).toBeUndefined()
-    expect(shadow.receipt).toEqual(expect.objectContaining({
-      provider_request_id: expect.any(String),
-      gtm_observation: expect.objectContaining({
-        adapter_status: 'ok',
-        intended_ledger_action: 'charged',
-        intended_charged_credits: 6,
-        settlement_pending: true,
-        canonical_status: 'provider_started',
-        settlement_error: expect.stringContaining('canonical ledger unavailable'),
+    expect(shadow.receipt).toEqual(
+      expect.objectContaining({
+        provider_request_id: expect.any(String),
+        gtm_observation: expect.objectContaining({
+          adapter_status: 'ok',
+          intended_ledger_action: 'charged',
+          intended_charged_credits: 6,
+          settlement_pending: true,
+          canonical_status: 'provider_started',
+          settlement_error: expect.stringContaining('canonical ledger unavailable'),
+        }),
       }),
-    }))
+    )
     expect(ledger.listOperations()[0].status).toBe('provider_started')
 
     // A replay sees the same parked operation and cannot contact the provider.
@@ -395,12 +386,14 @@ describe('executeResearchRun', () => {
     expect(adapterA.search).toHaveBeenCalledTimes(1)
     expect(adapterB.search).not.toHaveBeenCalled()
     expect(result.batches[1].outcome).toBe('skipped_target_accepted')
-    expect(result.funnel).toEqual(expect.objectContaining({
-      targetAccepted: 3,
-      accepted: 3,
-      targetMet: true,
-      stopReason: 'target_accepted',
-    }))
+    expect(result.funnel).toEqual(
+      expect.objectContaining({
+        targetAccepted: 3,
+        accepted: 3,
+        targetMet: true,
+        stopReason: 'target_accepted',
+      }),
+    )
     expect(ledger.listOperations()).toHaveLength(1)
   })
 
@@ -409,27 +402,45 @@ describe('executeResearchRun', () => {
     const ledger = new FixtureLedger({ poolBalance: 100 })
     const adapterA = spyAdapter('fixture-source')
     const adapterB = spyAdapter('fixture-source-b')
-    const evidence = [{
-      claim: 'Matched a provider search',
-      source_url: 'https://source.example/result',
-      observed_at: '2026-08-01T12:00:00.000Z',
-      confidence: 0.9,
-    }]
+    const evidence = [
+      {
+        claim: 'Matched a provider search',
+        source_url: 'https://source.example/result',
+        observed_at: '2026-08-01T12:00:00.000Z',
+        confidence: 0.9,
+      },
+    ]
     adapterA.search.mockResolvedValue({
-      status: 'ok', cost_units: 1, receipt: { provider_request_id: 'bad-1' },
-      data: [{
-        entity_kind: 'company',
-        identity: { name: 'Poor Fit Agency', domain: 'poor-fit.example', industry: 'Advertising' },
-        evidence,
-      }],
+      status: 'ok',
+      cost_units: 1,
+      receipt: { provider_request_id: 'bad-1' },
+      data: [
+        {
+          entity_kind: 'company',
+          identity: {
+            name: 'Poor Fit Agency',
+            domain: 'poor-fit.example',
+            industry: 'Advertising',
+          },
+          evidence,
+        },
+      ],
     })
     adapterB.search.mockResolvedValue({
-      status: 'ok', cost_units: 1, receipt: { provider_request_id: 'good-1' },
-      data: [{
-        entity_kind: 'company',
-        identity: { name: 'Strong Fit Software', domain: 'strong-fit.example', industry: 'Software' },
-        evidence,
-      }],
+      status: 'ok',
+      cost_units: 1,
+      receipt: { provider_request_id: 'good-1' },
+      data: [
+        {
+          entity_kind: 'company',
+          identity: {
+            name: 'Strong Fit Software',
+            domain: 'strong-fit.example',
+            industry: 'Software',
+          },
+          evidence,
+        },
+      ],
     })
     const run = makeRun(em, {
       adapterPlan: [plannedBatch('fixture-source', 2), plannedBatch('fixture-source-b', 2)],
@@ -437,7 +448,12 @@ describe('executeResearchRun', () => {
       maxCandidates: 4,
       maxCredits: 100,
     })
-    run.limits = { targetAccepted: 1, maxRawCandidates: 4, maxCandidates: 4, maxCredits: 100 }
+    run.limits = {
+      targetAccepted: 1,
+      maxRawCandidates: 4,
+      maxCandidates: 4,
+      maxCredits: 100,
+    }
 
     const result = await executeResearchRun({
       ...deps(em, ledger, run, [adapterA, adapterB]),
@@ -447,41 +463,61 @@ describe('executeResearchRun', () => {
 
     expect(adapterA.search).toHaveBeenCalledTimes(1)
     expect(adapterB.search).toHaveBeenCalledTimes(1)
-    expect(result.funnel).toEqual(expect.objectContaining({
-      rawCandidatesFound: 2,
-      accepted: 1,
-      rejected: 1,
-      targetMet: true,
-      stopReason: 'target_accepted',
-    }))
+    expect(result.funnel).toEqual(
+      expect.objectContaining({
+        rawCandidatesFound: 2,
+        accepted: 1,
+        rejected: 1,
+        targetMet: true,
+        stopReason: 'target_accepted',
+      }),
+    )
   })
 
   it('continues the same source with the frozen offset when a full page misses the accepted target', async () => {
     const em = new FakeEm()
     const ledger = new FixtureLedger({ poolBalance: 100 })
     const adapter = spyAdapter('fixture-source')
-    const evidence = [{
-      claim: 'Matched a provider search',
-      source_url: 'https://source.example/result',
-      observed_at: '2026-08-01T12:00:00.000Z',
-      confidence: 0.9,
-    }]
+    const evidence = [
+      {
+        claim: 'Matched a provider search',
+        source_url: 'https://source.example/result',
+        observed_at: '2026-08-01T12:00:00.000Z',
+        confidence: 0.9,
+      },
+    ]
     adapter.search
       .mockResolvedValueOnce({
-        status: 'ok', cost_units: 1, receipt: { provider_request_id: 'page-1', returned_people: 1 },
-        data: [{
-          entity_kind: 'company',
-          identity: { name: 'Poor Fit Agency', domain: 'poor-fit.example', industry: 'Advertising' },
-          evidence,
-        }],
+        status: 'ok',
+        cost_units: 1,
+        receipt: { provider_request_id: 'page-1', returned_people: 1 },
+        data: [
+          {
+            entity_kind: 'company',
+            identity: {
+              name: 'Poor Fit Agency',
+              domain: 'poor-fit.example',
+              industry: 'Advertising',
+            },
+            evidence,
+          },
+        ],
       })
       .mockResolvedValueOnce({
-        status: 'ok', cost_units: 1, receipt: { provider_request_id: 'page-2', returned_people: 1 },
-        data: [{
-          entity_kind: 'company',
-          identity: { name: 'Strong Fit Software', domain: 'strong-fit.example', industry: 'Software' },
-          evidence,
-        }],
+        status: 'ok',
+        cost_units: 1,
+        receipt: { provider_request_id: 'page-2', returned_people: 1 },
+        data: [
+          {
+            entity_kind: 'company',
+            identity: {
+              name: 'Strong Fit Software',
+              domain: 'strong-fit.example',
+              industry: 'Software',
+            },
+            evidence,
+          },
+        ],
       })
     const first = {
       ...plannedBatch('fixture-source', 1),
@@ -503,7 +539,12 @@ describe('executeResearchRun', () => {
       maxCandidates: 2,
       maxCredits: 100,
     })
-    run.limits = { targetAccepted: 1, maxRawCandidates: 2, maxCandidates: 2, maxCredits: 100 }
+    run.limits = {
+      targetAccepted: 1,
+      maxRawCandidates: 2,
+      maxCandidates: 2,
+      maxCredits: 100,
+    }
 
     const result = await executeResearchRun({
       ...deps(em, ledger, run, [adapter]),
@@ -533,8 +574,20 @@ describe('executeResearchRun', () => {
     })
     const run = makeRun(em, {
       adapterPlan: [
-        { ...plannedBatch('fixture-source', 1), maxCandidates: 1, providerUnits: 1, continuationPage: 1, continuationOffset: 0 },
-        { ...plannedBatch('fixture-source', 1), maxCandidates: 1, providerUnits: 1, continuationPage: 2, continuationOffset: 1 },
+        {
+          ...plannedBatch('fixture-source', 1),
+          maxCandidates: 1,
+          providerUnits: 1,
+          continuationPage: 1,
+          continuationOffset: 0,
+        },
+        {
+          ...plannedBatch('fixture-source', 1),
+          maxCandidates: 1,
+          providerUnits: 1,
+          continuationPage: 2,
+          continuationOffset: 1,
+        },
       ],
       query: 'companies',
       maxCandidates: 2,
@@ -680,11 +733,17 @@ describe('candidateDedupeKey', () => {
   it('normalizes case and whitespace over (entity_kind|name|domain-or-city)', () => {
     const a = candidateDedupeKey({
       entity_kind: 'company',
-      identity: { name: '  Example  Dynamics LLC ', domain: 'Example-Dynamics.example' },
+      identity: {
+        name: '  Example  Dynamics LLC ',
+        domain: 'Example-Dynamics.example',
+      },
     })
     const b = candidateDedupeKey({
       entity_kind: 'company',
-      identity: { name: 'example dynamics llc', domain: 'example-dynamics.example' },
+      identity: {
+        name: 'example dynamics llc',
+        domain: 'example-dynamics.example',
+      },
     })
     expect(a).toBe(b)
   })
@@ -692,11 +751,17 @@ describe('candidateDedupeKey', () => {
   it('distinguishes entity kinds and identity material', () => {
     const company = candidateDedupeKey({
       entity_kind: 'company',
-      identity: { name: 'Example Dynamics LLC', domain: 'example-dynamics.example' },
+      identity: {
+        name: 'Example Dynamics LLC',
+        domain: 'example-dynamics.example',
+      },
     })
     const person = candidateDedupeKey({
       entity_kind: 'person',
-      identity: { name: 'Example Dynamics LLC', domain: 'example-dynamics.example' },
+      identity: {
+        name: 'Example Dynamics LLC',
+        domain: 'example-dynamics.example',
+      },
     })
     const otherDomain = candidateDedupeKey({
       entity_kind: 'company',
@@ -721,6 +786,34 @@ describe('candidateDedupeKey', () => {
         name: 'Alexandra Example',
         city: 'Los Angeles',
         urls: ['https://linkedin.com/in/alex-example'],
+      },
+    })
+    const providerAlias = candidateDedupeKey({
+      entity_kind: 'person',
+      identity: {
+        name: 'A. Example',
+        linkedin_url: 'https://www.linkedin.com/in/alex-example?trk=public_profile',
+      },
+    })
+    expect(first).toBe(renamed)
+    expect(first).toBe(providerAlias)
+  })
+
+  it('uses the canonical public destination for opportunity identity', () => {
+    const first = candidateDedupeKey({
+      entity_kind: 'opportunity',
+      identity: {
+        name: 'First-time homebuyer questions',
+        opportunity_kind: 'community',
+        urls: ['https://Community.Example/south-bay/questions/?utm_source=fixture#latest'],
+      },
+    })
+    const renamed = candidateDedupeKey({
+      entity_kind: 'opportunity',
+      identity: {
+        name: 'South Bay buyer community',
+        opportunity_kind: 'forum',
+        urls: ['https://community.example/south-bay/questions'],
       },
     })
     expect(first).toBe(renamed)

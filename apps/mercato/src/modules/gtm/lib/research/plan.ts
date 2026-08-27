@@ -1,7 +1,7 @@
 import crypto from 'crypto'
-import { capabilityCovers, type AdapterDescriptor, type SourceAdapter } from '../adapters/types'
-import { computeExecutionEligibility } from '../eligibility'
+import { adapterAudienceRights, capabilityCovers, type AdapterDescriptor, type SourceAdapter } from '../adapters/types'
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
+import { computeGtmPolicy, policyInputFromPlay, type GtmPolicyResult } from '../policy'
 import { compileQualificationProfile, type QualificationProfile } from './qualify'
 
 /*
@@ -9,10 +9,9 @@ import { compileQualificationProfile, type QualificationProfile } from './qualif
  * framework imports, no side effects: the route persists what this returns.
  *
  * Fail-closed rules implemented here:
- * - Boundary 1 of the section 7 ladder: a non-executable play can never be
- *   priced or planned. Eligibility is RECOMPUTED from the play's own market
- *   and geography fields; the stored value and the caller's claims are never
- *   trusted.
+ * - SPEC-069 separates research eligibility from automated-email execution.
+ *   Research policy is recomputed from canonical play fields and every source
+ *   must also carry exact business/consumer customer-serving rights.
  * - A requested dimension with no covering adapter capability surfaces as an
  *   unsupportedDimensions entry BEFORE any spend (section 11.1).
  * - An empty adapter plan is a typed plan error, never a silent empty run.
@@ -33,6 +32,9 @@ export type PlanPlayInput = {
   signalKind?: string | null
   entityUnit?: string | null
   audience?: string | null
+  sourceHint?: string | null
+  whyNow?: string | null
+  recommendedAngle?: string | null
   providerQuery?: Record<string, unknown> | null
   recencyWindow?: string | null
 }
@@ -58,7 +60,7 @@ export type SourcePlanBatch = {
   capability: {
     signal_kind: string
     entity_unit: string
-    entity_kind: 'person' | 'company'
+    entity_kind: 'person' | 'company' | 'opportunity'
     geography: string
   }
   // Provider-native billable units. Kept under the old key too while the
@@ -90,10 +92,7 @@ export type UnsupportedDimension = {
   reason: string
 }
 
-export type SourcePlanErrorCode =
-  | 'play_not_executable'
-  | 'missing_play_dimensions'
-  | 'empty_adapter_plan'
+export type SourcePlanErrorCode = 'play_not_researchable' | 'missing_play_dimensions' | 'empty_adapter_plan'
 
 export type SourcePlanFailure = {
   ok: false
@@ -104,7 +103,7 @@ export type SourcePlanFailure = {
 
 export type SourcePlanSuccess = {
   ok: true
-  schemaVersion: '7'
+  schemaVersion: '8'
   planHash: string
   adapterPlan: SourcePlanBatch[]
   estimatedCredits: number
@@ -119,7 +118,8 @@ export type SourcePlanSuccess = {
   // capability remains country-level US, but CA and TX are not interchangeable
   // priced plans.
   geography: string
-  entityKind: 'person' | 'company'
+  entityKind: 'person' | 'company' | 'opportunity'
+  policy: GtmPolicyResult
 }
 
 export type SourcePlanResult = SourcePlanSuccess | SourcePlanFailure
@@ -151,17 +151,6 @@ export function descriptorHash(descriptor: AdapterDescriptor): string {
   return immutableHash(descriptor)
 }
 
-function customerUseAllowed(descriptor: AdapterDescriptor): boolean {
-  const license = descriptor.constraints.license
-  return (
-    (license.status === 'approved' || license.status === 'test_only') &&
-    Boolean(license.terms_version) &&
-    license.export &&
-    license.customer_display &&
-    license.outreach_allowed
-  )
-}
-
 // Maps a capabilityCovers reason string onto the dimension it names, so the
 // caller can show which requested dimension is unsupported.
 function dimensionFromReason(reason: string): string {
@@ -172,15 +161,53 @@ function dimensionFromReason(reason: string): string {
   return 'unknown'
 }
 
-export function canonicalEntityKind(entityUnit: string): 'person' | 'company' | null {
-  const normalized = entityUnit.trim().toLowerCase().replace(/[\s_-]+/g, '')
+export function canonicalEntityKind(entityUnit: string): 'person' | 'company' | 'opportunity' | null {
+  const normalized = entityUnit
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '')
   if (['person', 'people', 'contact', 'contacts', 'employee', 'employees'].includes(normalized)) {
     return 'person'
   }
   if (
-    ['company', 'companies', 'organization', 'organizations', 'business', 'businesses', 'location', 'locations'].includes(normalized)
+    [
+      'company',
+      'companies',
+      'organization',
+      'organizations',
+      'business',
+      'businesses',
+      'location',
+      'locations',
+    ].includes(normalized)
   ) {
     return 'company'
+  }
+  if (
+    [
+      'opportunity',
+      'opportunities',
+      'surface',
+      'surfaces',
+      'community',
+      'communities',
+      'forum',
+      'forums',
+      'group',
+      'groups',
+      'thread',
+      'threads',
+      'post',
+      'posts',
+      'event',
+      'events',
+      'audience',
+      'audiences',
+      'creatoraudience',
+      'creatoraudiences',
+    ].includes(normalized)
+  ) {
+    return 'opportunity'
   }
   return null
 }
@@ -191,17 +218,12 @@ export function buildSourcePlan(
   limits?: ResearchLimitsInput | null,
   markupMultiplier: number = defaultMarkupMultiplier(),
 ): SourcePlanResult {
-  // Boundary 1 (section 7): recompute eligibility server-side; anything other
-  // than 'executable' fails closed before any pricing.
-  const eligibility = computeExecutionEligibility({
-    market_type: play.marketType ?? null,
-    geography: play.geography ?? null,
-  })
-  if (eligibility.execution_eligibility !== 'executable') {
+  const policy = computeGtmPolicy(policyInputFromPlay(play))
+  if (policy.research_eligibility !== 'provider_runnable') {
     return {
       ok: false,
-      code: 'play_not_executable',
-      reason: eligibility.eligibility_reason,
+      code: 'play_not_researchable',
+      reason: policy.research_eligibility_reason,
       unsupportedDimensions: [],
     }
   }
@@ -251,11 +273,16 @@ export function buildSourcePlan(
   for (const adapter of adapters) {
     const descriptor = adapter.descriptor
     if (descriptor.layer !== 'source') continue
-    if (!customerUseAllowed(descriptor)) {
+    const rights = adapterAudienceRights(
+      descriptor,
+      policy.lead_mode === 'consumer' ? 'consumer' : 'business',
+      entityKind,
+    )
+    if (!rights.allowed) {
       unsupportedDimensions.push({
         adapter_id: descriptor.adapter_id,
         dimension: 'license',
-        reason: `provider license is ${descriptor.constraints.license.status}`,
+        reason: rights.reason ?? 'provider customer-serving rights are incomplete',
       })
       continue
     }
@@ -317,11 +344,7 @@ export function buildSourcePlan(
         maxCandidates: quote.max_candidates,
         expectedCandidates: quote.expected_candidates,
         quotedCreditsPerUnit: quote.quoted_credits_per_unit,
-        estimatedCredits: creditsForUnits(
-          quote.provider_units,
-          quote.quoted_credits_per_unit,
-          markupMultiplier,
-        ),
+        estimatedCredits: creditsForUnits(quote.provider_units, quote.quoted_credits_per_unit, markupMultiplier),
         priceVersion: descriptor.cost_model.price_version,
         termsVersion: descriptor.constraints.license.terms_version,
         descriptorHash: descriptorHash(descriptor),
@@ -356,7 +379,7 @@ export function buildSourcePlan(
       : estimatedCredits
 
   const pricedPlan = {
-    schemaVersion: '7' as const,
+    schemaVersion: '8' as const,
     adapterPlan,
     estimatedCredits,
     plannedRawCapacity,
@@ -367,13 +390,11 @@ export function buildSourcePlan(
       maxCandidates: maxRawCandidates,
       maxCredits,
     },
-    qualificationProfile: compileQualificationProfile(
-      play,
-      entityKind,
-    ),
+    qualificationProfile: compileQualificationProfile(play, entityKind),
     query,
     geography: rawGeography,
     entityKind,
+    policy,
   }
   return {
     ok: true,

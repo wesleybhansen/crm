@@ -40,6 +40,13 @@ export type AdapterLicenseConstraints = {
   customer_display: boolean
   outreach_allowed: boolean
   retention_days: number | null
+  // SPEC-069. Missing means legacy business-only. Consumer use is never
+  // inferred from a credential, a wildcard capability, or outreach_allowed.
+  audience_modes?: Array<'business' | 'consumer'>
+  manual_outreach_allowed?: boolean
+  automated_email_allowed?: boolean
+  public_profile_contact_allowed?: boolean
+  public_opportunity_use_allowed?: boolean
 }
 
 export type AdapterRateLimits = {
@@ -151,6 +158,26 @@ export type CandidateIdentity = {
   company_description?: string | null
   seniority?: string | null
   department?: string | null
+  // SPEC-069 demand-surface fields. These are intentionally bounded and
+  // source-shaped, not an open provider payload. A consumer opportunity is a
+  // public place or conversation where an audience gathers, never a recipient.
+  opportunity_kind?: 'community' | 'forum' | 'group' | 'thread' | 'post' | 'event' | 'creator_audience' | 'other'
+  platform?: string | null
+  intent_kind?: 'buyer_intent' | 'seller_intent' | 'local_audience' | 'mixed_intent' | null
+  audience_description?: string | null
+  activity_level?: 'high' | 'medium' | 'low' | 'unknown' | null
+  member_count?: number | null
+  engagement_count?: number | null
+  access_type?: 'public' | 'approval_required' | 'ticketed' | 'unknown' | null
+  event_start_at?: string | null
+  participation_rules?: string | null
+  recommended_action?: string | null
+  message_angle?: string | null
+  people_to_follow?: Array<{
+    name: string
+    role?: string | null
+    profile_url?: string | null
+  }>
 }
 
 export type CandidateEvidence = {
@@ -169,7 +196,7 @@ export type CandidateEvidence = {
 }
 
 export type Candidate = {
-  entity_kind: 'person' | 'company'
+  entity_kind: 'person' | 'company' | 'opportunity'
   identity: CandidateIdentity
   evidence: CandidateEvidence[]
 }
@@ -311,6 +338,59 @@ export type CapabilityRequest = {
 export type CapabilityCoverage = {
   covered: boolean
   reason?: string
+}
+
+export type AdapterAudienceUse = 'business' | 'consumer'
+
+export type AdapterAudienceRights = {
+  allowed: boolean
+  reason?: string
+}
+
+/**
+ * Customer-serving rights are checked independently from technical
+ * capability. Legacy descriptors retain their current business behavior but
+ * can never serve consumer records without every explicit SPEC-069 right.
+ */
+export function adapterAudienceRights(
+  descriptor: AdapterDescriptor,
+  audience: AdapterAudienceUse,
+  entityKind?: 'person' | 'company' | 'opportunity' | null,
+): AdapterAudienceRights {
+  const license = descriptor.constraints.license
+  if (license.status !== 'approved' && license.status !== 'test_only') {
+    return { allowed: false, reason: `provider license is ${license.status}` }
+  }
+  if (!license.terms_version || !license.export || !license.customer_display) {
+    return { allowed: false, reason: 'provider customer display or export rights are incomplete' }
+  }
+  if (audience === 'business') {
+    if (license.audience_modes && !license.audience_modes.includes('business')) {
+      return { allowed: false, reason: 'provider contract excludes business audience use' }
+    }
+    if (!license.outreach_allowed) {
+      return { allowed: false, reason: 'provider contract does not permit customer outreach use' }
+    }
+    return { allowed: true }
+  }
+
+  if (!license.audience_modes?.includes('consumer')) {
+    return { allowed: false, reason: 'consumer customer-serving rights are not approved' }
+  }
+  if (
+    license.manual_outreach_allowed !== true
+    || license.retention_days == null
+    || !descriptor.dsr.deletion_supported
+  ) {
+    return { allowed: false, reason: 'consumer display, manual-use, retention, or deletion rights are incomplete' }
+  }
+  if (entityKind === 'opportunity' && license.public_opportunity_use_allowed !== true) {
+    return { allowed: false, reason: 'public demand-opportunity use is not approved' }
+  }
+  if (entityKind !== 'opportunity' && license.public_profile_contact_allowed !== true) {
+    return { allowed: false, reason: 'public profile contact use is not approved' }
+  }
+  return { allowed: true }
 }
 
 function norm(value: string | null | undefined): string {

@@ -71,6 +71,7 @@ export const FIT_REASONS = {
   review: 'insufficient_decisive_fit_data',
   entityKindMismatch: 'entity_kind_mismatch',
   missingName: 'missing_identity_name',
+  missingDestination: 'missing_public_destination',
   outsideGeography: 'outside_play_geography',
   noEvidence: 'no_supporting_evidence',
   weakEvidence: 'weak_evidence_confidence',
@@ -134,6 +135,87 @@ function unitWantsPerson(entityUnit: string): boolean {
   return unit.startsWith('people') || unit.startsWith('person') || unit.startsWith('contact')
 }
 
+function unitWantsOpportunity(entityUnit: string): boolean {
+  const unit = entityUnit
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '')
+  return [
+    'opportunity',
+    'opportunities',
+    'surface',
+    'surfaces',
+    'community',
+    'communities',
+    'forum',
+    'forums',
+    'group',
+    'groups',
+    'thread',
+    'threads',
+    'post',
+    'posts',
+    'event',
+    'events',
+    'audience',
+    'audiences',
+    'creatoraudience',
+    'creatoraudiences',
+  ].includes(unit)
+}
+
+function scoreOpportunity(identity: Record<string, unknown>, evidence: CandidateEvidence[]): FitResult {
+  const urls = strings(identity.urls)
+  const publicUrl = stringValue(identity, ['url', 'source_url', 'destination_url']) ?? urls[0] ?? null
+  const opportunityKind = stringValue(identity, ['opportunity_kind'])
+  const platform = stringValue(identity, ['platform'])
+  const audience = stringValue(identity, ['audience_description'])
+  const intent = stringValue(identity, ['intent_kind'])
+  const location = stringValue(identity, ['location', 'city', 'region'])
+  const recommendedAction = stringValue(identity, ['recommended_action'])
+  const avgConfidence = averageConfidence(evidence)
+  const unknowns: string[] = []
+  if (!publicUrl) unknowns.push('public_destination')
+  if (!opportunityKind) unknowns.push('opportunity_kind')
+  if (!platform) unknowns.push('platform')
+  if (!audience) unknowns.push('audience_description')
+  if (!intent) unknowns.push('intent_kind')
+  if (!location) unknowns.push('geography')
+  if (!recommendedAction) unknowns.push('recommended_action')
+
+  if (!publicUrl || !/^https:\/\//i.test(publicUrl)) {
+    return result(0, 'rejected', FIT_REASONS.missingDestination, EMPTY_BREAKDOWN, unknowns, [
+      'missing_public_destination',
+    ])
+  }
+  if (evidence.length === 0) {
+    return result(0, 'rejected', FIT_REASONS.noEvidence, EMPTY_BREAKDOWN, unknowns, ['no_supporting_evidence'])
+  }
+
+  const breakdown: FitBreakdown = {
+    identity: opportunityKind && platform ? 15 : 8,
+    account: audience ? 25 : 8,
+    persona: intent ? 20 : 8,
+    geography: location ? 15 : 7,
+    evidence: avgConfidence * 25,
+  }
+  const fitScore = Object.values(breakdown).reduce((sum, value) => sum + value, 0)
+  if (fitScore >= FIT_ACCEPT_THRESHOLD && avgConfidence >= 0.5 && recommendedAction) {
+    return result(fitScore, 'accepted', FIT_REASONS.accepted, breakdown, unknowns, [])
+  }
+  if (fitScore >= FIT_REVIEW_THRESHOLD) {
+    return result(
+      fitScore,
+      'review',
+      avgConfidence < 0.5 ? FIT_REASONS.weakEvidence : FIT_REASONS.review,
+      breakdown,
+      unknowns,
+      [],
+    )
+  }
+  return result(fitScore, 'rejected', FIT_REASONS.belowThreshold, breakdown, unknowns, [])
+}
+
 function stringValue(identity: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
     const value = identity[key]
@@ -154,14 +236,25 @@ function averageConfidence(evidence: CandidateEvidence[]): number {
 
 function normalized(value: unknown): string {
   return typeof value === 'string'
-    ? value.trim().toLowerCase().replace(/[^a-z0-9+]+/g, ' ').replace(/\s+/g, ' ').trim()
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9+]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
     : ''
 }
 
 function strings(value: unknown): string[] {
   if (!Array.isArray(value)) return []
-  return [...new Set(value.filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim()).filter(Boolean))]
+  return [
+    ...new Set(
+      value
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ]
 }
 
 function observedValues(identity: Record<string, unknown>, fields: string[]): string[] {
@@ -215,19 +308,57 @@ const ALIAS_GROUPS: string[][] = [
   // US state code / name pairs. Providers return the code (LeadMagic sends
   // contact_state_code) while a play names the state, so without these every
   // location criterion hard-fails on "Austin, TX" versus "Austin, Texas".
-  ['alabama', 'al'], ['alaska', 'ak'], ['arizona', 'az'], ['arkansas', 'ar'],
-  ['california', 'ca'], ['colorado', 'co'], ['connecticut', 'ct'], ['delaware', 'de'],
-  ['florida', 'fl'], ['georgia', 'ga'], ['hawaii', 'hi'], ['idaho', 'id'],
-  ['illinois', 'il'], ['indiana', 'in'], ['iowa', 'ia'], ['kansas', 'ks'],
-  ['kentucky', 'ky'], ['louisiana', 'la'], ['maine', 'me'], ['maryland', 'md'],
-  ['massachusetts', 'ma'], ['michigan', 'mi'], ['minnesota', 'mn'], ['mississippi', 'ms'],
-  ['missouri', 'mo'], ['montana', 'mt'], ['nebraska', 'ne'], ['nevada', 'nv'],
-  ['new hampshire', 'nh'], ['new jersey', 'nj'], ['new mexico', 'nm'], ['new york', 'ny'],
-  ['north carolina', 'nc'], ['north dakota', 'nd'], ['ohio', 'oh'], ['oklahoma', 'ok'],
-  ['oregon', 'or'], ['pennsylvania', 'pa'], ['rhode island', 'ri'], ['south carolina', 'sc'],
-  ['south dakota', 'sd'], ['tennessee', 'tn'], ['texas', 'tx'], ['utah', 'ut'],
-  ['vermont', 'vt'], ['virginia', 'va'], ['washington', 'wa'], ['west virginia', 'wv'],
-  ['wisconsin', 'wi'], ['wyoming', 'wy'], ['district of columbia', 'dc'],
+  ['alabama', 'al'],
+  ['alaska', 'ak'],
+  ['arizona', 'az'],
+  ['arkansas', 'ar'],
+  ['california', 'ca'],
+  ['colorado', 'co'],
+  ['connecticut', 'ct'],
+  ['delaware', 'de'],
+  ['florida', 'fl'],
+  ['georgia', 'ga'],
+  ['hawaii', 'hi'],
+  ['idaho', 'id'],
+  ['illinois', 'il'],
+  ['indiana', 'in'],
+  ['iowa', 'ia'],
+  ['kansas', 'ks'],
+  ['kentucky', 'ky'],
+  ['louisiana', 'la'],
+  ['maine', 'me'],
+  ['maryland', 'md'],
+  ['massachusetts', 'ma'],
+  ['michigan', 'mi'],
+  ['minnesota', 'mn'],
+  ['mississippi', 'ms'],
+  ['missouri', 'mo'],
+  ['montana', 'mt'],
+  ['nebraska', 'ne'],
+  ['nevada', 'nv'],
+  ['new hampshire', 'nh'],
+  ['new jersey', 'nj'],
+  ['new mexico', 'nm'],
+  ['new york', 'ny'],
+  ['north carolina', 'nc'],
+  ['north dakota', 'nd'],
+  ['ohio', 'oh'],
+  ['oklahoma', 'ok'],
+  ['oregon', 'or'],
+  ['pennsylvania', 'pa'],
+  ['rhode island', 'ri'],
+  ['south carolina', 'sc'],
+  ['south dakota', 'sd'],
+  ['tennessee', 'tn'],
+  ['texas', 'tx'],
+  ['utah', 'ut'],
+  ['vermont', 'vt'],
+  ['virginia', 'va'],
+  ['washington', 'wa'],
+  ['west virginia', 'wv'],
+  ['wisconsin', 'wi'],
+  ['wyoming', 'wy'],
+  ['district of columbia', 'dc'],
   ['united states', 'usa', 'us'],
 ]
 
@@ -296,9 +427,16 @@ function wordsMatch(observed: string, expected: string): boolean {
 }
 
 function parseRange(value: string): { min: number; max: number } | null {
-  const clean = value.toLowerCase().replace(/,/g, '').replace(/\b(to|employees?|people|staff)\b/g, '-')
+  const clean = value
+    .toLowerCase()
+    .replace(/,/g, '')
+    .replace(/\b(to|employees?|people|staff)\b/g, '-')
   const numbers = clean.match(/\d+(?:\.\d+)?/g)?.map(Number) ?? []
-  if (numbers.length >= 2) return { min: Math.min(numbers[0], numbers[1]), max: Math.max(numbers[0], numbers[1]) }
+  if (numbers.length >= 2)
+    return {
+      min: Math.min(numbers[0], numbers[1]),
+      max: Math.max(numbers[0], numbers[1]),
+    }
   if (numbers.length === 1 && /\+|over|more than/.test(clean)) return { min: numbers[0], max: Number.POSITIVE_INFINITY }
   if (numbers.length === 1 && /under|less than|up to/.test(clean)) return { min: 0, max: numbers[0] }
   return null
@@ -378,49 +516,83 @@ function compileDefinitions(play: FitPlayInput, candidateKind: Candidate['entity
   const query = play.providerQuery ?? {}
   const definitions: CriterionDefinition[] = []
   addCriterion(definitions, query, 'industries', {
-    id: 'account.industry', dimension: 'account', label: 'Industry', hard: true,
+    id: 'account.industry',
+    dimension: 'account',
+    label: 'Industry',
+    hard: true,
     fields: ['industry', 'company_industry', 'company_industry_linkedin'],
   })
   addCriterion(definitions, query, 'company_keywords', {
-    id: 'account.keywords', dimension: 'account', label: 'Company keywords', hard: true,
+    id: 'account.keywords',
+    dimension: 'account',
+    label: 'Company keywords',
+    hard: true,
     fields: ['description', 'company_description', 'company_headline', 'specialties', 'industry'],
     useEvidence: true,
   })
   addCriterion(definitions, query, 'employee_ranges', {
-    id: 'account.employee_range', dimension: 'account', label: 'Company size', hard: true,
-    fields: ['employee_range', 'employee_count', 'employees', 'company_size'], employeeRange: true,
+    id: 'account.employee_range',
+    dimension: 'account',
+    label: 'Company size',
+    hard: true,
+    fields: ['employee_range', 'employee_count', 'employees', 'company_size'],
+    employeeRange: true,
   })
   addCriterion(definitions, query, 'technologies', {
-    id: 'account.technologies', dimension: 'account', label: 'Technology', hard: true,
-    fields: ['technologies', 'tech_stack'], useEvidence: true,
+    id: 'account.technologies',
+    dimension: 'account',
+    label: 'Technology',
+    hard: true,
+    fields: ['technologies', 'tech_stack'],
+    useEvidence: true,
   })
   if (candidateKind === 'person') {
     addCriterion(definitions, query, 'titles', {
-      id: 'persona.title', dimension: 'persona', label: 'Title', hard: true,
+      id: 'persona.title',
+      dimension: 'persona',
+      label: 'Title',
+      hard: true,
       fields: ['title', 'job_title'],
     })
     addCriterion(definitions, query, 'roles', {
-      id: 'persona.role', dimension: 'persona', label: 'Role', hard: true,
+      id: 'persona.role',
+      dimension: 'persona',
+      label: 'Role',
+      hard: true,
       fields: ['role', 'title', 'job_title', 'persona'],
     })
     addCriterion(definitions, query, 'seniorities', {
-      id: 'persona.seniority', dimension: 'persona', label: 'Seniority', hard: true,
+      id: 'persona.seniority',
+      dimension: 'persona',
+      label: 'Seniority',
+      hard: true,
       fields: ['seniority', 'job_level'],
     })
     addCriterion(definitions, query, 'departments', {
-      id: 'persona.department', dimension: 'persona', label: 'Department', hard: true,
+      id: 'persona.department',
+      dimension: 'persona',
+      label: 'Department',
+      hard: true,
       fields: ['department', 'job_function'],
     })
   }
   addCriterion(definitions, query, 'locations', {
-    id: 'geography.location', dimension: 'geography', label: 'Location', hard: true,
+    id: 'geography.location',
+    dimension: 'geography',
+    label: 'Location',
+    hard: true,
     fields: ['location', 'city', 'geography', 'region'],
     targetingFields: ['provider_location'],
   })
 
   const exclusionSpecs = [
     ['exclude_industries', 'exclusion.industry', 'Excluded industry', ['industry', 'company_industry']],
-    ['exclude_company_keywords', 'exclusion.keyword', 'Excluded company keyword', ['name', 'company', 'company_name', 'description', 'industry', 'domain']],
+    [
+      'exclude_company_keywords',
+      'exclusion.keyword',
+      'Excluded company keyword',
+      ['name', 'company', 'company_name', 'description', 'industry', 'domain'],
+    ],
     ['exclude_technologies', 'exclusion.technology', 'Excluded technology', ['technologies', 'tech_stack']],
     ['exclude_titles', 'exclusion.title', 'Excluded title', ['title', 'job_title']],
     ['exclude_roles', 'exclusion.role', 'Excluded role', ['role', 'title', 'job_title', 'persona']],
@@ -428,14 +600,24 @@ function compileDefinitions(play: FitPlayInput, candidateKind: Candidate['entity
   for (const [key, id, label, fields] of exclusionSpecs) {
     if (candidateKind === 'company' && (key === 'exclude_titles' || key === 'exclude_roles')) continue
     addCriterion(definitions, query, key, {
-      id, dimension: 'exclusion', label, hard: true, fields: [...fields], exclusion: true,
+      id,
+      dimension: 'exclusion',
+      label,
+      hard: true,
+      fields: [...fields],
+      exclusion: true,
     })
   }
   const maxAge = recencyDays(play.recencyWindow)
   if (maxAge != null) {
     definitions.push({
-      id: 'signal.recency', dimension: 'signal', label: 'Signal recency', hard: true,
-      expected: [`within ${maxAge} days`], fields: [], recencyDays: maxAge,
+      id: 'signal.recency',
+      dimension: 'signal',
+      label: 'Signal recency',
+      hard: true,
+      expected: [`within ${maxAge} days`],
+      fields: [],
+      recencyDays: maxAge,
     })
   }
   return definitions
@@ -448,7 +630,11 @@ export function compileQualificationProfile(
   return {
     version: 'qualification-profile-v3',
     criteria: compileDefinitions(play, candidateKind).map(({ id, dimension, label, expected, hard }) => ({
-      id, dimension, label, expected, hard,
+      id,
+      dimension,
+      label,
+      expected,
+      hard,
     })),
   }
 }
@@ -461,52 +647,67 @@ function evaluateCriterion(
 ): CriterionResult {
   if (definition.recencyDays != null) {
     const observed = evidence.map((row) => row.observed_at).filter(Boolean)
-    const newest = observed.map((value) => new Date(value).getTime()).filter(Number.isFinite).sort((a, b) => b - a)[0]
+    const newest = observed
+      .map((value) => new Date(value).getTime())
+      .filter(Number.isFinite)
+      .sort((a, b) => b - a)[0]
     // Without a trustworthy reference time, age is unknowable. It must NOT
     // default to the evidence's own timestamp, which makes every signal look
     // zero days old and silently passes a hard recency gate.
-    const ageDays = newest == null || referenceTime == null
-      ? null
-      : Math.max(0, (referenceTime.getTime() - newest) / 86_400_000)
+    const ageDays =
+      newest == null || referenceTime == null ? null : Math.max(0, (referenceTime.getTime() - newest) / 86_400_000)
     return {
-      id: definition.id, dimension: definition.dimension, label: definition.label,
-      expected: definition.expected, observed: ageDays == null ? [] : [`${Math.floor(ageDays)} days old`],
-      status: ageDays == null ? 'unknown' : ageDays <= definition.recencyDays ? 'pass' : 'fail', hard: true,
+      id: definition.id,
+      dimension: definition.dimension,
+      label: definition.label,
+      expected: definition.expected,
+      observed: ageDays == null ? [] : [`${Math.floor(ageDays)} days old`],
+      status: ageDays == null ? 'unknown' : ageDays <= definition.recencyDays ? 'pass' : 'fail',
+      hard: true,
     }
   }
   const identityValues = observedValues(identity, definition.fields)
   const targetingValues = observedValues(identity, definition.targetingFields ?? [])
   const evidenceValues = definition.useEvidence
-    ? evidence.flatMap((row) => [row.claim, ...Object.values(row.detail ?? {}).filter((value): value is string => typeof value === 'string')])
+    ? evidence.flatMap((row) => [
+        row.claim,
+        ...Object.values(row.detail ?? {}).filter((value): value is string => typeof value === 'string'),
+      ])
     : []
   const observed = [...new Set([...identityValues, ...evidenceValues])]
   if (observed.length === 0) {
     return {
-      id: definition.id, dimension: definition.dimension, label: definition.label,
-      expected: definition.expected, observed: [], status: 'unknown', hard: definition.hard,
+      id: definition.id,
+      dimension: definition.dimension,
+      label: definition.label,
+      expected: definition.expected,
+      observed: [],
+      status: 'unknown',
+      hard: definition.hard,
     }
   }
   const rangeStatus = definition.employeeRange
     ? (() => {
-      const exactCount = exactEmployeeCount(identity)
-      return employeeRangeStatus(
-        exactCount == null ? observed : [String(exactCount)],
-        definition.expected,
-      )
-    })()
+        const exactCount = exactEmployeeCount(identity)
+        return employeeRangeStatus(exactCount == null ? observed : [String(exactCount)], definition.expected)
+      })()
     : null
-  const matches = rangeStatus === 'pass' || (
-    rangeStatus === null && definition.expected.some((expected) =>
-      observed.some((actual) => wordsMatch(actual, expected)),
-    )
-  )
+  const matches =
+    rangeStatus === 'pass' ||
+    (rangeStatus === null &&
+      definition.expected.some((expected) => observed.some((actual) => wordsMatch(actual, expected))))
   const targetingMatches = definition.expected.some((expected) =>
     targetingValues.some((actual) => wordsMatch(actual, expected)),
   )
   if (rangeStatus === 'unknown') {
     return {
-      id: definition.id, dimension: definition.dimension, label: definition.label,
-      expected: definition.expected, observed, status: 'unknown', hard: definition.hard,
+      id: definition.id,
+      dimension: definition.dimension,
+      label: definition.label,
+      expected: definition.expected,
+      observed,
+      status: 'unknown',
+      hard: definition.hard,
     }
   }
   // Generic provider evidence proves the row was sourced, but a claim that
@@ -514,9 +715,13 @@ function evaluateCriterion(
   // fields can turn a non-match into a hard fail.
   if (!matches && identityValues.length === 0 && evidenceValues.length > 0) {
     return {
-      id: definition.id, dimension: definition.dimension, label: definition.label,
-      expected: definition.expected, observed: evidenceValues,
-      status: 'unknown', hard: definition.hard,
+      id: definition.id,
+      dimension: definition.dimension,
+      label: definition.label,
+      expected: definition.expected,
+      observed: evidenceValues,
+      status: 'unknown',
+      hard: definition.hard,
     }
   }
   // A Maps task targeted at a county can legitimately return an address that
@@ -526,23 +731,38 @@ function evaluateCriterion(
   // unknown until result-level geography proves it.
   if (!matches && targetingMatches) {
     return {
-      id: definition.id, dimension: definition.dimension, label: definition.label,
-      expected: definition.expected, observed: [...observed, ...targetingValues],
-      status: 'unknown', hard: definition.hard,
+      id: definition.id,
+      dimension: definition.dimension,
+      label: definition.label,
+      expected: definition.expected,
+      observed: [...observed, ...targetingValues],
+      status: 'unknown',
+      hard: definition.hard,
     }
   }
   return {
-    id: definition.id, dimension: definition.dimension, label: definition.label,
-    expected: definition.expected, observed,
-    status: definition.exclusion ? (matches ? 'fail' : 'pass') : (matches ? 'pass' : 'fail'),
+    id: definition.id,
+    dimension: definition.dimension,
+    label: definition.label,
+    expected: definition.expected,
+    observed,
+    status: definition.exclusion ? (matches ? 'fail' : 'pass') : matches ? 'pass' : 'fail',
     hard: definition.hard,
   }
 }
 
-function criterionScore(criteria: CriterionResult[], dimension: CriterionResult['dimension'], fallback: number, max: number): number {
+function criterionScore(
+  criteria: CriterionResult[],
+  dimension: CriterionResult['dimension'],
+  fallback: number,
+  max: number,
+): number {
   const relevant = criteria.filter((row) => row.dimension === dimension)
   if (relevant.length === 0) return fallback
-  const earned = relevant.reduce((sum, row) => sum + (row.status === 'pass' ? 1 : row.status === 'unknown' ? 0.35 : 0), 0)
+  const earned = relevant.reduce(
+    (sum, row) => sum + (row.status === 'pass' ? 1 : row.status === 'unknown' ? 0.35 : 0),
+    0,
+  )
   return (earned / relevant.length) * max
 }
 
@@ -555,9 +775,11 @@ export const ruleBasedFitScorer: FitScorer = {
     }
 
     const entityUnit = (play.entityUnit ?? '').trim()
-    const mismatch = entityUnit &&
+    const mismatch =
+      entityUnit &&
       ((unitWantsCompany(entityUnit) && candidate.entity_kind !== 'company') ||
-        (unitWantsPerson(entityUnit) && candidate.entity_kind !== 'person'))
+        (unitWantsPerson(entityUnit) && candidate.entity_kind !== 'person') ||
+        (unitWantsOpportunity(entityUnit) && candidate.entity_kind !== 'opportunity'))
     if (mismatch) {
       return result(0, 'rejected', FIT_REASONS.entityKindMismatch, EMPTY_BREAKDOWN, [], ['entity_kind_mismatch'])
     }
@@ -566,10 +788,9 @@ export const ruleBasedFitScorer: FitScorer = {
     const countryCode = stringValue(identity, ['country_code', 'countryCode'])?.toUpperCase() ?? null
     const playGeography = (play.geography ?? '').trim()
     if (
-      playGeography
-      && isUsGeography(playGeography)
-      && ((countryCode && countryCode !== 'US' && countryCode !== 'USA')
-        || (location && !isUsGeography(location)))
+      playGeography &&
+      isUsGeography(playGeography) &&
+      ((countryCode && countryCode !== 'US' && countryCode !== 'USA') || (location && !isUsGeography(location)))
     ) {
       return result(0, 'rejected', FIT_REASONS.outsideGeography, EMPTY_BREAKDOWN, [], ['outside_play_geography'])
     }
@@ -577,15 +798,19 @@ export const ruleBasedFitScorer: FitScorer = {
       return result(0, 'rejected', FIT_REASONS.noEvidence, EMPTY_BREAKDOWN, [], ['no_supporting_evidence'])
     }
 
+    if (candidate.entity_kind === 'opportunity') {
+      return scoreOpportunity(identity, evidence)
+    }
+
     const definitions = compileDefinitions(play, candidate.entity_kind)
     const profile = compileQualificationProfile(play, candidate.entity_kind)
-    const parsedReference = play.referenceTime instanceof Date
-      ? play.referenceTime
-      : play.referenceTime != null
-        ? new Date(play.referenceTime)
-        : null
-    const referenceTime =
-      parsedReference && Number.isFinite(parsedReference.getTime()) ? parsedReference : null
+    const parsedReference =
+      play.referenceTime instanceof Date
+        ? play.referenceTime
+        : play.referenceTime != null
+          ? new Date(play.referenceTime)
+          : null
+    const referenceTime = parsedReference && Number.isFinite(parsedReference.getTime()) ? parsedReference : null
     const criteria = definitions.map((definition) => evaluateCriterion(definition, identity, evidence, referenceTime))
     const domain = stringValue(identity, ['domain'])
     const company = stringValue(identity, ['company', 'company_name'])
@@ -603,7 +828,12 @@ export const ruleBasedFitScorer: FitScorer = {
     const breakdown: FitBreakdown = {
       identity: 15,
       account: criterionScore(criteria, 'account', domain || company ? 25 : 8, 25),
-      persona: criterionScore(criteria, 'persona', candidate.entity_kind === 'person' ? (title ? 20 : 8) : (industry ? 20 : 10), 20),
+      persona: criterionScore(
+        criteria,
+        'persona',
+        candidate.entity_kind === 'person' ? (title ? 20 : 8) : industry ? 20 : 10,
+        20,
+      ),
       geography: criterionScore(criteria, 'geography', location ? 15 : 7, 15),
       evidence: avgConfidence * 25,
     }
@@ -618,15 +848,42 @@ export const ruleBasedFitScorer: FitScorer = {
       return result(fitScore, 'rejected', reason, breakdown, unknowns, contradictions, profile, criteria)
     }
     if (criteria.some((row) => row.hard && row.status === 'unknown')) {
-      return result(fitScore, 'review', FIT_REASONS.criterionUnknown, breakdown, unknowns, contradictions, profile, criteria)
+      return result(
+        fitScore,
+        'review',
+        FIT_REASONS.criterionUnknown,
+        breakdown,
+        unknowns,
+        contradictions,
+        profile,
+        criteria,
+      )
     }
     if (fitScore >= FIT_ACCEPT_THRESHOLD && avgConfidence >= 0.5) {
       return result(fitScore, 'accepted', FIT_REASONS.accepted, breakdown, unknowns, contradictions, profile, criteria)
     }
     if (fitScore >= FIT_REVIEW_THRESHOLD) {
-      return result(fitScore, 'review', avgConfidence < 0.5 ? FIT_REASONS.weakEvidence : FIT_REASONS.review, breakdown, unknowns, contradictions, profile, criteria)
+      return result(
+        fitScore,
+        'review',
+        avgConfidence < 0.5 ? FIT_REASONS.weakEvidence : FIT_REASONS.review,
+        breakdown,
+        unknowns,
+        contradictions,
+        profile,
+        criteria,
+      )
     }
-    return result(fitScore, 'rejected', FIT_REASONS.belowThreshold, breakdown, unknowns, contradictions, profile, criteria)
+    return result(
+      fitScore,
+      'rejected',
+      FIT_REASONS.belowThreshold,
+      breakdown,
+      unknowns,
+      contradictions,
+      profile,
+      criteria,
+    )
   },
 }
 
@@ -638,7 +895,12 @@ export type FitDistribution = {
 }
 
 export function summarizeFitResults(results: FitResult[]): FitDistribution {
-  const summary: FitDistribution = { accepted: 0, review: 0, rejected: 0, byReason: {} }
+  const summary: FitDistribution = {
+    accepted: 0,
+    review: 0,
+    rejected: 0,
+    byReason: {},
+  }
   for (const row of results) {
     summary[row.verdict] += 1
     summary.byReason[row.reason] = (summary.byReason[row.reason] ?? 0) + 1

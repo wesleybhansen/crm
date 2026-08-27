@@ -5,8 +5,10 @@ import {
   GLOBAL_SUPPRESSION_ORG_ID,
   GLOBAL_SUPPRESSION_TENANT_ID,
   applyRemovalRequest,
+  applyProfileRemovalRequest,
   normalizeRemovalEmail,
 } from '../removal-request'
+import { consumerProfileDedupeKey, normalizeConsumerProfileUrl } from '../research/execute'
 import { computeExclusions, hashAddress } from '../campaign/exclusions'
 import { EmailMessage } from '../../../email/data/schema'
 import {
@@ -129,6 +131,33 @@ describe('prospect removal request', () => {
     expect(rows[0].addressDisplay).toBeNull()
     expect(rows[0].expiresAt).toBeNull()
     expect(JSON.stringify(rows[0].source)).not.toContain('fixture.example')
+  })
+
+  it('removes and permanently suppresses an exact public consumer profile', async () => {
+    const em = new FakeEm()
+    const profileUrl = 'https://www.linkedin.com/in/Avery-Example/'
+    const normalized = normalizeConsumerProfileUrl(profileUrl)
+    const profileHash = consumerProfileDedupeKey(profileUrl)
+    expect(normalized).toBe('https://linkedin.com/in/avery-example')
+    expect(profileHash).toMatch(/^[0-9a-f]{64}$/)
+    const run = await seedRun(em, await seedPlay(em))
+    const candidate = await seedCandidate(em, run, { email: null })
+    candidate.entityKind = 'person'
+    candidate.identity = { name: 'Avery Example', urls: [profileUrl] }
+    candidate.dedupeKey = profileHash as string
+
+    const result = await applyProfileRemovalRequest(em, { profileUrl })
+
+    expect(result).toMatchObject({ ok: true, suppressed: true })
+    expect(result.recordsAnonymized).toBeGreaterThan(0)
+    expect(candidate.identity).toMatchObject({ removed: true })
+    const suppression = await em.findOne(GtmSuppression, {
+      scope: 'global',
+      channel: 'public_profile',
+      addressHash: profileHash,
+    })
+    expect(suppression).not.toBeNull()
+    expect(suppression?.addressDisplay).toBeNull()
   })
 
   it('the global row excludes the address in an unrelated org', async () => {
