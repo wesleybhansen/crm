@@ -378,7 +378,7 @@ export class GtmCandidate {
   @ManyToOne(() => GtmWorkspace, { fieldName: 'workspace_id', mapToPk: true })
   workspaceId!: string
 
-  // person | company
+  // person | company | opportunity
   @Property({ name: 'entity_kind', type: 'text' })
   entityKind!: string
 

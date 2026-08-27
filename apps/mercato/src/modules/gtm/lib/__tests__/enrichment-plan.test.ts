@@ -19,18 +19,27 @@ describe('immutable enrichment quote', () => {
     expect(plan.candidates_needing_enrichment).toBe(1)
     expect(plan.emails_needing_verification).toBe(2)
     expect(plan.providers).toEqual([
-      expect.objectContaining({ adapter_id: 'fixture-enrich', max_units: 1, max_credits: 4 }),
-      expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 2, max_credits: 4 }),
+      expect.objectContaining({
+        adapter_id: 'fixture-enrich',
+        max_units: 1,
+        max_credits: 4,
+      }),
+      expect.objectContaining({
+        adapter_id: 'fixture-verify',
+        max_units: 2,
+        max_credits: 4,
+      }),
     ])
     expect(plan.maximum_credits).toBe(8)
     expect(plan.plan_hash).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('excludes accepted company identities from person contact discovery and verification', () => {
+  it('excludes company and opportunity identities from person contact discovery and verification', () => {
     const plan = buildEnrichmentPlan(
       [
         { id: 'person-1', entityKind: 'person' },
         { id: 'company-1', entityKind: 'company' },
+        { id: 'opportunity-1', entityKind: 'opportunity' },
       ],
       [
         {
@@ -83,25 +92,47 @@ describe('immutable enrichment quote', () => {
     const plan = buildEnrichmentPlan(
       [{ id: 'c-1' }, { id: 'c-2' }],
       [
-        { id: 'point-1', candidateId: 'c-1', channel: 'email', value: 'Same@Example.com', verificationState: 'found' },
-        { id: 'point-2', candidateId: 'c-2', channel: 'email', value: ' same@example.com ', verificationState: 'found' },
+        {
+          id: 'point-1',
+          candidateId: 'c-1',
+          channel: 'email',
+          value: 'Same@Example.com',
+          verificationState: 'found',
+        },
+        {
+          id: 'point-2',
+          candidateId: 'c-2',
+          channel: 'email',
+          value: ' same@example.com ',
+          verificationState: 'found',
+        },
       ],
       [],
       [fixtureVerifyAdapter],
       2,
     )
     expect(plan.emails_needing_verification).toBe(1)
-    expect(plan.providers).toEqual([
-      expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 1 }),
-    ])
+    expect(plan.providers).toEqual([expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 1 })])
   })
 
   it('reuses an existing terminal result without quoting another provider call', () => {
     const plan = buildEnrichmentPlan(
       [{ id: 'c-1' }, { id: 'c-2' }],
       [
-        { id: 'point-1', candidateId: 'c-1', channel: 'email', value: 'same@example.com', verificationState: 'verified' },
-        { id: 'point-2', candidateId: 'c-2', channel: 'email', value: 'SAME@example.com', verificationState: 'found' },
+        {
+          id: 'point-1',
+          candidateId: 'c-1',
+          channel: 'email',
+          value: 'same@example.com',
+          verificationState: 'verified',
+        },
+        {
+          id: 'point-2',
+          candidateId: 'c-2',
+          channel: 'email',
+          value: 'SAME@example.com',
+          verificationState: 'found',
+        },
       ],
       [],
       [fixtureVerifyAdapter],
@@ -115,9 +146,27 @@ describe('immutable enrichment quote', () => {
     const plan = buildEnrichmentPlan(
       [{ id: 'c-1' }, { id: 'c-2' }, { id: 'c-3' }],
       [
-        { id: 'point-1', candidateId: 'c-1', channel: 'email', value: 'same@example.com', verificationState: 'verified' },
-        { id: 'point-2', candidateId: 'c-2', channel: 'email', value: 'same@example.com', verificationState: 'not_found' },
-        { id: 'point-3', candidateId: 'c-3', channel: 'email', value: 'same@example.com', verificationState: 'found' },
+        {
+          id: 'point-1',
+          candidateId: 'c-1',
+          channel: 'email',
+          value: 'same@example.com',
+          verificationState: 'verified',
+        },
+        {
+          id: 'point-2',
+          candidateId: 'c-2',
+          channel: 'email',
+          value: 'same@example.com',
+          verificationState: 'not_found',
+        },
+        {
+          id: 'point-3',
+          candidateId: 'c-3',
+          channel: 'email',
+          value: 'same@example.com',
+          verificationState: 'found',
+        },
       ],
       [],
       [fixtureVerifyAdapter],
@@ -134,7 +183,10 @@ describe('immutable enrichment quote', () => {
         ...fixtureVerifyAdapter.descriptor,
         constraints: {
           ...fixtureVerifyAdapter.descriptor.constraints,
-          license: { ...fixtureVerifyAdapter.descriptor.constraints.license, terms_version: '' },
+          license: {
+            ...fixtureVerifyAdapter.descriptor.constraints.license,
+            terms_version: '',
+          },
         },
       },
     }
@@ -156,13 +208,29 @@ describe('immutable enrichment quote', () => {
   it('binds the selected contact-point id and normalized address into the quote', () => {
     const first = buildEnrichmentPlan(
       candidates,
-      [{ id: 'point-1', candidateId: 'c-1', channel: 'email', value: 'A@Example.com', verificationState: 'found' }],
+      [
+        {
+          id: 'point-1',
+          candidateId: 'c-1',
+          channel: 'email',
+          value: 'A@Example.com',
+          verificationState: 'found',
+        },
+      ],
       [fixtureEnrichAdapter],
       [fixtureVerifyAdapter],
     )
     const changedIdentity = buildEnrichmentPlan(
       candidates,
-      [{ id: 'point-2', candidateId: 'c-1', channel: 'email', value: 'b@example.com', verificationState: 'found' }],
+      [
+        {
+          id: 'point-2',
+          candidateId: 'c-1',
+          channel: 'email',
+          value: 'b@example.com',
+          verificationState: 'found',
+        },
+      ],
       [fixtureEnrichAdapter],
       [fixtureVerifyAdapter],
     )
@@ -182,7 +250,11 @@ describe('immutable enrichment quote', () => {
     }
     const withDomain = buildEnrichmentPlan(
       [
-        { id: 'c-1', entityKind: 'person', identity: { domain: 'acme-industrial.com' } },
+        {
+          id: 'c-1',
+          entityKind: 'person',
+          identity: { domain: 'acme-industrial.com' },
+        },
         { id: 'c-2', entityKind: 'person', identity: { name: 'No domain' } },
       ],
       [],
@@ -192,7 +264,11 @@ describe('immutable enrichment quote', () => {
     )
     const changedDomain = buildEnrichmentPlan(
       [
-        { id: 'c-1', entityKind: 'person', identity: { domain: 'other-industrial.com' } },
+        {
+          id: 'c-1',
+          entityKind: 'person',
+          identity: { domain: 'other-industrial.com' },
+        },
         { id: 'c-2', entityKind: 'person', identity: { name: 'No domain' } },
       ],
       [],
@@ -201,20 +277,24 @@ describe('immutable enrichment quote', () => {
       2,
     )
 
-    expect(withDomain.providers).toEqual([
-      expect.objectContaining({ adapter_id: 'domain-enrich', max_units: 1 }),
-    ])
+    expect(withDomain.providers).toEqual([expect.objectContaining({ adapter_id: 'domain-enrich', max_units: 1 })])
     expect(changedDomain.plan_hash).not.toBe(withDomain.plan_hash)
   })
 
   it('quotes verification for the maximum contacts one winning adapter can return', () => {
     const onePointAdapter = {
       ...fixtureEnrichAdapter,
-      descriptor: { ...fixtureEnrichAdapter.descriptor, adapter_id: 'one-point' },
+      descriptor: {
+        ...fixtureEnrichAdapter.descriptor,
+        adapter_id: 'one-point',
+      },
     }
     const fivePointAdapter = {
       ...fixtureEnrichAdapter,
-      descriptor: { ...fixtureEnrichAdapter.descriptor, adapter_id: 'five-point' },
+      descriptor: {
+        ...fixtureEnrichAdapter.descriptor,
+        adapter_id: 'five-point',
+      },
       maxContactPointsPerCandidate: 5,
     }
     const plan = buildEnrichmentPlan(
@@ -226,9 +306,9 @@ describe('immutable enrichment quote', () => {
     )
 
     expect(plan.emails_needing_verification).toBe(5)
-    expect(plan.providers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 5 }),
-    ]))
+    expect(plan.providers).toEqual(
+      expect.arrayContaining([expect.objectContaining({ adapter_id: 'fixture-verify', max_units: 5 })]),
+    )
   })
 
   it('does not re-quote a consumed candidate and adapter operation', () => {
@@ -238,12 +318,14 @@ describe('immutable enrichment quote', () => {
       [fixtureEnrichAdapter],
       [fixtureVerifyAdapter],
       2,
-      [{
-        candidateId: 'c-1',
-        kind: 'contact_enrich',
-        provider: 'fixture-enrich',
-        localStatusMirror: 'charged',
-      }],
+      [
+        {
+          candidateId: 'c-1',
+          kind: 'contact_enrich',
+          provider: 'fixture-enrich',
+          localStatusMirror: 'charged',
+        },
+      ],
     )
 
     expect(plan).toMatchObject({
@@ -259,32 +341,22 @@ describe('immutable enrichment quote', () => {
   })
 
   it('keeps a reserved operation executable but parks an unresolved provider start', () => {
-    const reserved = buildEnrichmentPlan(
-      [{ id: 'c-1', entityKind: 'person' }],
-      [],
-      [fixtureEnrichAdapter],
-      [],
-      2,
-      [{
+    const reserved = buildEnrichmentPlan([{ id: 'c-1', entityKind: 'person' }], [], [fixtureEnrichAdapter], [], 2, [
+      {
         candidateId: 'c-1',
         kind: 'contact_enrich',
         provider: 'fixture-enrich',
         localStatusMirror: 'reserved',
-      }],
-    )
-    const parked = buildEnrichmentPlan(
-      [{ id: 'c-1', entityKind: 'person' }],
-      [],
-      [fixtureEnrichAdapter],
-      [],
-      2,
-      [{
+      },
+    ])
+    const parked = buildEnrichmentPlan([{ id: 'c-1', entityKind: 'person' }], [], [fixtureEnrichAdapter], [], 2, [
+      {
         candidateId: 'c-1',
         kind: 'contact_enrich',
         provider: 'fixture-enrich',
         localStatusMirror: 'provider_started',
-      }],
-    )
+      },
+    ])
 
     expect(reserved.candidates_needing_enrichment).toBe(1)
     expect(reserved.maximum_credits).toBeGreaterThan(0)
@@ -301,19 +373,14 @@ describe('immutable enrichment quote', () => {
       ...fixtureEnrichAdapter,
       operationFingerprint: () => 'request-v2',
     }
-    const plan = buildEnrichmentPlan(
-      [{ id: 'c-1', entityKind: 'person' }],
-      [],
-      [fingerprinted],
-      [],
-      2,
-      [{
+    const plan = buildEnrichmentPlan([{ id: 'c-1', entityKind: 'person' }], [], [fingerprinted], [], 2, [
+      {
         candidateId: 'c-1',
         kind: 'contact_enrich',
         provider: 'fixture-enrich',
         localStatusMirror: 'charged',
-      }],
-    )
+      },
+    ])
 
     expect(plan.candidates_needing_enrichment).toBe(1)
     expect(plan.operations_already_consumed).toBe(0)
@@ -323,7 +390,10 @@ describe('immutable enrichment quote', () => {
   it('does not quote adapters after a parked operation in waterfall order', () => {
     const laterAdapter = {
       ...fixtureEnrichAdapter,
-      descriptor: { ...fixtureEnrichAdapter.descriptor, adapter_id: 'later-enrich' },
+      descriptor: {
+        ...fixtureEnrichAdapter.descriptor,
+        adapter_id: 'later-enrich',
+      },
     }
     const plan = buildEnrichmentPlan(
       [{ id: 'c-1', entityKind: 'person' }],
@@ -331,12 +401,14 @@ describe('immutable enrichment quote', () => {
       [fixtureEnrichAdapter, laterAdapter],
       [],
       2,
-      [{
-        candidateId: 'c-1',
-        kind: 'contact_enrich',
-        provider: 'fixture-enrich',
-        localStatusMirror: 'reconciliation_required',
-      }],
+      [
+        {
+          candidateId: 'c-1',
+          kind: 'contact_enrich',
+          provider: 'fixture-enrich',
+          localStatusMirror: 'reconciliation_required',
+        },
+      ],
     )
 
     expect(plan.providers).toEqual([])

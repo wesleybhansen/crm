@@ -46,6 +46,7 @@ export type AdapterLicenseConstraints = {
   manual_outreach_allowed?: boolean
   automated_email_allowed?: boolean
   public_profile_contact_allowed?: boolean
+  public_opportunity_use_allowed?: boolean
 }
 
 export type AdapterRateLimits = {
@@ -157,6 +158,26 @@ export type CandidateIdentity = {
   company_description?: string | null
   seniority?: string | null
   department?: string | null
+  // SPEC-069 demand-surface fields. These are intentionally bounded and
+  // source-shaped, not an open provider payload. A consumer opportunity is a
+  // public place or conversation where an audience gathers, never a recipient.
+  opportunity_kind?: 'community' | 'forum' | 'group' | 'thread' | 'post' | 'event' | 'creator_audience' | 'other'
+  platform?: string | null
+  intent_kind?: 'buyer_intent' | 'seller_intent' | 'local_audience' | 'mixed_intent' | null
+  audience_description?: string | null
+  activity_level?: 'high' | 'medium' | 'low' | 'unknown' | null
+  member_count?: number | null
+  engagement_count?: number | null
+  access_type?: 'public' | 'approval_required' | 'ticketed' | 'unknown' | null
+  event_start_at?: string | null
+  participation_rules?: string | null
+  recommended_action?: string | null
+  message_angle?: string | null
+  people_to_follow?: Array<{
+    name: string
+    role?: string | null
+    profile_url?: string | null
+  }>
 }
 
 export type CandidateEvidence = {
@@ -175,7 +196,7 @@ export type CandidateEvidence = {
 }
 
 export type Candidate = {
-  entity_kind: 'person' | 'company'
+  entity_kind: 'person' | 'company' | 'opportunity'
   identity: CandidateIdentity
   evidence: CandidateEvidence[]
 }
@@ -334,6 +355,7 @@ export type AdapterAudienceRights = {
 export function adapterAudienceRights(
   descriptor: AdapterDescriptor,
   audience: AdapterAudienceUse,
+  entityKind?: 'person' | 'company' | 'opportunity' | null,
 ): AdapterAudienceRights {
   const license = descriptor.constraints.license
   if (license.status !== 'approved' && license.status !== 'test_only') {
@@ -357,11 +379,16 @@ export function adapterAudienceRights(
   }
   if (
     license.manual_outreach_allowed !== true
-    || license.public_profile_contact_allowed !== true
     || license.retention_days == null
     || !descriptor.dsr.deletion_supported
   ) {
     return { allowed: false, reason: 'consumer display, manual-use, retention, or deletion rights are incomplete' }
+  }
+  if (entityKind === 'opportunity' && license.public_opportunity_use_allowed !== true) {
+    return { allowed: false, reason: 'public demand-opportunity use is not approved' }
+  }
+  if (entityKind !== 'opportunity' && license.public_profile_contact_allowed !== true) {
+    return { allowed: false, reason: 'public profile contact use is not approved' }
   }
   return { allowed: true }
 }

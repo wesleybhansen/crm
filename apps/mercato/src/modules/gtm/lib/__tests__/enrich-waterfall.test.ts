@@ -1,10 +1,6 @@
 import { FakeEm } from './support/fake-em'
 import { FixtureLedger } from '../credits/ledger'
-import {
-  fixtureEnrichAdapter,
-  fixtureEnrichDescriptor,
-  fixtureVerifyAdapter,
-} from '../adapters/fixture'
+import { fixtureEnrichAdapter, fixtureEnrichDescriptor, fixtureVerifyAdapter } from '../adapters/fixture'
 import type { EnrichAdapter, EnrichRequest, VerifyAdapter, VerifyRequest } from '../adapters/types'
 import { runEnrichmentWaterfall, type EnrichWaterfallDeps } from '../enrich/waterfall'
 import { GtmCandidate, GtmContactPoint, GtmProviderOperation } from '../../data/entities'
@@ -40,7 +36,7 @@ async function makeCandidate(
   options: {
     name: string
     fitStatus?: string
-    kind?: 'person' | 'company'
+    kind?: 'person' | 'company' | 'opportunity'
     company?: string | null
     domain?: string | null
   },
@@ -116,12 +112,23 @@ describe('runEnrichmentWaterfall', () => {
       name: 'Example Dynamics LLC',
       kind: 'company',
     })
-    const rejected = await makeCandidate(em, { name: 'Jamie Fixture', fitStatus: 'rejected' })
-    const unscored = await makeCandidate(em, { name: 'Casey Synthetic', fitStatus: 'unscored' })
+    await makeCandidate(em, {
+      name: 'South Bay Homebuyer Community',
+      kind: 'opportunity',
+    })
+    const rejected = await makeCandidate(em, {
+      name: 'Jamie Fixture',
+      fitStatus: 'rejected',
+    })
+    const unscored = await makeCandidate(em, {
+      name: 'Casey Synthetic',
+      fitStatus: 'unscored',
+    })
 
     const summary = await runEnrichmentWaterfall(deps(em, ledger, [enrich], [verify]))
 
-    // one enrich + one verify call, both for the accepted candidate only
+    // One enrich + one verify call, both for the accepted person only. The
+    // accepted company and opportunity never cross the spend boundary.
     expect(enrich.enrich).toHaveBeenCalledTimes(1)
     expect(enrich.enrich.mock.calls[0][0].candidate.identity.name).toBe('Alex Example')
     expect(verify.verify).toHaveBeenCalledTimes(1)
@@ -195,7 +202,10 @@ describe('runEnrichmentWaterfall', () => {
       descriptor: {
         ...fixtureEnrichDescriptor,
         adapter_id: 'fixture-enrich-paid-lookup',
-        cost_model: { ...fixtureEnrichDescriptor.cost_model, pay_on_found: false },
+        cost_model: {
+          ...fixtureEnrichDescriptor.cost_model,
+          pay_on_found: false,
+        },
       },
       enrich: jest.fn(async () => ({
         status: 'no_result' as const,
@@ -204,7 +214,10 @@ describe('runEnrichmentWaterfall', () => {
         cost_units: 1,
       })),
     }
-    await makeCandidate(em, { name: 'Robin Synthetic', domain: 'synthetic.example' })
+    await makeCandidate(em, {
+      name: 'Robin Synthetic',
+      domain: 'synthetic.example',
+    })
 
     const summary = await runEnrichmentWaterfall(deps(em, ledger, [paidLookup], []))
 
@@ -233,16 +246,18 @@ describe('runEnrichmentWaterfall', () => {
     expect(shadow.candidateId).toBe(candidate.id)
     expect(shadow.localStatusMirror).toBe('provider_started')
     expect(shadow.settledAt).toBeUndefined()
-    expect(shadow.receipt).toEqual(expect.objectContaining({
-      provider_request_id: expect.any(String),
-      gtm_observation: expect.objectContaining({
-        adapter_status: 'ok',
-        intended_ledger_action: 'charged',
-        settlement_pending: true,
-        canonical_status: 'provider_started',
-        settlement_error: expect.stringContaining('canonical ledger unavailable'),
+    expect(shadow.receipt).toEqual(
+      expect.objectContaining({
+        provider_request_id: expect.any(String),
+        gtm_observation: expect.objectContaining({
+          adapter_status: 'ok',
+          intended_ledger_action: 'charged',
+          settlement_pending: true,
+          canonical_status: 'provider_started',
+          settlement_error: expect.stringContaining('canonical ledger unavailable'),
+        }),
       }),
-    }))
+    )
 
     const again = await runEnrichmentWaterfall(deps(em, ledger, [enrich], []))
     expect(again.ambiguous).toBe(1)
@@ -281,9 +296,7 @@ describe('runEnrichmentWaterfall', () => {
     })
 
     // the ambiguous operation is parked on the canonical ledger, not settled
-    const parked = ledger
-      .listOperations()
-      .filter((op) => op.status === 'reconciliation_required')
+    const parked = ledger.listOperations().filter((op) => op.status === 'reconciliation_required')
     expect(parked).toHaveLength(1)
     const parkedShadow = em
       .table(GtmProviderOperation)
@@ -344,12 +357,14 @@ describe('runEnrichmentWaterfall', () => {
     expect(ledger.listOperations()).toHaveLength(1)
     expect(first.verificationState).toBe('verified')
     expect(duplicate.verificationState).toBe('verified')
-    expect(duplicate.provenance).toEqual(expect.objectContaining({
-      verification: expect.objectContaining({
-        deduplicated: true,
-        reused_from_contact_point_id: first.id,
+    expect(duplicate.provenance).toEqual(
+      expect.objectContaining({
+        verification: expect.objectContaining({
+          deduplicated: true,
+          reused_from_contact_point_id: first.id,
+        }),
       }),
-    }))
+    )
     expect(summary.verified).toBe(2)
     expect(summary.credits).toBe(2)
   })
@@ -358,18 +373,22 @@ describe('runEnrichmentWaterfall', () => {
     const em = new FakeEm()
     const ledger = new FixtureLedger({ poolBalance: 100 })
     const verify = spyVerify()
-    const verifiedCandidate = await makeCandidate(em, { name: 'Verified Holder' })
-    const rejectedCandidate = await makeCandidate(em, { name: 'Rejected Holder' })
-    const pendingCandidate = await makeCandidate(em, { name: 'Pending Holder' })
-    const duplicatePendingCandidate = await makeCandidate(em, { name: 'Duplicate Pending Holder' })
+    const verifiedCandidate = await makeCandidate(em, {
+      name: 'Verified Holder',
+    })
+    const rejectedCandidate = await makeCandidate(em, {
+      name: 'Rejected Holder',
+    })
+    const pendingCandidate = await makeCandidate(em, {
+      name: 'Pending Holder',
+    })
+    const duplicatePendingCandidate = await makeCandidate(em, {
+      name: 'Duplicate Pending Holder',
+    })
     await makePoint(em, verifiedCandidate, 'alex.example@example-dynamics.example', 'verified')
     await makePoint(em, rejectedCandidate, 'alex.example@example-dynamics.example', 'not_found')
     const pending = await makePoint(em, pendingCandidate, 'alex.example@example-dynamics.example')
-    const duplicatePending = await makePoint(
-      em,
-      duplicatePendingCandidate,
-      'ALEX.EXAMPLE@example-dynamics.example',
-    )
+    const duplicatePending = await makePoint(em, duplicatePendingCandidate, 'ALEX.EXAMPLE@example-dynamics.example')
 
     await runEnrichmentWaterfall(deps(em, ledger, [], [verify]))
 
@@ -377,15 +396,19 @@ describe('runEnrichmentWaterfall', () => {
     expect(ledger.listOperations()).toHaveLength(1)
     expect(pending.verificationState).toBe('verified')
     expect(duplicatePending.verificationState).toBe('verified')
-    expect(pending.provenance).not.toEqual(expect.objectContaining({
-      verification: expect.objectContaining({ deduplicated: true }),
-    }))
-    expect(duplicatePending.provenance).toEqual(expect.objectContaining({
-      verification: expect.objectContaining({
-        deduplicated: true,
-        reused_from_contact_point_id: pending.id,
+    expect(pending.provenance).not.toEqual(
+      expect.objectContaining({
+        verification: expect.objectContaining({ deduplicated: true }),
       }),
-    }))
+    )
+    expect(duplicatePending.provenance).toEqual(
+      expect.objectContaining({
+        verification: expect.objectContaining({
+          deduplicated: true,
+          reused_from_contact_point_id: pending.id,
+        }),
+      }),
+    )
   })
 
   it('is idempotent per candidate: a re-run neither re-reserves nor re-calls for verified candidates', async () => {
@@ -420,12 +443,17 @@ describe('runEnrichmentWaterfall', () => {
     const ledger = new FixtureLedger({ poolBalance: 100 })
     const enrich = spyEnrich()
     const verify = spyVerify()
-    const contextual = await makeCandidate(em, { name: 'Context Match', fitStatus: 'rejected' })
+    const contextual = await makeCandidate(em, {
+      name: 'Context Match',
+      fitStatus: 'rejected',
+    })
     await makeCandidate(em, { name: 'Legacy Accept', fitStatus: 'accepted' })
 
-    await runEnrichmentWaterfall(deps(em, ledger, [enrich], [verify], {
-      acceptedCandidateIds: new Set([contextual.id]),
-    }))
+    await runEnrichmentWaterfall(
+      deps(em, ledger, [enrich], [verify], {
+        acceptedCandidateIds: new Set([contextual.id]),
+      }),
+    )
 
     expect(enrich.enrich).toHaveBeenCalledTimes(1)
     expect(enrich.enrich.mock.calls[0][0].candidate.identity.name).toBe('Context Match')
@@ -436,7 +464,9 @@ describe('runEnrichmentWaterfall', () => {
     const em = new FakeEm()
     const ledger = new FixtureLedger({ poolBalance: 100 })
     const enrich = spyEnrich()
-    const candidate = await makeCandidate(em, { name: 'Refund Case fixture-no-result' })
+    const candidate = await makeCandidate(em, {
+      name: 'Refund Case fixture-no-result',
+    })
 
     // First run: no_result, refunded (pay_on_found).
     await runEnrichmentWaterfall(deps(em, ledger, [enrich], []))
@@ -463,9 +493,7 @@ describe('runEnrichmentWaterfall', () => {
 
     // enrich reserve = 4 credits; the follow-up verify reserve (2) would
     // exceed 4, so the run stops before that reserve ever happens.
-    const summary = await runEnrichmentWaterfall(
-      deps(em, ledger, [enrich], [verify], { maxCredits: 4 }),
-    )
+    const summary = await runEnrichmentWaterfall(deps(em, ledger, [enrich], [verify], { maxCredits: 4 }))
 
     expect(enrich.enrich).toHaveBeenCalledTimes(1)
     expect(verify.verify).not.toHaveBeenCalled()

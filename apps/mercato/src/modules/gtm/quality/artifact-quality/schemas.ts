@@ -11,6 +11,7 @@ export const gtmArtifactFixtureSchema = z.object({
     'sequence',
     'reply_draft',
     'manual_outreach',
+    'opportunity',
     'failure_honesty',
   ]),
   scenario: z.string().min(1).max(500),

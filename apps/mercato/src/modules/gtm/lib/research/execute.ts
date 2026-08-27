@@ -1,16 +1,8 @@
 import crypto from 'crypto'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { Candidate, SourceAdapter } from '../adapters/types'
-import {
-  GtmCreditLedgerError,
-  type GtmCreditLedger,
-  type GtmSettleOutcome,
-} from '../credits/ledger'
-import {
-  creditsForUnits,
-  defaultMarkupMultiplier,
-  providerSpendCapUsd,
-} from '../credits/markup'
+import { GtmCreditLedgerError, type GtmCreditLedger, type GtmSettleOutcome } from '../credits/ledger'
+import { creditsForUnits, defaultMarkupMultiplier, providerSpendCapUsd } from '../credits/markup'
 import type { SourcePlanBatch } from './plan'
 import { ruleBasedFitScorer, type FitScorer } from './qualify'
 import { assessEvidence } from './evidence-quality'
@@ -170,21 +162,57 @@ const CANDIDATE_RETENTION_DAYS = 90
 export function candidateDedupeKey(candidate: Pick<Candidate, 'entity_kind' | 'identity'>): string {
   const identity = (candidate.identity ?? {}) as Record<string, unknown>
   const name = normalizePart(identity.name)
-  const profileUrl = candidate.entity_kind === 'person'
-    ? canonicalLinkedInProfileUrl([
-        identity.linkedin_url,
-        identity.linkedinUrl,
-        identity.profile_url,
-        identity.profileUrl,
-        ...(Array.isArray(identity.urls) ? identity.urls : []),
-      ])
-    : ''
+  const opportunityUrl =
+    candidate.entity_kind === 'opportunity'
+      ? canonicalOpportunityUrl([
+          identity.url,
+          identity.source_url,
+          identity.destination_url,
+          ...(Array.isArray(identity.urls) ? identity.urls : []),
+        ])
+      : ''
+  const profileUrl =
+    candidate.entity_kind === 'person'
+      ? canonicalLinkedInProfileUrl([
+          identity.linkedin_url,
+          identity.linkedinUrl,
+          identity.profile_url,
+          identity.profileUrl,
+          ...(Array.isArray(identity.urls) ? identity.urls : []),
+        ])
+      : ''
   const domainOrCity =
     normalizePart(identity.domain) || normalizePart(identity.city) || normalizePart(identity.location)
-  const material = profileUrl
-    ? `${candidate.entity_kind}|linkedin|${profileUrl}`
-    : `${candidate.entity_kind}|${name}|${domainOrCity}`
+  const opportunityKind = normalizePart(identity.opportunity_kind)
+  const material = opportunityUrl
+    ? `${candidate.entity_kind}|url|${opportunityUrl}`
+    : profileUrl
+      ? `${candidate.entity_kind}|linkedin|${profileUrl}`
+      : candidate.entity_kind === 'opportunity'
+        ? `${candidate.entity_kind}|${opportunityKind}|${name}|${domainOrCity}`
+        : `${candidate.entity_kind}|${name}|${domainOrCity}`
   return crypto.createHash('sha256').update(material).digest('hex')
+}
+
+function canonicalOpportunityUrl(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    try {
+      const url = new URL(entry)
+      if (url.protocol !== 'https:') continue
+      url.hostname = url.hostname.toLowerCase()
+      url.hash = ''
+      url.pathname = url.pathname.replace(/\/+$/, '') || '/'
+      for (const key of [...url.searchParams.keys()]) {
+        if (/^(?:utm_.+|fbclid|gclid)$/i.test(key)) url.searchParams.delete(key)
+      }
+      return url.toString().replace(/\/$/, '')
+    } catch {
+      continue
+    }
+  }
+  return ''
 }
 
 export function consumerProfileDedupeKey(value: unknown): string | null {
@@ -242,21 +270,18 @@ function parseLimits(run: GtmResearchRun): {
   const targetAccepted = Number(limits.targetAccepted ?? limits.maxCandidates)
   const maxCredits = Number(limits.maxCredits)
   return {
-    targetAccepted: Number.isFinite(targetAccepted) && targetAccepted > 0
-      ? Math.floor(targetAccepted)
-      : Number.isFinite(legacyMaxCandidates) && legacyMaxCandidates > 0
-        ? Math.floor(legacyMaxCandidates)
-        : 0,
-    maxRawCandidates: Number.isFinite(maxRawCandidates) && maxRawCandidates > 0
-      ? Math.floor(maxRawCandidates)
-      : 0,
+    targetAccepted:
+      Number.isFinite(targetAccepted) && targetAccepted > 0
+        ? Math.floor(targetAccepted)
+        : Number.isFinite(legacyMaxCandidates) && legacyMaxCandidates > 0
+          ? Math.floor(legacyMaxCandidates)
+          : 0,
+    maxRawCandidates: Number.isFinite(maxRawCandidates) && maxRawCandidates > 0 ? Math.floor(maxRawCandidates) : 0,
     maxCredits: Number.isFinite(maxCredits) && maxCredits > 0 ? Math.floor(maxCredits) : 0,
   }
 }
 
-export async function executeResearchRun(
-  deps: ExecuteResearchRunDeps,
-): Promise<ResearchRunExecutionResult> {
+export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<ResearchRunExecutionResult> {
   const { em, ledger, adapters, run, play, noliOrgId, noliUserId } = deps
   const scorer = deps.scorer ?? ruleBasedFitScorer
   const markup = deps.markupMultiplier ?? defaultMarkupMultiplier()
@@ -333,22 +358,14 @@ export async function executeResearchRun(
     }
 
     const plannedCandidateCap = planned.maxCandidates ?? planned.estimatedUnits
-    const remainingCandidates = limits.maxRawCandidates > 0
-      ? limits.maxRawCandidates - rawCandidatesFound
-      : plannedCandidateCap
+    const remainingCandidates =
+      limits.maxRawCandidates > 0 ? limits.maxRawCandidates - rawCandidatesFound : plannedCandidateCap
     const requestCandidates = Math.min(plannedCandidateCap, remainingCandidates)
     const providerUnits = planned.providerUnits ?? planned.estimatedUnits
-    const batchEstimatedCredits = creditsForUnits(
-      providerUnits,
-      planned.quotedCreditsPerUnit,
-      markup,
-    )
+    const batchEstimatedCredits = creditsForUnits(providerUnits, planned.quotedCreditsPerUnit, markup)
 
     // Cap: stop BEFORE a reserve that would exceed maxCredits.
-    if (
-      limits.maxCredits > 0 &&
-      reconciledCredits + outstandingReserved + batchEstimatedCredits > limits.maxCredits
-    ) {
+    if (limits.maxCredits > 0 && reconciledCredits + outstandingReserved + batchEstimatedCredits > limits.maxCredits) {
       batches.push({ ...base, outcome: 'skipped_max_credits' })
       continue
     }
@@ -415,7 +432,11 @@ export async function executeResearchRun(
     } catch (err) {
       if (err instanceof GtmCreditLedgerError && err.code === 'insufficient_credits') {
         failureReason = err.message
-        batches.push({ ...base, outcome: 'blocked_insufficient_credits', failureReason: err.message })
+        batches.push({
+          ...base,
+          outcome: 'blocked_insufficient_credits',
+          failureReason: err.message,
+        })
         break
       }
       throw err
@@ -564,12 +585,7 @@ export async function executeResearchRun(
         unresolvedAdapters.add(planned.adapter_id)
         batchFailure = result.error ?? 'ambiguous provider outcome'
       } else {
-        ledgerStatus = await ledger.settle(
-          operationId,
-          intendedAction,
-          chargedCredits,
-          receipt,
-        )
+        ledgerStatus = await ledger.settle(operationId, intendedAction, chargedCredits, receipt)
         outstandingReserved -= batchEstimatedCredits
         if (intendedAction === 'charged' || intendedAction === 'partially_charged') {
           reconciledCredits += chargedCredits
@@ -579,9 +595,8 @@ export async function executeResearchRun(
       settlementPending = true
       reconciliationRequired = true
       unresolvedAdapters.add(planned.adapter_id)
-      settlementError = error instanceof Error
-        ? `${error.name}: ${error.message}`.slice(0, 500)
-        : 'unknown canonical ledger error'
+      settlementError =
+        error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : 'unknown canonical ledger error'
       batchFailure = 'canonical ledger outcome unresolved after provider response'
     }
 
@@ -612,7 +627,10 @@ export async function executeResearchRun(
       shadow.receipt = {
         ...observedReceipt,
         ...(result.status === 'ambiguous'
-          ? { ambiguous_at: observedAt.toISOString(), detail: result.error ?? null }
+          ? {
+              ambiguous_at: observedAt.toISOString(),
+              detail: result.error ?? null,
+            }
           : {}),
         gtm_observation: {
           ...observedReceipt.gtm_observation,
@@ -638,33 +656,31 @@ export async function executeResearchRun(
     // Do not release provider output while its canonical billing transition is
     // unresolved. The reserved credits remain escrowed and the receipt is
     // available to the operator; a later explicit reconciliation decides it.
-    const providerRows = settlementPending
-      ? []
-      : Array.isArray(result.data) ? result.data : []
+    const providerRows = settlementPending ? [] : Array.isArray(result.data) ? result.data : []
     // Adapter-side slicing is not a security boundary. Enforce the generic
     // remaining raw ceiling here even when a provider over-returns.
-    const remainingRaw = limits.maxRawCandidates > 0
-      ? Math.max(0, limits.maxRawCandidates - rawCandidatesFound)
-      : providerRows.length
+    const remainingRaw =
+      limits.maxRawCandidates > 0 ? Math.max(0, limits.maxRawCandidates - rawCandidatesFound) : providerRows.length
     const found = providerRows.slice(0, remainingRaw)
     rawCandidatesFound += found.length
     for (const candidate of found) {
-      const plannedEntityKind = planned.capability.entity_kind
-        ?? (planned.capability.entity_unit.toLowerCase().startsWith('compan') ? 'company' : 'person')
+      const plannedEntityKind =
+        planned.capability.entity_kind ??
+        (planned.capability.entity_unit.toLowerCase().startsWith('compan') ? 'company' : 'person')
       if (candidate.entity_kind !== plannedEntityKind) {
         batchFailure ??= `provider returned ${candidate.entity_kind} for frozen ${plannedEntityKind} plan`
         failureReason ??= batchFailure
         continue
       }
-      const evidenceAssessment = assessEvidence(
-        candidate.evidence ?? [],
-        adapter.descriptor.evidence_policy,
-        now(),
+      const evidenceAssessment = assessEvidence(candidate.evidence ?? [], adapter.descriptor.evidence_policy, now())
+      const fit = scorer.score(
+        candidate,
+        {
+          ...play,
+          referenceTime: qualificationReferenceTime,
+        },
+        evidenceAssessment.validEvidence,
       )
-      const fit = scorer.score(candidate, {
-        ...play,
-        referenceTime: qualificationReferenceTime,
-      }, evidenceAssessment.validEvidence)
       const dedupeKey = candidateDedupeKey(candidate)
       const globallySuppressed = await em.findOne(GtmSuppression, {
         scope: 'global',
@@ -690,7 +706,11 @@ export async function executeResearchRun(
       const persistMatch = async (
         row: GtmCandidate,
         insertCandidate: boolean,
-      ): Promise<{ matchCreated: boolean; candidateInserted: boolean; evidenceRows: number }> =>
+      ): Promise<{
+        matchCreated: boolean
+        candidateInserted: boolean
+        evidenceRows: number
+      }> =>
         em.transactional(async (tem) => {
           const priorMatch = await tem.findOne(GtmCandidateMatch, {
             organizationId: run.organizationId,
@@ -700,7 +720,11 @@ export async function executeResearchRun(
             deletedAt: null,
           })
           if (priorMatch) {
-            return { matchCreated: false, candidateInserted: false, evidenceRows: 0 }
+            return {
+              matchCreated: false,
+              candidateInserted: false,
+              evidenceRows: 0,
+            }
           }
           if (insertCandidate) tem.persist(row)
           const match = tem.create(GtmCandidateMatch, {
@@ -749,7 +773,11 @@ export async function executeResearchRun(
             evidenceRows += 1
           }
           await tem.flush()
-          return { matchCreated: true, candidateInserted: insertCandidate, evidenceRows }
+          return {
+            matchCreated: true,
+            candidateInserted: insertCandidate,
+            evidenceRows,
+          }
         })
 
       try {
@@ -760,7 +788,11 @@ export async function executeResearchRun(
           dedupeKey,
           deletedAt: null,
         })
-        let persisted: { matchCreated: boolean; candidateInserted: boolean; evidenceRows: number }
+        let persisted: {
+          matchCreated: boolean
+          candidateInserted: boolean
+          evidenceRows: number
+        }
         if (existing) {
           persisted = await persistMatch(existing, false)
         } else {
@@ -782,9 +814,7 @@ export async function executeResearchRun(
             qualityScore: String(evidenceAssessment.score),
             qualification,
             qualificationVersion: fit.version,
-            retentionExpiresAt: new Date(
-              now().getTime() + CANDIDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
-            ),
+            retentionExpiresAt: new Date(now().getTime() + CANDIDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000),
           })
           try {
             persisted = await persistMatch(row, true)
@@ -865,8 +895,9 @@ export async function executeResearchRun(
   // but a run where every contacted source errored is not a successful
   // "sources exhausted" run. Preserve the refunded ledger outcome while
   // surfacing the execution failure honestly to the operator.
-  const hasUsableProviderOutcome = batches.some((batch) =>
-    batch.outcome === 'ok' || batch.outcome === 'partial' || batch.outcome === 'no_result')
+  const hasUsableProviderOutcome = batches.some(
+    (batch) => batch.outcome === 'ok' || batch.outcome === 'partial' || batch.outcome === 'no_result',
+  )
   if (!failureReason && !hasUsableProviderOutcome) {
     failureReason = batches.find((batch) => batch.outcome === 'error')?.failureReason ?? null
   }
@@ -878,12 +909,12 @@ export async function executeResearchRun(
     : reconciliationRequired
       ? 'unresolved_provider_outcome'
       : targetMet
-      ? 'target_accepted'
-      : limits.maxRawCandidates > 0 && rawCandidatesFound >= limits.maxRawCandidates
-        ? 'max_raw_candidates'
-        : skippedForCredits
-          ? 'max_credits'
-          : 'sources_exhausted'
+        ? 'target_accepted'
+        : limits.maxRawCandidates > 0 && rawCandidatesFound >= limits.maxRawCandidates
+          ? 'max_raw_candidates'
+          : skippedForCredits
+            ? 'max_credits'
+            : 'sources_exhausted'
   const funnel: ResearchFunnel = {
     targetAccepted: limits.targetAccepted,
     maxRawCandidates: limits.maxRawCandidates,

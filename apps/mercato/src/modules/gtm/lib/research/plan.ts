@@ -1,10 +1,5 @@
 import crypto from 'crypto'
-import {
-  adapterAudienceRights,
-  capabilityCovers,
-  type AdapterDescriptor,
-  type SourceAdapter,
-} from '../adapters/types'
+import { adapterAudienceRights, capabilityCovers, type AdapterDescriptor, type SourceAdapter } from '../adapters/types'
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
 import { computeGtmPolicy, policyInputFromPlay, type GtmPolicyResult } from '../policy'
 import { compileQualificationProfile, type QualificationProfile } from './qualify'
@@ -65,7 +60,7 @@ export type SourcePlanBatch = {
   capability: {
     signal_kind: string
     entity_unit: string
-    entity_kind: 'person' | 'company'
+    entity_kind: 'person' | 'company' | 'opportunity'
     geography: string
   }
   // Provider-native billable units. Kept under the old key too while the
@@ -97,10 +92,7 @@ export type UnsupportedDimension = {
   reason: string
 }
 
-export type SourcePlanErrorCode =
-  | 'play_not_researchable'
-  | 'missing_play_dimensions'
-  | 'empty_adapter_plan'
+export type SourcePlanErrorCode = 'play_not_researchable' | 'missing_play_dimensions' | 'empty_adapter_plan'
 
 export type SourcePlanFailure = {
   ok: false
@@ -126,7 +118,7 @@ export type SourcePlanSuccess = {
   // capability remains country-level US, but CA and TX are not interchangeable
   // priced plans.
   geography: string
-  entityKind: 'person' | 'company'
+  entityKind: 'person' | 'company' | 'opportunity'
   policy: GtmPolicyResult
 }
 
@@ -169,15 +161,53 @@ function dimensionFromReason(reason: string): string {
   return 'unknown'
 }
 
-export function canonicalEntityKind(entityUnit: string): 'person' | 'company' | null {
-  const normalized = entityUnit.trim().toLowerCase().replace(/[\s_-]+/g, '')
+export function canonicalEntityKind(entityUnit: string): 'person' | 'company' | 'opportunity' | null {
+  const normalized = entityUnit
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '')
   if (['person', 'people', 'contact', 'contacts', 'employee', 'employees'].includes(normalized)) {
     return 'person'
   }
   if (
-    ['company', 'companies', 'organization', 'organizations', 'business', 'businesses', 'location', 'locations'].includes(normalized)
+    [
+      'company',
+      'companies',
+      'organization',
+      'organizations',
+      'business',
+      'businesses',
+      'location',
+      'locations',
+    ].includes(normalized)
   ) {
     return 'company'
+  }
+  if (
+    [
+      'opportunity',
+      'opportunities',
+      'surface',
+      'surfaces',
+      'community',
+      'communities',
+      'forum',
+      'forums',
+      'group',
+      'groups',
+      'thread',
+      'threads',
+      'post',
+      'posts',
+      'event',
+      'events',
+      'audience',
+      'audiences',
+      'creatoraudience',
+      'creatoraudiences',
+    ].includes(normalized)
+  ) {
+    return 'opportunity'
   }
   return null
 }
@@ -246,6 +276,7 @@ export function buildSourcePlan(
     const rights = adapterAudienceRights(
       descriptor,
       policy.lead_mode === 'consumer' ? 'consumer' : 'business',
+      entityKind,
     )
     if (!rights.allowed) {
       unsupportedDimensions.push({
@@ -313,11 +344,7 @@ export function buildSourcePlan(
         maxCandidates: quote.max_candidates,
         expectedCandidates: quote.expected_candidates,
         quotedCreditsPerUnit: quote.quoted_credits_per_unit,
-        estimatedCredits: creditsForUnits(
-          quote.provider_units,
-          quote.quoted_credits_per_unit,
-          markupMultiplier,
-        ),
+        estimatedCredits: creditsForUnits(quote.provider_units, quote.quoted_credits_per_unit, markupMultiplier),
         priceVersion: descriptor.cost_model.price_version,
         termsVersion: descriptor.constraints.license.terms_version,
         descriptorHash: descriptorHash(descriptor),
@@ -363,10 +390,7 @@ export function buildSourcePlan(
       maxCandidates: maxRawCandidates,
       maxCredits,
     },
-    qualificationProfile: compileQualificationProfile(
-      play,
-      entityKind,
-    ),
+    qualificationProfile: compileQualificationProfile(play, entityKind),
     query,
     geography: rawGeography,
     entityKind,

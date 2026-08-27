@@ -2,25 +2,24 @@ import type { EnrichAdapter, SourceAdapter, VerifyAdapter } from './types'
 import { fixtureEnrichAdapter, fixtureSourceAdapter, fixtureVerifyAdapter } from './fixture'
 import { fixtureConsumerSourceAdapter } from './fixture-consumer'
 import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
+import { apifyOpportunitySourceEnabled, createApifyOpportunitySourceAdapter } from './apify/opportunity-source'
+import {
+  apifyRedditOpportunityEnabled,
+  apifyXOpportunityEnabled,
+  createApifyRedditOpportunityAdapter,
+  createApifyXOpportunityAdapter,
+} from './apify/public-social-opportunity-source'
 import { apifyEnrichEnabled, createApifyEnrichAdapter } from './apify/enrich'
 import { createDataForSeoMapsAdapter, dataForSeoEnabled } from './dataforseo/maps'
-import {
-  apifyCompanySourceEnabled,
-  createApifyCompanySourceAdapter,
-} from './apify/company-source'
+import { createDataForSeoOpportunityAdapter, dataForSeoOpportunityEnabled } from './dataforseo/opportunity-source'
+import { apifyCompanySourceEnabled, createApifyCompanySourceAdapter } from './apify/company-source'
 import {
   apifyCompanyEmployeesEnabled,
   createApifyCompanyEmployeesAdapter,
   type DecisionMakerAdapter,
 } from './apify/company-employees'
-import {
-  apifyEmailVerifierEnabled,
-  createApifyEmailVerifierAdapter,
-} from './apify/email-verifier'
-import {
-  apifyWebsiteEmailEnabled,
-  createApifyWebsiteEmailAdapter,
-} from './apify/website-email'
+import { apifyEmailVerifierEnabled, createApifyEmailVerifierAdapter } from './apify/email-verifier'
+import { apifyWebsiteEmailEnabled, createApifyWebsiteEmailAdapter } from './apify/website-email'
 
 /*
  * Adapter registries (SPEC-066 Tranches 3/4).
@@ -46,9 +45,7 @@ import {
  * actor additionally requires its own exact price version; see
  * lib/adapters/apify/company-source.ts.
  */
-export function fixtureAdaptersEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+export function fixtureAdaptersEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.NODE_ENV === 'test') return true
   if (env.GTM_FIXTURE_ADAPTERS_ENABLED !== 'true') return false
   if (env.NODE_ENV === 'production') return env.OM_TEST_MODE === '1'
@@ -65,6 +62,18 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
     const apify = createApifySourceAdapter()
     registry[apify.descriptor.adapter_id] = apify
   }
+  if (apifyOpportunitySourceEnabled()) {
+    const opportunities = createApifyOpportunitySourceAdapter()
+    registry[opportunities.descriptor.adapter_id] = opportunities
+  }
+  if (apifyRedditOpportunityEnabled()) {
+    const redditOpportunities = createApifyRedditOpportunityAdapter()
+    registry[redditOpportunities.descriptor.adapter_id] = redditOpportunities
+  }
+  if (apifyXOpportunityEnabled()) {
+    const xOpportunities = createApifyXOpportunityAdapter()
+    registry[xOpportunities.descriptor.adapter_id] = xOpportunities
+  }
   if (apifyCompanySourceEnabled()) {
     const apifyCompany = createApifyCompanySourceAdapter()
     registry[apifyCompany.descriptor.adapter_id] = apifyCompany
@@ -72,6 +81,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (dataForSeoEnabled()) {
     const dataForSeo = createDataForSeoMapsAdapter()
     registry[dataForSeo.descriptor.adapter_id] = dataForSeo
+  }
+  if (dataForSeoOpportunityEnabled()) {
+    const organicOpportunities = createDataForSeoOpportunityAdapter()
+    registry[organicOpportunities.descriptor.adapter_id] = organicOpportunities
   }
   return registry
 }

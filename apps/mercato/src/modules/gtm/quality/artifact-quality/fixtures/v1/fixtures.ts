@@ -35,9 +35,21 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
       disposition: 'deliver',
       verdict: 'accepted',
       criteria: [
-        { criterion: 'US B2B SaaS', result: 'pass', evidence_ref: 'fixture:company-1' },
-        { criterion: '50-250 employees', result: 'pass', evidence_ref: 'fixture:employee-range-1' },
-        { criterion: 'active finance signal', result: 'pass', evidence_ref: 'fixture:job-post-1' },
+        {
+          criterion: 'US B2B SaaS',
+          result: 'pass',
+          evidence_ref: 'fixture:company-1',
+        },
+        {
+          criterion: '50-250 employees',
+          result: 'pass',
+          evidence_ref: 'fixture:employee-range-1',
+        },
+        {
+          criterion: 'active finance signal',
+          result: 'pass',
+          evidence_ref: 'fixture:job-post-1',
+        },
       ],
       why_them: ['The role and company size match the play; purchase intent remains unknown'],
     },
@@ -72,9 +84,18 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
       disposition: 'deliver',
       grounded_fact_refs: ['fixture:job-post-1', 'fixture:employee-range-1'],
       steps: [
-        { key: 'email-1', body: 'Saw the controller opening. Would a concise close-readiness checklist be useful while the role is taking shape?' },
-        { key: 'email-2', body: 'A different angle: teams around your size often map ownership before adding tooling. Want the one-page responsibility map?' },
-        { key: 'email-3', body: 'Closing the loop. If finance workflow work is not timely, I will step back; otherwise I can send the two examples.' },
+        {
+          key: 'email-1',
+          body: 'Saw the controller opening. Would a concise close-readiness checklist be useful while the role is taking shape?',
+        },
+        {
+          key: 'email-2',
+          body: 'A different angle: teams around your size often map ownership before adding tooling. Want the one-page responsibility map?',
+        },
+        {
+          key: 'email-3',
+          body: 'Closing the loop. If finance workflow work is not timely, I will step back; otherwise I can send the two examples.',
+        },
       ],
     },
   },
@@ -116,8 +137,12 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
   {
     id: 'gtm-q-v1-realtor-consumer-play',
     kind: 'audience_play',
-    scenario: 'A realtor finds adults who publicly requested a local market guide without using sensitive life-event targeting',
-    trustedFacts: ['The person publicly requested the synthetic neighborhood market guide', 'The request was observed in the last 30 days'],
+    scenario:
+      'A realtor finds adults who publicly requested a local market guide without using sensitive life-event targeting',
+    trustedFacts: [
+      'The person publicly requested the synthetic neighborhood market guide',
+      'The request was observed in the last 30 days',
+    ],
     foreignCanary: CANARY,
     prohibitedClaims: ['ready to sell', 'motivated seller', 'verified email', 'consented to automated contact'],
     expectedDisposition: 'deliver',
@@ -147,11 +172,25 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
       disposition: 'deliver',
       verdict: 'accepted',
       criteria: [
-        { criterion: 'Requested the local market guide', result: 'pass', evidence_ref: 'fixture:public-guide-request-1' },
-        { criterion: 'Within the requested geography', result: 'pass', evidence_ref: 'fixture:public-profile-location-1' },
-        { criterion: 'Current buying or selling intent', result: 'unknown', evidence_ref: 'fixture:public-guide-request-1' },
+        {
+          criterion: 'Requested the local market guide',
+          result: 'pass',
+          evidence_ref: 'fixture:public-guide-request-1',
+        },
+        {
+          criterion: 'Within the requested geography',
+          result: 'pass',
+          evidence_ref: 'fixture:public-profile-location-1',
+        },
+        {
+          criterion: 'Current buying or selling intent',
+          result: 'unknown',
+          evidence_ref: 'fixture:public-guide-request-1',
+        },
       ],
-      why_them: ['The public request and location match the play; property ownership and transaction intent remain unknown'],
+      why_them: [
+        'The public request and location match the play; property ownership and transaction intent remain unknown',
+      ],
     },
   },
   {
@@ -170,6 +209,67 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
       grounded_fact_refs: ['fixture:public-guide-request-1'],
       body: 'Hi Avery, I saw your public request for the Manhattan Beach market guide. I have the current neighborhood summary ready and can share it here if that would still be useful. No problem if the timing is not right.',
       allowed_actions: ['copy_message', 'open_public_profile', 'dismiss'],
+    },
+  },
+  {
+    id: 'gtm-q-v1-realtor-buyer-community',
+    kind: 'opportunity',
+    scenario: 'A realtor finds a public local community where first-time buyers ask current process questions',
+    trustedFacts: [
+      'The community is public',
+      'Recent threads ask about buying in the South Bay',
+      'The rules allow helpful local resources',
+    ],
+    foreignCanary: CANARY,
+    prohibitedClaims: ['these people are ready to buy', 'guaranteed leads', 'Noli joined the group'],
+    expectedDisposition: 'deliver',
+    minimumScore: 85,
+    artifact: {
+      disposition: 'deliver',
+      opportunity_kind: 'community',
+      intent_kind: 'buyer_intent',
+      audience_description:
+        'South Bay residents asking public questions about first-time home buying and local neighborhoods',
+      public_destination: 'https://community.example/south-bay-first-time-homebuyers',
+      participation_rules:
+        'Answer questions directly and disclose professional affiliation. No unsolicited direct messages.',
+      recommended_action:
+        'Read the current buyer questions, then contribute one useful local checklist where the rules permit it.',
+      message_angle:
+        'Explain one concrete financing or neighborhood-comparison step without assuming anyone is ready to transact.',
+      evidence_refs: ['fixture:south-bay-buyer-community-1'],
+      outreach_mode: 'manual_only',
+      allowed_actions: ['open_public_destination', 'review_evidence', 'save', 'dismiss'],
+    },
+  },
+  {
+    id: 'gtm-q-v1-realtor-seller-event',
+    kind: 'opportunity',
+    scenario: 'A realtor finds a public local workshop where homeowners can learn how to prepare a property for market',
+    trustedFacts: [
+      'The event is publicly listed',
+      'The agenda covers non-sensitive property preparation',
+      'Registration terms are visible',
+    ],
+    foreignCanary: CANARY,
+    prohibitedClaims: ['attendees will sell', 'motivated sellers', 'Noli registered for the event'],
+    expectedDisposition: 'deliver',
+    minimumScore: 85,
+    artifact: {
+      disposition: 'deliver',
+      opportunity_kind: 'event',
+      intent_kind: 'seller_intent',
+      audience_description: 'Local homeowners choosing to attend a public workshop about preparing and pricing a home',
+      public_destination: 'https://events.example/south-bay-home-seller-workshop',
+      participation_rules:
+        'Registration is required. Sponsorship and attendee-contact rules must be reviewed before participating.',
+      recommended_action:
+        'Review the organizer and sponsorship rules, then decide whether to attend or offer a practical pricing worksheet.',
+      message_angle:
+        'Share a transparent preparation timeline and pricing evidence checklist without implying an attendee plans to sell.',
+      evidence_refs: ['fixture:south-bay-seller-event-1'],
+      outreach_mode: 'manual_only',
+      allowed_actions: ['open_public_destination', 'review_evidence', 'save', 'dismiss'],
     },
   },
   {
