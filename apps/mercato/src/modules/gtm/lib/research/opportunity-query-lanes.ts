@@ -98,9 +98,9 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     }
     if (intent === 'seller_intent') {
       return [
-        'Reddit ("sell my home" OR "selling my house" OR "thinking of selling" OR "selling our home")',
-        '"Facebook group" ("sell my home" OR "home worth" OR "thinking of selling" OR "selling our home")',
-        '("home seller workshop" OR "seller seminar" OR "home valuation workshop") 2026',
+        'Reddit homeowners selling home advice',
+        'Facebook homeowner group selling home',
+        'home seller workshop valuation event 2026',
       ]
     }
     if (intent === 'mixed_intent') {
@@ -224,7 +224,16 @@ function sourceSeed(
   const market = marketName(geography)
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     const location = geography.replace(/,/g, ' ').trim().replace(/\s+/g, ' ')
+    const organicExclusions = new Set([
+      'jobs',
+      'recruiting',
+      'just listed',
+      'new listing',
+      'market update',
+      'real estate news',
+    ])
     const exclusions = negativeTerms
+      .filter((term) => organicExclusions.has(term))
       .map((term) => (term.includes(' ') ? `-${quoted(term)}` : `-${term}`))
       .join(' ')
     return `${quoted(location)} ${seed} ${exclusions}`
@@ -294,7 +303,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v8',
+        query_lane_version: 'opportunity-query-v9',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

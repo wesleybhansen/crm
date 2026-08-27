@@ -537,6 +537,12 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       }
     } else if (result.status === 'ambiguous') {
       intendedAction = 'mark_ambiguous'
+    } else if (result.status === 'error' && result.cost_units != null && result.cost_units > 0) {
+      chargedCredits = Math.min(
+        creditsForUnits(result.cost_units, planned.quotedCreditsPerUnit, markup),
+        batchEstimatedCredits,
+      )
+      intendedAction = 'charged'
     } else {
       intendedAction = 'refunded'
     }

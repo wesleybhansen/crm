@@ -199,7 +199,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v8')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v9')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(new Set(queries).size).toBe(3)
@@ -251,15 +251,16 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(web.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('Reddit'),
-        expect.stringContaining('"Facebook group"'),
-        expect.stringContaining('"home seller workshop"'),
+        expect.stringContaining('Reddit homeowners selling home advice'),
+        expect.stringContaining('Facebook homeowner group selling home'),
+        expect.stringContaining('home seller workshop valuation event'),
       ]),
     )
     expect(
       web.every((lane) => !hasPriceMultiplyingDataForSeoOpportunityQueryOperator(lane.query)),
     ).toBe(true)
     expect(web.every((lane) => lane.query.includes('"Austin Texas"'))).toBe(true)
+    expect(web.every((lane) => lane.query.length < 240)).toBe(true)
     expect(new Set(web.map((lane) => lane.query)).size).toBe(3)
   })
 
