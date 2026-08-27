@@ -160,7 +160,7 @@ const VENUE_CONSUMER_DEMAND =
 const PUBLIC_PARTICIPATION_EVIDENCE =
   /\b(?:join(?:ing)?|membership|members?|meeting|calendar|upcoming events?|get involved|volunteer|register|attend|discussion|questions?|forum|community registry|community groups?|community organizations?|resident organizations?|public workshop|public seminar|neighbou?rhood college)\b/i
 const INACTIVE_DESTINATION =
-  /\b(?:no upcoming events?|event (?:has )?ended|past event|registration (?:is )?closed|event (?:was )?cancelled|event (?:was )?canceled|not currently scheduled|workshop unavailable)\b/i
+  /\b(?:no upcoming events?|no events? (?:are )?scheduled|event (?:has )?ended|event is over|this event has passed|past event|registration (?:is )?closed|registration unavailable|sold out|event (?:was )?cancelled|event (?:was )?canceled|not currently scheduled|workshop unavailable|page not found|content unavailable)\b/i
 const MONTHS =
   '(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
 
@@ -441,10 +441,32 @@ function leadingContentDate(content: string): Date | null {
   return numericDate?.[1] ? parsedDate(`${numericDate[1]} UTC`) : null
 }
 
+function labeledContentDate(content: string): Date | null {
+  const head = content.slice(0, 360)
+  const fullDate = head.match(
+    new RegExp(
+      `\\b(?:published|posted|updated|created|date)\\s*(?:on)?\\s*[:·|—–-]?\\s*(${MONTHS}\\s+\\d{1,2},?\\s+20\\d{2}|\\d{1,2}\\/\\d{1,2}\\/20\\d{2}|20\\d{2}-\\d{1,2}-\\d{1,2})\\b`,
+      'i',
+    ),
+  )
+  if (fullDate?.[1]) return parsedDate(`${fullDate[1]} UTC`)
+
+  const leadingMonthYear = head.match(new RegExp(`^\\s*(${MONTHS}\\s+20\\d{2})\\s*[—–-]`, 'i'))
+  return leadingMonthYear?.[1] ? parsedDate(`${leadingMonthYear[1]} 1 UTC`) : null
+}
+
+function contentPublicationDate(content: string, referenceTime: Date | null): Date | null {
+  return relativeContentDate(content, referenceTime)
+    ?? leadingContentDate(content)
+    ?? labeledContentDate(content)
+}
+
 function datedEventCandidates(content: string): Date[] {
   const patterns = [
     new RegExp(`\\b(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)?,?\\s*(${MONTHS}\\s+\\d{1,2},?\\s+20\\d{2})\\b`, 'gi'),
     new RegExp(`\\b(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)?,?\\s*(\\d{1,2}\\s+${MONTHS},?\\s+20\\d{2})\\b`, 'gi'),
+    /\b(20\d{2}-\d{1,2}-\d{1,2})\b/g,
+    /\b(\d{1,2}\/\d{1,2}\/20\d{2})\b/g,
   ]
   const dates: Date[] = []
   for (const pattern of patterns) {
@@ -453,7 +475,9 @@ function datedEventCandidates(content: string): Date[] {
       if (date) dates.push(date)
     }
   }
-  return dates.sort((left, right) => left.getTime() - right.getTime())
+  return dates
+    .filter((date, index, rows) => rows.findIndex((row) => row.getTime() === date.getTime()) === index)
+    .sort((left, right) => left.getTime() - right.getTime())
 }
 
 export function assessOpportunityDestination(args: {
@@ -482,8 +506,7 @@ export function assessOpportunityDestination(args: {
 
   const kind = typeof identity.opportunity_kind === 'string' ? identity.opportunity_kind : null
   const published = validDate(identity.source_published_at)
-    ?? relativeContentDate(content, args.referenceTime)
-    ?? leadingContentDate(content)
+    ?? contentPublicationDate(content, args.referenceTime)
   // A post/thread's age must come from the platform's publication timestamp.
   // evidence.observed_at is retrieval time and cannot prove that content is
   // inside a play's recency window. Stable destinations such as communities

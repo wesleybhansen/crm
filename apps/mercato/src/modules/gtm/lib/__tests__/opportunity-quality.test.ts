@@ -381,6 +381,36 @@ describe('opportunity quality primitives', () => {
     })
     expect(dated.status).toBe('fail')
     expect(dated.issues).toContain('stale_destination')
+
+    const labeledNumeric = assessOpportunityDestination({
+      identity: {
+        name: 'Archived Phoenix seller discussion',
+        opportunity_kind: 'thread',
+        access_type: 'public',
+        urls: ['https://forum.example/archived-phoenix-thread'],
+      },
+      evidence: [],
+      referenceTime,
+      maxAgeDays: 30,
+      content: 'Seller discussion · Updated: 11/26/2010 · Phoenix homeowners compare listing preparation.',
+    })
+    expect(labeledNumeric.status).toBe('fail')
+    expect(labeledNumeric.issues).toContain('stale_destination')
+
+    const leadingMonthYear = assessOpportunityDestination({
+      identity: {
+        name: 'Old Denver housing page',
+        opportunity_kind: 'thread',
+        access_type: 'public',
+        urls: ['https://forum.example/old-denver-page'],
+      },
+      evidence: [],
+      referenceTime,
+      maxAgeDays: 30,
+      content: 'Apr 2012 - Present · Denver homebuyer questions and community notes.',
+    })
+    expect(leadingMonthYear.status).toBe('fail')
+    expect(leadingMonthYear.issues).toContain('stale_destination')
   })
 
   it('rejects explicitly inactive destinations and derives event dates from returned content', () => {
@@ -419,6 +449,42 @@ describe('opportunity quality primitives', () => {
     })
     expect(upcoming.status).toBe('pass')
     expect(upcoming.issues).not.toContain('event_time_unknown')
+
+    const numericUpcoming = assessOpportunityDestination({
+      identity: {
+        name: 'Phoenix homebuyer workshop',
+        opportunity_kind: 'event',
+        access_type: 'public',
+        urls: ['https://events.example/phoenix-buyer-workshop'],
+      },
+      evidence: [{
+        claim: 'Public event calendar',
+        source_url: 'https://events.example/phoenix-buyer-workshop',
+        observed_at: referenceTime.toISOString(),
+        confidence: 0.8,
+      }],
+      referenceTime,
+      maxAgeDays: 30,
+      content: 'Register for the Phoenix first-time homebuyer workshop on 09/22/2026.',
+    })
+    expect(numericUpcoming.status).toBe('pass')
+    expect(numericUpcoming.issues).not.toContain('event_time_unknown')
+
+    const explicitFreshTimestampWins = assessOpportunityDestination({
+      identity: {
+        name: 'Current Austin discussion referencing an old sale',
+        opportunity_kind: 'thread',
+        access_type: 'public',
+        source_published_at: '2026-08-26T12:00:00.000Z',
+        urls: ['https://forum.example/current-austin-thread'],
+      },
+      evidence: [],
+      referenceTime,
+      maxAgeDays: 30,
+      content: 'Posted yesterday. We bought in 2012 and now need advice about selling our Austin home.',
+    })
+    expect(explicitFreshTimestampWins.status).toBe('pass')
+    expect(explicitFreshTimestampWins.issues).not.toContain('stale_destination')
   })
 
   it('detects common realtor false positives without flagging a genuine question', () => {
