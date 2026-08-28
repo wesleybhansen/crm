@@ -158,6 +158,14 @@ describe('opportunity quality primitives', () => {
         null,
         'thread',
       ).relevant,
+    ).toBe(false)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Which Denver neighborhoods should a first-time home buyer compare before purchasing a condo?',
+        'local_audience',
+        null,
+        'thread',
+      ).relevant,
     ).toBe(true)
     expect(
       assessRealtorOpportunitySuitability(

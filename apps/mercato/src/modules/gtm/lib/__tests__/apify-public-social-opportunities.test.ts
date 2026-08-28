@@ -310,6 +310,38 @@ describe('Apify public social demand opportunities', () => {
     ).not.toBeNull()
   })
 
+  it('requires current publication evidence and rejects auto-discovered rental lifestyle threads', () => {
+    const context = {
+      query: 'Tampa Florida homeowner question housing discussion',
+      location: 'Tampa, Florida',
+      expectedIntent: 'local_audience' as const,
+      scopedSubreddits: ['Tampa', 'AskTampa', 'Florida'],
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    }
+    expect(
+      normalizeRedditOpportunity(
+        redditPost({
+          title: 'Tampa first-time home buyer question',
+          body: 'Which Tampa neighborhoods should I compare before buying a house?',
+          subreddit: 'Tampa',
+          createdAt: null,
+        }),
+        context,
+      ),
+    ).toBeNull()
+    expect(
+      normalizeRedditOpportunity(
+        redditPost({
+          title: 'Tampa Florida dream',
+          body: 'I want to move to Tampa, rent a cute apartment, and bike by the ocean.',
+          subreddit: 'Adulting',
+        }),
+        context,
+      ),
+    ).toBeNull()
+  })
+
   it('drops vulnerable housing-crisis conversations before they become candidates', () => {
     const context = {
       query: 'Tampa local housing questions',

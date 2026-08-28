@@ -384,6 +384,91 @@ describe('DataForSEO organic demand-opportunity source', () => {
     ).toBeNull()
   })
 
+  it('rejects cross-market snippet collisions and non-venue articles', () => {
+    const sellerContext = {
+      keyword: 'Austin Texas selling my house',
+      location: 'Austin,Texas,United States',
+      observedAt: '2026-08-27T12:00:00.000Z',
+      expectedIntent: 'seller_intent' as const,
+    }
+    expect(
+      normalizeDataForSeoOpportunityItem(
+        item({
+          title: 'Cannot sell Houston house fast enough',
+          url: 'https://www.reddit.com/r/houston/comments/example/cannot_sell_house',
+          description: 'Austin, Texas? Do not be a desperate seller. I am selling my house in Houston.',
+          timestamp: '2026-08-26T12:00:00.000Z',
+        }),
+        sellerContext,
+      ),
+    ).toBeNull()
+    expect(
+      normalizeDataForSeoOpportunityItem(
+        item({
+          title: 'Community council meeting coverage',
+          url: 'https://brooklyneagle.com/news/community-council-coverage',
+          description: 'A community council discussed housing. A later archive entry mentions Phoenix, Arizona.',
+          timestamp: '2026-08-26T12:00:00.000Z',
+        }),
+        {
+          ...sellerContext,
+          keyword: 'Phoenix Arizona neighborhood association meeting',
+          location: 'Phoenix,Arizona,United States',
+          expectedIntent: 'local_audience',
+        },
+      ),
+    ).toBeNull()
+  })
+
+  it('fails closed on stale or undated conversations, expired events, and approval-only groups', () => {
+    const buyerContext = {
+      keyword: 'Austin Texas first-time home buyer',
+      location: 'Austin,Texas,United States',
+      observedAt: '2026-08-27T12:00:00.000Z',
+      expectedIntent: 'buyer_intent' as const,
+    }
+    const buyerThread = {
+      title: 'Austin first-time home buyer question',
+      url: 'https://www.reddit.com/r/Austin/comments/example/home_buyer_question',
+      description: 'Austin, Texas first-time home buyer asking which neighborhoods to compare.',
+    }
+    expect(normalizeDataForSeoOpportunityItem(item({ ...buyerThread, timestamp: null }), buyerContext)).toBeNull()
+    expect(
+      normalizeDataForSeoOpportunityItem(
+        item({ ...buyerThread, timestamp: '2024-08-26T12:00:00.000Z' }),
+        buyerContext,
+      ),
+    ).toBeNull()
+    expect(
+      normalizeDataForSeoOpportunityItem(
+        item({
+          title: 'Austin first-time home buyer workshop',
+          url: 'https://events.example.org/e/austin-homebuyer-workshop',
+          description: 'Austin, Texas home buyers attended this workshop on June 1, 2026.',
+          timestamp: null,
+        }),
+        buyerContext,
+      ),
+    ).toBeNull()
+    expect(
+      normalizeDataForSeoOpportunityItem(
+        item({
+          title: 'Austin first-time home buyers group',
+          url: 'https://www.facebook.com/groups/austin-first-time-buyers/',
+          description: 'Austin, Texas home buyers can request membership in this group.',
+          timestamp: '2026-08-26T12:00:00.000Z',
+        }),
+        buyerContext,
+      ),
+    ).toBeNull()
+    expect(
+      normalizeDataForSeoOpportunityItem(
+        item({ ...buyerThread, timestamp: '2026-08-26T12:00:00.000Z' }),
+        buyerContext,
+      ),
+    ).not.toBeNull()
+  })
+
   it.each([
     ['price-multiplying operator', 'site:reddit.com South Bay home buyers', 'unpriced_query_operator'],
     ['sensitive targeting', 'South Bay foreclosure homeowner forum', 'unsafe_consumer_targeting'],
