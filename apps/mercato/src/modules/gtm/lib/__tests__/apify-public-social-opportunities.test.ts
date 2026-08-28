@@ -472,6 +472,70 @@ describe('Apify public social demand opportunities', () => {
     )
   })
 
+  it('uses a market-bound global search while keeping subreddit auto-discovery off', async () => {
+    const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor,
+    })
+    const result = await adapter.search({
+      ...plan,
+      geography: 'US',
+      max_candidates: 5,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Austin, Texas'],
+        search_query: '("selling my home in Austin" OR "moving from Austin")',
+        reddit_subreddits: [],
+        reddit_auto_discover: false,
+        reddit_global_search: true,
+        reddit_sort: 'relevance',
+      },
+    })
+
+    expect(result.status).toBe('ok')
+    expect(runActor).toHaveBeenCalledWith(
+      APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+      expect.objectContaining({
+        query: '("selling my home in Austin" OR "moving from Austin")',
+        subreddits: [],
+        autoDiscoverSubreddits: false,
+        sort: 'relevance',
+        timeFilter: 'week',
+      }),
+      expect.any(Object),
+    )
+  })
+
+  it('refuses an unbounded or geographically unanchored global Reddit search before a paid call', async () => {
+    const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor,
+    })
+    const result = await adapter.search({
+      ...plan,
+      geography: 'US',
+      max_candidates: 11,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Austin, Texas'],
+        search_query: 'thinking of selling my home',
+        reddit_subreddits: [],
+        reddit_auto_discover: false,
+        reddit_global_search: true,
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('global Reddit search is limited to 10 results'),
+    })
+    expect(runActor).not.toHaveBeenCalled()
+  })
+
   it('builds bounded, posts-only, recent inputs from one approved discovery phrase', async () => {
     const redditRun = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
     const reddit = createApifyRedditOpportunityAdapter({
