@@ -352,6 +352,8 @@ export function assessRealtorOpportunitySuitability(
   const surface = PARTICIPATION_SURFACE.test(content)
   const educationalEvent = EDUCATIONAL_EVENT.test(content)
   const participationVenue = ['community', 'forum', 'group', 'thread'].includes(opportunityKind ?? '')
+  const stableParticipationVenue = ['community', 'forum', 'group'].includes(opportunityKind ?? '')
+  const transactionIntent = ['buyer_intent', 'seller_intent', 'mixed_intent'].includes(intent ?? '')
   const scheduledEvent = opportunityKind === 'event' && educationalEvent
   const educationalAudienceChannel =
     ['community', 'forum', 'group', 'event'].includes(opportunityKind ?? '')
@@ -363,12 +365,14 @@ export function assessRealtorOpportunitySuitability(
     || (intent === 'mixed_intent' && (expectedIntent === 'buyer_intent' || expectedIntent === 'seller_intent'))
     || (expectedIntent === 'mixed_intent'
       && (intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'))
+    || (expectedIntent === 'local_audience'
+      && (intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'))
   const localParticipation =
-    (participationVenue && (PUBLIC_PARTICIPATION_EVIDENCE.test(content) || content.includes('?')))
+    (stableParticipationVenue && (PUBLIC_PARTICIPATION_EVIDENCE.test(content) || content.includes('?')))
     || scheduledEvent
     || educationalAudienceChannel
-    || (opportunityKind === 'post' && surface && directConsumerNeed)
-    || (opportunityKind === 'thread' && surface && consumerNeed)
+    || (opportunityKind === 'post' && surface && directConsumerNeed && transactionIntent)
+    || (opportunityKind === 'thread' && consumerNeed && transactionIntent)
   const directDemand = opportunityKind === 'post' ? directConsumerNeed : consumerNeed
   const relevant = expectedIntent === 'local_audience'
     ? housing && localParticipation && reasons.length === 0

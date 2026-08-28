@@ -159,14 +159,21 @@ describe('opportunity quality primitives', () => {
         'thread',
       ).relevant,
     ).toBe(false)
+    const directBuyerThread = assessRealtorOpportunitySuitability(
+      'I am trying to buy a condo in Denver. Which neighborhoods should I compare before purchasing?',
+      'local_audience',
+      null,
+      'thread',
+    )
+    expect(directBuyerThread.relevant).toBe(true)
     expect(
       assessRealtorOpportunitySuitability(
-        'Which Denver neighborhoods should a first-time home buyer compare before purchasing a condo?',
+        'Tampa homeowners with solar: has anyone looked into adding a battery to lower a high utility bill?',
         'local_audience',
         null,
         'thread',
       ).relevant,
-    ).toBe(true)
+    ).toBe(false)
     expect(
       assessRealtorOpportunitySuitability(
         'Austin Community Registry for neighborhood associations and homeowner organizations.',
