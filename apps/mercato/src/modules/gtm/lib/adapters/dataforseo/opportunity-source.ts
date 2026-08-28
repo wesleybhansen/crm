@@ -14,9 +14,11 @@ import {
   canonicalDataForSeoUsLocation,
 } from './maps'
 import {
+  assessRealtorOpportunitySuitability,
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
   demonstratedOpportunityLocation,
+  type DemonstratedOpportunityIntent,
   sensitiveConsumerOpportunityReasons,
 } from '../../research/opportunity-quality'
 
@@ -308,7 +310,12 @@ function strictProviderTimestamp(value: unknown): string | null {
 
 export function normalizeDataForSeoOpportunityItem(
   item: Record<string, unknown>,
-  context: { keyword: string; location: string; observedAt: string },
+  context: {
+    keyword: string
+    location: string
+    observedAt: string
+    expectedIntent?: DemonstratedOpportunityIntent
+  },
 ): Candidate | null {
   const resultType = stringValue(item.type)?.toLowerCase() ?? ''
   if (!['organic', 'discussions_and_forums_element', 'perspectives_element', 'events_element'].includes(resultType)) {
@@ -333,6 +340,18 @@ export function normalizeDataForSeoOpportunityItem(
   const intent = demonstratedIntent.kind
   const platform = platformName(url.hostname)
   const demonstratedLocation = demonstratedOpportunityLocation(searchable, context.location)
+  if (context.expectedIntent != null) {
+    const suitability = assessRealtorOpportunitySuitability(
+      searchable,
+      context.expectedIntent,
+      url.toString(),
+      kind,
+    )
+    // The SERP request location is targeting provenance, not returned-row
+    // evidence. Keep only a lane-relevant row whose own title, snippet, or URL
+    // proves the frozen market.
+    if (!suitability.relevant || !demonstratedLocation) return null
+  }
   const eventStartAt = kind === 'event' ? explicitEventStartAt(searchable, context.observedAt) : null
   const sourcePublishedAt = strictProviderTimestamp(item.timestamp)
   const engagementCount = Math.max(0, finiteNumber(item.posts_count) ?? 0)
@@ -658,6 +677,7 @@ export function createDataForSeoOpportunityAdapter(
               keyword,
               location,
               observedAt,
+              expectedIntent: requestedOpportunityIntent(plan),
             }),
           )
           .filter((candidate): candidate is Candidate => candidate !== null)
@@ -689,4 +709,14 @@ export function createDataForSeoOpportunityAdapter(
       }
     },
   }
+}
+
+function requestedOpportunityIntent(plan: SourceSearchPlan): DemonstratedOpportunityIntent {
+  const value = plan.provider_query?.opportunity_intent_lane
+  return value === 'buyer_intent'
+    || value === 'seller_intent'
+    || value === 'local_audience'
+    || value === 'mixed_intent'
+    ? value
+    : null
 }

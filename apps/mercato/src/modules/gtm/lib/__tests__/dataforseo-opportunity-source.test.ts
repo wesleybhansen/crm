@@ -346,6 +346,44 @@ describe('DataForSEO organic demand-opportunity source', () => {
     expect(candidate?.identity.provider_location).toBe('Austin,Texas,United States')
   })
 
+  it('retains only returned rows that prove the frozen lane and market', () => {
+    const buyer = item({
+      title: 'Austin first-time home buyer workshop',
+      url: 'https://events.example.org/austin-home-buyer-workshop',
+      description: 'Austin, Texas home buyers can register for this public workshop on Sep 12, 2026.',
+    })
+    const context = {
+      keyword: 'Austin Texas home seller workshop',
+      location: 'Austin,Texas,United States',
+      observedAt: CLOCK.toISOString(),
+    }
+    expect(
+      normalizeDataForSeoOpportunityItem(buyer, {
+        ...context,
+        expectedIntent: 'seller_intent',
+      }),
+    ).toBeNull()
+    expect(
+      normalizeDataForSeoOpportunityItem(buyer, {
+        ...context,
+        expectedIntent: 'buyer_intent',
+      }),
+    ).not.toBeNull()
+    expect(
+      normalizeDataForSeoOpportunityItem(
+        item({
+          title: 'First-time home buyer workshop',
+          url: 'https://events.example.org/home-buyer-workshop',
+          description: 'Home buyers can register for this public workshop on Sep 12, 2026.',
+        }),
+        {
+          ...context,
+          expectedIntent: 'buyer_intent',
+        },
+      ),
+    ).toBeNull()
+  })
+
   it.each([
     ['price-multiplying operator', 'site:reddit.com South Bay home buyers', 'unpriced_query_operator'],
     ['sensitive targeting', 'South Bay foreclosure homeowner forum', 'unsafe_consumer_targeting'],

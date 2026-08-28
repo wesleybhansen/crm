@@ -29,9 +29,11 @@ import {
   type ApifyRunOutcome,
 } from './client'
 import {
+  assessRealtorOpportunitySuitability,
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
   demonstratedOpportunityLocation,
+  type DemonstratedOpportunityIntent,
   sensitiveConsumerOpportunityReasons,
 } from '../../research/opportunity-quality'
 
@@ -66,9 +68,20 @@ export type PublicSocialOpportunityConfig = {
 type NormalizeContext = {
   query: string
   location: string | null
+  expectedIntent?: DemonstratedOpportunityIntent
   scopedSubreddits?: string[]
   attemptedAt: string
   actorId: string
+}
+
+function requestedOpportunityIntent(plan: SourceSearchPlan): DemonstratedOpportunityIntent {
+  const value = plan.provider_query?.opportunity_intent_lane
+  return value === 'buyer_intent'
+    || value === 'seller_intent'
+    || value === 'local_audience'
+    || value === 'mixed_intent'
+    ? value
+    : null
 }
 
 type RunActor = (
@@ -511,6 +524,18 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
     context.location,
   )
   if (subredditLocation) identity.location = subredditLocation
+  if (context.expectedIntent != null) {
+    const suitability = assessRealtorOpportunitySuitability(
+      content,
+      context.expectedIntent,
+      sourceUrl,
+      'thread',
+    )
+    // Provider targeting is not evidence. A paid row is retained only when
+    // its returned content demonstrates the requested realtor lane and its
+    // returned text or frozen market subreddit independently proves place.
+    if (!suitability.relevant || !identity.location) return null
+  }
   identity.member_count = memberCount || null
   const publishedAt = sourcePublishedAt(row.createdAt)
   identity.source_published_at = publishedAt
@@ -595,6 +620,15 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
         : undefined,
   })
   identity.opportunity_kind = 'post'
+  if (context.expectedIntent != null) {
+    const suitability = assessRealtorOpportunitySuitability(
+      content,
+      context.expectedIntent,
+      sourceUrl,
+      'post',
+    )
+    if (!suitability.relevant || !identity.location) return null
+  }
   const publishedAt = sourcePublishedAt(row.timestamp)
   identity.source_published_at = publishedAt
   const demonstratedIntent = classifyOpportunityIntent(content)
@@ -867,6 +901,7 @@ export function createPublicSocialOpportunityAdapter(
       const context = {
         query,
         location: locationText(plan),
+        expectedIntent: requestedOpportunityIntent(plan),
         scopedSubreddits:
           config.platform === 'Reddit' ? redditSubreddits(plan) : undefined,
         attemptedAt: outcome.attemptedAt,

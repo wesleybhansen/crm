@@ -279,6 +279,37 @@ describe('Apify public social demand opportunities', () => {
     expect(x?.identity.intent_kind).toBe('local_audience')
   })
 
+  it('drops a paid social row when returned content does not prove the frozen lane and market', () => {
+    const context = {
+      query: 'Austin Texas selling my house thinking of selling',
+      location: 'Austin, Texas',
+      expectedIntent: 'seller_intent' as const,
+      scopedSubreddits: ['Austin', 'AskAustin', 'Texas'],
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    }
+    expect(
+      normalizeRedditOpportunity(
+        redditPost({
+          title: 'SOL scaling by state: a community guide',
+          body: 'A general legal discussion about claim deadlines.',
+          subreddit: 'BSA_Survivors',
+        }),
+        context,
+      ),
+    ).toBeNull()
+    expect(
+      normalizeRedditOpportunity(
+        redditPost({
+          title: 'Thinking of selling our Austin home',
+          body: 'We are preparing to sell our house and need advice about what to repair first.',
+          subreddit: 'Austin',
+        }),
+        context,
+      ),
+    ).not.toBeNull()
+  })
+
   it('drops vulnerable housing-crisis conversations before they become candidates', () => {
     const context = {
       query: 'Tampa local housing questions',
