@@ -100,37 +100,37 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     if (intent === 'buyer_intent') {
       return [
-        '"first-time homebuyer workshop" (registration OR calendar) 2026',
-        '"homebuyer education class" (register OR schedule) 2026',
-        'Reddit "buying a home" "first time homebuyer"',
-        '"down payment assistance workshop" 2026',
-        '"housing counseling" homebuyer class 2026',
+        'first time home buyer class registration 2026',
+        'buying my first home question',
+        'house hunting neighborhood advice',
+        'down payment assistance workshop 2026',
+        'home buyer community event 2026',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        '"home seller workshop" (registration OR calendar) 2026',
-        'Reddit "selling my house"',
-        'Reddit "thinking of selling" house',
-        '"downsizing workshop" homeowners 2026',
-        '"home selling class" 2026',
+        'home seller workshop registration 2026',
+        'selling my house question',
+        'thinking of selling my house advice',
+        'preparing home for sale discussion',
+        'home valuation workshop homeowners 2026',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        'Reddit "buy before selling" home',
-        '"buy before selling workshop" 2026',
-        '"home buyer and seller class" 2026',
-        '"buying and selling a home seminar" 2026',
-        '"sell and buy a home workshop" 2026',
+        'buy before selling home question',
+        'sell before buying home advice',
+        'buying and selling a home workshop 2026',
+        'move while selling and buying a home discussion',
+        'home buyer seller class 2026',
       ]
     }
     return [
-      '"neighborhood association meeting" (agenda OR calendar) 2026',
-      '"community council meeting" housing 2026',
-      '"homebuyer workshop" 2026',
-      '"home seller workshop" 2026',
-      'Reddit homeowner housing discussion',
+      'neighborhood association meeting calendar 2026',
+      'homeowner community meeting 2026',
+      'home buyer workshop 2026',
+      'home seller workshop 2026',
+      'housing community event calendar 2026',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
@@ -324,7 +324,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v13',
+        query_lane_version: 'opportunity-query-v14',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

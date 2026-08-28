@@ -14,7 +14,6 @@ import {
   canonicalDataForSeoUsLocation,
 } from './maps'
 import {
-  assessOpportunityDestination,
   assessRealtorOpportunitySuitability,
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
@@ -458,6 +457,7 @@ export function normalizeDataForSeoOpportunityItem(
           result_type: resultType,
           platform,
           requested_location: context.location,
+          requested_intent: context.expectedIntent ?? null,
           rank_group: finiteNumber(item.rank_group),
           rank_absolute: finiteNumber(item.rank_absolute),
           demonstrated_intent_signals: [
@@ -468,29 +468,6 @@ export function normalizeDataForSeoOpportunityItem(
         },
       },
     ],
-  }
-  if (context.expectedIntent != null) {
-    const suitability = assessRealtorOpportunitySuitability(
-      searchable,
-      context.expectedIntent,
-      url.toString(),
-      kind,
-    )
-    // The SERP request location is targeting provenance, not returned-row
-    // evidence. Keep only a lane-relevant row whose own title, snippet, or URL
-    // proves the frozen market.
-    if (!suitability.relevant || !demonstratedLocation) return null
-    const destination = assessOpportunityDestination({
-      identity: candidate.identity,
-      evidence: candidate.evidence,
-      referenceTime: new Date(context.observedAt),
-      maxAgeDays: 30,
-      content: searchable,
-    })
-    // A paid row must be current and directly usable. Undated posts/threads,
-    // expired or undated events, and approval-only groups remain visible in
-    // raw provider receipts but do not become customer opportunities.
-    if (destination.status !== 'pass') return null
   }
   return candidate
 }
@@ -683,13 +660,16 @@ export function createDataForSeoOpportunityAdapter(
         const task = taskFrom(payload)
         const rootStatus = Number(root.status_code ?? 0)
         const taskStatus = Number(task.status_code ?? 0)
-        const providerReceipt = (status: string, count = 0) => ({
+        const providerReceipt = (status: string, count = 0, rawCount = count) => ({
           ...baseReceipt(status, task, count),
           root_status_code: rootStatus || null,
           root_status_message: boundedText(root.status_message, 240),
           task_status_code: taskStatus || null,
           task_status_message: boundedText(task.status_message, 240),
           root_cost_usd: root.cost ?? null,
+          raw_item_count: rawCount,
+          returned_count: count,
+          parser_dropped_rows: Math.max(0, rawCount - count),
         })
         const rootCost = finiteNumber(root.cost)
         const taskCost = finiteNumber(task.cost)
@@ -751,8 +731,8 @@ export function createDataForSeoOpportunityAdapter(
         }
         const result = objectValue(Array.isArray(task.result) ? task.result[0] : {})
         const observedAt = stringValue(result.datetime) ?? now().toISOString()
-        const candidates = opportunityItems(task)
-          .slice(0, maxCandidates)
+        const rawItems = opportunityItems(task).slice(0, maxCandidates)
+        const candidates = rawItems
           .map((item) =>
             normalizeDataForSeoOpportunityItem(item, {
               keyword,
@@ -767,14 +747,14 @@ export function createDataForSeoOpportunityAdapter(
             status: 'no_result',
             data: null,
             cost_units: actualUnits,
-            receipt: providerReceipt('no_result'),
+            receipt: providerReceipt('no_result', 0, rawItems.length),
           }
         }
         return {
           status: 'ok',
           data: candidates,
           cost_units: actualUnits,
-          receipt: providerReceipt('completed', candidates.length),
+          receipt: providerReceipt('completed', candidates.length, rawItems.length),
         }
       } catch (error) {
         const timedOut = error instanceof Error && error.name === 'TimeoutError'

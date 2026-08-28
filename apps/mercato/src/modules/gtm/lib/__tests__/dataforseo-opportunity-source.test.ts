@@ -11,6 +11,7 @@ import {
 import { DATAFORSEO_REQUIRED_RETENTION_DAYS, DATAFORSEO_REQUIRED_TERMS_VERSION } from '../adapters/dataforseo/maps'
 import type { SourceSearchPlan } from '../adapters/types'
 import { buildSourcePlan } from '../research/plan'
+import { ruleBasedFitScorer } from '../research/qualify'
 
 const CLOCK = new Date('2026-08-26T22:00:00.000Z')
 const approvedEnv = {
@@ -346,7 +347,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
     expect(candidate?.identity.provider_location).toBe('Austin,Texas,United States')
   })
 
-  it('retains only returned rows that prove the frozen lane and market', () => {
+  it('retains safe public rows for fit-v7 even when the returned lane or market is unresolved', () => {
     const buyer = item({
       title: 'Austin first-time home buyer workshop',
       url: 'https://events.example.org/austin-home-buyer-workshop',
@@ -357,51 +358,67 @@ describe('DataForSEO organic demand-opportunity source', () => {
       location: 'Austin,Texas,United States',
       observedAt: CLOCK.toISOString(),
     }
-    expect(
-      normalizeDataForSeoOpportunityItem(buyer, {
-        ...context,
-        expectedIntent: 'seller_intent',
-      }),
-    ).toBeNull()
+    const laneMismatch = normalizeDataForSeoOpportunityItem(buyer, {
+      ...context,
+      expectedIntent: 'seller_intent',
+    })
+    expect(laneMismatch).toMatchObject({
+      identity: { intent_kind: 'buyer_intent', location: 'Austin,Texas,United States' },
+      evidence: [expect.objectContaining({ detail: expect.objectContaining({ requested_intent: 'seller_intent' }) })],
+    })
     expect(
       normalizeDataForSeoOpportunityItem(buyer, {
         ...context,
         expectedIntent: 'buyer_intent',
       }),
     ).not.toBeNull()
-    expect(
-      normalizeDataForSeoOpportunityItem(
-        item({
-          title: 'First-time home buyer workshop',
-          url: 'https://events.example.org/home-buyer-workshop',
-          description: 'Home buyers can register for this public workshop on Sep 12, 2026.',
-        }),
-        {
-          ...context,
-          expectedIntent: 'buyer_intent',
-        },
-      ),
-    ).toBeNull()
+    const unresolvedMarket = normalizeDataForSeoOpportunityItem(
+      item({
+        title: 'First-time home buyer workshop',
+        url: 'https://events.example.org/home-buyer-workshop',
+        description: 'Home buyers can register for this public workshop on Sep 12, 2026.',
+      }),
+      {
+        ...context,
+        expectedIntent: 'buyer_intent',
+      },
+    )
+    expect(unresolvedMarket).toMatchObject({ identity: { location: null } })
   })
 
-  it('rejects cross-market snippet collisions and non-venue articles', () => {
+  it('keeps cross-market public threads for fit-v7 but still rejects non-venue articles', () => {
     const sellerContext = {
       keyword: 'Austin Texas selling my house',
       location: 'Austin,Texas,United States',
       observedAt: '2026-08-27T12:00:00.000Z',
       expectedIntent: 'seller_intent' as const,
     }
+    const crossMarket = normalizeDataForSeoOpportunityItem(
+      item({
+        title: 'Cannot sell Houston house fast enough',
+        url: 'https://www.reddit.com/r/houston/comments/example/cannot_sell_house',
+        description: 'Austin, Texas? Do not be a desperate seller. I am selling my house in Houston.',
+        timestamp: '2026-08-26T12:00:00.000Z',
+      }),
+      sellerContext,
+    )
+    expect(crossMarket).toMatchObject({ identity: { location: null, intent_kind: 'seller_intent' } })
+    if (!crossMarket) throw new Error('expected a safe public candidate')
     expect(
-      normalizeDataForSeoOpportunityItem(
-        item({
-          title: 'Cannot sell Houston house fast enough',
-          url: 'https://www.reddit.com/r/houston/comments/example/cannot_sell_house',
-          description: 'Austin, Texas? Do not be a desperate seller. I am selling my house in Houston.',
-          timestamp: '2026-08-26T12:00:00.000Z',
-        }),
-        sellerContext,
+      ruleBasedFitScorer.score(
+        crossMarket,
+        {
+          entityUnit: 'opportunities',
+          geography: 'Austin, Texas',
+          audience: 'Austin homeowners considering selling a home',
+          signal: 'A current public question demonstrates home-selling intent',
+          recencyWindow: '30 days',
+          providerQuery: { opportunity_intent_lane: 'seller_intent' },
+          referenceTime: sellerContext.observedAt,
+        },
+        crossMarket.evidence,
       ),
-    ).toBeNull()
+    ).toMatchObject({ verdict: 'rejected' })
     expect(
       normalizeDataForSeoOpportunityItem(
         item({
@@ -420,7 +437,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
     ).toBeNull()
   })
 
-  it('fails closed on stale or undated conversations, expired events, and approval-only groups', () => {
+  it('preserves safe stale, undated, expired, and approval-only rows for fit-v7 rejection', () => {
     const buyerContext = {
       keyword: 'Austin Texas first-time home buyer',
       location: 'Austin,Texas,United States',
@@ -432,13 +449,15 @@ describe('DataForSEO organic demand-opportunity source', () => {
       url: 'https://www.reddit.com/r/Austin/comments/example/home_buyer_question',
       description: 'Austin, Texas first-time home buyer asking which neighborhoods to compare.',
     }
-    expect(normalizeDataForSeoOpportunityItem(item({ ...buyerThread, timestamp: null }), buyerContext)).toBeNull()
+    expect(
+      normalizeDataForSeoOpportunityItem(item({ ...buyerThread, timestamp: null }), buyerContext),
+    ).toMatchObject({ identity: { source_published_at: null } })
     expect(
       normalizeDataForSeoOpportunityItem(
         item({ ...buyerThread, timestamp: '2024-08-26T12:00:00.000Z' }),
         buyerContext,
       ),
-    ).toBeNull()
+    ).toMatchObject({ identity: { source_published_at: '2024-08-26T12:00:00.000Z' } })
     expect(
       normalizeDataForSeoOpportunityItem(
         item({
@@ -449,7 +468,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
         }),
         buyerContext,
       ),
-    ).toBeNull()
+    ).toMatchObject({ identity: { opportunity_kind: 'event' } })
     expect(
       normalizeDataForSeoOpportunityItem(
         item({
@@ -460,7 +479,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
         }),
         buyerContext,
       ),
-    ).toBeNull()
+    ).toMatchObject({ identity: { opportunity_kind: 'group', access_type: 'approval_required' } })
     expect(
       normalizeDataForSeoOpportunityItem(
         item({ ...buyerThread, timestamp: '2026-08-26T12:00:00.000Z' }),
@@ -514,6 +533,9 @@ describe('DataForSEO organic demand-opportunity source', () => {
       root_cost_usd: 0.004,
       task_cost_usd: 0.004,
       items_count: 2,
+      raw_item_count: 2,
+      returned_count: 2,
+      parser_dropped_rows: 0,
     })
     const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))
     expect(body).toEqual([
@@ -544,6 +566,36 @@ describe('DataForSEO organic demand-opportunity source', () => {
         provider_status: 'no_result',
         task_status_code: 40102,
         task_cost_usd: 0.002,
+      },
+    })
+  })
+
+  it('reports raw, retained, and normalization-dropped rows separately', async () => {
+    const adapter = createDataForSeoOpportunityAdapter({
+      env: approvedEnv,
+      fetchImpl: jest.fn().mockResolvedValue(
+        response([
+          item(),
+          item({
+            title: 'South Bay real estate market overview',
+            url: 'https://example.org/articles/south-bay-market-overview',
+            description: 'A general article about the South Bay housing market.',
+          }),
+        ]),
+      ) as unknown as typeof fetch,
+      now: () => CLOCK,
+    })
+
+    const result = await adapter.search(plan)
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      data: [expect.objectContaining({ entity_kind: 'opportunity' })],
+      receipt: {
+        items_count: 1,
+        raw_item_count: 2,
+        returned_count: 1,
+        parser_dropped_rows: 1,
       },
     })
   })
