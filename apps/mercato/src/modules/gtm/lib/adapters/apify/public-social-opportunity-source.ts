@@ -29,6 +29,7 @@ import {
   type ApifyRunOutcome,
 } from './client'
 import {
+  assessOpportunityDestination,
   assessRealtorOpportunitySuitability,
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
@@ -524,6 +525,10 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
     context.location,
   )
   if (subredditLocation) identity.location = subredditLocation
+  identity.member_count = memberCount || null
+  const publishedAt = sourcePublishedAt(row.createdAt)
+  identity.source_published_at = publishedAt
+  const demonstratedIntent = classifyOpportunityIntent(content)
   if (context.expectedIntent != null) {
     const suitability = assessRealtorOpportunitySuitability(
       content,
@@ -535,11 +540,20 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
     // its returned content demonstrates the requested realtor lane and its
     // returned text or frozen market subreddit independently proves place.
     if (!suitability.relevant || !identity.location) return null
+    if (
+      context.expectedIntent === 'local_audience'
+      && !subredditLocation
+      && !['buyer_intent', 'seller_intent', 'mixed_intent'].includes(demonstratedIntent.kind ?? '')
+    ) return null
+    const destination = assessOpportunityDestination({
+      identity,
+      evidence: [],
+      referenceTime: new Date(context.attemptedAt),
+      maxAgeDays: 30,
+      content,
+    })
+    if (destination.status !== 'pass') return null
   }
-  identity.member_count = memberCount || null
-  const publishedAt = sourcePublishedAt(row.createdAt)
-  identity.source_published_at = publishedAt
-  const demonstratedIntent = classifyOpportunityIntent(content)
   return {
     entity_kind: 'opportunity',
     identity,
@@ -620,6 +634,8 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
         : undefined,
   })
   identity.opportunity_kind = 'post'
+  const publishedAt = sourcePublishedAt(row.timestamp)
+  identity.source_published_at = publishedAt
   if (context.expectedIntent != null) {
     const suitability = assessRealtorOpportunitySuitability(
       content,
@@ -628,9 +644,15 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
       'post',
     )
     if (!suitability.relevant || !identity.location) return null
+    const destination = assessOpportunityDestination({
+      identity,
+      evidence: [],
+      referenceTime: new Date(context.attemptedAt),
+      maxAgeDays: 30,
+      content,
+    })
+    if (destination.status !== 'pass') return null
   }
-  const publishedAt = sourcePublishedAt(row.timestamp)
-  identity.source_published_at = publishedAt
   const demonstratedIntent = classifyOpportunityIntent(content)
   return {
     entity_kind: 'opportunity',

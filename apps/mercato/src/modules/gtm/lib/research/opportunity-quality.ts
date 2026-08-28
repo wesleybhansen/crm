@@ -121,6 +121,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:lease assignment|early (?:lease )?termination|end(?:ing)? (?:our|my|the) lease|property management company|apartment (?:was )?flooded|charged .*?(?:running toilet|water damage)|landlord (?:dispute|complaint)|security deposit dispute)\b/i,
   ],
   [
+    'rental_or_lifestyle_intent',
+    /\b(?:looking for|want(?:ing)?|need(?:ing)?|move|moving|relocat(?:e|ing))\b.{0,100}\b(?:apartment|rental|renting|lease)\b|\b(?:apartment|rental) (?:search|hunt|recommendation)\b/i,
+  ],
+  [
     'service_directory_or_marketplace',
     /\b(?:visit (?:the )?marketplace|marketplace by|directory of (?:local )?(?:service )?(?:professionals?|providers?|businesses?)|list of trusted [a-z -]{0,50}(?:professionals?|providers?|pros)|browse (?:local )?(?:service )?(?:professionals?|providers?|pros))\b/i,
   ],
@@ -162,7 +166,7 @@ const SENSITIVE_CONSUMER_OPPORTUNITY: Array<[string, RegExp]> = [
 ]
 
 const REALTOR_HOUSING_CONTEXT =
-  /\b(?:home|house|housing|property|condo|townhome|homeowner|home ?buyer|home ?seller|first[- ]time buyer|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|community registry|homebuyer education)\b/i
+  /\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|community registry|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
 const CONSUMER_QUESTION =
   /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =

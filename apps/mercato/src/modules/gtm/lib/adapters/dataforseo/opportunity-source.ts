@@ -14,6 +14,7 @@ import {
   canonicalDataForSeoUsLocation,
 } from './maps'
 import {
+  assessOpportunityDestination,
   assessRealtorOpportunitySuitability,
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
@@ -47,9 +48,18 @@ const LOCAL_AUDIENCE =
   /\b(?:local|neighbou?rhood|resident|community|homeowner|real estate|housing|property|home|house|condo)\b/i
 const EVENT_HINT = /\b(?:event|meetup|workshop|seminar|webinar|open house|home tour|class|fair)\b/i
 const GROUP_HINT = /\b(?:group|club|association)\b/i
-const COMMUNITY_HINT = /\b(?:community|neighbou?rhood)\b/i
 const FORUM_HINT = /\bforum\b/i
-const THREAD_HINT = /\b(?:thread|discussion|question|q(?:uestion)?\s*&\s*a(?:nswer)?|topic)\b/i
+const VERIFIED_COMMUNITY_TITLE =
+  /\b(?:community (?:group|forum|registry|calendar|organization)|neighbou?rhood (?:association|group|forum|organization|calendar)|homeowners? association|resident organization)\b/i
+const NON_LOCAL_REDDIT_COMMUNITIES = new Set([
+  'realestate',
+  'firsttimehomebuyer',
+  'homeowners',
+  'homeimprovement',
+  'personalfinance',
+  'mortgages',
+  'housing',
+])
 const RECEIPT_FIELDS = [
   'provider_request_id',
   'provider_status',
@@ -201,7 +211,7 @@ function platformName(hostname: string): string {
   return host
 }
 
-function opportunityKind(url: URL, text: string, resultType: string): OpportunityKind | null {
+function opportunityKind(url: URL, title: string, resultType: string): OpportunityKind | null {
   const host = url.hostname.toLowerCase().replace(/^www\./, '')
   const path = url.pathname.toLowerCase()
   if (resultType === 'discussions_and_forums_element') return 'thread'
@@ -226,14 +236,63 @@ function opportunityKind(url: URL, text: string, resultType: string): Opportunit
   if (host.endsWith('youtube.com') && (path.startsWith('/@') || path.startsWith('/channel/'))) {
     return 'creator_audience'
   }
-  if (EVENT_HINT.test(text) || /\/(?:events?|calendar)(?:\/|$)/.test(path)) return 'event'
-  if (FORUM_HINT.test(text) || /\/(?:forums?|boards?)(?:\/|$)/.test(path)) return 'forum'
-  if (GROUP_HINT.test(text) || /\/(?:groups?|clubs?)(?:\/|$)/.test(path)) return 'group'
-  if (THREAD_HINT.test(text) || /\/(?:threads?|topics?|questions?|discussions?)(?:\/|$)/.test(path)) {
+  // Organic-result descriptions frequently splice unrelated sitelinks and
+  // snippets together. They may support fit, but cannot manufacture a
+  // destination type. Require the title or URL structure to prove the venue.
+  if (EVENT_HINT.test(title) || /\/(?:events?|calendar)(?:\/|$)/.test(path)) return 'event'
+  if (FORUM_HINT.test(title) || /\/(?:forums?|boards?)(?:\/|$)/.test(path)) return 'forum'
+  if (GROUP_HINT.test(title) || /\/(?:groups?|clubs?)(?:\/|$)/.test(path)) return 'group'
+  if (/\/(?:threads?|topics?|questions?|discussions?)(?:\/|$)/.test(path)) {
     return 'thread'
   }
-  if (COMMUNITY_HINT.test(text) || /\/(?:community|communities|neighbou?rhoods?)(?:\/|$)/.test(path)) {
+  if (VERIFIED_COMMUNITY_TITLE.test(title) || /\/(?:community|communities|neighbou?rhoods?)(?:\/|$)/.test(path)) {
     return 'community'
+  }
+  return null
+}
+
+function normalizedLocationToken(value: string | undefined): string {
+  return (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function redditCommunityConflictsWithLocation(url: URL, requestedLocation: string): boolean {
+  if (!url.hostname.toLowerCase().endsWith('reddit.com')) return false
+  const subreddit = url.pathname.match(/^\/r\/([^/]+)/i)?.[1]
+  if (!subreddit) return false
+  const returned = normalizedLocationToken(subreddit)
+  if (NON_LOCAL_REDDIT_COMMUNITIES.has(returned)) return false
+  const [primary, region] = requestedLocation.split(',')
+  const expected = [normalizedLocationToken(primary), normalizedLocationToken(region)].filter(Boolean)
+  return !expected.some((value) => returned.includes(value) || value.includes(returned))
+}
+
+function demonstratedSearchResultLocation(args: {
+  title: string
+  description: string | null
+  url: URL
+  requestedLocation: string
+  expectedIntent: DemonstratedOpportunityIntent
+  kind: OpportunityKind
+}): string | null {
+  if (redditCommunityConflictsWithLocation(args.url, args.requestedLocation)) return null
+  const titleAndUrl = `${args.title} ${args.url.hostname} ${args.url.pathname}`
+  const direct = demonstratedOpportunityLocation(titleAndUrl, args.requestedLocation)
+  if (direct) return direct
+  if (!args.description) return null
+  const segments = args.description
+    .split(/(?:\.{2,}|(?<=[.!?])\s+|\s+\|\s+|\s+—\s+)/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+  for (const segment of segments) {
+    const location = demonstratedOpportunityLocation(segment, args.requestedLocation)
+    if (!location) continue
+    const suitability = assessRealtorOpportunitySuitability(
+      segment,
+      args.expectedIntent,
+      args.url.toString(),
+      args.kind,
+    )
+    if (suitability.relevant) return location
   }
   return null
 }
@@ -331,7 +390,7 @@ export function normalizeDataForSeoOpportunityItem(
     || sensitiveConsumerOpportunityReasons(searchable).length > 0
   ) return null
   if (resultType === 'events_element' && /(^|\.)google\.[a-z.]+$/i.test(url.hostname)) return null
-  const kind = opportunityKind(url, searchable, resultType)
+  const kind = opportunityKind(url, title, resultType)
   if (!kind) return null
   if (!LOCAL_AUDIENCE.test(searchable) && !BUYER_INTENT.test(searchable) && !SELLER_INTENT.test(searchable)) {
     return null
@@ -339,23 +398,28 @@ export function normalizeDataForSeoOpportunityItem(
   const demonstratedIntent = classifyOpportunityIntent(searchable)
   const intent = demonstratedIntent.kind
   const platform = platformName(url.hostname)
-  const demonstratedLocation = demonstratedOpportunityLocation(searchable, context.location)
-  if (context.expectedIntent != null) {
-    const suitability = assessRealtorOpportunitySuitability(
-      searchable,
-      context.expectedIntent,
-      url.toString(),
-      kind,
-    )
-    // The SERP request location is targeting provenance, not returned-row
-    // evidence. Keep only a lane-relevant row whose own title, snippet, or URL
-    // proves the frozen market.
-    if (!suitability.relevant || !demonstratedLocation) return null
-  }
+  const demonstratedLocation = context.expectedIntent == null
+    ? demonstratedOpportunityLocation(searchable, context.location)
+    : demonstratedSearchResultLocation({
+        title,
+        description,
+        url,
+        requestedLocation: context.location,
+        expectedIntent: context.expectedIntent,
+        kind,
+      })
   const eventStartAt = kind === 'event' ? explicitEventStartAt(searchable, context.observedAt) : null
   const sourcePublishedAt = strictProviderTimestamp(item.timestamp)
   const engagementCount = Math.max(0, finiteNumber(item.posts_count) ?? 0)
-  return {
+  const accessType =
+    kind === 'event'
+      ? url.hostname.toLowerCase().endsWith('eventbrite.com')
+        ? 'ticketed' as const
+        : 'public' as const
+      : kind === 'group'
+        ? 'approval_required' as const
+        : 'public' as const
+  const candidate: Candidate = {
     entity_kind: 'opportunity',
     identity: {
       name: title,
@@ -367,14 +431,7 @@ export function normalizeDataForSeoOpportunityItem(
       intent_kind: intent,
       audience_description: description ?? `${title} on ${platform}`,
       activity_level: 'unknown',
-      access_type:
-        kind === 'event'
-          ? url.hostname.toLowerCase().endsWith('eventbrite.com')
-            ? 'ticketed'
-            : 'public'
-          : kind === 'group'
-            ? 'approval_required'
-            : 'public',
+      access_type: accessType,
       event_start_at: eventStartAt,
       source_published_at: sourcePublishedAt,
       engagement_count: engagementCount,
@@ -412,6 +469,30 @@ export function normalizeDataForSeoOpportunityItem(
       },
     ],
   }
+  if (context.expectedIntent != null) {
+    const suitability = assessRealtorOpportunitySuitability(
+      searchable,
+      context.expectedIntent,
+      url.toString(),
+      kind,
+    )
+    // The SERP request location is targeting provenance, not returned-row
+    // evidence. Keep only a lane-relevant row whose own title, snippet, or URL
+    // proves the frozen market.
+    if (!suitability.relevant || !demonstratedLocation) return null
+    const destination = assessOpportunityDestination({
+      identity: candidate.identity,
+      evidence: candidate.evidence,
+      referenceTime: new Date(context.observedAt),
+      maxAgeDays: 30,
+      content: searchable,
+    })
+    // A paid row must be current and directly usable. Undated posts/threads,
+    // expired or undated events, and approval-only groups remain visible in
+    // raw provider receipts but do not become customer opportunities.
+    if (destination.status !== 'pass') return null
+  }
+  return candidate
 }
 
 function taskFrom(payload: unknown): Record<string, unknown> {
