@@ -199,7 +199,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v14')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v15')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -231,7 +231,8 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(
       reddit.every((lane) => /homeowner|homebuyer|home|house|neighborhood/i.test(lane.query)),
     ).toBe(true)
-    expect(reddit.every((lane) => lane.query.includes('Austin Texas'))).toBe(true)
+    expect(reddit.some((lane) => lane.query.includes('Austin'))).toBe(true)
+    expect(reddit.every((lane) => /\b(?:OR|home|house|homeowner|homebuyer)\b/i.test(lane.query))).toBe(true)
     expect(
       reddit.every((lane) => Array.isArray(lane.providerQuery.reddit_subreddits)),
     ).toBe(true)
@@ -249,19 +250,18 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'HomeImprovement',
     ])
     expect(reddit[2]?.providerQuery).toMatchObject({
-      reddit_subreddits: [],
-      reddit_auto_discover: true,
-      reddit_max_subreddits: 12,
+      reddit_subreddits: ['Austin', 'AskAustin', 'Texas'],
+      reddit_auto_discover: false,
       reddit_sort: 'new',
     })
     expect(web.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('home seller workshop registration 2026'),
-        expect.stringContaining('selling my house question'),
-        expect.stringContaining('thinking of selling my house advice'),
-        expect.stringContaining('preparing home for sale discussion'),
-        expect.stringContaining('home valuation workshop homeowners 2026'),
+        expect.stringContaining('"home seller" workshop registration 2026'),
+        expect.stringContaining('"selling my house" question'),
+        expect.stringContaining('"thinking of selling my house" advice'),
+        expect.stringContaining('"preparing my home for sale" discussion'),
+        expect.stringContaining('"home valuation" workshop homeowners 2026'),
       ]),
     )
     expect(
