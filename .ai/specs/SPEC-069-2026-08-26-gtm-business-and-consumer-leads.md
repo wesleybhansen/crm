@@ -325,12 +325,14 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v10` keeps actor-native syntax explicit and separately quotes
+`opportunity-query-v17` keeps actor-native syntax explicit and separately quotes
 three Reddit strategies: exact market/state community scope, broader
-intent-community scope with the market embedded in the query, and one bounded
-auto-discovery lane whose discovered scope never counts as intent or geography
-evidence. Exact-market and auto-discovery Reddit lanes sort newest inside the
-frozen 30-day window; the broader intent-community lane retains relevance sort.
+intent-community scope with the market embedded in the query, and one guarded
+global Reddit search with no subreddit scope and actor auto-discovery disabled.
+The global query must contain the requested market, is capped at ten rows, and
+stays inside the frozen 30-day window. Search scope never counts as intent or
+geography evidence. Exact-market lanes sort newest while broader intent and
+global lanes retain relevance sort.
 DataForSEO receives five separately quoted full market-and-state variants for
 each buyer, seller, mixed, or local-audience play. Narrow queries target current
 registrations, schedules, classes, public meetings, registries, and direct
@@ -483,3 +485,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-28: The capped query-v14 Austin feasibility sample proved that fit-v7 rejected all 53 irrelevant or inaccessible rows, but actor auto-discovery returned broad Reddit noise and generic public neighborhood-association websites were conflated with membership-gated social groups. `opportunity-query-v15` uses actor-supported Boolean phrases, fixed market and intent subreddit scopes, and no auto-discovery. Generic HTTPS association and club destinations are publicly viewable while Facebook, LinkedIn, and Nextdoor groups remain approval-required; participation is still manual and subject to the destination's current rules.
 - 2026-08-28: The query-v15 feasibility sample reconciled cleanly and surfaced useful public Austin neighborhood associations, but evidence review found a cash-buyer promotion disguised as a seller question and a Chicago subreddit snippet borrowing an Austin comparison. `fit-v7-quality-v16` rejects those exact classes. `opportunity-query-v16` keeps fixed subreddit scopes while removing overly restrictive advice/help conjunctions that left two of three Reddit lanes empty.
 - 2026-08-28: Zero-cost requalification exposed that the source provider truncated the cash-buyer title before its commission-avoidance suffix. `fit-v7-quality-v17` therefore treats the demonstrated second-person solicitation form (`looking to sell your home/house/property`) as promotional by itself while preserving genuine first-person consumer statements.
+- 2026-08-28: The query-v16 Austin feasibility pass reconciled cleanly but returned only two Reddit rows across nine fixed-scope searches, with seller and local-audience Reddit lanes empty. `opportunity-query-v17` replaces the third fixed-scope lane with the actor's documented empty-scope global search while keeping subreddit auto-discovery off. The adapter refuses that lane before a paid call unless the query contains the requested market, the result cap is ten or fewer, and the recency window is no broader than 30 days. Returned evidence still independently proves geography, intent, freshness, access, and actionability through fit-v7.

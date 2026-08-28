@@ -160,7 +160,7 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     return [
       '("neighborhood association" OR "community meeting" OR "homeowner event")',
       `("home buyer workshop" OR "home seller workshop" OR "housing event") AND ("${market}" OR "${location}")`,
-      '(homeowner OR homebuyer) AND (meetup OR group OR forum OR community)',
+      `(homeowner OR homebuyer) AND (meetup OR group OR forum OR community) AND ("${market}" OR "${location}")`,
     ]
   }
   const socialSeeds: Record<OpportunityIntentLane, string[]> = {
@@ -325,7 +325,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v16',
+        query_lane_version: 'opportunity-query-v17',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -345,9 +345,13 @@ export function buildOpportunityQueryLanes(
                   reddit_sort: 'relevance',
                 }
               : {
-                  reddit_subreddits: realtorMarketSubreddits(geography),
+                  // The actor's documented empty-scope mode is a global Reddit
+                  // search, not subreddit auto-discovery. This final lane is
+                  // explicit, market-bound in the query, and separately quoted.
+                  reddit_subreddits: [],
                   reddit_auto_discover: false,
-                  reddit_sort: 'new',
+                  reddit_global_search: true,
+                  reddit_sort: 'relevance',
                 }
           : {}),
       },

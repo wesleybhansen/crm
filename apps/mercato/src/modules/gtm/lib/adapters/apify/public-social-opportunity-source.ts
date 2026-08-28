@@ -145,17 +145,23 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   buildInput(plan, maxResults) {
     const subreddits = redditSubreddits(plan)
     const autoDiscoverSubreddits = subreddits.length === 0 && redditAutoDiscover(plan)
+    const query = queryText(plan, 700)
+    validateRedditGlobalSearch(plan, {
+      query,
+      maxResults,
+      subreddits,
+      autoDiscoverSubreddits,
+    })
     return {
-      query: queryText(plan, 700),
+      query,
       maxResults,
       contentType: 'posts',
       sort: redditSort(plan),
       timeFilter: redditTimeFilter(plan),
       subreddits,
-      // Query-v7 uses three separately quoted strategies: local market scope,
-      // broader intent communities with a market-anchored query, and a final
-      // bounded auto-discovery lane. Returned content must still prove intent
-      // and geography; discovery scope is never treated as evidence.
+      // Query-v17 uses fixed local/intent scopes plus one explicitly guarded,
+      // market-bound global search. Actor subreddit auto-discovery remains off.
+      // Search scope never counts as returned-content evidence.
       autoDiscoverSubreddits,
       ...(autoDiscoverSubreddits ? { maxSubreddits: redditMaxSubreddits(plan) } : {}),
     }
@@ -376,6 +382,36 @@ function redditSort(plan: SourceSearchPlan): 'relevance' | 'new' | 'top' | 'hot'
 
 function redditAutoDiscover(plan: SourceSearchPlan): boolean {
   return plan.provider_query?.reddit_auto_discover === true
+}
+
+function redditGlobalSearch(plan: SourceSearchPlan): boolean {
+  return plan.provider_query?.reddit_global_search === true
+}
+
+function validateRedditGlobalSearch(
+  plan: SourceSearchPlan,
+  input: {
+    query: string
+    maxResults: number
+    subreddits: string[]
+    autoDiscoverSubreddits: boolean
+  },
+): void {
+  if (!redditGlobalSearch(plan)) return
+  if (input.subreddits.length > 0 || input.autoDiscoverSubreddits) {
+    throw new TypeError('global Reddit search cannot use subreddit scopes or auto-discovery')
+  }
+  if (input.maxResults > 10) {
+    throw new TypeError('global Reddit search is limited to 10 results')
+  }
+  if (redditTimeFilter(plan) === 'year') {
+    throw new TypeError('global Reddit search must stay inside the 30-day recency window')
+  }
+  const location = locationText(plan)
+  const market = location?.split(',')[0]?.trim().toLowerCase() ?? ''
+  if (market.length < 3 || !input.query.toLowerCase().includes(market)) {
+    throw new TypeError('global Reddit search query must contain the requested market')
+  }
 }
 
 function redditMaxSubreddits(plan: SourceSearchPlan): number {
