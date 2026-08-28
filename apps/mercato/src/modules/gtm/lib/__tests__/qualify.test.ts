@@ -485,16 +485,16 @@ describe('ruleBasedFitScorer', () => {
     )
   })
 
-  it('rejects a cash-buyer promotion written to resemble a first-person seller question', () => {
+  it('rejects a second-person cash-buyer solicitation even when the provider truncates its title', () => {
     const result = ruleBasedFitScorer.score(
       {
         entity_kind: 'opportunity',
         identity: {
-          name: "Looking to sell your house in Austin but don't want to deal with realtor fees?",
+          name: "Looking to sell your house in Austin but don't want to deal with ...",
           opportunity_kind: 'post',
           platform: 'Facebook',
           audience_description:
-            "Looking to sell your house in Austin but don't want to deal with realtor fees? I need advice on selling my house for cash.",
+            "Looking to sell your house in Austin but don't want to deal with ... Austin TEXAS THAT CASHFLOWS ... I need advice on selling my house for cash.",
           location: 'Austin, Texas',
           access_type: 'public',
           source_published_at: '2026-08-21T04:15:11.000Z',

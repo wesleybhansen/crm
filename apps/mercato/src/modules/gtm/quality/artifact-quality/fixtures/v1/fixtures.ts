@@ -326,7 +326,7 @@ export const GTM_ARTIFACT_FIXTURES_V1: GtmArtifactFixture[] = [
       playGeography: 'Austin, Texas',
       expectedIntent: 'seller_intent',
       observedContent:
-        "Looking to sell your house in Austin but don't want to deal with realtor fees? I need advice on selling my house for cash.",
+        "Looking to sell your house in Austin but don't want to deal with ... Austin TEXAS THAT CASHFLOWS ... I need advice on selling my house for cash.",
       observedLocation: 'Austin, Texas',
       sourcePublishedAt: '2026-08-21T04:15:11.000Z',
       observedAt: '2026-08-28T04:14:16.000Z',
