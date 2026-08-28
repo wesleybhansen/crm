@@ -137,27 +137,27 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const location = redditLocationWords(geography)
     if (intent === 'buyer_intent') {
       return [
-        'buying a home first time home buyer',
+        `${location} buying a home first time home buyer`,
         `${location} buying a home house hunting`,
         `${location} down payment assistance homebuyer`,
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        'selling my house thinking of selling',
+        `${location} selling my house thinking of selling`,
         `${location} home value preparing to sell`,
         `${location} downsizing selling home`,
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        'buy before selling sell before buying home',
+        `${location} buy before selling sell before buying home`,
         `${location} selling home while buying`,
         `${location} buy and sell a home`,
       ]
     }
     return [
-      'homeowner question housing discussion',
+      `${location} homeowner question housing discussion`,
       `${location} homebuyer workshop homeowner event`,
       `${location} neighborhood association housing meeting`,
     ]
@@ -324,7 +324,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v12',
+        query_lane_version: 'opportunity-query-v13',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
