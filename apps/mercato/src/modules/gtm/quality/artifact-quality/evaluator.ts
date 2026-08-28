@@ -7,6 +7,7 @@ import {
 import {
   assessRealtorOpportunitySuitability,
   classifyOpportunityIntent,
+  publicSourceGeographyConflict,
   realtorOpportunityNoiseReasons,
 } from '../../lib/research/opportunity-quality'
 
@@ -145,7 +146,12 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
       const detected: string[] = []
       const demonstratedIntent = classifyOpportunityIntent(label.observedContent).kind
       if (demonstratedIntent !== label.expectedIntent) detected.push('semantic_intent_mismatch')
-      if (!locationMatches(label.playGeography, label.observedLocation)) detected.push('geography_mismatch')
+      if (
+        !locationMatches(label.playGeography, label.observedLocation)
+        || publicSourceGeographyConflict(destination, [label.playGeography])
+      ) {
+        detected.push('geography_mismatch')
+      }
       const referenceTime = new Date(label.referenceTime)
       const opportunityKind = String(artifact.opportunity_kind)
       if (opportunityKind === 'post' || opportunityKind === 'thread') {

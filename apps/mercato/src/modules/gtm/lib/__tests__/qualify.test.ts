@@ -447,6 +447,78 @@ describe('ruleBasedFitScorer', () => {
     expect(result.reason).toBe(FIT_REASONS.outsideGeography)
   })
 
+  it('rejects a different local subreddit even when its snippet mentions the requested city as a comparison', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Chicago apartment-price discussion',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          audience_description:
+            'I am thinking of selling my house. Austin, Texas is one example mentioned in this Chicago apartment discussion.',
+          access_type: 'public',
+          urls: ['https://www.reddit.com/r/chicagoapartments/comments/example/apartment_prices'],
+          recommended_action: 'Read the current conversation and contribute one useful response manually.',
+          message_angle: 'Answer the seller question before mentioning professional services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin homeowners preparing to sell',
+        signal: 'A public home-selling question',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.outsideGeography)
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'geography.location',
+          status: 'fail',
+          observed: expect.arrayContaining(['destination conflict: reddit:r/chicagoapartments']),
+        }),
+      ]),
+    )
+  })
+
+  it('rejects a cash-buyer promotion written to resemble a first-person seller question', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: "Looking to sell your house in Austin but don't want to deal with realtor fees?",
+          opportunity_kind: 'post',
+          platform: 'Facebook',
+          audience_description:
+            "Looking to sell your house in Austin but don't want to deal with realtor fees? I need advice on selling my house for cash.",
+          location: 'Austin, Texas',
+          access_type: 'public',
+          source_published_at: '2026-08-21T04:15:11.000Z',
+          urls: ['https://www.facebook.com/fixture/posts/austin-cash-buyer-promotion'],
+          recommended_action: 'Read the public post and decide whether a manual contribution is appropriate.',
+          message_angle: 'Share a practical seller answer only when a genuine consumer asks for help.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin homeowners preparing to sell',
+        signal: 'A current public seller question demonstrates intent',
+        referenceTime: '2026-08-27T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.contradictions).toContain('exclusion.realtor_noise')
+  })
+
   it('does not let a provenance claim with negative query terms reject a useful result', () => {
     const result = ruleBasedFitScorer.score(
       {

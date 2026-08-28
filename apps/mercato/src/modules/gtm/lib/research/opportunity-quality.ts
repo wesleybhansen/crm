@@ -137,6 +137,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:couldn(?:'|’)t have asked for (?:a )?better.{0,120}(?:realtor|real estate agent)|first[- ]class realtor|trusted,? no[- ]hassle cash home buyer|we buy houses|sell your (?:home|house) for cash)\b/i,
   ],
   [
+    'cash_buyer_or_commission_avoidance_promotion',
+    /\blooking to sell your (?:home|house|property)\b.{0,180}\b(?:don(?:'|’)t want to deal with (?:a )?realtor|realtor fees?|cash offer|no commissions?|sell as[- ]is)\b/i,
+  ],
+  [
     'source_spam_or_adult_content',
     /\b(?:shieldsquare captcha|captcha (?:challenge|page)|stockton on tees escorts?|adult escorts?|escort services?|adult entertainment|sex dating|casino bonus|online gambling)\b/i,
   ],
@@ -211,6 +215,17 @@ const US_STATE_ABBREVIATIONS: Record<string, (typeof US_STATE_NAMES)[number] | '
 }
 
 const TRACKING_PARAMETER = /^(?:utm_.+|fbclid|gclid|dclid|msclkid|mc_[ce]id|trk|trackingId|ref_src)$/i
+const NON_LOCAL_REDDIT_COMMUNITIES = new Set([
+  'realestate',
+  'realestateinvesting',
+  'firsttimehomebuyer',
+  'homeowners',
+  'homeimprovement',
+  'personalfinance',
+  'mortgages',
+  'housing',
+  'realtors',
+])
 
 function matchedSignals(content: string, definitions: Array<[string, RegExp]>): string[] {
   return definitions.filter(([, pattern]) => pattern.test(content)).map(([label]) => label)
@@ -318,6 +333,44 @@ export function opportunityHasContradictoryUsState(
   if (expectedStates.size === 0) return false
   const observedStates = stateNamesIn(returnedMaterial, primary)
   return observedStates.size > 0 && [...observedStates].every((state) => !expectedStates.has(state))
+}
+
+function normalizedLocationToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+/**
+ * A local subreddit is part of the returned destination, not query targeting.
+ * If it names a different market, a snippet mention of the requested city
+ * cannot manufacture locality (for example, r/chicagoapartments mentioning
+ * Austin only as a comparison).
+ */
+export function publicSourceGeographyConflict(
+  sourceUrl: string | null,
+  expectedGeographies: string[],
+): string | null {
+  if (!sourceUrl || expectedGeographies.length === 0) return null
+  try {
+    const url = new URL(sourceUrl)
+    if (!url.hostname.toLowerCase().endsWith('reddit.com')) return null
+    const subreddit = url.pathname.match(/^\/r\/([^/]+)/i)?.[1]
+    if (!subreddit) return null
+    const returned = normalizedLocationToken(subreddit)
+    if (!returned || NON_LOCAL_REDDIT_COMMUNITIES.has(returned)) return null
+    const expectedTokens = expectedGeographies
+      .flatMap((value) => value.split(','))
+      .map(normalizedLocationToken)
+      .filter((value) => value.length >= 3 && !['unitedstates', 'usa'].includes(value))
+    if (expectedTokens.some((value) => returned.includes(value) || value.includes(returned))) return null
+    // Do not guess that every arbitrary subreddit name is a place. Only treat
+    // a non-matching subreddit as contradictory when its returned name itself
+    // carries a local-market form. This preserves national/topic communities
+    // while catching the observed r/chicagoapartments class.
+    if (!/(?:apartments?|rentals?|local|locals|metro|city|realestate|housing)$/.test(returned)) return null
+    return `reddit:r/${subreddit}`
+  } catch {
+    return null
+  }
 }
 
 export type RealtorOpportunitySuitability = {

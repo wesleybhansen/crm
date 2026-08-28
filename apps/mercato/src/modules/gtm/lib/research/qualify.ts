@@ -6,6 +6,7 @@ import {
   classifyOpportunityIntent,
   demonstratedOpportunityLocation,
   opportunityHasContradictoryUsState,
+  publicSourceGeographyConflict,
   opportunityEvidenceText,
   realtorOpportunityNoiseReasons,
 } from './opportunity-quality'
@@ -78,7 +79,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v15' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v16' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -397,13 +398,19 @@ function scoreOpportunity(
         : intentMatchesLane(expectedIntent, observedIntent)
         ? 'pass'
         : 'fail'
-  const geoStatus = geographyCriterionStatus(
+  const sourceGeographyConflict = publicSourceGeographyConflict(
+    destination.canonicalUrl,
     geographyExpected,
-    locations,
-    targetingLocations,
-    countryCode,
-    observedText,
   )
+  const geoStatus = sourceGeographyConflict
+    ? 'fail'
+    : geographyCriterionStatus(
+        geographyExpected,
+        locations,
+        targetingLocations,
+        countryCode,
+        observedText,
+      )
   const freshStatus: CriterionStatus = destination.issues.includes('stale_destination')
     || destination.issues.includes('event_expired')
     ? 'fail'
@@ -455,6 +462,7 @@ function scoreOpportunity(
       geographyExpected,
       [
         ...locations,
+        ...(sourceGeographyConflict ? [`destination conflict: ${sourceGeographyConflict}`] : []),
         ...geographyExpected
           .map((value) => demonstratedOpportunityLocation(observedText, value))
           .filter((value): value is string => Boolean(value)),

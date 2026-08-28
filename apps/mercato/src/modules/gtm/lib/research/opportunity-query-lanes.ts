@@ -138,29 +138,29 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const market = marketName(geography)
     if (intent === 'buyer_intent') {
       return [
-        '("buying a home" OR "buy a house" OR "first time home buyer" OR "house hunting") (advice OR help OR question OR recommend)',
-        `("mortgage pre approval" OR "down payment" OR "closing costs") (home OR house) (advice OR help OR question) ("${market}" OR "${location}")`,
-        `("moving to ${market}" OR "relocating to ${market}") (buy OR house OR home OR condo) (advice OR neighborhood OR question)`,
+        '("buying a home" OR "buy a house" OR "first time home buyer" OR "house hunting")',
+        `("mortgage pre approval" OR "down payment" OR "closing costs") AND ("${market}" OR "${location}")`,
+        `("moving to ${market}" OR "relocating to ${market}" OR "buying in ${market}")`,
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        '("selling my home" OR "selling our home" OR "selling my house" OR "thinking of selling") (advice OR help OR question)',
-        `("what is my home worth" OR "home valuation" OR "preparing to sell") (advice OR help OR question) ("${market}" OR "${location}")`,
-        `("moving from ${market}" OR downsizing OR relocation) ("sell my home" OR "selling my house")`,
+        '("selling my home" OR "selling our home" OR "selling my house" OR "thinking of selling")',
+        `("what is my home worth" OR "home valuation" OR "preparing to sell") AND ("${market}" OR "${location}")`,
+        `("sell my house in ${market}" OR "selling my home in ${market}" OR "moving from ${market}")`,
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        '("buy before selling" OR "sell before buying") home (advice OR help OR question)',
-        `("selling a home while buying" OR "buying and selling") ("${market}" OR "${location}")`,
-        `("moving to ${market}" OR "moving from ${market}") (buy OR sell) home`,
+        '("buy before selling" OR "sell before buying" OR "selling a home while buying")',
+        `("buying and selling" OR "sell then buy") AND ("${market}" OR "${location}")`,
+        `("moving to ${market}" OR "moving from ${market}") AND (buy OR sell)`,
       ]
     }
     return [
       '("neighborhood association" OR "community meeting" OR "homeowner event")',
-      `("home buyer workshop" OR "home seller workshop" OR "housing event") ("${market}" OR "${location}")`,
-      '(homeowner OR homebuyer) (meetup OR group OR forum OR community)',
+      `("home buyer workshop" OR "home seller workshop" OR "housing event") AND ("${market}" OR "${location}")`,
+      '(homeowner OR homebuyer) AND (meetup OR group OR forum OR community)',
     ]
   }
   const socialSeeds: Record<OpportunityIntentLane, string[]> = {
@@ -325,7 +325,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v15',
+        query_lane_version: 'opportunity-query-v16',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
