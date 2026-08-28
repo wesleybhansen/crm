@@ -188,6 +188,19 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   return socialSeeds[intent]
 }
 
+function realtorRedditCommentSeed(intent: OpportunityIntentLane): string | null {
+  if (intent === 'buyer_intent') {
+    return '("buying a home" OR "buy a house" OR "first time buyer" OR "house hunting" OR "made an offer" OR "closing costs")'
+  }
+  if (intent === 'seller_intent') {
+    return '("selling my home" OR "selling our home" OR "selling my house" OR "thinking of selling" OR "what is my home worth" OR "preparing to sell")'
+  }
+  if (intent === 'mixed_intent') {
+    return '("buy before selling" OR "sell before buying" OR "buying and selling" OR "moving and selling")'
+  }
+  return null
+}
+
 function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-x-demand-opportunities') return 100
   if (adapterId === 'apify-linkedin-demand-opportunities') return 200
@@ -207,6 +220,14 @@ export function realtorMarketSubreddits(geography: string): string[] {
     `Ask${compact}`,
     state,
   ])
+}
+
+function realtorExactMarketSubreddits(geography: string): string[] {
+  const market = marketName(geography).toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (!market) return []
+  return realtorMarketSubreddits(geography).filter((subreddit) =>
+    subreddit.toLowerCase().replace(/[^a-z0-9]/g, '').includes(market),
+  )
 }
 
 function realtorIntentSubreddits(geography: string, intent: OpportunityIntentLane): string[] {
@@ -317,7 +338,11 @@ export function buildOpportunityQueryLanes(
   const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
   return selectedSeeds.map((seed, index) => {
     const id = `${intent}:${index + 1}`
-    const query = queryFor({ adapterId, geography, seed, negativeTerms })
+    const commentSeed =
+      adapterId === 'apify-reddit-demand-opportunities' && index === 2
+        ? realtorRedditCommentSeed(intent)
+        : null
+    const query = queryFor({ adapterId, geography, seed: commentSeed ?? seed, negativeTerms })
     return {
       id,
       intent,
@@ -325,7 +350,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v18',
+        query_lane_version: 'opportunity-query-v19',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -344,21 +369,28 @@ export function buildOpportunityQueryLanes(
                   reddit_auto_discover: false,
                   reddit_sort: 'relevance',
                 }
-              : {
-                  // The actor's documented empty-scope mode is a global Reddit
-                  // search, not subreddit auto-discovery. Buyer and seller
-                  // plays search comments here because first-person intent is
-                  // often demonstrated while participating in an existing
-                  // thread. Local-audience discovery keeps post destinations.
-                  reddit_subreddits: [],
-                  reddit_auto_discover: false,
-                  reddit_global_search: true,
-                  reddit_sort: 'relevance',
-                  reddit_content_type:
-                    intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'
-                      ? 'comments'
-                      : 'posts',
-                }
+              : intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'
+                ? {
+                    // The returned exact-market subreddit is admissible
+                    // geography evidence; the comment body must independently
+                    // prove intent. Do not let a query or parent title fill
+                    // either semantic requirement.
+                    reddit_subreddits: realtorExactMarketSubreddits(geography),
+                    reddit_auto_discover: false,
+                    reddit_global_search: false,
+                    reddit_sort: 'relevance',
+                    reddit_content_type: 'comments',
+                  }
+                : {
+                    // Local-audience discovery still needs a broad public
+                    // destination search because it is looking for communities
+                    // and events rather than an individual's transaction intent.
+                    reddit_subreddits: [],
+                    reddit_auto_discover: false,
+                    reddit_global_search: true,
+                    reddit_sort: 'relevance',
+                    reddit_content_type: 'posts',
+                  }
           : {}),
       },
     }

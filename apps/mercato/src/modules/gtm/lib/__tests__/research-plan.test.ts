@@ -199,7 +199,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v18')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v19')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -250,13 +250,14 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'HomeImprovement',
     ])
     expect(reddit[2]?.providerQuery).toMatchObject({
-      reddit_subreddits: [],
+      reddit_subreddits: ['Austin', 'AskAustin'],
       reddit_auto_discover: false,
-      reddit_global_search: true,
+      reddit_global_search: false,
       reddit_sort: 'relevance',
       reddit_content_type: 'comments',
     })
-    expect(reddit[2]?.query).toContain('Austin')
+    expect(reddit[2]?.query).not.toContain('Austin')
+    expect(reddit[2]?.query).toContain('selling my home')
     expect(web.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
