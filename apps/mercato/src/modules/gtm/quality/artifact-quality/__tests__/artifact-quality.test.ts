@@ -80,8 +80,10 @@ describe('GTM artifact quality v3', () => {
 
   it('keeps realtor buyer and seller opportunities public, grounded, and manual-only', () => {
     const opportunities = GTM_ARTIFACT_FIXTURES_V1.filter((row) => row.kind === 'opportunity')
-    expect(opportunities).toHaveLength(2)
-    expect(new Set(opportunities.map((row) => row.artifact.intent_kind))).toEqual(
+    expect(opportunities).toHaveLength(4)
+    const deliverable = opportunities.filter((row) => row.expectedDisposition === 'deliver')
+    expect(deliverable).toHaveLength(2)
+    expect(new Set(deliverable.map((row) => row.artifact.intent_kind))).toEqual(
       new Set(['buyer_intent', 'seller_intent']),
     )
     for (const fixture of opportunities) expect(evaluateGtmArtifact(fixture).passed).toBe(true)
