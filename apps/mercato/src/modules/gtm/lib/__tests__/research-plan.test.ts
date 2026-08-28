@@ -199,7 +199,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v12')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v13')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -231,6 +231,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(
       reddit.every((lane) => /homeowner|homebuyer|home|house|neighborhood/i.test(lane.query)),
     ).toBe(true)
+    expect(reddit.every((lane) => lane.query.includes('Austin Texas'))).toBe(true)
     expect(
       reddit.every((lane) => Array.isArray(lane.providerQuery.reddit_subreddits)),
     ).toBe(true)
