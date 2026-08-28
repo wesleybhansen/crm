@@ -138,7 +138,7 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
   ],
   [
     'cash_buyer_or_commission_avoidance_promotion',
-    /\blooking to sell your (?:home|house|property)\b.{0,180}\b(?:don(?:'|’)t want to deal with (?:a )?realtor|realtor fees?|cash offer|no commissions?|sell as[- ]is)\b/i,
+    /\blooking to sell your (?:home|house|property)\b/i,
   ],
   [
     'source_spam_or_adult_content',
