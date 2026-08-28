@@ -67,6 +67,27 @@ function redditPost(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function redditComment(overrides: Record<string, unknown> = {}) {
+  return {
+    _type: 'comment',
+    _status: 'found',
+    id: 't1_comment',
+    postId: 't3_parent',
+    postTitle: 'What should Austin homeowners know before selling?',
+    postUrl: 'https://www.reddit.com/r/Austin/comments/parent/selling_question/',
+    parentId: 't3_parent',
+    author: 'austin_homeowner',
+    subreddit: 'Austin',
+    score: 7,
+    postCommentCount: 11,
+    subredditSubscribers: 790_000,
+    createdAt: '2026-08-25T19:00:00.000Z',
+    permalink: '/r/Austin/comments/parent/comment/comment/',
+    body: 'We are thinking of selling our Austin home. Which repairs should we prioritize first?',
+    ...overrides,
+  }
+}
+
 function xPost(overrides: Record<string, unknown> = {}) {
   return {
     postText: 'Thinking about selling our South Bay home. What should we prepare first?',
@@ -204,6 +225,56 @@ describe('Apify public social demand opportunities', () => {
         },
       ],
     })
+  })
+
+  it('normalizes a public Reddit comment as returned-content intent with parent-thread context', () => {
+    const candidate = normalizeRedditOpportunity(redditComment(), {
+      query: 'targeting text must not become evidence',
+      location: 'Austin, Texas',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    })
+
+    expect(candidate).toMatchObject({
+      entity_kind: 'opportunity',
+      identity: {
+        name: 'Reddit comment in r/Austin',
+        opportunity_kind: 'thread',
+        platform: 'Reddit',
+        intent_kind: 'seller_intent',
+        engagement_count: 18,
+        member_count: 790_000,
+        location: 'Austin, Texas',
+        source_published_at: '2026-08-25T19:00:00.000Z',
+        people_to_follow: [{ name: 'austin_homeowner' }],
+      },
+      evidence: [
+        expect.objectContaining({
+          source_url: 'https://www.reddit.com/r/Austin/comments/parent/comment/comment/',
+          detail: expect.objectContaining({
+            provider_post_id: 't3_parent',
+            provider_comment_id: 't1_comment',
+            parent_id: 't3_parent',
+            parent_post_title: 'What should Austin homeowners know before selling?',
+            source_content_type: 'comment',
+          }),
+        }),
+      ],
+    })
+  })
+
+  it('does not let a seller-oriented parent post manufacture intent for an unrelated comment', () => {
+    const candidate = normalizeRedditOpportunity(
+      redditComment({ body: 'Thanks for sharing this general information.' }),
+      {
+        query: 'Austin seller intent',
+        location: 'Austin, Texas',
+        attemptedAt: CLOCK.toISOString(),
+        actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+      },
+    )
+    expect(candidate?.identity.intent_kind).toBeNull()
+    expect(candidate?.identity.audience_description).toBe('Thanks for sharing this general information.')
   })
 
   it('drops locked, archived, NSFW, quarantined, and sensitive Reddit posts', () => {
@@ -503,6 +574,42 @@ describe('Apify public social demand opportunities', () => {
         autoDiscoverSubreddits: false,
         sort: 'relevance',
         timeFilter: 'week',
+      }),
+      expect.any(Object),
+    )
+  })
+
+  it('keeps comment search as its own bounded metered lane', async () => {
+    const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditComment()))
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor,
+    })
+    const result = await adapter.search({
+      ...plan,
+      geography: 'US',
+      max_candidates: 5,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Austin, Texas'],
+        search_query: '("selling my home in Austin" OR "selling my house in Austin")',
+        reddit_subreddits: [],
+        reddit_auto_discover: false,
+        reddit_global_search: true,
+        reddit_sort: 'relevance',
+        reddit_content_type: 'comments',
+      },
+    })
+
+    expect(result.status).toBe('ok')
+    expect(runActor).toHaveBeenCalledWith(
+      APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+      expect.objectContaining({
+        contentType: 'comments',
+        maxResults: 5,
+        subreddits: [],
+        autoDiscoverSubreddits: false,
       }),
       expect.any(Object),
     )

@@ -4,7 +4,11 @@ import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('Plan and execute gated GTM research')
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { gtmConsumerResearchEnabled, gtmEnabled } from '../../../lib/flags'
+import {
+  gtmConsumerOwnerProbeEnabled,
+  gtmConsumerResearchReleaseState,
+  gtmEnabled,
+} from '../../../lib/flags'
 import { gtmResearchRunsBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
 import { buildSourcePlan } from '../../../lib/research/plan'
@@ -52,6 +56,19 @@ export const metadata = {
 
 function opaqueNotFound() {
   return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+}
+
+function consumerResearchHold() {
+  const release = gtmConsumerResearchReleaseState()
+  return NextResponse.json(
+    {
+      ok: false,
+      error: 'Consumer research has not passed every environment release gate',
+      code: 'consumer_research_disabled',
+      hold_reasons: release.holdReasons,
+    },
+    { status: 422 },
+  )
 }
 
 function shapeRun(run: GtmResearchRun) {
@@ -212,15 +229,12 @@ export async function POST(req: Request) {
         )
       }
 
-      if (plan.policy.lead_mode !== 'business' && !gtmConsumerResearchEnabled()) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: 'Consumer research is not enabled for this environment',
-            code: 'consumer_research_disabled',
-          },
-          { status: 422 },
-        )
+      if (
+        plan.policy.lead_mode !== 'business'
+        && !gtmConsumerResearchReleaseState().enabled
+        && !gtmConsumerOwnerProbeEnabled(body.noliUserId, plan.limits)
+      ) {
+        return consumerResearchHold()
       }
 
       if (body.op === 'plan') {
@@ -360,15 +374,13 @@ export async function POST(req: Request) {
 
       const frozenProviderPlan = (run.providerPlan ?? {}) as Record<string, unknown>
       const frozenPolicy = frozenProviderPlan.policy as Record<string, unknown> | undefined
-      if (frozenPolicy && frozenPolicy.lead_mode !== 'business' && !gtmConsumerResearchEnabled()) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: 'Consumer research is not enabled for this environment',
-            code: 'consumer_research_disabled',
-          },
-          { status: 422 },
-        )
+      if (
+        frozenPolicy
+        && frozenPolicy.lead_mode !== 'business'
+        && !gtmConsumerResearchReleaseState().enabled
+        && !gtmConsumerOwnerProbeEnabled(body.noliUserId, run.limits as Record<string, unknown>)
+      ) {
+        return consumerResearchHold()
       }
 
       const frozenPlanHash = typeof frozenProviderPlan.planHash === 'string'

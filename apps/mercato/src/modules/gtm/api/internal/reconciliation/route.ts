@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { gtmInternalOpenApi } from '../../openapi'
-import { gtmEnabled } from '../../../lib/flags'
+import { gtmConsumerResearchReleaseState, gtmEnabled } from '../../../lib/flags'
 import { gtmReconciliationBodySchema } from '../../../data/validators'
 import type { CampaignEm } from '../../../lib/campaign/build'
 import { isUuid } from '../../../lib/play-shape'
@@ -97,7 +97,11 @@ export async function POST(req: Request) {
         '../../../lib/diagnostics/opportunity-quality'
       )
       const quality = await getOpportunityQualityDiagnostics(em, ctx)
-      return NextResponse.json({ ok: true, quality })
+      return NextResponse.json({
+        ok: true,
+        quality,
+        consumer_release: gtmConsumerResearchReleaseState(),
+      })
     }
 
     const commandBus = container.resolve('commandBus') as CommandBus
