@@ -319,6 +319,52 @@ describe('ruleBasedFitScorer', () => {
     )
   })
 
+  it('accepts a current in-progress buyer negotiation supported by returned evidence', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Negotiation advice',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          intent_kind: 'buyer_intent',
+          audience_description:
+            'Home is listed for 435k and the appraisal came in at 422k. Taxes are high in Austin TX. I made my offer for 375k with me covering closing costs. The seller countered at 415k. What should be my next move?',
+          location: 'Austin, Texas, United States',
+          access_type: 'public',
+          source_published_at: '2026-08-27T22:16:27.007Z',
+          urls: ['https://www.reddit.com/r/FirstTimeHomeBuyer/comments/example/negotiation_advice'],
+          recommended_action: 'Read the full public conversation and contribute one useful response manually.',
+          message_angle: 'Answer the specific negotiation question before mentioning professional services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas, United States',
+        audience: 'People publicly demonstrating that they are preparing to buy a home in Austin',
+        signal: 'A current public question demonstrates home-buying intent',
+        referenceTime: '2026-08-28T06:00:20.125Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      [{
+        claim: 'Current public buyer negotiation thread in Austin.',
+        source_url: 'https://www.reddit.com/r/FirstTimeHomeBuyer/comments/example/negotiation_advice',
+        observed_at: '2026-08-28T06:00:20.125Z',
+        confidence: 0.8,
+      }],
+    )
+
+    expect(result.verdict).toBe('accepted')
+    expect(result.reason).toBe(FIT_REASONS.accepted)
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
+        expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
+      ]),
+    )
+  })
+
   it('does not trust a provider intent label when returned content proves a different lane', () => {
     const result = ruleBasedFitScorer.score(
       {

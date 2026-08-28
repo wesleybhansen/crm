@@ -101,6 +101,14 @@ describe('opportunity quality primitives', () => {
         'buyer_intent',
       ),
     ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Austin TX home appraisal came in at $422k. I made my offer at $375k and the seller countered. What should be my next move on closing costs?',
+        'buyer_intent',
+        null,
+        'thread',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
   })
 
   it('rejects polished professional content that only looks like consumer demand', () => {
@@ -190,6 +198,30 @@ describe('opportunity quality primitives', () => {
         'community',
       ).relevant,
     ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Austin Home Buyer Fair for the general public at the AISD Performing Arts Center.',
+        'buyer_intent',
+        null,
+        'event',
+      ).relevant,
+    ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'MLK Neighborhood Association of Austin hosts a community conversation for local homeowners.',
+        'local_audience',
+        null,
+        'group',
+      ).relevant,
+    ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Welcome to the Highland Neighborhood Association website in Austin, Texas. View a map of the neighborhood.',
+        'local_audience',
+        null,
+        'group',
+      ).relevant,
+    ).toBe(false)
     expect(
       assessRealtorOpportunitySuitability(
         'Upcoming Austin home seller workshop about preparing a house for sale.',

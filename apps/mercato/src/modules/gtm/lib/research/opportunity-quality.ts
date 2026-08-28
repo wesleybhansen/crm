@@ -172,20 +172,22 @@ const SENSITIVE_CONSUMER_OPPORTUNITY: Array<[string, RegExp]> = [
 const REALTOR_HOUSING_CONTEXT =
   /\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|community registry|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
 const CONSUMER_QUESTION =
-  /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
+  /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|(?:where|what|which|how) should (?:i|we|my|our)\b|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =
   /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:actively\s+)?(?:thinking (?:about|of)|considering|planning(?: to)?|preparing(?: to)?|trying(?: to)?|looking(?: to| for)|need(?:ing)?(?: to)?|want(?:ing)?(?: to)?|moving|relocating|wondering|unsure|confused|stressed)\b/i
+const FIRST_PERSON_TRANSACTION_PROGRESS =
+  /\b(?:(?:i|we)(?:'ve| have)?\s+(?:made|submitted|placed|put in)\s+(?:(?:an?|the|my|our)\s+)?offer|(?:my|our)\s+(?:offer|counteroffer|mortgage|pre[- ]?approval|appraisal|inspection|closing costs?)\b|(?:seller|buyer)\s+(?:accepted|rejected|countered)\s+(?:my|our)\s+offer)\b/i
 const DEMONSTRATED_HOUSING_STATUS =
   /\b(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\s+(?:moving|looking|planning|preparing|trying|considering|thinking|needing|wanting)\b/i
 const FIRST_PERSON_HOUSING_IDENTITY =
   /\b(?:i|we)(?:'m|'re| am| are)\s+(?:a\s+)?(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\b/i
 const PARTICIPATION_SURFACE =
   /\b(?:community|forum|group|thread|discussion|question|event|workshop|seminar|webinar|class|meetup|panel|association|club|neighbou?rhood|homeowners?)\b/i
-const EDUCATIONAL_EVENT = /\b(?:event|workshop|seminar|webinar|class|meetup|panel|clinic|q\s*&\s*a)\b/i
+const EDUCATIONAL_EVENT = /\b(?:event|fair|workshop|seminar|webinar|class|meetup|panel|clinic|q\s*&\s*a)\b/i
 const VENUE_CONSUMER_DEMAND =
   /\b(?:people|homeowners?|home ?buyers?|home ?sellers?|buyers?|sellers?)\s+(?:ask(?:ing)?|seek(?:ing)?|look(?:ing)?|discuss(?:ing)?|consider(?:ing)?|plan(?:ning)?|prepar(?:ing)?|need(?:ing)?)\b|\b(?:buyer|seller|homeowner|homebuying|home[- ]selling|first[- ]home) questions?\b/i
 const PUBLIC_PARTICIPATION_EVIDENCE =
-  /\b(?:join(?:ing)?|membership|members?|meeting|calendar|upcoming events?|get involved|volunteer|register|attend|discussion|questions?|forum|community registry|community groups?|community organizations?|resident organizations?|public workshop|public seminar|neighbou?rhood college)\b/i
+  /\b(?:join(?:ing)?|membership|members?|meeting|calendar|upcoming events?|get involved|volunteer|register|attend|discussion|questions?|forum|community conversation|community registry|community groups?|community organizations?|resident organizations?|public workshop|public seminar|neighbou?rhood college)\b/i
 const INACTIVE_DESTINATION =
   /\b(?:no upcoming events?|no events? (?:are )?scheduled|event (?:has )?ended|event is over|this event has passed|past event|registration (?:is )?closed|registration unavailable|sold out|event (?:was )?cancelled|event (?:was )?canceled|not currently scheduled|workshop unavailable|page not found|content unavailable)\b/i
 const MONTHS =
@@ -397,9 +399,11 @@ export function assessRealtorOpportunitySuitability(
   const consumerNeed =
     CONSUMER_QUESTION.test(content)
     || FIRST_PERSON_HOUSING_NEED.test(content)
+    || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
   const directConsumerNeed =
     FIRST_PERSON_HOUSING_NEED.test(content)
+    || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
     || FIRST_PERSON_HOUSING_IDENTITY.test(content)
   const surface = PARTICIPATION_SURFACE.test(content)
