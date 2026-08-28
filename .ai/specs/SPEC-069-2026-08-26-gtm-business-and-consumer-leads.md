@@ -325,13 +325,19 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v17` keeps actor-native syntax explicit and separately quotes
+`opportunity-query-v18` keeps actor-native syntax explicit and separately quotes
 three Reddit strategies: exact market/state community scope, broader
 intent-community scope with the market embedded in the query, and one guarded
 global Reddit search with no subreddit scope and actor auto-discovery disabled.
 The global query must contain the requested market, is capped at ten rows, and
-stays inside the frozen 30-day window. Search scope never counts as intent or
-geography evidence. Exact-market lanes sort newest while broader intent and
+stays inside the frozen 30-day window. For buyer, seller, and mixed-intent
+plays, the guarded global lane searches public comments so first-person demand
+demonstrated while participating in an existing thread is not missed; the two
+scoped lanes and local-audience global lane remain post searches. Post and
+comment lanes are separately quoted because the actor's `both` mode can emit
+twice the requested ceiling. Search scope and parent-post context never count
+as intent or geography evidence; only the returned comment/post content can
+prove the criterion. Exact-market lanes sort newest while broader intent and
 global lanes retain relevance sort.
 DataForSEO receives five separately quoted full market-and-state variants for
 each buyer, seller, mixed, or local-audience play. Narrow queries target current
@@ -487,3 +493,6 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-28: Zero-cost requalification exposed that the source provider truncated the cash-buyer title before its commission-avoidance suffix. `fit-v7-quality-v17` therefore treats the demonstrated second-person solicitation form (`looking to sell your home/house/property`) as promotional by itself while preserving genuine first-person consumer statements.
 - 2026-08-28: The query-v16 Austin feasibility pass reconciled cleanly but returned only two Reddit rows across nine fixed-scope searches, with seller and local-audience Reddit lanes empty. `opportunity-query-v17` replaces the third fixed-scope lane with the actor's documented empty-scope global search while keeping subreddit auto-discovery off. The adapter refuses that lane before a paid call unless the query contains the requested market, the result cap is ten or fewer, and the recency window is no broader than 30 days. Returned evidence still independently proves geography, intent, freshness, access, and actionability through fit-v7.
 - 2026-08-28: Review of the frozen query-v17 evidence found a current Austin buyer negotiation thread whose offer, counteroffer, appraisal, closing-cost question, public destination, geography, and freshness all passed, but the consumer-demand primitive did not recognize an in-progress transaction. `fit-v7-quality-v18` adds narrow first-person offer/transaction evidence and the demonstrated “what should my next move” form. It also recognizes home-buyer fairs and explicit community-conversation participation without turning static association pages, stale events, listings, or professional promotion into demand.
+- 2026-08-28: The guarded query-v17 global Reddit post lane returned zero rows for all three Austin plays, while the actor's current first-party contract explicitly supports separately metered public comment search. `opportunity-query-v18` changes only the buyer, seller, and mixed-intent global lane to comments, preserves the two fixed post scopes and local-audience post discovery, caps each lane inside the immutable quote, and normalizes observed comment permalinks, timestamps, parent-post identifiers, activity, and public authors without treating the query or parent title as proof of intent.
+- 2026-08-28: `realtor-opportunity-benchmark-v2` adds a strict independent-human import boundary. Review decisions must bind the frozen play, rank, and destination hash, attest `independent_human` / `HUMAN_REVIEWED`, include reasons for every negative or unsafe judgment, and cannot overwrite system evidence or disposition. The importer records reviewer names, review times, the frozen-source digest, and a deterministic decision digest. Partial batches remain HOLD under the existing 12-play, 100–200-row coverage gate.
+- 2026-08-28: Customer-serving consumer research now requires three independent deployment controls: `GTM_CONSUMER_RESEARCH_ENABLED=true`, the exact August 26 counsel disposition in `GTM_CONSUMER_LEGAL_APPROVAL_VERSION=gtm-b2c-legal-2026-08-26-v1`, and a passing independently reviewed benchmark recorded as `GTM_CONSUMER_QUALITY_APPROVAL_VERSION=realtor-opportunity-benchmark-v2`. Missing, generic, or stale values fail closed before quote, run creation, or provider execution. These controls do not enable consumer automation; consumer participation and outreach remain manual-only.

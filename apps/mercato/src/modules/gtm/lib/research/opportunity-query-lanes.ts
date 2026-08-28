@@ -325,7 +325,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v17',
+        query_lane_version: 'opportunity-query-v18',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -346,12 +346,18 @@ export function buildOpportunityQueryLanes(
                 }
               : {
                   // The actor's documented empty-scope mode is a global Reddit
-                  // search, not subreddit auto-discovery. This final lane is
-                  // explicit, market-bound in the query, and separately quoted.
+                  // search, not subreddit auto-discovery. Buyer and seller
+                  // plays search comments here because first-person intent is
+                  // often demonstrated while participating in an existing
+                  // thread. Local-audience discovery keeps post destinations.
                   reddit_subreddits: [],
                   reddit_auto_discover: false,
                   reddit_global_search: true,
                   reddit_sort: 'relevance',
+                  reddit_content_type:
+                    intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'
+                      ? 'comments'
+                      : 'posts',
                 }
           : {}),
       },

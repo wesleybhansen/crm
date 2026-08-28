@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const REALTOR_BENCHMARK_VERSION = 'realtor-opportunity-benchmark-v1'
+export const REALTOR_BENCHMARK_VERSION = 'realtor-opportunity-benchmark-v2'
 
 export const realtorBenchmarkPlaySchema = z.object({
   id: z.string().regex(/^realtor-[a-z0-9-]+-(?:buyer|seller|local)$/),

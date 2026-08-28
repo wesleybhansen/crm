@@ -141,6 +141,18 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
     'isLocked',
     'isArchived',
     'subredditInfo',
+    // Comment-search rows use the same stable permalink and author fields but
+    // carry parent-post context instead of post-only status fields. Keep this
+    // projection explicit so the billed dataset remains bounded and auditable.
+    'postId',
+    'postTitle',
+    'postUrl',
+    'postAuthor',
+    'postScore',
+    'postCommentCount',
+    'postCreatedAt',
+    'parentId',
+    'subredditSubscribers',
   ],
   buildInput(plan, maxResults) {
     const subreddits = redditSubreddits(plan)
@@ -155,7 +167,7 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
     return {
       query,
       maxResults,
-      contentType: 'posts',
+      contentType: redditContentType(plan),
       sort: redditSort(plan),
       timeFilter: redditTimeFilter(plan),
       subreddits,
@@ -380,6 +392,13 @@ function redditSort(plan: SourceSearchPlan): 'relevance' | 'new' | 'top' | 'hot'
     : 'new'
 }
 
+function redditContentType(plan: SourceSearchPlan): 'posts' | 'comments' {
+  // `both` can emit up to twice maxResults under the actor contract and would
+  // exceed the one-result-ceiling quote used by this adapter. Each content
+  // type therefore remains a separately visible and separately metered lane.
+  return plan.provider_query?.reddit_content_type === 'comments' ? 'comments' : 'posts'
+}
+
 function redditAutoDiscover(plan: SourceSearchPlan): boolean {
   return plan.provider_query?.reddit_auto_discover === true
 }
@@ -519,28 +538,40 @@ function commonIdentity(args: {
 
 export function normalizeRedditOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
   const row = record(value)
-  if (!row || text(row._type, 20)?.toLowerCase() !== 'post') return null
+  const rowType = text(row?._type, 20)?.toLowerCase()
+  if (!row || (rowType !== 'post' && rowType !== 'comment')) return null
   if (row._status != null && text(row._status, 20)?.toLowerCase() !== 'found') return null
-  if (row.isNsfw === true || row.isLocked === true || row.isArchived === true) return null
+  if (rowType === 'post' && (row.isNsfw === true || row.isLocked === true || row.isArchived === true)) return null
   const sourceUrl = safePlatformUrl(row.permalink, 'Reddit')
-  const title = text(row.title, 180)
-  if (!sourceUrl || !title) return null
+  const postTitle = text(rowType === 'comment' ? row.postTitle : row.title, 180)
   const body = text(row.body, 600)
-  const content = body ? `${title}. ${body}` : title
+  if (!sourceUrl || !postTitle || (rowType === 'comment' && !body)) return null
+  const content = body ? `${postTitle}. ${body}` : postTitle
   if (SENSITIVE_TARGETING.test(content) || sensitiveConsumerOpportunityReasons(content).length > 0) return null
   const subreddit = text(row.subreddit, 100)
   const subredditInfo = record(row.subredditInfo)
   if (subredditInfo?.isNsfw === true || subredditInfo?.isQuarantined === true) return null
-  const engagement = Math.min(10_000_000, nonNegativeInteger(row.score) + nonNegativeInteger(row.commentCount))
+  const engagement = Math.min(
+    10_000_000,
+    nonNegativeInteger(row.score)
+      + nonNegativeInteger(rowType === 'comment' ? row.postCommentCount : row.commentCount),
+  )
   const author = text(row.author, 100)
-  const memberCount = nonNegativeInteger(subredditInfo?.subscribersCount)
+  const memberCount = nonNegativeInteger(
+    rowType === 'comment' ? row.subredditSubscribers : subredditInfo?.subscribersCount,
+  )
+  // Parent-post context is useful provenance but cannot manufacture the
+  // comment author's intent. Fit-v7 sees only the returned comment body.
+  const semanticContent = rowType === 'comment' ? body ?? '' : content
   const identity = commonIdentity({
-    name: title,
+    name: rowType === 'comment'
+      ? `Reddit comment${subreddit ? ` in r/${subreddit}` : ''}`
+      : postTitle,
     platform: 'Reddit',
-    content,
+    content: semanticContent,
     sourceUrl,
     requestedLocation: context.location,
-    locationEvidence: `${content}\n${subreddit ?? ''}`,
+    locationEvidence: `${semanticContent}\n${subreddit ?? ''}`,
     engagement,
     people:
       author && author !== '[deleted]'
@@ -562,7 +593,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   identity.member_count = memberCount || null
   const publishedAt = sourcePublishedAt(row.createdAt)
   identity.source_published_at = publishedAt
-  const demonstratedIntent = classifyOpportunityIntent(content)
+  const demonstratedIntent = classifyOpportunityIntent(semanticContent)
   return {
     entity_kind: 'opportunity',
     identity,
@@ -570,12 +601,12 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
       {
         claim:
           engagement > 0
-            ? `The approved public source returned this Reddit discussion with ${engagement} visible score and comment signals.`
-            : 'The approved public source returned this Reddit discussion.',
+            ? `The approved public source returned this Reddit ${rowType} with ${engagement} visible score and discussion signals.`
+            : `The approved public source returned this Reddit ${rowType}.`,
         source_url: sourceUrl,
         observed_at: context.attemptedAt,
         confidence: calibratedOpportunityConfidence({
-          content,
+          content: semanticContent,
           sourceUrl,
           observedAt: publishedAt ?? '',
           attemptedAt: context.attemptedAt,
@@ -585,7 +616,11 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
         detail: {
           provider: 'apify',
           actor_id: context.actorId,
-          provider_post_id: text(row.id, 200),
+          provider_post_id: text(rowType === 'comment' ? row.postId : row.id, 200),
+          provider_comment_id: rowType === 'comment' ? text(row.id, 200) : null,
+          parent_id: rowType === 'comment' ? text(row.parentId, 200) : null,
+          parent_post_title: rowType === 'comment' ? postTitle : null,
+          source_content_type: rowType,
           subreddit,
           location_basis: subredditLocation ? 'scoped_returned_subreddit' : null,
           requested_location: context.location,
