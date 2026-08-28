@@ -16,7 +16,7 @@ export const DATAFORSEO_REQUIRED_TERMS_VERSION = 'dataforseo-tos-2026-06-12'
 export const DATAFORSEO_REQUIRED_PRICE_VERSION = 'google-maps-live-advanced-2026-08-21'
 export const DATAFORSEO_REQUIRED_RETENTION_DAYS = 30
 const PRICE_MULTIPLYING_QUERY_OPERATOR =
-  /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|define|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
+  /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|cache|define|definition|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
 const RECEIPT_FIELDS = [
   'provider_request_id',
   'provider_status',

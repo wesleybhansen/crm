@@ -100,66 +100,67 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     if (intent === 'buyer_intent') {
       return [
-        'first time home buyer class registration 2026',
-        'buying my first home question',
-        'house hunting neighborhood advice',
-        'down payment assistance workshop 2026',
-        'home buyer community event 2026',
+        '"first time home buyer" question advice',
+        '"buying my first home" question',
+        '"house hunting" neighborhood advice',
+        '"down payment assistance" workshop registration 2026',
+        '"home buyer" community event registration 2026',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        'home seller workshop registration 2026',
-        'selling my house question',
-        'thinking of selling my house advice',
-        'preparing home for sale discussion',
-        'home valuation workshop homeowners 2026',
+        '"home seller" workshop registration 2026',
+        '"selling my house" question advice',
+        '"thinking of selling my house" advice',
+        '"preparing my home for sale" discussion',
+        '"home valuation" workshop homeowners 2026',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        'buy before selling home question',
-        'sell before buying home advice',
-        'buying and selling a home workshop 2026',
-        'move while selling and buying a home discussion',
-        'home buyer seller class 2026',
+        '"buy before selling" home question',
+        '"sell before buying" home advice',
+        '"buying and selling a home" workshop 2026',
+        '"selling and buying" home discussion',
+        '"home buyer and seller" class 2026',
       ]
     }
     return [
-      'neighborhood association meeting calendar 2026',
-      'homeowner community meeting 2026',
-      'home buyer workshop 2026',
-      'home seller workshop 2026',
-      'housing community event calendar 2026',
+      '"neighborhood association" meeting calendar 2026',
+      '"homeowner community" meeting calendar 2026',
+      '"home buyer workshop" registration 2026',
+      '"home seller workshop" registration 2026',
+      '"housing community event" calendar 2026',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
     const location = redditLocationWords(geography)
+    const market = marketName(geography)
     if (intent === 'buyer_intent') {
       return [
-        `${location} buying a home first time home buyer`,
-        `${location} buying a home house hunting`,
-        `${location} down payment assistance homebuyer`,
+        '("buying a home" OR "buy a house" OR "first time home buyer" OR "house hunting") (advice OR help OR question OR recommend)',
+        `("mortgage pre approval" OR "down payment" OR "closing costs") (home OR house) (advice OR help OR question) ("${market}" OR "${location}")`,
+        `("moving to ${market}" OR "relocating to ${market}") (buy OR house OR home OR condo) (advice OR neighborhood OR question)`,
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        `${location} selling my house thinking of selling`,
-        `${location} home value preparing to sell`,
-        `${location} downsizing selling home`,
+        '("selling my home" OR "selling our home" OR "selling my house" OR "thinking of selling") (advice OR help OR question)',
+        `("what is my home worth" OR "home valuation" OR "preparing to sell") (advice OR help OR question) ("${market}" OR "${location}")`,
+        `("moving from ${market}" OR downsizing OR relocation) ("sell my home" OR "selling my house")`,
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        `${location} buy before selling sell before buying home`,
-        `${location} selling home while buying`,
-        `${location} buy and sell a home`,
+        '("buy before selling" OR "sell before buying") home (advice OR help OR question)',
+        `("selling a home while buying" OR "buying and selling") ("${market}" OR "${location}")`,
+        `("moving to ${market}" OR "moving from ${market}") (buy OR sell) home`,
       ]
     }
     return [
-      `${location} homeowner question housing discussion`,
-      `${location} homebuyer workshop homeowner event`,
-      `${location} neighborhood association housing meeting`,
+      '("neighborhood association" OR "community meeting" OR "homeowner event")',
+      `("home buyer workshop" OR "home seller workshop" OR "housing event") ("${market}" OR "${location}")`,
+      '(homeowner OR homebuyer) (meetup OR group OR forum OR community)',
     ]
   }
   const socialSeeds: Record<OpportunityIntentLane, string[]> = {
@@ -324,7 +325,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v14',
+        query_lane_version: 'opportunity-query-v15',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -344,9 +345,8 @@ export function buildOpportunityQueryLanes(
                   reddit_sort: 'relevance',
                 }
               : {
-                  reddit_subreddits: [],
-                  reddit_auto_discover: true,
-                  reddit_max_subreddits: 12,
+                  reddit_subreddits: realtorMarketSubreddits(geography),
+                  reddit_auto_discover: false,
                   reddit_sort: 'new',
                 }
           : {}),

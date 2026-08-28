@@ -482,6 +482,34 @@ describe('DataForSEO organic demand-opportunity source', () => {
     ).toMatchObject({ identity: { opportunity_kind: 'group', access_type: 'approval_required' } })
     expect(
       normalizeDataForSeoOpportunityItem(
+        item({
+          title: 'Hyde Park Neighborhood Association',
+          url: 'https://www.austinhydepark.org/community/',
+          description: 'Austin, Texas neighborhood association meetings and public community events.',
+          timestamp: '2026-08-26T12:00:00.000Z',
+        }),
+        {
+          ...buyerContext,
+          expectedIntent: 'local_audience',
+        },
+      ),
+    ).toMatchObject({ identity: { opportunity_kind: 'group', access_type: 'public' } })
+    expect(
+      normalizeDataForSeoOpportunityItem(
+        item({
+          title: 'Austin Neighborhood Association Group',
+          url: 'https://association.example.org/groups/austin-neighbors',
+          description: 'A public Austin, Texas neighborhood association group and meeting calendar.',
+          timestamp: '2026-08-26T12:00:00.000Z',
+        }),
+        {
+          ...buyerContext,
+          expectedIntent: 'local_audience',
+        },
+      ),
+    ).toMatchObject({ identity: { opportunity_kind: 'group', access_type: 'public' } })
+    expect(
+      normalizeDataForSeoOpportunityItem(
         item({ ...buyerThread, timestamp: '2026-08-26T12:00:00.000Z' }),
         buyerContext,
       ),
@@ -490,6 +518,8 @@ describe('DataForSEO organic demand-opportunity source', () => {
 
   it.each([
     ['price-multiplying operator', 'site:reddit.com South Bay home buyers', 'unpriced_query_operator'],
+    ['cache operator', 'cache:example.org South Bay home buyers', 'unpriced_query_operator'],
+    ['definition operator', 'definition:homeowner South Bay', 'unpriced_query_operator'],
     ['sensitive targeting', 'South Bay foreclosure homeowner forum', 'unsafe_consumer_targeting'],
   ])('rejects %s before provider contact', async (_label, query, errorCode) => {
     const fetchImpl = jest.fn() as unknown as typeof fetch

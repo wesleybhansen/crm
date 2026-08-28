@@ -99,6 +99,8 @@ describe('DataForSEO Maps adapter', () => {
     ['overlong keyword', 'x'.repeat(701), 'bad_request'],
     ['price-multiplying operator', 'site:example.com HVAC contractors', 'unpriced_query_operator'],
     ['parenthesized price-multiplying operator', 'HVAC (site:example.com)', 'unpriced_query_operator'],
+    ['cache operator', 'cache:example.com HVAC contractors', 'unpriced_query_operator'],
+    ['definition operator', 'definition:contractor HVAC', 'unpriced_query_operator'],
   ])('rejects an %s before provider contact', async (_label, query, errorCode) => {
     const fetchImpl = jest.fn() as unknown as typeof fetch
     const adapter = createDataForSeoMapsAdapter({ env: approvedEnv, fetchImpl })

@@ -32,7 +32,7 @@ export const DATAFORSEO_OPPORTUNITY_REQUIRED_PRICE_VERSION = 'google-organic-liv
 export const DATAFORSEO_NO_SEARCH_RESULTS_CODE = 40102
 
 const PRICE_MULTIPLYING_QUERY_OPERATOR =
-  /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|define|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
+  /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|cache|define|definition|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
 
 export function hasPriceMultiplyingDataForSeoOpportunityQueryOperator(keyword: string): boolean {
   return PRICE_MULTIPLYING_QUERY_OPERATOR.test(keyword)
@@ -250,6 +250,29 @@ function opportunityKind(url: URL, title: string, resultType: string): Opportuni
   return null
 }
 
+function accessTypeForOpportunity(
+  url: URL,
+  kind: OpportunityKind,
+): NonNullable<Candidate['identity']['access_type']> {
+  const host = url.hostname.toLowerCase().replace(/^www\./, '')
+  if (kind === 'event') return host.endsWith('eventbrite.com') ? 'ticketed' : 'public'
+  if (
+    kind === 'group'
+    && (
+      host.endsWith('facebook.com')
+      || host.endsWith('linkedin.com')
+      || host.endsWith('nextdoor.com')
+    )
+  ) {
+    return 'approval_required'
+  }
+  // A title such as "neighborhood association" can classify an ordinary,
+  // publicly viewable association website as a group. Viewing that source is
+  // public even though participating may still require the user to join or
+  // follow its rules. Do not conflate those two contracts.
+  return 'public'
+}
+
 function normalizedLocationToken(value: string | undefined): string {
   return (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '')
 }
@@ -410,14 +433,7 @@ export function normalizeDataForSeoOpportunityItem(
   const eventStartAt = kind === 'event' ? explicitEventStartAt(searchable, context.observedAt) : null
   const sourcePublishedAt = strictProviderTimestamp(item.timestamp)
   const engagementCount = Math.max(0, finiteNumber(item.posts_count) ?? 0)
-  const accessType =
-    kind === 'event'
-      ? url.hostname.toLowerCase().endsWith('eventbrite.com')
-        ? 'ticketed' as const
-        : 'public' as const
-      : kind === 'group'
-        ? 'approval_required' as const
-        : 'public' as const
+  const accessType = accessTypeForOpportunity(url, kind)
   const candidate: Candidate = {
     entity_kind: 'opportunity',
     identity: {
