@@ -1,6 +1,8 @@
 import {
   GTM_CONSUMER_LEGAL_APPROVAL_VERSION,
+  GTM_CONSUMER_OWNER_PROBE_CEILINGS,
   GTM_CONSUMER_QUALITY_APPROVAL_VERSION,
+  gtmConsumerOwnerProbeEnabled,
   gtmConsumerResearchEnabled,
   gtmConsumerResearchReleaseState,
 } from '../flags'
@@ -9,6 +11,8 @@ const managedKeys = [
   'GTM_CONSUMER_RESEARCH_ENABLED',
   'GTM_CONSUMER_LEGAL_APPROVAL_VERSION',
   'GTM_CONSUMER_QUALITY_APPROVAL_VERSION',
+  'GTM_CONSUMER_OWNER_PROBE_ENABLED',
+  'GTM_CONSUMER_OWNER_PROBE_NOLI_USER_ID',
 ] as const
 
 describe('consumer research release gate', () => {
@@ -58,5 +62,32 @@ describe('consumer research release gate', () => {
     process.env.GTM_CONSUMER_LEGAL_APPROVAL_VERSION = 'approved'
     process.env.GTM_CONSUMER_QUALITY_APPROVAL_VERSION = 'realtor-opportunity-benchmark-v1'
     expect(gtmConsumerResearchEnabled()).toBe(false)
+  })
+
+  it('permits only the configured owner inside every probe ceiling', () => {
+    const ownerId = '1992dd12-99d9-4a40-b053-4e4ac784081b'
+    process.env.GTM_CONSUMER_RESEARCH_ENABLED = 'true'
+    process.env.GTM_CONSUMER_OWNER_PROBE_ENABLED = 'true'
+    process.env.GTM_CONSUMER_OWNER_PROBE_NOLI_USER_ID = ownerId
+    expect(gtmConsumerOwnerProbeEnabled(ownerId, {
+      targetAccepted: GTM_CONSUMER_OWNER_PROBE_CEILINGS.targetAccepted,
+      maxRawCandidates: GTM_CONSUMER_OWNER_PROBE_CEILINGS.maxRawCandidates,
+      maxCredits: GTM_CONSUMER_OWNER_PROBE_CEILINGS.maxCredits,
+    })).toBe(true)
+    expect(gtmConsumerOwnerProbeEnabled('another-owner', {
+      targetAccepted: 10,
+      maxRawCandidates: 60,
+      maxCredits: 30_000,
+    })).toBe(false)
+    expect(gtmConsumerOwnerProbeEnabled(ownerId, {
+      targetAccepted: 10,
+      maxRawCandidates: 61,
+      maxCredits: 30_000,
+    })).toBe(false)
+    expect(gtmConsumerOwnerProbeEnabled(ownerId, {
+      targetAccepted: 10,
+      maxRawCandidates: 60,
+      maxCredits: 30_001,
+    })).toBe(false)
   })
 })

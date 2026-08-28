@@ -20,6 +20,19 @@ export type GtmConsumerResearchReleaseState = {
   >
 }
 
+type GtmConsumerOwnerProbeLimits = {
+  targetAccepted?: unknown
+  maxRawCandidates?: unknown
+  maxCandidates?: unknown
+  maxCredits?: unknown
+}
+
+export const GTM_CONSUMER_OWNER_PROBE_CEILINGS = {
+  targetAccepted: 10,
+  maxRawCandidates: 60,
+  maxCredits: 30_000,
+} as const
+
 export function gtmConsumerResearchReleaseState(): GtmConsumerResearchReleaseState {
   const featureEnabled = process.env.GTM_CONSUMER_RESEARCH_ENABLED === 'true'
   const legalApproved =
@@ -47,4 +60,31 @@ export function gtmConsumerResearchReleaseState(): GtmConsumerResearchReleaseSta
 // a generic feature flag can never stand in for either release decision.
 export function gtmConsumerResearchEnabled(): boolean {
   return gtmConsumerResearchReleaseState().enabled
+}
+
+function boundedPositiveInteger(value: unknown, ceiling: number): boolean {
+  return Number.isInteger(value) && Number(value) >= 1 && Number(value) <= ceiling
+}
+
+/**
+ * Pre-release quality probes are restricted to one explicitly configured Noli
+ * owner and a small immutable quote. This avoids the circular requirement to
+ * pass the paid-source benchmark before it can be run, without weakening the
+ * customer release gate or enabling consumer outreach.
+ */
+export function gtmConsumerOwnerProbeEnabled(
+  noliUserId: string,
+  limits: GtmConsumerOwnerProbeLimits | null | undefined,
+): boolean {
+  if (
+    process.env.GTM_CONSUMER_RESEARCH_ENABLED !== 'true'
+    || process.env.GTM_CONSUMER_OWNER_PROBE_ENABLED !== 'true'
+    || !process.env.GTM_CONSUMER_OWNER_PROBE_NOLI_USER_ID
+    || process.env.GTM_CONSUMER_OWNER_PROBE_NOLI_USER_ID !== noliUserId
+    || !limits
+  ) return false
+  const rawCeiling = limits.maxRawCandidates ?? limits.maxCandidates
+  return boundedPositiveInteger(limits.targetAccepted, GTM_CONSUMER_OWNER_PROBE_CEILINGS.targetAccepted)
+    && boundedPositiveInteger(rawCeiling, GTM_CONSUMER_OWNER_PROBE_CEILINGS.maxRawCandidates)
+    && boundedPositiveInteger(limits.maxCredits, GTM_CONSUMER_OWNER_PROBE_CEILINGS.maxCredits)
 }

@@ -4,7 +4,11 @@ import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('Plan and execute gated GTM research')
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { gtmConsumerResearchReleaseState, gtmEnabled } from '../../../lib/flags'
+import {
+  gtmConsumerOwnerProbeEnabled,
+  gtmConsumerResearchReleaseState,
+  gtmEnabled,
+} from '../../../lib/flags'
 import { gtmResearchRunsBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
 import { buildSourcePlan } from '../../../lib/research/plan'
@@ -225,7 +229,11 @@ export async function POST(req: Request) {
         )
       }
 
-      if (plan.policy.lead_mode !== 'business' && !gtmConsumerResearchReleaseState().enabled) {
+      if (
+        plan.policy.lead_mode !== 'business'
+        && !gtmConsumerResearchReleaseState().enabled
+        && !gtmConsumerOwnerProbeEnabled(body.noliUserId, plan.limits)
+      ) {
         return consumerResearchHold()
       }
 
@@ -366,7 +374,12 @@ export async function POST(req: Request) {
 
       const frozenProviderPlan = (run.providerPlan ?? {}) as Record<string, unknown>
       const frozenPolicy = frozenProviderPlan.policy as Record<string, unknown> | undefined
-      if (frozenPolicy && frozenPolicy.lead_mode !== 'business' && !gtmConsumerResearchReleaseState().enabled) {
+      if (
+        frozenPolicy
+        && frozenPolicy.lead_mode !== 'business'
+        && !gtmConsumerResearchReleaseState().enabled
+        && !gtmConsumerOwnerProbeEnabled(body.noliUserId, run.limits as Record<string, unknown>)
+      ) {
         return consumerResearchHold()
       }
 
