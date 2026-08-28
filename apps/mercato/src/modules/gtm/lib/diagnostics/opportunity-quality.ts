@@ -155,10 +155,11 @@ function operationReceiptCounts(operation: GtmProviderOperation): {
   const receipt = object(operation.receipt)
   if (!receipt) return { input: 0, dropped: 0, actorBuild: null }
   const dropped = count(receipt.parser_dropped_rows ?? receipt.dropped_items)
+  const raw = count(receipt.raw_item_count)
   const returned = count(receipt.returned_count)
   const itemCount = count(receipt.item_count)
   return {
-    input: itemCount > 0 ? itemCount : returned + dropped,
+    input: raw > 0 ? raw : itemCount > 0 ? itemCount : returned + dropped,
     dropped,
     actorBuild: string(receipt.actor_build),
   }

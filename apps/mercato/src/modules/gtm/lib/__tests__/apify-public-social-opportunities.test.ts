@@ -279,7 +279,7 @@ describe('Apify public social demand opportunities', () => {
     expect(x?.identity.intent_kind).toBe('local_audience')
   })
 
-  it('drops a paid social row when returned content does not prove the frozen lane and market', () => {
+  it('retains safe paid social rows for fit-v7 when returned content does not prove the lane or market', () => {
     const context = {
       query: 'Austin Texas selling my house thinking of selling',
       location: 'Austin, Texas',
@@ -288,16 +288,18 @@ describe('Apify public social demand opportunities', () => {
       attemptedAt: CLOCK.toISOString(),
       actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
     }
-    expect(
-      normalizeRedditOpportunity(
-        redditPost({
-          title: 'SOL scaling by state: a community guide',
-          body: 'A general legal discussion about claim deadlines.',
-          subreddit: 'BSA_Survivors',
-        }),
-        context,
-      ),
-    ).toBeNull()
+    const mismatch = normalizeRedditOpportunity(
+      redditPost({
+        title: 'SOL scaling by state: a community guide',
+        body: 'A general legal discussion about claim deadlines.',
+        subreddit: 'BSA_Survivors',
+      }),
+      context,
+    )
+    expect(mismatch).toMatchObject({
+      identity: { location: null },
+      evidence: [expect.objectContaining({ detail: expect.objectContaining({ requested_intent: 'seller_intent' }) })],
+    })
     expect(
       normalizeRedditOpportunity(
         redditPost({
@@ -310,7 +312,7 @@ describe('Apify public social demand opportunities', () => {
     ).not.toBeNull()
   })
 
-  it('requires current publication evidence and rejects auto-discovered rental lifestyle threads', () => {
+  it('preserves safe undated and rental-lifestyle rows for fit-v7 rejection', () => {
     const context = {
       query: 'Tampa Florida homeowner question housing discussion',
       location: 'Tampa, Florida',
@@ -329,7 +331,7 @@ describe('Apify public social demand opportunities', () => {
         }),
         context,
       ),
-    ).toBeNull()
+    ).toMatchObject({ identity: { source_published_at: null } })
     expect(
       normalizeRedditOpportunity(
         redditPost({
@@ -339,7 +341,10 @@ describe('Apify public social demand opportunities', () => {
         }),
         context,
       ),
-    ).toBeNull()
+    ).toMatchObject({
+      identity: { location: 'Tampa, Florida' },
+      evidence: [expect.objectContaining({ detail: expect.objectContaining({ requested_intent: 'local_audience' }) })],
+    })
   })
 
   it('drops vulnerable housing-crisis conversations before they become candidates', () => {
