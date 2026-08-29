@@ -202,7 +202,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v20')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v21')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -221,6 +221,15 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     const linkedin = buildOpportunityQueryLanes(play, 'apify-linkedin-demand-opportunities')
     const reddit = buildOpportunityQueryLanes(play, 'apify-reddit-demand-opportunities')
     const web = buildOpportunityQueryLanes(play, 'dataforseo-organic-demand-opportunities')
+    const buyerWeb = buildOpportunityQueryLanes(
+      {
+        geography: 'Austin, Texas',
+        audience: 'Austin first-time home buyers',
+        signal: 'A public question demonstrates home-buying intent',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      'dataforseo-organic-demand-opportunities',
+    )
 
     expect(x).toHaveLength(1)
     expect(linkedin).toHaveLength(1)
@@ -266,14 +275,24 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     })
     expect(reddit[2]?.query).not.toContain('Austin')
     expect(reddit[2]?.query).toContain('selling my home')
-    expect(web.every((lane) => lane.query.includes('-jobs') && lane.query.includes('-"just listed"'))).toBe(true)
+    expect(
+      web.every(
+        (lane) => lane.query.includes('-jobs')
+          && lane.query.includes('-"just listed"')
+          && lane.query.includes('-realtor')
+          && lane.query.includes('-"real estate agent"')
+          && lane.query.includes('-broker')
+          && lane.query.includes('-"contact me"')
+          && lane.query.includes('-"open house"'),
+      ),
+    ).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('"home seller" workshop registration 2026'),
-        expect.stringContaining('"selling my house" question'),
-        expect.stringContaining('"thinking of selling my house" advice'),
-        expect.stringContaining('"preparing my home for sale" discussion'),
-        expect.stringContaining('"home valuation" workshop homeowners 2026'),
+        expect.stringContaining('"I am selling my home" question'),
+        expect.stringContaining('"we are selling our house" advice'),
+        expect.stringContaining('"thinking of selling my house" question'),
+        expect.stringContaining('Reddit "selling my home" "Austin"'),
+        expect.stringContaining('Reddit "what is my home worth" "Austin"'),
       ]),
     )
     expect(
@@ -282,6 +301,17 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(web.every((lane) => lane.query.includes('"Austin, Texas"'))).toBe(true)
     expect(web.every((lane) => lane.query.length < 240)).toBe(true)
     expect(new Set(web.map((lane) => lane.query)).size).toBe(5)
+    expect(buyerWeb).toHaveLength(5)
+    expect(buyerWeb.map((lane) => lane.query)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('"I am buying my first home" question'),
+        expect.stringContaining('"we are buying a home" advice'),
+        expect.stringContaining('"looking to buy a house" question'),
+        expect.stringContaining('Reddit "moving to Austin" "buy a home"'),
+        expect.stringContaining('Reddit "made an offer" home "Austin"'),
+      ]),
+    )
+    expect(buyerWeb.every((lane) => lane.query.length < 240)).toBe(true)
   })
 
   it('does not inject realtor terminology into a non-real-estate consumer play', () => {

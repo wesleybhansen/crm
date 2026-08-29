@@ -24,6 +24,9 @@ const REALTOR_NEGATIVE_TERMS = [
   'new listing',
   'market update',
   'real estate news',
+  'realtor',
+  'broker',
+  'open house',
   'agent leads',
   'contact me',
   'buyer tips',
@@ -100,39 +103,40 @@ function redditLocationWords(geography: string): string {
 
 function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geography: string): string[] {
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
+    const market = marketName(geography)
     if (intent === 'buyer_intent') {
       return [
-        '"first time home buyer" question advice',
-        '"buying my first home" question',
-        '"house hunting" neighborhood advice',
-        '"down payment assistance" workshop registration 2026',
-        '"home buyer" community event registration 2026',
+        '"I am buying my first home" question',
+        '"we are buying a home" advice',
+        '"looking to buy a house" question',
+        `Reddit "moving to ${market}" "buy a home"`,
+        `Reddit "made an offer" home "${market}"`,
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        '"home seller" workshop registration 2026',
-        '"selling my house" question advice',
-        '"thinking of selling my house" advice',
-        '"preparing my home for sale" discussion',
-        '"home valuation" workshop homeowners 2026',
+        '"I am selling my home" question',
+        '"we are selling our house" advice',
+        '"thinking of selling my house" question',
+        `Reddit "selling my home" "${market}"`,
+        `Reddit "what is my home worth" "${market}"`,
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        '"buy before selling" home question',
-        '"sell before buying" home advice',
-        '"buying and selling a home" workshop 2026',
-        '"selling and buying" home discussion',
-        '"home buyer and seller" class 2026',
+        '"I need to sell before buying" question',
+        '"we are selling and buying a home" advice',
+        '"buy before selling" personal experience',
+        `Reddit "sell then buy" "${market}"`,
+        `Reddit "moving to ${market}" "selling my home"`,
       ]
     }
     return [
-      '"neighborhood association" meeting calendar 2026',
-      '"homeowner community" meeting calendar 2026',
-      '"home buyer workshop" registration 2026',
-      '"home seller workshop" registration 2026',
-      '"housing community event" calendar 2026',
+      '"neighborhood association" meeting calendar',
+      '"homeowner community" meeting calendar',
+      '"home buyer workshop" registration',
+      '"home seller workshop" registration',
+      '"housing community event" calendar',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
@@ -272,6 +276,13 @@ function sourceSeed(
       'new listing',
       'market update',
       'real estate news',
+      'realtor',
+      'real estate agent',
+      'broker',
+      'contact me',
+      'buyer tips',
+      'seller tips',
+      'open house',
     ])
     const exclusions = negativeTerms
       .filter((term) => organicExclusions.has(term))
@@ -352,7 +363,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v20',
+        query_lane_version: 'opportunity-query-v21',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

@@ -325,7 +325,7 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v20` keeps actor-native syntax explicit and separately quotes
+`opportunity-query-v21` keeps actor-native syntax explicit and separately quotes
 three Reddit strategies. The first post lane covers exact market/state
 communities. The second post lane covers broader intent communities while the
 market remains explicit in the query. For buyer, seller, and mixed-intent
@@ -342,10 +342,13 @@ comment lane, but only the comment body can prove intent; query text and parent
 post context prove neither. Exact-market post lanes sort newest while broader
 intent, comment, and global local-audience lanes retain relevance sort.
 DataForSEO receives five separately quoted full market-and-state variants for
-each buyer, seller, mixed, or local-audience play. Narrow queries target current
-registrations, schedules, classes, public meetings, registries, and direct
-consumer questions so broad stale pages do not compete with participation
-surfaces inside one keyword. Every organic lane freezes the provider-supported
+each buyer, seller, mixed, or local-audience play. Buyer, seller, and mixed
+lanes use first-person demand phrases plus bounded Reddit-oriented variants;
+they exclude realtor-authored promotions, listings, recruiting, and generic
+market content without excluding ordinary consumer discussion of agents,
+mortgages, or lenders. Local-audience lanes target current registrations,
+schedules, classes, public meetings, registries, and community destinations.
+Every organic lane freezes the provider-supported
 past-month search parameter (`&tbs=qdr:m`) into the immutable plan and request.
 The adapter refuses a missing or altered freshness parameter before provider
 contact; downstream fit-v7 still requires returned publication or observation
@@ -506,3 +509,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-28: Customer-serving consumer research now requires three independent deployment controls: `GTM_CONSUMER_RESEARCH_ENABLED=true`, the exact August 26 counsel disposition in `GTM_CONSUMER_LEGAL_APPROVAL_VERSION=gtm-b2c-legal-2026-08-26-v1`, and a passing independently reviewed benchmark recorded as `GTM_CONSUMER_QUALITY_APPROVAL_VERSION=realtor-opportunity-benchmark-v2`. Missing, generic, or stale values fail closed before quote, run creation, or provider execution. These controls do not enable consumer automation; consumer participation and outreach remain manual-only.
 - 2026-08-28: A pre-release benchmark would otherwise be circular because the quality approval is produced by the benchmark itself. An explicit owner-only probe escape hatch therefore permits one configured Noli user to plan and execute consumer research only when the general consumer feature is enabled and every immutable per-run ceiling is at or below 10 accepted results, 60 raw candidates, and 30,000 credits. It never satisfies or changes the customer legal/quality release state, and it does not enable consumer outreach.
 - 2026-08-29: Independent human Batch 1 review confirmed that fit-v7 correctly rejected stale, expired, inaccessible, and non-actionable Austin buyer rows but that broad organic retrieval still spent most of its top-ten capacity on old or undated pages. `opportunity-query-v20` freezes DataForSEO's supported past-month `&tbs=qdr:m` parameter into each quoted organic lane and request. The adapter rejects missing or altered freshness parameters before contact; the 30-day fit/evidence gate remains authoritative because search recency is targeting, not proof.
+- 2026-08-29: The bounded query-v20 Austin buyer probe reconciled cleanly but all three Reddit lanes returned zero rows and its ten organic candidates were Facebook-heavy professional promotions or inaccessible groups; fit-v7 correctly accepted none. `opportunity-query-v21` changes the buyer, seller, and mixed organic lanes to first-person demand phrases plus bounded Reddit-oriented variants and excludes realtor-authored promotion, listing, recruiting, and generic market content without excluding ordinary consumer discussion of agents, mortgages, or lenders. The past-month request and all downstream evidence gates remain unchanged.
