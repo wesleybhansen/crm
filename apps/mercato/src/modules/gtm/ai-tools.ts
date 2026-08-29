@@ -12,6 +12,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { GtmCandidate, GtmCandidateMatch, GtmEvidence, GtmPlay, GtmWorkspace } from './data/entities'
 import { reviewCandidate, reviewCandidateMatch } from './lib/research/review'
 import type { ResearchEm } from './lib/research/execute'
+import { latestMatchForCandidate, latestMatchesForCandidates } from './lib/research/match-projection'
 
 type ToolContext = {
   tenantId: string | null
@@ -210,7 +211,7 @@ export const gtmListOpportunitiesTool: AiToolDefinition = {
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
           deletedAt: null,
         },
-        { orderBy: { createdAt: 'desc' }, limit: READ_CAP },
+        { orderBy: { createdAt: 'desc', id: 'desc' }, limit: READ_CAP },
       )
       candidateIds = [...new Set(matches.map((match) => match.candidateId))]
     }
@@ -222,25 +223,38 @@ export const gtmListOpportunitiesTool: AiToolDefinition = {
     if (input.workspaceId) where.workspaceId = input.workspaceId
     if (input.entityKind) where.entityKind = input.entityKind
     if (candidateIds) where.id = { $in: candidateIds }
-    if (!input.playId && input.fitStatus) where.fitStatus = input.fitStatus
     let candidates =
       candidateIds?.length === 0
         ? []
         : await em.find(GtmCandidate, where, {
-            orderBy: { fitScore: 'desc', createdAt: 'desc' },
+            orderBy: { createdAt: 'desc' },
             limit: READ_CAP,
           })
-    const latestMatch = new Map<string, GtmCandidateMatch>()
-    for (const match of matches) if (!latestMatch.has(match.candidateId)) latestMatch.set(match.candidateId, match)
-    if (input.fitStatus && input.playId) {
-      candidates = candidates.filter((candidate) => latestMatch.get(candidate.id)?.fitStatus === input.fitStatus)
+    const latestMatch = input.playId
+      ? new Map<string, GtmCandidateMatch>()
+      : await latestMatchesForCandidates(em, {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          candidateIds: candidates.map((candidate) => candidate.id),
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        })
+    if (input.playId) {
+      for (const match of matches) if (!latestMatch.has(match.candidateId)) latestMatch.set(match.candidateId, match)
     }
     candidates = candidates
       .filter((candidate) => {
+        const match = latestMatch.get(candidate.id)
+        if (input.playId && !match) return false
+        if (input.fitStatus && (match?.fitStatus ?? candidate.fitStatus) !== input.fitStatus) return false
         const identity = candidate.identity ?? {}
         if (input.intentKind && identity.intent_kind !== input.intentKind) return false
         if (input.opportunityKind && identity.opportunity_kind !== input.opportunityKind) return false
         return true
+      })
+      .sort((a, b) => {
+        const aScore = Number(latestMatch.get(a.id)?.fitScore ?? a.fitScore ?? 0)
+        const bScore = Number(latestMatch.get(b.id)?.fitScore ?? b.fitScore ?? 0)
+        return bScore - aScore
       })
       .slice(0, input.limit ?? 20)
     return {
@@ -284,7 +298,11 @@ export const gtmGetOpportunityTool: AiToolDefinition = {
           tenantId: scope.tenantId,
           deletedAt: null,
         })
-      : null
+      : await latestMatchForCandidate(em, {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          candidateId: candidate.id,
+        })
     if (input.matchId && !match) throw new Error('GTM result not found')
     const evidence = await em.find(
       GtmEvidence,
@@ -332,15 +350,21 @@ export const gtmReviewOpportunityTool: AiToolDefinition = {
       deletedAt: null,
     })
     if (!candidate) throw new Error('GTM result not found')
-    if (input.matchId) {
-      const match = await em.findOne(GtmCandidateMatch, {
-        id: input.matchId,
-        candidateId: candidate.id,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      })
-      if (!match) throw new Error('GTM result not found')
+    const match = input.matchId
+      ? await em.findOne(GtmCandidateMatch, {
+          id: input.matchId,
+          candidateId: candidate.id,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        })
+      : await latestMatchForCandidate(em, {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          candidateId: candidate.id,
+        })
+    if (input.matchId && !match) throw new Error('GTM result not found')
+    if (match) {
       const reviewed = await reviewCandidateMatch({
         em: em as unknown as ResearchEm,
         candidate,

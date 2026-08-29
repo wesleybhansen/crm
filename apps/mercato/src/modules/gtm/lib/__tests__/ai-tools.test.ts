@@ -5,7 +5,15 @@ import {
   gtmListWorkspacesTool,
   gtmReviewOpportunityTool,
 } from '../../ai-tools'
-import { GtmAuditEvent, GtmCandidate, GtmEvidence, GtmPlay, GtmResearchRun, GtmWorkspace } from '../../data/entities'
+import {
+  GtmAuditEvent,
+  GtmCandidate,
+  GtmCandidateMatch,
+  GtmEvidence,
+  GtmPlay,
+  GtmResearchRun,
+  GtmWorkspace,
+} from '../../data/entities'
 import { FakeEm } from './support/fake-em'
 
 const ORG = '11111111-1111-4111-8111-111111111111'
@@ -177,6 +185,69 @@ describe('GTM MCP tools', () => {
     )) as any
     expect(reviewed.result.fitStatus).toBe('rejected')
     expect(em.table(GtmAuditEvent)).toHaveLength(1)
+  })
+
+  it('projects the newest play match instead of a stale accepted candidate root', async () => {
+    const em = new FakeEm()
+    const rows = await seed(em)
+    const newerRun = em.create(GtmResearchRun, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: rows.workspace.id,
+      playId: rows.play.id,
+      status: 'completed',
+      createdAt: new Date('2026-08-29T12:00:00.000Z'),
+    })
+    const match = em.create(GtmCandidateMatch, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: rows.workspace.id,
+      playId: rows.play.id,
+      researchRunId: newerRun.id,
+      candidateId: rows.candidate.id,
+      fitStatus: 'review',
+      fitScore: '69',
+      rejectReason: 'required_criterion_unknown',
+      qualificationVersion: 'fit-v7-quality-v20',
+      createdAt: new Date('2026-08-29T12:01:00.000Z'),
+    })
+    em.persist(newerRun)
+    em.persist(match)
+    await em.flush()
+
+    const listed = (await gtmListOpportunitiesTool.handler(
+      { workspaceId: rows.workspace.id, entityKind: 'opportunity' },
+      context(em),
+    )) as any
+    expect(listed.results).toEqual([
+      expect.objectContaining({
+        id: rows.candidate.id,
+        matchId: match.id,
+        playId: rows.play.id,
+        fitStatus: 'review',
+        fitScore: 69,
+        rejectReason: 'required_criterion_unknown',
+      }),
+    ])
+    const staleAccepted = (await gtmListOpportunitiesTool.handler(
+      { workspaceId: rows.workspace.id, fitStatus: 'accepted' },
+      context(em),
+    )) as any
+    expect(staleAccepted.results).toEqual([])
+
+    const detail = (await gtmGetOpportunityTool.handler(
+      { candidateId: rows.candidate.id },
+      context(em),
+    )) as any
+    expect(detail.result).toEqual(expect.objectContaining({ matchId: match.id, fitStatus: 'review' }))
+
+    const reviewed = (await gtmReviewOpportunityTool.handler(
+      { candidateId: rows.candidate.id, verdict: 'rejected', reason: 'Human rejected current match' },
+      context(em),
+    )) as any
+    expect(reviewed.result).toEqual(expect.objectContaining({ matchId: match.id, fitStatus: 'rejected' }))
+    expect(rows.candidate.fitStatus).toBe('accepted')
+    expect(match.fitStatus).toBe('rejected')
   })
 
   it('keeps foreign-tenant results opaque', async () => {

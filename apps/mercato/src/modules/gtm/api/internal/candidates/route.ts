@@ -8,6 +8,7 @@ import { gtmEnabled } from '../../../lib/flags'
 import { gtmCandidatesBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
 import type { GtmCandidate, GtmCandidateMatch } from '../../../data/entities'
+import { latestMatchForCandidate } from '../../../lib/research/match-projection'
 
 /*
  * Internal GTM candidates (SPEC-066 sections 5 and 14 Tranche 3).
@@ -149,16 +150,22 @@ export async function POST(req: Request) {
       if (!candidate) return opaqueNotFound()
 
       const { reviewCandidate, reviewCandidateMatch } = await import('../../../lib/research/review')
-      if (body.matchId) {
-        if (!isUuid(body.matchId)) return opaqueNotFound()
-        const match = await em.findOne(GtmCandidateMatch, {
-          id: body.matchId,
-          candidateId: candidate.id,
-          organizationId,
-          tenantId,
-          deletedAt: null,
-        })
-        if (!match) return opaqueNotFound()
+      if (body.matchId && !isUuid(body.matchId)) return opaqueNotFound()
+      const match = body.matchId
+        ? await em.findOne(GtmCandidateMatch, {
+            id: body.matchId,
+            candidateId: candidate.id,
+            organizationId,
+            tenantId,
+            deletedAt: null,
+          })
+        : await latestMatchForCandidate(em, {
+            organizationId,
+            tenantId,
+            candidateId: candidate.id,
+          })
+      if (body.matchId && !match) return opaqueNotFound()
+      if (match) {
         const result = await reviewCandidateMatch({
           em: em as unknown as import('../../../lib/research/execute').ResearchEm,
           candidate,
@@ -208,7 +215,11 @@ export async function POST(req: Request) {
               deletedAt: null,
             })
           : null
-        : null
+        : await latestMatchForCandidate(em, {
+            organizationId,
+            tenantId,
+            candidateId: candidate.id,
+          })
       if (body.matchId && !match) return opaqueNotFound()
 
       const { GtmEvidence, GtmContactPoint } = await import('../../../data/entities')
@@ -328,7 +339,7 @@ export async function POST(req: Request) {
       if (body.playId) matchWhere.playId = body.playId
       if (body.workspaceId) matchWhere.workspaceId = body.workspaceId
       const allMatches = await em.find(GtmCandidateMatch, matchWhere, {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'desc', id: 'desc' },
         limit: 1000,
       })
       const latestMatches: GtmCandidateMatch[] = []
@@ -364,27 +375,97 @@ export async function POST(req: Request) {
         .sort((a, b) => Number(b.match.fitScore ?? 0) - Number(a.match.fitScore ?? 0))
         .slice(0, LIST_CAP)
     } else {
-      const where: Record<string, unknown> = { organizationId, tenantId, deletedAt: null }
-      if (body.workspaceId) where.workspaceId = body.workspaceId
-      const summaryWhere = { ...where }
-      if (body.fitStatus) where.fitStatus = body.fitStatus
-      const [candidates, countTotal, countAccepted, countReview, countRejected, countUnscored] = await Promise.all([
-        em.find(GtmCandidate, where, {
-          orderBy: { fitScore: 'desc', createdAt: 'desc' },
-          limit: LIST_CAP,
-        }),
-        em.count(GtmCandidate, summaryWhere),
-        em.count(GtmCandidate, { ...summaryWhere, fitStatus: 'accepted' }),
-        em.count(GtmCandidate, { ...summaryWhere, fitStatus: 'review' }),
-        em.count(GtmCandidate, { ...summaryWhere, fitStatus: 'rejected' }),
-        em.count(GtmCandidate, { ...summaryWhere, fitStatus: 'unscored' }),
+      type ProjectedRow = { candidate_id: string; match_id: string | null }
+      type SummaryRow = {
+        total: number | string
+        accepted: number | string
+        review: number | string
+        rejected: number | string
+        unscored: number | string
+      }
+      const workspaceClause = body.workspaceId ? ' and c.workspace_id = ?' : ''
+      const scopeParams = body.workspaceId
+        ? [organizationId, tenantId, body.workspaceId]
+        : [organizationId, tenantId]
+      const projectionCte = `
+        with latest_match as (
+          select distinct on (m.candidate_id)
+            m.candidate_id,
+            m.id as match_id,
+            m.fit_status,
+            m.fit_score
+          from gtm_candidate_matches m
+          join gtm_candidates c on c.id = m.candidate_id
+          where c.organization_id = ?
+            and c.tenant_id = ?
+            and c.deleted_at is null
+            and m.organization_id = c.organization_id
+            and m.tenant_id = c.tenant_id
+            and m.deleted_at is null
+            ${workspaceClause}
+          order by m.candidate_id, m.created_at desc, m.id desc
+        ), projected as (
+          select
+            c.id as candidate_id,
+            lm.match_id,
+            coalesce(lm.fit_status, c.fit_status) as fit_status,
+            coalesce(lm.fit_score, c.fit_score) as fit_score,
+            c.created_at
+          from gtm_candidates c
+          left join latest_match lm on lm.candidate_id = c.id
+          where c.organization_id = ?
+            and c.tenant_id = ?
+            and c.deleted_at is null
+            ${workspaceClause}
+        )`
+      const allParams = [...scopeParams, ...scopeParams]
+      const connection = em.getConnection()
+      const [projected, summaryRows] = await Promise.all([
+        connection.execute<ProjectedRow[]>(
+          `${projectionCte}
+           select candidate_id, match_id
+           from projected
+           ${body.fitStatus ? 'where fit_status = ?' : ''}
+           order by fit_score desc nulls last, created_at desc, candidate_id
+           limit ${LIST_CAP}`,
+          body.fitStatus ? [...allParams, body.fitStatus] : allParams,
+        ),
+        connection.execute<SummaryRow[]>(
+          `${projectionCte}
+           select
+             count(*)::integer as total,
+             count(*) filter (where fit_status = 'accepted')::integer as accepted,
+             count(*) filter (where fit_status = 'review')::integer as review,
+             count(*) filter (where fit_status = 'rejected')::integer as rejected,
+             count(*) filter (where fit_status = 'unscored')::integer as unscored
+           from projected`,
+          allParams,
+        ),
       ])
-      rows = candidates.map((candidate) => ({ candidate, match: null }))
-      total = countTotal
-      accepted = countAccepted
-      review = countReview
-      rejected = countRejected
-      unscored = countUnscored
+      const candidateIds = projected.map((row) => row.candidate_id)
+      const matchIds = projected.flatMap((row) => (row.match_id ? [row.match_id] : []))
+      const [candidates, projectedMatches] = await Promise.all([
+        candidateIds.length
+          ? em.find(GtmCandidate, { organizationId, tenantId, id: { $in: candidateIds }, deletedAt: null })
+          : [],
+        matchIds.length
+          ? em.find(GtmCandidateMatch, { organizationId, tenantId, id: { $in: matchIds }, deletedAt: null })
+          : [],
+      ])
+      const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]))
+      const matchById = new Map(projectedMatches.map((match) => [match.id, match]))
+      rows = projected
+        .map((row) => ({
+          candidate: candidateById.get(row.candidate_id),
+          match: row.match_id ? matchById.get(row.match_id) ?? null : null,
+        }))
+        .filter((row): row is { candidate: GtmCandidate; match: GtmCandidateMatch | null } => Boolean(row.candidate))
+      const summary = summaryRows[0] ?? { total: 0, accepted: 0, review: 0, rejected: 0, unscored: 0 }
+      total = Number(summary.total)
+      accepted = Number(summary.accepted)
+      review = Number(summary.review)
+      rejected = Number(summary.rejected)
+      unscored = Number(summary.unscored)
       const scored = accepted + review + rejected
       qualification = {
         scored,
