@@ -89,8 +89,10 @@ export const APIFY_TIMEOUT_MS_ENV = 'GTM_APIFY_TIMEOUT_MS'
 export const APIFY_CUSTOMER_USE_APPROVED_ENV = 'GTM_APIFY_CUSTOMER_USE_APPROVED'
 export const APIFY_TERMS_VERSION_ENV = 'GTM_APIFY_TERMS_VERSION'
 export const APIFY_PRICE_VERSION_ENV = 'GTM_APIFY_PRICE_VERSION'
+export const APIFY_ACCOUNT_TIER_ENV = 'GTM_APIFY_ACCOUNT_TIER'
 export const APIFY_REQUIRED_TERMS_VERSION = 'apify-actor-terms-2026-07-09'
 export const APIFY_REQUIRED_PRICE_VERSION = 'harvestapi-selected-stack-2026-08-21'
+export const APIFY_REQUIRED_ACCOUNT_TIER = 'BRONZE'
 // Batch ceiling; the plan's max_candidates caps below this.
 export const APIFY_MAX_BATCH = 100
 
@@ -137,11 +139,16 @@ export function apifyEnabled(env: ApifyEnv = processEnv()): boolean {
   return env[APIFY_ENABLED_ENV] === 'true'
 }
 
+export function apifyAccountTierApproved(env: ApifyEnv = processEnv()): boolean {
+  return (env[APIFY_ACCOUNT_TIER_ENV] ?? '').trim() === APIFY_REQUIRED_ACCOUNT_TIER
+}
+
 export function apifyCustomerUseApproved(env: ApifyEnv = processEnv()): boolean {
   return (
     env[APIFY_CUSTOMER_USE_APPROVED_ENV] === 'true' &&
     (env[APIFY_TERMS_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_TERMS_VERSION &&
-    (env[APIFY_PRICE_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_PRICE_VERSION
+    (env[APIFY_PRICE_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_PRICE_VERSION &&
+    apifyAccountTierApproved(env)
   )
 }
 

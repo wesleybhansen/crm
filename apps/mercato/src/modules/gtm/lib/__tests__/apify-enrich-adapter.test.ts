@@ -51,6 +51,7 @@ const now = () => CLOCK
 
 const ENABLED_ENV = {
   GTM_APIFY_ENABLED: 'true',
+  GTM_APIFY_ACCOUNT_TIER: 'BRONZE',
   GTM_APIFY_TOKEN: TOKEN,
   GTM_APIFY_CUSTOMER_USE_APPROVED: 'true',
   GTM_APIFY_TERMS_VERSION: APIFY_REQUIRED_TERMS_VERSION,
@@ -222,6 +223,7 @@ describe('apify enrich adapter env gate', () => {
     process.env.GTM_APIFY_ENABLED = 'true'
     process.env.GTM_APIFY_TOKEN = TOKEN
     process.env.GTM_APIFY_CUSTOMER_USE_APPROVED = 'true'
+    process.env.GTM_APIFY_ACCOUNT_TIER = 'BRONZE'
     process.env.GTM_APIFY_TERMS_VERSION = APIFY_REQUIRED_TERMS_VERSION
     process.env.GTM_APIFY_PRICE_VERSION = APIFY_REQUIRED_PRICE_VERSION
     try {

@@ -18,6 +18,7 @@ import { qualifyDecisionMaker } from '../decision-makers/qualify'
 
 const ENABLED_ENV = {
   GTM_APIFY_ENABLED: 'true',
+  GTM_APIFY_ACCOUNT_TIER: 'BRONZE',
   GTM_APIFY_TOKEN: 'synthetic-token',
   GTM_APIFY_CUSTOMER_USE_APPROVED: 'true',
   GTM_APIFY_TERMS_VERSION: APIFY_REQUIRED_TERMS_VERSION,
