@@ -5,9 +5,11 @@ import type { CampaignEm, GtmCtx } from '../lib/campaign/build'
 import { NoliCoreOperatorReconciler } from '../lib/credits/noli-core-ledger'
 import {
   reconcileProviderOperation,
+  repairResolvedResearchRunSummaries,
   type GtmOperatorReconciliationDecision,
   type GtmOperatorReconciliationEvidence,
   type GtmOperatorReconciliationResult,
+  type GtmResearchRunSummaryRepairResult,
 } from '../lib/reconciliation/operator'
 
 export type ReconcileProviderOperationCommandInput = {
@@ -19,6 +21,10 @@ export type ReconcileProviderOperationCommandInput = {
   idempotencyKey: string
   decision: GtmOperatorReconciliationDecision
   evidence: GtmOperatorReconciliationEvidence
+}
+
+export type RepairResearchRunSummariesCommandInput = {
+  runIds: string[]
 }
 
 function resolveGtmContext(ctx: CommandRuntimeContext): GtmCtx {
@@ -36,7 +42,7 @@ function resolveGtmContext(ctx: CommandRuntimeContext): GtmCtx {
   }
 }
 
-const command: CommandHandler<
+const reconcileCommand: CommandHandler<
   ReconcileProviderOperationCommandInput,
   GtmOperatorReconciliationResult
 > = {
@@ -65,4 +71,27 @@ const command: CommandHandler<
   }),
 }
 
-registerCommand(command)
+const repairRunSummariesCommand: CommandHandler<
+  RepairResearchRunSummariesCommandInput,
+  GtmResearchRunSummaryRepairResult
+> = {
+  id: 'gtm.provider-operations.repair-run-summaries',
+  async execute(input, runtime) {
+    const em = runtime.container.resolve('em') as EntityManager as unknown as CampaignEm
+    return repairResolvedResearchRunSummaries(em, resolveGtmContext(runtime), input.runIds)
+  },
+  buildLog: ({ result, ctx }) => ({
+    actionLabel: 'Repair resolved GTM research-run reconciliation summaries',
+    resourceKind: 'gtm.research_run_summary',
+    organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    tenantId: ctx.auth?.tenantId ?? null,
+    snapshotAfter: {
+      requested_run_ids: result.requestedRunIds,
+      repaired_run_ids: result.repairedRunIds,
+      unchanged_run_ids: result.unchangedRunIds,
+    },
+  }),
+}
+
+registerCommand(reconcileCommand)
+registerCommand(repairRunSummariesCommand)

@@ -11,8 +11,12 @@ import {
   GtmProviderReconciliationError,
   listProviderOperationsForReconciliation,
   type GtmOperatorReconciliationResult,
+  type GtmResearchRunSummaryRepairResult,
 } from '../../../lib/reconciliation/operator'
-import type { ReconcileProviderOperationCommandInput } from '../../../commands/reconciliation'
+import type {
+  ReconcileProviderOperationCommandInput,
+  RepairResearchRunSummariesCommandInput,
+} from '../../../commands/reconciliation'
 
 export const openApi = gtmInternalOpenApi('List, catalog, or reconcile GTM provider operations')
 
@@ -40,6 +44,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
   if (parsed.data.op === 'apply' && !isUuid(parsed.data.operationId)) return notFound()
+  if (
+    parsed.data.op === 'repair-run-summaries'
+    && parsed.data.runIds.some((runId) => !isUuid(runId))
+  ) return notFound()
 
   try {
     const { findNoliUserById, findPrimaryOrgIdForUser } = await import(
@@ -105,6 +113,28 @@ export async function POST(req: Request) {
     }
 
     const commandBus = container.resolve('commandBus') as CommandBus
+    if (parsed.data.op === 'repair-run-summaries') {
+      const executed = await commandBus.execute<
+        RepairResearchRunSummariesCommandInput,
+        GtmResearchRunSummaryRepairResult
+      >('gtm.provider-operations.repair-run-summaries', {
+        input: { runIds: parsed.data.runIds },
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId: ctx.organizationId,
+          organizationIds: [ctx.organizationId],
+          request: req,
+        },
+      })
+      return NextResponse.json({
+        ok: true,
+        requested_run_ids: executed.result.requestedRunIds,
+        repaired_run_ids: executed.result.repairedRunIds,
+        unchanged_run_ids: executed.result.unchangedRunIds,
+      })
+    }
     const executed = await commandBus.execute<
       ReconcileProviderOperationCommandInput,
       GtmOperatorReconciliationResult
