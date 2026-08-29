@@ -9,14 +9,11 @@ import {
   type SourceSearchPlan,
 } from '../types'
 import {
-  APIFY_CUSTOMER_USE_APPROVED_ENV,
   APIFY_ENABLED_ENV,
-  APIFY_PRICE_VERSION_ENV,
-  APIFY_REQUIRED_PRICE_VERSION,
-  APIFY_REQUIRED_TERMS_VERSION,
   APIFY_TERMS_VERSION_ENV,
   APIFY_TIMEOUT_MS_ENV,
   APIFY_TOKEN_ENVS,
+  apifyCustomerUseApproved,
   apifyEnabled,
   apifyToken,
 } from './source'
@@ -117,21 +114,21 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   actorEnv: 'GTM_APIFY_ACTOR_REDDIT_SEARCH',
   useApprovalEnv: 'GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_REDDIT_SEARCH_PRICE_VERSION',
-  // Production account plan rechecked through Apify's authenticated user API
-  // on 2026-08-29: FREE with $5 monthly usage credits and a $5 usage ceiling.
-  // Public actor metadata effective 2026-08-25 prices FREE at $0.003/run,
-  // $0.00115/post, and $0.000575/comment. This adapter requests posts only;
+  // The Starter transition was checked against Apify's authenticated user API
+  // and the actor's effective BRONZE tier table on 2026-08-29. Starter retains
+  // the $0.003/run event and prices posts at $0.001 and comments at $0.0005.
+  // This adapter requests posts only;
   // `comment` remains in the finalized-billing vocabulary so any unexpected
   // comment charge is visible instead of being mistaken for pricing drift.
-  requiredPriceVersion: 'automation-lab-reddit-scraper-0.1.119-free-events-2026-08-25',
+  requiredPriceVersion: 'automation-lab-reddit-scraper-0.1.119-bronze-events-2026-08-29',
   eventPricesUsd: {
     start: 0.003,
-    post: 0.00115,
-    comment: 0.000575,
+    post: 0.001,
+    comment: 0.0005,
   },
   oneTimeEvent: 'start',
   primaryResultEvent: 'post',
-  perItemQuoteUsd: 0.00115,
+  perItemQuoteUsd: 0.001,
   oneTimeQuoteUsd: 0.003,
   datasetFields: [
     'type',
@@ -206,18 +203,16 @@ export const APIFY_X_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   actorEnv: 'GTM_APIFY_ACTOR_X_POST_SEARCH',
   useApprovalEnv: 'GTM_APIFY_X_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_X_POST_SEARCH_PRICE_VERSION',
-  // The production Apify account is on FREE. Authenticated actor metadata was
-  // rechecked without running the actor on 2026-08-29: build 0.0.154 retains
-  // the current FREE rates of $0.025 once per run and $0.00125 per result.
-  // The public Store headline shows the cheaper paid-tier rate. A plan or
-  // actor-build change must update this exact account contract instead of
-  // silently changing reservation math.
-  requiredPriceVersion: 'scraper-one-x-post-search-0.0.154-free-events-2026-08-29',
-  eventPricesUsd: { init: 0.025, 'result-item': 0.00125 },
+  // The Starter transition was rechecked without running the actor on
+  // 2026-08-29. Build 0.0.154 prices BRONZE at $0.0025 once per run and
+  // $0.00025 per result. A plan or actor-build change must update this exact
+  // account contract instead of silently changing reservation math.
+  requiredPriceVersion: 'scraper-one-x-post-search-0.0.154-bronze-events-2026-08-29',
+  eventPricesUsd: { init: 0.0025, 'result-item': 0.00025 },
   oneTimeEvent: 'init',
   primaryResultEvent: 'result-item',
-  perItemQuoteUsd: 0.00125,
-  oneTimeQuoteUsd: 0.025,
+  perItemQuoteUsd: 0.00025,
+  oneTimeQuoteUsd: 0.0025,
   datasetFields: [
     'postText',
     'postUrl',
@@ -250,17 +245,17 @@ export const APIFY_THREADS_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   actorEnv: 'GTM_APIFY_ACTOR_THREADS_SEARCH',
   useApprovalEnv: 'GTM_APIFY_THREADS_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_THREADS_SEARCH_PRICE_VERSION',
-  // Authenticated production-account metadata was rechecked without running
-  // the actor on 2026-08-29. The account is on FREE: each run costs $0.001 and
-  // each returned dataset item costs $0.004. The actor is explicitly pinned to
-  // public post search, so provider-extracted profile contact fields are never
-  // requested or retained by this adapter.
-  requiredPriceVersion: 'pro100chok-threads-scraper-usage-0.5.1-free-events-2026-08-29',
-  eventPricesUsd: { 'apify-actor-start': 0.001, 'apify-default-dataset-item': 0.004 },
+  // The Starter transition was rechecked against the actor's effective
+  // BRONZE tier table without running it on 2026-08-29: each run costs
+  // $0.0001 and each returned dataset item costs $0.002. The actor is
+  // explicitly pinned to public post search, so provider-extracted profile
+  // contact fields are never requested or retained by this adapter.
+  requiredPriceVersion: 'pro100chok-threads-scraper-usage-0.5.1-bronze-events-2026-08-29',
+  eventPricesUsd: { 'apify-actor-start': 0.0001, 'apify-default-dataset-item': 0.002 },
   oneTimeEvent: 'apify-actor-start',
   primaryResultEvent: 'apify-default-dataset-item',
-  perItemQuoteUsd: 0.004,
-  oneTimeQuoteUsd: 0.001,
+  perItemQuoteUsd: 0.002,
+  oneTimeQuoteUsd: 0.0001,
   datasetFields: [
     'post_id',
     'code',
@@ -307,9 +302,7 @@ export function publicSocialOpportunityApproved(
   env: SocialEnv = process.env,
 ): boolean {
   return (
-    envValue(env, APIFY_CUSTOMER_USE_APPROVED_ENV) === 'true' &&
-    envValue(env, APIFY_TERMS_VERSION_ENV) === APIFY_REQUIRED_TERMS_VERSION &&
-    envValue(env, APIFY_PRICE_VERSION_ENV) === APIFY_REQUIRED_PRICE_VERSION &&
+    apifyCustomerUseApproved(env) &&
     envValue(env, config.useApprovalEnv) === 'true' &&
     envValue(env, config.priceVersionEnv) === config.requiredPriceVersion &&
     configuredActor(config, env) === config.actorId

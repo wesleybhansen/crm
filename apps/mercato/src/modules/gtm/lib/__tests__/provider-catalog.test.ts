@@ -25,7 +25,7 @@ describe('selected GTM provider catalog', () => {
       0.004,
       0.01,
       0.01,
-      0.004,
+      0.0037,
     ])
     expect(catalog.items.map((row) => row.estimated_noli_credits_per_unit)).toEqual([
       1_000,
@@ -34,13 +34,13 @@ describe('selected GTM provider catalog', () => {
       2_000,
       5_000,
       5_000,
-      2_000,
+      1_850,
     ])
     expect(catalog.items.at(-1)).toMatchObject({
       name: 'Mailbox verification',
       max_results_per_request: 1,
       price_version:
-        'automation-lab-email-enrichment-0.1.49-free-0.001-start-0.003-per-row-observed-2026-08-23',
+        'automation-lab-email-enrichment-0.1.49-bronze-0.001-start-0.0027-per-row-2026-08-29',
     })
   })
 

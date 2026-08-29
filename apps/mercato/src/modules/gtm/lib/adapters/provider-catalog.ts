@@ -186,7 +186,7 @@ export function selectedProviderCatalog(
         description:
           `Checks one found address for explicit SMTP evidence. One emitted result has an observed event total of $${(
             APIFY_EMAIL_VERIFY_START_USD + APIFY_EMAIL_VERIFY_RESULT_USD
-          ).toFixed(3)}; every provider run is hard-capped at $${APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD.toFixed(2)}.`,
+          ).toFixed(4)}; every provider run is hard-capped at $${APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD.toFixed(2)}.`,
         unit: 'address checked with a completed verification result',
         provider_usd_per_unit:
           APIFY_EMAIL_VERIFY_START_USD + APIFY_EMAIL_VERIFY_RESULT_USD,

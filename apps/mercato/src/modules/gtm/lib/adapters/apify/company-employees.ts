@@ -8,14 +8,11 @@ import {
 } from '../types'
 import { creditsFromUsd } from '../../credits/markup'
 import {
-  APIFY_CUSTOMER_USE_APPROVED_ENV,
   APIFY_ENABLED_ENV,
-  APIFY_PRICE_VERSION_ENV,
-  APIFY_REQUIRED_PRICE_VERSION,
-  APIFY_REQUIRED_TERMS_VERSION,
   APIFY_TERMS_VERSION_ENV,
   APIFY_TIMEOUT_MS_ENV,
   APIFY_TOKEN_ENVS,
+  apifyCustomerUseApproved,
   apifyEnabled,
   apifyToken,
 } from './source'
@@ -189,9 +186,7 @@ export function apifyCompanyEmployeesApproved(
   env: CompanyEmployeesEnv = processEnv(),
 ): boolean {
   return (
-    env[APIFY_CUSTOMER_USE_APPROVED_ENV] === 'true'
-    && (env[APIFY_TERMS_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_TERMS_VERSION
-    && (env[APIFY_PRICE_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_PRICE_VERSION
+    apifyCustomerUseApproved(env)
     && (env[APIFY_COMPANY_EMPLOYEES_PRICE_VERSION_ENV] ?? '').trim()
       === APIFY_COMPANY_EMPLOYEES_REQUIRED_PRICE_VERSION
     && configuredActor(env) === APIFY_COMPANY_EMPLOYEES_ACTOR_ID

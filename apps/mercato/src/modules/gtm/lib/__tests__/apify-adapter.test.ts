@@ -53,6 +53,7 @@ const now = () => CLOCK
 
 const ENABLED_ENV = {
   GTM_APIFY_ENABLED: 'true',
+  GTM_APIFY_ACCOUNT_TIER: 'BRONZE',
   GTM_APIFY_TOKEN: TOKEN,
   GTM_APIFY_CUSTOMER_USE_APPROVED: 'true',
   GTM_APIFY_TERMS_VERSION: APIFY_REQUIRED_TERMS_VERSION,
@@ -238,6 +239,7 @@ describe('apify source adapter env gate', () => {
     process.env.GTM_APIFY_ENABLED = 'true'
     process.env.GTM_APIFY_TOKEN = TOKEN
     process.env.GTM_APIFY_CUSTOMER_USE_APPROVED = 'true'
+    process.env.GTM_APIFY_ACCOUNT_TIER = 'BRONZE'
     process.env.GTM_APIFY_TERMS_VERSION = APIFY_REQUIRED_TERMS_VERSION
     process.env.GTM_APIFY_PRICE_VERSION = APIFY_REQUIRED_PRICE_VERSION
     try {
@@ -252,6 +254,13 @@ describe('apify source adapter env gate', () => {
     } finally {
       process.env = saved
     }
+  })
+
+  it('stays absent when the frozen account tier does not match production billing', () => {
+    expect(apifySourceEnabled({
+      ...ENABLED_ENV,
+      GTM_APIFY_ACCOUNT_TIER: 'FREE',
+    })).toBe(false)
   })
 
   it('refuses to run with an honest error (never a throw) when the gate is off, without calling the client', async () => {

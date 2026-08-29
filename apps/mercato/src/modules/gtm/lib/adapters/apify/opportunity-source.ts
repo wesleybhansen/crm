@@ -9,14 +9,11 @@ import {
 } from '../types'
 import { creditsFromUsd } from '../../credits/markup'
 import {
-  APIFY_CUSTOMER_USE_APPROVED_ENV,
   APIFY_ENABLED_ENV,
-  APIFY_PRICE_VERSION_ENV,
-  APIFY_REQUIRED_PRICE_VERSION,
-  APIFY_REQUIRED_TERMS_VERSION,
   APIFY_TERMS_VERSION_ENV,
   APIFY_TIMEOUT_MS_ENV,
   APIFY_TOKEN_ENVS,
+  apifyCustomerUseApproved,
   apifyEnabled,
   apifyToken,
 } from './source'
@@ -125,9 +122,7 @@ function timeoutMs(env: OpportunitySourceEnv): number {
 
 export function apifyOpportunitySourceApproved(env: OpportunitySourceEnv = processEnv()): boolean {
   return (
-    env[APIFY_CUSTOMER_USE_APPROVED_ENV] === 'true' &&
-    (env[APIFY_TERMS_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_TERMS_VERSION &&
-    (env[APIFY_PRICE_VERSION_ENV] ?? '').trim() === APIFY_REQUIRED_PRICE_VERSION &&
+    apifyCustomerUseApproved(env) &&
     (env[APIFY_OPPORTUNITY_SOURCE_PRICE_VERSION_ENV] ?? '').trim() ===
       APIFY_OPPORTUNITY_SOURCE_REQUIRED_PRICE_VERSION &&
     configuredActor(env) === APIFY_OPPORTUNITY_SOURCE_ACTOR_ID

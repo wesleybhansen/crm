@@ -27,6 +27,7 @@ const adapters: SourceAdapter[] = [fixtureSourceAdapter]
 const approvedCompanySource = createApifyCompanySourceAdapter({
   env: {
     GTM_APIFY_ENABLED: 'true',
+    GTM_APIFY_ACCOUNT_TIER: 'BRONZE',
     GTM_APIFY_TOKEN: 'synthetic-planning-only-token',
     GTM_APIFY_CUSTOMER_USE_APPROVED: 'true',
     GTM_APIFY_TERMS_VERSION: APIFY_REQUIRED_TERMS_VERSION,

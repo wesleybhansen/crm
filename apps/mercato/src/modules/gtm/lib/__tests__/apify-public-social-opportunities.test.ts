@@ -24,6 +24,7 @@ const now = () => CLOCK
 function envFor(config: PublicSocialOpportunityConfig) {
   return {
     GTM_APIFY_ENABLED: 'true',
+    GTM_APIFY_ACCOUNT_TIER: 'BRONZE',
     GTM_APIFY_TOKEN: 'synthetic-social-token',
     GTM_APIFY_CUSTOMER_USE_APPROVED: 'true',
     GTM_APIFY_TERMS_VERSION: APIFY_REQUIRED_TERMS_VERSION,
@@ -177,36 +178,36 @@ function outcome(
 }
 
 describe('Apify public social demand opportunities', () => {
-  it('pins Reddit reservations to the production FREE account tier', () => {
+  it('pins Reddit reservations to the production BRONZE account tier', () => {
     expect(APIFY_REDDIT_OPPORTUNITY_CONFIG).toMatchObject({
       actorId: 'automation-lab/reddit-scraper',
       actorBuild: '0.1.119',
-      requiredPriceVersion: 'automation-lab-reddit-scraper-0.1.119-free-events-2026-08-25',
-      eventPricesUsd: { start: 0.003, post: 0.00115, comment: 0.000575 },
+      requiredPriceVersion: 'automation-lab-reddit-scraper-0.1.119-bronze-events-2026-08-29',
+      eventPricesUsd: { start: 0.003, post: 0.001, comment: 0.0005 },
       oneTimeQuoteUsd: 0.003,
-      perItemQuoteUsd: 0.00115,
+      perItemQuoteUsd: 0.001,
     })
   })
 
-  it('pins X reservations to the production FREE account tier', () => {
+  it('pins X reservations to the production BRONZE account tier', () => {
     expect(APIFY_X_OPPORTUNITY_CONFIG).toMatchObject({
       actorBuild: '0.0.154',
-      requiredPriceVersion: 'scraper-one-x-post-search-0.0.154-free-events-2026-08-29',
-      eventPricesUsd: { init: 0.025, 'result-item': 0.00125 },
-      oneTimeQuoteUsd: 0.025,
-      perItemQuoteUsd: 0.00125,
+      requiredPriceVersion: 'scraper-one-x-post-search-0.0.154-bronze-events-2026-08-29',
+      eventPricesUsd: { init: 0.0025, 'result-item': 0.00025 },
+      oneTimeQuoteUsd: 0.0025,
+      perItemQuoteUsd: 0.00025,
     })
   })
 
-  it('pins Threads reservations to the exact established-actor FREE account contract', () => {
+  it('pins Threads reservations to the exact established-actor BRONZE account contract', () => {
     expect(APIFY_THREADS_OPPORTUNITY_CONFIG).toMatchObject({
       actorId: 'pro100chok/threads-scraper-usage',
       actorBuild: '0.5.1',
-      requiredPriceVersion: 'pro100chok-threads-scraper-usage-0.5.1-free-events-2026-08-29',
-      eventPricesUsd: { 'apify-actor-start': 0.001, 'apify-default-dataset-item': 0.004 },
+      requiredPriceVersion: 'pro100chok-threads-scraper-usage-0.5.1-bronze-events-2026-08-29',
+      eventPricesUsd: { 'apify-actor-start': 0.0001, 'apify-default-dataset-item': 0.002 },
       oneTimeEvent: 'apify-actor-start',
-      oneTimeQuoteUsd: 0.001,
-      perItemQuoteUsd: 0.004,
+      oneTimeQuoteUsd: 0.0001,
+      perItemQuoteUsd: 0.002,
     })
     expect(APIFY_THREADS_OPPORTUNITY_CONFIG.datasetFields).toEqual([
       'post_id',
@@ -261,7 +262,7 @@ describe('Apify public social demand opportunities', () => {
     [APIFY_X_OPPORTUNITY_CONFIG],
     [APIFY_THREADS_OPPORTUNITY_CONFIG],
   ])(
-    'requires the exact actor, use approval, and price version for $platform',
+    'requires the exact account tier, actor, use approval, and price version for $platform',
     (config) => {
       const env = envFor(config)
       expect(publicSocialOpportunityApproved(config, env)).toBe(true)
@@ -275,6 +276,12 @@ describe('Apify public social demand opportunities', () => {
         publicSocialOpportunityApproved(config, {
           ...env,
           [config.priceVersionEnv]: 'stale-price',
+        }),
+      ).toBe(false)
+      expect(
+        publicSocialOpportunityApproved(config, {
+          ...env,
+          GTM_APIFY_ACCOUNT_TIER: 'FREE',
         }),
       ).toBe(false)
       expect(
@@ -926,7 +933,7 @@ describe('Apify public social demand opportunities', () => {
       },
       expect.objectContaining({
         build: APIFY_THREADS_OPPORTUNITY_CONFIG.actorBuild,
-        maxItems: 4,
+        maxItems: 9,
         maxChargeUsd: 0.02,
       }),
     )
@@ -1208,10 +1215,10 @@ describe('Apify public social demand opportunities', () => {
       expect(planned.adapterPlan).toHaveLength(3)
       expect(planned.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([4, 3, 3])
       expect(planned.plannedRawCapacity).toBe(10)
-      // Each separately quoted lane includes one exact run-start event. Final
-      // reconciliation still uses only the actual starts and returned rows;
-      // the combined provider-event ceiling is $0.043.
-      expect(planned.estimatedCredits).toBe(21_500)
+      // Each separately quoted lane reserves Apify's $0.01 minimum provider
+      // cap. Final reconciliation still uses only the actual starts and
+      // returned rows; the combined event cost for ten rows is $0.0203.
+      expect(planned.estimatedCredits).toBe(15_000)
     }
   })
 

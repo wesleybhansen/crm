@@ -28,6 +28,7 @@ const now = () => CLOCK
 
 const APPROVED_ENV = {
   GTM_APIFY_ENABLED: 'true',
+  GTM_APIFY_ACCOUNT_TIER: 'BRONZE',
   GTM_APIFY_TOKEN: TOKEN,
   GTM_APIFY_CUSTOMER_USE_APPROVED: 'true',
   GTM_APIFY_TERMS_VERSION: APIFY_EMAIL_VERIFY_REQUIRED_TERMS_VERSION,
@@ -140,7 +141,7 @@ describe('Apify email verification adapter', () => {
       pay_on_found: false,
     }))
     expect(APIFY_EMAIL_VERIFY_START_ONLY_UNITS).toBeCloseTo(0.1, 10)
-    expect(APIFY_EMAIL_VERIFY_BILLED_UNITS).toBeCloseTo(0.4, 10)
+    expect(APIFY_EMAIL_VERIFY_BILLED_UNITS).toBeCloseTo(0.37, 10)
   })
 
   it('pins the actor build, one-address input, and provider-side cap without exposing the token', async () => {
