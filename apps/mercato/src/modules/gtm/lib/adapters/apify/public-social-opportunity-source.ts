@@ -62,6 +62,7 @@ export type PublicSocialOpportunityConfig = {
   oneTimeQuoteUsd: number
   datasetFields: readonly string[]
   buildInput(plan: SourceSearchPlan, maxResults: number): Record<string, unknown>
+  isNoResultDiagnostic?(value: unknown): boolean
   normalize(value: unknown, context: NormalizeContext): Candidate | null
 }
 
@@ -149,6 +150,12 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
     'subredditSubscribers',
     'scrapedAt',
     'warnings',
+    'status',
+    'records',
+    'message',
+    'query',
+    'targetType',
+    'targetLabel',
   ],
   buildInput(plan, maxResults) {
     const subreddits = redditSubreddits(plan)
@@ -174,6 +181,15 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
       includeComments: false,
       outputFormat: 'default',
     }
+  },
+  isNoResultDiagnostic(value) {
+    const row = record(value)
+    return (
+      text(row?.type, 40) === 'target-status'
+      && text(row?.status, 40) === 'empty_or_unavailable'
+      && nonNegativeInteger(row?.records) === 0
+      && text(row?.targetType, 40) === 'search'
+    )
   },
   normalize: normalizeRedditOpportunity,
 }
@@ -376,6 +392,14 @@ function recencyDays(plan: SourceSearchPlan): number {
 
 function redditTimeFilter(plan: SourceSearchPlan): '' | 'hour' | 'day' | 'week' | 'month' | 'year' {
   const raw = recencyText(plan)
+  const numeric = raw.match(/\b(\d{1,3})\s*days?\b/)
+  if (numeric) {
+    const days = Number(numeric[1])
+    if (days <= 1) return 'day'
+    if (days <= 7) return 'week'
+    if (days <= 30) return 'month'
+    return 'year'
+  }
   if (/hour|1h/.test(raw)) return 'hour'
   if (/week|7d|\b7 days?\b/.test(raw)) return 'week'
   if (/today|24h|day/.test(raw)) return 'day'
@@ -955,7 +979,20 @@ export function createPublicSocialOpportunityAdapter(
           cost_units: costUnits,
         }
       }
-      if ((counts[config.primaryResultEvent] ?? 0) !== outcome.itemCount) {
+      const diagnosticRows = config.isNoResultDiagnostic
+        ? outcome.items.filter((item) => config.isNoResultDiagnostic?.(item))
+        : []
+      const resultItems = outcome.items.filter((item) => !config.isNoResultDiagnostic?.(item))
+      if (diagnosticRows.length > 0 && resultItems.length > 0) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt({ diagnostic_rows: diagnosticRows.length }),
+          cost_units: null,
+          error: 'invalid_schema: provider mixed result rows with a zero-result diagnostic',
+        }
+      }
+      if ((counts[config.primaryResultEvent] ?? 0) !== resultItems.length) {
         return {
           status: 'ambiguous',
           data: null,
@@ -964,6 +1001,21 @@ export function createPublicSocialOpportunityAdapter(
           }),
           cost_units: null,
           error: 'invalid_schema: billed result count did not match the bounded dataset',
+        }
+      }
+      if (
+        diagnosticRows.length > 0
+        && resultItems.length === 0
+        && diagnosticRows.length === outcome.items.length
+      ) {
+        return {
+          status: 'no_result',
+          data: null,
+          receipt: providerReceipt({
+            diagnostic_rows: diagnosticRows.length,
+            billed_results: 0,
+          }),
+          cost_units: costUnits,
         }
       }
       const context = {
@@ -975,7 +1027,7 @@ export function createPublicSocialOpportunityAdapter(
         attemptedAt: outcome.attemptedAt,
         actorId,
       }
-      const candidates = outcome.items
+      const candidates = resultItems
         .map((item) => config.normalize(item, context))
         .filter((candidate): candidate is Candidate => candidate != null)
       if (candidates.length === 0) {
@@ -988,7 +1040,7 @@ export function createPublicSocialOpportunityAdapter(
         }
       }
       const delivered = candidates.slice(0, maxCandidates)
-      const dropped = Math.max(0, outcome.itemCount - candidates.length)
+      const dropped = Math.max(0, resultItems.length - candidates.length)
       const truncated = candidates.length > delivered.length
       return {
         status: dropped > 0 || truncated ? 'partial' : 'ok',

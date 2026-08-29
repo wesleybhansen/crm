@@ -82,6 +82,19 @@ function redditComment(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function redditNoResultDiagnostic(overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'target-status',
+    status: 'empty_or_unavailable',
+    records: 0,
+    targetType: 'search',
+    targetLabel: 'FirstTimeHomeBuyer',
+    query: 'moving to Austin first time home buyer',
+    message: 'No public Reddit posts or comments were returned for this target.',
+    ...overrides,
+  }
+}
+
 function xPost(overrides: Record<string, unknown> = {}) {
   return {
     postText: 'Thinking about selling our South Bay home. What should we prepare first?',
@@ -676,6 +689,75 @@ describe('Apify public social demand opportunities', () => {
       },
       expect.objectContaining({ build: APIFY_X_OPPORTUNITY_CONFIG.actorBuild }),
     )
+  })
+
+  it('maps a 30-day retrieval window to the actor month filter', async () => {
+    const redditRun = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
+    const reddit = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor: redditRun,
+    })
+
+    await reddit.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        recency_window: 'last 30 days',
+      },
+    })
+
+    expect(redditRun).toHaveBeenCalledWith(
+      APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+      expect.objectContaining({ timeFilter: 'month' }),
+      expect.any(Object),
+    )
+  })
+
+  it('settles an exact start-only Reddit diagnostic as a paid no-result', async () => {
+    const config = APIFY_REDDIT_OPPORTUNITY_CONFIG
+    const result = await createApifyRedditOpportunityAdapter({
+      env: envFor(config),
+      now,
+      runActor: async () =>
+        outcome(config, redditNoResultDiagnostic(), {
+          items: [redditNoResultDiagnostic()],
+          itemCount: 1,
+          chargedEventCounts: { start: 1, post: 0, comment: 0 },
+          providerCostUsd: config.eventPricesUsd.start,
+        }),
+    }).search(plan)
+
+    expect(result).toMatchObject({
+      status: 'no_result',
+      data: null,
+      cost_units: config.eventPricesUsd.start / 0.001,
+      receipt: {
+        billing_finalized: true,
+        diagnostic_rows: 1,
+        billed_results: 0,
+      },
+    })
+  })
+
+  it('parks an unrecognized start-only dataset row instead of treating it as a no-result', async () => {
+    const config = APIFY_REDDIT_OPPORTUNITY_CONFIG
+    const result = await createApifyRedditOpportunityAdapter({
+      env: envFor(config),
+      now,
+      runActor: async () =>
+        outcome(config, redditNoResultDiagnostic({ status: 'new_provider_vocabulary' }), {
+          chargedEventCounts: { start: 1, post: 0, comment: 0 },
+          providerCostUsd: config.eventPricesUsd.start,
+        }),
+    }).search(plan)
+
+    expect(result).toMatchObject({
+      status: 'ambiguous',
+      data: null,
+      cost_units: null,
+      error: expect.stringContaining('billed result count did not match'),
+    })
   })
 
   it.each([
