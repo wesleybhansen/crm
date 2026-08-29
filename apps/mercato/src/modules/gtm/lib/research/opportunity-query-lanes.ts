@@ -216,15 +216,21 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   return socialSeeds[intent]
 }
 
-function realtorRedditCommentSeed(intent: OpportunityIntentLane): string | null {
+function realtorGlobalRedditSeed(
+  intent: OpportunityIntentLane,
+  geography: string,
+): string | null {
+  const market = marketName(geography)
+  const location = redditLocationWords(geography)
+  const marketClause = `("${market}" OR "${location}")`
   if (intent === 'buyer_intent') {
-    return '("buying a home" OR "buy a house" OR "first time buyer" OR "house hunting" OR "made an offer" OR "closing costs")'
+    return `${marketClause} AND ("buying a home" OR "buy a house" OR "first time buyer" OR "house hunting" OR "made an offer" OR "closing costs")`
   }
   if (intent === 'seller_intent') {
-    return '("selling my home" OR "selling our home" OR "selling my house" OR "thinking of selling" OR "what is my home worth" OR "preparing to sell")'
+    return `${marketClause} AND ("selling my home" OR "selling our home" OR "selling my house" OR "thinking of selling" OR "what is my home worth" OR "preparing to sell")`
   }
   if (intent === 'mixed_intent') {
-    return '("buy before selling" OR "sell before buying" OR "buying and selling" OR "moving and selling")'
+    return `${marketClause} AND ("buy before selling" OR "sell before buying" OR "buying and selling" OR "moving and selling")`
   }
   return null
 }
@@ -239,7 +245,13 @@ function realtorRedditFilterKeywords(
     buyer_intent: [
       ['buying a home', 'buy a house', 'first time home buyer', 'house hunting'],
       ['mortgage pre approval', 'down payment', 'closing costs'],
-      [`moving to ${market}`, `relocating to ${market}`, `buying in ${market}`],
+      [
+        `moving to ${market}`,
+        `relocating to ${market}`,
+        `buying in ${market}`,
+        'made an offer',
+        'closing costs',
+      ],
     ],
     seller_intent: [
       ['selling my home', 'selling our home', 'selling my house', 'thinking of selling'],
@@ -281,14 +293,6 @@ export function realtorMarketSubreddits(geography: string): string[] {
   ])
 }
 
-function realtorExactMarketSubreddits(geography: string): string[] {
-  const market = marketName(geography).toLowerCase().replace(/[^a-z0-9]/g, '')
-  if (!market) return []
-  return realtorMarketSubreddits(geography).filter((subreddit) =>
-    subreddit.toLowerCase().replace(/[^a-z0-9]/g, '').includes(market),
-  )
-}
-
 function realtorIntentSubreddits(geography: string, intent: OpportunityIntentLane): string[] {
   const market = realtorMarketSubreddits(geography)
   const intentCommunities: Record<OpportunityIntentLane, string[]> = {
@@ -308,11 +312,6 @@ function primaryRealtorIntentSubreddit(
   return realtorIntentSubreddits(geography, intent)
     .filter((value) => !marketScopes.has(value.toLowerCase()))
     .slice(0, 1)
-}
-
-function alternateExactMarketSubreddit(geography: string): string[] {
-  const exact = realtorExactMarketSubreddits(geography)
-  return exact.slice(1, 2).length > 0 ? exact.slice(1, 2) : exact.slice(0, 1)
 }
 
 function genericSeeds(play: PlanPlayInput): string[] {
@@ -405,11 +404,11 @@ export function buildOpportunityQueryLanes(
   const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
   return selectedSeeds.map((seed, index) => {
     const id = `${intent}:${index + 1}`
-    const commentSeed =
+    const globalSeed =
       adapterId === 'apify-reddit-demand-opportunities' && index === 2
-        ? realtorRedditCommentSeed(intent)
+        ? realtorGlobalRedditSeed(intent, geography)
         : null
-    const query = queryFor({ adapterId, geography, seed: commentSeed ?? seed, negativeTerms })
+    const query = queryFor({ adapterId, geography, seed: globalSeed ?? seed, negativeTerms })
     return {
       id,
       intent,
@@ -417,7 +416,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v24',
+        query_lane_version: 'opportunity-query-v25',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -447,11 +446,12 @@ export function buildOpportunityQueryLanes(
               : intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'
                 ? {
                     // The replacement actor's reliable contract is public post
-                    // search. Keep this as an exact-market first-person post
-                    // lane; returned content must independently prove intent.
-                    reddit_subreddits: alternateExactMarketSubreddit(geography),
+                    // search. The third lane is a bounded global search whose
+                    // query must name the market; returned content must still
+                    // independently prove both location and intent.
+                    reddit_subreddits: [],
                     reddit_auto_discover: false,
-                    reddit_global_search: false,
+                    reddit_global_search: true,
                     reddit_sort: 'relevance',
                     reddit_content_type: 'posts',
                   }
