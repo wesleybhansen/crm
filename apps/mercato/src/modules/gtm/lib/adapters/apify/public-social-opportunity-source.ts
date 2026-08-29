@@ -611,7 +611,12 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   )
   if (subredditLocation) identity.location = subredditLocation
   identity.member_count = memberCount || null
-  const publishedAt = sourcePublishedAt(row.createdAt)
+  // automation-lab/reddit-scraper build 0.1.119 reports `createdAt` at actor
+  // execution time (the controlled receipt showed seven rows within 201 ms,
+  // after `scrapedAt`), not Reddit publication time. Keep the raw provider
+  // field for audit, but never let it satisfy freshness or confidence gates.
+  const providerReportedCreatedAt = sourcePublishedAt(row.createdAt)
+  const publishedAt = null
   identity.source_published_at = publishedAt
   const demonstratedIntent = classifyOpportunityIntent(semanticContent)
   return {
@@ -646,6 +651,8 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
           requested_location: context.location,
           requested_intent: context.expectedIntent ?? null,
           source_published_at: publishedAt,
+          provider_reported_created_at: providerReportedCreatedAt,
+          publication_time_evidence: 'unverified_provider_field',
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,

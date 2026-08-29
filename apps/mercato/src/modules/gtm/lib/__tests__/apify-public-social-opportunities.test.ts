@@ -213,7 +213,7 @@ describe('Apify public social demand opportunities', () => {
     },
   )
 
-  it('normalizes an active public Reddit buyer thread with community scale', () => {
+  it('normalizes a public Reddit buyer thread without trusting actor-runtime publication time', () => {
     const candidate = normalizeRedditOpportunity(redditPost(), {
       query: plan.query,
       location: 'South Bay, California',
@@ -229,13 +229,17 @@ describe('Apify public social demand opportunities', () => {
         engagement_count: 20,
         member_count: 82_000,
         access_type: 'public',
-        source_published_at: '2026-08-25T17:00:00.000Z',
+        source_published_at: null,
         people_to_follow: [{ name: 'local_question' }],
       },
       evidence: [
         {
           source_url: 'https://www.reddit.com/r/SouthBayLA/comments/example/moving_to_the_south_bay/',
           observed_at: CLOCK.toISOString(),
+          detail: expect.objectContaining({
+            provider_reported_created_at: '2026-08-25T17:00:00.000Z',
+            publication_time_evidence: 'unverified_provider_field',
+          }),
         },
       ],
     })
@@ -259,7 +263,7 @@ describe('Apify public social demand opportunities', () => {
         engagement_count: 18,
         member_count: 790_000,
         location: 'Austin, Texas',
-        source_published_at: '2026-08-25T19:00:00.000Z',
+        source_published_at: null,
         people_to_follow: [{ name: 'austin_homeowner' }],
       },
       evidence: [
@@ -271,6 +275,8 @@ describe('Apify public social demand opportunities', () => {
             parent_id: 't3_parent',
             parent_post_title: 'What should Austin homeowners know before selling?',
             source_content_type: 'comment',
+            provider_reported_created_at: '2026-08-25T19:00:00.000Z',
+            publication_time_evidence: 'unverified_provider_field',
           }),
         }),
       ],
