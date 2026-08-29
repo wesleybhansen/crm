@@ -211,6 +211,22 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     }
   })
 
+  it('keeps ordinary buy-a-home language on the realtor query contract', () => {
+    const lanes = buildOpportunityQueryLanes(
+      {
+        geography: 'Austin, Texas, United States',
+        audience: 'People publicly demonstrating that they want to buy a home in Austin',
+        signal: 'A recent public question demonstrates home-buying intent.',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      'dataforseo-organic-demand-opportunities',
+    )
+
+    expect(lanes).toHaveLength(5)
+    expect(lanes[0]?.query).toContain('"looking for a realtor" "buy a home" question')
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v31')).toBe(true)
+  })
+
   it('uses source-native realtor queries and only one economical X lane', () => {
     const play = {
       geography: 'Austin, Texas',

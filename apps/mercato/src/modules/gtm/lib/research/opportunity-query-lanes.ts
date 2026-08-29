@@ -61,7 +61,7 @@ const ORGANIC_REALTOR_EXCLUSION_PRIORITY = [
 ] as const
 
 const REALTOR_PLAY =
-  /\b(?:realtor|real estate|homeowners?|home ?buyers?|home ?sellers?|buying a home|selling a home|homeownership|housing)\b/i
+  /\b(?:realtor|real estate|homeowners?|home ?buyers?|home ?sellers?|buy(?:ing)? a home|sell(?:ing)? a home|homeownership|housing)\b/i
 
 function values(value: unknown): string[] {
   if (typeof value === 'string' && value.trim()) return [value.trim()]
