@@ -202,7 +202,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v23')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v24')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -277,7 +277,12 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(reddit[2]?.query).toContain('selling my home')
     expect(
       web.every(
-        (lane) => lane.query.includes('-jobs')
+        (lane) => lane.query.includes('-facebook')
+          && lane.query.includes('-instagram')
+          && lane.query.includes('-pinterest')
+          && lane.query.includes('-tiktok')
+          && lane.query.includes('-youtube')
+          && lane.query.includes('-jobs')
           && lane.query.includes('-"just listed"')
           && lane.query.includes('-realtor')
           && lane.query.includes('-"real estate agent"')

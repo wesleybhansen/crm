@@ -18,6 +18,11 @@ export type OpportunityQueryLane = {
 }
 
 const REALTOR_NEGATIVE_TERMS = [
+  'facebook',
+  'instagram',
+  'pinterest',
+  'tiktok',
+  'youtube',
   'jobs',
   'recruiting',
   'just listed',
@@ -40,6 +45,23 @@ const REALTOR_NEGATIVE_TERMS = [
   'realtor blog',
   'mortgage newsletter',
 ]
+
+const ORGANIC_REALTOR_EXCLUSION_PRIORITY = [
+  'facebook',
+  'instagram',
+  'pinterest',
+  'tiktok',
+  'youtube',
+  'jobs',
+  'recruiting',
+  'realtor',
+  'broker',
+  'real estate agent',
+  'just listed',
+  'new listing',
+  'contact me',
+  'open house',
+] as const
 
 const REALTOR_PLAY =
   /\b(?:realtor|real estate|homeowners?|home ?buyers?|home ?sellers?|buying a home|selling a home|homeownership|housing)\b/i
@@ -315,23 +337,9 @@ function sourceSeed(
   const market = marketName(geography)
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     const location = sourceLocation(geography)
-    const organicExclusions = new Set([
-      'jobs',
-      'recruiting',
-      'just listed',
-      'new listing',
-      'market update',
-      'real estate news',
-      'realtor',
-      'real estate agent',
-      'broker',
-      'contact me',
-      'buyer tips',
-      'seller tips',
-      'open house',
-    ])
-    const exclusions = negativeTerms
-      .filter((term) => organicExclusions.has(term))
+    const negativeSet = new Set(negativeTerms)
+    const exclusions = ORGANIC_REALTOR_EXCLUSION_PRIORITY
+      .filter((term) => negativeSet.has(term))
       .map((term) => (term.includes(' ') ? `-${quoted(term)}` : `-${term}`))
       .join(' ')
     return `${quoted(location)} ${seed} ${exclusions}`
@@ -409,7 +417,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v23',
+        query_lane_version: 'opportunity-query-v24',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
