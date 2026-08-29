@@ -203,12 +203,28 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v30')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v31')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
       expect(new Set(queries).size).toBe(3)
     }
+  })
+
+  it('keeps ordinary buy-a-home language on the realtor query contract', () => {
+    const lanes = buildOpportunityQueryLanes(
+      {
+        geography: 'Austin, Texas, United States',
+        audience: 'People publicly demonstrating that they want to buy a home in Austin',
+        signal: 'A recent public question demonstrates home-buying intent.',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      'dataforseo-organic-demand-opportunities',
+    )
+
+    expect(lanes).toHaveLength(5)
+    expect(lanes[0]?.query).toContain('"looking for a realtor" "buy a home" question')
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v31')).toBe(true)
   })
 
   it('uses source-native realtor queries and only one economical X lane', () => {
@@ -234,7 +250,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(x).toHaveLength(1)
     expect(x[0]?.query).toBe('Austin "selling my home"')
-    expect(x[0]?.providerQuery.query_lane_version).toBe('opportunity-query-v30')
+    expect(x[0]?.providerQuery.query_lane_version).toBe('opportunity-query-v31')
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(5)
@@ -286,20 +302,17 @@ describe('buildSourcePlan fail-closed boundaries', () => {
           && lane.query.includes('-youtube')
           && lane.query.includes('-jobs')
           && lane.query.includes('-"just listed"')
-          && lane.query.includes('-realtor')
-          && lane.query.includes('-"real estate agent"')
-          && lane.query.includes('-broker')
           && lane.query.includes('-"contact me"')
           && lane.query.includes('-"open house"'),
       ),
     ).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('"I am selling my home" question'),
-        expect.stringContaining('"we are selling our house" advice'),
+        expect.stringContaining('"looking for a realtor" "sell my home" question'),
         expect.stringContaining('"thinking of selling my house" question'),
-        expect.stringContaining('Reddit "selling my home" "Austin"'),
         expect.stringContaining('Reddit "what is my home worth" "Austin"'),
+        expect.stringContaining('"home seller workshop" Eventbrite'),
+        expect.stringContaining('"selling your home seminar" Meetup'),
       ]),
     )
     expect(
@@ -311,14 +324,24 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(buyerWeb).toHaveLength(5)
     expect(buyerWeb.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('"I am buying my first home" question'),
-        expect.stringContaining('"we are buying a home" advice'),
-        expect.stringContaining('"looking to buy a house" question'),
+        expect.stringContaining('"looking for a realtor" "buy a home" question'),
+        expect.stringContaining('"buying my first home" "need advice"'),
         expect.stringContaining('Reddit "moving to Austin" "buy a home"'),
-        expect.stringContaining('Reddit "made an offer" home "Austin"'),
+        expect.stringContaining('"first-time home buyer workshop" Eventbrite'),
+        expect.stringContaining('"home buyer seminar" Meetup'),
       ]),
     )
     expect(buyerWeb.every((lane) => lane.query.length < 240)).toBe(true)
+
+    const threads = buildOpportunityQueryLanes(play, 'apify-threads-demand-opportunities')
+    expect(threads.map((lane) => lane.query)).toEqual([
+      'austinhomeseller',
+      'austinsellingmyhome',
+      'austinhomevalue',
+    ])
+    expect(
+      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v31'),
+    ).toBe(true)
   })
 
   it('does not inject realtor terminology into a non-real-estate consumer play', () => {

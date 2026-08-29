@@ -54,9 +54,6 @@ const ORGANIC_REALTOR_EXCLUSION_PRIORITY = [
   'youtube',
   'jobs',
   'recruiting',
-  'realtor',
-  'broker',
-  'real estate agent',
   'just listed',
   'new listing',
   'contact me',
@@ -64,7 +61,7 @@ const ORGANIC_REALTOR_EXCLUSION_PRIORITY = [
 ] as const
 
 const REALTOR_PLAY =
-  /\b(?:realtor|real estate|homeowners?|home ?buyers?|home ?sellers?|buying a home|selling a home|homeownership|housing)\b/i
+  /\b(?:realtor|real estate|homeowners?|home ?buyers?|home ?sellers?|buy(?:ing)? a home|sell(?:ing)? a home|homeownership|housing)\b/i
 
 function values(value: unknown): string[] {
   if (typeof value === 'string' && value.trim()) return [value.trim()]
@@ -128,36 +125,36 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const market = marketName(geography)
     if (intent === 'buyer_intent') {
       return [
-        '"I am buying my first home" question',
-        '"we are buying a home" advice',
-        '"looking to buy a house" question',
+        '"looking for a realtor" "buy a home" question',
+        '"buying my first home" "need advice"',
         `Reddit "moving to ${market}" "buy a home"`,
-        `Reddit "made an offer" home "${market}"`,
+        '"first-time home buyer workshop" Eventbrite',
+        '"home buyer seminar" Meetup',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        '"I am selling my home" question',
-        '"we are selling our house" advice',
+        '"looking for a realtor" "sell my home" question',
         '"thinking of selling my house" question',
-        `Reddit "selling my home" "${market}"`,
         `Reddit "what is my home worth" "${market}"`,
+        '"home seller workshop" Eventbrite',
+        '"selling your home seminar" Meetup',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        '"I need to sell before buying" question',
-        '"we are selling and buying a home" advice',
-        '"buy before selling" personal experience',
+        '"sell before buying" "need advice"',
+        '"buy before selling" question',
         `Reddit "sell then buy" "${market}"`,
-        `Reddit "moving to ${market}" "selling my home"`,
+        '"buying and selling a home" workshop Eventbrite',
+        '"sell and buy a home" seminar Meetup',
       ]
     }
     return [
       '"neighborhood association" meeting calendar',
-      '"homeowner community" meeting calendar',
-      '"home buyer workshop" registration',
-      '"home seller workshop" registration',
+      '"homeowner community" meeting',
+      '"home buyer workshop" Eventbrite',
+      '"home seller workshop" Meetup',
       '"housing community event" calendar',
     ]
   }
@@ -192,15 +189,17 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     ]
   }
   if (adapterId === 'apify-threads-demand-opportunities') {
-    // Threads accepts ordinary keyword queries. Exact-phrase query v28
-    // returned zero provider rows, so keep three separately quoted lanes
-    // short and unquoted. They still share the immutable raw ceiling, and
-    // returned content must independently prove location and demand.
+    // Threads search treats multiword input as a broad keyword search and can
+    // return global matches for the intent phrase while ignoring the market.
+    // Keep each lane to one market-bound token so a returned match cannot be
+    // produced solely by a generic "home buyer" term. The evidence gate still
+    // requires the returned post itself to prove market, intent, and recency.
+    const marketToken = marketName(geography).replace(/[^a-z0-9]/gi, '').toLowerCase()
     const byIntent: Record<OpportunityIntentLane, string[]> = {
-      buyer_intent: ['buying a home', 'house hunting', 'first time homebuyer'],
-      seller_intent: ['selling my home', 'thinking of selling', 'home value'],
-      mixed_intent: ['buying and selling a home', 'sell before buying', 'buy before selling'],
-      local_audience: ['homeowner community', 'homebuyer workshop', 'neighborhood association'],
+      buyer_intent: [`${marketToken}homebuyer`, `${marketToken}househunting`, `${marketToken}firsttimehomebuyer`],
+      seller_intent: [`${marketToken}homeseller`, `${marketToken}sellingmyhome`, `${marketToken}homevalue`],
+      mixed_intent: [`${marketToken}buyandsell`, `${marketToken}sellbeforebuying`, `${marketToken}movehome`],
+      local_audience: [`${marketToken}homeowners`, `${marketToken}neighborhood`, `${marketToken}housingevent`],
     }
     return byIntent[intent]
   }
@@ -372,7 +371,7 @@ function sourceSeed(
   }
   if (adapterId === 'apify-linkedin-demand-opportunities') return `${quoted(market)} AND ${seed}`
   if (adapterId === 'apify-x-demand-opportunities') return `${market} ${seed}`
-  if (adapterId === 'apify-threads-demand-opportunities') return `${market} ${seed}`
+  if (adapterId === 'apify-threads-demand-opportunities') return seed
   return `${market} ${seed}`
 }
 
@@ -444,7 +443,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v30',
+        query_lane_version: 'opportunity-query-v31',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

@@ -1170,7 +1170,7 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).not.toHaveBeenCalled()
   })
 
-  it('builds three short source-native Threads lanes inside one raw ceiling', () => {
+  it('builds three market-bound Threads lanes inside one raw ceiling', () => {
     const play = {
       marketType: 'b2c' as const,
       geography: 'Austin, Texas, US',
@@ -1189,17 +1189,17 @@ describe('Apify public social demand opportunities', () => {
     expect(lanes[0]).toMatchObject({
       id: 'buyer_intent:1',
       intent: 'buyer_intent',
-      query: 'Austin buying a home',
+      query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v30',
+        query_lane_version: 'opportunity-query-v31',
         source_query_lane_id: 'buyer_intent:1',
-        search_query: 'Austin buying a home',
+        search_query: 'austinhomebuyer',
       },
     })
     expect(lanes.map((lane) => lane.query)).toEqual([
-      'Austin buying a home',
-      'Austin house hunting',
-      'Austin first time homebuyer',
+      'austinhomebuyer',
+      'austinhousehunting',
+      'austinfirsttimehomebuyer',
     ])
 
     const planned = buildSourcePlan(
