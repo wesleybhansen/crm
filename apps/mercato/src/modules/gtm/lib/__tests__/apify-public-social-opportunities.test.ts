@@ -1103,31 +1103,58 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).not.toHaveBeenCalled()
   })
 
-  it('builds one short source-native Threads lane per realtor play', () => {
+  it('builds three short source-native Threads lanes inside one raw ceiling', () => {
+    const play = {
+      marketType: 'b2c' as const,
+      geography: 'Austin, Texas, US',
+      signalKind: 'social_engagement',
+      entityUnit: 'opportunities',
+      audience: 'Austin people buying a home',
+      signal: 'buyer intent',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }
     const lanes = buildOpportunityQueryLanes(
-      {
-        marketType: 'b2c',
-        geography: 'Austin, Texas, US',
-        signalKind: 'social_engagement',
-        entityUnit: 'opportunities',
-        audience: 'Austin people buying a home',
-        signal: 'buyer intent',
-        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
-      },
+      play,
       APIFY_THREADS_OPPORTUNITY_CONFIG.adapterId,
       5,
     )
-    expect(lanes).toHaveLength(1)
+    expect(lanes).toHaveLength(3)
     expect(lanes[0]).toMatchObject({
       id: 'buyer_intent:1',
       intent: 'buyer_intent',
-      query: 'Austin "buying a home"',
+      query: 'Austin buying a home',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v28',
+        query_lane_version: 'opportunity-query-v29',
         source_query_lane_id: 'buyer_intent:1',
-        search_query: 'Austin "buying a home"',
+        search_query: 'Austin buying a home',
       },
     })
+    expect(lanes.map((lane) => lane.query)).toEqual([
+      'Austin buying a home',
+      'Austin house hunting',
+      'Austin first time homebuyer',
+    ])
+
+    const planned = buildSourcePlan(
+      play,
+      [
+        createApifyThreadsOpportunityAdapter({
+          env: envFor(APIFY_THREADS_OPPORTUNITY_CONFIG),
+        }),
+      ],
+      { targetAccepted: 10, maxRawCandidates: 10, maxCredits: 30_000 },
+      2,
+    )
+    expect(planned.ok).toBe(true)
+    if (planned.ok) {
+      expect(planned.adapterPlan).toHaveLength(3)
+      expect(planned.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([4, 3, 3])
+      expect(planned.plannedRawCapacity).toBe(10)
+      // Each separately quoted lane rounds its internal reservation up to a
+      // whole credit unit. Final reconciliation still uses the exact returned
+      // post events, whose combined provider ceiling is $0.03.
+      expect(planned.estimatedCredits).toBe(16_000)
+    }
   })
 
   it('plans Reddit and one fixed-charge-aware X shortfall lane', () => {
