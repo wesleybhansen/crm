@@ -89,6 +89,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:i(?:'m| am) (?:a )?(?:realtor|real estate agent|real estate broker|mortgage broker)|contact (?:me|us)|call (?:me|us)|dm (?:me|us)|message (?:me|us)|send (?:me|us) a message|reach out(?: to (?:me|us))?|book (?:a )?(?:call|consultation)|schedule (?:a )?(?:call|consultation)|your local realtor|i help (?:home ?buyers?|home ?sellers?|people buy|people sell)|i work with (?:buyers?|sellers?|investors?|homeowners?)|i hear this question from (?:buyers?|sellers?|homeowners?)|(?:i|we|our team) can help|let (?:me|us) help|follow me)\b|#\w*realtor\b/i,
   ],
   [
+    'provider_origin_promotion',
+    /\b(?:before (?:my|our) team (?:sends?|shows?|shares?) (?:you )?(?:homes?|listings?)|(?:i(?:'ve| have)|we(?:'ve| have)|my team has|our team has) helped (?:hundreds? of |\d+ )?(?:[a-z]+ )?(?:home ?buyers?|home ?sellers?|buyers?|sellers?)|(?:my|our) (?:buyer|seller|home ?buyer|home ?seller) clients?|(?:buyers?|sellers?) (?:i|we) (?:help|represent|serve|work with)|as (?:a|an) (?:realtor|real estate agent|real estate broker|mortgage broker)|(?:realtor|real estate agent|real estate broker) (?:said|says|explained|advised|told))\b/i,
+  ],
+  [
     'generic_advice_content',
     /\b(?:\d+|five|six|seven|eight|nine|ten) (?:tips?|things?|steps?|mistakes?|questions?) (?:for|every) (?:home ?buyers?|home ?sellers?)\b|\b(?:buyer|seller) tips?\b|\b(?:thinking about selling your home|how much is your home worth|if i were buying (?:a|my) first home|home ?buyer(?:'s)? guide|buyers? aren(?:'|’)t just looking|questions worth answering before (?:you )?(?:buy|sell))\b/i,
   ],
@@ -175,6 +179,8 @@ const CONSUMER_QUESTION =
   /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|(?:where|what|which|how) should (?:i|we|my|our)\b|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =
   /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:actively\s+)?(?:thinking (?:about|of)|considering|planning(?: to)?|preparing(?: to)?|trying(?: to)?|looking(?: to| for)|need(?:ing)?(?: to)?|want(?:ing)?(?: to)?|moving|relocating|wondering|unsure|confused|stressed)\b/i
+const FIRST_PERSON_DIRECT_HOUSING_TRANSACTION =
+  /\b(?:i|we)(?:'m|'re| am| are)\s+(?:actively\s+)?(?:buying|purchasing|selling|listing)\s+(?:(?:a|my|our|the)\s+)?(?:home|house|condo|townhome|property)\b/i
 const FIRST_PERSON_TRANSACTION_PROGRESS =
   /\b(?:(?:i|we)(?:'ve| have)?\s+(?:made|submitted|placed|put in)\s+(?:(?:an?|the|my|our)\s+)?offer|(?:my|our)\s+(?:offer|counteroffer|mortgage|pre[- ]?approval|appraisal|inspection|closing costs?)\b|(?:seller|buyer)\s+(?:accepted|rejected|countered)\s+(?:my|our)\s+offer)\b/i
 const DEMONSTRATED_HOUSING_STATUS =
@@ -350,6 +356,7 @@ function normalizedLocationToken(value: string): string {
 export function publicSourceGeographyConflict(
   sourceUrl: string | null,
   expectedGeographies: string[],
+  returnedMaterial = '',
 ): string | null {
   if (!sourceUrl || expectedGeographies.length === 0) return null
   try {
@@ -364,6 +371,21 @@ export function publicSourceGeographyConflict(
       .map(normalizedLocationToken)
       .filter((value) => value.length >= 3 && !['unitedstates', 'usa'].includes(value))
     if (expectedTokens.some((value) => returned.includes(value) || value.includes(returned))) return null
+    // A destination-local community is stronger geography evidence than a
+    // stray target-city mention in a title or snippet. When the returned
+    // material independently uses the subreddit name in a housing/locality
+    // context, treat a different community as contradictory. Topic-only
+    // communities are allowlisted above and remain non-local.
+    const subredditPhrase = normalizedPhrase(subreddit)
+    if (subredditPhrase && returnedMaterial.trim()) {
+      const localCommunityPattern = new RegExp(
+        `(?:\\b(?:home|house|housing|property|neighbou?rhood|city|local)\\b.{0,60}\\b${escapeRegExp(subredditPhrase)}\\b|\\b${escapeRegExp(subredditPhrase)}\\b.{0,60}\\b(?:home|house|housing|property|neighbou?rhood|city|local)\\b)`,
+        'i',
+      )
+      if (localCommunityPattern.test(normalizedPhrase(returnedMaterial))) {
+        return `reddit:r/${subreddit}`
+      }
+    }
     // Do not guess that every arbitrary subreddit name is a place. Only treat
     // a non-matching subreddit as contradictory when its returned name itself
     // carries a local-market form. This preserves national/topic communities
@@ -399,10 +421,12 @@ export function assessRealtorOpportunitySuitability(
   const consumerNeed =
     CONSUMER_QUESTION.test(content)
     || FIRST_PERSON_HOUSING_NEED.test(content)
+    || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
   const directConsumerNeed =
     FIRST_PERSON_HOUSING_NEED.test(content)
+    || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
     || FIRST_PERSON_HOUSING_IDENTITY.test(content)

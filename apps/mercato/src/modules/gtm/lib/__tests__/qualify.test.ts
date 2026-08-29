@@ -175,6 +175,50 @@ describe('ruleBasedFitScorer', () => {
     expect(result.fitScore).toBeLessThan(FIT_REVIEW_THRESHOLD)
   })
 
+  it('hard-rejects provider-origin buyer copy that imitates a consumer question', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Thinking about buying a home in Austin?',
+          opportunity_kind: 'post',
+          platform: 'X',
+          audience_description:
+            'Before my team sends you listings, let us talk about your goals and the neighborhoods you want to compare.',
+          location: 'Austin, Texas',
+          access_type: 'public',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://x.com/example/status/provider-origin-buyer-copy'],
+          recommended_action: 'Read the public post and contribute only when a consumer asks a genuine question.',
+          message_angle: 'Answer the demonstrated buyer need before mentioning professional help.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'People preparing to buy a home in Austin',
+        signal: 'A current public buyer question demonstrates intent',
+        referenceTime: '2026-08-29T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.fitScore).toBeLessThan(FIT_REVIEW_THRESHOLD)
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'exclusion.realtor_noise',
+          status: 'fail',
+          observed: expect.arrayContaining(['provider_origin_promotion']),
+        }),
+      ]),
+    )
+  })
+
   it('rejects a complete-looking realtor result whose returned content is generic market news', () => {
     const result = ruleBasedFitScorer.score(
       {

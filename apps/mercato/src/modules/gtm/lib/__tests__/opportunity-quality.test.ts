@@ -7,6 +7,7 @@ import {
   classifyOpportunityIntent,
   demonstratedOpportunityLocation,
   opportunityHasContradictoryUsState,
+  publicSourceGeographyConflict,
   rankOpportunityCandidates,
   realtorOpportunityNoiseReasons,
   opportunityEvidenceText,
@@ -62,6 +63,20 @@ describe('opportunity quality primitives', () => {
     expect(
       demonstratedOpportunityLocation('First home-buying advice requested in Austin, TX.', 'Austin, Texas'),
     ).toBe('Austin, Texas')
+    expect(
+      publicSourceGeographyConflict(
+        'https://www.reddit.com/r/houston/comments/example/cannot_sell_house',
+        ['Austin, Texas'],
+        'Austin, Texas? I am selling my house in Houston.',
+      ),
+    ).toBe('reddit:r/houston')
+    expect(
+      publicSourceGeographyConflict(
+        'https://www.reddit.com/r/realestate/comments/example/austin-buyer',
+        ['Austin, Texas'],
+        'I am buying a house in Austin and need advice.',
+      ),
+    ).toBeNull()
   })
 
   it('distinguishes consumer housing demand from generic seller language and agent marketing', () => {
@@ -148,6 +163,30 @@ describe('opportunity quality primitives', () => {
     for (const [content, lane, kind] of failures) {
       expect(assessRealtorOpportunitySuitability(content, lane, null, kind).relevant).toBe(false)
     }
+  })
+
+  it('distinguishes provider-origin buyer copy from a consumer expressing demand', () => {
+    const providerPosts = [
+      'Thinking about buying a home in Austin? Before my team sends you listings, let us talk about your goals.',
+      "I've helped hundreds of Austin buyers find the right neighborhood and negotiate with confidence.",
+      'A real estate agent said Austin buyers should compare mortgage rates before touring homes.',
+    ]
+
+    for (const content of providerPosts) {
+      expect(realtorOpportunityNoiseReasons(content)).toContain('provider_origin_promotion')
+      expect(
+        assessRealtorOpportunitySuitability(content, 'buyer_intent', null, 'post').relevant,
+      ).toBe(false)
+    }
+
+    expect(
+      assessRealtorOpportunitySuitability(
+        "We're buying a home in Austin and need advice about which neighborhoods to compare before we make an offer.",
+        'buyer_intent',
+        null,
+        'post',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
   })
 
   it('requires a participation venue or demonstrated consumer participation for local discovery', () => {

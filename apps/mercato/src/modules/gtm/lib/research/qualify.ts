@@ -79,7 +79,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v18' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v19' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -401,6 +401,7 @@ function scoreOpportunity(
   const sourceGeographyConflict = publicSourceGeographyConflict(
     destination.canonicalUrl,
     geographyExpected,
+    observedText,
   )
   const geoStatus = sourceGeographyConflict
     ? 'fail'
@@ -493,7 +494,7 @@ function scoreOpportunity(
       'exclusion.realtor_noise',
       'exclusion',
       'Realtor false positives',
-      ['no listing inventory, recruiting, lead sales, jobs, or generic news'],
+      ['no provider-origin promotion, listing inventory, recruiting, lead sales, jobs, or generic news'],
       noise,
       noise.length > 0 ? 'fail' : 'pass',
     ),
@@ -1042,7 +1043,7 @@ export function compileQualificationProfile(
         id: 'exclusion.realtor_noise',
         dimension: 'exclusion',
         label: 'Realtor false positives',
-        expected: ['no listing inventory, recruiting, lead sales, jobs, or generic news'],
+        expected: ['no provider-origin promotion, listing inventory, recruiting, lead sales, jobs, or generic news'],
         hard: true,
       },
     ]
