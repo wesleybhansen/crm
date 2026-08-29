@@ -202,15 +202,17 @@ export const APIFY_X_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   platform: 'X',
   enabledEnv: 'GTM_APIFY_X_OPPORTUNITY_ENABLED',
   actorId: 'scraper_one/x-posts-search',
-  actorBuild: '0.0.153',
+  actorBuild: '0.0.154',
   actorEnv: 'GTM_APIFY_ACTOR_X_POST_SEARCH',
   useApprovalEnv: 'GTM_APIFY_X_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_X_POST_SEARCH_PRICE_VERSION',
-  // The production Apify account is on FREE. Actor metadata rechecked through
-  // Apify's public API on 2026-08-27: FREE is $0.025 once per run and
-  // $0.00125 per result. Other tiers are cheaper, but a plan change must update
-  // this exact contract instead of silently changing the reservation math.
-  requiredPriceVersion: 'scraper-one-x-post-search-0.0.153-free-events-2026-08-27',
+  // The production Apify account is on FREE. Authenticated actor metadata was
+  // rechecked without running the actor on 2026-08-29: build 0.0.154 retains
+  // the current FREE rates of $0.025 once per run and $0.00125 per result.
+  // The public Store headline shows the cheaper paid-tier rate. A plan or
+  // actor-build change must update this exact account contract instead of
+  // silently changing reservation math.
+  requiredPriceVersion: 'scraper-one-x-post-search-0.0.154-free-events-2026-08-29',
   eventPricesUsd: { init: 0.025, 'result-item': 0.00125 },
   oneTimeEvent: 'init',
   primaryResultEvent: 'result-item',
