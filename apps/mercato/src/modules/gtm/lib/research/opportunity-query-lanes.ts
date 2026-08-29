@@ -247,6 +247,21 @@ function realtorIntentSubreddits(geography: string, intent: OpportunityIntentLan
   return unique([...market, ...intentCommunities[intent]])
 }
 
+function primaryRealtorIntentSubreddit(
+  geography: string,
+  intent: OpportunityIntentLane,
+): string[] {
+  const marketScopes = new Set(realtorMarketSubreddits(geography).map((value) => value.toLowerCase()))
+  return realtorIntentSubreddits(geography, intent)
+    .filter((value) => !marketScopes.has(value.toLowerCase()))
+    .slice(0, 1)
+}
+
+function alternateExactMarketSubreddit(geography: string): string[] {
+  const exact = realtorExactMarketSubreddits(geography)
+  return exact.slice(1, 2).length > 0 ? exact.slice(1, 2) : exact.slice(0, 1)
+}
+
 function genericSeeds(play: PlanPlayInput): string[] {
   const query = play.providerQuery ?? {}
   const supplied = values(query.source_search_keywords)
@@ -363,7 +378,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v21',
+        query_lane_version: 'opportunity-query-v22',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -375,27 +390,26 @@ export function buildOpportunityQueryLanes(
         ...(adapterId === 'apify-reddit-demand-opportunities'
           ? index === 0
             ? {
-                reddit_subreddits: realtorMarketSubreddits(geography),
+                reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
                 reddit_auto_discover: false,
                 reddit_sort: 'new',
               }
             : index === 1
               ? {
-                  reddit_subreddits: realtorIntentSubreddits(geography, intent),
+                  reddit_subreddits: primaryRealtorIntentSubreddit(geography, intent),
                   reddit_auto_discover: false,
                   reddit_sort: 'relevance',
                 }
               : intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'
                 ? {
-                    // The returned exact-market subreddit is admissible
-                    // geography evidence; the comment body must independently
-                    // prove intent. Do not let a query or parent title fill
-                    // either semantic requirement.
-                    reddit_subreddits: realtorExactMarketSubreddits(geography),
+                    // The replacement actor's reliable contract is public post
+                    // search. Keep this as an exact-market first-person post
+                    // lane; returned content must independently prove intent.
+                    reddit_subreddits: alternateExactMarketSubreddit(geography),
                     reddit_auto_discover: false,
                     reddit_global_search: false,
                     reddit_sort: 'relevance',
-                    reddit_content_type: 'comments',
+                    reddit_content_type: 'posts',
                   }
                 : {
                     // Local-audience discovery still needs a broad public

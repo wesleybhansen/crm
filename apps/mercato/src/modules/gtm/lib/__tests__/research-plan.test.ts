@@ -202,7 +202,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v21')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v22')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -253,25 +253,18 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(
       reddit.every((lane) => Array.isArray(lane.providerQuery.reddit_subreddits)),
     ).toBe(true)
-    expect(reddit[0]?.providerQuery.reddit_subreddits).toEqual(['Austin', 'AskAustin', 'Texas'])
+    expect(reddit[0]?.providerQuery.reddit_subreddits).toEqual(['Austin'])
     expect(reddit[0]?.providerQuery).toMatchObject({
       reddit_auto_discover: false,
       reddit_sort: 'new',
     })
-    expect(reddit[1]?.providerQuery.reddit_subreddits).toEqual([
-      'Austin',
-      'AskAustin',
-      'Texas',
-      'RealEstate',
-      'homeowners',
-      'HomeImprovement',
-    ])
+    expect(reddit[1]?.providerQuery.reddit_subreddits).toEqual(['RealEstate'])
     expect(reddit[2]?.providerQuery).toMatchObject({
-      reddit_subreddits: ['Austin', 'AskAustin'],
+      reddit_subreddits: ['AskAustin'],
       reddit_auto_discover: false,
       reddit_global_search: false,
       reddit_sort: 'relevance',
-      reddit_content_type: 'comments',
+      reddit_content_type: 'posts',
     })
     expect(reddit[2]?.query).not.toContain('Austin')
     expect(reddit[2]?.query).toContain('selling my home')
