@@ -8,6 +8,7 @@ import {
   dataForSeoOpportunityEnabled,
   normalizeDataForSeoOpportunityItem,
 } from '../adapters/dataforseo/opportunity-source'
+import { DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM } from '../research/opportunity-query-lanes'
 import { DATAFORSEO_REQUIRED_RETENTION_DAYS, DATAFORSEO_REQUIRED_TERMS_VERSION } from '../adapters/dataforseo/maps'
 import type { SourceSearchPlan } from '../adapters/types'
 import { buildSourcePlan } from '../research/plan'
@@ -33,6 +34,7 @@ const plan: SourceSearchPlan = {
   provider_query: {
     source_search_keywords: ['South Bay home buyer seller discussion events'],
     locations: ['South Bay, California'],
+    search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
   },
   max_candidates: 20,
 }
@@ -530,14 +532,33 @@ describe('DataForSEO organic demand-opportunity source', () => {
     const result = await adapter.search({
       ...plan,
       provider_query: {
+        ...plan.provider_query,
         search_query: query,
-        locations: ['South Bay, California'],
       },
     })
     expect(result).toMatchObject({ status: 'error', cost_units: 0 })
     expect(result.error).toContain(errorCode)
     expect(fetchImpl).not.toHaveBeenCalled()
   })
+
+  it.each([null, '', '&tbs=qdr:y', '&tbs=cdr:1,cd_min:01/01/2026,cd_max:08/26/2026'])(
+    'rejects a missing or altered freshness parameter before provider contact: %s',
+    async (searchParam) => {
+      const fetchImpl = jest.fn() as unknown as typeof fetch
+      const adapter = createDataForSeoOpportunityAdapter({ env: approvedEnv, fetchImpl })
+      const result = await adapter.search({
+        ...plan,
+        provider_query: {
+          ...plan.provider_query,
+          search_param: searchParam,
+        },
+      })
+
+      expect(result).toMatchObject({ status: 'error', cost_units: 0 })
+      expect(result.error).toContain('unsupported_freshness_contract')
+      expect(fetchImpl).not.toHaveBeenCalled()
+    },
+  )
 
   it('sends one bounded Live Advanced organic task and settles its exact task cost', async () => {
     const fetchImpl = jest.fn().mockResolvedValue(
@@ -574,6 +595,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
         location_name: 'South Bay,California,United States',
         language_code: 'en',
         depth: 20,
+        search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
       },
     ])
   })
@@ -717,6 +739,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
     const result = await adapter.search({
       ...plan,
       provider_query: {
+        ...plan.provider_query,
         search_query: 'Austin home buyer questions community event',
         locations: ['Austin, Texas'],
       },

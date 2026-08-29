@@ -7,7 +7,10 @@ import {
   createApifyCompanySourceAdapter,
 } from '../adapters/apify/company-source'
 import { APIFY_REQUIRED_PRICE_VERSION, APIFY_REQUIRED_TERMS_VERSION } from '../adapters/apify/source'
-import { buildOpportunityQueryLanes } from '../research/opportunity-query-lanes'
+import {
+  buildOpportunityQueryLanes,
+  DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
+} from '../research/opportunity-query-lanes'
 import { hasPriceMultiplyingDataForSeoOpportunityQueryOperator } from '../adapters/dataforseo/opportunity-source'
 import { buildSourcePlan, DEFAULT_MAX_CANDIDATES, MAX_CANDIDATES_HARD_CAP, type PlanPlayInput } from '../research/plan'
 
@@ -199,7 +202,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v19')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v20')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -224,6 +227,11 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(5)
     expect(web.every((lane) => lane.query.includes('"Austin, Texas"'))).toBe(true)
+    expect(
+      web.every(
+        (lane) => lane.providerQuery.search_param === DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
+      ),
+    ).toBe(true)
     expect(web.every((lane) => !lane.query.includes('United States'))).toBe(true)
     expect(web.every((lane) => !/[()]/.test(lane.query))).toBe(true)
     expect(web.every((lane) => !lane.query.includes('site:'))).toBe(true)

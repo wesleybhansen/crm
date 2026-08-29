@@ -325,7 +325,7 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v19` keeps actor-native syntax explicit and separately quotes
+`opportunity-query-v20` keeps actor-native syntax explicit and separately quotes
 three Reddit strategies. The first post lane covers exact market/state
 communities. The second post lane covers broader intent communities while the
 market remains explicit in the query. For buyer, seller, and mixed-intent
@@ -345,8 +345,13 @@ DataForSEO receives five separately quoted full market-and-state variants for
 each buyer, seller, mixed, or local-audience play. Narrow queries target current
 registrations, schedules, classes, public meetings, registries, and direct
 consumer questions so broad stale pages do not compete with participation
-surfaces inside one keyword. Supported realtor negative terms remain in every
-organic lane. The organic normalizer consumes both ordinary organic rows and
+surfaces inside one keyword. Every organic lane freezes the provider-supported
+past-month search parameter (`&tbs=qdr:m`) into the immutable plan and request.
+The adapter refuses a missing or altered freshness parameter before provider
+contact; downstream fit-v7 still requires returned publication or observation
+evidence and rejects stale, undated post/thread, expired-event, or inaccessible
+destinations. Supported realtor negative terms remain in every organic lane.
+The organic normalizer consumes both ordinary organic rows and
 the provider's structured
 `discussions_and_forums`, `perspectives`, and direct-destination `events`
 children. It preserves provider publication timestamps and discussion counts;
@@ -500,3 +505,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-28: `realtor-opportunity-benchmark-v2` adds a strict independent-human import boundary. Review decisions must bind the frozen play, rank, and destination hash, attest `independent_human` / `HUMAN_REVIEWED`, include reasons for every negative or unsafe judgment, and cannot overwrite system evidence or disposition. The importer records reviewer names, review times, the frozen-source digest, and a deterministic decision digest. Partial batches remain HOLD under the existing 12-play, 100–200-row coverage gate.
 - 2026-08-28: Customer-serving consumer research now requires three independent deployment controls: `GTM_CONSUMER_RESEARCH_ENABLED=true`, the exact August 26 counsel disposition in `GTM_CONSUMER_LEGAL_APPROVAL_VERSION=gtm-b2c-legal-2026-08-26-v1`, and a passing independently reviewed benchmark recorded as `GTM_CONSUMER_QUALITY_APPROVAL_VERSION=realtor-opportunity-benchmark-v2`. Missing, generic, or stale values fail closed before quote, run creation, or provider execution. These controls do not enable consumer automation; consumer participation and outreach remain manual-only.
 - 2026-08-28: A pre-release benchmark would otherwise be circular because the quality approval is produced by the benchmark itself. An explicit owner-only probe escape hatch therefore permits one configured Noli user to plan and execute consumer research only when the general consumer feature is enabled and every immutable per-run ceiling is at or below 10 accepted results, 60 raw candidates, and 30,000 credits. It never satisfies or changes the customer legal/quality release state, and it does not enable consumer outreach.
+- 2026-08-29: Independent human Batch 1 review confirmed that fit-v7 correctly rejected stale, expired, inaccessible, and non-actionable Austin buyer rows but that broad organic retrieval still spent most of its top-ten capacity on old or undated pages. `opportunity-query-v20` freezes DataForSEO's supported past-month `&tbs=qdr:m` parameter into each quoted organic lane and request. The adapter rejects missing or altered freshness parameters before contact; the 30-day fit/evidence gate remains authoritative because search recency is targeting, not proof.
