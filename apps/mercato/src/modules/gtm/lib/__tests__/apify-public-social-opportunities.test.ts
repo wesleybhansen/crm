@@ -1,22 +1,27 @@
 import type { ApifyRunOutcome } from '../adapters/apify/client'
 import {
   APIFY_REDDIT_OPPORTUNITY_CONFIG,
+  APIFY_THREADS_OPPORTUNITY_CONFIG,
   APIFY_X_OPPORTUNITY_CONFIG,
   createApifyRedditOpportunityAdapter,
+  createApifyThreadsOpportunityAdapter,
   createApifyXOpportunityAdapter,
   normalizeRedditOpportunity,
+  normalizeThreadsOpportunity,
   normalizeXOpportunity,
   publicSocialOpportunityApproved,
   publicSocialOpportunityEnabled,
+  type PublicSocialOpportunityConfig,
 } from '../adapters/apify/public-social-opportunity-source'
 import { APIFY_REQUIRED_PRICE_VERSION, APIFY_REQUIRED_TERMS_VERSION } from '../adapters/apify/source'
 import type { SourceSearchPlan } from '../adapters/types'
+import { buildOpportunityQueryLanes } from '../research/opportunity-query-lanes'
 import { buildSourcePlan } from '../research/plan'
 
 const CLOCK = new Date('2026-08-26T23:00:00.000Z')
 const now = () => CLOCK
 
-function envFor(config: typeof APIFY_REDDIT_OPPORTUNITY_CONFIG) {
+function envFor(config: PublicSocialOpportunityConfig) {
   return {
     GTM_APIFY_ENABLED: 'true',
     GTM_APIFY_TOKEN: 'synthetic-social-token',
@@ -116,15 +121,37 @@ function xPost(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function threadsPost(overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'post',
+    postId: 'threads-post-123',
+    username: 'southbay_homeowner',
+    fullName: 'Taylor Example',
+    isPrivate: false,
+    text: 'We are thinking of selling our South Bay home. Which repairs should we make first?',
+    date: '2026-08-25T20:00:00.000Z',
+    likeCount: 14,
+    replyCount: 5,
+    repostCount: 2,
+    quoteCount: 1,
+    url: 'https://www.threads.com/@southbay_homeowner/post/ABC123',
+    searchQuery: 'South Bay selling my home',
+    scrapedAt: CLOCK.toISOString(),
+    ...overrides,
+  }
+}
+
 function outcome(
-  config: typeof APIFY_REDDIT_OPPORTUNITY_CONFIG,
+  config: PublicSocialOpportunityConfig,
   item: Record<string, unknown>,
   values: Partial<ApifyRunOutcome> = {},
 ): ApifyRunOutcome {
   const counts =
     config.platform === 'Reddit'
       ? { start: 1, post: 1 }
-      : { init: 1, 'result-item': 1 }
+      : config.platform === 'X'
+        ? { init: 1, 'result-item': 1 }
+        : { 'post-result': 1 }
   const providerCostUsd = Object.entries(counts).reduce(
     (sum, [event, count]) => sum + (config.eventPricesUsd[event] ?? 0) * count,
     0,
@@ -172,6 +199,18 @@ describe('Apify public social demand opportunities', () => {
     })
   })
 
+  it('pins Threads reservations to the exact no-start-fee FREE account contract', () => {
+    expect(APIFY_THREADS_OPPORTUNITY_CONFIG).toMatchObject({
+      actorId: 'webdata_labs/threads-scraper',
+      actorBuild: '0.1.7',
+      requiredPriceVersion: 'webdata-labs-threads-scraper-0.1.7-free-events-2026-08-29',
+      eventPricesUsd: { 'post-result': 0.003, 'profile-result': 0.005 },
+      oneTimeEvent: null,
+      oneTimeQuoteUsd: 0,
+      perItemQuoteUsd: 0.003,
+    })
+  })
+
   it('keeps the high-fixed-cost X source held unless its capability switch is explicit', () => {
     const env = envFor(APIFY_X_OPPORTUNITY_CONFIG)
     expect(publicSocialOpportunityEnabled(APIFY_X_OPPORTUNITY_CONFIG, env)).toBe(false)
@@ -189,7 +228,22 @@ describe('Apify public social demand opportunities', () => {
     ).toBe(true)
   })
 
-  it.each([[APIFY_REDDIT_OPPORTUNITY_CONFIG], [APIFY_X_OPPORTUNITY_CONFIG]])(
+  it('keeps Threads held unless its capability switch is explicit', () => {
+    const env = envFor(APIFY_THREADS_OPPORTUNITY_CONFIG)
+    expect(publicSocialOpportunityEnabled(APIFY_THREADS_OPPORTUNITY_CONFIG, env)).toBe(false)
+    expect(
+      publicSocialOpportunityEnabled(APIFY_THREADS_OPPORTUNITY_CONFIG, {
+        ...env,
+        GTM_APIFY_THREADS_OPPORTUNITY_ENABLED: 'true',
+      }),
+    ).toBe(true)
+  })
+
+  it.each([
+    [APIFY_REDDIT_OPPORTUNITY_CONFIG],
+    [APIFY_X_OPPORTUNITY_CONFIG],
+    [APIFY_THREADS_OPPORTUNITY_CONFIG],
+  ])(
     'requires the exact actor, use approval, and price version for $platform',
     (config) => {
       const env = envFor(config)
@@ -341,6 +395,75 @@ describe('Apify public social demand opportunities', () => {
       },
       evidence: [{ source_url: 'https://x.com/example/status/123', observed_at: CLOCK.toISOString() }],
     })
+  })
+
+  it('normalizes an exact-dated public Threads post with author context and visible engagement', () => {
+    const candidate = normalizeThreadsOpportunity(threadsPost(), {
+      query: plan.query,
+      location: 'South Bay, California',
+      expectedIntent: 'seller_intent',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_THREADS_OPPORTUNITY_CONFIG.actorId,
+    })
+    expect(candidate).toMatchObject({
+      entity_kind: 'opportunity',
+      identity: {
+        opportunity_kind: 'post',
+        platform: 'Threads',
+        intent_kind: 'seller_intent',
+        engagement_count: 22,
+        source_published_at: '2026-08-25T20:00:00.000Z',
+        people_to_follow: [
+          {
+            name: 'Taylor Example',
+            role: 'Public Threads contributor shown as secondary source context',
+            profile_url: 'https://www.threads.com/@southbay_homeowner',
+          },
+        ],
+      },
+      evidence: [
+        {
+          source_url: 'https://www.threads.com/@southbay_homeowner/post/ABC123',
+          observed_at: CLOCK.toISOString(),
+          detail: expect.objectContaining({
+            provider_post_id: 'threads-post-123',
+            source_published_at: '2026-08-25T20:00:00.000Z',
+            visible_engagement: 22,
+          }),
+        },
+      ],
+    })
+  })
+
+  it('keeps Threads intent independent from the targeting query', () => {
+    const candidate = normalizeThreadsOpportunity(
+      threadsPost({ text: 'South Bay neighborhood community breakfast for local residents.' }),
+      {
+        query: 'South Bay selling my home thinking of selling',
+        location: 'South Bay, California',
+        expectedIntent: 'seller_intent',
+        attemptedAt: CLOCK.toISOString(),
+        actorId: APIFY_THREADS_OPPORTUNITY_CONFIG.actorId,
+      },
+    )
+    expect(candidate?.identity.intent_kind).toBe('local_audience')
+  })
+
+  it('drops non-post, off-platform, and sensitive Threads rows', () => {
+    const context = {
+      query: plan.query,
+      location: 'South Bay, California',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_THREADS_OPPORTUNITY_CONFIG.actorId,
+    }
+    expect(normalizeThreadsOpportunity(threadsPost({ type: 'profile' }), context)).toBeNull()
+    expect(normalizeThreadsOpportunity(threadsPost({ isPrivate: true }), context)).toBeNull()
+    expect(
+      normalizeThreadsOpportunity(threadsPost({ url: 'https://example.com/post/ABC123' }), context),
+    ).toBeNull()
+    expect(
+      normalizeThreadsOpportunity(threadsPost({ text: 'Foreclosure distress outreach list' }), context),
+    ).toBeNull()
   })
 
   it('keeps missing publication time unknown instead of substituting retrieval time', () => {
@@ -722,6 +845,36 @@ describe('Apify public social demand opportunities', () => {
       },
       expect.objectContaining({ build: APIFY_X_OPPORTUNITY_CONFIG.actorBuild }),
     )
+
+    const threadsRun = jest.fn(async () =>
+      outcome(APIFY_THREADS_OPPORTUNITY_CONFIG, threadsPost()),
+    )
+    const threads = createApifyThreadsOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_THREADS_OPPORTUNITY_CONFIG),
+        GTM_APIFY_THREADS_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor: threadsRun,
+    })
+    await threads.search(plan)
+    expect(threadsRun).toHaveBeenCalledWith(
+      APIFY_THREADS_OPPORTUNITY_CONFIG.actorId,
+      {
+        mode: 'search',
+        searchQueries: ['South Bay buying or selling a home'],
+        maxPosts: 5,
+        postedAfter: '2026-08-19T23:00:00.000Z',
+        postedBefore: CLOCK.toISOString(),
+        includeProfile: false,
+        maxScrolls: 0,
+      },
+      expect.objectContaining({
+        build: APIFY_THREADS_OPPORTUNITY_CONFIG.actorBuild,
+        maxItems: 6,
+        maxChargeUsd: 0.02,
+      }),
+    )
   })
 
   it('maps a 30-day retrieval window to the actor month filter', async () => {
@@ -796,6 +949,7 @@ describe('Apify public social demand opportunities', () => {
   it.each([
     [APIFY_REDDIT_OPPORTUNITY_CONFIG, createApifyRedditOpportunityAdapter, redditPost(), 'Reddit'],
     [APIFY_X_OPPORTUNITY_CONFIG, createApifyXOpportunityAdapter, xPost(), 'X'],
+    [APIFY_THREADS_OPPORTUNITY_CONFIG, createApifyThreadsOpportunityAdapter, threadsPost(), 'Threads'],
   ] as const)(
     'settles exact finalized $platform events and returns opportunities',
     async (config, create, row, platform) => {
@@ -842,6 +996,24 @@ describe('Apify public social demand opportunities', () => {
         chargedEventCounts: { start: 1, post: 1, comment: 1 },
         providerCostUsd:
           config.eventPricesUsd.start + config.eventPricesUsd.post + config.eventPricesUsd.comment,
+      }),
+    }).search(plan)
+    expect(result).toMatchObject({ status: 'ambiguous', cost_units: null })
+    expect(result.error).toContain('unrequested public social result event')
+  })
+
+  it('parks an unrequested Threads profile charge instead of treating it as post spend', async () => {
+    const config = APIFY_THREADS_OPPORTUNITY_CONFIG
+    const result = await createApifyThreadsOpportunityAdapter({
+      env: {
+        ...envFor(config),
+        GTM_APIFY_THREADS_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor: async () => outcome(config, threadsPost(), {
+        chargedEventCounts: { 'post-result': 1, 'profile-result': 1 },
+        providerCostUsd:
+          config.eventPricesUsd['post-result'] + config.eventPricesUsd['profile-result'],
       }),
     }).search(plan)
     expect(result).toMatchObject({ status: 'ambiguous', cost_units: null })
@@ -929,6 +1101,33 @@ describe('Apify public social demand opportunities', () => {
     expect(result).toMatchObject({ status: 'error', cost_units: 0 })
     expect(result.error).toContain('sensitive consumer demand research is blocked')
     expect(runActor).not.toHaveBeenCalled()
+  })
+
+  it('builds one short source-native Threads lane per realtor play', () => {
+    const lanes = buildOpportunityQueryLanes(
+      {
+        marketType: 'b2c',
+        geography: 'Austin, Texas, US',
+        signalKind: 'social_engagement',
+        entityUnit: 'opportunities',
+        audience: 'Austin people buying a home',
+        signal: 'buyer intent',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      APIFY_THREADS_OPPORTUNITY_CONFIG.adapterId,
+      5,
+    )
+    expect(lanes).toHaveLength(1)
+    expect(lanes[0]).toMatchObject({
+      id: 'buyer_intent:1',
+      intent: 'buyer_intent',
+      query: 'Austin "buying a home"',
+      providerQuery: {
+        query_lane_version: 'opportunity-query-v28',
+        source_query_lane_id: 'buyer_intent:1',
+        search_query: 'Austin "buying a home"',
+      },
+    })
   })
 
   it('plans Reddit and one fixed-charge-aware X shortfall lane', () => {

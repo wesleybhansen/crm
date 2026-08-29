@@ -202,7 +202,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v27')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v28')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -233,7 +233,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(x).toHaveLength(1)
     expect(x[0]?.query).toBe('Austin "selling my home"')
-    expect(x[0]?.providerQuery.query_lane_version).toBe('opportunity-query-v27')
+    expect(x[0]?.providerQuery.query_lane_version).toBe('opportunity-query-v28')
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(5)

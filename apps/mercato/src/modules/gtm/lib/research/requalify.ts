@@ -88,6 +88,7 @@ function dataForSeoTarget(
 const LEGACY_TARGETING_LOCATION_ADAPTERS = new Set([
   'apify-reddit-demand-opportunities',
   'apify-x-demand-opportunities',
+  'apify-threads-demand-opportunities',
   'dataforseo-organic-demand-opportunities',
 ])
 
