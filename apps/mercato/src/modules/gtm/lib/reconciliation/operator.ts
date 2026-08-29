@@ -1,9 +1,10 @@
 import crypto from 'crypto'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core'
 import {
   GtmAuditEvent,
   GtmProviderOperation,
   GtmProviderReconciliationAction,
+  GtmResearchRun,
 } from '../../data/entities'
 import type { CampaignEm, GtmCtx } from '../campaign/build'
 import type { GtmLedgerStatus, GtmSettleOutcome } from '../credits/ledger'
@@ -314,6 +315,7 @@ export async function reconcileProviderOperation(
     const stored = readStoredOperatorReconciliation(operation.receipt)
     if (!stored) throw incompleteRecord()
     await reconcileCanonicalDecision(input.canonicalReconciler, operation.receipt, stored)
+    await refreshResearchRunReconciliationSummary(input.em, input.ctx, operation)
     return replay
   }
 
@@ -396,7 +398,7 @@ export async function reconcileProviderOperation(
     throw error
   }
 
-  return input.em.transactional(async (tem) => {
+  const result: GtmOperatorReconciliationResult = await input.em.transactional(async (tem) => {
     const current = await findScopedOperation(tem, input.ctx, input.operationId)
     const currentAction = await findScopedAction(tem, input.ctx, action.id)
     const concurrentReplay = await resolveExistingRecord(
@@ -481,6 +483,128 @@ export async function reconcileProviderOperation(
       phase: 'settled',
       idempotent: false,
     }
+  })
+  await refreshResearchRunReconciliationSummary(input.em, input.ctx, result.operation)
+  return result
+}
+
+const TERMINAL_PROVIDER_STATUSES = new Set([
+  'charged',
+  'partially_charged',
+  'refunded',
+  'released',
+])
+
+function exactCredits(value: unknown): number | null {
+  const parsed = typeof value === 'string' && value.trim() ? Number(value) : value
+  return Number.isSafeInteger(parsed) && Number(parsed) >= 0 ? Number(parsed) : null
+}
+
+function operationChargedCredits(operation: GtmProviderOperation): number | null {
+  const receipt = isPlainRecord(operation.receipt) ? operation.receipt : null
+  const operator = isPlainRecord(receipt?.[OPERATOR_RECONCILIATION_RECEIPT_KEY])
+    ? receipt[OPERATOR_RECONCILIATION_RECEIPT_KEY]
+    : null
+  const operatorCredits = exactCredits(operator?.charged_credits)
+  if (operatorCredits != null) return operatorCredits
+  const observation = isPlainRecord(receipt?.gtm_observation)
+    ? receipt.gtm_observation
+    : null
+  const observedCredits = exactCredits(observation?.intended_charged_credits)
+  if (observedCredits != null) return observedCredits
+  if (operation.localStatusMirror === 'refunded' || operation.localStatusMirror === 'released') {
+    return 0
+  }
+  return null
+}
+
+function resolvedResearchStopReason(execution: Record<string, unknown>): string {
+  if (execution.failure_reason) return 'failed'
+  const funnel = isPlainRecord(execution.funnel) ? execution.funnel : null
+  if (funnel?.target_met === true) return 'target_accepted'
+  const raw = exactCredits(funnel?.raw_candidates_found)
+  const ceiling = exactCredits(funnel?.max_raw_candidates)
+  if (raw != null && ceiling != null && ceiling > 0 && raw >= ceiling) return 'max_raw_candidates'
+  const batches = Array.isArray(execution.batches) ? execution.batches : []
+  if (batches.some((batch) => isPlainRecord(batch) && batch.outcome === 'skipped_max_credits')) {
+    return 'max_credits'
+  }
+  return 'sources_exhausted'
+}
+
+async function refreshResearchRunReconciliationSummary(
+  em: CampaignEm,
+  ctx: GtmCtx,
+  operation: GtmProviderOperation,
+): Promise<void> {
+  if (!operation.researchRunId) return
+  await em.transactional(async (tem) => {
+    const run = await tem.findOne(
+      GtmResearchRun,
+      {
+        id: operation.researchRunId,
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    )
+    if (!run) return
+    const operations = await tem.find(GtmProviderOperation, {
+      researchRunId: run.id,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      deletedAt: null,
+    })
+    if (
+      operations.length === 0
+      || operations.some((candidate) => !TERMINAL_PROVIDER_STATUSES.has(candidate.localStatusMirror ?? ''))
+    ) return
+
+    const creditsByOperation = new Map<string, number>()
+    let reconciledCredits = 0
+    for (const candidate of operations) {
+      const credits = operationChargedCredits(candidate)
+      if (credits == null) return
+      creditsByOperation.set(candidate.id, credits)
+      reconciledCredits += credits
+    }
+    if (!Number.isSafeInteger(reconciledCredits)) return
+
+    const providerPlan = isPlainRecord(run.providerPlan) ? run.providerPlan : {}
+    const execution = isPlainRecord(providerPlan.execution) ? providerPlan.execution : {}
+    const funnel = isPlainRecord(execution.funnel) ? execution.funnel : null
+    const batches = Array.isArray(execution.batches)
+      ? execution.batches.map((batch) => {
+          if (!isPlainRecord(batch) || typeof batch.operation_id !== 'string') return batch
+          const matched = operations.find((candidate) => candidate.id === batch.operation_id)
+          if (!matched) return batch
+          return {
+            ...batch,
+            ledger_status: matched.localStatusMirror,
+            charged_credits: creditsByOperation.get(matched.id) ?? batch.charged_credits,
+            reconciliation_resolved: true,
+          }
+        })
+      : execution.batches
+    const nextExecution: Record<string, unknown> = {
+      ...execution,
+      reconciliation_required: false,
+      reconciled_credits: reconciledCredits,
+      ...(batches ? { batches } : {}),
+      ...(funnel
+        ? {
+            funnel: {
+              ...funnel,
+              stop_reason: resolvedResearchStopReason(execution),
+            },
+          }
+        : {}),
+    }
+    run.reconciledCredits = String(reconciledCredits)
+    run.providerPlan = { ...providerPlan, execution: nextExecution }
+    tem.persist(run)
+    await tem.flush()
   })
 }
 

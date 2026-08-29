@@ -62,6 +62,7 @@ export type PublicSocialOpportunityConfig = {
   oneTimeQuoteUsd: number
   datasetFields: readonly string[]
   buildInput(plan: SourceSearchPlan, maxResults: number): Record<string, unknown>
+  isNoResultDiagnostic?(value: unknown): boolean
   normalize(value: unknown, context: NormalizeContext): Candidate | null
 }
 
@@ -149,6 +150,12 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
     'subredditSubscribers',
     'scrapedAt',
     'warnings',
+    'status',
+    'records',
+    'message',
+    'query',
+    'targetType',
+    'targetLabel',
   ],
   buildInput(plan, maxResults) {
     const subreddits = redditSubreddits(plan)
@@ -159,6 +166,7 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
       throw new TypeError('Reddit comment search is not supported by this actor contract')
     }
     const query = queryText(plan, 700)
+    const filterKeywords = redditFilterKeywords(plan)
     validateRedditGlobalSearch(plan, {
       query,
       maxResults,
@@ -172,8 +180,19 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
       timeFilter: redditTimeFilter(plan),
       maxPostsPerSource: maxResults,
       includeComments: false,
+      filterKeywords,
+      filterKeywordMode: 'any',
       outputFormat: 'default',
     }
+  },
+  isNoResultDiagnostic(value) {
+    const row = record(value)
+    return (
+      text(row?.type, 40) === 'target-status'
+      && text(row?.status, 40) === 'empty_or_unavailable'
+      && nonNegativeInteger(row?.records) === 0
+      && text(row?.targetType, 40) === 'search'
+    )
   },
   normalize: normalizeRedditOpportunity,
 }
@@ -376,6 +395,14 @@ function recencyDays(plan: SourceSearchPlan): number {
 
 function redditTimeFilter(plan: SourceSearchPlan): '' | 'hour' | 'day' | 'week' | 'month' | 'year' {
   const raw = recencyText(plan)
+  const numeric = raw.match(/\b(\d{1,3})\s*days?\b/)
+  if (numeric) {
+    const days = Number(numeric[1])
+    if (days <= 1) return 'day'
+    if (days <= 7) return 'week'
+    if (days <= 30) return 'month'
+    return 'year'
+  }
   if (/hour|1h/.test(raw)) return 'hour'
   if (/week|7d|\b7 days?\b/.test(raw)) return 'week'
   if (/today|24h|day/.test(raw)) return 'day'
@@ -446,6 +473,32 @@ function redditSubreddits(plan: SourceSearchPlan): string[] {
       return true
     })
     .slice(0, 8)
+}
+
+function redditFilterKeywords(plan: SourceSearchPlan): string[] {
+  const values = plan.provider_query?.reddit_filter_keywords
+  if (!Array.isArray(values)) {
+    throw new TypeError('Reddit search requires explicit returned-content filter keywords')
+  }
+  const seen = new Set<string>()
+  const keywords = values
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim().replace(/\s+/g, ' '))
+    .filter((value) => value.length >= 3 && value.length <= 80)
+    .filter((value) => {
+      const key = value.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, 8)
+  if (keywords.length === 0) {
+    throw new TypeError('Reddit search requires at least one bounded returned-content keyword')
+  }
+  if (plan.provider_query?.reddit_filter_keyword_mode !== 'any') {
+    throw new TypeError('Reddit returned-content keyword mode must be any')
+  }
+  return keywords
 }
 
 function scopedSubredditLocation(
@@ -587,7 +640,12 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   )
   if (subredditLocation) identity.location = subredditLocation
   identity.member_count = memberCount || null
-  const publishedAt = sourcePublishedAt(row.createdAt)
+  // automation-lab/reddit-scraper build 0.1.119 reports `createdAt` at actor
+  // execution time (the controlled receipt showed seven rows within 201 ms,
+  // after `scrapedAt`), not Reddit publication time. Keep the raw provider
+  // field for audit, but never let it satisfy freshness or confidence gates.
+  const providerReportedCreatedAt = sourcePublishedAt(row.createdAt)
+  const publishedAt = null
   identity.source_published_at = publishedAt
   const demonstratedIntent = classifyOpportunityIntent(semanticContent)
   return {
@@ -622,6 +680,8 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
           requested_location: context.location,
           requested_intent: context.expectedIntent ?? null,
           source_published_at: publishedAt,
+          provider_reported_created_at: providerReportedCreatedAt,
+          publication_time_evidence: 'unverified_provider_field',
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,
@@ -955,7 +1015,20 @@ export function createPublicSocialOpportunityAdapter(
           cost_units: costUnits,
         }
       }
-      if ((counts[config.primaryResultEvent] ?? 0) !== outcome.itemCount) {
+      const diagnosticRows = config.isNoResultDiagnostic
+        ? outcome.items.filter((item) => config.isNoResultDiagnostic?.(item))
+        : []
+      const resultItems = outcome.items.filter((item) => !config.isNoResultDiagnostic?.(item))
+      if (diagnosticRows.length > 0 && resultItems.length > 0) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt({ diagnostic_rows: diagnosticRows.length }),
+          cost_units: null,
+          error: 'invalid_schema: provider mixed result rows with a zero-result diagnostic',
+        }
+      }
+      if ((counts[config.primaryResultEvent] ?? 0) !== resultItems.length) {
         return {
           status: 'ambiguous',
           data: null,
@@ -964,6 +1037,21 @@ export function createPublicSocialOpportunityAdapter(
           }),
           cost_units: null,
           error: 'invalid_schema: billed result count did not match the bounded dataset',
+        }
+      }
+      if (
+        diagnosticRows.length > 0
+        && resultItems.length === 0
+        && diagnosticRows.length === outcome.items.length
+      ) {
+        return {
+          status: 'no_result',
+          data: null,
+          receipt: providerReceipt({
+            diagnostic_rows: diagnosticRows.length,
+            billed_results: 0,
+          }),
+          cost_units: costUnits,
         }
       }
       const context = {
@@ -975,7 +1063,7 @@ export function createPublicSocialOpportunityAdapter(
         attemptedAt: outcome.attemptedAt,
         actorId,
       }
-      const candidates = outcome.items
+      const candidates = resultItems
         .map((item) => config.normalize(item, context))
         .filter((candidate): candidate is Candidate => candidate != null)
       if (candidates.length === 0) {
@@ -988,7 +1076,7 @@ export function createPublicSocialOpportunityAdapter(
         }
       }
       const delivered = candidates.slice(0, maxCandidates)
-      const dropped = Math.max(0, outcome.itemCount - candidates.length)
+      const dropped = Math.max(0, resultItems.length - candidates.length)
       const truncated = candidates.length > delivered.length
       return {
         status: dropped > 0 || truncated ? 'partial' : 'ok',

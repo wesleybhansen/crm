@@ -2,6 +2,7 @@ import {
   GtmAuditEvent,
   GtmProviderOperation,
   GtmProviderReconciliationAction,
+  GtmResearchRun,
 } from '../../data/entities'
 import { FixtureLedger, type GtmLedgerStatus } from '../credits/ledger'
 import {
@@ -331,6 +332,87 @@ describe('operator/provider reconciliation', () => {
     })
     expect(em.table(GtmProviderOperation)).toHaveLength(2)
     expect(em.table(GtmAuditEvent)).toHaveLength(2)
+  })
+
+  test('repairs the parent research-run money and hold summary after the last ambiguity settles', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger()
+    const canonicalReconciler = new FixtureCanonicalReconciler(ledger)
+    const run = em.create(GtmResearchRun, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: '60000000-0000-4000-8000-000000000001',
+      playId: '70000000-0000-4000-8000-000000000001',
+      status: 'completed',
+      reconciledCredits: '5',
+      providerPlan: {
+        execution: {
+          status: 'completed',
+          reconciliation_required: true,
+          reconciled_credits: 5,
+          funnel: {
+            target_met: false,
+            raw_candidates_found: 2,
+            max_raw_candidates: 10,
+            stop_reason: 'unresolved_provider_outcome',
+          },
+          batches: [],
+        },
+      },
+    })
+    em.persist(run)
+    await em.flush()
+    const settled = await seedOperation(em, ledger, 'charged', {
+      researchRunId: run.id,
+      receipt: { gtm_observation: { intended_charged_credits: 5 } },
+    })
+    const ambiguous = await seedOperation(em, ledger, 'reconciliation_required', {
+      researchRunId: run.id,
+    })
+    const execution = (run.providerPlan as any).execution
+    execution.batches = [
+      { operation_id: settled.id, ledger_status: 'charged', charged_credits: 5, outcome: 'ok' },
+      {
+        operation_id: ambiguous.id,
+        ledger_status: 'reconciliation_required',
+        charged_credits: 0,
+        outcome: 'ambiguous',
+      },
+    ]
+
+    await reconcileProviderOperation({
+      em,
+      canonicalReconciler,
+      ctx,
+      operationId: ambiguous.id,
+      idempotencyKey: 'operator-run-rollup-1',
+      decision: { outcome: 'partially_charged', chargedCredits: 3 },
+      evidence: evidence({ reference: 'invoice-run-rollup-line' }),
+      now: () => DECIDED_AT,
+    })
+
+    expect(run.reconciledCredits).toBe('8')
+    expect(run.providerPlan).toMatchObject({
+      execution: {
+        reconciliation_required: false,
+        reconciled_credits: 8,
+        funnel: { stop_reason: 'sources_exhausted' },
+        batches: [
+          expect.objectContaining({
+            operation_id: settled.id,
+            ledger_status: 'charged',
+            charged_credits: 5,
+            reconciliation_resolved: true,
+          }),
+          expect.objectContaining({
+            operation_id: ambiguous.id,
+            ledger_status: 'partially_charged',
+            charged_credits: 3,
+            reconciliation_resolved: true,
+          }),
+        ],
+      },
+    })
   })
 
   test('never infers a refund from a missing receipt or missing evidence', async () => {
