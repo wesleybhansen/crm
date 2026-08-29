@@ -56,6 +56,7 @@ export type PublicSocialOpportunityConfig = {
   priceVersionEnv: string
   requiredPriceVersion: string
   eventPricesUsd: Record<string, number>
+  oneTimeEvent: string
   primaryResultEvent: string
   perItemQuoteUsd: number
   oneTimeQuoteUsd: number
@@ -110,72 +111,68 @@ type PublicSocialDeps = {
 export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-reddit-demand-opportunities',
   platform: 'Reddit',
-  actorId: 'clearpath/reddit-search-scraper',
-  actorBuild: '0.0.66',
+  actorId: 'automation-lab/reddit-scraper',
+  actorBuild: '0.1.119',
   actorEnv: 'GTM_APIFY_ACTOR_REDDIT_SEARCH',
   useApprovalEnv: 'GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_REDDIT_SEARCH_PRICE_VERSION',
-  requiredPriceVersion: 'clearpath-reddit-search-0.0.66-events-2026-08-26',
+  // Production account plan rechecked through Apify's authenticated user API
+  // on 2026-08-29: FREE with $5 monthly usage credits and a $5 usage ceiling.
+  // Public actor metadata effective 2026-08-25 prices FREE at $0.003/run,
+  // $0.00115/post, and $0.000575/comment. This adapter requests posts only;
+  // `comment` remains in the finalized-billing vocabulary so any unexpected
+  // comment charge is visible instead of being mistaken for pricing drift.
+  requiredPriceVersion: 'automation-lab-reddit-scraper-0.1.119-free-events-2026-08-25',
   eventPricesUsd: {
-    'apify-actor-start': 0.00099,
-    'apify-default-dataset-item': 0.00001,
-    'result-scraped': 0.00099,
+    start: 0.003,
+    post: 0.00115,
+    comment: 0.000575,
   },
-  primaryResultEvent: 'result-scraped',
-  // Reserve the documented primary result plus the platform dataset event.
-  perItemQuoteUsd: 0.001,
-  oneTimeQuoteUsd: 0.00099,
+  oneTimeEvent: 'start',
+  primaryResultEvent: 'post',
+  perItemQuoteUsd: 0.00115,
+  oneTimeQuoteUsd: 0.003,
   datasetFields: [
-    '_type',
-    '_status',
+    'type',
     'id',
     'title',
     'author',
     'subreddit',
     'score',
-    'commentCount',
+    'numComments',
     'createdAt',
+    'url',
     'permalink',
-    'body',
-    'isNsfw',
-    'isLocked',
-    'isArchived',
-    'subredditInfo',
-    // Comment-search rows use the same stable permalink and author fields but
-    // carry parent-post context instead of post-only status fields. Keep this
-    // projection explicit so the billed dataset remains bounded and auditable.
-    'postId',
-    'postTitle',
-    'postUrl',
-    'postAuthor',
-    'postScore',
-    'postCommentCount',
-    'postCreatedAt',
-    'parentId',
+    'selfText',
+    'isNSFW',
+    'isStickied',
     'subredditSubscribers',
+    'scrapedAt',
+    'warnings',
   ],
   buildInput(plan, maxResults) {
     const subreddits = redditSubreddits(plan)
-    const autoDiscoverSubreddits = subreddits.length === 0 && redditAutoDiscover(plan)
+    if (redditAutoDiscover(plan)) {
+      throw new TypeError('Reddit subreddit auto-discovery is not approved for this actor contract')
+    }
+    if (redditContentType(plan) === 'comments') {
+      throw new TypeError('Reddit comment search is not supported by this actor contract')
+    }
     const query = queryText(plan, 700)
     validateRedditGlobalSearch(plan, {
       query,
       maxResults,
       subreddits,
-      autoDiscoverSubreddits,
+      autoDiscoverSubreddits: false,
     })
     return {
-      query,
-      maxResults,
-      contentType: redditContentType(plan),
+      searchQuery: query,
+      ...(subreddits[0] ? { searchSubreddit: subreddits[0] } : {}),
       sort: redditSort(plan),
       timeFilter: redditTimeFilter(plan),
-      subreddits,
-      // Query-v17 uses fixed local/intent scopes plus one explicitly guarded,
-      // market-bound global search. Actor subreddit auto-discovery remains off.
-      // Search scope never counts as returned-content evidence.
-      autoDiscoverSubreddits,
-      ...(autoDiscoverSubreddits ? { maxSubreddits: redditMaxSubreddits(plan) } : {}),
+      maxPostsPerSource: maxResults,
+      includeComments: false,
+      outputFormat: 'default',
     }
   },
   normalize: normalizeRedditOpportunity,
@@ -196,6 +193,7 @@ export const APIFY_X_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   // this exact contract instead of silently changing the reservation math.
   requiredPriceVersion: 'scraper-one-x-post-search-0.0.153-free-events-2026-08-27',
   eventPricesUsd: { init: 0.025, 'result-item': 0.00125 },
+  oneTimeEvent: 'init',
   primaryResultEvent: 'result-item',
   perItemQuoteUsd: 0.00125,
   oneTimeQuoteUsd: 0.025,
@@ -385,10 +383,10 @@ function redditTimeFilter(plan: SourceSearchPlan): '' | 'hour' | 'day' | 'week' 
   return 'month'
 }
 
-function redditSort(plan: SourceSearchPlan): 'relevance' | 'new' | 'top' | 'hot' | 'comments' {
+function redditSort(plan: SourceSearchPlan): 'relevance' | 'new' | 'top' | 'hot' | 'rising' {
   const value = text(plan.provider_query?.reddit_sort, 20)?.toLowerCase()
-  return value && ['relevance', 'new', 'top', 'hot', 'comments'].includes(value)
-    ? value as 'relevance' | 'new' | 'top' | 'hot' | 'comments'
+  return value && ['relevance', 'new', 'top', 'hot', 'rising'].includes(value)
+    ? value as 'relevance' | 'new' | 'top' | 'hot' | 'rising'
     : 'new'
 }
 
@@ -431,11 +429,6 @@ function validateRedditGlobalSearch(
   if (market.length < 3 || !input.query.toLowerCase().includes(market)) {
     throw new TypeError('global Reddit search query must contain the requested market')
   }
-}
-
-function redditMaxSubreddits(plan: SourceSearchPlan): number {
-  const parsed = Number(plan.provider_query?.reddit_max_subreddits)
-  return Number.isSafeInteger(parsed) ? Math.max(1, Math.min(20, parsed)) : 12
 }
 
 function redditSubreddits(plan: SourceSearchPlan): string[] {
@@ -538,13 +531,16 @@ function commonIdentity(args: {
 
 export function normalizeRedditOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
   const row = record(value)
-  const rowType = text(row?._type, 20)?.toLowerCase()
+  const rowType = text(row?.type ?? row?._type, 20)?.toLowerCase()
   if (!row || (rowType !== 'post' && rowType !== 'comment')) return null
   if (row._status != null && text(row._status, 20)?.toLowerCase() !== 'found') return null
-  if (rowType === 'post' && (row.isNsfw === true || row.isLocked === true || row.isArchived === true)) return null
-  const sourceUrl = safePlatformUrl(row.permalink, 'Reddit')
+  if (
+    rowType === 'post'
+    && (row.isNSFW === true || row.isNsfw === true || row.isLocked === true || row.isArchived === true || row.isStickied === true)
+  ) return null
+  const sourceUrl = safePlatformUrl(row.url ?? row.permalink, 'Reddit')
   const postTitle = text(rowType === 'comment' ? row.postTitle : row.title, 180)
-  const body = text(row.body, 600)
+  const body = text(rowType === 'comment' ? row.body : row.selfText ?? row.body, 600)
   if (!sourceUrl || !postTitle || (rowType === 'comment' && !body)) return null
   const content = body ? `${postTitle}. ${body}` : postTitle
   if (SENSITIVE_TARGETING.test(content) || sensitiveConsumerOpportunityReasons(content).length > 0) return null
@@ -554,11 +550,11 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   const engagement = Math.min(
     10_000_000,
     nonNegativeInteger(row.score)
-      + nonNegativeInteger(rowType === 'comment' ? row.postCommentCount : row.commentCount),
+      + nonNegativeInteger(rowType === 'comment' ? row.postCommentCount : row.numComments ?? row.commentCount),
   )
   const author = text(row.author, 100)
   const memberCount = nonNegativeInteger(
-    rowType === 'comment' ? row.subredditSubscribers : subredditInfo?.subscribersCount,
+    rowType === 'comment' ? row.subredditSubscribers : row.subredditSubscribers ?? subredditInfo?.subscribersCount,
   )
   // Parent-post context is useful provenance but cannot manufacture the
   // comment author's intent. Fit-v7 sees only the returned comment body.
@@ -929,7 +925,28 @@ export function createPublicSocialOpportunityAdapter(
           error: 'provider_billing_unknown: an unapproved public social event was charged',
         }
       }
+      const unexpectedKnownResult = Object.entries(counts).find(
+        ([event, count]) => count > 0 && event !== config.oneTimeEvent && event !== config.primaryResultEvent,
+      )
+      if (unexpectedKnownResult) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt({ unexpected_charge_event: unexpectedKnownResult[0] }),
+          cost_units: null,
+          error: 'provider_billing_unknown: an unrequested public social result event was charged',
+        }
+      }
       const costUnits = outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
+      if ((counts[config.oneTimeEvent] ?? 0) !== 1) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt({ billed_run_starts: counts[config.oneTimeEvent] ?? 0 }),
+          cost_units: null,
+          error: 'provider_billing_unknown: run-start charge did not match the approved contract',
+        }
+      }
       if (outcome.status === 'no_result') {
         return {
           status: 'no_result',
@@ -954,7 +971,7 @@ export function createPublicSocialOpportunityAdapter(
         location: locationText(plan),
         expectedIntent: requestedOpportunityIntent(plan),
         scopedSubreddits:
-          config.platform === 'Reddit' ? redditSubreddits(plan) : undefined,
+          config.platform === 'Reddit' ? redditSubreddits(plan).slice(0, 1) : undefined,
         attemptedAt: outcome.attemptedAt,
         actorId,
       }

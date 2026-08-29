@@ -272,7 +272,7 @@ manual-only. A credential alone never activates one.
 | Source | Product use | Frozen contract | Required approval and price truth |
 |---|---|---|---|
 | Apify LinkedIn post search | Public LinkedIn posts with buyer, seller, or local-audience demand | `harvestapi/linkedin-post-search` build `0.0.104`; start, post, and no-result events; comments, reactions, and nested profile enrichment off | Exact actor/build rate version plus consumer-opportunity approval |
-| Apify Reddit search | Public, non-sensitive Reddit threads; locked, archived, NSFW, quarantined, and sensitive results dropped | `clearpath/reddit-search-scraper` build `0.0.66`; actor-start, dataset-item, and result-scraped events | `GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED` plus exact rate version |
+| Apify Reddit search | Public, non-sensitive Reddit posts; NSFW, stickied, and sensitive results dropped; live-accessibility and fit remain downstream gates | `automation-lab/reddit-scraper` build `0.1.119`; FREE-tier `start` and `post` events, with `comment` retained only as an unexpected-charge vocabulary guard | `GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED` plus exact FREE-tier rate version |
 | Apify X post search | Public, recent X posts with bounded buyer, seller, mixed, or local intent | `scraper_one/x-posts-search` build `0.0.153`; initialization and result-item events | `GTM_APIFY_X_OPPORTUNITY_ENABLED`, `GTM_APIFY_X_OPPORTUNITY_USE_APPROVED`, and exact rate version |
 | DataForSEO organic Live Advanced | Public indexed communities, forums, events, discussions, creator pages, and other demand destinations | `/v3/serp/google/organic/live/advanced`; `$0.002` per ten organic results; depth at most 50; price-multiplying operators refused | `GTM_DATAFORSEO_CONSUMER_OPPORTUNITY_USE_APPROVED`, exact terms/retention, and exact organic price version |
 
@@ -325,22 +325,23 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v21` keeps actor-native syntax explicit and separately quotes
-three Reddit strategies. The first post lane covers exact market/state
-communities. The second post lane covers broader intent communities while the
-market remains explicit in the query. For buyer, seller, and mixed-intent
-plays, the third lane searches comments only inside exact-market communities
-whose returned subreddit name contains the requested market; this captures
-first-person demand in existing threads without treating a statewide or generic
-real-estate community as locality proof. Local-audience discovery retains one
-guarded global post lane with no subreddit scope and actor auto-discovery
-disabled. That global query must contain the requested market, is capped at ten
-rows, and stays inside the frozen 30-day window. Post and comment lanes are
-separately quoted because the actor's `both` mode can emit twice the requested
-ceiling. The returned exact-market subreddit may prove geography for the scoped
-comment lane, but only the comment body can prove intent; query text and parent
-post context prove neither. Exact-market post lanes sort newest while broader
-intent, comment, and global local-audience lanes retain relevance sort.
+`opportunity-query-v22` keeps actor-native syntax explicit and separately quotes
+three Reddit post strategies against `automation-lab/reddit-scraper` build
+`0.1.119`. The first lane searches the primary exact-market community, the
+second searches one intent community while keeping the market in the query,
+and the third searches an alternate exact-market community for first-person
+buyer, seller, or mixed demand. Local-audience discovery retains one guarded
+global post lane with no subreddit scope and actor auto-discovery disabled.
+That global query must contain the requested market, is capped at ten rows, and
+stays inside the frozen 30-day window. Each actor run accepts only one frozen
+subreddit scope because the replacement contract exposes singular
+`searchSubreddit`; no scope is silently fanned out behind one reservation.
+Returned content must independently prove intent, while only an actually
+returned exact-market subreddit may prove scoped locality. Query text proves
+neither. Exact-market post lanes sort newest while broader intent and global
+local-audience lanes retain relevance sort. Comment retrieval is rejected
+before provider contact because this actor exposes comments only as a
+best-effort expansion of returned posts rather than a bounded comment search.
 DataForSEO receives five separately quoted full market-and-state variants for
 each buyer, seller, mixed, or local-audience play. Buyer, seller, and mixed
 lanes use first-person demand phrases plus bounded Reddit-oriented variants;
@@ -510,3 +511,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-28: A pre-release benchmark would otherwise be circular because the quality approval is produced by the benchmark itself. An explicit owner-only probe escape hatch therefore permits one configured Noli user to plan and execute consumer research only when the general consumer feature is enabled and every immutable per-run ceiling is at or below 10 accepted results, 60 raw candidates, and 30,000 credits. It never satisfies or changes the customer legal/quality release state, and it does not enable consumer outreach.
 - 2026-08-29: Independent human Batch 1 review confirmed that fit-v7 correctly rejected stale, expired, inaccessible, and non-actionable Austin buyer rows but that broad organic retrieval still spent most of its top-ten capacity on old or undated pages. `opportunity-query-v20` freezes DataForSEO's supported past-month `&tbs=qdr:m` parameter into each quoted organic lane and request. The adapter rejects missing or altered freshness parameters before contact; the 30-day fit/evidence gate remains authoritative because search recency is targeting, not proof.
 - 2026-08-29: The bounded query-v20 Austin buyer probe reconciled cleanly but all three Reddit lanes returned zero rows and its ten organic candidates were Facebook-heavy professional promotions or inaccessible groups; fit-v7 correctly accepted none. `opportunity-query-v21` changes the buyer, seller, and mixed organic lanes to first-person demand phrases plus bounded Reddit-oriented variants and excludes realtor-authored promotion, listing, recruiting, and generic market content without excluding ordinary consumer discussion of agents, mortgages, or lenders. The past-month request and all downstream evidence gates remain unchanged.
+- 2026-08-29: The controlled query-v21 probe again produced zero rows across all three `clearpath/reddit-search-scraper` lanes, establishing a source-capability failure rather than a scorer failure. `opportunity-query-v22` replaces that actor with `automation-lab/reddit-scraper` build `0.1.119`, pins the authenticated production account's FREE tier at $0.003 per start and $0.00115 per post, uses one explicit subreddit per separately quoted run, and remains posts-only because the replacement actor's comments are best-effort expansions rather than a bounded search. Customer consumer research remains fail-closed until the full independently reviewed benchmark passes.

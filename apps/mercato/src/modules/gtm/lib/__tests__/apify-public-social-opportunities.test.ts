@@ -44,33 +44,27 @@ const plan: SourceSearchPlan = {
 
 function redditPost(overrides: Record<string, unknown> = {}) {
   return {
-    _type: 'post',
-    _status: 'found',
+    type: 'post',
     id: 't3_example',
     title: 'Moving to the South Bay and looking to buy a home',
     author: 'local_question',
     subreddit: 'SouthBayLA',
     score: 12,
-    commentCount: 8,
+    numComments: 8,
     createdAt: '2026-08-25T17:00:00.000Z',
+    url: 'https://www.reddit.com/r/SouthBayLA/comments/example/moving_to_the_south_bay/',
     permalink: '/r/SouthBayLA/comments/example/moving_to_the_south_bay/',
-    body: 'Which neighborhoods should a first-time buyer compare?',
-    isNsfw: false,
-    isLocked: false,
-    isArchived: false,
-    subredditInfo: {
-      subscribersCount: 82_000,
-      isNsfw: false,
-      isQuarantined: false,
-    },
+    selfText: 'Which neighborhoods should a first-time buyer compare?',
+    isNSFW: false,
+    isStickied: false,
+    subredditSubscribers: 82_000,
     ...overrides,
   }
 }
 
 function redditComment(overrides: Record<string, unknown> = {}) {
   return {
-    _type: 'comment',
-    _status: 'found',
+    type: 'comment',
     id: 't1_comment',
     postId: 't3_parent',
     postTitle: 'What should Austin homeowners know before selling?',
@@ -114,11 +108,7 @@ function outcome(
 ): ApifyRunOutcome {
   const counts =
     config.platform === 'Reddit'
-      ? {
-          'apify-actor-start': 1,
-          'apify-default-dataset-item': 1,
-          'result-scraped': 1,
-        }
+      ? { start: 1, post: 1 }
       : { init: 1, 'result-item': 1 }
   const providerCostUsd = Object.entries(counts).reduce(
     (sum, [event, count]) => sum + (config.eventPricesUsd[event] ?? 0) * count,
@@ -146,6 +136,17 @@ function outcome(
 }
 
 describe('Apify public social demand opportunities', () => {
+  it('pins Reddit reservations to the production FREE account tier', () => {
+    expect(APIFY_REDDIT_OPPORTUNITY_CONFIG).toMatchObject({
+      actorId: 'automation-lab/reddit-scraper',
+      actorBuild: '0.1.119',
+      requiredPriceVersion: 'automation-lab-reddit-scraper-0.1.119-free-events-2026-08-25',
+      eventPricesUsd: { start: 0.003, post: 0.00115, comment: 0.000575 },
+      oneTimeQuoteUsd: 0.003,
+      perItemQuoteUsd: 0.00115,
+    })
+  })
+
   it('pins X reservations to the production FREE account tier', () => {
     expect(APIFY_X_OPPORTUNITY_CONFIG).toMatchObject({
       actorBuild: '0.0.153',
@@ -277,7 +278,7 @@ describe('Apify public social demand opportunities', () => {
     expect(candidate?.identity.audience_description).toBe('Thanks for sharing this general information.')
   })
 
-  it('drops locked, archived, NSFW, quarantined, and sensitive Reddit posts', () => {
+  it('drops locked, archived, NSFW, stickied, quarantined, and sensitive Reddit posts', () => {
     const context = {
       query: plan.query,
       location: 'South Bay, California',
@@ -287,7 +288,8 @@ describe('Apify public social demand opportunities', () => {
     for (const row of [
       redditPost({ isLocked: true }),
       redditPost({ isArchived: true }),
-      redditPost({ isNsfw: true }),
+      redditPost({ isNSFW: true }),
+      redditPost({ isStickied: true }),
       redditPost({ subredditInfo: { isQuarantined: true } }),
       redditPost({ title: 'Foreclosure distress discussion' }),
     ])
@@ -339,7 +341,7 @@ describe('Apify public social demand opportunities', () => {
       actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
     }
     const reddit = normalizeRedditOpportunity(
-      redditPost({ title: 'South Bay neighborhood community breakfast', body: 'Local residents are welcome.' }),
+      redditPost({ title: 'South Bay neighborhood community breakfast', selfText: 'Local residents are welcome.' }),
       context,
     )
     const x = normalizeXOpportunity(
@@ -362,7 +364,7 @@ describe('Apify public social demand opportunities', () => {
     const mismatch = normalizeRedditOpportunity(
       redditPost({
         title: 'SOL scaling by state: a community guide',
-        body: 'A general legal discussion about claim deadlines.',
+        selfText: 'A general legal discussion about claim deadlines.',
         subreddit: 'BSA_Survivors',
       }),
       context,
@@ -375,7 +377,7 @@ describe('Apify public social demand opportunities', () => {
       normalizeRedditOpportunity(
         redditPost({
           title: 'Thinking of selling our Austin home',
-          body: 'We are preparing to sell our house and need advice about what to repair first.',
+          selfText: 'We are preparing to sell our house and need advice about what to repair first.',
           subreddit: 'Austin',
         }),
         context,
@@ -396,7 +398,7 @@ describe('Apify public social demand opportunities', () => {
       normalizeRedditOpportunity(
         redditPost({
           title: 'Tampa first-time home buyer question',
-          body: 'Which Tampa neighborhoods should I compare before buying a house?',
+          selfText: 'Which Tampa neighborhoods should I compare before buying a house?',
           subreddit: 'Tampa',
           createdAt: null,
         }),
@@ -407,7 +409,7 @@ describe('Apify public social demand opportunities', () => {
       normalizeRedditOpportunity(
         redditPost({
           title: 'Tampa Florida dream',
-          body: 'I want to move to Tampa, rent a cute apartment, and bike by the ocean.',
+          selfText: 'I want to move to Tampa, rent a cute apartment, and bike by the ocean.',
           subreddit: 'Adulting',
         }),
         context,
@@ -429,7 +431,7 @@ describe('Apify public social demand opportunities', () => {
       normalizeRedditOpportunity(
         redditPost({
           title: 'How can I achieve housing independence?',
-          body: 'I am in opioid recovery, currently in sober living, and dealing with a predatory landlord.',
+          selfText: 'I am in opioid recovery, currently in sober living, and dealing with a predatory landlord.',
         }),
         context,
       ),
@@ -446,7 +448,7 @@ describe('Apify public social demand opportunities', () => {
     const reddit = normalizeRedditOpportunity(
       redditPost({
         title: 'OfferUp seller preparing to move collectibles',
-        body: 'A card seller is packing a collection.',
+        selfText: 'A card seller is packing a collection.',
         subreddit: 'collectibles',
       }),
       context,
@@ -468,7 +470,7 @@ describe('Apify public social demand opportunities', () => {
     const candidate = normalizeRedditOpportunity(
       redditPost({
         title: 'Thinking of selling our home this fall',
-        body: 'We are considering selling and would value local advice.',
+        selfText: 'We are considering selling and would value local advice.',
         subreddit: 'AustinHousing',
       }),
       {
@@ -505,22 +507,23 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).toHaveBeenCalledWith(
       APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
       expect.objectContaining({
-        subreddits: ['Austin', 'AskAustin', 'AustinHousing'],
-        autoDiscoverSubreddits: false,
+        searchSubreddit: 'Austin',
+        searchQuery: 'South Bay buying or selling a home',
         sort: 'new',
+        includeComments: false,
       }),
       expect.any(Object),
     )
   })
 
-  it('uses one explicitly bounded auto-discovery lane without treating its scope as evidence', async () => {
+  it('refuses actor-side subreddit auto-discovery before a paid call', async () => {
     const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
     const adapter = createApifyRedditOpportunityAdapter({
       env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
       now,
       runActor,
     })
-    await adapter.search({
+    const result = await adapter.search({
       ...plan,
       provider_query: {
         ...plan.provider_query,
@@ -531,16 +534,11 @@ describe('Apify public social demand opportunities', () => {
       },
     })
 
-    expect(runActor).toHaveBeenCalledWith(
-      APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
-      expect.objectContaining({
-        subreddits: [],
-        autoDiscoverSubreddits: true,
-        maxSubreddits: 12,
-        sort: 'relevance',
-      }),
-      expect.any(Object),
-    )
+    expect(result).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('subreddit auto-discovery is not approved'),
+    })
+    expect(runActor).not.toHaveBeenCalled()
   })
 
   it('uses a market-bound global search while keeping subreddit auto-discovery off', async () => {
@@ -569,17 +567,17 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).toHaveBeenCalledWith(
       APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
       expect.objectContaining({
-        query: '("selling my home in Austin" OR "moving from Austin")',
-        subreddits: [],
-        autoDiscoverSubreddits: false,
+        searchQuery: '("selling my home in Austin" OR "moving from Austin")',
         sort: 'relevance',
         timeFilter: 'week',
+        maxPostsPerSource: 5,
+        includeComments: false,
       }),
       expect.any(Object),
     )
   })
 
-  it('keeps comment search as its own bounded metered lane', async () => {
+  it('refuses unsupported comment search before a paid call', async () => {
     const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditComment()))
     const adapter = createApifyRedditOpportunityAdapter({
       env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
@@ -602,17 +600,11 @@ describe('Apify public social demand opportunities', () => {
       },
     })
 
-    expect(result.status).toBe('ok')
-    expect(runActor).toHaveBeenCalledWith(
-      APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
-      expect.objectContaining({
-        contentType: 'comments',
-        maxResults: 5,
-        subreddits: [],
-        autoDiscoverSubreddits: false,
-      }),
-      expect.any(Object),
-    )
+    expect(result).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('comment search is not supported'),
+    })
+    expect(runActor).not.toHaveBeenCalled()
   })
 
   it('refuses an unbounded or geographically unanchored global Reddit search before a paid call', async () => {
@@ -654,13 +646,12 @@ describe('Apify public social demand opportunities', () => {
     expect(redditRun).toHaveBeenCalledWith(
       APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
       {
-        query: 'South Bay buying or selling a home',
-        maxResults: 5,
-        contentType: 'posts',
+        searchQuery: 'South Bay buying or selling a home',
         sort: 'new',
         timeFilter: 'week',
-        subreddits: [],
-        autoDiscoverSubreddits: false,
+        maxPostsPerSource: 5,
+        includeComments: false,
+        outputFormat: 'default',
       },
       expect.objectContaining({
         build: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorBuild,
@@ -727,11 +718,41 @@ describe('Apify public social demand opportunities', () => {
     expect(result.error).toContain('unapproved public social event')
   })
 
+  it('parks a known but unrequested Reddit comment charge', async () => {
+    const config = APIFY_REDDIT_OPPORTUNITY_CONFIG
+    const result = await createApifyRedditOpportunityAdapter({
+      env: envFor(config),
+      now,
+      runActor: async () => outcome(config, redditPost(), {
+        chargedEventCounts: { start: 1, post: 1, comment: 1 },
+        providerCostUsd:
+          config.eventPricesUsd.start + config.eventPricesUsd.post + config.eventPricesUsd.comment,
+      }),
+    }).search(plan)
+    expect(result).toMatchObject({ status: 'ambiguous', cost_units: null })
+    expect(result.error).toContain('unrequested public social result event')
+  })
+
+  it('parks a successful result when its run-start event is missing', async () => {
+    const config = APIFY_REDDIT_OPPORTUNITY_CONFIG
+    const result = await createApifyRedditOpportunityAdapter({
+      env: envFor(config),
+      now,
+      runActor: async () => outcome(config, redditPost(), {
+        chargedEventCounts: { post: 1 },
+        providerCostUsd: config.eventPricesUsd.post,
+      }),
+    }).search(plan)
+    expect(result).toMatchObject({ status: 'ambiguous', cost_units: null })
+    expect(result.error).toContain('run-start charge did not match')
+  })
+
   it('charges finalized provider work when every returned row fails safe normalization', async () => {
     const config = APIFY_REDDIT_OPPORTUNITY_CONFIG
     const billed = outcome(
       config,
       redditPost({
+        url: 'javascript:alert(1)',
         permalink: 'javascript:alert(1)',
       }),
     )
@@ -761,8 +782,8 @@ describe('Apify public social demand opportunities', () => {
       items: [],
       itemCount: 0,
       error: 'provider_error: actor failed after one charged start event',
-      chargedEventCounts: { 'apify-actor-start': 1 },
-      providerCostUsd: config.eventPricesUsd['apify-actor-start'],
+      chargedEventCounts: { start: 1 },
+      providerCostUsd: config.eventPricesUsd.start,
     })
     const result = await createApifyRedditOpportunityAdapter({
       env: envFor(config),
@@ -773,7 +794,7 @@ describe('Apify public social demand opportunities', () => {
     expect(result).toMatchObject({
       status: 'error',
       data: null,
-      cost_units: config.eventPricesUsd['apify-actor-start'] / 0.001,
+      cost_units: config.eventPricesUsd.start / 0.001,
       error: expect.stringContaining('failed after one charged start event'),
     })
   })
