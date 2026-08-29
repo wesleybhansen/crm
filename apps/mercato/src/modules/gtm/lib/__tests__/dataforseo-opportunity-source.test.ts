@@ -245,6 +245,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
       entity_kind: 'opportunity',
       identity: {
         ...expected,
+        participation_rules_status: 'unverified',
         source_published_at: '2026-08-25T17:00:00.000Z',
       },
     })

@@ -462,6 +462,7 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
       engagement_count: engagementCount,
       participation_rules:
         'Check current community or event rules before participating. Be useful, disclose affiliation when relevant, and do not automate contact.',
+      participation_rules_status: 'unverified',
       recommended_action: recommendedAction(kind),
       message_angle: messageAngle(intent),
     },

@@ -175,6 +175,10 @@ export type CandidateIdentity = {
   source_published_at?: string | null
   event_start_at?: string | null
   participation_rules?: string | null
+  // Whether the venue's rules were actually present in returned source
+  // evidence. Adapter-authored safety reminders are useful guidance, but
+  // they are not proof that a person may participate in the destination.
+  participation_rules_status?: 'observed' | 'unverified' | null
   recommended_action?: string | null
   message_angle?: string | null
   people_to_follow?: Array<{

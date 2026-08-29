@@ -618,6 +618,7 @@ function commonIdentity(args: {
     provider_location: args.requestedLocation,
     urls: [args.sourceUrl],
     participation_rules: `Review the current ${args.platform} community and thread rules. Use only public context and do not automate contact or posting.`,
+    participation_rules_status: 'unverified',
     recommended_action:
       'Read the full public conversation and contribute one useful response manually when it is relevant and permitted.',
     message_angle:

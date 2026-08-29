@@ -91,6 +91,7 @@ function safeIdentity(candidate: GtmCandidate): Record<string, unknown> {
     'country_code',
     'urls',
     'participation_rules',
+    'participation_rules_status',
     'recommended_action',
     'message_angle',
     'people_to_follow',

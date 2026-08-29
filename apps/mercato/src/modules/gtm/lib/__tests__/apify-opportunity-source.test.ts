@@ -156,6 +156,7 @@ describe('Apify demand-opportunity source contract', () => {
         engagement_count: 21,
         activity_level: 'medium',
         access_type: 'public',
+        participation_rules_status: 'unverified',
         source_published_at: '2026-08-25T18:30:00.000Z',
         people_to_follow: [
           {
