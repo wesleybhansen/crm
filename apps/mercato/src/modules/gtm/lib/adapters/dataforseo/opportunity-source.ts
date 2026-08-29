@@ -21,6 +21,7 @@ import {
   type DemonstratedOpportunityIntent,
   sensitiveConsumerOpportunityReasons,
 } from '../../research/opportunity-quality'
+import { DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM } from '../../research/opportunity-query-lanes'
 
 export const DATAFORSEO_OPPORTUNITY_ADAPTER_ID = 'dataforseo-organic-demand-opportunities'
 export const DATAFORSEO_ORGANIC_URL = 'https://api.dataforseo.com/v3/serp/google/organic/live/advanced'
@@ -516,6 +517,7 @@ function opportunityItems(task: Record<string, unknown>): Record<string, unknown
 export function dataForSeoOpportunityQuery(plan: SourceSearchPlan): {
   keyword: string
   location: string | null
+  searchParam: string | null
 } {
   const providerQuery = plan.provider_query ?? {}
   const explicit = stringValue(providerQuery.search_query)
@@ -528,6 +530,7 @@ export function dataForSeoOpportunityQuery(plan: SourceSearchPlan): {
   return {
     keyword: explicit ?? stringValue(discovery) ?? plan.query.trim(),
     location: canonicalDataForSeoUsLocation(locations[0] ?? plan.geography),
+    searchParam: stringValue(providerQuery.search_param),
   }
 }
 
@@ -594,7 +597,7 @@ export function createDataForSeoOpportunityAdapter(
             'provider_disabled: DataForSEO organic opportunities require credentials plus exact customer-use, terms, price, and retention approval',
         }
       }
-      const { keyword, location } = dataForSeoOpportunityQuery(plan)
+      const { keyword, location, searchParam } = dataForSeoOpportunityQuery(plan)
       if (!keyword || maxCandidates < 1) {
         return {
           status: 'error',
@@ -611,6 +614,16 @@ export function createDataForSeoOpportunityAdapter(
           cost_units: 0,
           receipt: baseReceipt('bad_request'),
           error: 'bad_request: DataForSEO requires a US state or a city/county plus state',
+        }
+      }
+      if (searchParam !== DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM) {
+        return {
+          status: 'error',
+          data: null,
+          cost_units: 0,
+          receipt: baseReceipt('unsupported_freshness_contract'),
+          error:
+            'unsupported_freshness_contract: DataForSEO consumer opportunities require the frozen past-month search parameter',
         }
       }
       if (keywordLength(keyword) > DATAFORSEO_MAX_KEYWORD_CHARS) {
@@ -656,6 +669,7 @@ export function createDataForSeoOpportunityAdapter(
               location_name: location,
               language_code: 'en',
               depth: maxCandidates,
+              search_param: searchParam,
             },
           ]),
           signal: AbortSignal.timeout(30_000),

@@ -1,6 +1,8 @@
 import { classifyOpportunityIntent } from './opportunity-quality'
 import type { PlanPlayInput } from './plan'
 
+export const DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM = '&tbs=qdr:m'
+
 export type OpportunityIntentLane =
   | 'buyer_intent'
   | 'seller_intent'
@@ -350,12 +352,15 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v19',
+        query_lane_version: 'opportunity-query-v20',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
         source_search_keywords: [query],
         negative_terms: negativeTerms,
+        ...(adapterId === 'dataforseo-organic-demand-opportunities'
+          ? { search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM }
+          : {}),
         ...(adapterId === 'apify-reddit-demand-opportunities'
           ? index === 0
             ? {
