@@ -496,6 +496,9 @@ const TERMINAL_PROVIDER_STATUSES = new Set([
 ])
 
 function exactCredits(value: unknown): number | null {
+  if (typeof value === 'bigint') {
+    return value >= BigInt(0) && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null
+  }
   const parsed = typeof value === 'string' && value.trim() ? Number(value) : value
   return Number.isSafeInteger(parsed) && Number(parsed) >= 0 ? Number(parsed) : null
 }
