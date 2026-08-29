@@ -336,10 +336,36 @@ function opportunityActionabilityStatus(args: {
   messageAngle: string | null
   participationRules: string | null
   participationRulesStatus: string | null
+  opportunityKind: string | null
+  accessType: string | null
+  destinationStatus: CriterionStatus
 }): CriterionStatus {
-  const { recommendedAction, messageAngle, participationRules, participationRulesStatus } = args
+  const {
+    recommendedAction,
+    messageAngle,
+    participationRules,
+    participationRulesStatus,
+    opportunityKind,
+    accessType,
+    destinationStatus,
+  } = args
   if (!recommendedAction || recommendedAction.length < 20 || !messageAngle || messageAngle.length < 20) {
     return 'unknown'
+  }
+  // A current, public event is already an actionable destination when the
+  // proposed action is only to register/attend and explicitly forbids
+  // automated contact or promotion. Posting in a community still requires
+  // source-observed rules below.
+  if (
+    opportunityKind === 'event'
+    && (accessType === 'public' || accessType === 'ticketed')
+    && destinationStatus === 'pass'
+    && /\b(?:register|attend)\b/i.test(recommendedAction)
+    && /\b(?:do not|avoid)\b.{0,60}\b(?:automate|contact|promotion)\b/i.test(
+      `${recommendedAction}\n${messageAngle}`,
+    )
+  ) {
+    return 'pass'
   }
   // A provider row that merely tells the customer to review the rules does
   // not demonstrate that the venue permits the proposed participation.
@@ -457,6 +483,9 @@ function scoreOpportunity(
     messageAngle,
     participationRules,
     participationRulesStatus,
+    opportunityKind,
+    accessType: accessObserved,
+    destinationStatus: destination.status,
   })
   const noise = isRealtorPlay
     ? realtorOpportunityNoiseReasons(observedText, destination.canonicalUrl)

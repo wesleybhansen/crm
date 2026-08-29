@@ -132,6 +132,50 @@ describe('ruleBasedFitScorer', () => {
     expect(result.unknowns).toContain('opportunity.actionability')
   })
 
+  it('accepts a current public event when the action is limited to registration and attendance', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Austin first-time home buyer workshop — September 12, 2026',
+          opportunity_kind: 'event',
+          platform: 'Eventbrite',
+          intent_kind: 'buyer_intent',
+          audience_description:
+            'An Austin workshop for first-time home buyers with questions about offers and closing costs.',
+          location: 'Austin, Texas',
+          access_type: 'ticketed',
+          event_start_at: '2026-09-12T17:00:00.000Z',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://www.eventbrite.com/e/austin-first-time-home-buyer-workshop-123'],
+          participation_rules: 'Check the organizer terms before participating.',
+          participation_rules_status: 'unverified',
+          recommended_action:
+            'Open the event page and use its public registration path to attend. Follow organizer rules; do not automate contact or promotion.',
+          message_angle:
+            'Attend as a participant, answer questions when invited, and avoid promotion unless the organizer rules explicitly allow it.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin first-time home buyers',
+        signal: 'A current public buyer event demonstrates local demand',
+        referenceTime: '2026-08-29T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('accepted')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'opportunity.actionability', status: 'pass' }),
+      ]),
+    )
+  })
+
   it('rejects an otherwise relevant result when observed venue rules conflict with the proposed promotion', () => {
     const result = ruleBasedFitScorer.score(
       {

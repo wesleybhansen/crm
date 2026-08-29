@@ -1191,7 +1191,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v31',
+        query_lane_version: 'opportunity-query-v32',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'austinhomebuyer',
       },
