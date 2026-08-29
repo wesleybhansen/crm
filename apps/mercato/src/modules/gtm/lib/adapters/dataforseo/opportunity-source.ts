@@ -75,6 +75,13 @@ const RECEIPT_FIELDS = [
 type DataForSeoEnv = Record<string, string | undefined>
 type DataForSeoFetch = typeof fetch
 type OpportunityKind = NonNullable<Candidate['identity']['opportunity_kind']>
+type OpportunityDropReason =
+  | 'unsupported_result_type'
+  | 'unsafe_url_or_missing_title'
+  | 'sensitive_targeting'
+  | 'google_event_destination'
+  | 'unproven_destination_kind'
+  | 'unproven_realtor_relevance'
 
 function envValue(env: DataForSeoEnv, name: string): string {
   return (env[name] ?? '').trim()
@@ -390,7 +397,7 @@ function strictProviderTimestamp(value: unknown): string | null {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null
 }
 
-export function normalizeDataForSeoOpportunityItem(
+function normalizeDataForSeoOpportunityItemWithDiagnostics(
   item: Record<string, unknown>,
   context: {
     keyword: string
@@ -398,25 +405,27 @@ export function normalizeDataForSeoOpportunityItem(
     observedAt: string
     expectedIntent?: DemonstratedOpportunityIntent
   },
-): Candidate | null {
+): { candidate: Candidate | null; dropReason: OpportunityDropReason | null } {
   const resultType = stringValue(item.type)?.toLowerCase() ?? ''
   if (!['organic', 'discussions_and_forums_element', 'perspectives_element', 'events_element'].includes(resultType)) {
-    return null
+    return { candidate: null, dropReason: 'unsupported_result_type' }
   }
   const url = safePublicUrl(item.url)
   const title = boundedText(item.title, 180)
   const description = boundedText(item.description, 500)
-  if (!url || !title) return null
+  if (!url || !title) return { candidate: null, dropReason: 'unsafe_url_or_missing_title' }
   const searchable = `${title} ${description ?? ''} ${url.pathname}`
   if (
     SENSITIVE_CONSUMER_TARGETING.test(searchable)
     || sensitiveConsumerOpportunityReasons(searchable).length > 0
-  ) return null
-  if (resultType === 'events_element' && /(^|\.)google\.[a-z.]+$/i.test(url.hostname)) return null
+  ) return { candidate: null, dropReason: 'sensitive_targeting' }
+  if (resultType === 'events_element' && /(^|\.)google\.[a-z.]+$/i.test(url.hostname)) {
+    return { candidate: null, dropReason: 'google_event_destination' }
+  }
   const kind = opportunityKind(url, title, resultType)
-  if (!kind) return null
+  if (!kind) return { candidate: null, dropReason: 'unproven_destination_kind' }
   if (!LOCAL_AUDIENCE.test(searchable) && !BUYER_INTENT.test(searchable) && !SELLER_INTENT.test(searchable)) {
-    return null
+    return { candidate: null, dropReason: 'unproven_realtor_relevance' }
   }
   const demonstratedIntent = classifyOpportunityIntent(searchable)
   const intent = demonstratedIntent.kind
@@ -486,7 +495,19 @@ export function normalizeDataForSeoOpportunityItem(
       },
     ],
   }
-  return candidate
+  return { candidate, dropReason: null }
+}
+
+export function normalizeDataForSeoOpportunityItem(
+  item: Record<string, unknown>,
+  context: {
+    keyword: string
+    location: string
+    observedAt: string
+    expectedIntent?: DemonstratedOpportunityIntent
+  },
+): Candidate | null {
+  return normalizeDataForSeoOpportunityItemWithDiagnostics(item, context).candidate
 }
 
 function taskFrom(payload: unknown): Record<string, unknown> {
@@ -690,7 +711,12 @@ export function createDataForSeoOpportunityAdapter(
         const task = taskFrom(payload)
         const rootStatus = Number(root.status_code ?? 0)
         const taskStatus = Number(task.status_code ?? 0)
-        const providerReceipt = (status: string, count = 0, rawCount = count) => ({
+        const providerReceipt = (
+          status: string,
+          count = 0,
+          rawCount = count,
+          parserDropReasons: Partial<Record<OpportunityDropReason, number>> = {},
+        ) => ({
           ...baseReceipt(status, task, count),
           root_status_code: rootStatus || null,
           root_status_message: boundedText(root.status_message, 240),
@@ -700,6 +726,7 @@ export function createDataForSeoOpportunityAdapter(
           raw_item_count: rawCount,
           returned_count: count,
           parser_dropped_rows: Math.max(0, rawCount - count),
+          parser_drop_reasons: parserDropReasons,
         })
         const rootCost = finiteNumber(root.cost)
         const taskCost = finiteNumber(task.cost)
@@ -762,29 +789,37 @@ export function createDataForSeoOpportunityAdapter(
         const result = objectValue(Array.isArray(task.result) ? task.result[0] : {})
         const observedAt = stringValue(result.datetime) ?? now().toISOString()
         const rawItems = opportunityItems(task).slice(0, maxCandidates)
-        const candidates = rawItems
-          .map((item) =>
-            normalizeDataForSeoOpportunityItem(item, {
-              keyword,
-              location,
-              observedAt,
-              expectedIntent: requestedOpportunityIntent(plan),
-            }),
-          )
+        const normalizedItems = rawItems.map((item) =>
+          normalizeDataForSeoOpportunityItemWithDiagnostics(item, {
+            keyword,
+            location,
+            observedAt,
+            expectedIntent: requestedOpportunityIntent(plan),
+          }),
+        )
+        const candidates = normalizedItems
+          .map(({ candidate }) => candidate)
           .filter((candidate): candidate is Candidate => candidate !== null)
+        const parserDropReasons = normalizedItems.reduce<Partial<Record<OpportunityDropReason, number>>>(
+          (counts, { dropReason }) => {
+            if (dropReason) counts[dropReason] = (counts[dropReason] ?? 0) + 1
+            return counts
+          },
+          {},
+        )
         if (candidates.length === 0) {
           return {
             status: 'no_result',
             data: null,
             cost_units: actualUnits,
-            receipt: providerReceipt('no_result', 0, rawItems.length),
+            receipt: providerReceipt('no_result', 0, rawItems.length, parserDropReasons),
           }
         }
         return {
           status: 'ok',
           data: candidates,
           cost_units: actualUnits,
-          receipt: providerReceipt('completed', candidates.length, rawItems.length),
+          receipt: providerReceipt('completed', candidates.length, rawItems.length, parserDropReasons),
         }
       } catch (error) {
         const timedOut = error instanceof Error && error.name === 'TimeoutError'

@@ -221,18 +221,16 @@ function realtorGlobalRedditSeed(
   geography: string,
 ): string | null {
   const market = marketName(geography)
-  const location = redditLocationWords(geography)
-  const marketClause = `("${market}" OR "${location}")`
   if (intent === 'buyer_intent') {
-    return `${marketClause} AND ("buying a home" OR "buy a house" OR "first time buyer" OR "house hunting" OR "made an offer" OR "closing costs")`
+    return `${market} home buyer`
   }
   if (intent === 'seller_intent') {
-    return `${marketClause} AND ("selling my home" OR "selling our home" OR "selling my house" OR "thinking of selling" OR "what is my home worth" OR "preparing to sell")`
+    return `${market} selling home`
   }
   if (intent === 'mixed_intent') {
-    return `${marketClause} AND ("buy before selling" OR "sell before buying" OR "buying and selling" OR "moving and selling")`
+    return `${market} buy sell home`
   }
-  return null
+  return `${market} homeowners community event`
 }
 
 function realtorRedditFilterKeywords(
@@ -405,7 +403,7 @@ export function buildOpportunityQueryLanes(
   return selectedSeeds.map((seed, index) => {
     const id = `${intent}:${index + 1}`
     const globalSeed =
-      adapterId === 'apify-reddit-demand-opportunities' && index === 2
+      realtor && adapterId === 'apify-reddit-demand-opportunities' && index === 2
         ? realtorGlobalRedditSeed(intent, geography)
         : null
     const query = queryFor({ adapterId, geography, seed: globalSeed ?? seed, negativeTerms })
@@ -416,7 +414,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v25',
+        query_lane_version: 'opportunity-query-v26',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
