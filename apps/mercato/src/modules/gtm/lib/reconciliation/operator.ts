@@ -580,7 +580,9 @@ async function refreshResearchRunReconciliationSummary(
     const batches = Array.isArray(execution.batches)
       ? execution.batches.map((batch) => {
           if (!isPlainRecord(batch) || typeof batch.operation_id !== 'string') return batch
-          const matched = operations.find((candidate) => candidate.id === batch.operation_id)
+          const matched = operations.find(
+            (candidate) => candidate.noliCoreOperationId === batch.operation_id,
+          )
           if (!matched) return batch
           return {
             ...batch,

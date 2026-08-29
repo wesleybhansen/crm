@@ -371,9 +371,14 @@ describe('operator/provider reconciliation', () => {
     })
     const execution = (run.providerPlan as any).execution
     execution.batches = [
-      { operation_id: settled.id, ledger_status: 'charged', charged_credits: 5, outcome: 'ok' },
       {
-        operation_id: ambiguous.id,
+        operation_id: settled.noliCoreOperationId,
+        ledger_status: 'charged',
+        charged_credits: 5,
+        outcome: 'ok',
+      },
+      {
+        operation_id: ambiguous.noliCoreOperationId,
         ledger_status: 'reconciliation_required',
         charged_credits: 0,
         outcome: 'ambiguous',
@@ -399,13 +404,13 @@ describe('operator/provider reconciliation', () => {
         funnel: { stop_reason: 'sources_exhausted' },
         batches: [
           expect.objectContaining({
-            operation_id: settled.id,
+            operation_id: settled.noliCoreOperationId,
             ledger_status: 'charged',
             charged_credits: 5,
             reconciliation_resolved: true,
           }),
           expect.objectContaining({
-            operation_id: ambiguous.id,
+            operation_id: ambiguous.noliCoreOperationId,
             ledger_status: 'partially_charged',
             charged_credits: 3,
             reconciliation_resolved: true,
