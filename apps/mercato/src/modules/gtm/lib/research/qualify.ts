@@ -337,10 +337,19 @@ function opportunityActionabilityStatus(args: {
   participationRules: string | null
   participationRulesStatus: string | null
 }): CriterionStatus {
-  const { recommendedAction, messageAngle, participationRules, participationRulesStatus } = args
+  const {
+    recommendedAction,
+    messageAngle,
+    participationRules,
+    participationRulesStatus,
+  } = args
   if (!recommendedAction || recommendedAction.length < 20 || !messageAngle || messageAngle.length < 20) {
     return 'unknown'
   }
+  // A live public event proves that a destination exists, but not that a
+  // realtor may attend or participate. Some consumer workshops explicitly
+  // prohibit agents, brokers, or lenders. Keep actionability unknown until
+  // the source's participation terms have been observed.
   // A provider row that merely tells the customer to review the rules does
   // not demonstrate that the venue permits the proposed participation.
   if (participationRulesStatus !== 'observed' || !participationRules) return 'unknown'
@@ -356,6 +365,7 @@ function opportunityActionabilityStatus(args: {
   const professionalParticipationForbidden =
     /\b(?:agent|realtor|industry|professional|business|commercial)\w*\b.{0,50}\b(?:may not|must not|cannot|can't|prohibit(?:ed)?|forbid(?:den)?|not allowed)\b.{0,30}\b(?:participat|post|comment|reply|contribut)/i.test(rules)
     || /\b(?:no|prohibit(?:s|ed)?|forbid(?:s|den)?|not allowed)\b.{0,50}\b(?:agent|realtor|industry|professional|business|commercial)\w*\b/i.test(rules)
+    || /\b(?:agents?|realtors?|brokers?|lenders?|industry professionals?)\b.{0,80}\b(?:may not|must not|cannot|can't|prohibited|forbidden|not allowed)\b/i.test(rules)
 
   if (professionalParticipationForbidden || (promotionRestricted && proposedPromotion)) return 'fail'
   return 'pass'

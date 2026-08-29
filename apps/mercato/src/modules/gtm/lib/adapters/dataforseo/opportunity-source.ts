@@ -70,6 +70,7 @@ const RECEIPT_FIELDS = [
   'root_cost_usd',
   'task_cost_usd',
   'items_count',
+  'provider_failure_class',
 ]
 
 type DataForSeoEnv = Record<string, string | undefined>
@@ -329,12 +330,18 @@ function demonstratedSearchResultLocation(args: {
 
 function recommendedAction(kind: OpportunityKind): string {
   if (kind === 'event') {
-    return 'Open the event page, confirm the current audience and participation rules, then decide whether to attend, sponsor, or contribute manually.'
+    return 'Open the event page and use its public registration path to attend. Follow organizer rules; do not automate contact or promotion.'
   }
   return 'Open the public source, read the current rules and full conversation, then contribute one useful response manually. Do not automate posting or direct outreach.'
 }
 
-function messageAngle(intent: Candidate['identity']['intent_kind']): string {
+function messageAngle(
+  intent: Candidate['identity']['intent_kind'],
+  kind: OpportunityKind,
+): string {
+  if (kind === 'event') {
+    return 'Attend as a participant, answer questions when invited, and avoid promotion unless the organizer rules explicitly allow it.'
+  }
   if (intent === 'buyer_intent') {
     return 'Offer a useful local buying answer that resolves the question before mentioning your services.'
   }
@@ -464,7 +471,7 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
         'Check current community or event rules before participating. Be useful, disclose affiliation when relevant, and do not automate contact.',
       participation_rules_status: 'unverified',
       recommended_action: recommendedAction(kind),
-      message_angle: messageAngle(intent),
+      message_angle: messageAngle(intent, kind),
     },
     evidence: [
       {
@@ -723,6 +730,8 @@ export function createDataForSeoOpportunityAdapter(
           root_status_message: boundedText(root.status_message, 240),
           task_status_code: taskStatus || null,
           task_status_message: boundedText(task.status_message, 240),
+          provider_failure_class:
+            taskStatus === 40101 ? 'search_engine_error_after_provider_retries' : null,
           root_cost_usd: root.cost ?? null,
           raw_item_count: rawCount,
           returned_count: count,

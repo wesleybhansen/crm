@@ -132,6 +132,135 @@ describe('ruleBasedFitScorer', () => {
     expect(result.unknowns).toContain('opportunity.actionability')
   })
 
+  it('keeps a current public event in review until its participation terms are observed', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Austin first-time home buyer workshop — September 12, 2026',
+          opportunity_kind: 'event',
+          platform: 'Eventbrite',
+          intent_kind: 'buyer_intent',
+          audience_description:
+            'An Austin workshop for first-time home buyers with questions about offers and closing costs.',
+          location: 'Austin, Texas',
+          access_type: 'ticketed',
+          event_start_at: '2026-09-12T17:00:00.000Z',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://www.eventbrite.com/e/austin-first-time-home-buyer-workshop-123'],
+          participation_rules: 'Check the organizer terms before participating.',
+          participation_rules_status: 'unverified',
+          recommended_action:
+            'Open the event page and use its public registration path to attend. Follow organizer rules; do not automate contact or promotion.',
+          message_angle:
+            'Attend as a participant, answer questions when invited, and avoid promotion unless the organizer rules explicitly allow it.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin first-time home buyers',
+        signal: 'A current public buyer event demonstrates local demand',
+        referenceTime: '2026-08-29T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('review')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
+      ]),
+    )
+  })
+
+  it('accepts a current public event only when observed terms permit the proposed attendance', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Austin home buyer community workshop — September 12, 2026',
+          opportunity_kind: 'event',
+          platform: 'Eventbrite',
+          audience_description:
+            'An Austin workshop where home buyers and local housing professionals can discuss offers and closing costs.',
+          location: 'Austin, Texas',
+          access_type: 'ticketed',
+          event_start_at: '2026-09-12T17:00:00.000Z',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://www.eventbrite.com/e/austin-home-buyer-community-workshop-456'],
+          participation_rules:
+            'This public workshop welcomes home buyers and local real estate professionals. Educational participation is permitted; unsolicited promotion is not.',
+          participation_rules_status: 'observed',
+          recommended_action:
+            'Use the public registration path to attend manually and contribute only when invited by the organizer.',
+          message_angle:
+            'Answer buyer questions with useful local context and do not automate contact or promote services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin first-time home buyers',
+        signal: 'A current public buyer event demonstrates local demand',
+        referenceTime: '2026-08-29T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('accepted')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'opportunity.actionability', status: 'pass' }),
+      ]),
+    )
+  })
+
+  it('rejects a public buyer event when observed terms prohibit real estate professionals', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Austin first-time home buyer workshop — September 12, 2026',
+          opportunity_kind: 'event',
+          platform: 'Eventbrite',
+          audience_description:
+            'An Austin workshop for first-time home buyers with questions about offers and closing costs.',
+          location: 'Austin, Texas',
+          access_type: 'ticketed',
+          event_start_at: '2026-09-12T17:00:00.000Z',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://www.eventbrite.com/e/austin-first-time-home-buyer-workshop-789'],
+          participation_rules:
+            'Real estate agents, brokers, and lenders are not allowed because of conflicts of interest.',
+          participation_rules_status: 'observed',
+          recommended_action:
+            'Use the public registration path to attend manually and contribute only when invited by the organizer.',
+          message_angle:
+            'Answer buyer questions with useful local context and do not automate contact or promote services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin first-time home buyers',
+        signal: 'A current public buyer event demonstrates local demand',
+        referenceTime: '2026-08-29T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.notActionable)
+    expect(result.contradictions).toContain('opportunity.actionability')
+  })
+
   it('rejects an otherwise relevant result when observed venue rules conflict with the proposed promotion', () => {
     const result = ruleBasedFitScorer.score(
       {

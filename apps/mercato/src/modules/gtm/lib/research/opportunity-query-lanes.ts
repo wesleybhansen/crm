@@ -46,20 +46,6 @@ const REALTOR_NEGATIVE_TERMS = [
   'mortgage newsletter',
 ]
 
-const ORGANIC_REALTOR_EXCLUSION_PRIORITY = [
-  'facebook',
-  'instagram',
-  'pinterest',
-  'tiktok',
-  'youtube',
-  'jobs',
-  'recruiting',
-  'just listed',
-  'new listing',
-  'contact me',
-  'open house',
-] as const
-
 const REALTOR_PLAY =
   /\b(?:realtor|real estate|homeowners?|home ?buyers?|home ?sellers?|buy(?:ing)? a home|sell(?:ing)? a home|homeownership|housing)\b/i
 
@@ -125,37 +111,37 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const market = marketName(geography)
     if (intent === 'buyer_intent') {
       return [
-        '"looking for a realtor" "buy a home" question',
-        '"buying my first home" "need advice"',
-        `Reddit "moving to ${market}" "buy a home"`,
-        '"first-time home buyer workshop" Eventbrite',
-        '"home buyer seminar" Meetup',
+        'looking for a realtor to buy a home',
+        'first time home buyer advice',
+        `Reddit moving to ${market} buy a home`,
+        'first time home buyer workshop Eventbrite',
+        'home buyer seminar Meetup',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        '"looking for a realtor" "sell my home" question',
-        '"thinking of selling my house" question',
-        `Reddit "what is my home worth" "${market}"`,
-        '"home seller workshop" Eventbrite',
-        '"selling your home seminar" Meetup',
+        'looking for a realtor to sell my home',
+        'thinking of selling my house advice',
+        `Reddit what is my home worth ${market}`,
+        'home seller workshop Eventbrite',
+        'selling your home seminar Meetup',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        '"sell before buying" "need advice"',
-        '"buy before selling" question',
-        `Reddit "sell then buy" "${market}"`,
-        '"buying and selling a home" workshop Eventbrite',
-        '"sell and buy a home" seminar Meetup',
+        'sell before buying a home advice',
+        'buy before selling a home advice',
+        `Reddit sell then buy a home ${market}`,
+        'buying and selling a home workshop Eventbrite',
+        'sell and buy a home seminar Meetup',
       ]
     }
     return [
-      '"neighborhood association" meeting calendar',
-      '"homeowner community" meeting',
-      '"home buyer workshop" Eventbrite',
-      '"home seller workshop" Meetup',
-      '"housing community event" calendar',
+      'neighborhood association meeting calendar',
+      'homeowner community meeting',
+      'home buyer workshop Eventbrite',
+      'home seller workshop Meetup',
+      'housing community event calendar',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
@@ -354,17 +340,15 @@ function sourceSeed(
   adapterId: string,
   geography: string,
   seed: string,
-  negativeTerms: string[],
 ): string {
   const market = marketName(geography)
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     const location = sourceLocation(geography)
-    const negativeSet = new Set(negativeTerms)
-    const exclusions = ORGANIC_REALTOR_EXCLUSION_PRIORITY
-      .filter((term) => negativeSet.has(term))
-      .map((term) => (term.includes(' ') ? `-${quoted(term)}` : `-${term}`))
-      .join(' ')
-    return `${quoted(location)} ${seed} ${exclusions}`
+    // DataForSEO reports 40101 only after the upstream search engine has
+    // failed and DataForSEO has already retried the billable task. Keep paid
+    // organic queries short and natural; fit-v7 applies the frozen negative
+    // terms to returned content instead of making the query itself brittle.
+    return `${location} ${seed}`
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
     return seed
@@ -385,10 +369,9 @@ function queryFor(args: {
   adapterId: string
   geography: string
   seed: string
-  negativeTerms: string[]
 }): string {
   return bounded(
-    sourceSeed(args.adapterId, args.geography, args.seed, args.negativeTerms),
+    sourceSeed(args.adapterId, args.geography, args.seed),
     sourceMaxQueryLength(args.adapterId),
   )
 }
@@ -435,7 +418,7 @@ export function buildOpportunityQueryLanes(
       realtor && adapterId === 'apify-reddit-demand-opportunities' && index === 2
         ? realtorGlobalRedditSeed(intent, geography)
         : null
-    const query = queryFor({ adapterId, geography, seed: globalSeed ?? seed, negativeTerms })
+    const query = queryFor({ adapterId, geography, seed: globalSeed ?? seed })
     return {
       id,
       intent,
@@ -443,7 +426,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v31',
+        query_lane_version: 'opportunity-query-v32',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

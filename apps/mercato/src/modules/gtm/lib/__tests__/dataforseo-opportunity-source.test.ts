@@ -249,7 +249,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
         source_published_at: '2026-08-25T17:00:00.000Z',
       },
     })
-    expect(candidate?.identity.recommended_action).toMatch(/manually|decide whether/i)
+    expect(candidate?.identity.recommended_action).toMatch(/manually|decide whether|register|attend/i)
     expect(candidate?.identity).not.toHaveProperty('email')
   })
 
@@ -672,6 +672,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
         provider_status: 'provider_error_40101',
         task_status_code: 40101,
         task_cost_usd: 0.002,
+        provider_failure_class: 'search_engine_error_after_provider_retries',
       },
     })
     expect(result.error).toContain('provider_application_error')
