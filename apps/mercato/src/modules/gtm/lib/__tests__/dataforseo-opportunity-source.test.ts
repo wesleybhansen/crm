@@ -648,6 +648,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
         raw_item_count: 2,
         returned_count: 1,
         parser_dropped_rows: 1,
+        parser_drop_reasons: { unproven_destination_kind: 1 },
       },
     })
   })
