@@ -410,9 +410,9 @@ export function buildOpportunityQueryLanes(
   const playText = [play.audience, play.signal, ...values(providerQuery.audience_keywords)].join(' ')
   const realtor = REALTOR_PLAY.test(playText)
   const seeds = unique(realtor ? realtorSeeds(intent, adapterId, geography) : genericSeeds(play))
-  // X has a material per-run initialization charge. Threads has no fixed fee,
-  // so three separately quoted lanes can improve recall while still sharing
-  // the same immutable raw ceiling and charging only returned posts.
+  // X has a material per-run initialization charge. Threads has a small fixed
+  // start event, so three separately quoted lanes can improve recall while
+  // still sharing the same immutable raw ceiling and an exact bounded quote.
   // LinkedIn also stays at one boolean query because the live actor can outlast
   // the synchronous wait boundary. Reddit retains three independently quoted
   // scopes. Organic search stays cheap per quoted SERP and gets five narrow
@@ -444,7 +444,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v29',
+        query_lane_version: 'opportunity-query-v30',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

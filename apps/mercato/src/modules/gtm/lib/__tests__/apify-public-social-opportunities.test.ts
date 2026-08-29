@@ -123,20 +123,19 @@ function xPost(overrides: Record<string, unknown> = {}) {
 
 function threadsPost(overrides: Record<string, unknown> = {}) {
   return {
-    type: 'post',
-    postId: 'threads-post-123',
+    post_id: 'threads-post-123',
+    code: 'ABC123',
     username: 'southbay_homeowner',
-    fullName: 'Taylor Example',
-    isPrivate: false,
+    full_name: 'Taylor Example',
+    is_private: false,
     text: 'We are thinking of selling our South Bay home. Which repairs should we make first?',
-    date: '2026-08-25T20:00:00.000Z',
-    likeCount: 14,
-    replyCount: 5,
-    repostCount: 2,
-    quoteCount: 1,
-    url: 'https://www.threads.com/@southbay_homeowner/post/ABC123',
-    searchQuery: 'South Bay selling my home',
-    scrapedAt: CLOCK.toISOString(),
+    taken_at: Date.parse('2026-08-25T20:00:00.000Z') / 1_000,
+    like_count: 14,
+    reply_count: 5,
+    repost_count: 2,
+    quote_count: 1,
+    reshare_count: 3,
+    post_url: 'https://www.threads.com/@southbay_homeowner/post/ABC123',
     ...overrides,
   }
 }
@@ -151,7 +150,7 @@ function outcome(
       ? { start: 1, post: 1 }
       : config.platform === 'X'
         ? { init: 1, 'result-item': 1 }
-        : { 'post-result': 1 }
+        : { 'apify-actor-start': 1, 'apify-default-dataset-item': 1 }
   const providerCostUsd = Object.entries(counts).reduce(
     (sum, [event, count]) => sum + (config.eventPricesUsd[event] ?? 0) * count,
     0,
@@ -199,16 +198,34 @@ describe('Apify public social demand opportunities', () => {
     })
   })
 
-  it('pins Threads reservations to the exact no-start-fee FREE account contract', () => {
+  it('pins Threads reservations to the exact established-actor FREE account contract', () => {
     expect(APIFY_THREADS_OPPORTUNITY_CONFIG).toMatchObject({
-      actorId: 'webdata_labs/threads-scraper',
-      actorBuild: '0.1.7',
-      requiredPriceVersion: 'webdata-labs-threads-scraper-0.1.7-free-events-2026-08-29',
-      eventPricesUsd: { 'post-result': 0.003, 'profile-result': 0.005 },
-      oneTimeEvent: null,
-      oneTimeQuoteUsd: 0,
-      perItemQuoteUsd: 0.003,
+      actorId: 'pro100chok/threads-scraper-usage',
+      actorBuild: '0.5.1',
+      requiredPriceVersion: 'pro100chok-threads-scraper-usage-0.5.1-free-events-2026-08-29',
+      eventPricesUsd: { 'apify-actor-start': 0.001, 'apify-default-dataset-item': 0.004 },
+      oneTimeEvent: 'apify-actor-start',
+      oneTimeQuoteUsd: 0.001,
+      perItemQuoteUsd: 0.004,
     })
+    expect(APIFY_THREADS_OPPORTUNITY_CONFIG.datasetFields).toEqual([
+      'post_id',
+      'code',
+      'username',
+      'full_name',
+      'is_private',
+      'text',
+      'taken_at',
+      'like_count',
+      'reply_count',
+      'repost_count',
+      'quote_count',
+      'reshare_count',
+      'post_url',
+      'is_reply',
+    ])
+    expect(APIFY_THREADS_OPPORTUNITY_CONFIG.datasetFields).not.toContain('emails_in_text')
+    expect(APIFY_THREADS_OPPORTUNITY_CONFIG.datasetFields).not.toContain('profile_contacts')
   })
 
   it('keeps the high-fixed-cost X source held unless its capability switch is explicit', () => {
@@ -411,7 +428,7 @@ describe('Apify public social demand opportunities', () => {
         opportunity_kind: 'post',
         platform: 'Threads',
         intent_kind: 'seller_intent',
-        engagement_count: 22,
+        engagement_count: 25,
         source_published_at: '2026-08-25T20:00:00.000Z',
         people_to_follow: [
           {
@@ -428,7 +445,7 @@ describe('Apify public social demand opportunities', () => {
           detail: expect.objectContaining({
             provider_post_id: 'threads-post-123',
             source_published_at: '2026-08-25T20:00:00.000Z',
-            visible_engagement: 22,
+            visible_engagement: 25,
           }),
         },
       ],
@@ -449,6 +466,45 @@ describe('Apify public social demand opportunities', () => {
     expect(candidate?.identity.intent_kind).toBe('local_audience')
   })
 
+  it('keeps the previously documented Threads post shape readable during the actor transition', () => {
+    const candidate = normalizeThreadsOpportunity(
+      {
+        type: 'post',
+        postId: 'legacy-threads-post-123',
+        username: 'legacy_homeowner',
+        fullName: 'Legacy Example',
+        isPrivate: false,
+        text: 'We are thinking of selling our South Bay home and want advice from local owners.',
+        date: '2026-08-25T20:00:00.000Z',
+        likeCount: 4,
+        replyCount: 2,
+        repostCount: 1,
+        quoteCount: 0,
+        url: 'https://www.threads.com/@legacy_homeowner/post/LEGACY123',
+      },
+      {
+        query: plan.query,
+        location: 'South Bay, California',
+        expectedIntent: 'seller_intent',
+        attemptedAt: CLOCK.toISOString(),
+        actorId: APIFY_THREADS_OPPORTUNITY_CONFIG.actorId,
+      },
+    )
+    expect(candidate).toMatchObject({
+      identity: {
+        platform: 'Threads',
+        intent_kind: 'seller_intent',
+        engagement_count: 7,
+      },
+      evidence: [
+        {
+          source_url: 'https://www.threads.com/@legacy_homeowner/post/LEGACY123',
+          detail: { provider_post_id: 'legacy-threads-post-123' },
+        },
+      ],
+    })
+  })
+
   it('drops non-post, off-platform, and sensitive Threads rows', () => {
     const context = {
       query: plan.query,
@@ -457,9 +513,10 @@ describe('Apify public social demand opportunities', () => {
       actorId: APIFY_THREADS_OPPORTUNITY_CONFIG.actorId,
     }
     expect(normalizeThreadsOpportunity(threadsPost({ type: 'profile' }), context)).toBeNull()
-    expect(normalizeThreadsOpportunity(threadsPost({ isPrivate: true }), context)).toBeNull()
+    expect(normalizeThreadsOpportunity(threadsPost({ post_id: null }), context)).toBeNull()
+    expect(normalizeThreadsOpportunity(threadsPost({ is_private: true }), context)).toBeNull()
     expect(
-      normalizeThreadsOpportunity(threadsPost({ url: 'https://example.com/post/ABC123' }), context),
+      normalizeThreadsOpportunity(threadsPost({ post_url: 'https://example.com/post/ABC123' }), context),
     ).toBeNull()
     expect(
       normalizeThreadsOpportunity(threadsPost({ text: 'Foreclosure distress outreach list' }), context),
@@ -861,17 +918,15 @@ describe('Apify public social demand opportunities', () => {
     expect(threadsRun).toHaveBeenCalledWith(
       APIFY_THREADS_OPPORTUNITY_CONFIG.actorId,
       {
-        mode: 'search',
-        searchQueries: ['South Bay buying or selling a home'],
-        maxPosts: 5,
-        postedAfter: '2026-08-19T23:00:00.000Z',
-        postedBefore: CLOCK.toISOString(),
-        includeProfile: false,
-        maxScrolls: 0,
+        action: 'search',
+        queries: ['South Bay buying or selling a home'],
+        serp_type: 'default',
+        maxItems: 5,
+        useOurAccounts: true,
       },
       expect.objectContaining({
         build: APIFY_THREADS_OPPORTUNITY_CONFIG.actorBuild,
-        maxItems: 6,
+        maxItems: 4,
         maxChargeUsd: 0.02,
       }),
     )
@@ -1002,7 +1057,7 @@ describe('Apify public social demand opportunities', () => {
     expect(result.error).toContain('unrequested public social result event')
   })
 
-  it('parks an unrequested Threads profile charge instead of treating it as post spend', async () => {
+  it('parks an unknown Threads billing event instead of treating it as post spend', async () => {
     const config = APIFY_THREADS_OPPORTUNITY_CONFIG
     const result = await createApifyThreadsOpportunityAdapter({
       env: {
@@ -1011,13 +1066,16 @@ describe('Apify public social demand opportunities', () => {
       },
       now,
       runActor: async () => outcome(config, threadsPost(), {
-        chargedEventCounts: { 'post-result': 1, 'profile-result': 1 },
-        providerCostUsd:
-          config.eventPricesUsd['post-result'] + config.eventPricesUsd['profile-result'],
+        chargedEventCounts: {
+          'apify-actor-start': 1,
+          'apify-default-dataset-item': 1,
+          'profile-result': 1,
+        },
+        providerCostUsd: 0.005,
       }),
     }).search(plan)
     expect(result).toMatchObject({ status: 'ambiguous', cost_units: null })
-    expect(result.error).toContain('unrequested public social result event')
+    expect(result.error).toContain('unapproved public social event')
   })
 
   it('parks a successful result when its run-start event is missing', async () => {
@@ -1124,7 +1182,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'Austin buying a home',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v29',
+        query_lane_version: 'opportunity-query-v30',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'Austin buying a home',
       },
@@ -1150,10 +1208,10 @@ describe('Apify public social demand opportunities', () => {
       expect(planned.adapterPlan).toHaveLength(3)
       expect(planned.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([4, 3, 3])
       expect(planned.plannedRawCapacity).toBe(10)
-      // Each separately quoted lane rounds its internal reservation up to a
-      // whole credit unit. Final reconciliation still uses the exact returned
-      // post events, whose combined provider ceiling is $0.03.
-      expect(planned.estimatedCredits).toBe(16_000)
+      // Each separately quoted lane includes one exact run-start event. Final
+      // reconciliation still uses only the actual starts and returned rows;
+      // the combined provider-event ceiling is $0.043.
+      expect(planned.estimatedCredits).toBe(21_500)
     }
   })
 
