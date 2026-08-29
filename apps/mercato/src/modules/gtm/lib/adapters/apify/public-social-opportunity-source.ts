@@ -43,7 +43,7 @@ const SENSITIVE_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
 
 type SocialEnv = Record<string, string | undefined>
-type SocialPlatform = 'Reddit' | 'X'
+type SocialPlatform = 'Reddit' | 'X' | 'Threads'
 
 export type PublicSocialOpportunityConfig = {
   adapterId: string
@@ -56,12 +56,12 @@ export type PublicSocialOpportunityConfig = {
   priceVersionEnv: string
   requiredPriceVersion: string
   eventPricesUsd: Record<string, number>
-  oneTimeEvent: string
+  oneTimeEvent: string | null
   primaryResultEvent: string
   perItemQuoteUsd: number
   oneTimeQuoteUsd: number
   datasetFields: readonly string[]
-  buildInput(plan: SourceSearchPlan, maxResults: number): Record<string, unknown>
+  buildInput(plan: SourceSearchPlan, maxResults: number, attemptedAt: string): Record<string, unknown>
   isNoResultDiagnostic?(value: unknown): boolean
   normalize(value: unknown, context: NormalizeContext): Candidate | null
 }
@@ -239,6 +239,63 @@ export const APIFY_X_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
     }
   },
   normalize: normalizeXOpportunity,
+}
+
+export const APIFY_THREADS_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-threads-demand-opportunities',
+  platform: 'Threads',
+  enabledEnv: 'GTM_APIFY_THREADS_OPPORTUNITY_ENABLED',
+  actorId: 'webdata_labs/threads-scraper',
+  actorBuild: '0.1.7',
+  actorEnv: 'GTM_APIFY_ACTOR_THREADS_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_THREADS_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_THREADS_SEARCH_PRICE_VERSION',
+  // Authenticated production-account metadata was rechecked without running
+  // the actor on 2026-08-29. The account is on FREE: public post results cost
+  // $0.003 each and there is no run-start charge. Search mode must never emit
+  // the separately priced profile-result event; that event stays in the
+  // vocabulary so an unexpected charge is parked for reconciliation.
+  requiredPriceVersion: 'webdata-labs-threads-scraper-0.1.7-free-events-2026-08-29',
+  eventPricesUsd: { 'post-result': 0.003, 'profile-result': 0.005 },
+  oneTimeEvent: null,
+  primaryResultEvent: 'post-result',
+  perItemQuoteUsd: 0.003,
+  oneTimeQuoteUsd: 0,
+  datasetFields: [
+    'type',
+    'postId',
+    'username',
+    'fullName',
+    'isPrivate',
+    'text',
+    'date',
+    'likeCount',
+    'replyCount',
+    'repostCount',
+    'quoteCount',
+    'url',
+    'searchQuery',
+    'scrapedAt',
+  ],
+  buildInput(plan, maxResults, attemptedAt) {
+    const attemptedAtMs = Date.parse(attemptedAt)
+    if (!Number.isFinite(attemptedAtMs)) {
+      throw new TypeError('a valid Threads attempt time is required')
+    }
+    const postedAfter = new Date(
+      attemptedAtMs - recencyDays(plan) * 24 * 60 * 60 * 1_000,
+    ).toISOString()
+    return {
+      mode: 'search',
+      searchQueries: [queryText(plan, 100)],
+      maxPosts: maxResults,
+      postedAfter,
+      postedBefore: attemptedAt,
+      includeProfile: false,
+      maxScrolls: 0,
+    }
+  },
+  normalize: normalizeThreadsOpportunity,
 }
 
 function envValue(env: SocialEnv, name: string): string {
@@ -534,6 +591,7 @@ function safePlatformUrl(value: unknown, platform: SocialPlatform): string | nul
     const host = url.hostname.toLowerCase().replace(/^www\./, '')
     if (platform === 'Reddit' && host !== 'reddit.com') return null
     if (platform === 'X' && host !== 'x.com' && host !== 'twitter.com') return null
+    if (platform === 'Threads' && host !== 'threads.com' && host !== 'threads.net') return null
     url.protocol = 'https:'
     url.hash = ''
     return url.toString()
@@ -778,6 +836,90 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
   }
 }
 
+export function normalizeThreadsOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
+  const row = record(value)
+  if (!row || text(row.type, 30)?.toLowerCase() !== 'post' || row.isPrivate === true) return null
+  const sourceUrl = safePlatformUrl(row.url, 'Threads')
+  const content = text(row.text, 800)
+  if (
+    !sourceUrl
+    || !content
+    || SENSITIVE_TARGETING.test(content)
+    || sensitiveConsumerOpportunityReasons(content).length > 0
+  ) return null
+  const engagement = Math.min(
+    10_000_000,
+    nonNegativeInteger(row.likeCount) +
+      nonNegativeInteger(row.replyCount) +
+      nonNegativeInteger(row.repostCount) +
+      nonNegativeInteger(row.quoteCount),
+  )
+  const username = text(row.username, 100)?.replace(/^@/, '') ?? null
+  const fullName = text(row.fullName, 120)
+  const profileUrl = username
+    ? safePlatformUrl(`https://www.threads.com/@${encodeURIComponent(username)}`, 'Threads')
+    : null
+  const identity = commonIdentity({
+    name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
+    platform: 'Threads',
+    content,
+    sourceUrl,
+    requestedLocation: context.location,
+    locationEvidence: content,
+    engagement,
+    people:
+      fullName || username
+        ? [
+            {
+              name: fullName ?? username ?? 'Public Threads contributor',
+              role: 'Public Threads contributor shown as secondary source context',
+              profile_url: profileUrl,
+            },
+          ]
+        : undefined,
+  })
+  identity.opportunity_kind = 'post'
+  const publishedAt = sourcePublishedAt(row.date)
+  identity.source_published_at = publishedAt
+  const demonstratedIntent = classifyOpportunityIntent(content)
+  return {
+    entity_kind: 'opportunity',
+    identity,
+    evidence: [
+      {
+        claim:
+          engagement > 0
+            ? `The approved public source returned this Threads post with ${engagement} visible interactions.`
+            : 'The approved public source returned this Threads post.',
+        source_url: sourceUrl,
+        observed_at: context.attemptedAt,
+        confidence: calibratedOpportunityConfidence({
+          content,
+          sourceUrl,
+          observedAt: publishedAt ?? '',
+          attemptedAt: context.attemptedAt,
+          engagement,
+          location: identity.location ?? null,
+        }),
+        detail: {
+          provider: 'apify',
+          actor_id: context.actorId,
+          provider_post_id: text(row.postId, 200),
+          requested_location: context.location,
+          requested_intent: context.expectedIntent ?? null,
+          source_published_at: publishedAt,
+          visible_engagement: engagement,
+          demonstrated_intent_signals: [
+            ...demonstratedIntent.buyerSignals,
+            ...demonstratedIntent.sellerSignals,
+            ...demonstratedIntent.localAudienceSignals,
+          ],
+        },
+      },
+    ],
+  }
+}
+
 function providerUnitsFor(config: PublicSocialOpportunityConfig, maxResults: number): number {
   const estimatedUsd = config.oneTimeQuoteUsd + maxResults * config.perItemQuoteUsd
   return Math.max(APIFY_MIN_CHARGE_USD, estimatedUsd) / APIFY_MILLIDOLLAR_USD
@@ -917,8 +1059,8 @@ export function createPublicSocialOpportunityAdapter(
       let input: Record<string, unknown>
       let query: string
       try {
-        query = queryText(plan, config.platform === 'X' ? 100 : 700)
-        input = config.buildInput(plan, maxCandidates)
+        query = queryText(plan, config.platform === 'X' || config.platform === 'Threads' ? 100 : 700)
+        input = config.buildInput(plan, maxCandidates, attemptedAt)
       } catch (error) {
         return refusal(
           config,
@@ -988,7 +1130,10 @@ export function createPublicSocialOpportunityAdapter(
         }
       }
       const unexpectedKnownResult = Object.entries(counts).find(
-        ([event, count]) => count > 0 && event !== config.oneTimeEvent && event !== config.primaryResultEvent,
+        ([event, count]) =>
+          count > 0
+          && event !== config.primaryResultEvent
+          && (config.oneTimeEvent == null || event !== config.oneTimeEvent),
       )
       if (unexpectedKnownResult) {
         return {
@@ -1000,7 +1145,7 @@ export function createPublicSocialOpportunityAdapter(
         }
       }
       const costUnits = outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
-      if ((counts[config.oneTimeEvent] ?? 0) !== 1) {
+      if (config.oneTimeEvent != null && (counts[config.oneTimeEvent] ?? 0) !== 1) {
         return {
           status: 'ambiguous',
           data: null,
@@ -1103,10 +1248,18 @@ export function createApifyXOpportunityAdapter(deps: PublicSocialDeps = {}): Sou
   return createPublicSocialOpportunityAdapter(APIFY_X_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyThreadsOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_THREADS_OPPORTUNITY_CONFIG, deps)
+}
+
 export function apifyRedditOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_REDDIT_OPPORTUNITY_CONFIG, env)
 }
 
 export function apifyXOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_X_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyThreadsOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_THREADS_OPPORTUNITY_CONFIG, env)
 }

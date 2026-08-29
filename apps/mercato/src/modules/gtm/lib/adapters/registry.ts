@@ -5,8 +5,10 @@ import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
 import { apifyOpportunitySourceEnabled, createApifyOpportunitySourceAdapter } from './apify/opportunity-source'
 import {
   apifyRedditOpportunityEnabled,
+  apifyThreadsOpportunityEnabled,
   apifyXOpportunityEnabled,
   createApifyRedditOpportunityAdapter,
+  createApifyThreadsOpportunityAdapter,
   createApifyXOpportunityAdapter,
 } from './apify/public-social-opportunity-source'
 import { apifyEnrichEnabled, createApifyEnrichAdapter } from './apify/enrich'
@@ -73,6 +75,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifyXOpportunityEnabled()) {
     const xOpportunities = createApifyXOpportunityAdapter()
     registry[xOpportunities.descriptor.adapter_id] = xOpportunities
+  }
+  if (apifyThreadsOpportunityEnabled()) {
+    const threadsOpportunities = createApifyThreadsOpportunityAdapter()
+    registry[threadsOpportunities.descriptor.adapter_id] = threadsOpportunities
   }
   if (apifyCompanySourceEnabled()) {
     const apifyCompany = createApifyCompanySourceAdapter()
