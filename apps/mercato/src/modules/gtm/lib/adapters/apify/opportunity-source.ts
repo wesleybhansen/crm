@@ -302,6 +302,7 @@ export function normalizeApifyOpportunityItem(
       'Read the full discussion and contribute a useful response only when it is relevant and the platform rules permit it.',
     participation_rules:
       'Use only public context. Do not automate contact, post through Noli, or collect private group data.',
+    participation_rules_status: 'unverified',
     message_angle: 'Address the specific question or need in the discussion with practical, locally relevant help.',
   }
   if (author.name) {

@@ -79,7 +79,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v19' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v20' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -100,6 +100,7 @@ export const FIT_REASONS = {
   expiredDestination: 'public_destination_expired',
   audienceMismatch: 'opportunity_audience_mismatch',
   intentMismatch: 'opportunity_intent_mismatch',
+  notActionable: 'opportunity_not_actionable_under_observed_rules',
   irrelevantOpportunity: 'opportunity_not_relevant_to_play',
   realtorNoise: 'realtor_false_positive',
 } as const
@@ -330,6 +331,36 @@ function criterion(
   return { id, dimension, label, expected, observed, status, hard }
 }
 
+function opportunityActionabilityStatus(args: {
+  recommendedAction: string | null
+  messageAngle: string | null
+  participationRules: string | null
+  participationRulesStatus: string | null
+}): CriterionStatus {
+  const { recommendedAction, messageAngle, participationRules, participationRulesStatus } = args
+  if (!recommendedAction || recommendedAction.length < 20 || !messageAngle || messageAngle.length < 20) {
+    return 'unknown'
+  }
+  // A provider row that merely tells the customer to review the rules does
+  // not demonstrate that the venue permits the proposed participation.
+  if (participationRulesStatus !== 'observed' || !participationRules) return 'unknown'
+
+  const rules = participationRules.toLowerCase()
+  const proposedAction = `${recommendedAction}\n${messageAngle}`.toLowerCase()
+  const promotionRestricted =
+    /\b(?:no|prohibit(?:s|ed)?|forbid(?:s|den)?|not allowed)\b.{0,70}\b(?:self[- ]?promot|promot|advertis|solicit|marketing|commercial)\w*/i.test(rules)
+    || /\b(?:self[- ]?promot|promot|advertis|solicit|marketing|commercial)\w*\b.{0,70}\b(?:prohibit(?:s|ed)?|forbid(?:s|den)?|not allowed)\b/i.test(rules)
+  const proposedPromotion =
+    /\b(?:mention|offer|pitch|promot|advertis|solicit|market)\w*\b.{0,50}\b(?:service|business|professional help|agent|realtor)\w*/i.test(proposedAction)
+    || /\b(?:contact|direct message|dm)\w*\b/i.test(proposedAction)
+  const professionalParticipationForbidden =
+    /\b(?:agent|realtor|industry|professional|business|commercial)\w*\b.{0,50}\b(?:may not|must not|cannot|can't|prohibit(?:ed)?|forbid(?:den)?|not allowed)\b.{0,30}\b(?:participat|post|comment|reply|contribut)/i.test(rules)
+    || /\b(?:no|prohibit(?:s|ed)?|forbid(?:s|den)?|not allowed)\b.{0,50}\b(?:agent|realtor|industry|professional|business|commercial)\w*\b/i.test(rules)
+
+  if (professionalParticipationForbidden || (promotionRestricted && proposedPromotion)) return 'fail'
+  return 'pass'
+}
+
 function scoreOpportunity(
   identity: Record<string, unknown>,
   play: FitPlayInput,
@@ -343,6 +374,8 @@ function scoreOpportunity(
   const platform = stringValue(identity, ['platform'])
   const recommendedAction = stringValue(identity, ['recommended_action'])
   const messageAngle = stringValue(identity, ['message_angle'])
+  const participationRules = stringValue(identity, ['participation_rules'])
+  const participationRulesStatus = stringValue(identity, ['participation_rules_status'])
   const observedText = opportunityEvidenceText(identity, evidence)
   const demonstratedIntent = classifyOpportunityIntent(observedText)
   const expectedIntent = expectedOpportunityIntent(play)
@@ -419,8 +452,12 @@ function scoreOpportunity(
       || destination.issues.includes('event_time_unknown')
       ? 'unknown'
       : 'pass'
-  const actionStatus: CriterionStatus =
-    recommendedAction && recommendedAction.length >= 20 && messageAngle && messageAngle.length >= 20 ? 'pass' : 'unknown'
+  const actionStatus = opportunityActionabilityStatus({
+    recommendedAction,
+    messageAngle,
+    participationRules,
+    participationRulesStatus,
+  })
   const noise = isRealtorPlay
     ? realtorOpportunityNoiseReasons(observedText, destination.canonicalUrl)
     : []
@@ -485,8 +522,13 @@ function scoreOpportunity(
       'opportunity.actionability',
       'signal',
       'Manual next action',
-      ['specific venue-appropriate manual action and message angle'],
-      [recommendedAction, messageAngle].filter((value): value is string => Boolean(value)),
+      ['source-observed participation rules and a compatible venue-appropriate manual action'],
+      [
+        participationRulesStatus ? `rules_status:${participationRulesStatus}` : null,
+        participationRules,
+        recommendedAction,
+        messageAngle,
+      ].filter((value): value is string => Boolean(value)),
       actionStatus,
       false,
     ),
@@ -544,6 +586,9 @@ function scoreOpportunity(
   }
   if (freshStatus === 'fail') {
     return result(Math.min(fitScore, 10), 'rejected', FIT_REASONS.staleSignal, breakdown, unknowns, contradictions, profile, criteria)
+  }
+  if (actionStatus === 'fail') {
+    return result(Math.min(fitScore, 20), 'rejected', FIT_REASONS.notActionable, breakdown, unknowns, contradictions, profile, criteria)
   }
   if (criteria.some((row) => row.hard && row.status === 'unknown')) {
     return result(
@@ -1036,7 +1081,7 @@ export function compileQualificationProfile(
         id: 'opportunity.actionability',
         dimension: 'signal',
         label: 'Manual next action',
-        expected: ['specific venue-appropriate manual action and message angle'],
+        expected: ['source-observed participation rules and a compatible venue-appropriate manual action'],
         hard: false,
       },
       {

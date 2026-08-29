@@ -64,6 +64,8 @@ describe('ruleBasedFitScorer', () => {
           location: 'South Bay, California',
           access_type: 'public',
           urls: ['https://community.example/south-bay/first-home-questions'],
+          participation_rules: 'Professionals may answer public questions when they disclose their affiliation.',
+          participation_rules_status: 'observed',
           recommended_action: 'Answer one current question helpfully and disclose professional affiliation.',
           message_angle: 'Explain the first-home process with practical South Bay examples before offering help.',
         },
@@ -84,6 +86,87 @@ describe('ruleBasedFitScorer', () => {
         reason: FIT_REASONS.accepted,
       }),
     )
+  })
+
+  it('does not treat adapter-authored rule reminders as proof that participation is permitted', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Austin first-home negotiation question',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          audience_description: 'I am buying my first home in Austin. How should I respond to this counteroffer?',
+          location: 'Austin, Texas',
+          access_type: 'public',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://www.reddit.com/r/FirstTimeHomeBuyer/comments/example/rules-unverified'],
+          participation_rules: 'Review the current Reddit community and thread rules before participating.',
+          participation_rules_status: 'unverified',
+          recommended_action: 'Read the full public conversation and contribute one useful response manually.',
+          message_angle: 'Answer the negotiation question before mentioning professional services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'People preparing to buy a home in Austin',
+        signal: 'A current public buyer question demonstrates intent',
+        referenceTime: '2026-08-29T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('review')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'opportunity.actionability',
+          status: 'unknown',
+          observed: expect.arrayContaining(['rules_status:unverified']),
+        }),
+      ]),
+    )
+    expect(result.unknowns).toContain('opportunity.actionability')
+  })
+
+  it('rejects an otherwise relevant result when observed venue rules conflict with the proposed promotion', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Austin first-home negotiation question',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          audience_description: 'I am buying my first home in Austin. How should I respond to this counteroffer?',
+          location: 'Austin, Texas',
+          access_type: 'public',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://www.reddit.com/r/FirstTimeHomeBuyer/comments/example/promotion-prohibited'],
+          participation_rules: 'Industry promotion and advertising are prohibited in this community.',
+          participation_rules_status: 'observed',
+          recommended_action: 'Read the full public conversation and contribute one useful response manually.',
+          message_angle: 'Answer the negotiation question before mentioning your real estate services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'People preparing to buy a home in Austin',
+        signal: 'A current public buyer question demonstrates intent',
+        referenceTime: '2026-08-29T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.notActionable)
+    expect(result.fitScore).toBeLessThan(FIT_REVIEW_THRESHOLD)
+    expect(result.contradictions).toContain('opportunity.actionability')
   })
 
   it('rejects an opportunity without a public destination', () => {
@@ -335,6 +418,8 @@ describe('ruleBasedFitScorer', () => {
           access_type: 'public',
           source_published_at: '2026-08-26T15:00:00.000Z',
           urls: ['https://www.reddit.com/r/phoenix/comments/example/selling_before_buying'],
+          participation_rules: 'Professionals may answer questions but may not send unsolicited direct messages.',
+          participation_rules_status: 'observed',
           recommended_action: 'Read the full thread and answer the repair question manually.',
           message_angle: 'Explain which repairs matter before mentioning professional help.',
         },
@@ -378,6 +463,8 @@ describe('ruleBasedFitScorer', () => {
           access_type: 'public',
           source_published_at: '2026-08-27T22:16:27.007Z',
           urls: ['https://www.reddit.com/r/FirstTimeHomeBuyer/comments/example/negotiation_advice'],
+          participation_rules: 'Public educational replies are permitted; solicitation and direct messages are not.',
+          participation_rules_status: 'observed',
           recommended_action: 'Read the full public conversation and contribute one useful response manually.',
           message_angle: 'Answer the specific negotiation question before mentioning professional services.',
         },
@@ -621,6 +708,8 @@ describe('ruleBasedFitScorer', () => {
           location: 'Tampa, Florida',
           access_type: 'public',
           urls: ['https://facebook.example/tampa-homebuyer-qa'],
+          participation_rules: 'Public educational answers are permitted when professional affiliation is disclosed.',
+          participation_rules_status: 'observed',
           recommended_action: 'Read the public conversation and contribute one useful answer manually.',
           message_angle: 'Answer the buyer question directly before mentioning any professional service.',
         },

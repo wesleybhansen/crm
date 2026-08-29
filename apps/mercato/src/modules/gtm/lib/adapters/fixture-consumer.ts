@@ -116,6 +116,7 @@ const CONSUMER_OPPORTUNITIES: Candidate[] = [
       urls: ['https://community.example/south-bay/first-home-questions'],
       participation_rules:
         'Answer questions helpfully and disclose professional affiliation. No unsolicited direct messages.',
+      participation_rules_status: 'observed',
       recommended_action:
         'Review the newest unanswered questions and contribute one useful local answer before mentioning a service.',
       message_angle:
@@ -159,6 +160,7 @@ const CONSUMER_OPPORTUNITIES: Candidate[] = [
       urls: ['https://neighbors.example/manhattan-beach/posts/preparing-to-sell'],
       participation_rules:
         'Neighborhood membership is required. Business recommendations must answer the question and avoid repeated promotion.',
+      participation_rules_status: 'observed',
       recommended_action:
         'Read the full discussion, then add a concise preparation checklist if membership and group rules permit it.',
       message_angle: 'Separate repairs that affect buyer confidence from cosmetic work that may not return its cost.',
@@ -191,6 +193,7 @@ const CONSUMER_OPPORTUNITIES: Candidate[] = [
       urls: ['https://events.example/south-bay/home-seller-workshop'],
       participation_rules:
         'Registration is required. Contact the organizer before offering a talk, resource, or sponsor contribution.',
+      participation_rules_status: 'observed',
       recommended_action:
         'Review the agenda and ask the organizer whether a neutral local-pricing worksheet would be useful to attendees.',
       message_angle:
@@ -230,6 +233,7 @@ const CONSUMER_OPPORTUNITIES: Candidate[] = [
       urls: ['https://groups.example/south-bay-relocation/weekly-questions'],
       participation_rules:
         'Join approval is required. Agents may answer questions but may not solicit members or collect contact details.',
+      participation_rules_status: 'observed',
       recommended_action:
         'Follow the weekly thread and answer a specific neighborhood or process question without requesting private contact.',
       message_angle:
