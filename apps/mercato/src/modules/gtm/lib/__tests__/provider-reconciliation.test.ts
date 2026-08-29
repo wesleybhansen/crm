@@ -9,6 +9,7 @@ import {
   classifyProviderOperationStatus,
   listProviderOperationsForReconciliation,
   reconcileProviderOperation as reconcileProviderOperationBase,
+  repairResolvedResearchRunSummaries,
   type GtmCanonicalOperatorReconciler,
   type GtmCanonicalOperatorReconciliationRequest,
   type GtmCanonicalOperatorReconciliationResult,
@@ -418,6 +419,125 @@ describe('operator/provider reconciliation', () => {
         ],
       },
     })
+  })
+
+  test('repairs explicitly named stale summaries only when every child is terminal and evidenced', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger()
+    const run = em.create(GtmResearchRun, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: '60000000-0000-4000-8000-000000000001',
+      playId: '70000000-0000-4000-8000-000000000001',
+      status: 'completed',
+      reconciledCredits: '0',
+      providerPlan: {
+        execution: {
+          reconciliation_required: true,
+          reconciled_credits: 0,
+          batches: [],
+        },
+      },
+    })
+    em.persist(run)
+    await em.flush()
+    const charged = await seedOperation(em, ledger, 'charged', {
+      researchRunId: run.id,
+      receipt: { gtm_observation: { intended_charged_credits: 7 } },
+    })
+    const refunded = await seedOperation(em, ledger, 'refunded', {
+      researchRunId: run.id,
+    })
+    ;((run.providerPlan as any).execution.batches as unknown[]).push(
+      { operation_id: charged.noliCoreOperationId, ledger_status: 'charged' },
+      { operation_id: refunded.noliCoreOperationId, ledger_status: 'refunded' },
+    )
+
+    const result = await repairResolvedResearchRunSummaries(em, ctx, [run.id, run.id])
+
+    expect(result).toEqual({
+      requestedRunIds: [run.id],
+      repairedRunIds: [run.id],
+      unchangedRunIds: [],
+    })
+    expect(run.reconciledCredits).toBe('7')
+    expect(run.providerPlan).toMatchObject({
+      execution: {
+        reconciliation_required: false,
+        reconciled_credits: 7,
+        batches: [
+          expect.objectContaining({
+            operation_id: charged.noliCoreOperationId,
+            charged_credits: 7,
+            reconciliation_resolved: true,
+          }),
+          expect.objectContaining({
+            operation_id: refunded.noliCoreOperationId,
+            charged_credits: 0,
+            reconciliation_resolved: true,
+          }),
+        ],
+      },
+    })
+
+    await expect(repairResolvedResearchRunSummaries(em, ctx, [run.id])).resolves.toEqual({
+      requestedRunIds: [run.id],
+      repairedRunIds: [],
+      unchangedRunIds: [run.id],
+    })
+  })
+
+  test('leaves unresolved, unevidenced, and cross-scope research-run summaries unchanged', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger()
+    const run = em.create(GtmResearchRun, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: '60000000-0000-4000-8000-000000000001',
+      playId: '70000000-0000-4000-8000-000000000001',
+      status: 'completed',
+      reconciledCredits: '0',
+      providerPlan: { execution: { reconciliation_required: true, reconciled_credits: 0 } },
+    })
+    em.persist(run)
+    await em.flush()
+    await seedOperation(em, ledger, 'provider_started', { researchRunId: run.id })
+    const unevidencedRun = em.create(GtmResearchRun, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: '60000000-0000-4000-8000-000000000001',
+      playId: '70000000-0000-4000-8000-000000000001',
+      status: 'completed',
+      reconciledCredits: '0',
+      providerPlan: { execution: { reconciliation_required: true, reconciled_credits: 0 } },
+    })
+    em.persist(unevidencedRun)
+    await em.flush()
+    await seedOperation(em, ledger, 'charged', { researchRunId: unevidencedRun.id })
+
+    const result = await repairResolvedResearchRunSummaries(em, ctx, [
+      run.id,
+      unevidencedRun.id,
+      '80000000-0000-4000-8000-000000000001',
+    ])
+
+    expect(result).toEqual({
+      requestedRunIds: [
+        run.id,
+        unevidencedRun.id,
+        '80000000-0000-4000-8000-000000000001',
+      ],
+      repairedRunIds: [],
+      unchangedRunIds: [
+        run.id,
+        unevidencedRun.id,
+        '80000000-0000-4000-8000-000000000001',
+      ],
+    })
+    expect((run.providerPlan as any).execution.reconciliation_required).toBe(true)
+    expect((unevidencedRun.providerPlan as any).execution.reconciliation_required).toBe(true)
+    expect(run.reconciledCredits).toBe('0')
+    expect(unevidencedRun.reconciledCredits).toBe('0')
   })
 
   test('never infers a refund from a missing receipt or missing evidence', async () => {

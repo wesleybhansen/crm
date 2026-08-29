@@ -682,6 +682,11 @@ export const gtmReconciliationBodySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('ai-telemetry'), noliUserId: idString }).strict(),
   z.object({ op: z.literal('opportunity-quality'), noliUserId: idString }).strict(),
   z.object({
+    op: z.literal('repair-run-summaries'),
+    noliUserId: idString,
+    runIds: z.array(idString).min(1).max(50),
+  }).strict(),
+  z.object({
     op: z.literal('apply'),
     noliUserId: idString,
     operationId: idString,

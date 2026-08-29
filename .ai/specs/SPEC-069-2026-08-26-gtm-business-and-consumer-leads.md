@@ -471,12 +471,23 @@ customer quote until a bounded retest demonstrates terminal receipt behavior.
 24. Tenant-scoped quality diagnostics expose every metric in section 12.4, finite windows, drift state, and no raw provider payload or personal data.
 25. Signed-in Hub checks at 375, 768, 1024, and 1440 CSS pixels show no page-level horizontal overflow, clipped controls, consumer automation affordance, or touch target below 44 CSS pixels.
 26. Counsel disposition is recorded specifically for the consumer provisions covering public communities/posts/events, optional public profiles, manual-only participation, no consent inference, sensitive/minor exclusions, 30-day draft retention, removal, and customer responsibility for platform/community rules; earlier GTM approval is not inferred to cover the August 26 delta.
+27. An approver-only summary repair accepts 1–50 exact research-run IDs, remains organization- and tenant-scoped, and clears a stale reconciliation hold only when every child provider operation is terminal and every charged amount is recoverable from durable evidence. Missing, unresolved, unevidenced, or cross-scope runs remain unchanged.
 
-## 14. Release and rollback
+## 14. Migration & Backward Compatibility
+
+All quality-v2 changes are additive. Existing route URLs, operation names,
+response fields, entity columns, feature IDs, and B2B behavior retain their
+meaning. The protected reconciliation route adds the optional
+`repair-run-summaries` operation without narrowing any existing validator or
+response. It is exposed only through the command bus, requires `gtm.approve`,
+and changes no canonical ledger row or provider operation. No database
+migration is required for this repair.
+
+## 15. Release and rollback
 
 Quality-v2 adds no migration. Deployment order is CRM application with the consumer research gate false, deterministic and adversarial regression gates, Noli application, signed-in responsive validation, counsel disposition of the exact consumer-copy delta, then the quoted twelve-play owner benchmark. The gate may be enabled only for that bounded run; a missed benchmark threshold turns it off before any wider customer use. Rollback turns `GTM_CONSUMER_RESEARCH_ENABLED` false and rolls back the application versions; retained rows remain available for deletion/DSR. B2B remains unchanged, and rollback never deletes prospect/draft rows or suppression obligations.
 
-## 15. Changelog
+## 16. Changelog
 
 - 2026-08-26: Initial additive B2B/B2C research and manual-consumer-outreach contract.
 - 2026-08-26: Clarified the consumer product around demand surfaces, added the first-vertical realtor buyer/seller opportunity contract, made named people secondary, and added MCP and dedicated regression requirements after review of the saved Origami lead-magnet, data-source pricing, and realtor campaign experience.
@@ -518,3 +529,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-29: Operator reconciliation now repairs the parent research-run roll-up after the last ambiguous provider operation settles. A tenant-scoped, row-locked recomputation uses only exact charged-credit evidence from terminal provider-operation receipts, updates batch ledger mirrors, clears `reconciliation_required`, and replaces the temporary unresolved stop reason. Missing credit evidence or any remaining nonterminal operation leaves the run held; exact idempotent reconciliation replays also repair an interrupted roll-up.
 - 2026-08-29: The first bounded Threads source (`webdata_labs/threads-scraper` build `0.1.7`) returned no public rows for three actor-native Austin buyer queries and its run logs confirmed that logged-out public search yielded no post data. `opportunity-query-v30` replaces it with the independently established `pro100chok/threads-scraper-usage` build `0.5.1`, pins the production FREE-account contract at `$0.001` per start plus `$0.004` per dataset item, uses the actor's provider-managed read-only session pool, requests only public post fields, and explicitly excludes profile contact extraction. Every separately quoted lane remains inside the immutable raw and dollar ceilings; unknown billing vocabulary parks reconciliation and customer consumer research remains quality-gated.
 - 2026-08-29: The query-v30 FREE-tier probe proved the replacement actor's request, build, receipt, and reconciliation contract but returned no rows because its provider-managed Threads accounts are available only to paid runs. Before moving the Apify account to Starter/BRONZE, the complete selected actor stack was re-audited. LinkedIn comments, LinkedIn post search, profile enrichment, company search, company employees, and the capped Website Content Crawler retain their existing FREE/BRONZE economics. Reddit changes to `$0.003` per start plus `$0.001` per post, X to `$0.0025` per start plus `$0.00025` per result, Threads to `$0.0001` per start plus `$0.002` per result, and email verification to `$0.001` per start plus `$0.0027` per verified row. Exact BRONZE price versions gate all four adapters; a transition must disable Apify globally, deploy these versions, change the account tier, reverify it read-only, and only then re-enable provider use. Customer consumer research remains quality-gated.
+- 2026-08-29: Added a bounded, approver-only command to repair historical research-run summaries that remained held after every child provider operation had already reached an evidenced terminal state. The additive internal operation accepts only 1–50 exact run IDs, preserves tenant and organization scope, writes through the command bus, and leaves unresolved, unevidenced, missing, or cross-scope runs unchanged.

@@ -49,6 +49,22 @@ describe('GTM C3 operator API contracts', () => {
       noliUserId: USER,
       exposeCredentials: true,
     }).success).toBe(false)
+    expect(gtmReconciliationBodySchema.safeParse({
+      op: 'repair-run-summaries',
+      noliUserId: USER,
+      runIds: [MAILBOX],
+    }).success).toBe(true)
+    expect(gtmReconciliationBodySchema.safeParse({
+      op: 'repair-run-summaries',
+      noliUserId: USER,
+      runIds: Array.from({ length: 51 }, () => MAILBOX),
+    }).success).toBe(false)
+    expect(gtmReconciliationBodySchema.safeParse({
+      op: 'repair-run-summaries',
+      noliUserId: USER,
+      runIds: [MAILBOX],
+      force: true,
+    }).success).toBe(false)
   })
 
   it('bounds the R4 test-only ingestion request to an exact RFC reply header', () => {

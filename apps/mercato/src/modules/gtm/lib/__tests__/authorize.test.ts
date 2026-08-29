@@ -68,6 +68,7 @@ describe('GTM server-side feature authorization', () => {
     expect(reconciliationFeatureForOp('ai-telemetry')).toBe('gtm.view')
     expect(reconciliationFeatureForOp('opportunity-quality')).toBe('gtm.view')
     expect(reconciliationFeatureForOp('apply')).toBe('gtm.approve')
+    expect(reconciliationFeatureForOp('repair-run-summaries')).toBe('gtm.approve')
   })
 
   it('reserves paid provider work and reply sends for launch-capable users', () => {

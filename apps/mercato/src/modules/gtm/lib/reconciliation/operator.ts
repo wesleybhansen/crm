@@ -189,6 +189,12 @@ export type GtmOperatorReconciliationResult = {
   idempotent: boolean
 }
 
+export type GtmResearchRunSummaryRepairResult = {
+  requestedRunIds: string[]
+  repairedRunIds: string[]
+  unchangedRunIds: string[]
+}
+
 export type GtmProviderReconciliationErrorCode =
   | 'operation_not_found'
   | 'invalid_idempotency_key'
@@ -535,24 +541,27 @@ function resolvedResearchStopReason(execution: Record<string, unknown>): string 
   return 'sources_exhausted'
 }
 
-async function refreshResearchRunReconciliationSummary(
+async function repairResearchRunReconciliationSummary(
   em: CampaignEm,
   ctx: GtmCtx,
-  operation: GtmProviderOperation,
-): Promise<void> {
-  if (!operation.researchRunId) return
-  await em.transactional(async (tem) => {
+  researchRunId: string,
+  onlyWhenHeld = false,
+): Promise<boolean> {
+  return em.transactional(async (tem) => {
     const run = await tem.findOne(
       GtmResearchRun,
       {
-        id: operation.researchRunId,
+        id: researchRunId,
         organizationId: ctx.organizationId,
         tenantId: ctx.tenantId,
         deletedAt: null,
       },
       { lockMode: LockMode.PESSIMISTIC_WRITE },
     )
-    if (!run) return
+    if (!run) return false
+    const providerPlan = isPlainRecord(run.providerPlan) ? run.providerPlan : {}
+    const execution = isPlainRecord(providerPlan.execution) ? providerPlan.execution : {}
+    if (onlyWhenHeld && execution.reconciliation_required !== true) return false
     const operations = await tem.find(GtmProviderOperation, {
       researchRunId: run.id,
       organizationId: ctx.organizationId,
@@ -562,20 +571,18 @@ async function refreshResearchRunReconciliationSummary(
     if (
       operations.length === 0
       || operations.some((candidate) => !TERMINAL_PROVIDER_STATUSES.has(candidate.localStatusMirror ?? ''))
-    ) return
+    ) return false
 
     const creditsByOperation = new Map<string, number>()
     let reconciledCredits = 0
     for (const candidate of operations) {
       const credits = operationChargedCredits(candidate)
-      if (credits == null) return
+      if (credits == null) return false
       creditsByOperation.set(candidate.id, credits)
       reconciledCredits += credits
     }
-    if (!Number.isSafeInteger(reconciledCredits)) return
+    if (!Number.isSafeInteger(reconciledCredits)) return false
 
-    const providerPlan = isPlainRecord(run.providerPlan) ? run.providerPlan : {}
-    const execution = isPlainRecord(providerPlan.execution) ? providerPlan.execution : {}
     const funnel = isPlainRecord(execution.funnel) ? execution.funnel : null
     const batches = Array.isArray(execution.batches)
       ? execution.batches.map((batch) => {
@@ -610,7 +617,46 @@ async function refreshResearchRunReconciliationSummary(
     run.providerPlan = { ...providerPlan, execution: nextExecution }
     tem.persist(run)
     await tem.flush()
+    return true
   })
+}
+
+async function refreshResearchRunReconciliationSummary(
+  em: CampaignEm,
+  ctx: GtmCtx,
+  operation: GtmProviderOperation,
+): Promise<void> {
+  if (!operation.researchRunId) return
+  await repairResearchRunReconciliationSummary(em, ctx, operation.researchRunId)
+}
+
+/**
+ * Repairs only explicitly named stale research-run summaries. A run remains
+ * unchanged unless it belongs to the exact tenant and organization, still
+ * advertises a reconciliation hold, every child provider operation is
+ * terminal, and every terminal charge is recoverable from durable evidence.
+ */
+export async function repairResolvedResearchRunSummaries(
+  em: CampaignEm,
+  ctx: GtmCtx,
+  runIds: string[],
+): Promise<GtmResearchRunSummaryRepairResult> {
+  const requestedRunIds = [...new Set(runIds)]
+  if (requestedRunIds.length === 0 || requestedRunIds.length > 50) {
+    throw new GtmProviderReconciliationError(
+      'invalid_evidence',
+      'research-run summary repair requires between 1 and 50 exact run ids',
+    )
+  }
+
+  const repairedRunIds: string[] = []
+  const unchangedRunIds: string[] = []
+  for (const runId of requestedRunIds) {
+    const repaired = await repairResearchRunReconciliationSummary(em, ctx, runId, true)
+    if (repaired) repairedRunIds.push(runId)
+    else unchangedRunIds.push(runId)
+  }
+  return { requestedRunIds, repairedRunIds, unchangedRunIds }
 }
 
 async function findScopedOperation(
