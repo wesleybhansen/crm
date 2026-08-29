@@ -474,6 +474,11 @@ describe('operator/provider reconciliation', () => {
       evidence: suppliedEvidence,
     })
     ;(suppliedEvidence.details.invoice as { units: number }).units = 999
+    // PostgreSQL bigint columns hydrate as strings in production even though
+    // the entity presents the field as a number. Exact replay must compare
+    // the integer value rather than rejecting the durable action record.
+    ;(em.table(GtmProviderReconciliationAction)[0] as unknown as { chargedCredits: string })
+      .chargedCredits = '3'
 
     const replay = await reconcileProviderOperation({
       em,
