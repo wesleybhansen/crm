@@ -191,14 +191,23 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
       `(homeowner OR homebuyer) AND (meetup OR group OR forum OR community) AND ("${market}" OR "${location}")`,
     ]
   }
-  if (
-    adapterId === 'apify-x-demand-opportunities'
-    || adapterId === 'apify-threads-demand-opportunities'
-  ) {
-    // Both selected actors document ordinary keyword search, not a hidden
-    // query fan-out. Keep the first separately quoted lane short and literal
-    // so returned post content must independently prove market and demand;
-    // fit-v7 still proves location, intent, recency, safety, and utility.
+  if (adapterId === 'apify-threads-demand-opportunities') {
+    // Threads accepts ordinary keyword queries. Exact-phrase query v28
+    // returned zero provider rows, so keep three separately quoted lanes
+    // short and unquoted. They still share the immutable raw ceiling, and
+    // returned content must independently prove location and demand.
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: ['buying a home', 'house hunting', 'first time homebuyer'],
+      seller_intent: ['selling my home', 'thinking of selling', 'home value'],
+      mixed_intent: ['buying and selling a home', 'sell before buying', 'buy before selling'],
+      local_audience: ['homeowner community', 'homebuyer workshop', 'neighborhood association'],
+    }
+    return byIntent[intent]
+  }
+  if (adapterId === 'apify-x-demand-opportunities') {
+    // X has a material per-run initialization charge. Keep its first lane
+    // short and literal; fit-v7 proves location, intent, recency, safety, and
+    // utility from returned content rather than the targeting query.
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: ['"buying a home"', '"house hunting"', '"first time home buyer"'],
       seller_intent: ['"selling my home"', '"thinking of selling"', '"home worth"'],
@@ -402,7 +411,8 @@ export function buildOpportunityQueryLanes(
   const realtor = REALTOR_PLAY.test(playText)
   const seeds = unique(realtor ? realtorSeeds(intent, adapterId, geography) : genericSeeds(play))
   // X has a material per-run initialization charge. Threads has no fixed fee,
-  // but starts at one bounded source-native query until quality is measured.
+  // so three separately quoted lanes can improve recall while still sharing
+  // the same immutable raw ceiling and charging only returned posts.
   // LinkedIn also stays at one boolean query because the live actor can outlast
   // the synchronous wait boundary. Reddit retains three independently quoted
   // scopes. Organic search stays cheap per quoted SERP and gets five narrow
@@ -410,12 +420,13 @@ export function buildOpportunityQueryLanes(
   // result pages inside one keyword.
   const sourceLaneCap =
     adapterId === 'apify-x-demand-opportunities'
-    || adapterId === 'apify-threads-demand-opportunities'
     || adapterId === 'apify-linkedin-demand-opportunities'
       ? 1
-      : adapterId === 'dataforseo-organic-demand-opportunities'
-        ? 5
-        : 3
+      : adapterId === 'apify-threads-demand-opportunities'
+        ? 3
+        : adapterId === 'dataforseo-organic-demand-opportunities'
+          ? 5
+          : 3
   const laneCap = Math.max(1, Math.min(maxLanes, sourceLaneCap))
   const selectedSeeds = seeds.slice(0, laneCap)
   const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
@@ -433,7 +444,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v28',
+        query_lane_version: 'opportunity-query-v29',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
