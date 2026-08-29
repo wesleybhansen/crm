@@ -166,6 +166,7 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
       throw new TypeError('Reddit comment search is not supported by this actor contract')
     }
     const query = queryText(plan, 700)
+    const filterKeywords = redditFilterKeywords(plan)
     validateRedditGlobalSearch(plan, {
       query,
       maxResults,
@@ -179,6 +180,8 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
       timeFilter: redditTimeFilter(plan),
       maxPostsPerSource: maxResults,
       includeComments: false,
+      filterKeywords,
+      filterKeywordMode: 'any',
       outputFormat: 'default',
     }
   },
@@ -470,6 +473,32 @@ function redditSubreddits(plan: SourceSearchPlan): string[] {
       return true
     })
     .slice(0, 8)
+}
+
+function redditFilterKeywords(plan: SourceSearchPlan): string[] {
+  const values = plan.provider_query?.reddit_filter_keywords
+  if (!Array.isArray(values)) {
+    throw new TypeError('Reddit search requires explicit returned-content filter keywords')
+  }
+  const seen = new Set<string>()
+  const keywords = values
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim().replace(/\s+/g, ' '))
+    .filter((value) => value.length >= 3 && value.length <= 80)
+    .filter((value) => {
+      const key = value.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, 8)
+  if (keywords.length === 0) {
+    throw new TypeError('Reddit search requires at least one bounded returned-content keyword')
+  }
+  if (plan.provider_query?.reddit_filter_keyword_mode !== 'any') {
+    throw new TypeError('Reddit returned-content keyword mode must be any')
+  }
+  return keywords
 }
 
 function scopedSubredditLocation(

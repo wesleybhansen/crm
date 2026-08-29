@@ -207,6 +207,37 @@ function realtorRedditCommentSeed(intent: OpportunityIntentLane): string | null 
   return null
 }
 
+function realtorRedditFilterKeywords(
+  intent: OpportunityIntentLane,
+  laneIndex: number,
+  geography: string,
+): string[] {
+  const market = marketName(geography)
+  const byIntent: Record<OpportunityIntentLane, string[][]> = {
+    buyer_intent: [
+      ['buying a home', 'buy a house', 'first time home buyer', 'house hunting'],
+      ['mortgage pre approval', 'down payment', 'closing costs'],
+      [`moving to ${market}`, `relocating to ${market}`, `buying in ${market}`],
+    ],
+    seller_intent: [
+      ['selling my home', 'selling our home', 'selling my house', 'thinking of selling'],
+      ['what is my home worth', 'home valuation', 'preparing to sell'],
+      [`sell my house in ${market}`, `selling my home in ${market}`, `moving from ${market}`],
+    ],
+    mixed_intent: [
+      ['buy before selling', 'sell before buying', 'selling a home while buying'],
+      ['buying and selling', 'sell then buy'],
+      [`moving to ${market}`, `moving from ${market}`],
+    ],
+    local_audience: [
+      ['neighborhood association', 'community meeting', 'homeowner event'],
+      ['home buyer workshop', 'home seller workshop', 'housing event'],
+      ['homeowner', 'homebuyer', 'meetup', 'community'],
+    ],
+  }
+  return byIntent[intent][laneIndex]?.slice(0, 8) ?? []
+}
+
 function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-x-demand-opportunities') return 100
   if (adapterId === 'apify-linkedin-demand-opportunities') return 200
@@ -378,7 +409,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v22',
+        query_lane_version: 'opportunity-query-v23',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -388,11 +419,16 @@ export function buildOpportunityQueryLanes(
           ? { search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM }
           : {}),
         ...(adapterId === 'apify-reddit-demand-opportunities'
-          ? index === 0
+          ? {
+              reddit_filter_keywords: realtor
+                ? realtorRedditFilterKeywords(intent, index, geography)
+                : [query].filter(Boolean),
+              reddit_filter_keyword_mode: 'any',
+              ...(index === 0
             ? {
                 reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
                 reddit_auto_discover: false,
-                reddit_sort: 'new',
+                reddit_sort: 'relevance',
               }
             : index === 1
               ? {
@@ -421,6 +457,8 @@ export function buildOpportunityQueryLanes(
                     reddit_sort: 'relevance',
                     reddit_content_type: 'posts',
                   }
+              ),
+            }
           : {}),
       },
     }

@@ -37,6 +37,8 @@ const plan: SourceSearchPlan = {
     source_search_keywords: ['South Bay buying or selling a home'],
     locations: ['South Bay, California'],
     recency_window: 'last 7 days',
+    reddit_filter_keywords: ['buying a home', 'selling a home'],
+    reddit_filter_keyword_mode: 'any',
   },
   max_candidates: 5,
   max_charge_usd: 0.02,
@@ -560,6 +562,29 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).not.toHaveBeenCalled()
   })
 
+  it('refuses a Reddit search without explicit returned-content filters before a paid call', async () => {
+    const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor,
+    })
+    const result = await adapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        reddit_filter_keywords: [],
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'error',
+      cost_units: 0,
+      error: expect.stringContaining('returned-content keyword'),
+    })
+    expect(runActor).not.toHaveBeenCalled()
+  })
+
   it('uses a market-bound global search while keeping subreddit auto-discovery off', async () => {
     const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
     const adapter = createApifyRedditOpportunityAdapter({
@@ -670,6 +695,8 @@ describe('Apify public social demand opportunities', () => {
         timeFilter: 'week',
         maxPostsPerSource: 5,
         includeComments: false,
+        filterKeywords: ['buying a home', 'selling a home'],
+        filterKeywordMode: 'any',
         outputFormat: 'default',
       },
       expect.objectContaining({
