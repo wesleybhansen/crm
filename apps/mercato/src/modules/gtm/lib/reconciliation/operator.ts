@@ -686,7 +686,7 @@ function assertActionMatches(
     action.idempotencyKey !== stored.idempotency_key ||
     action.decision !== stored.decision ||
     action.expectedStatus !== stored.previous_status ||
-    action.chargedCredits !== stored.charged_credits ||
+    exactCredits(action.chargedCredits) !== stored.charged_credits ||
     action.evidenceHash !== stored.evidence_hash ||
     action.actorUserId !== stored.actor_user_id ||
     action.status !== expectedLifecycle ||
