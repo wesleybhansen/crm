@@ -245,54 +245,45 @@ export const APIFY_THREADS_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-threads-demand-opportunities',
   platform: 'Threads',
   enabledEnv: 'GTM_APIFY_THREADS_OPPORTUNITY_ENABLED',
-  actorId: 'webdata_labs/threads-scraper',
-  actorBuild: '0.1.7',
+  actorId: 'pro100chok/threads-scraper-usage',
+  actorBuild: '0.5.1',
   actorEnv: 'GTM_APIFY_ACTOR_THREADS_SEARCH',
   useApprovalEnv: 'GTM_APIFY_THREADS_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_THREADS_SEARCH_PRICE_VERSION',
   // Authenticated production-account metadata was rechecked without running
-  // the actor on 2026-08-29. The account is on FREE: public post results cost
-  // $0.003 each and there is no run-start charge. Search mode must never emit
-  // the separately priced profile-result event; that event stays in the
-  // vocabulary so an unexpected charge is parked for reconciliation.
-  requiredPriceVersion: 'webdata-labs-threads-scraper-0.1.7-free-events-2026-08-29',
-  eventPricesUsd: { 'post-result': 0.003, 'profile-result': 0.005 },
-  oneTimeEvent: null,
-  primaryResultEvent: 'post-result',
-  perItemQuoteUsd: 0.003,
-  oneTimeQuoteUsd: 0,
+  // the actor on 2026-08-29. The account is on FREE: each run costs $0.001 and
+  // each returned dataset item costs $0.004. The actor is explicitly pinned to
+  // public post search, so provider-extracted profile contact fields are never
+  // requested or retained by this adapter.
+  requiredPriceVersion: 'pro100chok-threads-scraper-usage-0.5.1-free-events-2026-08-29',
+  eventPricesUsd: { 'apify-actor-start': 0.001, 'apify-default-dataset-item': 0.004 },
+  oneTimeEvent: 'apify-actor-start',
+  primaryResultEvent: 'apify-default-dataset-item',
+  perItemQuoteUsd: 0.004,
+  oneTimeQuoteUsd: 0.001,
   datasetFields: [
-    'type',
-    'postId',
+    'post_id',
+    'code',
     'username',
-    'fullName',
-    'isPrivate',
+    'full_name',
+    'is_private',
     'text',
-    'date',
-    'likeCount',
-    'replyCount',
-    'repostCount',
-    'quoteCount',
-    'url',
-    'searchQuery',
-    'scrapedAt',
+    'taken_at',
+    'like_count',
+    'reply_count',
+    'repost_count',
+    'quote_count',
+    'reshare_count',
+    'post_url',
+    'is_reply',
   ],
-  buildInput(plan, maxResults, attemptedAt) {
-    const attemptedAtMs = Date.parse(attemptedAt)
-    if (!Number.isFinite(attemptedAtMs)) {
-      throw new TypeError('a valid Threads attempt time is required')
-    }
-    const postedAfter = new Date(
-      attemptedAtMs - recencyDays(plan) * 24 * 60 * 60 * 1_000,
-    ).toISOString()
+  buildInput(plan, maxResults) {
     return {
-      mode: 'search',
-      searchQueries: [queryText(plan, 100)],
-      maxPosts: maxResults,
-      postedAfter,
-      postedBefore: attemptedAt,
-      includeProfile: false,
-      maxScrolls: 0,
+      action: 'search',
+      queries: [queryText(plan, 100)],
+      serp_type: 'default',
+      maxItems: maxResults,
+      useOurAccounts: true,
     }
   },
   normalize: normalizeThreadsOpportunity,
@@ -838,8 +829,12 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
 
 export function normalizeThreadsOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
   const row = record(value)
-  if (!row || text(row.type, 30)?.toLowerCase() !== 'post' || row.isPrivate === true) return null
-  const sourceUrl = safePlatformUrl(row.url, 'Threads')
+  if (!row) return null
+  const legacyType = text(row.type, 30)?.toLowerCase()
+  const postId = text(row.post_id ?? row.postId, 200)
+  const sourceUrl = safePlatformUrl(row.post_url ?? row.url, 'Threads')
+  if ((legacyType && legacyType !== 'post') || row.is_private === true || row.isPrivate === true) return null
+  if (!postId || !sourceUrl) return null
   const content = text(row.text, 800)
   if (
     !sourceUrl
@@ -849,13 +844,14 @@ export function normalizeThreadsOpportunity(value: unknown, context: NormalizeCo
   ) return null
   const engagement = Math.min(
     10_000_000,
-    nonNegativeInteger(row.likeCount) +
-      nonNegativeInteger(row.replyCount) +
-      nonNegativeInteger(row.repostCount) +
-      nonNegativeInteger(row.quoteCount),
+    nonNegativeInteger(row.like_count ?? row.likeCount) +
+      nonNegativeInteger(row.reply_count ?? row.replyCount) +
+      nonNegativeInteger(row.repost_count ?? row.repostCount) +
+      nonNegativeInteger(row.quote_count ?? row.quoteCount) +
+      nonNegativeInteger(row.reshare_count),
   )
   const username = text(row.username, 100)?.replace(/^@/, '') ?? null
-  const fullName = text(row.fullName, 120)
+  const fullName = text(row.full_name ?? row.fullName, 120)
   const profileUrl = username
     ? safePlatformUrl(`https://www.threads.com/@${encodeURIComponent(username)}`, 'Threads')
     : null
@@ -879,7 +875,7 @@ export function normalizeThreadsOpportunity(value: unknown, context: NormalizeCo
         : undefined,
   })
   identity.opportunity_kind = 'post'
-  const publishedAt = sourcePublishedAt(row.date)
+  const publishedAt = sourcePublishedAt(row.taken_at ?? row.date)
   identity.source_published_at = publishedAt
   const demonstratedIntent = classifyOpportunityIntent(content)
   return {
@@ -904,7 +900,7 @@ export function normalizeThreadsOpportunity(value: unknown, context: NormalizeCo
         detail: {
           provider: 'apify',
           actor_id: context.actorId,
-          provider_post_id: text(row.postId, 200),
+          provider_post_id: postId,
           requested_location: context.location,
           requested_intent: context.expectedIntent ?? null,
           source_published_at: publishedAt,
