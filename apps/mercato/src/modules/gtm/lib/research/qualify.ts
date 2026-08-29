@@ -336,37 +336,20 @@ function opportunityActionabilityStatus(args: {
   messageAngle: string | null
   participationRules: string | null
   participationRulesStatus: string | null
-  opportunityKind: string | null
-  accessType: string | null
-  destinationStatus: CriterionStatus
 }): CriterionStatus {
   const {
     recommendedAction,
     messageAngle,
     participationRules,
     participationRulesStatus,
-    opportunityKind,
-    accessType,
-    destinationStatus,
   } = args
   if (!recommendedAction || recommendedAction.length < 20 || !messageAngle || messageAngle.length < 20) {
     return 'unknown'
   }
-  // A current, public event is already an actionable destination when the
-  // proposed action is only to register/attend and explicitly forbids
-  // automated contact or promotion. Posting in a community still requires
-  // source-observed rules below.
-  if (
-    opportunityKind === 'event'
-    && (accessType === 'public' || accessType === 'ticketed')
-    && destinationStatus === 'pass'
-    && /\b(?:register|attend)\b/i.test(recommendedAction)
-    && /\b(?:do not|avoid)\b.{0,60}\b(?:automate|contact|promotion)\b/i.test(
-      `${recommendedAction}\n${messageAngle}`,
-    )
-  ) {
-    return 'pass'
-  }
+  // A live public event proves that a destination exists, but not that a
+  // realtor may attend or participate. Some consumer workshops explicitly
+  // prohibit agents, brokers, or lenders. Keep actionability unknown until
+  // the source's participation terms have been observed.
   // A provider row that merely tells the customer to review the rules does
   // not demonstrate that the venue permits the proposed participation.
   if (participationRulesStatus !== 'observed' || !participationRules) return 'unknown'
@@ -382,6 +365,7 @@ function opportunityActionabilityStatus(args: {
   const professionalParticipationForbidden =
     /\b(?:agent|realtor|industry|professional|business|commercial)\w*\b.{0,50}\b(?:may not|must not|cannot|can't|prohibit(?:ed)?|forbid(?:den)?|not allowed)\b.{0,30}\b(?:participat|post|comment|reply|contribut)/i.test(rules)
     || /\b(?:no|prohibit(?:s|ed)?|forbid(?:s|den)?|not allowed)\b.{0,50}\b(?:agent|realtor|industry|professional|business|commercial)\w*\b/i.test(rules)
+    || /\b(?:agents?|realtors?|brokers?|lenders?|industry professionals?)\b.{0,80}\b(?:may not|must not|cannot|can't|prohibited|forbidden|not allowed)\b/i.test(rules)
 
   if (professionalParticipationForbidden || (promotionRestricted && proposedPromotion)) return 'fail'
   return 'pass'
@@ -483,9 +467,6 @@ function scoreOpportunity(
     messageAngle,
     participationRules,
     participationRulesStatus,
-    opportunityKind,
-    accessType: accessObserved,
-    destinationStatus: destination.status,
   })
   const noise = isRealtorPlay
     ? realtorOpportunityNoiseReasons(observedText, destination.canonicalUrl)
