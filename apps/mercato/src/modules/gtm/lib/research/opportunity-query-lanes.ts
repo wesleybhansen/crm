@@ -191,6 +191,19 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
       `(homeowner OR homebuyer) AND (meetup OR group OR forum OR community) AND ("${market}" OR "${location}")`,
     ]
   }
+  if (adapterId === 'apify-x-demand-opportunities') {
+    // The selected actor documents one ordinary search string, not a hidden
+    // query fan-out. Keep the first separately quoted X lane short and literal
+    // so the returned post itself must contain the market and demand phrase;
+    // fit-v7 still independently proves location, intent, recency and utility.
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: ['"buying a home"', '"house hunting"', '"first time home buyer"'],
+      seller_intent: ['"selling my home"', '"thinking of selling"', '"home worth"'],
+      mixed_intent: ['"buying and selling" home', '"sell before buying"', '"buy before selling"'],
+      local_audience: ['homeowner community event', 'homebuyer workshop', 'neighborhood association'],
+    }
+    return byIntent[intent]
+  }
   const socialSeeds: Record<OpportunityIntentLane, string[]> = {
     buyer_intent: [
       '("buying a home" OR "house hunting" OR "first-time home buyer") AND ("I am" OR "we are") NOT (realtor OR agent OR broker OR mortgage OR lender)',
@@ -414,7 +427,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v26',
+        query_lane_version: 'opportunity-query-v27',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
