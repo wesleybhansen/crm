@@ -474,11 +474,11 @@ describe('operator/provider reconciliation', () => {
       evidence: suppliedEvidence,
     })
     ;(suppliedEvidence.details.invoice as { units: number }).units = 999
-    // PostgreSQL bigint columns hydrate as strings in production even though
+    // PostgreSQL bigint columns can hydrate as bigint or string even though
     // the entity presents the field as a number. Exact replay must compare
     // the integer value rather than rejecting the durable action record.
-    ;(em.table(GtmProviderReconciliationAction)[0] as unknown as { chargedCredits: string })
-      .chargedCredits = '3'
+    ;(em.table(GtmProviderReconciliationAction)[0] as unknown as { chargedCredits: bigint })
+      .chargedCredits = 3n
 
     const replay = await reconcileProviderOperation({
       em,
@@ -501,6 +501,20 @@ describe('operator/provider reconciliation', () => {
       invoice: { line: 9, units: 3 },
     })
 
+    ;(em.table(GtmProviderReconciliationAction)[0] as unknown as { chargedCredits: string })
+      .chargedCredits = '3'
+    const stringHydrationReplay = await reconcileProviderOperation({
+      em,
+      canonicalReconciler,
+      ctx,
+      operationId: operation.id,
+      idempotencyKey: 'operator-charge-replay',
+      decision: { outcome: 'charged', chargedCredits: 3 },
+      evidence: evidence({ details: { invoice: { line: 9, units: 3 }, currency: 'USD' } }),
+    })
+    expect(stringHydrationReplay.idempotent).toBe(true)
+    expect(canonicalCalls).toHaveBeenCalledTimes(3)
+
     await expect(
       reconcileProviderOperation({
         em,
@@ -512,7 +526,7 @@ describe('operator/provider reconciliation', () => {
         evidence: evidence({ reference: 'support-case-conflict' }),
       }),
     ).rejects.toMatchObject({ code: 'already_reconciled' })
-    expect(canonicalCalls).toHaveBeenCalledTimes(2)
+    expect(canonicalCalls).toHaveBeenCalledTimes(3)
     expect(em.table(GtmAuditEvent)).toHaveLength(1)
     expect(ledger.getOperation(operation.noliCoreOperationId)).toMatchObject({
       status: 'charged',
