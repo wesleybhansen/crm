@@ -148,7 +148,7 @@ export function evaluateGtmArtifact(rawFixture: GtmArtifactFixture): GtmArtifact
       if (demonstratedIntent !== label.expectedIntent) detected.push('semantic_intent_mismatch')
       if (
         !locationMatches(label.playGeography, label.observedLocation)
-        || publicSourceGeographyConflict(destination, [label.playGeography])
+        || publicSourceGeographyConflict(destination, [label.playGeography], label.observedContent)
       ) {
         detected.push('geography_mismatch')
       }
