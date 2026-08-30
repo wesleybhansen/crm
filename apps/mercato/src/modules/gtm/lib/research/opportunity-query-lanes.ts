@@ -206,24 +206,26 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     // X's BRONZE contract makes three separately quoted searches economical.
     // Bind the market inside each literal phrase. A loose market token can
     // match an author handle (for example, `Austin` in `@austinblair`) while
-    // the post itself proves no geography. fit-v7 still proves location,
-    // intent, recency, safety, and utility from returned content rather than
-    // treating the targeting query as evidence.
+    // the post itself proves no geography. Current-decision verbs also avoid
+    // spending the bounded pool on posts that merely recount a completed
+    // purchase or sale. fit-v7 still proves location, intent, recency, safety,
+    // and utility from returned content rather than treating targeting as
+    // evidence.
     const market = marketName(geography)
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        `"buy a house in ${market}"`,
-        `"buying a home in ${market}"`,
-        `"moving to ${market} to buy"`,
+        `"looking to buy a home in ${market}"`,
+        `"trying to buy a house in ${market}"`,
+        `"planning to buy a home in ${market}"`,
       ],
       seller_intent: [
-        `"sell my house in ${market}"`,
-        `"selling my home in ${market}"`,
-        `"selling our house in ${market}"`,
+        `"thinking about selling my home in ${market}"`,
+        `"planning to sell my house in ${market}"`,
+        `"need to sell my home in ${market}"`,
       ],
       mixed_intent: [
-        `"sell my house and buy in ${market}"`,
-        `"selling our home and buying in ${market}"`,
+        `"selling my home in ${market} and buying"`,
+        `"buy before selling in ${market}"`,
         `"sell before buying in ${market}"`,
       ],
       local_audience: [
@@ -465,7 +467,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v35',
+        query_lane_version: 'opportunity-query-v36',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
