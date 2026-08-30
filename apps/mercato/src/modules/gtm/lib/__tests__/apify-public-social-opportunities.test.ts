@@ -229,7 +229,7 @@ describe('Apify public social demand opportunities', () => {
     expect(APIFY_THREADS_OPPORTUNITY_CONFIG.datasetFields).not.toContain('profile_contacts')
   })
 
-  it('keeps the high-fixed-cost X source held unless its capability switch is explicit', () => {
+  it('keeps the X source held unless its capability switch is explicit', () => {
     const env = envFor(APIFY_X_OPPORTUNITY_CONFIG)
     expect(publicSocialOpportunityEnabled(APIFY_X_OPPORTUNITY_CONFIG, env)).toBe(false)
     expect(
@@ -1191,7 +1191,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v33',
+        query_lane_version: 'opportunity-query-v34',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'austinhomebuyer',
       },
@@ -1224,7 +1224,7 @@ describe('Apify public social demand opportunities', () => {
     }
   })
 
-  it('plans Reddit and one fixed-charge-aware X shortfall lane', () => {
+  it('plans three Reddit and three fixed-charge-aware X shortfall lanes', () => {
     const adapters = [
       createApifyRedditOpportunityAdapter({
         env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
@@ -1254,10 +1254,59 @@ describe('Apify public social demand opportunities', () => {
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_X_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_X_OPPORTUNITY_CONFIG.adapterId,
       ])
+      expect(result.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([4, 4, 3, 3, 3, 3])
       expect(result.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(20)
-      expect(new Set(result.adapterPlan.map((batch) => `${batch.adapter_id}:${batch.queryLaneId}`)).size).toBe(4)
+      expect(new Set(result.adapterPlan.map((batch) => `${batch.adapter_id}:${batch.queryLaneId}`)).size).toBe(6)
       expect(result.adapterPlan.every((batch) => batch.billableUnit === 'apify_millidollar')).toBe(true)
+    }
+  })
+
+  it('builds three market-bound X lanes inside one raw and dollar ceiling', () => {
+    const play = {
+      marketType: 'b2c' as const,
+      geography: 'Austin, Texas, US',
+      signalKind: 'social_engagement',
+      entityUnit: 'opportunities',
+      audience: 'Austin people buying a home',
+      signal: 'buyer intent',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }
+    const lanes = buildOpportunityQueryLanes(play, APIFY_X_OPPORTUNITY_CONFIG.adapterId, 5)
+    expect(lanes.map((lane) => lane.query)).toEqual([
+      'Austin "I am buying a home"',
+      'Austin "we are buying a home"',
+      'Austin "I want to buy a house"',
+    ])
+    expect(lanes.every((lane) => (
+      lane.providerQuery.query_lane_version === 'opportunity-query-v34'
+      && lane.providerQuery.opportunity_intent_lane === 'buyer_intent'
+    ))).toBe(true)
+
+    const planned = buildSourcePlan(
+      play,
+      [
+        createApifyXOpportunityAdapter({
+          env: {
+            ...envFor(APIFY_X_OPPORTUNITY_CONFIG),
+            GTM_APIFY_X_OPPORTUNITY_ENABLED: 'true',
+          },
+        }),
+      ],
+      { targetAccepted: 9, maxRawCandidates: 9, maxCredits: 30_000 },
+      2,
+    )
+    expect(planned.ok).toBe(true)
+    if (planned.ok) {
+      expect(planned.adapterPlan).toHaveLength(3)
+      expect(planned.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([3, 3, 3])
+      expect(planned.plannedRawCapacity).toBe(9)
+      // Each X lane reserves Apify's $0.01 provider minimum. At BRONZE, the
+      // exact expected event cost for three starts and nine rows is $0.00975;
+      // reconciliation charges the actual receipt instead of the reservation.
+      expect(planned.estimatedCredits).toBe(15_000)
     }
   })
 })
