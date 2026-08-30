@@ -4,13 +4,17 @@ import { fixtureConsumerSourceAdapter } from './fixture-consumer'
 import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
 import { apifyOpportunitySourceEnabled, createApifyOpportunitySourceAdapter } from './apify/opportunity-source'
 import {
+  apifyInstagramOpportunityEnabled,
   apifyMeetupOpportunityEnabled,
   apifyRedditOpportunityEnabled,
   apifyThreadsOpportunityEnabled,
+  apifyTikTokOpportunityEnabled,
   apifyXOpportunityEnabled,
+  createApifyInstagramOpportunityAdapter,
   createApifyMeetupOpportunityAdapter,
   createApifyRedditOpportunityAdapter,
   createApifyThreadsOpportunityAdapter,
+  createApifyTikTokOpportunityAdapter,
   createApifyXOpportunityAdapter,
 } from './apify/public-social-opportunity-source'
 import { apifyEnrichEnabled, createApifyEnrichAdapter } from './apify/enrich'
@@ -85,6 +89,14 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifyThreadsOpportunityEnabled()) {
     const threadsOpportunities = createApifyThreadsOpportunityAdapter()
     registry[threadsOpportunities.descriptor.adapter_id] = threadsOpportunities
+  }
+  if (apifyInstagramOpportunityEnabled()) {
+    const instagramOpportunities = createApifyInstagramOpportunityAdapter()
+    registry[instagramOpportunities.descriptor.adapter_id] = instagramOpportunities
+  }
+  if (apifyTikTokOpportunityEnabled()) {
+    const tiktokOpportunities = createApifyTikTokOpportunityAdapter()
+    registry[tiktokOpportunities.descriptor.adapter_id] = tiktokOpportunities
   }
   if (apifyMeetupOpportunityEnabled()) {
     const meetupOpportunities = createApifyMeetupOpportunityAdapter()

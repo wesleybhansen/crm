@@ -43,7 +43,7 @@ const SENSITIVE_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
 
 type SocialEnv = Record<string, string | undefined>
-type SocialPlatform = 'Reddit' | 'X' | 'Threads' | 'Meetup'
+type SocialPlatform = 'Reddit' | 'X' | 'Threads' | 'Meetup' | 'Instagram' | 'TikTok'
 
 export type PublicSocialOpportunityConfig = {
   adapterId: string
@@ -61,6 +61,7 @@ export type PublicSocialOpportunityConfig = {
   auxiliaryResultEvents?: readonly string[]
   perItemQuoteUsd: number
   oneTimeQuoteUsd: number
+  minimumMaxChargeUsd?: number
   maxBatch?: number
   datasetFields: readonly string[]
   buildInput(plan: SourceSearchPlan, maxResults: number, attemptedAt: string): Record<string, unknown>
@@ -95,6 +96,35 @@ function isMeetupReturnedContentFilterVersion(
   value: unknown,
 ): value is MeetupReturnedContentFilterVersion {
   return value === 'realtor-housing-event-v1'
+}
+
+type SocialReturnedContentFilterVersion = 'realtor-public-post-v1'
+
+function isSocialReturnedContentFilterVersion(
+  value: unknown,
+): value is SocialReturnedContentFilterVersion {
+  return value === 'realtor-public-post-v1'
+}
+
+function validateSocialReturnedContentFilter(plan: SourceSearchPlan): void {
+  if (plan.provider_query?.social_public_post_contract_version !== 'public-posts-v1') {
+    throw new TypeError('public-post sourcing requires the frozen input contract')
+  }
+  if (!isSocialReturnedContentFilterVersion(
+    plan.provider_query?.social_returned_content_filter_version,
+  )) {
+    throw new TypeError('public-post sourcing requires the frozen returned-content filter')
+  }
+  const intent = plan.provider_query?.social_filter_required_intent
+  if (!['buyer_intent', 'seller_intent', 'mixed_intent', 'local_audience'].includes(String(intent))) {
+    throw new TypeError('public-post sourcing requires a supported intent lane')
+  }
+  if (plan.provider_query?.social_filter_require_location !== true) {
+    throw new TypeError('public-post sourcing requires returned-content location evidence')
+  }
+  if (plan.provider_query?.social_window_days !== 30) {
+    throw new TypeError('public-post sourcing requires the frozen 30-day window')
+  }
 }
 
 function classifyRedditOpportunityIntent(
@@ -191,13 +221,47 @@ function returnedContentMatchesMeetupFilter(candidate: Candidate, plan: SourceSe
   ).relevant
 }
 
+function returnedContentMatchesSocialFilter(candidate: Candidate, plan: SourceSearchPlan): boolean {
+  if (!isSocialReturnedContentFilterVersion(
+    plan.provider_query?.social_returned_content_filter_version,
+  )) return false
+  const expected = plan.provider_query?.social_filter_required_intent
+  if (
+    expected !== 'buyer_intent'
+    && expected !== 'seller_intent'
+    && expected !== 'mixed_intent'
+    && expected !== 'local_audience'
+  ) return false
+  const content = [candidate.identity.name, candidate.identity.audience_description]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+  const requestedLocation = locationText(plan)
+  const locationMatches = Boolean(
+    requestedLocation
+    && (
+      candidate.identity.location === requestedLocation
+      || demonstratedOpportunityLocation(content, requestedLocation)
+    ),
+  )
+  if (!locationMatches) return false
+  const sourceUrl = candidate.identity.urls?.find((value) => typeof value === 'string') ?? null
+  return assessRealtorOpportunitySuitability(
+    content,
+    expected,
+    sourceUrl,
+    'post',
+  ).relevant
+}
+
 function returnedContentFilterVersion(
   platform: SocialPlatform,
   plan: SourceSearchPlan,
 ): string | undefined {
   const value = platform === 'Meetup'
     ? plan.provider_query?.meetup_returned_content_filter_version
-    : plan.provider_query?.reddit_returned_content_filter_version
+    : platform === 'Instagram' || platform === 'TikTok'
+      ? plan.provider_query?.social_returned_content_filter_version
+      : plan.provider_query?.reddit_returned_content_filter_version
   return typeof value === 'string' ? value : undefined
 }
 
@@ -208,6 +272,9 @@ function returnedContentMatches(
 ): boolean {
   if (platform === 'Reddit') return returnedContentMatchesRedditFilter(candidate, plan)
   if (platform === 'Meetup') return returnedContentMatchesMeetupFilter(candidate, plan)
+  if (platform === 'Instagram' || platform === 'TikTok') {
+    return returnedContentMatchesSocialFilter(candidate, plan)
+  }
   return true
 }
 
@@ -467,6 +534,86 @@ export const APIFY_MEETUP_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   normalize: normalizeMeetupOpportunity,
 }
 
+export const APIFY_INSTAGRAM_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-instagram-demand-opportunities',
+  platform: 'Instagram',
+  enabledEnv: 'GTM_APIFY_INSTAGRAM_OPPORTUNITY_ENABLED',
+  actorId: 'apify/instagram-scraper',
+  actorBuild: '0.0.775',
+  actorEnv: 'GTM_APIFY_ACTOR_INSTAGRAM_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_INSTAGRAM_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_INSTAGRAM_SEARCH_PRICE_VERSION',
+  requiredPriceVersion: 'apify-instagram-scraper-0.0.775-bronze-events-2026-08-30',
+  eventPricesUsd: { result: 0.0023 },
+  oneTimeEvent: null,
+  primaryResultEvent: 'result',
+  perItemQuoteUsd: 0.0023,
+  oneTimeQuoteUsd: 0,
+  maxBatch: 10,
+  datasetFields: [
+    'id',
+    'type',
+    'shortCode',
+    'caption',
+    'url',
+    'commentsCount',
+    'likesCount',
+    'videoPlayCount',
+    'timestamp',
+    'ownerUsername',
+    'ownerFullName',
+    'ownerId',
+    'isSponsored',
+    'locationName',
+  ],
+  buildInput: buildInstagramInput,
+  normalize: normalizeInstagramOpportunity,
+}
+
+export const APIFY_TIKTOK_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-tiktok-demand-opportunities',
+  platform: 'TikTok',
+  enabledEnv: 'GTM_APIFY_TIKTOK_OPPORTUNITY_ENABLED',
+  actorId: 'clockworks/tiktok-scraper',
+  actorBuild: '0.0.600',
+  actorEnv: 'GTM_APIFY_ACTOR_TIKTOK_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_TIKTOK_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_TIKTOK_SEARCH_PRICE_VERSION',
+  requiredPriceVersion: 'clockworks-tiktok-scraper-0.0.600-bronze-events-2026-08-30',
+  eventPricesUsd: {
+    'actor-start': 0.001,
+    result: 0.003,
+    'filter-applied': 0.001,
+  },
+  oneTimeEvent: 'actor-start',
+  primaryResultEvent: 'result',
+  auxiliaryResultEvents: ['filter-applied'],
+  perItemQuoteUsd: 0.004,
+  oneTimeQuoteUsd: 0.001,
+  minimumMaxChargeUsd: 0.5,
+  maxBatch: 10,
+  datasetFields: [
+    'id',
+    'text',
+    'createTime',
+    'createTimeISO',
+    'webVideoUrl',
+    'locationCreated',
+    'isAd',
+    'isSponsored',
+    'diggCount',
+    'shareCount',
+    'playCount',
+    'commentCount',
+    'authorMeta',
+    'locationMeta',
+    'error',
+    'errorCode',
+  ],
+  buildInput: buildTikTokInput,
+  normalize: normalizeTikTokOpportunity,
+}
+
 function envValue(env: SocialEnv, name: string): string {
   return (env[name] ?? '').trim()
 }
@@ -661,6 +808,61 @@ function buildMeetupInput(
   }
 }
 
+function buildInstagramInput(
+  plan: SourceSearchPlan,
+  maxResults: number,
+  attemptedAt: string,
+): Record<string, unknown> {
+  validateSocialReturnedContentFilter(plan)
+  if (maxResults > 10) throw new TypeError('Instagram is limited to 10 results per quoted lane')
+  const query = queryText(plan, 100)
+  if (!/^#[A-Za-z0-9_]{2,80}$/.test(query)) {
+    throw new TypeError('Instagram public-post research requires one bounded hashtag')
+  }
+  const attempted = new Date(attemptedAt)
+  if (!Number.isFinite(attempted.getTime())) {
+    throw new TypeError('Instagram requires a valid attempt time')
+  }
+  const newerThan = new Date(attempted.getTime() - 30 * 24 * 60 * 60 * 1_000)
+  return {
+    resultsType: 'posts',
+    search: query,
+    searchType: 'hashtag',
+    searchLimit: 1,
+    resultsLimit: maxResults,
+    onlyPostsNewerThan: newerThan.toISOString().slice(0, 10),
+    addParentData: false,
+  }
+}
+
+function buildTikTokInput(
+  plan: SourceSearchPlan,
+  maxResults: number,
+): Record<string, unknown> {
+  validateSocialReturnedContentFilter(plan)
+  if (maxResults > 10) throw new TypeError('TikTok is limited to 10 results per quoted lane')
+  return {
+    searchQueries: [queryText(plan, 100)],
+    resultsPerPage: maxResults,
+    searchSection: '/video',
+    videoSearchDateFilter: 'PAST_MONTH',
+    scrapeRelatedSearchWords: false,
+    scrapeRelatedVideos: false,
+    scrapeAdditionalAuthorMeta: false,
+    shouldDownloadVideos: false,
+    shouldDownloadCovers: false,
+    shouldDownloadSlideshowImages: false,
+    shouldDownloadAvatars: false,
+    shouldDownloadMusicCovers: false,
+    downloadSubtitlesOptions: 'NEVER_DOWNLOAD_SUBTITLES',
+    aiVideoDescription: false,
+    aiVideoSummary: false,
+    commentsPerPost: 0,
+    topLevelCommentsPerPost: 0,
+    maxRepliesPerComment: 0,
+  }
+}
+
 function recencyText(plan: SourceSearchPlan): string {
   return (
     text(
@@ -799,12 +1001,23 @@ function safePlatformUrl(value: unknown, platform: SocialPlatform): string | nul
     if (platform === 'X' && host !== 'x.com' && host !== 'twitter.com') return null
     if (platform === 'Threads' && host !== 'threads.com' && host !== 'threads.net') return null
     if (platform === 'Meetup' && host !== 'meetup.com' && !host.endsWith('.meetup.com')) return null
+    if (platform === 'Instagram' && host !== 'instagram.com') return null
+    if (platform === 'TikTok' && host !== 'tiktok.com' && !host.endsWith('.tiktok.com')) return null
     url.protocol = 'https:'
     url.hash = ''
     return url.toString()
   } catch {
     return null
   }
+}
+
+function safePublicPostUrl(value: unknown, platform: 'Instagram' | 'TikTok'): string | null {
+  const sourceUrl = safePlatformUrl(value, platform)
+  if (!sourceUrl) return null
+  const pathname = new URL(sourceUrl).pathname
+  if (platform === 'Instagram' && !/^\/(?:p|reel|tv)\/[^/]+\/?$/i.test(pathname)) return null
+  if (platform === 'TikTok' && !/^\/@[^/]+\/video\/\d+\/?$/i.test(pathname)) return null
+  return sourceUrl
 }
 
 function meetupTopicNames(value: unknown): string[] {
@@ -1293,9 +1506,203 @@ export function normalizeThreadsOpportunity(value: unknown, context: NormalizeCo
   }
 }
 
+function freshPublicPostTimestamp(value: unknown, attemptedAt: string): string | null {
+  const publishedAt = sourcePublishedAt(value)
+  if (!publishedAt) return null
+  const published = new Date(publishedAt).getTime()
+  const attempted = new Date(attemptedAt).getTime()
+  if (!Number.isFinite(published) || !Number.isFinite(attempted)) return null
+  if (published > attempted || published < attempted - 30 * 24 * 60 * 60 * 1_000) return null
+  return publishedAt
+}
+
+export function normalizeInstagramOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
+  const row = record(value)
+  if (!row || row.isSponsored === true) return null
+  const providerPostId = text(row.id ?? row.shortCode, 200)
+  const sourceUrl = safePublicPostUrl(row.url, 'Instagram')
+  const content = text(row.caption, 1_200)
+  const publishedAt = freshPublicPostTimestamp(row.timestamp, context.attemptedAt)
+  if (
+    !providerPostId
+    || !sourceUrl
+    || !content
+    || !publishedAt
+    || SENSITIVE_TARGETING.test(content)
+    || sensitiveConsumerOpportunityReasons(content).length > 0
+  ) return null
+  const engagement = Math.min(
+    10_000_000,
+    nonNegativeInteger(row.likesCount) + nonNegativeInteger(row.commentsCount),
+  )
+  const username = text(row.ownerUsername, 100)?.replace(/^@/, '') ?? null
+  const fullName = text(row.ownerFullName, 120)
+  const returnedLocation = text(row.locationName, 180) ?? ''
+  const demonstratedIntent = classifyOpportunityIntent(content)
+  const identity = commonIdentity({
+    name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
+    platform: 'Instagram',
+    content,
+    sourceUrl,
+    requestedLocation: context.location,
+    locationEvidence: `${content}\n${returnedLocation}`,
+    engagement,
+    demonstratedIntent,
+    people:
+      fullName || username
+        ? [{
+            name: fullName ?? username ?? 'Public Instagram contributor',
+            role: 'Public Instagram author shown as secondary source context',
+            profile_url: username
+              ? safePlatformUrl(`https://www.instagram.com/${encodeURIComponent(username)}/`, 'Instagram')
+              : null,
+          }]
+        : undefined,
+  })
+  identity.opportunity_kind = 'post'
+  identity.source_published_at = publishedAt
+  identity.participation_rules = 'Review the current public Instagram post, account, and community rules before participating. Do not automate consumer contact or posting.'
+  identity.recommended_action = 'Open the current public post and contribute useful information manually only when participation is relevant and permitted.'
+  return {
+    entity_kind: 'opportunity',
+    identity,
+    evidence: [{
+      claim: engagement > 0
+        ? `The approved public source returned this Instagram post with ${engagement} visible likes and comments.`
+        : 'The approved public source returned this Instagram post.',
+      source_url: sourceUrl,
+      observed_at: context.attemptedAt,
+      confidence: calibratedOpportunityConfidence({
+        content,
+        sourceUrl,
+        observedAt: publishedAt,
+        attemptedAt: context.attemptedAt,
+        engagement,
+        location: identity.location ?? null,
+      }),
+      detail: {
+        provider: 'apify',
+        actor_id: context.actorId,
+        provider_post_id: providerPostId,
+        requested_location: context.location,
+        requested_intent: context.expectedIntent ?? null,
+        returned_location: returnedLocation || null,
+        source_published_at: publishedAt,
+        visible_engagement: engagement,
+        demonstrated_intent_signals: [
+          ...demonstratedIntent.buyerSignals,
+          ...demonstratedIntent.sellerSignals,
+          ...demonstratedIntent.localAudienceSignals,
+        ],
+      },
+    }],
+  }
+}
+
+export function normalizeTikTokOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
+  const row = record(value)
+  const author = record(row?.authorMeta)
+  if (
+    !row
+    || row.error != null
+    || row.errorCode != null
+    || row.isAd === true
+    || row.isSponsored === true
+    || author?.privateAccount === true
+  ) return null
+  const providerPostId = text(row.id, 200)
+  const sourceUrl = safePublicPostUrl(row.webVideoUrl, 'TikTok')
+  const content = text(row.text, 1_200)
+  const publishedAt = freshPublicPostTimestamp(
+    row.createTimeISO ?? row.createTime,
+    context.attemptedAt,
+  )
+  if (
+    !providerPostId
+    || !sourceUrl
+    || !content
+    || !publishedAt
+    || SENSITIVE_TARGETING.test(content)
+    || sensitiveConsumerOpportunityReasons(content).length > 0
+  ) return null
+  const engagement = Math.min(
+    10_000_000,
+    nonNegativeInteger(row.diggCount)
+      + nonNegativeInteger(row.commentCount)
+      + nonNegativeInteger(row.shareCount),
+  )
+  const locationMeta = record(row.locationMeta)
+  const returnedLocation = [
+    text(locationMeta?.locationName, 180),
+    text(locationMeta?.address, 180),
+    text(locationMeta?.city, 120),
+    text(row.locationCreated, 120),
+  ].filter((part): part is string => part != null).join(', ')
+  const username = text(author?.name, 100)?.replace(/^@/, '') ?? null
+  const fullName = text(author?.nickName, 120)
+  const demonstratedIntent = classifyOpportunityIntent(content)
+  const identity = commonIdentity({
+    name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
+    platform: 'TikTok',
+    content,
+    sourceUrl,
+    requestedLocation: context.location,
+    locationEvidence: `${content}\n${returnedLocation}`,
+    engagement,
+    demonstratedIntent,
+    people:
+      fullName || username
+        ? [{
+            name: fullName ?? username ?? 'Public TikTok contributor',
+            role: 'Public TikTok author shown as secondary source context',
+            profile_url: safePlatformUrl(author?.profileUrl, 'TikTok'),
+          }]
+        : undefined,
+  })
+  identity.opportunity_kind = 'post'
+  identity.source_published_at = publishedAt
+  identity.participation_rules = 'Review the current public TikTok post, account, and community rules before participating. Do not automate consumer contact or posting.'
+  identity.recommended_action = 'Open the current public post and contribute useful information manually only when participation is relevant and permitted.'
+  return {
+    entity_kind: 'opportunity',
+    identity,
+    evidence: [{
+      claim: engagement > 0
+        ? `The approved public source returned this TikTok post with ${engagement} visible likes, comments, and shares.`
+        : 'The approved public source returned this TikTok post.',
+      source_url: sourceUrl,
+      observed_at: context.attemptedAt,
+      confidence: calibratedOpportunityConfidence({
+        content,
+        sourceUrl,
+        observedAt: publishedAt,
+        attemptedAt: context.attemptedAt,
+        engagement,
+        location: identity.location ?? null,
+      }),
+      detail: {
+        provider: 'apify',
+        actor_id: context.actorId,
+        provider_post_id: providerPostId,
+        requested_location: context.location,
+        requested_intent: context.expectedIntent ?? null,
+        returned_location: returnedLocation || null,
+        source_published_at: publishedAt,
+        visible_engagement: engagement,
+        demonstrated_intent_signals: [
+          ...demonstratedIntent.buyerSignals,
+          ...demonstratedIntent.sellerSignals,
+          ...demonstratedIntent.localAudienceSignals,
+        ],
+      },
+    }],
+  }
+}
+
 function providerUnitsFor(config: PublicSocialOpportunityConfig, maxResults: number): number {
   const estimatedUsd = config.oneTimeQuoteUsd + maxResults * config.perItemQuoteUsd
-  return Math.max(APIFY_MIN_CHARGE_USD, estimatedUsd) / APIFY_MILLIDOLLAR_USD
+  return Math.max(APIFY_MIN_CHARGE_USD, config.minimumMaxChargeUsd ?? 0, estimatedUsd)
+    / APIFY_MILLIDOLLAR_USD
 }
 
 function datasetCeiling(config: PublicSocialOpportunityConfig, maxChargeUsd: number): number {
@@ -1435,13 +1842,20 @@ export function createPublicSocialOpportunityAdapter(
         return refusal(config, actorId, attemptedAt, 'bad_request: a positive opportunity cap is required')
       }
       const maxChargeUsd = Number(plan.max_charge_usd)
-      if (!Number.isFinite(maxChargeUsd) || maxChargeUsd < APIFY_MIN_CHARGE_USD) {
+      const minimumMaxChargeUsd = Math.max(
+        APIFY_MIN_CHARGE_USD,
+        config.minimumMaxChargeUsd ?? 0,
+      )
+      if (!Number.isFinite(maxChargeUsd) || maxChargeUsd < minimumMaxChargeUsd) {
         return refusal(config, actorId, attemptedAt, 'bad_request: a reservation-derived max charge is required')
       }
       let input: Record<string, unknown>
       let query: string
       try {
-        query = queryText(plan, config.platform === 'X' || config.platform === 'Threads' ? 100 : 700)
+        query = queryText(
+          plan,
+          ['X', 'Threads', 'Instagram', 'TikTok'].includes(config.platform) ? 100 : 700,
+        )
         input = config.buildInput(plan, maxCandidates, attemptedAt)
       } catch (error) {
         return refusal(
@@ -1614,7 +2028,10 @@ export function createPublicSocialOpportunityAdapter(
       const normalizedCandidates = resultItems
         .map((item) => config.normalize(item, context))
         .filter((candidate): candidate is Candidate => candidate != null)
-      const filtersReturnedContent = config.platform === 'Reddit' || config.platform === 'Meetup'
+      const filtersReturnedContent = config.platform === 'Reddit'
+        || config.platform === 'Meetup'
+        || config.platform === 'Instagram'
+        || config.platform === 'TikTok'
       const candidates = filtersReturnedContent
         ? normalizedCandidates.filter((candidate) => returnedContentMatches(config.platform, candidate, plan))
         : normalizedCandidates
@@ -1623,6 +2040,7 @@ export function createPublicSocialOpportunityAdapter(
         const semanticFilterVersion = returnedContentFilterVersion(config.platform, plan)
         const semanticFilter = isSemanticRedditFilterVersion(semanticFilterVersion)
           || isMeetupReturnedContentFilterVersion(semanticFilterVersion)
+          || isSocialReturnedContentFilterVersion(semanticFilterVersion)
         return {
           status: normalizedCandidates.length > 0 ? 'no_result' : 'error',
           data: null,
@@ -1647,6 +2065,7 @@ export function createPublicSocialOpportunityAdapter(
       const semanticFilterVersion = returnedContentFilterVersion(config.platform, plan)
       const semanticFilter = isSemanticRedditFilterVersion(semanticFilterVersion)
         || isMeetupReturnedContentFilterVersion(semanticFilterVersion)
+        || isSocialReturnedContentFilterVersion(semanticFilterVersion)
       const dropped = parserDropped + returnedContentFiltered
       const truncated = candidates.length > delivered.length
       return {
@@ -1686,6 +2105,14 @@ export function createApifyMeetupOpportunityAdapter(deps: PublicSocialDeps = {})
   return createPublicSocialOpportunityAdapter(APIFY_MEETUP_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyInstagramOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_INSTAGRAM_OPPORTUNITY_CONFIG, deps)
+}
+
+export function createApifyTikTokOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_TIKTOK_OPPORTUNITY_CONFIG, deps)
+}
+
 export function apifyRedditOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_REDDIT_OPPORTUNITY_CONFIG, env)
 }
@@ -1700,4 +2127,12 @@ export function apifyThreadsOpportunityEnabled(env: SocialEnv = process.env): bo
 
 export function apifyMeetupOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_MEETUP_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyInstagramOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_INSTAGRAM_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyTikTokOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_TIKTOK_OPPORTUNITY_CONFIG, env)
 }
