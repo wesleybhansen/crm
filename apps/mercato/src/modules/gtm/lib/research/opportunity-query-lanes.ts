@@ -2,6 +2,7 @@ import { classifyOpportunityIntent } from './opportunity-quality'
 import type { PlanPlayInput } from './plan'
 
 export const DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM = '&tbs=qdr:m'
+export const DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE = 'month'
 
 export type OpportunityIntentLane =
   | 'buyer_intent'
@@ -107,6 +108,18 @@ function redditLocationWords(geography: string): string {
 }
 
 function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geography: string): string[] {
+  if (adapterId === 'dataforseo-events-demand-opportunities') {
+    if (intent === 'buyer_intent') {
+      return ['first time home buyer workshop', 'home buyer seminar', 'homeownership class']
+    }
+    if (intent === 'seller_intent') {
+      return ['home seller workshop', 'selling a home seminar', 'home valuation workshop']
+    }
+    if (intent === 'mixed_intent') {
+      return ['buying and selling a home workshop', 'move up buyer seminar', 'home transition workshop']
+    }
+    return ['homeowner community event', 'housing workshop', 'neighborhood housing event']
+  }
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     const market = marketName(geography)
     if (intent === 'buyer_intent') {
@@ -342,6 +355,7 @@ function sourceSeed(
   seed: string,
 ): string {
   const market = marketName(geography)
+  if (adapterId === 'dataforseo-events-demand-opportunities') return seed
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     const location = sourceLocation(geography)
     // DataForSEO reports 40101 only after the upstream search engine has
@@ -408,6 +422,8 @@ export function buildOpportunityQueryLanes(
         ? 3
         : adapterId === 'dataforseo-organic-demand-opportunities'
           ? 5
+          : adapterId === 'dataforseo-events-demand-opportunities'
+            ? 3
           : 3
   const laneCap = Math.max(1, Math.min(maxLanes, sourceLaneCap))
   const selectedSeeds = seeds.slice(0, laneCap)
@@ -426,7 +442,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v32',
+        query_lane_version: 'opportunity-query-v33',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -434,6 +450,9 @@ export function buildOpportunityQueryLanes(
         negative_terms: negativeTerms,
         ...(adapterId === 'dataforseo-organic-demand-opportunities'
           ? { search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM }
+          : {}),
+        ...(adapterId === 'dataforseo-events-demand-opportunities'
+          ? { date_range: DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE }
           : {}),
         ...(adapterId === 'apify-reddit-demand-opportunities'
           ? {

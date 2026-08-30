@@ -9,6 +9,7 @@ import {
 import { APIFY_REQUIRED_PRICE_VERSION, APIFY_REQUIRED_TERMS_VERSION } from '../adapters/apify/source'
 import {
   buildOpportunityQueryLanes,
+  DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE,
   DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
 } from '../research/opportunity-query-lanes'
 import { hasPriceMultiplyingDataForSeoOpportunityQueryOperator } from '../adapters/dataforseo/opportunity-source'
@@ -203,7 +204,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v32')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v33')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -224,7 +225,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(lanes).toHaveLength(5)
     expect(lanes[0]?.query).toBe('Austin, Texas looking for a realtor to buy a home')
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v32')).toBe(true)
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v33')).toBe(true)
   })
 
   it('uses source-native realtor queries and only one economical X lane', () => {
@@ -238,6 +239,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     const linkedin = buildOpportunityQueryLanes(play, 'apify-linkedin-demand-opportunities')
     const reddit = buildOpportunityQueryLanes(play, 'apify-reddit-demand-opportunities')
     const web = buildOpportunityQueryLanes(play, 'dataforseo-organic-demand-opportunities')
+    const events = buildOpportunityQueryLanes(play, 'dataforseo-events-demand-opportunities')
     const buyerWeb = buildOpportunityQueryLanes(
       {
         geography: 'Austin, Texas',
@@ -250,10 +252,20 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(x).toHaveLength(1)
     expect(x[0]?.query).toBe('Austin "selling my home"')
-    expect(x[0]?.providerQuery.query_lane_version).toBe('opportunity-query-v32')
+    expect(x[0]?.providerQuery.query_lane_version).toBe('opportunity-query-v33')
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(5)
+    expect(events).toHaveLength(3)
+    expect(events.map((lane) => lane.query)).toEqual([
+      'home seller workshop',
+      'selling a home seminar',
+      'home valuation workshop',
+    ])
+    expect(events.every((lane) =>
+      lane.providerQuery.date_range === DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v33'
+    )).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(
       web.every(
@@ -330,7 +342,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'austinhomevalue',
     ])
     expect(
-      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v32'),
+      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v33'),
     ).toBe(true)
   })
 

@@ -90,6 +90,7 @@ const LEGACY_TARGETING_LOCATION_ADAPTERS = new Set([
   'apify-x-demand-opportunities',
   'apify-threads-demand-opportunities',
   'dataforseo-organic-demand-opportunities',
+  'dataforseo-events-demand-opportunities',
 ])
 
 function locationIdentity(value: string): string {
