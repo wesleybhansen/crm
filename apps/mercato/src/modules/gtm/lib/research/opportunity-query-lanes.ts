@@ -118,10 +118,13 @@ export function opportunitySourceRouting(
   ].join(' ')
   const realtor = REALTOR_PLAY.test(playText)
 
-  if (adapterId === 'apify-meetup-demand-opportunities' && intent !== 'local_audience') {
+  if (
+    adapterId === 'apify-meetup-demand-opportunities'
+    && (intent !== 'local_audience' || !realtor)
+  ) {
     return {
       eligible: false,
-      reason: 'Meetup is limited to public local-audience events; buyer and seller intent require returned-content evidence from another source',
+      reason: 'Meetup is limited to realtor public local-audience events under the frozen housing-event filter contract',
     }
   }
 
@@ -152,7 +155,7 @@ function sourceLocation(geography: string): string {
 
 function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geography: string): string[] {
   if (adapterId === 'apify-meetup-demand-opportunities') {
-    return ['first time home buyer', 'homeownership', 'neighborhood community']
+    return ['first time homebuyer workshop', 'home buying seminar', 'homeownership education']
   }
   if (adapterId === 'dataforseo-events-demand-opportunities') {
     if (intent === 'buyer_intent') {
@@ -457,7 +460,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v56',
+        query_lane_version: 'opportunity-query-v57',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -480,14 +483,15 @@ export function buildOpportunityQueryLanes(
           : {}),
         ...(adapterId === 'apify-meetup-demand-opportunities'
           ? {
-              meetup_contract_version: 'public-events-v1',
+              meetup_contract_version: 'public-events-v2',
               meetup_location: geography,
               meetup_event_type: 'PHYSICAL',
               meetup_country: 'us',
               meetup_radius_miles: 25,
               meetup_window_days: 30,
               meetup_min_rsvp_count: 1,
-              meetup_sort: 'DATETIME',
+              meetup_sort: 'RELEVANCE',
+              meetup_returned_content_filter_version: 'realtor-housing-event-v1',
             }
           : {}),
         ...(adapterId === 'apify-reddit-demand-opportunities'

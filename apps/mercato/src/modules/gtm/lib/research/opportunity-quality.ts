@@ -622,12 +622,6 @@ export function assessRealtorOpportunitySuitability(
     || (opportunityKind === 'post' && surface && directConsumerNeed && transactionIntent)
     || (opportunityKind === 'thread' && consumerNeed && transactionIntent)
   const directDemand = opportunityKind === 'post' ? directConsumerNeed : consumerNeed
-  const relevant = expectedIntent === 'local_audience'
-    ? housing && localParticipation && reasons.length === 0
-    : housing
-      && laneMatches
-      && (directDemand || scheduledEvent || educationalAudienceChannel || venueConsumerDemand)
-      && reasons.length === 0
   if (!housing) reasons.push('missing_housing_context')
   if (!laneMatches) reasons.push('intent_lane_mismatch')
   if (expectedIntent === 'local_audience' && !localParticipation) reasons.push('missing_consumer_participation')
@@ -640,6 +634,12 @@ export function assessRealtorOpportunitySuitability(
   ) {
     reasons.push('missing_consumer_need_or_event')
   }
+  const relevant = expectedIntent === 'local_audience'
+    ? housing && laneMatches && localParticipation && reasons.length === 0
+    : housing
+      && laneMatches
+      && (directDemand || scheduledEvent || educationalAudienceChannel || venueConsumerDemand)
+      && reasons.length === 0
   return { relevant, demonstratedIntent: intent, reasons: [...new Set(reasons)] }
 }
 

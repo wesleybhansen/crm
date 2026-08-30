@@ -38,19 +38,20 @@ const plan: SourceSearchPlan = {
   geography: 'US',
   query: 'first time home buyer',
   provider_query: {
-    query_lane_version: 'opportunity-query-v56',
+    query_lane_version: 'opportunity-query-v57',
     source_query_lane_id: 'local_audience:1',
     opportunity_intent_lane: 'local_audience',
     search_query: 'first time home buyer',
     source_search_keywords: ['first time home buyer'],
-    meetup_contract_version: 'public-events-v1',
+    meetup_contract_version: 'public-events-v2',
     meetup_location: 'Austin, Texas',
     meetup_event_type: 'PHYSICAL',
     meetup_country: 'us',
     meetup_radius_miles: 25,
     meetup_window_days: 30,
     meetup_min_rsvp_count: 1,
-    meetup_sort: 'DATETIME',
+    meetup_sort: 'RELEVANCE',
+    meetup_returned_content_filter_version: 'realtor-housing-event-v1',
   },
   max_candidates: 25,
   max_charge_usd: 0.01,
@@ -173,12 +174,28 @@ describe('Apify Meetup public event opportunities', () => {
     const lanes = buildOpportunityQueryLanes(localPlay, APIFY_MEETUP_OPPORTUNITY_CONFIG.adapterId)
     expect(lanes).toHaveLength(3)
     expect(lanes.map((lane) => lane.query)).toEqual([
-      'first time home buyer',
-      'homeownership',
-      'neighborhood community',
+      'first time homebuyer workshop',
+      'home buying seminar',
+      'homeownership education',
     ])
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v56')).toBe(true)
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v57')).toBe(true)
     expect(lanes.every((lane) => lane.providerQuery.meetup_location === 'Austin, Texas')).toBe(true)
+    expect(lanes.every((lane) =>
+      lane.providerQuery.meetup_contract_version === 'public-events-v2'
+      && lane.providerQuery.meetup_sort === 'RELEVANCE'
+      && lane.providerQuery.meetup_returned_content_filter_version === 'realtor-housing-event-v1'
+    )).toBe(true)
+    expect(
+      opportunitySourceRouting(
+        {
+          audience: 'Austin residents looking for local live music',
+          signal: 'People gathering at current public concerts',
+          geography: 'Austin, Texas',
+          providerQuery: { opportunity_intent_lane: 'local_audience' },
+        },
+        APIFY_MEETUP_OPPORTUNITY_CONFIG.adapterId,
+      ).eligible,
+    ).toBe(false)
     expect(
       opportunitySourceRouting(
         { ...localPlay, providerQuery: { opportunity_intent_lane: 'seller_intent' } },
@@ -207,7 +224,7 @@ describe('Apify Meetup public event opportunities', () => {
         startDateRange: '2026-08-26T23:00:00.000Z',
         endDateRange: '2026-09-25T23:00:00.000Z',
         minRsvpCount: 1,
-        sortBy: 'DATETIME',
+        sortBy: 'RELEVANCE',
         maxResults: 10,
       },
       expect.objectContaining({
@@ -306,6 +323,88 @@ describe('Apify Meetup public event opportunities', () => {
       runActor,
     }).search(plan)
     expect(result).toMatchObject({ status: 'error', cost_units: 0 })
+    expect(runActor).not.toHaveBeenCalled()
+  })
+
+  it('filters generic and investor events using only returned content while preserving finalized cost', async () => {
+    const rows = [
+      meetupEvent(),
+      meetupEvent({
+        eventId: 'event-generic',
+        eventName: 'Austin Friday Social Mixer',
+        eventDescription: 'Meet local professionals for food and networking.',
+        eventUrl: 'https://www.meetup.com/austin-social/events/223456789/',
+        group: { name: 'Austin Social Club', memberCount: 4_000 },
+        topics: [{ id: '2', name: 'Social Networking' }],
+      }),
+      meetupEvent({
+        eventId: 'event-investor',
+        eventName: 'Real Estate Investing',
+        eventDescription: 'An event about wholesaling and flipping investment property.',
+        eventUrl: 'https://www.meetup.com/austin-investors/events/323456789/',
+        group: { name: 'Austin Real Estate Investors', memberCount: 3_000 },
+        topics: [{ id: '3', name: 'Real Estate Investing' }],
+      }),
+    ]
+    const runActor = jest.fn(async () => outcome(rows[0]!, {
+      items: rows,
+      itemCount: rows.length,
+      chargedEventCounts: { 'apify-default-dataset-item': rows.length },
+      providerCostUsd: 0.0024,
+    }))
+    const result = await createApifyMeetupOpportunityAdapter({ env: approvedEnv(), now, runActor })
+      .search(plan)
+
+    expect(result).toMatchObject({
+      status: 'partial',
+      cost_units: 2.4,
+      data: [{ identity: { name: 'Austin First-Time Homebuyer Workshop' } }],
+      receipt: expect.objectContaining({
+        returned_content_filter_version: 'realtor-housing-event-v1',
+        returned_content_filtered_rows: 2,
+        returned_count: 1,
+        billed_results: 3,
+      }),
+    })
+  })
+
+  it('returns a metered no-result when every safe row fails returned-content relevance', async () => {
+    const generic = meetupEvent({
+      eventName: 'Austin Neighborhood Karaoke',
+      eventDescription: 'A public community social event with music and food.',
+      eventUrl: 'https://www.meetup.com/austin-social/events/423456789/',
+      group: { name: 'Austin Community Social Club', memberCount: 4_000 },
+      topics: [{ id: '4', name: 'Karaoke' }],
+    })
+    const runActor = jest.fn(async () => outcome(generic))
+    const result = await createApifyMeetupOpportunityAdapter({ env: approvedEnv(), now, runActor })
+      .search(plan)
+
+    expect(result).toMatchObject({
+      status: 'no_result',
+      data: null,
+      cost_units: 0.8,
+      error: 'no_result_after_returned_content_filter',
+      receipt: expect.objectContaining({
+        returned_content_filter_version: 'realtor-housing-event-v1',
+        returned_content_filtered_rows: 1,
+      }),
+    })
+  })
+
+  it('rejects an unknown returned-content filter contract before invoking Apify', async () => {
+    const runActor = jest.fn(async () => outcome(meetupEvent()))
+    const result = await createApifyMeetupOpportunityAdapter({ env: approvedEnv(), now, runActor })
+      .search({
+        ...plan,
+        provider_query: {
+          ...plan.provider_query,
+          meetup_returned_content_filter_version: 'query-implies-relevance',
+        },
+      })
+
+    expect(result).toMatchObject({ status: 'error', cost_units: 0 })
+    expect(result.error).toContain('unsupported Meetup returned-content filter version')
     expect(runActor).not.toHaveBeenCalled()
   })
 

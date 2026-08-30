@@ -31,6 +31,7 @@ import {
   classifyOpportunityIntentV1,
   classifyOpportunityIntentV2,
   demonstratedOpportunityLocation,
+  assessRealtorOpportunitySuitability,
   type DemonstratedOpportunityIntent,
   sensitiveConsumerOpportunityReasons,
 } from '../../research/opportunity-quality'
@@ -86,6 +87,14 @@ function isSemanticRedditFilterVersion(value: unknown): value is SemanticRedditF
   return value === 'semantic-intent-location-v1'
     || value === 'semantic-intent-location-v2'
     || value === 'semantic-intent-location-v3'
+}
+
+type MeetupReturnedContentFilterVersion = 'realtor-housing-event-v1'
+
+function isMeetupReturnedContentFilterVersion(
+  value: unknown,
+): value is MeetupReturnedContentFilterVersion {
+  return value === 'realtor-housing-event-v1'
 }
 
 function classifyRedditOpportunityIntent(
@@ -164,6 +173,42 @@ function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSe
   if (mode === 'all') return matches.every(Boolean)
   if (mode === 'first_and_any') return matches[0] === true && matches.slice(1).some(Boolean)
   return matches.some(Boolean)
+}
+
+function returnedContentMatchesMeetupFilter(candidate: Candidate, plan: SourceSearchPlan): boolean {
+  if (!isMeetupReturnedContentFilterVersion(
+    plan.provider_query?.meetup_returned_content_filter_version,
+  )) return false
+  const content = [candidate.identity.name, candidate.identity.audience_description]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+  const sourceUrl = candidate.identity.urls?.find((value) => typeof value === 'string') ?? null
+  return assessRealtorOpportunitySuitability(
+    content,
+    'local_audience',
+    sourceUrl,
+    'event',
+  ).relevant
+}
+
+function returnedContentFilterVersion(
+  platform: SocialPlatform,
+  plan: SourceSearchPlan,
+): string | undefined {
+  const value = platform === 'Meetup'
+    ? plan.provider_query?.meetup_returned_content_filter_version
+    : plan.provider_query?.reddit_returned_content_filter_version
+  return typeof value === 'string' ? value : undefined
+}
+
+function returnedContentMatches(
+  platform: SocialPlatform,
+  candidate: Candidate,
+  plan: SourceSearchPlan,
+): boolean {
+  if (platform === 'Reddit') return returnedContentMatchesRedditFilter(candidate, plan)
+  if (platform === 'Meetup') return returnedContentMatchesMeetupFilter(candidate, plan)
+  return true
 }
 
 function requestedOpportunityIntent(plan: SourceSearchPlan): DemonstratedOpportunityIntent {
@@ -566,13 +611,13 @@ function meetupLocation(plan: SourceSearchPlan): string {
 
 function requiredMeetupContract(plan: SourceSearchPlan): void {
   const expected: Array<[string, unknown]> = [
-    ['meetup_contract_version', 'public-events-v1'],
+    ['meetup_contract_version', 'public-events-v2'],
     ['meetup_event_type', 'PHYSICAL'],
     ['meetup_country', 'us'],
     ['meetup_radius_miles', 25],
     ['meetup_window_days', 30],
     ['meetup_min_rsvp_count', 1],
-    ['meetup_sort', 'DATETIME'],
+    ['meetup_sort', 'RELEVANCE'],
   ]
   for (const [field, value] of expected) {
     if (plan.provider_query?.[field] !== value) {
@@ -581,6 +626,11 @@ function requiredMeetupContract(plan: SourceSearchPlan): void {
   }
   if (requestedOpportunityIntent(plan) !== 'local_audience') {
     throw new TypeError('Meetup is limited to the local-audience opportunity lane')
+  }
+  if (!isMeetupReturnedContentFilterVersion(
+    plan.provider_query?.meetup_returned_content_filter_version,
+  )) {
+    throw new TypeError('unsupported Meetup returned-content filter version')
   }
 }
 
@@ -606,7 +656,7 @@ function buildMeetupInput(
     startDateRange: start.toISOString(),
     endDateRange: end.toISOString(),
     minRsvpCount: 1,
-    sortBy: 'DATETIME',
+    sortBy: 'RELEVANCE',
     maxResults,
   }
 }
@@ -1564,13 +1614,15 @@ export function createPublicSocialOpportunityAdapter(
       const normalizedCandidates = resultItems
         .map((item) => config.normalize(item, context))
         .filter((candidate): candidate is Candidate => candidate != null)
-      const candidates = config.platform === 'Reddit'
-        ? normalizedCandidates.filter((candidate) => returnedContentMatchesRedditFilter(candidate, plan))
+      const filtersReturnedContent = config.platform === 'Reddit' || config.platform === 'Meetup'
+      const candidates = filtersReturnedContent
+        ? normalizedCandidates.filter((candidate) => returnedContentMatches(config.platform, candidate, plan))
         : normalizedCandidates
       if (candidates.length === 0) {
-        const returnedContentFiltered = config.platform === 'Reddit' ? normalizedCandidates.length : 0
-        const semanticFilterVersion = plan.provider_query?.reddit_returned_content_filter_version
+        const returnedContentFiltered = filtersReturnedContent ? normalizedCandidates.length : 0
+        const semanticFilterVersion = returnedContentFilterVersion(config.platform, plan)
         const semanticFilter = isSemanticRedditFilterVersion(semanticFilterVersion)
+          || isMeetupReturnedContentFilterVersion(semanticFilterVersion)
         return {
           status: normalizedCandidates.length > 0 ? 'no_result' : 'error',
           data: null,
@@ -1592,8 +1644,9 @@ export function createPublicSocialOpportunityAdapter(
       const delivered = candidates.slice(0, maxCandidates)
       const parserDropped = Math.max(0, resultItems.length - normalizedCandidates.length)
       const returnedContentFiltered = Math.max(0, normalizedCandidates.length - candidates.length)
-      const semanticFilterVersion = plan.provider_query?.reddit_returned_content_filter_version
+      const semanticFilterVersion = returnedContentFilterVersion(config.platform, plan)
       const semanticFilter = isSemanticRedditFilterVersion(semanticFilterVersion)
+        || isMeetupReturnedContentFilterVersion(semanticFilterVersion)
       const dropped = parserDropped + returnedContentFiltered
       const truncated = candidates.length > delivered.length
       return {

@@ -287,17 +287,21 @@ customer-serving rights, bounded inputs, and authoritative settlement evidence.
 No source adapter joins, follows, registers, posts, comments, sends a direct
 message, or claims that opening a destination completed an action.
 
-`opportunity-query-v56` introduces the Meetup source only for
-`local_audience` plays. Realtor buyer- and seller-intent plays continue to use
+`opportunity-query-v57` limits the Meetup source to realtor `local_audience`
+plays. Realtor buyer- and seller-intent plays continue to use
 sources that can return direct expressed demand; an event audience is not
 silently converted into an individual buyer or seller. Each Meetup play has at
-most three separately quoted source-native searches. The frozen actor input is
+most three separately quoted housing-specific searches. The frozen actor input is
 `mode=events`, a US city and state derived from the approved play geography,
 `eventType=PHYSICAL`, `radius=25`, a run-relative next-30-day window,
-`minRsvpCount=1`, `sortBy=DATETIME`, and no more than ten returned rows. The
+`minRsvpCount=1`, `sortBy=RELEVANCE`, and no more than ten returned rows. The
 adapter accepts only canonical public `meetup.com` event URLs, active future
 events inside that window, structured matching city/state/country evidence,
-and safe non-sensitive returned content. It retains the event, public group,
+and safe non-sensitive returned content that independently satisfies the
+versioned `realtor-housing-event-v1` filter. Search terms never become evidence;
+an event must demonstrate both housing relevance and buyer, seller, or local
+housing-audience intent in its own returned title, description, group, or topic
+content. It retains the event, public group,
 visible RSVP count, topic tags, and public organizer or host profile as
 evidence. It never requests or retains attendee identities. Returned event
 content alone determines intent and topic fit; the query, requested location,
@@ -655,3 +659,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-30: DataForSEO Live requests now use a 120-second transport timeout, matching the provider's documented Live processing ceiling while preserving immutable reservations, exact plan hashes, and ambiguity handling. A previously late operation was reconciled against its provider task without replay: the provider finalized `$0.002`, CRM charged exactly `1,000` Noli credits, and the global provider ledger returned to zero unresolved operations. This is latency tolerance only; it does not widen query, raw-row, credit, or dollar ceilings.
 - 2026-08-30: The Events adapter and planner now bind DataForSEO's supported `next_month` value instead of the current-calendar `month` window. The exact change passed the complete GTM, Docker, and isolated integration gates and deployed at `5e1d1c3dea7f334a44cf5da3130684df44a0367c`. A subsequent owner-only Austin local-audience probe froze three source-native queries, reconciled all three operations exactly for `$0.006` (`3,000` Noli credits), and received task status `40102` (`No Search Results`) with zero raw rows and zero parser drops for every query. The Events source therefore remains disabled; no wider Events replay is justified. Customer consumer activation remains fail-closed while retrieval work shifts to the approved, exactly metered Starter-tier Apify sources and the independent twelve-play benchmark remains unmet.
 - 2026-08-30: The signed-in Apify account was re-verified after upgrade as Starter with Bronze Store pricing. DataForSEO Events produced zero raw rows across both the current four-market sample and the corrected next-month Austin sample, so it remains disabled. `opportunity-query-v56` adds a separately enabled and separately approved public Meetup event source using the established `filip_cicvarek/meetup-scraper` build `3.0.14`. The actor's primary contract reports 457 total users, 43 monthly active users, a 4.9 rating, and Bronze pay-per-event pricing of `$0.0008` for each `apify-default-dataset-item`, with platform usage included. The adapter is limited to future in-person US events inside a 30-day window, three separately quoted local-audience searches, and ten rows per lane. It stores no attendee identities, performs no join/register/post/send action, treats public organizers only as secondary context, requires returned structured locality and event timing, meters exact finalized event counts to the canonical ledger, and leaves participation rights unverified for the destination gate. Customer activation remains fail-closed pending a bounded owner probe and the independently reviewed twelve-play benchmark.
+- 2026-08-30: The first bounded owner-only query-v56 Austin Meetup probe completed three separately quoted operations and reconciled all `$0.024` (`12,000` Noli credits) exactly, with no billing ambiguity. It returned 20 unique candidates, but 18 were rejected and two investor-oriented events remained in review; broad business networking, social, fitness, entertainment, and other non-housing events consumed most of the shallow rows. `opportunity-query-v57` replaces the broad searches with `first time homebuyer workshop`, `home buying seminar`, and `homeownership education`, changes the actor's frozen sort to `RELEVANCE`, restricts the source to realtor local-audience plays, and adds the versioned `realtor-housing-event-v1` returned-content filter before candidate storage. A scorer defect that calculated `relevant` before appending missing-intent and missing-participation reasons is also corrected, so a complete-looking event cannot remain relevant while carrying an intent mismatch. Finalized provider cost is still retained for every filtered row. No relevance, location, freshness, access, rights, sensitivity, manual-action, or customer-release gate is relaxed; the next paid step is one bounded Austin confirmation before any wider benchmark.

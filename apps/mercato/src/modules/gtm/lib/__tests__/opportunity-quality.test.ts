@@ -995,6 +995,14 @@ describe('opportunity quality primitives', () => {
         'community',
       ).relevant,
     ).toBe(false)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Real Estate & Investing event about wholesaling and flipping investment property.',
+        'local_audience',
+        'https://www.meetup.com/austin-investors/events/example/',
+        'event',
+      ),
+    ).toMatchObject({ relevant: false, reasons: expect.arrayContaining(['intent_lane_mismatch']) })
   })
 
   it('calibrates confidence from demonstrated content, freshness, geography, and engagement', () => {
