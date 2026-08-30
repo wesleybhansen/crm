@@ -213,7 +213,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v51')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v52')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -234,7 +234,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(lanes).toHaveLength(3)
     expect(lanes[0]?.query).toBe('Austin, Texas site:reddit.com/r/Austin "looking for a realtor"')
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v51')).toBe(true)
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v52')).toBe(true)
     expect(lanes.every((lane) => lane.providerQuery.dataforseo_price_operator_contract === 'single-positive-site-v1')).toBe(true)
     expect(lanes.every((lane) => lane.providerQuery.dataforseo_price_multiplier === 5)).toBe(true)
     expect(lanes.every((lane) => lane.providerQuery.dataforseo_site_scope === 'reddit.com/r/Austin')).toBe(true)
@@ -267,7 +267,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       '#SellingInAustin',
       '#AustinHomeValue',
     ])
-    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v51')).toBe(true)
+    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v52')).toBe(true)
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(3)
@@ -279,7 +279,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ])
     expect(events.every((lane) =>
       lane.providerQuery.date_range === DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v51'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v52'
     )).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(
@@ -367,11 +367,11 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'austinhomevalue',
     ])
     expect(
-      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v51'),
+      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v52'),
     ).toBe(true)
   })
 
-  it('uses a bounded market, Ask-market, and global Reddit hybrid for realtor buyers', () => {
+  it('uses three proven housing-bound exact-market Reddit lanes for realtor buyers', () => {
     const reddit = buildOpportunityQueryLanes(
       {
         geography: 'Phoenix, Arizona',
@@ -383,34 +383,32 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     )
 
     expect(reddit.map((lane) => lane.query)).toEqual([
-      'buying house',
-      'looking for realtor',
-      'Phoenix house hunting',
+      '("buying a home" OR "buying a house" OR "looking to buy" OR "house hunting" OR "first-time home buyer" OR "first time home buyer" OR "made an offer") NOT (realtor OR agent OR broker OR lender)',
+      '("where should we buy" OR "where should I buy" OR "looking to buy" OR "house hunting" OR "first-time home buyer") NOT (realtor OR agent OR broker OR lender)',
+      '("looking to buy" OR "house hunting" OR "made an offer" OR "need a realtor" OR "first-time home buyer") NOT ("got the keys" OR "closed on" OR "finally did it" OR "just bought")',
     ])
     expect(reddit.map((lane) => lane.providerQuery.reddit_subreddits)).toEqual([
       ['Phoenix'],
       ['AskPhoenix'],
-      [],
+      ['Phoenix'],
     ])
     expect(reddit[0]?.providerQuery).toMatchObject({
-      query_lane_version: 'opportunity-query-v51',
+      query_lane_version: 'opportunity-query-v52',
       reddit_auto_discover: false,
       reddit_content_type: 'posts',
       reddit_filter_require_location: false,
     })
     expect(reddit[1]?.providerQuery).toMatchObject({
-      query_lane_version: 'opportunity-query-v51',
+      query_lane_version: 'opportunity-query-v52',
       reddit_auto_discover: false,
       reddit_content_type: 'posts',
       reddit_filter_require_location: false,
     })
     expect(reddit[2]?.providerQuery).toMatchObject({
-      query_lane_version: 'opportunity-query-v51',
-      reddit_auto_discover: true,
-      reddit_max_subreddits: 6,
-      reddit_global_search: true,
-      reddit_content_type: 'posts',
-      reddit_filter_require_location: true,
+      query_lane_version: 'opportunity-query-v52',
+      reddit_auto_discover: false,
+      reddit_content_type: 'comments',
+      reddit_filter_require_location: false,
     })
   })
 
@@ -449,7 +447,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       && lane.query.startsWith('#')
       && lane.query.length <= 100
       && !/[()]/.test(lane.query)
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v51'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v52'
     ))).toBe(true)
   })
 
@@ -489,7 +487,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       reddit_filter_require_location: true,
     })
     expect([...reddit, ...web].every(
-      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v51',
+      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v52',
     )).toBe(true)
   })
 

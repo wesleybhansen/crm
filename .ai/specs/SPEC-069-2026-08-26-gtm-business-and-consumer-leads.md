@@ -325,25 +325,24 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v51` keeps actor-native syntax explicit and separately quotes
+`opportunity-query-v52` keeps actor-native syntax explicit and separately quotes
 three transaction-intent Reddit strategies against
-`clearpath/reddit-search-scraper` build `0.0.66`. Buyer, seller, and mixed plays
-use one short house-specific transaction query in the primary exact-market
-subreddit, one direct professional-assistance query in `Ask<Market>`, and one
-market-bound house-search or sale query across at most six actor-discovered
-subreddits. Buyer lanes use `buying house`, `looking for realtor`, and
-`<Market> house hunting`; seller lanes use `selling house`,
-`realtor recommendation`, and `<Market> selling house`. The query text remains
-targeting provenance and never becomes evidence.
-All three retrieve posts, not detached comments. The global lane alone enables
-discovery and must prove the requested market in the returned title or body;
-the two exact-scope lanes may use their frozen returned subreddit as locality
-evidence. Each lane may return at most ten rows inside the frozen 30-day window,
+`clearpath/reddit-search-scraper` build `0.0.66`. Seller and mixed plays retain
+the v51 short exact-market, `Ask<Market>`, and bounded global strategies because
+the Austin seller sample recovered a current homeowner requesting realtor
+guidance. Buyer plays instead restore the earlier paid, housing-bound Boolean
+queries: posts in the exact market, posts in `Ask<Market>`, and comments in the
+exact market. The v43 receipt proved that this post query recovered a current
+Moon Valley buyer; the stronger semantic-v3 classifier now rejects the
+entertainment-only comment that accompanied that sample. Buyer discovery no
+longer pays for a global actor lane whose market token was treated as an
+independent loose term. Query text remains targeting provenance and never
+becomes evidence. Exact returned subreddit scope may prove locality, while any
+global seller or mixed lane must prove the requested market in returned source
+content. Each lane may return at most ten rows inside the frozen 30-day window,
 and every query, scope, content type, discovery cap, and evidence rule is
-immutable in the quote. This hybrid restores the recall demonstrated by the
-earlier simple-query sample without reintroducing its query-leakage bug. The
-semantic filter—not the query—still decides whether a row actually demonstrates
-current housing intent.
+immutable in the quote. The semantic filter—not the query—still decides whether
+a row demonstrates current housing intent.
 The three separately billed organic transaction lanes use exactly one positive
 `site:reddit.com/r/<Market>` operator plus one exact first-person decision
 phrase. DataForSEO's published Live Organic contract prices that operator at
@@ -621,3 +620,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-30: The bounded query-v49 Phoenix buyer probe reconciled exactly three site-scoped DataForSEO tasks for `$0.03` (`15,000` Noli credits), with correct five-times operator receipts and no ambiguity. Seven raw rows produced six unique candidates; all six were rejected. The scope contract fixed destination drift, but snippets still represented adjacent replies, deleted originals, old transactions, listings, and unrelated conversations rather than stable current buyer demand. One current Phoenix buyer thread appeared only through a realtor reply snippet, leaving the original consumer evidence and a permitted action unknown. The metered site-operator contract remains valid, but another unchanged paid Google probe is not justified.
 - 2026-08-30: `opportunity-query-v50` pivots the targeted transaction sample back to the authenticated Starter-tier Reddit actor using three separately quoted, posts-only strategies: one short natural transaction query in the exact city subreddit, one `realtor recommendation` query in `Ask<Market>`, and one simple market-bound query with at most six discovered subreddits. The first two scopes establish locality only through the returned subreddit; the global lane must independently prove the market in returned content. `semantic-intent-location-v3`, fit-v7, the 30-day window, the ten-row-per-lane ceiling, exact event reconciliation, manual-only consumer action, and all sensitivity/provider-promotion exclusions remain unchanged. The next paid step is limited to Phoenix buyer and Austin seller Apify-only probes; the full benchmark and customer consumer activation remain held unless those samples produce materially useful, reviewable opportunities.
 - 2026-08-30: The bounded Starter-tier query-v50 Phoenix buyer and Austin seller probes completed six separately quoted Reddit operations for exactly `$0.03594` (`17,970` Noli credits) with finalized event counts and no reconciliation ambiguity. Phoenix found one current local mortgage-industry discussion, which fit-v7 correctly rejected as audience and intent mismatch. Austin recovered one current South Austin homeowner explicitly preparing to sell and requesting realtor guidance; fit-v7 placed it in review because the public thread's participation rules remain unverified. Read-only inspection of the already-paid datasets confirmed that `buying home` was tokenized broadly enough to return bread, fans, and other unrelated uses of “buy” and “home”; the global buyer lane primarily returned completed transactions, provider promotion, wrong markets, or sensitive-context rows that the existing safety and semantic gates correctly excluded. `opportunity-query-v51` therefore changes retrieval rather than weakening qualification: exact-market lanes use `buying house` or `selling house`, the buyer assistance lane uses `looking for realtor`, and global buyer retrieval uses `<Market> house hunting`. The same semantic-v3, fit-v7-quality-v26, sensitivity, 30-day, locality, metering, and manual-action gates remain frozen. Only a bounded Phoenix buyer confirmation is permitted before reconsidering the twelve-play benchmark; customer consumer activation remains fail-closed.
+- 2026-08-30: The bounded query-v51 Phoenix buyer confirmation completed three separately quoted Reddit operations for exactly `$0.01097` (`5,485` Noli credits), with every event finalized and no reconciliation ambiguity. Exact-market `buying house` and `looking for realtor` returned zero rows. The global `Phoenix house hunting` lane returned eight rows: one genuine current Houston buyer plus seven unrelated Phoenix- or house-token matches. Semantic-v3 correctly removed all eight, but useful Phoenix recall remained zero. Historical paid v43 evidence showed that the same actor and exact Phoenix subreddit recovered a current Moon Valley buyer with a housing-bound Boolean post query; its one entertainment false positive is now covered by semantic-v3. `opportunity-query-v52` therefore restores that proven buyer query family across exact-market posts, `Ask<Market>` posts, and exact-market comments, removes the noisy global buyer lane, and leaves seller, mixed, scoring, safety, recency, metering, and manual-only action gates unchanged. One bounded Phoenix buyer confirmation is permitted before any full benchmark; customer activation remains fail-closed.
