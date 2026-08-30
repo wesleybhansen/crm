@@ -3,7 +3,7 @@ import { adapterAudienceRights, capabilityCovers, type AdapterDescriptor, type S
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
 import { computeGtmPolicy, policyInputFromPlay, type GtmPolicyResult } from '../policy'
 import { compileQualificationProfile, type QualificationProfile } from './qualify'
-import { buildOpportunityQueryLanes } from './opportunity-query-lanes'
+import { buildOpportunityQueryLanes, opportunitySourceRouting } from './opportunity-query-lanes'
 import {
   buildOpportunityDestinationValidationPlan,
   type OpportunityDestinationValidationPlan,
@@ -313,6 +313,17 @@ export function buildSourcePlan(
         reason,
       })
       continue
+    }
+    if (entityKind === 'opportunity') {
+      const routing = opportunitySourceRouting(play, descriptor.adapter_id)
+      if (!routing.eligible) {
+        unsupportedDimensions.push({
+          adapter_id: descriptor.adapter_id,
+          dimension: 'source_quality',
+          reason: routing.reason ?? 'source is not eligible for this opportunity lane',
+        })
+        continue
+      }
     }
     eligibleAdapters.push(adapter)
   }

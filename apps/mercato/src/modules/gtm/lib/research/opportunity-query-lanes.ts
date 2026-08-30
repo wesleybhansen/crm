@@ -18,6 +18,11 @@ export type OpportunityQueryLane = {
   providerQuery: Record<string, unknown>
 }
 
+export type OpportunitySourceRouting = {
+  eligible: boolean
+  reason: string | null
+}
+
 const REALTOR_NEGATIVE_TERMS = [
   'facebook',
   'instagram',
@@ -90,6 +95,41 @@ function inferredLane(play: PlanPlayInput): OpportunityIntentLane {
     .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
     .join(' ')
   return classifyOpportunityIntent(text).kind ?? 'local_audience'
+}
+
+/**
+ * Keeps paid opportunity sources on the lanes where the controlled benchmark
+ * demonstrated useful recall. Reddit remains valuable for direct buyer and
+ * seller conversations, but its realtor local-audience searches returned only
+ * community noise and cannot prove participation rules. Local discovery is
+ * therefore routed to the web/event adapters that can return a public venue,
+ * date, and destination. Generic consumer plays retain their authored routing.
+ */
+export function opportunitySourceRouting(
+  play: PlanPlayInput,
+  adapterId: string,
+): OpportunitySourceRouting {
+  const intent = inferredLane(play)
+  const providerQuery = play.providerQuery ?? {}
+  const playText = [
+    play.audience,
+    play.signal,
+    ...values(providerQuery.audience_keywords),
+  ].join(' ')
+  const realtor = REALTOR_PLAY.test(playText)
+
+  if (
+    realtor
+    && intent === 'local_audience'
+    && adapterId === 'apify-reddit-demand-opportunities'
+  ) {
+    return {
+      eligible: false,
+      reason: 'realtor local-audience discovery requires a source that can prove a public venue, date, and participation path',
+    }
+  }
+
+  return { eligible: true, reason: null }
 }
 
 function sourceLocation(geography: string): string {
@@ -405,7 +445,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v54',
+        query_lane_version: 'opportunity-query-v55',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
