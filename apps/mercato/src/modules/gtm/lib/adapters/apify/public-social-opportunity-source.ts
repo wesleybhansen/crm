@@ -42,7 +42,7 @@ const SENSITIVE_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
 
 type SocialEnv = Record<string, string | undefined>
-type SocialPlatform = 'Reddit' | 'X' | 'Threads'
+type SocialPlatform = 'Reddit' | 'X' | 'Threads' | 'Meetup'
 
 export type PublicSocialOpportunityConfig = {
   adapterId: string
@@ -60,6 +60,7 @@ export type PublicSocialOpportunityConfig = {
   auxiliaryResultEvents?: readonly string[]
   perItemQuoteUsd: number
   oneTimeQuoteUsd: number
+  maxBatch?: number
   datasetFields: readonly string[]
   buildInput(plan: SourceSearchPlan, maxResults: number, attemptedAt: string): Record<string, unknown>
   isNoResultDiagnostic?(value: unknown): boolean
@@ -365,6 +366,62 @@ export const APIFY_THREADS_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   normalize: normalizeThreadsOpportunity,
 }
 
+export const APIFY_MEETUP_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-meetup-demand-opportunities',
+  platform: 'Meetup',
+  enabledEnv: 'GTM_APIFY_MEETUP_OPPORTUNITY_ENABLED',
+  actorId: 'filip_cicvarek/meetup-scraper',
+  actorBuild: '3.0.14',
+  actorEnv: 'GTM_APIFY_ACTOR_MEETUP_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_MEETUP_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_MEETUP_SEARCH_PRICE_VERSION',
+  // Rechecked against the signed-in Starter account on 2026-08-30. The
+  // established actor prices BRONZE at $0.0008 per returned event with
+  // platform usage included. There is no separate run-start event.
+  requiredPriceVersion: 'filip-cicvarek-meetup-scraper-3.0.14-bronze-events-2026-08-30',
+  eventPricesUsd: { 'apify-default-dataset-item': 0.0008 },
+  oneTimeEvent: null,
+  primaryResultEvent: 'apify-default-dataset-item',
+  perItemQuoteUsd: 0.0008,
+  oneTimeQuoteUsd: 0,
+  maxBatch: 10,
+  datasetFields: [
+    'eventId',
+    'eventName',
+    'eventDescription',
+    'eventType',
+    'date',
+    'address',
+    'eventUrl',
+    'organizedByGroup',
+    'maxAttendees',
+    'actualAttendees',
+    'isPaidEvent',
+    'feeAmount',
+    'feeCurrency',
+    'feeRequired',
+    'eventShortUrl',
+    'eventStatus',
+    'isOnline',
+    'startDateTime',
+    'endDateTime',
+    'durationISO',
+    'timezone',
+    'createdTime',
+    'featuredPhotoUrl',
+    'ratingAverage',
+    'ratingCount',
+    'reviewCount',
+    'venue',
+    'group',
+    'hosts',
+    'topics',
+    'series',
+  ],
+  buildInput: buildMeetupInput,
+  normalize: normalizeMeetupOpportunity,
+}
+
 function envValue(env: SocialEnv, name: string): string {
   return (env[name] ?? '').trim()
 }
@@ -435,7 +492,7 @@ export function publicSocialOpportunityDescriptor(
         public_opportunity_use_allowed: approved,
       },
       rate_limits: { requests_per_minute: 20, concurrent: 1 },
-      max_batch: MAX_RESULTS,
+      max_batch: config.maxBatch ?? MAX_RESULTS,
     },
     cost_model: {
       unit: 'apify_millidollar',
@@ -497,6 +554,61 @@ function locationText(plan: SourceSearchPlan): string | null {
       180,
     ) ?? text(plan.geography, 180)
   )
+}
+
+function meetupLocation(plan: SourceSearchPlan): string {
+  const value = text(plan.provider_query?.meetup_location, 180)
+  if (!value) throw new TypeError('Meetup requires a frozen city and state location')
+  const parts = value.split(',').map((part) => part.trim()).filter(Boolean)
+  if (parts.length < 2) throw new TypeError('Meetup location must include city and state')
+  return `${parts[0]}, ${parts[1]}`
+}
+
+function requiredMeetupContract(plan: SourceSearchPlan): void {
+  const expected: Array<[string, unknown]> = [
+    ['meetup_contract_version', 'public-events-v1'],
+    ['meetup_event_type', 'PHYSICAL'],
+    ['meetup_country', 'us'],
+    ['meetup_radius_miles', 25],
+    ['meetup_window_days', 30],
+    ['meetup_min_rsvp_count', 1],
+    ['meetup_sort', 'DATETIME'],
+  ]
+  for (const [field, value] of expected) {
+    if (plan.provider_query?.[field] !== value) {
+      throw new TypeError(`Meetup ${field} does not match the frozen public-events contract`)
+    }
+  }
+  if (requestedOpportunityIntent(plan) !== 'local_audience') {
+    throw new TypeError('Meetup is limited to the local-audience opportunity lane')
+  }
+}
+
+function buildMeetupInput(
+  plan: SourceSearchPlan,
+  maxResults: number,
+  attemptedAt: string,
+): Record<string, unknown> {
+  requiredMeetupContract(plan)
+  if (maxResults > 10) throw new TypeError('Meetup is limited to 10 results per quoted lane')
+  const [city, state] = meetupLocation(plan).split(',').map((part) => part.trim())
+  const start = new Date(attemptedAt)
+  if (!Number.isFinite(start.getTime())) throw new TypeError('Meetup requires a valid attempt time')
+  const end = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1_000)
+  return {
+    mode: 'events',
+    searchKeyword: queryText(plan, 100),
+    city,
+    state,
+    country: 'us',
+    eventType: 'PHYSICAL',
+    radius: 25,
+    startDateRange: start.toISOString(),
+    endDateRange: end.toISOString(),
+    minRsvpCount: 1,
+    sortBy: 'DATETIME',
+    maxResults,
+  }
 }
 
 function recencyText(plan: SourceSearchPlan): string {
@@ -636,11 +748,169 @@ function safePlatformUrl(value: unknown, platform: SocialPlatform): string | nul
     if (platform === 'Reddit' && host !== 'reddit.com') return null
     if (platform === 'X' && host !== 'x.com' && host !== 'twitter.com') return null
     if (platform === 'Threads' && host !== 'threads.com' && host !== 'threads.net') return null
+    if (platform === 'Meetup' && host !== 'meetup.com' && !host.endsWith('.meetup.com')) return null
     url.protocol = 'https:'
     url.hash = ''
     return url.toString()
   } catch {
     return null
+  }
+}
+
+function meetupTopicNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => text(record(item)?.name, 100))
+    .filter((item): item is string => item != null)
+    .slice(0, 12)
+}
+
+function meetupPeople(
+  group: Record<string, unknown> | null,
+  hostsValue: unknown,
+): CandidateIdentity['people_to_follow'] {
+  const people: NonNullable<CandidateIdentity['people_to_follow']> = []
+  const organizerName = text(group?.organizerName, 120)
+  const organizerProfileUrl = safePlatformUrl(group?.organizerProfileUrl, 'Meetup')
+  if (organizerName) {
+    people.push({
+      name: organizerName,
+      role: 'Public Meetup group organizer shown as secondary source context',
+      profile_url: organizerProfileUrl,
+    })
+  }
+  if (Array.isArray(hostsValue)) {
+    for (const item of hostsValue) {
+      const host = record(item)
+      const name = text(host?.name, 120)
+      if (!name || people.some((person) => person.name.toLowerCase() === name.toLowerCase())) continue
+      people.push({
+        name,
+        role: 'Public Meetup event host shown as secondary source context',
+        profile_url: safePlatformUrl(host?.memberUrl, 'Meetup'),
+      })
+      if (people.length >= 5) break
+    }
+  }
+  return people.length > 0 ? people : undefined
+}
+
+export function normalizeMeetupOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
+  const row = record(value)
+  if (!row || !context.location) return null
+  const eventId = text(row.eventId, 200)
+  const eventName = text(row.eventName, 180)
+  const description = text(row.eventDescription, 1_200)
+  const sourceUrl = safePlatformUrl(row.eventUrl ?? row.eventShortUrl, 'Meetup')
+  const eventType = text(row.eventType, 40)?.toUpperCase()
+  const status = text(row.eventStatus, 40)?.toLowerCase()
+  if (
+    !eventId
+    || !eventName
+    || !description
+    || !sourceUrl
+    || eventType !== 'PHYSICAL'
+    || row.isOnline === true
+    || !status
+    || !['active', 'upcoming', 'scheduled', 'published'].includes(status)
+  ) return null
+
+  const attemptedAt = new Date(context.attemptedAt)
+  const eventStart = sourcePublishedAt(row.startDateTime ?? row.date)
+  if (!eventStart) return null
+  const eventDate = new Date(eventStart)
+  if (
+    !Number.isFinite(attemptedAt.getTime())
+    || !Number.isFinite(eventDate.getTime())
+    || eventDate.getTime() <= attemptedAt.getTime()
+    || eventDate.getTime() > attemptedAt.getTime() + 30 * 24 * 60 * 60 * 1_000
+  ) return null
+
+  const venue = record(row.venue)
+  const venueCity = text(venue?.city, 120)
+  const venueState = text(venue?.state, 120)
+  const venueCountry = text(venue?.country, 20)?.toLowerCase()
+  const returnedLocation = [venueCity, venueState, venueCountry].filter(Boolean).join(', ')
+  const demonstratedLocation = demonstratedOpportunityLocation(returnedLocation, context.location)
+  if (!demonstratedLocation || !['us', 'usa', 'united states'].includes(venueCountry ?? '')) return null
+
+  const group = record(row.group)
+  const groupName = text(group?.name ?? row.organizedByGroup, 180)
+  const topics = meetupTopicNames(row.topics)
+  const content = [eventName, description, groupName, ...topics].filter(Boolean).join('. ')
+  if (SENSITIVE_TARGETING.test(content) || sensitiveConsumerOpportunityReasons(content).length > 0) return null
+  const engagement = Math.min(10_000_000, nonNegativeInteger(row.actualAttendees))
+  const memberCount = Math.min(10_000_000, nonNegativeInteger(group?.memberCount))
+  const paid = row.isPaidEvent === true || row.feeRequired === true
+  const publishedAt = sourcePublishedAt(row.createdTime)
+  const demonstratedIntent = classifyOpportunityIntent(content)
+  const identity = commonIdentity({
+    name: eventName,
+    platform: 'Meetup',
+    content,
+    sourceUrl,
+    requestedLocation: context.location,
+    locationEvidence: returnedLocation,
+    engagement,
+    demonstratedIntent,
+    people: meetupPeople(group, row.hosts),
+  })
+  identity.opportunity_kind = 'event'
+  identity.location = demonstratedLocation
+  identity.city = venueCity
+  identity.region = venueState
+  identity.country_code = 'US'
+  identity.member_count = memberCount || null
+  identity.access_type = paid ? 'ticketed' : 'public'
+  identity.source_published_at = publishedAt
+  identity.event_start_at = eventStart
+  identity.participation_rules = 'Review the current public event details, host requirements, ticket terms, and Meetup community rules before participating.'
+  identity.participation_rules_status = 'unverified'
+  identity.recommended_action = 'Open the public event page, confirm it is still active and appropriate, then attend or contact the organizer manually under the posted rules.'
+  identity.message_angle = 'Offer practical local housing guidance that directly helps the event audience; do not infer individual buying or selling intent.'
+  return {
+    entity_kind: 'opportunity',
+    identity,
+    evidence: [
+      {
+        claim: engagement > 0
+          ? `The approved public source returned this upcoming Meetup event with ${engagement} visible RSVPs or attendees.`
+          : 'The approved public source returned this upcoming Meetup event.',
+        source_url: sourceUrl,
+        observed_at: context.attemptedAt,
+        confidence: calibratedOpportunityConfidence({
+          content,
+          sourceUrl,
+          observedAt: publishedAt ?? eventStart,
+          attemptedAt: context.attemptedAt,
+          engagement,
+          location: demonstratedLocation,
+        }),
+        detail: {
+          provider: 'apify',
+          actor_id: context.actorId,
+          provider_event_id: eventId,
+          requested_location: context.location,
+          requested_intent: context.expectedIntent ?? null,
+          structured_venue: {
+            name: text(venue?.name, 180),
+            city: venueCity,
+            state: venueState,
+            country: venueCountry,
+          },
+          group_name: groupName,
+          topic_names: topics,
+          event_start_at: eventStart,
+          source_published_at: publishedAt,
+          visible_engagement: engagement,
+          demonstrated_intent_signals: [
+            ...demonstratedIntent.buyerSignals,
+            ...demonstratedIntent.sellerSignals,
+            ...demonstratedIntent.localAudienceSignals,
+          ],
+        },
+      },
+    ],
   }
 }
 
@@ -980,7 +1250,10 @@ function providerUnitsFor(config: PublicSocialOpportunityConfig, maxResults: num
 
 function datasetCeiling(config: PublicSocialOpportunityConfig, maxChargeUsd: number): number {
   const available = Math.max(0, maxChargeUsd - config.oneTimeQuoteUsd)
-  return Math.max(1, Math.min(100, Math.floor((available + 1e-9) / config.perItemQuoteUsd)))
+  return Math.max(
+    1,
+    Math.min(config.maxBatch ?? 100, Math.floor((available + 1e-9) / config.perItemQuoteUsd)),
+  )
 }
 
 function receipt(
@@ -1056,7 +1329,10 @@ export function createPublicSocialOpportunityAdapter(
   return {
     descriptor,
     quote(plan) {
-      const maxCandidates = Math.max(0, Math.min(Math.floor(plan.max_candidates), MAX_RESULTS))
+      const maxCandidates = Math.max(
+        0,
+        Math.min(Math.floor(plan.max_candidates), config.maxBatch ?? MAX_RESULTS),
+      )
       const providerUnits = maxCandidates > 0 ? providerUnitsFor(config, maxCandidates) : 0
       return {
         max_candidates: maxCandidates,
@@ -1101,7 +1377,10 @@ export function createPublicSocialOpportunityAdapter(
           'provider_disabled: public social terms, use, actor, or price version is unapproved',
         )
       }
-      const maxCandidates = Math.max(0, Math.min(Math.floor(plan.max_candidates), MAX_RESULTS))
+      const maxCandidates = Math.max(
+        0,
+        Math.min(Math.floor(plan.max_candidates), config.maxBatch ?? MAX_RESULTS),
+      )
       if (maxCandidates <= 0) {
         return refusal(config, actorId, attemptedAt, 'bad_request: a positive opportunity cap is required')
       }
@@ -1271,7 +1550,7 @@ export function createPublicSocialOpportunityAdapter(
       }
       const context = {
         query,
-        location: locationText(plan),
+        location: config.platform === 'Meetup' ? meetupLocation(plan) : locationText(plan),
         expectedIntent: requestedOpportunityIntent(plan),
         scopedSubreddits:
           config.platform === 'Reddit' ? redditSubreddits(plan) : undefined,
@@ -1350,6 +1629,10 @@ export function createApifyThreadsOpportunityAdapter(deps: PublicSocialDeps = {}
   return createPublicSocialOpportunityAdapter(APIFY_THREADS_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyMeetupOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_MEETUP_OPPORTUNITY_CONFIG, deps)
+}
+
 export function apifyRedditOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_REDDIT_OPPORTUNITY_CONFIG, env)
 }
@@ -1360,4 +1643,8 @@ export function apifyXOpportunityEnabled(env: SocialEnv = process.env): boolean 
 
 export function apifyThreadsOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_THREADS_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyMeetupOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_MEETUP_OPPORTUNITY_CONFIG, env)
 }

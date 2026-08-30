@@ -44,6 +44,7 @@ import {
   APIFY_WEBSITE_EMAIL_REQUIRED_PRICE_VERSION,
   APIFY_WEBSITE_EMAIL_RETENTION_DAYS_ENV,
 } from '../adapters/apify/website-email'
+import { APIFY_MEETUP_OPPORTUNITY_CONFIG } from '../adapters/apify/public-social-opportunity-source'
 
 describe('adapter registry environment boundaries', () => {
   const saved = { ...process.env }
@@ -165,6 +166,31 @@ describe('adapter registry environment boundaries', () => {
       APIFY_ENRICH_ADAPTER_ID,
       APIFY_WEBSITE_EMAIL_ADAPTER_ID,
     ])
+  })
+
+  it('registers Meetup public events only behind its capability, use, actor, and price gates', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.GTM_APIFY_ENABLED = 'true'
+    process.env.GTM_APIFY_TOKEN = 'synthetic-test-token'
+    process.env.GTM_APIFY_CUSTOMER_USE_APPROVED = 'true'
+    process.env.GTM_APIFY_ACCOUNT_TIER = 'BRONZE'
+    process.env.GTM_APIFY_TERMS_VERSION = APIFY_REQUIRED_TERMS_VERSION
+    process.env.GTM_APIFY_PRICE_VERSION = APIFY_REQUIRED_PRICE_VERSION
+    process.env.GTM_APIFY_MEETUP_OPPORTUNITY_ENABLED = 'true'
+    process.env.GTM_APIFY_MEETUP_OPPORTUNITY_USE_APPROVED = 'true'
+
+    expect(Object.keys(sourceAdapterRegistry())).not.toContain(
+      APIFY_MEETUP_OPPORTUNITY_CONFIG.adapterId,
+    )
+    process.env.GTM_APIFY_MEETUP_SEARCH_PRICE_VERSION =
+      APIFY_MEETUP_OPPORTUNITY_CONFIG.requiredPriceVersion
+    expect(Object.keys(sourceAdapterRegistry())).toContain(
+      APIFY_MEETUP_OPPORTUNITY_CONFIG.adapterId,
+    )
+    process.env.GTM_APIFY_ACTOR_MEETUP_SEARCH = 'another/actor'
+    expect(Object.keys(sourceAdapterRegistry())).not.toContain(
+      APIFY_MEETUP_OPPORTUNITY_CONFIG.adapterId,
+    )
   })
 
   it('cannot register owner-excluded LeadMagic or Bouncer adapters', () => {
