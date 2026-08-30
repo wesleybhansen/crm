@@ -208,7 +208,7 @@ describe('GTM MCP tools', () => {
       fitStatus: 'review',
       fitScore: '69',
       rejectReason: 'required_criterion_unknown',
-      qualificationVersion: 'fit-v7-quality-v20',
+      qualificationVersion: 'fit-v7-quality-v21',
       createdAt: new Date('2026-08-29T12:01:00.000Z'),
     })
     em.persist(newerRun)

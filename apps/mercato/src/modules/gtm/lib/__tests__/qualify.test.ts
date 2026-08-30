@@ -431,6 +431,59 @@ describe('ruleBasedFitScorer', () => {
     )
   })
 
+  it('hard-rejects a historical buyer transaction with sensitive financial and age context', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Historical Austin purchase and current mortgage hardship',
+          opportunity_kind: 'post',
+          platform: 'X',
+          audience_description:
+            'I moved from California to buy a house in Austin city limits 20 years ago. I still pay my mortgage, couldn’t take equity because my income it’s not enough, several banks turned me down, and I am single and senior.',
+          location: 'Austin, Texas',
+          access_type: 'public',
+          source_published_at: '2026-08-29T18:30:00.000Z',
+          urls: ['https://x.com/example/status/historical-sensitive-buyer'],
+          recommended_action: 'Read the public post and contribute only when a safe current need is demonstrated.',
+          message_angle: 'Do not infer intent from historical or sensitive circumstances.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'People preparing to buy a home in Austin',
+        signal: 'A current public buyer question demonstrates intent',
+        referenceTime: '2026-08-30T01:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      [{
+        claim: 'Current public X post returned by the bounded buyer-intent query.',
+        source_url: 'https://x.com/example/status/historical-sensitive-buyer',
+        observed_at: '2026-08-30T01:00:00.000Z',
+        confidence: 0.8,
+      }],
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.fitScore).toBeLessThan(FIT_REVIEW_THRESHOLD)
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'exclusion.realtor_noise',
+          status: 'fail',
+          observed: expect.arrayContaining([
+            'historical_completed_transaction',
+            'sensitive_bereavement_or_financial_distress',
+            'sensitive_age_or_marital_status',
+          ]),
+        }),
+      ]),
+    )
+  })
+
   it('rejects a complete-looking realtor result whose returned content is generic market news', () => {
     const result = ruleBasedFitScorer.score(
       {

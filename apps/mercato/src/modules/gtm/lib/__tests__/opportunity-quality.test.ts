@@ -353,6 +353,39 @@ describe('opportunity quality primitives', () => {
         'I have no place to stay, cannot pay rent, and need help with a predatory landlord.',
       ),
     ).toEqual(expect.arrayContaining(['sensitive_housing_instability']))
+    const historicalDistress =
+      'I moved to buy a house in Austin 20 years ago. My income is not enough, several banks turned me down, and I am single and senior.'
+    expect(sensitiveConsumerOpportunityReasons(historicalDistress)).toEqual(
+      expect.arrayContaining([
+        'sensitive_bereavement_or_financial_distress',
+        'sensitive_age_or_marital_status',
+      ]),
+    )
+    expect(realtorOpportunityNoiseReasons(historicalDistress)).toEqual(
+      expect.arrayContaining([
+        'historical_completed_transaction',
+        'sensitive_bereavement_or_financial_distress',
+        'sensitive_age_or_marital_status',
+      ]),
+    )
+    expect(
+      assessRealtorOpportunitySuitability(
+        historicalDistress,
+        'buyer_intent',
+        'https://x.com/example/status/historical-distress',
+        'post',
+      ).relevant,
+    ).toBe(false)
+    expect(
+      realtorOpportunityNoiseReasons(
+        'We bought our Austin home 20 years ago and now need advice about selling it.',
+      ),
+    ).not.toContain('historical_completed_transaction')
+    expect(
+      sensitiveConsumerOpportunityReasons(
+        'I am a senior vice president buying a home in Austin and comparing mortgage rates.',
+      ),
+    ).toEqual([])
     expect(sensitiveConsumerOpportunityReasons('Austin homeowners discussing a neighborhood workshop.')).toEqual([])
   })
 
