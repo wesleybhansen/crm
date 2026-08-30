@@ -9,6 +9,7 @@ import {
 } from '../types'
 import {
   DATAFORSEO_MAX_KEYWORD_CHARS,
+  DATAFORSEO_LIVE_TIMEOUT_MS,
   DATAFORSEO_REQUIRED_RETENTION_DAYS,
   DATAFORSEO_REQUIRED_TERMS_VERSION,
   canonicalDataForSeoUsLocation,
@@ -480,7 +481,7 @@ export function createDataForSeoEventsOpportunityAdapter(
             depth: maxCandidates,
             date_range: dateRange,
           }]),
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(DATAFORSEO_LIVE_TIMEOUT_MS),
         })
         let payload: unknown
         try {

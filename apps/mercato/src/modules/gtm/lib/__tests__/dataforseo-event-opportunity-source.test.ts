@@ -11,6 +11,7 @@ import {
   normalizeDataForSeoEventOpportunity,
 } from '../adapters/dataforseo/event-opportunity-source'
 import {
+  DATAFORSEO_LIVE_TIMEOUT_MS,
   DATAFORSEO_REQUIRED_RETENTION_DAYS,
   DATAFORSEO_REQUIRED_TERMS_VERSION,
 } from '../adapters/dataforseo/maps'
@@ -129,6 +130,7 @@ describe('DataForSEO Google Events demand-opportunity source', () => {
       provider_units: 3,
     })
     expect(DATAFORSEO_EVENTS_USD_PER_SERP).toBe(0.002)
+    expect(DATAFORSEO_LIVE_TIMEOUT_MS).toBe(120_000)
   })
 
   it('creates three separately quoted source-native event lanes', () => {
@@ -237,6 +239,7 @@ describe('DataForSEO Google Events demand-opportunity source', () => {
 
   it('sends one bounded task and settles the provider-reported cost', async () => {
     const fetchImpl = jest.fn().mockResolvedValue(providerResponse([eventItem()])) as unknown as typeof fetch
+    const timeout = jest.spyOn(AbortSignal, 'timeout')
     const result = await createDataForSeoEventsOpportunityAdapter({
       env: approvedEnv,
       fetchImpl,
@@ -261,6 +264,8 @@ describe('DataForSEO Google Events demand-opportunity source', () => {
       depth: 10,
       date_range: DATAFORSEO_EVENTS_DATE_RANGE,
     }])
+    expect(timeout).toHaveBeenCalledWith(DATAFORSEO_LIVE_TIMEOUT_MS)
+    timeout.mockRestore()
   })
 
   it('rejects an altered date window before contacting the provider', async () => {

@@ -12,6 +12,7 @@ export const DATAFORSEO_MAPS_URL = 'https://api.dataforseo.com/v3/serp/google/ma
 export const DATAFORSEO_DEFAULT_USD_PER_100_RESULTS = 0.002
 export const DATAFORSEO_DEFAULT_MAX_DEPTH = 100
 export const DATAFORSEO_MAX_KEYWORD_CHARS = 700
+export const DATAFORSEO_LIVE_TIMEOUT_MS = 120_000
 export const DATAFORSEO_REQUIRED_TERMS_VERSION = 'dataforseo-tos-2026-06-12'
 export const DATAFORSEO_REQUIRED_PRICE_VERSION = 'google-maps-live-advanced-2026-08-21'
 export const DATAFORSEO_REQUIRED_RETENTION_DAYS = 30
@@ -275,7 +276,7 @@ export function createDataForSeoMapsAdapter(deps: {
           method: 'POST',
           headers: { authorization: `Basic ${authorization}`, 'content-type': 'application/json' },
           body: JSON.stringify([{ keyword, location_name: location, language_code: 'en', depth: maxCandidates }]),
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(DATAFORSEO_LIVE_TIMEOUT_MS),
         })
         let payload: unknown
         try {
