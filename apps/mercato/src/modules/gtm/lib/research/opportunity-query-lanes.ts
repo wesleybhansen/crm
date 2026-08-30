@@ -119,7 +119,7 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     const subreddit = realtorMarketSubreddits(geography)[0]
       ?? marketName(geography).replace(/[^a-z0-9]/gi, '')
-    const returnedMarket = `reddit.com/r/${subreddit}`
+    const returnedMarket = `site:reddit.com/r/${subreddit}`
     if (intent === 'buyer_intent') {
       return [
         `${returnedMarket} "looking for a realtor"`,
@@ -140,11 +140,9 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     }
     if (intent === 'mixed_intent') {
       return [
-        'Reddit "sell before buying" advice',
-        'Reddit "buy before selling" advice',
-        'Reddit "sell then buy" home',
-        'buying and selling a home workshop registration',
-        'sell and buy a home seminar registration',
+        `${returnedMarket} "sell before buying"`,
+        `${returnedMarket} "buy before selling"`,
+        `${returnedMarket} "sell then buy"`,
       ]
     }
     return [
@@ -367,6 +365,10 @@ export function buildOpportunityQueryLanes(
   const laneCap = Math.max(1, Math.min(maxLanes, sourceLaneCap))
   const selectedSeeds = seeds.slice(0, laneCap)
   const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
+  const dataForSeoSiteScope =
+    adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
+      ? `reddit.com/r/${realtorMarketSubreddits(geography)[0] ?? marketName(geography).replace(/[^a-z0-9]/gi, '')}`
+      : null
   return selectedSeeds.map((seed, index) => {
     const id = `${intent}:${index + 1}`
     const query = queryFor({ adapterId, geography, seed })
@@ -377,14 +379,23 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v48',
+        query_lane_version: 'opportunity-query-v49',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
         source_search_keywords: [query],
         negative_terms: negativeTerms,
         ...(adapterId === 'dataforseo-organic-demand-opportunities'
-          ? { search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM }
+          ? {
+              search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
+              ...(dataForSeoSiteScope
+                ? {
+                    dataforseo_price_operator_contract: 'single-positive-site-v1',
+                    dataforseo_price_multiplier: 5,
+                    dataforseo_site_scope: dataForSeoSiteScope,
+                  }
+                : {}),
+            }
           : {}),
         ...(adapterId === 'dataforseo-events-demand-opportunities'
           ? { date_range: DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE }
