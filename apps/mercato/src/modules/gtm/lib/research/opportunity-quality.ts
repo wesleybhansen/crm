@@ -169,9 +169,18 @@ const SENSITIVE_CONSUMER_OPPORTUNITY: Array<[string, RegExp]> = [
   ],
   [
     'sensitive_bereavement_or_financial_distress',
-    /\b(?:passed away|bereav(?:ed|ement)|grieving|late (?:sister|brother|mother|father|parent|spouse|partner)|below the poverty line|bankrupt(?:cy)?|foreclos(?:e|ed|ure)|tax delinquen(?:t|cy)|financial hardship)\b/i,
+    /\b(?:passed away|bereav(?:ed|ement)|grieving|late (?:sister|brother|mother|father|parent|spouse|partner)|below the poverty line|bankrupt(?:cy)?|foreclos(?:e|ed|ure)|tax delinquen(?:t|cy)|financial hardship)\b|\bincome\b.{0,36}\b(?:is\s+)?(?:not|isn(?:'|’)t|wasn(?:'|’)t)\s+enough\b|\b(?:banks?|lenders?)\b.{0,80}\b(?:turn(?:ed)?\s+(?:me|us|it|my|our)?\s*down|declin(?:e|ed)|reject(?:ed)?)\b|\b(?:loan|mortgage|credit|refinanc(?:e|ing)|equity)\b.{0,48}\b(?:denied|declined|rejected|turned down)\b|\b(?:couldn(?:'|’)t|cannot|can(?:'|’)t|unable to)\b.{0,48}\b(?:take|access|tap)\b.{0,24}\bequity\b/i,
+  ],
+  [
+    'sensitive_age_or_marital_status',
+    /\b(?:senior citizens?|elderly|older adults?|widow(?:ed|er)?|marital status)\b|\b(?:i am|i(?:'|’)m|we are|we(?:'|’)re)\s+(?:(?:single|married|divorced|widowed)\s+(?:and\s+)?)?(?:a\s+)?senior\b(?!\s+(?:vice|director|manager|engineer|executive|associate|analyst|officer|counsel|partner|leader|developer))\b/i,
   ],
 ]
+
+const HISTORICAL_COMPLETED_PROPERTY_TRANSACTION =
+  /\b(?:bought|purchased|sold|buy(?:ing)?|sell(?:ing)?)\b.{0,180}\b(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|twenty)\s+years?\s+ago\b|\b(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|twenty)\s+years?\s+ago\b.{0,180}\b(?:bought|purchased|sold|buy(?:ing)?|sell(?:ing)?)\b/i
+const CURRENT_PROPERTY_DECISION_AFTER_HISTORY =
+  /\b(?:now|currently|today|this (?:month|year))\b.{0,180}\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|move|moving|refinance|refinancing)\b/i
 
 const REALTOR_HOUSING_CONTEXT =
   /\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|community registry|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
@@ -265,9 +274,14 @@ export function classifyOpportunityIntent(content: string): OpportunityIntentCla
 
 export function realtorOpportunityNoiseReasons(content: string, sourceUrl: string | null = null): string[] {
   const material = `${content}\n${sourceUrl ?? ''}`
+  const historicalTransaction = HISTORICAL_COMPLETED_PROPERTY_TRANSACTION.test(material)
+    && !CURRENT_PROPERTY_DECISION_AFTER_HISTORY.test(material)
+    ? ['historical_completed_transaction']
+    : []
   return [
     ...REALTOR_NOISE.filter(([, pattern]) => pattern.test(material)).map(([reason]) => reason),
     ...sensitiveConsumerOpportunityReasons(material),
+    ...historicalTransaction,
   ].filter((reason, index, reasons) => reasons.indexOf(reason) === index)
 }
 
