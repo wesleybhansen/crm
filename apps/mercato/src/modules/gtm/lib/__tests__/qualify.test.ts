@@ -715,6 +715,52 @@ describe('ruleBasedFitScorer', () => {
     expect(result.contradictions).toContain('exclusion.realtor_noise')
   })
 
+  it('rejects an explicit statement that the consumer is not looking for a realtor', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Selling a home without a realtor',
+          opportunity_kind: 'post',
+          platform: 'Facebook',
+          audience_description:
+            'I sold my other home myself and will most likely do the same with this one, so I am NOT looking for a realtor.',
+          location: 'Phoenix, Arizona',
+          access_type: 'public',
+          source_published_at: '2026-08-29T10:00:00.000Z',
+          urls: ['https://www.facebook.com/groups/example/posts/no-realtor-needed'],
+          participation_rules: 'Public discussion permits helpful replies that follow group rules.',
+          participation_rules_status: 'observed',
+          recommended_action: 'Read the public discussion and answer only if the request permits it.',
+          message_angle: 'Respect the author\'s stated preference and do not offer representation.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Phoenix, Arizona',
+        audience: 'Phoenix residents preparing to buy or sell a home',
+        signal: 'A current public housing decision demonstrates intent',
+        referenceTime: '2026-08-30T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.contradictions).toContain('exclusion.realtor_noise')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'exclusion.realtor_noise',
+          status: 'fail',
+          observed: expect.arrayContaining(['explicit_realtor_disinterest']),
+        }),
+      ]),
+    )
+  })
+
   it('accepts a seller question that also mentions the home the consumer plans to buy next', () => {
     const result = ruleBasedFitScorer.score(
       {

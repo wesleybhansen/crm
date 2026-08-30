@@ -209,6 +209,14 @@ describe('opportunity quality primitives', () => {
         'post',
       ).relevant,
     ).toBe(false)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'I sold my other home myself and will most likely do the same with this one, so I am NOT looking for a realtor.',
+        'buyer_intent',
+        'https://www.facebook.com/example/posts/not-looking-for-a-realtor',
+        'post',
+      ).reasons,
+    ).toContain('explicit_realtor_disinterest')
   })
 
   it('rejects polished professional content that only looks like consumer demand', () => {

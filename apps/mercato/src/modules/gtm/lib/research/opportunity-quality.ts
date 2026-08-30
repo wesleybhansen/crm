@@ -93,6 +93,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:i(?:'m| am) (?:a )?(?:realtor|real estate agent|real estate broker|mortgage broker)|contact (?:me|us)|call (?:me|us)|dm (?:me|us)|message (?:me|us)|send (?:me|us) a message|reach out(?: to (?:me|us))?|book (?:a )?(?:call|consultation)|schedule (?:a )?(?:call|consultation)|your local realtor|i help (?:home ?buyers?|home ?sellers?|people buy|people sell)|i work with (?:buyers?|sellers?|investors?|homeowners?)|i hear this question from (?:buyers?|sellers?|homeowners?)|(?:i|we|our team) can help|let (?:me|us) help|follow me)\b|#\w*realtor\b/i,
   ],
   [
+    'explicit_realtor_disinterest',
+    /\b(?:not looking for|do not (?:want|need)|don(?:'|’)t (?:want|need)|without using) (?:a |an )?(?:realtor|real estate agent|real estate broker|broker)\b/i,
+  ],
+  [
     'provider_authored_social_promotion',
     /https?:\/\/(?:www\.)?(?:facebook|instagram|threads|x|linkedin)\.com\/[^/\s]*(?:realtor|realty|realestate|mortgage|funding|broker|properties)[^/\s]*\/posts?\b/i,
   ],
