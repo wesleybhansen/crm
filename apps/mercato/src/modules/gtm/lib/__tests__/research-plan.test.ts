@@ -204,7 +204,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v37')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v38')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -225,10 +225,10 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(lanes).toHaveLength(5)
     expect(lanes[0]?.query).toBe('Austin, Texas looking for a realtor to buy a home')
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v37')).toBe(true)
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v38')).toBe(true)
   })
 
-  it('uses source-native realtor queries and three economical first-person X lanes', () => {
+  it('uses source-native realtor queries and three economical hashtag X lanes', () => {
     const play = {
       geography: 'Austin, Texas',
       audience: 'Austin homeowners considering selling a home',
@@ -251,11 +251,11 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     )
 
     expect(x.map((lane) => lane.query)).toEqual([
-      'Austin listing agent recommendations',
-      'Austin thinking selling home',
-      'Austin need sell house',
+      '#AustinHomeSeller',
+      '#SellingInAustin',
+      '#AustinHomeValue',
     ])
-    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v37')).toBe(true)
+    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v38')).toBe(true)
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(5)
@@ -267,7 +267,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ])
     expect(events.every((lane) =>
       lane.providerQuery.date_range === DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v37'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v38'
     )).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(
@@ -345,11 +345,11 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'austinhomevalue',
     ])
     expect(
-      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v37'),
+      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v38'),
     ).toBe(true)
   })
 
-  it('keeps X realtor intent lanes literal, market-bound, and under the actor limit', () => {
+  it('keeps X realtor intent lanes atomic, market-bound, and under the actor limit', () => {
     const buyer = buildOpportunityQueryLanes(
       {
         geography: 'Austin, Texas',
@@ -370,20 +370,21 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     )
 
     expect(buyer.map((lane) => lane.query)).toEqual([
-      'Austin realtor recommendations',
-      'Austin house hunting',
-      'Austin first time homebuyer',
+      '#AustinHomebuyer',
+      '#AustinHouseHunting',
+      '#MovingToAustin',
     ])
     expect(mixed.map((lane) => lane.query)).toEqual([
-      'Austin buy before sell',
-      'Austin sell before buy',
-      'Austin move up home',
+      '#AustinMoveUpBuyer',
+      '#AustinBuyAndSell',
+      '#MovingInAustin',
     ])
     expect([...buyer, ...mixed].every((lane) => (
       lane.query.includes('Austin')
+      && lane.query.startsWith('#')
       && lane.query.length <= 100
       && !/[()]/.test(lane.query)
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v37'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v38'
     ))).toBe(true)
   })
 

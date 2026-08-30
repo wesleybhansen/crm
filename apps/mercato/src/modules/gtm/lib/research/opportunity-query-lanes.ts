@@ -203,33 +203,34 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     return byIntent[intent]
   }
   if (adapterId === 'apify-x-demand-opportunities') {
-    // X's BRONZE contract makes three short keyword searches economical. The
-    // actor only documents one keyword/hashtag search term; exact natural-
-    // language sentences produced no rows in the bounded v36 probe. Keep the
-    // market and intent concepts in each source-native bundle, while fit-v7
-    // independently proves location, intent, recency, safety, and utility from
-    // returned content. A market match in an author handle remains unknown.
-    const market = marketName(geography)
+    // The actor documents one keyword or hashtag term. Free-text keyword
+    // bundles in the bounded v37 probe were tokenized broadly enough to match
+    // author handles, Saint Austin, and generic "house hunting" content. Use
+    // one market-bound hashtag per separately quoted lane so the retrieval
+    // token itself is atomic. fit-v7 still proves location, intent, recency,
+    // safety, and utility from returned content; the hashtag is targeting
+    // provenance and never evidence.
+    const marketToken = marketName(geography).replace(/[^a-z0-9]/gi, '')
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        `${market} realtor recommendations`,
-        `${market} house hunting`,
-        `${market} first time homebuyer`,
+        `#${marketToken}Homebuyer`,
+        `#${marketToken}HouseHunting`,
+        `#MovingTo${marketToken}`,
       ],
       seller_intent: [
-        `${market} listing agent recommendations`,
-        `${market} thinking selling home`,
-        `${market} need sell house`,
+        `#${marketToken}HomeSeller`,
+        `#SellingIn${marketToken}`,
+        `#${marketToken}HomeValue`,
       ],
       mixed_intent: [
-        `${market} buy before sell`,
-        `${market} sell before buy`,
-        `${market} move up home`,
+        `#${marketToken}MoveUpBuyer`,
+        `#${marketToken}BuyAndSell`,
+        `#MovingIn${marketToken}`,
       ],
       local_audience: [
-        `"home buyer workshop in ${market}"`,
-        `"homeowner event in ${market}"`,
-        `"housing meeting in ${market}"`,
+        `#${marketToken}HomebuyerWorkshop`,
+        `#${marketToken}HomeownerEvent`,
+        `#${marketToken}HousingEvent`,
       ],
     }
     return byIntent[intent]
@@ -465,7 +466,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v37',
+        query_lane_version: 'opportunity-query-v38',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
