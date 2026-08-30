@@ -265,24 +265,26 @@ Local fixture tests may enable consumer research without enabling any production
 
 ### 12.1 Implemented production-source contracts
 
-The current implementation provides four consumer-opportunity source adapters.
-Every adapter is separately gated, metered, bounded, evidence-bearing, and
-manual-only. A credential alone never activates one.
+The current implementation provides separately governed consumer-opportunity
+source adapters. Every adapter is independently gated, metered, bounded,
+evidence-bearing, and manual-only. A credential alone never activates one.
 
 | Source | Product use | Frozen contract | Required approval and price truth |
 |---|---|---|---|
 | Apify LinkedIn post search | Public LinkedIn posts with buyer, seller, or local-audience demand | `harvestapi/linkedin-post-search` build `0.0.104`; start, post, and no-result events; comments, reactions, and nested profile enrichment off | Exact actor/build rate version plus consumer-opportunity approval |
 | Apify Reddit search | Public, non-sensitive Reddit posts or comments; NSFW, locked, archived, and sensitive results dropped; live-accessibility and fit remain downstream gates | `clearpath/reddit-search-scraper` build `0.0.66`; Starter-tier `apify-actor-start`, `result-scraped`, and `apify-default-dataset-item` events; source `createdAt`, permalink, subreddit, and post/comment context retained | `GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED` plus exact Starter-tier rate version |
 | Apify X post search | Public, recent X posts with bounded buyer, seller, mixed, or local intent | `scraper_one/x-posts-search` build `0.0.154`; initialization and result-item events | `GTM_APIFY_X_OPPORTUNITY_ENABLED`, `GTM_APIFY_X_OPPORTUNITY_USE_APPROVED`, and exact rate version |
+| Apify Instagram post search | Current public Instagram posts for the initial realtor buyer, seller, mixed, and local-audience lanes; public authors are secondary context only | `apify/instagram-scraper` build `0.0.775`; Starter/Bronze `result` at `$0.0023` per returned post; one hashtag, 30-day lower bound, and at most ten results per separately quoted lane | `GTM_APIFY_INSTAGRAM_OPPORTUNITY_ENABLED`, `GTM_APIFY_INSTAGRAM_OPPORTUNITY_USE_APPROVED`, exact actor override, and `apify-instagram-scraper-0.0.775-bronze-events-2026-08-30` rate version |
+| Apify TikTok post search | Current public TikTok posts for the initial realtor buyer, seller, mixed, and local-audience lanes; public authors are secondary context only | `clockworks/tiktok-scraper` build `0.0.600`; Starter/Bronze `$0.001` actor start, `$0.003` result, and `$0.001` 30-day filter events; no comments, related content, downloads, transcription, AI, sorting, or country add-ons; at most ten results per separately quoted lane; provider-required `$0.50` max-total-charge reservation floor reconciles to finalized actual events | `GTM_APIFY_TIKTOK_OPPORTUNITY_ENABLED`, `GTM_APIFY_TIKTOK_OPPORTUNITY_USE_APPROVED`, exact actor override, and `clockworks-tiktok-scraper-0.0.600-bronze-events-2026-08-30` rate version |
 | Apify Meetup event search | Upcoming, in-person, public Meetup events and their public hosting groups or organizers as secondary context; no attendee identities, joining, registration, posting, or outreach | `filip_cicvarek/meetup-scraper` build `3.0.14`; Starter/Bronze `apify-default-dataset-item` at `$0.0008` per returned event; platform usage included; `mode=events`, US city/state, physical events, 30-day window, at most ten rows per separately quoted lane | `GTM_APIFY_MEETUP_OPPORTUNITY_ENABLED`, `GTM_APIFY_MEETUP_OPPORTUNITY_USE_APPROVED`, exact actor override, and `filip-cicvarek-meetup-scraper-3.0.14-bronze-events-2026-08-30` rate version |
 | DataForSEO organic Live Advanced | Public indexed communities, forums, events, discussions, creator pages, and other demand destinations | `/v3/serp/google/organic/live/advanced`; `$0.002` per ten organic results; depth at most 50; price-multiplying operators refused | `GTM_DATAFORSEO_CONSUMER_OPPORTUNITY_USE_APPROVED`, exact terms/retention, and exact organic price version |
 
 Apify Google Maps and the governed business-source adapters remain available for
-their existing business/company contracts. Direct Instagram, TikTok, and
-creator-network adapters are not represented as implemented merely because
-Origami lists those sources. The organic adapter may discover publicly indexed
-destinations on those networks, but exact direct-source parity remains a
-separate adapter-contract task requiring a frozen build, account-tier rate card,
+their existing business/company contracts. Instagram and TikTok are represented
+only by the exact direct public-post contracts above; other creator-network
+coverage is not inferred merely because Origami lists a source. The organic
+adapter may still discover publicly indexed destinations on other networks,
+but direct-source parity requires its own frozen build, account-tier rate card,
 customer-serving rights, bounded inputs, and authoritative settlement evidence.
 No source adapter joins, follows, registers, posts, comments, sends a direct
 message, or claims that opening a destination completed an action.
@@ -308,6 +310,21 @@ content alone determines intent and topic fit; the query, requested location,
 and actor search scope remain targeting provenance. Participation rules remain
 `unverified` until the independently pinned destination validator observes
 current terms permitting the proposed manual action.
+
+`opportunity-query-v60` adds three source-native Instagram hashtags and three
+natural-language TikTok searches per realtor lane. Both sources are limited to
+the initial real-estate vertical until a separate benchmark validates broader
+use. The adapters enforce `realtor-public-post-v1` before candidate storage:
+query text never becomes evidence, returned content must independently prove
+the requested buyer, seller, mixed, or local-audience intent and market, the
+post must carry a source timestamp within 30 days, and the URL must identify a
+canonical public post path on the expected platform. Ads, sponsored posts,
+private TikTok accounts, provider errors, sensitive content, stale or future
+timestamps, and off-platform URLs are rejected. No comments, followers,
+downloads, transcription, AI add-ons, private contact fields, sending, posting,
+following, or joining are requested. Finalized provider events are charged to
+the canonical ledger; missing, extra, or mismatched billing events are
+ambiguous and stop the run.
 
 ### 12.2 Quality-v2 retrieval and qualification closeout
 
@@ -565,6 +582,8 @@ customer quote until a bounded retest demonstrates terminal receipt behavior.
 26. Counsel disposition is recorded specifically for the consumer provisions covering public communities/posts/events, optional public profiles, manual-only participation, no consent inference, sensitive/minor exclusions, 30-day draft retention, removal, and customer responsibility for platform/community rules; earlier GTM approval is not inferred to cover the August 26 delta.
 27. An approver-only summary repair accepts 1–50 exact research-run IDs, remains organization- and tenant-scoped, and clears a stale reconciliation hold only when every child provider operation is terminal and every charged amount is recoverable from durable evidence. Missing, unresolved, unevidenced, or cross-scope runs remain unchanged.
 28. Plan schema 11 hashes the bounded destination-validation version and ceilings; legacy plans cannot acquire the new external effect, execution cannot exceed the frozen attempt cap, direct social destinations are not crawled, and a DNS answer that changes to a private address at connection time is blocked before the socket connects.
+29. Instagram and TikTok public-post adapters remain absent from the runtime registry unless the broad Apify gate, source-specific enablement, source-specific customer-use approval, exact actor, and exact price version all match.
+30. Instagram and TikTok plans contain at most three separately quoted realtor lanes and ten results per lane; the exact minimal actor inputs request no comments, related content, downloads, transcription, AI, sorting, or private data, and TikTok reserves its provider-required `$0.50` ceiling before reconciling finalized actual event cost.
 
 ## 14. Migration & Backward Compatibility
 
@@ -660,3 +679,5 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-30: The Events adapter and planner now bind DataForSEO's supported `next_month` value instead of the current-calendar `month` window. The exact change passed the complete GTM, Docker, and isolated integration gates and deployed at `5e1d1c3dea7f334a44cf5da3130684df44a0367c`. A subsequent owner-only Austin local-audience probe froze three source-native queries, reconciled all three operations exactly for `$0.006` (`3,000` Noli credits), and received task status `40102` (`No Search Results`) with zero raw rows and zero parser drops for every query. The Events source therefore remains disabled; no wider Events replay is justified. Customer consumer activation remains fail-closed while retrieval work shifts to the approved, exactly metered Starter-tier Apify sources and the independent twelve-play benchmark remains unmet.
 - 2026-08-30: The signed-in Apify account was re-verified after upgrade as Starter with Bronze Store pricing. DataForSEO Events produced zero raw rows across both the current four-market sample and the corrected next-month Austin sample, so it remains disabled. `opportunity-query-v56` adds a separately enabled and separately approved public Meetup event source using the established `filip_cicvarek/meetup-scraper` build `3.0.14`. The actor's primary contract reports 457 total users, 43 monthly active users, a 4.9 rating, and Bronze pay-per-event pricing of `$0.0008` for each `apify-default-dataset-item`, with platform usage included. The adapter is limited to future in-person US events inside a 30-day window, three separately quoted local-audience searches, and ten rows per lane. It stores no attendee identities, performs no join/register/post/send action, treats public organizers only as secondary context, requires returned structured locality and event timing, meters exact finalized event counts to the canonical ledger, and leaves participation rights unverified for the destination gate. Customer activation remains fail-closed pending a bounded owner probe and the independently reviewed twelve-play benchmark.
 - 2026-08-30: The first bounded owner-only query-v56 Austin Meetup probe completed three separately quoted operations and reconciled all `$0.024` (`12,000` Noli credits) exactly, with no billing ambiguity. It returned 20 unique candidates, but 18 were rejected and two investor-oriented events remained in review; broad business networking, social, fitness, entertainment, and other non-housing events consumed most of the shallow rows. `opportunity-query-v57` replaces the broad searches with `first time homebuyer workshop`, `home buying seminar`, and `homeownership education`, changes the actor's frozen sort to `RELEVANCE`, restricts the source to realtor local-audience plays, and adds the versioned `realtor-housing-event-v1` returned-content filter before candidate storage. A scorer defect that calculated `relevant` before appending missing-intent and missing-participation reasons is also corrected, so a complete-looking event cannot remain relevant while carrying an intent mismatch. Finalized provider cost is still retained for every filtered row. No relevance, location, freshness, access, rights, sensitivity, manual-action, or customer-release gate is relaxed; the next paid step is one bounded Austin confirmation before any wider benchmark.
+- 2026-08-30: The bounded query-v57 Austin Meetup confirmation completed three separately quoted operations, returned 30 provider rows, produced no candidate, and reconciled all `$0.024` (`12,000` Noli credits) exactly. Nineteen rows failed safe normalization and the remaining eleven failed the frozen returned-content relevance filter. Read-only inspection of the already-paid dataset confirmed that the actor returned generic or irrelevant inventory rather than exposing a parser defect. Meetup remains disabled and the unchanged query is not replayed.
+- 2026-08-30: The signed-in Starter account's active direct-source contracts were frozen for `apify/instagram-scraper` build `0.0.775` at `$0.0023` per result and `clockworks/tiktok-scraper` build `0.0.600` at `$0.001` per run, `$0.003` per result, and `$0.001` per result for the required date filter. `opportunity-query-v60` adds separately gated, realtor-only Instagram and TikTok public-post adapters with three source-native lanes, ten-row caps, exact event reconciliation, returned-content-only intent and locality, strict 30-day timestamps, canonical platform URLs, and no paid add-ons beyond TikTok's date filter. The TikTok provider requires a `$0.50` max-total-charge ceiling, which is reserved before the run and reconciled to finalized actual events. Customer consumer activation remains fail-closed pending a bounded owner pilot and the independent twelve-play quality gate.

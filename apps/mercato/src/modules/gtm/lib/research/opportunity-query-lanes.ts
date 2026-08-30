@@ -119,6 +119,17 @@ export function opportunitySourceRouting(
   const realtor = REALTOR_PLAY.test(playText)
 
   if (
+    (adapterId === 'apify-instagram-demand-opportunities'
+      || adapterId === 'apify-tiktok-demand-opportunities')
+    && !realtor
+  ) {
+    return {
+      eligible: false,
+      reason: 'the initial public-post contract is limited to realtor buyer, seller, mixed, and local-audience plays',
+    }
+  }
+
+  if (
     adapterId === 'apify-meetup-demand-opportunities'
     && (intent !== 'local_audience' || !realtor)
   ) {
@@ -293,6 +304,58 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     }
     return byIntent[intent]
   }
+  if (adapterId === 'apify-instagram-demand-opportunities') {
+    const marketToken = marketName(geography).replace(/[^a-z0-9]/gi, '')
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: [
+        `#${marketToken}Homebuyer`,
+        `#${marketToken}HouseHunting`,
+        `#MovingTo${marketToken}`,
+      ],
+      seller_intent: [
+        `#${marketToken}HomeSeller`,
+        `#SellingIn${marketToken}`,
+        `#${marketToken}HomeValue`,
+      ],
+      mixed_intent: [
+        `#${marketToken}MoveUpBuyer`,
+        `#${marketToken}BuyAndSell`,
+        `#MovingIn${marketToken}`,
+      ],
+      local_audience: [
+        `#${marketToken}HomebuyerWorkshop`,
+        `#${marketToken}Homeowners`,
+        `#${marketToken}Housing`,
+      ],
+    }
+    return byIntent[intent]
+  }
+  if (adapterId === 'apify-tiktok-demand-opportunities') {
+    const market = marketName(geography)
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: [
+        `${market} first time home buyer`,
+        `${market} house hunting`,
+        `moving to ${market} home`,
+      ],
+      seller_intent: [
+        `selling my ${market} home`,
+        `${market} home seller`,
+        `${market} home value`,
+      ],
+      mixed_intent: [
+        `${market} move up buyer`,
+        `${market} buy and sell home`,
+        `moving in ${market}`,
+      ],
+      local_audience: [
+        `${market} homebuyer workshop`,
+        `${market} homeowner community`,
+        `${market} housing event`,
+      ],
+    }
+    return byIntent[intent]
+  }
   const socialSeeds: Record<OpportunityIntentLane, string[]> = {
     buyer_intent: [
       '("buying a home" OR "house hunting" OR "first-time home buyer") AND ("I am" OR "we are") NOT (realtor OR agent OR broker OR mortgage OR lender)',
@@ -321,6 +384,8 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
 function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-x-demand-opportunities') return 100
   if (adapterId === 'apify-threads-demand-opportunities') return 100
+  if (adapterId === 'apify-instagram-demand-opportunities') return 100
+  if (adapterId === 'apify-tiktok-demand-opportunities') return 100
   if (adapterId === 'apify-linkedin-demand-opportunities') return 200
   return 700
 }
@@ -384,6 +449,8 @@ function sourceSeed(
     return seed.toLowerCase().includes(market.toLowerCase()) ? seed : `${market} ${seed}`
   }
   if (adapterId === 'apify-threads-demand-opportunities') return seed
+  if (adapterId === 'apify-instagram-demand-opportunities') return seed
+  if (adapterId === 'apify-tiktok-demand-opportunities') return seed
   if (adapterId === 'apify-meetup-demand-opportunities') return seed
   return `${market} ${seed}`
 }
@@ -434,6 +501,8 @@ export function buildOpportunityQueryLanes(
       ? 1
       : adapterId === 'apify-x-demand-opportunities'
         || adapterId === 'apify-threads-demand-opportunities'
+        || adapterId === 'apify-instagram-demand-opportunities'
+        || adapterId === 'apify-tiktok-demand-opportunities'
         || adapterId === 'apify-meetup-demand-opportunities'
         ? 3
         : adapterId === 'apify-reddit-demand-opportunities' && realtorTransaction
@@ -460,7 +529,11 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v57',
+        query_lane_version:
+          adapterId === 'apify-instagram-demand-opportunities'
+            || adapterId === 'apify-tiktok-demand-opportunities'
+            ? 'opportunity-query-v60'
+            : 'opportunity-query-v57',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -492,6 +565,16 @@ export function buildOpportunityQueryLanes(
               meetup_min_rsvp_count: 1,
               meetup_sort: 'RELEVANCE',
               meetup_returned_content_filter_version: 'realtor-housing-event-v1',
+            }
+          : {}),
+        ...(adapterId === 'apify-instagram-demand-opportunities'
+          || adapterId === 'apify-tiktok-demand-opportunities'
+          ? {
+              social_public_post_contract_version: 'public-posts-v1',
+              social_returned_content_filter_version: 'realtor-public-post-v1',
+              social_filter_required_intent: intent,
+              social_filter_require_location: true,
+              social_window_days: 30,
             }
           : {}),
         ...(adapterId === 'apify-reddit-demand-opportunities'
