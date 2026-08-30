@@ -157,9 +157,9 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const market = marketName(geography)
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        'buying house',
-        'looking for realtor',
-        `${market} house hunting`,
+        '("buying a home" OR "buying a house" OR "looking to buy" OR "house hunting" OR "first-time home buyer" OR "first time home buyer" OR "made an offer") NOT (realtor OR agent OR broker OR lender)',
+        '("where should we buy" OR "where should I buy" OR "looking to buy" OR "house hunting" OR "first-time home buyer") NOT (realtor OR agent OR broker OR lender)',
+        '("looking to buy" OR "house hunting" OR "made an offer" OR "need a realtor" OR "first-time home buyer") NOT ("got the keys" OR "closed on" OR "finally did it" OR "just bought")',
       ],
       seller_intent: [
         'selling house',
@@ -379,7 +379,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v51',
+        query_lane_version: 'opportunity-query-v52',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -407,7 +407,9 @@ export function buildOpportunityQueryLanes(
                     reddit_returned_content_filter_version: 'semantic-intent-location-v3',
                     reddit_filter_required_intent: intent,
                     reddit_filter_require_location:
-                      (realtorTransaction || intent === 'local_audience') && index === 2,
+                      (realtorTransaction || intent === 'local_audience')
+                      && index === 2
+                      && intent !== 'buyer_intent',
                   }
                 : {
                     reddit_filter_keywords: [query].filter(Boolean),
@@ -428,6 +430,18 @@ export function buildOpportunityQueryLanes(
                     reddit_sort: 'relevance',
                     reddit_content_type: 'posts',
                   }
+                : intent === 'buyer_intent'
+                  ? {
+                      // The v43 actor receipt proved that a housing-bound
+                      // Boolean post search inside the exact market can recover
+                      // current buyer demand. The third lane searches comments
+                      // in that same market; semantic-v3 rejects entertainment
+                      // and product uses of house-hunting language.
+                      reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
+                      reddit_auto_discover: false,
+                      reddit_sort: 'relevance',
+                      reddit_content_type: 'comments',
+                    }
                 : {
                     reddit_subreddits: [],
                     reddit_auto_discover: true,
