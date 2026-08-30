@@ -308,24 +308,24 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const marketToken = marketName(geography).replace(/[^a-z0-9]/gi, '')
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        `#${marketToken}Homebuyer`,
-        `#${marketToken}HouseHunting`,
-        `#MovingTo${marketToken}`,
+        '#FirstTimeHomeBuyer',
+        '#HouseHunting',
+        `#${marketToken}`,
       ],
       seller_intent: [
-        `#${marketToken}HomeSeller`,
-        `#SellingIn${marketToken}`,
-        `#${marketToken}HomeValue`,
+        '#HomeSeller',
+        '#SellingMyHome',
+        `#${marketToken}`,
       ],
       mixed_intent: [
-        `#${marketToken}MoveUpBuyer`,
-        `#${marketToken}BuyAndSell`,
-        `#MovingIn${marketToken}`,
+        '#MoveUpBuyer',
+        '#BuyAndSellHome',
+        `#${marketToken}`,
       ],
       local_audience: [
-        `#${marketToken}HomebuyerWorkshop`,
-        `#${marketToken}Homeowners`,
-        `#${marketToken}Housing`,
+        `#${marketToken}`,
+        `#${marketToken}Community`,
+        `#${marketToken}Events`,
       ],
     }
     return byIntent[intent]
@@ -532,7 +532,7 @@ export function buildOpportunityQueryLanes(
         query_lane_version:
           adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
-            ? 'opportunity-query-v60'
+            ? 'opportunity-query-v61'
             : 'opportunity-query-v57',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,

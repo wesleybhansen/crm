@@ -45,7 +45,7 @@ function plan(config: PublicPostConfig, query: string): SourceSearchPlan {
     geography: 'US',
     query,
     provider_query: {
-      query_lane_version: 'opportunity-query-v60',
+      query_lane_version: 'opportunity-query-v61',
       source_query_lane_id: 'buyer_intent:1',
       opportunity_intent_lane: 'buyer_intent',
       search_query: query,
@@ -206,9 +206,9 @@ describe('Apify Instagram and TikTok public-post opportunities', () => {
     )
     const tiktok = buildOpportunityQueryLanes(play, APIFY_TIKTOK_OPPORTUNITY_CONFIG.adapterId)
     expect(instagram.map((lane) => lane.query)).toEqual([
-      '#AustinHomebuyer',
-      '#AustinHouseHunting',
-      '#MovingToAustin',
+      '#FirstTimeHomeBuyer',
+      '#HouseHunting',
+      '#Austin',
     ])
     expect(tiktok.map((lane) => lane.query)).toEqual([
       'Austin first time home buyer',
@@ -216,7 +216,7 @@ describe('Apify Instagram and TikTok public-post opportunities', () => {
       'moving to Austin home',
     ])
     expect([...instagram, ...tiktok].every((lane) =>
-      lane.providerQuery.query_lane_version === 'opportunity-query-v60'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v61'
       && lane.providerQuery.social_public_post_contract_version === 'public-posts-v1'
       && lane.providerQuery.social_returned_content_filter_version === 'realtor-public-post-v1'
       && lane.providerQuery.social_filter_require_location === true
@@ -243,14 +243,14 @@ describe('Apify Instagram and TikTok public-post opportunities', () => {
       now,
       runActor,
     })
-    const searchPlan = plan(APIFY_INSTAGRAM_OPPORTUNITY_CONFIG, '#AustinHomebuyer')
+    const searchPlan = plan(APIFY_INSTAGRAM_OPPORTUNITY_CONFIG, '#FirstTimeHomeBuyer')
     expect(adapter.quote(searchPlan)).toMatchObject({ max_candidates: 10, provider_units: 23 })
     const result = await adapter.search(searchPlan)
     expect(runActor).toHaveBeenCalledWith(
       APIFY_INSTAGRAM_OPPORTUNITY_CONFIG.actorId,
       {
         resultsType: 'posts',
-        search: '#AustinHomebuyer',
+        search: '#FirstTimeHomeBuyer',
         searchType: 'hashtag',
         searchLimit: 1,
         resultsLimit: 10,
@@ -335,7 +335,7 @@ describe('Apify Instagram and TikTok public-post opportunities', () => {
 
   it('rejects stale, sponsored, private, unsafe, and off-platform rows before fit-v7', () => {
     const instagramContext = {
-      query: '#AustinHomebuyer',
+      query: '#FirstTimeHomeBuyer',
       location: 'Austin, Texas',
       expectedIntent: 'buyer_intent' as const,
       attemptedAt: CLOCK.toISOString(),
@@ -377,7 +377,7 @@ describe('Apify Instagram and TikTok public-post opportunities', () => {
       env: approvedEnv(APIFY_INSTAGRAM_OPPORTUNITY_CONFIG),
       now,
       runActor,
-    }).search(plan(APIFY_INSTAGRAM_OPPORTUNITY_CONFIG, '#AustinHomebuyer'))
+    }).search(plan(APIFY_INSTAGRAM_OPPORTUNITY_CONFIG, '#FirstTimeHomeBuyer'))
     expect(result).toMatchObject({
       status: 'no_result',
       data: null,

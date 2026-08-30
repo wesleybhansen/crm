@@ -66,6 +66,7 @@ describe('consumer research release gate', () => {
 
   it('permits only the configured owner inside every probe ceiling', () => {
     const ownerId = '1992dd12-99d9-4a40-b053-4e4ac784081b'
+    expect(GTM_CONSUMER_OWNER_PROBE_CEILINGS.maxCredits).toBe(750_000)
     process.env.GTM_CONSUMER_RESEARCH_ENABLED = 'true'
     process.env.GTM_CONSUMER_OWNER_PROBE_ENABLED = 'true'
     process.env.GTM_CONSUMER_OWNER_PROBE_NOLI_USER_ID = ownerId
@@ -87,7 +88,7 @@ describe('consumer research release gate', () => {
     expect(gtmConsumerOwnerProbeEnabled(ownerId, {
       targetAccepted: 10,
       maxRawCandidates: 60,
-      maxCredits: 30_001,
+      maxCredits: GTM_CONSUMER_OWNER_PROBE_CEILINGS.maxCredits + 1,
     })).toBe(false)
   })
 })
