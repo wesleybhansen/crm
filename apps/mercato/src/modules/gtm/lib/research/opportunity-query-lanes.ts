@@ -156,25 +156,19 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const market = quoted(marketName(geography))
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        '(buy OR buying OR homebuyer OR house OR condo OR townhome)',
-        '(realtor OR mortgage OR "down payment" OR inspection OR offer)',
-        '(moving OR relocating OR neighborhood OR commute OR schools OR "where to live")',
-        `${market} AND (buying OR homebuyer OR realtor OR mortgage OR offer)`,
-        `${market} AND (house OR condo OR neighborhood OR moving OR relocating OR inspection)`,
+        '("buy a home" OR "buy a house" OR "buying a home" OR "buying a house" OR "first time home buyer" OR "house hunting")',
+        '("looking for a realtor" OR "need a realtor" OR "realtor recommendation" OR "where should I buy" OR "where should we buy")',
+        '("made an offer" OR "submitted an offer" OR "home inspection" OR "mortgage pre-approval" OR "closing costs")',
       ],
       seller_intent: [
-        '(sell OR selling OR list OR listing OR realtor)',
-        '("home value" OR "house worth" OR appraisal OR repairs OR renovation)',
-        '(moving OR relocating OR downsizing OR "buy before selling" OR "sell before buying")',
-        `${market} AND (sell OR selling OR listing OR realtor OR "home value")`,
-        `${market} AND (moving OR relocating OR downsizing OR appraisal OR repairs)`,
+        '("sell my home" OR "sell my house" OR "selling my home" OR "selling my house" OR "thinking of selling" OR "planning to sell")',
+        '("looking for a realtor" OR "need a realtor" OR "realtor recommendation" OR "listing agent" OR "what is my home worth")',
+        '("repairs before selling" OR "prepare to sell" OR "listing my home" OR "sell before buying" OR "buy before selling")',
       ],
       mixed_intent: [
-        '(buy OR buying OR sell OR selling OR moving OR relocating)',
-        '(realtor OR mortgage OR appraisal OR inspection OR offer)',
-        '("sell before buying" OR "buy before selling" OR downsizing OR "move-up buyer")',
-        `${market} AND (buy OR buying OR sell OR selling OR realtor)`,
-        `${market} AND (moving OR relocating OR mortgage OR appraisal OR inspection)`,
+        '("sell before buying" OR "buy before selling" OR "selling before buying" OR "buying before selling")',
+        '("looking for a realtor" OR "need a realtor" OR "realtor recommendation" OR "move-up buyer")',
+        '("sell then buy" OR "buying and selling a home" OR "selling and buying a home" OR "listing my home")',
       ],
       local_audience: [
         '("neighborhood association" OR "community meeting" OR "housing workshop" OR "home buyer workshop" OR "home seller workshop")',
@@ -361,7 +355,7 @@ export function buildOpportunityQueryLanes(
         || adapterId === 'apify-threads-demand-opportunities'
         ? 3
         : adapterId === 'apify-reddit-demand-opportunities' && realtorTransaction
-          ? 5
+          ? 3
           : adapterId === 'dataforseo-organic-demand-opportunities'
             ? realtorTransaction ? 3 : 5
           : adapterId === 'dataforseo-events-demand-opportunities'
@@ -380,7 +374,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v45',
+        query_lane_version: 'opportunity-query-v46',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -398,33 +392,26 @@ export function buildOpportunityQueryLanes(
                 ? {
                     reddit_returned_content_filter_version: 'semantic-intent-location-v3',
                     reddit_filter_required_intent: intent,
-                    // Transaction lanes stay inside returned local subreddit
-                    // scopes, so their returned subreddit proves locality.
-                    // The local-audience discovery lane remains global and
-                    // must prove the market in returned content.
+                    // Transaction lanes stay inside the returned city or
+                    // Ask<City> subreddit, so their destination proves the
+                    // local scope. Local-audience discovery lane three remains
+                    // global and must prove the market in returned content.
                     reddit_filter_require_location:
-                      realtorTransaction ? index >= 3 : intent === 'local_audience' && index === 2,
+                      realtorTransaction ? false : intent === 'local_audience' && index === 2,
                   }
                 : {
                     reddit_filter_keywords: [query].filter(Boolean),
                     reddit_filter_keyword_mode: 'any',
                   }),
               ...(realtorTransaction
-            ? index < 3
-              ? {
-                  reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
-                  reddit_auto_discover: false,
-                  reddit_sort: index === 0 ? 'relevance' : 'new',
-                  reddit_content_type: 'posts',
-                }
-              : {
-                  reddit_subreddits: [],
-                  reddit_auto_discover: true,
-                  reddit_max_subreddits: 6,
-                  reddit_global_search: true,
-                  reddit_sort: 'relevance',
-                  reddit_content_type: index === 3 ? 'posts' : 'comments',
-                }
+            ? {
+                reddit_subreddits: index === 1
+                  ? realtorMarketSubreddits(geography).slice(1, 2)
+                  : realtorMarketSubreddits(geography).slice(0, 1),
+                reddit_auto_discover: false,
+                reddit_sort: 'relevance',
+                reddit_content_type: index === 2 ? 'comments' : 'posts',
+              }
             : index === 0
             ? {
                 reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
