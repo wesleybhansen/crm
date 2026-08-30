@@ -853,6 +853,59 @@ describe('ruleBasedFitScorer', () => {
     )
   })
 
+  it('routes current first-person Tampa seller declarations to review when participation rules are unknown', () => {
+    const currentSellerStatements = [
+      [
+        'I am about to leave Tampa because the traffic has become too much.',
+        'I posted about selling my house recently and am deciding what to do next.',
+      ].join(' '),
+      'Past time to move out of Tampa Bay. Can\'t wait to sell my house and leave the state.',
+    ]
+
+    for (const [index, audienceDescription] of currentSellerStatements.entries()) {
+      const result = ruleBasedFitScorer.score(
+        {
+          entity_kind: 'opportunity',
+          identity: {
+            name: 'Current Tampa seller discussion',
+            opportunity_kind: 'thread',
+            platform: 'Reddit',
+            intent_kind: 'seller_intent',
+            audience_description: audienceDescription,
+            location: 'Tampa, Florida, United States',
+            access_type: 'public',
+            source_published_at: '2026-08-23T02:58:46.505Z',
+            urls: [`https://www.reddit.com/r/tampa/comments/example/current-seller-${index}`],
+            participation_rules: 'Review the current Reddit community and thread rules before participating.',
+            participation_rules_status: 'unverified',
+            recommended_action: 'Read the full public conversation and contribute one useful response manually.',
+            message_angle: 'Answer the seller question with practical local information before mentioning services.',
+          },
+        },
+        {
+          entityUnit: 'opportunities',
+          geography: 'Tampa, Florida, United States',
+          audience: 'Homeowners publicly demonstrating that they are considering or preparing to sell a home in Tampa',
+          signal: 'A recent public question or discussion demonstrates home-selling, valuation, downsizing, or listing-preparation intent.',
+          referenceTime: '2026-08-30T15:59:00.000Z',
+          recencyWindow: '30 days',
+          providerQuery: { opportunity_intent_lane: 'seller_intent' },
+        },
+        strongEvidence,
+      )
+
+      expect(result.verdict).toBe('review')
+      expect(result.reason).toBe(FIT_REASONS.review)
+      expect(result.criteria).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
+          expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
+          expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
+        ]),
+      )
+    }
+  })
+
   it('does not trust a provider intent label when returned content proves a different lane', () => {
     const result = ruleBasedFitScorer.score(
       {
