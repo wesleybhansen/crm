@@ -2,7 +2,7 @@ import { classifyOpportunityIntent } from './opportunity-quality'
 import type { PlanPlayInput } from './plan'
 
 export const DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM = '&tbs=qdr:m'
-export const DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE = 'month'
+export const DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE = 'next_month'
 
 export type OpportunityIntentLane =
   | 'buyer_intent'
