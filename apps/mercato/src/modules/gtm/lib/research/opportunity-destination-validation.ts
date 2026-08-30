@@ -85,9 +85,10 @@ async function boundedResponseText(response: Response): Promise<string> {
   return new TextDecoder().decode(bytes)
 }
 
-function pageEvidence(html: string): {
+function pageEvidence(html: string, requestedLocation: string | null): {
   excerpt: string
   participation: string | null
+  sensitive: boolean
   title: string | null
 } {
   const $ = load(html)
@@ -109,12 +110,23 @@ function pageEvidence(html: string): {
     .split(/(?<=[.!?])\s+|\s*[|•·]\s*/)
     .map((value) => boundedText(value, 280))
     .filter((value) => value.length >= 12)
-  const relevant = sentences.filter((value) => RELEVANT_PAGE_TEXT.test(value)).slice(0, 5)
+  const location = requestedLocation
+    ? sentences.find((value) => demonstratedOpportunityLocation(value, requestedLocation)) ?? null
+    : null
   const participation = sentences.find((value) => PARTICIPATION_TERMS.test(value)) ?? null
+  const relevant = sentences.filter((value) => RELEVANT_PAGE_TEXT.test(value))
+  const selected = [location, participation, ...relevant]
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .slice(0, 7)
   return {
     title,
-    excerpt: boundedText([title, ...relevant].filter(Boolean).join('. ')),
+    excerpt: boundedText([title, ...selected].filter(Boolean).join('. ')),
     participation: participation ? boundedText(participation, 360) : null,
+    // Scan the bounded page body before selecting an excerpt. A sensitive
+    // sentence may occur after the first visually relevant paragraph and must
+    // still fail closed without being retained in the candidate record.
+    sensitive: sensitiveConsumerOpportunityReasons(`${title ?? ''} ${description} ${main}`).length > 0,
   }
 }
 
@@ -208,10 +220,16 @@ export async function validateOpportunityDestination(
   }
 
   const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
-  let page = { excerpt: '', participation: null as string | null, title: null as string | null }
+  const requestedLocation = candidate.identity.provider_location ?? null
+  let page = {
+    excerpt: '',
+    participation: null as string | null,
+    sensitive: false,
+    title: null as string | null,
+  }
   try {
     if (contentType.includes('html') || contentType.includes('text/plain') || contentType === '') {
-      page = pageEvidence(await boundedResponseText(response))
+      page = pageEvidence(await boundedResponseText(response), requestedLocation)
     }
   } catch {
     return {
@@ -225,7 +243,7 @@ export async function validateOpportunityDestination(
     }
   }
 
-  if (page.excerpt && sensitiveConsumerOpportunityReasons(page.excerpt).length > 0) {
+  if (page.sensitive) {
     return {
       candidate: withValidation(candidate, {
         access_type: 'unknown',
@@ -237,7 +255,6 @@ export async function validateOpportunityDestination(
     }
   }
 
-  const requestedLocation = candidate.identity.provider_location ?? null
   const demonstratedLocation = page.excerpt && requestedLocation
     ? demonstratedOpportunityLocation(page.excerpt, requestedLocation)
     : null

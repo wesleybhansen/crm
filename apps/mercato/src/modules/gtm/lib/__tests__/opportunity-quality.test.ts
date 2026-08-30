@@ -118,6 +118,17 @@ describe('opportunity quality primitives', () => {
     ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
     expect(
       assessRealtorOpportunitySuitability(
+        'Phoenix real estate discussion for newer buyers. I am waiting to find a property in Phoenix and asking how buyers should compare current listings.',
+        'buyer_intent',
+        'https://www.reddit.com/r/RealEstate/comments/example/phoenix_buyers',
+        'thread',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+    expect(realtorOpportunityNoiseReasons('Finally did it! Phoenix, AZ — $587k — got the keys.')).toContain(
+      'completed_buyer_transaction',
+    )
+    expect(
+      assessRealtorOpportunitySuitability(
         'Austin TX home appraisal came in at $422k. I made my offer at $375k and the seller countered. What should be my next move on closing costs?',
         'buyer_intent',
         null,

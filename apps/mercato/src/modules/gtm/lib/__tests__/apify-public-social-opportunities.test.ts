@@ -766,9 +766,10 @@ describe('Apify public social demand opportunities', () => {
       provider_query: {
         ...plan.provider_query,
         locations: ['Austin, Texas'],
-        search_query: 'Austin thinking of selling my house',
-        reddit_filter_keywords: ['Austin', 'thinking of selling my house', 'thinking of selling my home'],
-        reddit_filter_keyword_mode: 'first_and_any',
+        search_query: '"Austin" AND ("thinking of selling" OR "sell my house")',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v1',
+        reddit_filter_required_intent: 'seller_intent',
+        reddit_filter_require_location: true,
         reddit_subreddits: [],
         reddit_auto_discover: true,
         reddit_max_subreddits: 6,
@@ -781,7 +782,7 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).toHaveBeenCalledWith(
       APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
       expect.objectContaining({
-        query: 'Austin thinking of selling my house',
+        query: '"Austin" AND ("thinking of selling" OR "sell my house")',
         autoDiscoverSubreddits: true,
         maxSubreddits: 6,
         sort: 'relevance',
@@ -807,9 +808,10 @@ describe('Apify public social demand opportunities', () => {
       provider_query: {
         ...plan.provider_query,
         locations: ['Austin, Texas'],
-        search_query: 'Austin selling my home',
-        reddit_filter_keywords: ['Austin', 'selling my home', 'selling our home', 'thinking of selling'],
-        reddit_filter_keyword_mode: 'first_and_any',
+        search_query: '"Austin" AND ("selling my home" OR "thinking of selling")',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v1',
+        reddit_filter_required_intent: 'seller_intent',
+        reddit_filter_require_location: true,
         reddit_subreddits: [],
         reddit_auto_discover: true,
         reddit_max_subreddits: 6,
@@ -858,6 +860,81 @@ describe('Apify public social demand opportunities', () => {
         keyword_filtered_rows: 1,
       },
       error: 'no_result_after_returned_content_filter',
+    })
+  })
+
+  it('uses semantic returned-content intent and location instead of exact query phrasing', async () => {
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor: async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost({
+        title: 'Phoenix real estate discussion for newer buyers',
+        body: 'I am waiting to find a property in Phoenix and asking how buyers should compare current listings.',
+        subreddit: 'RealEstate',
+        permalink: '/r/RealEstate/comments/example/phoenix_buyers/',
+        url: 'https://www.reddit.com/r/RealEstate/comments/example/phoenix_buyers/',
+      })),
+    })
+
+    const result = await adapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Phoenix, Arizona'],
+        search_query: '"Phoenix" AND ("looking to buy" OR "house hunting")',
+        opportunity_intent_lane: 'buyer_intent',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v1',
+        reddit_filter_required_intent: 'buyer_intent',
+        reddit_filter_require_location: true,
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      receipt: {
+        returned_content_filter_version: 'semantic-intent-location-v1',
+        returned_content_filtered_rows: 0,
+      },
+    })
+    expect(result.data?.[0]?.identity).toMatchObject({
+      intent_kind: 'buyer_intent',
+      location: 'Phoenix, Arizona',
+    })
+  })
+
+  it('fails the semantic returned-content filter when the market is not demonstrated', async () => {
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor: async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost({
+        title: 'Denver buyers comparing houses',
+        body: 'We are buying a house in Denver and need advice before making an offer.',
+        subreddit: 'RealEstate',
+        permalink: '/r/RealEstate/comments/example/denver_buyers/',
+        url: 'https://www.reddit.com/r/RealEstate/comments/example/denver_buyers/',
+      })),
+    })
+
+    const result = await adapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Phoenix, Arizona'],
+        search_query: '"Phoenix" AND ("looking to buy" OR "house hunting")',
+        opportunity_intent_lane: 'buyer_intent',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v1',
+        reddit_filter_required_intent: 'buyer_intent',
+        reddit_filter_require_location: true,
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'no_result',
+      data: null,
+      receipt: {
+        returned_content_filter_version: 'semantic-intent-location-v1',
+        returned_content_filtered_rows: 1,
+      },
     })
   })
 
@@ -1219,7 +1296,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v41',
+        query_lane_version: 'opportunity-query-v42',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'austinhomebuyer',
       },
@@ -1309,7 +1386,7 @@ describe('Apify public social demand opportunities', () => {
       '#MovingToAustin',
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v41'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v42'
       && lane.providerQuery.opportunity_intent_lane === 'buyer_intent'
     ))).toBe(true)
 

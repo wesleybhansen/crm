@@ -60,7 +60,7 @@ describe('opportunity destination validation', () => {
     expect(result.candidate.evidence.at(-1)).toMatchObject({
       source_url: 'https://windsorpark.example/meetings',
       detail: {
-        validator: 'safe-public-destination-v1',
+        validator: 'safe-public-destination-v2',
         http_status: 200,
       },
     })
@@ -80,6 +80,27 @@ describe('opportunity destination validation', () => {
 
     expect(result).toEqual({ candidate: original, outcome: 'skipped_social' })
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('prioritizes source-demonstrated locality even when it appears after generic page copy', async () => {
+    const result = await validateOpportunityDestination(candidate('https://windsorpark.example/meetings'), {
+      fetchImpl: async () => new Response(`
+        <html><head><title>Neighborhood Association Meetings</title></head><body><main>
+          <p>Neighborhood association meetings are held every month.</p>
+          <p>Homeowners hear community updates and housing information.</p>
+          <p>Members discuss neighborhood projects and local events.</p>
+          <p>The community calendar includes workshops and public meetings.</p>
+          <p>Residents can join the association and volunteer.</p>
+          <p>Meeting materials are posted after every session.</p>
+          <p>Austin Neighborhood Council meetings are held at the Austin Energy Building.</p>
+        </main></body></html>
+      `, { status: 200, headers: { 'content-type': 'text/html' } }),
+      now: () => CLOCK,
+    })
+
+    expect(result.outcome).toBe('verified')
+    expect(result.candidate.identity.location).toBe('Austin, Texas')
+    expect(result.candidate.identity.audience_description).toContain('Austin Neighborhood Council')
   })
 
   it('marks a confirmed missing destination unavailable', async () => {
@@ -116,6 +137,22 @@ describe('opportunity destination validation', () => {
 
     expect(result.outcome).toBe('blocked')
     expect(result.candidate.identity.destination_validation_status).toBe('blocked')
+    expect(result.candidate.identity.audience_description).not.toContain('foreclosure')
+  })
+
+  it('blocks sensitive material outside the retained relevant excerpt', async () => {
+    const generic = Array.from({ length: 10 }, (_, index) =>
+      `<p>Public neighborhood meeting ${index + 1} includes housing updates and community participation.</p>`,
+    ).join('')
+    const result = await validateOpportunityDestination(candidate('https://community.example/housing'), {
+      fetchImpl: async () => new Response(
+        `<main>${generic}<p>This group targets homeowners facing foreclosure.</p></main>`,
+        { status: 200, headers: { 'content-type': 'text/html' } },
+      ),
+      now: () => CLOCK,
+    })
+
+    expect(result.outcome).toBe('blocked')
     expect(result.candidate.identity.audience_description).not.toContain('foreclosure')
   })
 
