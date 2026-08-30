@@ -132,6 +132,60 @@ describe('ruleBasedFitScorer', () => {
     expect(result.unknowns).toContain('opportunity.actionability')
   })
 
+  it('recognizes a direct seller request while keeping unverified thread rules in review', () => {
+    const sourceUrl = 'https://www.reddit.com/r/askaustin/comments/1vi5hvd/south_austin_realtor_recommendation/'
+    const content = [
+      'South Austin Realtor recommendation?',
+      'Thinking of trying to sell my South Austin home (78745) and am looking for realtor recommendations.',
+      'I want someone who can help me prepare the house, including repairs, painting, and staging.',
+    ].join(' ')
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'South Austin Realtor recommendation?',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          intent_kind: 'seller_intent',
+          audience_description: content,
+          location: 'Austin, Texas',
+          access_type: 'public',
+          source_published_at: '2026-08-08T12:00:00.000Z',
+          urls: [sourceUrl],
+          participation_rules: 'Review the current subreddit and thread rules before participating.',
+          participation_rules_status: 'unverified',
+          recommended_action: 'Read the public thread and contribute one useful response manually.',
+          message_angle: 'Answer the preparation question before mentioning professional help.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin homeowners preparing to sell',
+        signal: 'A current public seller request demonstrates intent',
+        referenceTime: '2026-08-30T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      [{
+        claim: content,
+        source_url: sourceUrl,
+        observed_at: '2026-08-30T12:00:00.000Z',
+        confidence: 0.85,
+      }],
+    )
+
+    expect(result.verdict).toBe('review')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
+        expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
+        expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
+      ]),
+    )
+    expect(result.unknowns).toContain('opportunity.actionability')
+  })
+
   it('keeps a current public event in review until its participation terms are observed', () => {
     const result = ruleBasedFitScorer.score(
       {

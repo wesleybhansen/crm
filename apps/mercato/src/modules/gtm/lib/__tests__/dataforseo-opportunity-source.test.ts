@@ -320,6 +320,25 @@ describe('DataForSEO organic demand-opportunity source', () => {
       event_start_at: '2026-09-01T12:00:00.000Z',
     })
 
+    const futureEventAfterPublicationDate = normalizeDataForSeoOpportunityItem(
+      item({
+        title: 'Hot Takes on Housing: Austin',
+        url: 'https://www.eventbrite.com/e/hot-takes-on-housing-austin-123',
+        description: 'Jul 31, 2026 — Austin homeowners can register for this public housing workshop on Monday, September 14, 2026.',
+        timestamp: '2026-07-31 12:00:00 +00:00',
+      }),
+      {
+        ...context,
+        observedAt: '2026-08-30T12:00:00.000Z',
+      },
+    )
+    expect(futureEventAfterPublicationDate?.identity).toMatchObject({
+      opportunity_kind: 'event',
+      access_type: 'ticketed',
+      source_published_at: '2026-07-31T12:00:00.000Z',
+      event_start_at: '2026-09-14T12:00:00.000Z',
+    })
+
     const old = normalizeDataForSeoOpportunityItem(
       item({
         title: 'Austin home buyer fair',

@@ -179,6 +179,30 @@ describe('opportunity quality primitives', () => {
         'thread',
       ),
     ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+
+    const directSellerRequest = [
+      'South Austin Realtor recommendation?',
+      'Thinking of trying to sell my South Austin home (78745) and am looking for realtor recommendations.',
+      'I want someone who can help me prepare the house, including repairs, painting, and staging.',
+    ].join(' ')
+    expect(classifyOpportunityIntent(directSellerRequest).kind).toBe('seller_intent')
+    expect(
+      assessRealtorOpportunitySuitability(
+        directSellerRequest,
+        'seller_intent',
+        'https://www.reddit.com/r/askaustin/comments/1vi5hvd/south_austin_realtor_recommendation/',
+        'thread',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'seller_intent', reasons: [] })
+
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Looking for a realtor? Contact me today for a free home valuation and listing consultation.',
+        'seller_intent',
+        'https://example.com/realtor-promotion',
+        'post',
+      ).relevant,
+    ).toBe(false)
   })
 
   it('rejects polished professional content that only looks like consumer demand', () => {
@@ -508,6 +532,29 @@ describe('opportunity quality primitives', () => {
     })
     expect(unknownAccess.status).toBe('unknown')
     expect(unknownAccess.issues).toContain('destination_access_unknown')
+
+    const futureEventWithOldPublication = assessOpportunityDestination({
+      identity: {
+        name: 'Hot Takes on Housing',
+        opportunity_kind: 'event',
+        access_type: 'ticketed',
+        source_published_at: '2026-07-31T12:00:00.000Z',
+        event_start_at: '2026-09-14T12:00:00.000Z',
+        urls: ['https://www.eventbrite.com/e/hot-takes-on-housing-123'],
+      },
+      evidence: [{
+        claim: 'Public event page',
+        source_url: 'https://www.eventbrite.com/e/hot-takes-on-housing-123',
+        observed_at: '2026-08-30T12:00:00.000Z',
+        confidence: 0.8,
+      }],
+      referenceTime: new Date('2026-08-30T12:00:00.000Z'),
+      maxAgeDays: 30,
+    })
+    expect(futureEventWithOldPublication.status).toBe('pass')
+    expect(futureEventWithOldPublication.issues).not.toContain('stale_destination')
+    expect(futureEventWithOldPublication.issues).not.toContain('event_expired')
+    expect(futureEventWithOldPublication.newestObservation).toBe('2026-09-14T12:00:00.000Z')
   })
 
   it('uses source publication time for posts and never retrieval time as a freshness proxy', () => {

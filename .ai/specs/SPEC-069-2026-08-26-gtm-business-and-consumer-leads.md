@@ -325,17 +325,17 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v45` keeps actor-native syntax explicit and separately quotes
-five transaction-intent Reddit strategies against
+`opportunity-query-v46` keeps actor-native syntax explicit and separately quotes
+three transaction-intent Reddit strategies against
 `clearpath/reddit-search-scraper` build `0.0.66`. Buyer, seller, and mixed plays
-use three broad post searches in the primary exact-market community plus one
-market-bound global post search and one market-bound global comment search.
-Only the two global lanes may auto-discover, and they are capped at six
-subreddits, ten rows, and the frozen 30-day window. Every content type and
-discovery choice is immutable in the quote. The broad city-community queries
-improve recall while the semantic filter—not the query—decides whether a row
-actually demonstrates current housing intent. Global rows must independently
-prove the requested market in their returned content.
+use two housing-bound post searches and one housing-bound comment search across
+the primary exact-market and `Ask<Market>` communities. Transaction lanes never
+auto-discover subreddits. Each lane may return at most ten rows inside the
+frozen 30-day window, and every scope, content type, and discovery choice is
+immutable in the quote. The deeper bounded pool improves recall without letting
+generic food, sports, or news uses of words such as `buy`, `offer`, or `moving`
+consume the candidate ceiling. The semantic filter—not the query—still decides
+whether a row actually demonstrates current housing intent.
 The queries do not exclude `realtor`, `agent`, `broker`, or `lender`, because a
 consumer asking for a professional is relevant demand; the returned-content
 noise and fit gates remain authoritative. Local-audience discovery retains its
@@ -594,3 +594,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-30: `opportunity-query-v44` reallocates transaction retrieval to five exact-market Reddit lanes—three post and two comment searches—and three organic lanes while keeping local-audience discovery at three Reddit plus five organic lanes. Transaction Reddit queries no longer exclude professional terms that may occur in genuine recommendation requests; returned evidence still must satisfy the frozen fit and noise gates. `semantic-intent-location-v3` and `fit-v7-quality-v23` reject entertainment-only house-search language while preserving an actual first-person residential decision. Already-quoted v1 and v2 semantic plans retain their original classifiers. No wider paid benchmark or customer activation is permitted until a bounded v44 probe demonstrates materially improved buyer and seller yield.
 - 2026-08-30: The bounded query-v44 Austin seller, Austin local-audience, and Phoenix buyer probe reconciled all 24 operations without ambiguity for `$0.03787` (`18,935` Noli credits). Seller produced three rejected organic matches and no accepted or reviewable opportunity; local audience produced one accepted and five rejected matches; buyer produced one review and four rejected matches. All ten exact-market transaction Reddit runs completed successfully on build `0.0.66` but returned zero rows. The surviving organic rows were predominantly wrong-market, promotional, inaccessible, or undated. The full benchmark remains held.
 - 2026-08-30: `opportunity-query-v45` replaces sparse exact-phrase transaction retrieval with three broad intent-token searches inside the exact city subreddit and two market-bound global searches, one post and one comment. The global lanes alone may auto-discover up to six subreddits and must independently prove the requested market. Every lane stays separately quoted, capped, metered, and filtered by unchanged `semantic-intent-location-v3` and `fit-v7-quality-v23`; no location, intent, freshness, access, safety, or actionability threshold is relaxed. No wider benchmark or customer activation is permitted until the targeted v45 probe materially improves buyer and seller yield.
+- 2026-08-30: The bounded query-v45 Austin seller, Austin local-audience, and Phoenix buyer probe reconciled all operations exactly for `$0.06587` (`32,935` Noli credits), producing four rejected seller matches, one accepted plus four rejected local-audience matches, and six rejected buyer matches. A read-only audit found a genuine current South Austin seller requesting realtor recommendations that `fit-v7-quality-v23` incorrectly rejected because the subject-elided phrase “Thinking of trying to sell” and the direct professional-assistance request did not satisfy the consumer-need predicate. It also found a future Eventbrite housing event whose July publication date was mistaken for its September event date. Raw actor datasets showed that broad `buy`, `moving`, `mortgage`, and `offer` tokens consumed the shallow top rows with food, sports, repair, and generic-news noise. `opportunity-query-v46` replaces the five broad/global transaction lanes with three deeper housing-bound city, `Ask<Market>`, and city-comment lanes, all separately quoted and hard-capped. `fit-v7-quality-v24` recognizes a narrow direct realtor-assistance request without admitting provider promotion, and event normalization plus the destination gate prefer an explicit future event date over an older publication date. Participation rights remain evidence-bound: the recovered seller thread and any event with unverified rules stay in review rather than becoming accepted. The full twelve-play benchmark and customer consumer activation remain held until a targeted v46 probe demonstrates materially better useful recall.

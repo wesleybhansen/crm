@@ -214,6 +214,13 @@ const DEMONSTRATED_HOUSING_STATUS =
   /\b(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\s+(?:moving|looking|planning|preparing|trying|considering|thinking|needing|wanting)\b/i
 const FIRST_PERSON_HOUSING_IDENTITY =
   /\b(?:i|we)(?:'m|'re| am| are)\s+(?:a\s+)?(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\b/i
+// Directly asking the public for an agent recommendation is itself a
+// consumer request for transaction help. This deliberately requires an
+// assistance verb plus an agent role; a provider-authored post that merely
+// mentions a realtor still fails, and the independent promotion/noise rules
+// continue to reject solicitation copy.
+const DIRECT_REALTOR_ASSISTANCE_REQUEST =
+  /\b(?:(?:looking|searching) for|need(?:ing)?|seek(?:ing)?|want(?:ing)?|recommend(?:ation)?s? (?:for|on)|can (?:anyone|somebody) recommend|does (?:anyone|somebody) (?:know|recommend))\b.{0,80}\b(?:realtor|real estate agent|listing agent|buyer(?:'|’)s agent)\b|\b(?:realtor|real estate agent|listing agent|buyer(?:'|’)s agent)\s+recommendations?\b/i
 const PARTICIPATION_SURFACE =
   /\b(?:community|forum|group|thread|discussion|question|event|workshop|seminar|webinar|class|meetup|panel|association|club|neighbou?rhood|homeowners?)\b/i
 const EDUCATIONAL_EVENT = /\b(?:event|fair|workshop|seminar|webinar|class|meetup|panel|clinic|q\s*&\s*a)\b/i
@@ -490,12 +497,14 @@ export function assessRealtorOpportunitySuitability(
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
+    || DIRECT_REALTOR_ASSISTANCE_REQUEST.test(content)
   const directConsumerNeed =
     FIRST_PERSON_HOUSING_NEED.test(content)
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
     || FIRST_PERSON_HOUSING_IDENTITY.test(content)
+    || DIRECT_REALTOR_ASSISTANCE_REQUEST.test(content)
   const surface = PARTICIPATION_SURFACE.test(content)
   const educationalEvent = EDUCATIONAL_EVENT.test(content)
   const participationVenue = ['community', 'forum', 'group', 'thread'].includes(opportunityKind ?? '')
@@ -687,12 +696,18 @@ export function assessOpportunityDestination(args: {
   const kind = typeof identity.opportunity_kind === 'string' ? identity.opportunity_kind : null
   const published = validDate(identity.source_published_at)
     ?? contentPublicationDate(content, args.referenceTime)
+  const explicitEventStart = validDate(identity.event_start_at)
+  const derivedEventDates = content ? datedEventCandidates(content) : []
+  const eventStart = explicitEventStart
+    ?? derivedEventDates.find((date) => !args.referenceTime || date.getTime() >= args.referenceTime.getTime())
+    ?? derivedEventDates.at(-1)
   // A post/thread's age must come from the platform's publication timestamp.
   // evidence.observed_at is retrieval time and cannot prove that content is
   // inside a play's recency window. Stable destinations such as communities
   // and forums may use the time Noli actually observed the public page.
-  const freshnessObservation = published
-    ?? (kind === 'post' || kind === 'thread' ? null : newestObservedAt(args.evidence))
+  const freshnessObservation = kind === 'event'
+    ? eventStart ?? published ?? newestObservedAt(args.evidence)
+    : published ?? (kind === 'post' || kind === 'thread' ? null : newestObservedAt(args.evidence))
   const ageDays =
     freshnessObservation && args.referenceTime
       ? Math.max(0, (args.referenceTime.getTime() - freshnessObservation.getTime()) / 86_400_000)
@@ -700,11 +715,6 @@ export function assessOpportunityDestination(args: {
   if (args.maxAgeDays != null && ageDays != null && ageDays > args.maxAgeDays) issues.push('stale_destination')
   if (args.maxAgeDays != null && ageDays == null) issues.push('destination_freshness_unknown')
 
-  const explicitEventStart = validDate(identity.event_start_at)
-  const derivedEventDates = content ? datedEventCandidates(content) : []
-  const eventStart = explicitEventStart
-    ?? derivedEventDates.find((date) => !args.referenceTime || date.getTime() >= args.referenceTime.getTime())
-    ?? derivedEventDates.at(-1)
   if (kind === 'event') {
     if (!eventStart || !Number.isFinite(eventStart.getTime())) issues.push('event_time_unknown')
     else if (args.referenceTime && eventStart.getTime() < args.referenceTime.getTime()) issues.push('event_expired')

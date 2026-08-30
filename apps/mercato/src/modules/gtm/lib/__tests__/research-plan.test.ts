@@ -213,7 +213,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v45')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v46')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -234,7 +234,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(lanes).toHaveLength(3)
     expect(lanes[0]?.query).toBe('Austin, Texas Reddit "looking for a realtor" "buy a home"')
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v45')).toBe(true)
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v46')).toBe(true)
   })
 
   it('uses source-native realtor queries and three economical hashtag X lanes', () => {
@@ -264,9 +264,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       '#SellingInAustin',
       '#AustinHomeValue',
     ])
-    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v45')).toBe(true)
+    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v46')).toBe(true)
     expect(linkedin).toHaveLength(1)
-    expect(reddit).toHaveLength(5)
+    expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(3)
     expect(events).toHaveLength(3)
     expect(events.map((lane) => lane.query)).toEqual([
@@ -276,7 +276,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ])
     expect(events.every((lane) =>
       lane.providerQuery.date_range === DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v45'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v46'
     )).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(
@@ -291,61 +291,40 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(
       reddit.every((lane) => /sell|selling|list|listing|realtor|home|house|moving|relocating|downsizing|appraisal|repairs/i.test(lane.query)),
     ).toBe(true)
-    expect(reddit.slice(0, 3).every((lane) => !lane.query.includes('Austin'))).toBe(true)
-    expect(reddit.slice(3).every((lane) => lane.query.includes('"Austin"'))).toBe(true)
+    expect(reddit.every((lane) => !lane.query.includes('Austin'))).toBe(true)
     expect(reddit.every((lane) => /\b(?:OR|sell|selling|list|listing|realtor|home|house|moving|relocating|downsizing|appraisal|repairs)\b/i.test(lane.query))).toBe(true)
     expect(
       reddit.every((lane) => Array.isArray(lane.providerQuery.reddit_subreddits)),
     ).toBe(true)
     expect(reddit[0]?.providerQuery.reddit_subreddits).toEqual(['Austin'])
     expect(reddit[0]?.providerQuery).toMatchObject({
+      reddit_subreddits: ['Austin'],
       reddit_auto_discover: false,
       reddit_sort: 'relevance',
+      reddit_content_type: 'posts',
       reddit_returned_content_filter_version: 'semantic-intent-location-v3',
       reddit_filter_required_intent: 'seller_intent',
       reddit_filter_require_location: false,
     })
     expect(reddit[1]?.providerQuery).toMatchObject({
-      reddit_subreddits: ['Austin'],
+      reddit_subreddits: ['AskAustin'],
       reddit_auto_discover: false,
-      reddit_sort: 'new',
+      reddit_sort: 'relevance',
       reddit_content_type: 'posts',
       reddit_filter_require_location: false,
     })
     expect(reddit[2]?.providerQuery).toMatchObject({
       reddit_subreddits: ['Austin'],
       reddit_auto_discover: false,
-      reddit_sort: 'new',
-      reddit_content_type: 'posts',
+      reddit_sort: 'relevance',
+      reddit_content_type: 'comments',
       reddit_returned_content_filter_version: 'semantic-intent-location-v3',
       reddit_filter_required_intent: 'seller_intent',
       reddit_filter_require_location: false,
     })
-    expect(reddit[3]?.providerQuery).toMatchObject({
-      reddit_subreddits: [],
-      reddit_auto_discover: true,
-      reddit_max_subreddits: 6,
-      reddit_global_search: true,
-      reddit_sort: 'relevance',
-      reddit_content_type: 'posts',
-      reddit_returned_content_filter_version: 'semantic-intent-location-v3',
-      reddit_filter_required_intent: 'seller_intent',
-      reddit_filter_require_location: true,
-    })
-    expect(reddit[4]?.providerQuery).toMatchObject({
-      reddit_subreddits: [],
-      reddit_auto_discover: true,
-      reddit_max_subreddits: 6,
-      reddit_global_search: true,
-      reddit_sort: 'relevance',
-      reddit_content_type: 'comments',
-      reddit_filter_require_location: true,
-    })
-    expect(reddit[0]?.query).toBe('(sell OR selling OR list OR listing OR realtor)')
-    expect(reddit[1]?.query).toContain('"home value"')
-    expect(reddit[2]?.query).toContain('"buy before selling"')
-    expect(reddit[3]?.query).toBe('"Austin" AND (sell OR selling OR listing OR realtor OR "home value")')
-    expect(reddit[4]?.query).toBe('"Austin" AND (moving OR relocating OR downsizing OR appraisal OR repairs)')
+    expect(reddit[0]?.query).toBe('("sell my home" OR "sell my house" OR "selling my home" OR "selling my house" OR "thinking of selling" OR "planning to sell")')
+    expect(reddit[1]?.query).toBe('("looking for a realtor" OR "need a realtor" OR "realtor recommendation" OR "listing agent" OR "what is my home worth")')
+    expect(reddit[2]?.query).toBe('("repairs before selling" OR "prepare to sell" OR "listing my home" OR "sell before buying" OR "buy before selling")')
     expect(reddit.every((lane) => !lane.query.includes('NOT '))).toBe(true)
     expect(
       web.every((lane) => !lane.query.includes(' -')),
@@ -380,7 +359,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'austinhomevalue',
     ])
     expect(
-      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v45'),
+      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v46'),
     ).toBe(true)
   })
 
@@ -419,7 +398,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       && lane.query.startsWith('#')
       && lane.query.length <= 100
       && !/[()]/.test(lane.query)
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v45'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v46'
     ))).toBe(true)
   })
 
@@ -459,7 +438,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       reddit_filter_require_location: true,
     })
     expect([...reddit, ...web].every(
-      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v45',
+      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v46',
     )).toBe(true)
   })
 

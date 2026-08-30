@@ -371,14 +371,32 @@ const WEEKDAY_INDEX: Record<string, number> = {
 }
 
 function explicitEventStartAt(value: string, referenceValue: string): string | null {
-  const match = value.match(ISO_CALENDAR_DATE)?.[0] ?? value.match(MONTH_NAME)?.[0]
-  if (match) {
-    const date = new Date(match.replace(/(\d)(?:st|nd|rd|th)\b/i, '$1'))
-    return Number.isFinite(date.getTime()) ? date.toISOString() : null
+  const reference = new Date(referenceValue)
+  const explicitMatches = [
+    ...value.matchAll(new RegExp(ISO_CALENDAR_DATE.source, 'g')),
+    ...value.matchAll(new RegExp(MONTH_NAME.source, 'gi')),
+  ]
+  const explicitDates = explicitMatches
+    .map((match) => {
+      const normalized = (match[0] ?? '').replace(/(\d)(?:st|nd|rd|th)\b/i, '$1')
+      return ISO_CALENDAR_DATE.test(normalized)
+        ? new Date(`${normalized}T12:00:00.000Z`)
+        : new Date(`${normalized} 12:00:00 UTC`)
+    })
+    .filter((date) => Number.isFinite(date.getTime()))
+    .filter((date, index, rows) => rows.findIndex((row) => row.getTime() === date.getTime()) === index)
+    .sort((left, right) => left.getTime() - right.getTime())
+  if (explicitDates.length > 0) {
+    if (!Number.isFinite(reference.getTime())) return explicitDates[0]?.toISOString() ?? null
+    // Search snippets often begin with their publication date and include the
+    // actual event date later. Prefer the next explicit date on or after the
+    // observation time; if every date is past, retain the newest one so the
+    // destination gate can reject it as expired.
+    const upcoming = explicitDates.find((date) => date.getTime() >= reference.getTime())
+    return (upcoming ?? explicitDates.at(-1))?.toISOString() ?? null
   }
 
   const monthDay = value.match(MONTH_DAY)
-  const reference = new Date(referenceValue)
   if (!monthDay || !Number.isFinite(reference.getTime())) return null
   const weekday = monthDay[1]?.slice(0, 3).toLowerCase() ?? null
   const month = monthDay[2]
