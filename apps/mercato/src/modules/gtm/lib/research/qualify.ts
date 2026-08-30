@@ -4,6 +4,7 @@ import {
   assessRealtorOpportunitySuitability,
   assessOpportunityDestination,
   classifyOpportunityIntent,
+  classifyOpportunityIntentAtDestination,
   demonstratedOpportunityLocation,
   opportunityHasContradictoryUsState,
   publicSourceGeographyConflict,
@@ -79,7 +80,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v28' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v29' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -391,7 +392,6 @@ function scoreOpportunity(
   const participationRules = stringValue(identity, ['participation_rules'])
   const participationRulesStatus = stringValue(identity, ['participation_rules_status'])
   const observedText = opportunityEvidenceText(identity, evidence)
-  const demonstratedIntent = classifyOpportunityIntent(observedText)
   const expectedIntent = expectedOpportunityIntent(play)
   const audienceExpected = expectedAudience(play)
   const geographyExpected = expectedGeographies(play)
@@ -405,6 +405,10 @@ function scoreOpportunity(
     maxAgeDays: recencyDays(play.recencyWindow),
     content: observedText,
   })
+  const demonstratedIntent = classifyOpportunityIntentAtDestination(
+    observedText,
+    destination.canonicalUrl,
+  )
   const isRealtorPlay = /\b(?:realtor|real estate|homeowners?|home buyer|home seller|buy(?:ing)? a home|sell(?:ing)? a home|home for sale|price a home|housing)\b/i.test(
     [...audienceExpected, ...expectedIntent, ...geographyExpected].join(' '),
   )

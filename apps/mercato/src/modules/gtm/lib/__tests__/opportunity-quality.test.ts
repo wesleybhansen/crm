@@ -5,6 +5,7 @@ import {
   calibratedOpportunityConfidence,
   canonicalOpportunityUrl,
   classifyOpportunityIntent,
+  classifyOpportunityIntentAtDestination,
   classifyOpportunityIntentV2,
   demonstratedOpportunityLocation,
   opportunityHasContradictoryUsState,
@@ -50,6 +51,65 @@ describe('opportunity quality primitives', () => {
     ).kind).toBeNull()
     expect(classifyOpportunityIntent(
       'Phoenix made an offer to a professional basketball player.',
+    ).kind).toBeNull()
+  })
+
+  it('lets direct transaction evidence dominate generic audience nouns', () => {
+    const tampaSeller = [
+      'Home buyers/investors',
+      'Looking to sell home. Any good buyers and or investors in the Land O Lakes area?',
+      'Would like to more than likely sell before year is over.',
+    ].join(' ')
+
+    expect(classifyOpportunityIntent(tampaSeller)).toMatchObject({ kind: 'seller_intent' })
+    expect(
+      assessRealtorOpportunitySuitability(
+        tampaSeller,
+        'buyer_intent',
+        'https://www.reddit.com/r/tampa/comments/1vuvy27/home_buyersinvestors',
+        'thread',
+      ),
+    ).toMatchObject({ relevant: false, demonstratedIntent: 'seller_intent' })
+    expect(
+      assessRealtorOpportunitySuitability(
+        tampaSeller,
+        'seller_intent',
+        'https://www.reddit.com/r/tampa/comments/1vuvy27/home_buyersinvestors',
+        'thread',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'seller_intent', reasons: [] })
+
+    expect(
+      classifyOpportunityIntent('We are looking to sell our home and buy a new home nearby.').kind,
+    ).toBe('mixed_intent')
+  })
+
+  it('recovers a truncated local buyer decision only from a place-specific public destination', () => {
+    const truncated = [
+      "what's the scoop on moon valley? : r/phoenix",
+      'I\'ve been in Phoenix for 15 years and have been centrally located.',
+      'We are looking to buy but ...',
+    ].join(' ')
+    const localUrl = 'https://www.reddit.com/r/phoenix/comments/1vv3f3x/whats_the_scoop_on_moon_valley'
+
+    expect(classifyOpportunityIntent(truncated).kind).toBeNull()
+    expect(classifyOpportunityIntentAtDestination(truncated, localUrl)).toMatchObject({
+      kind: 'buyer_intent',
+      buyerSignals: expect.arrayContaining(['local residential purchase question']),
+    })
+    expect(assessRealtorOpportunitySuitability(truncated, 'buyer_intent', localUrl, 'thread'))
+      .toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+    expect(classifyOpportunityIntentAtDestination(
+      "What's the scoop on this bakery? We are looking to buy but ...",
+      'https://www.reddit.com/r/FirstTimeHomeBuyer/comments/example/bakery',
+    ).kind).toBeNull()
+    expect(classifyOpportunityIntentAtDestination(
+      'Where can we buy fresh sourdough bread?',
+      'https://www.reddit.com/r/phoenix/comments/example/sourdough',
+    ).kind).toBeNull()
+    expect(classifyOpportunityIntentAtDestination(
+      "What's the scoop on this area? We are looking to buy but ...",
+      'https://notreddit.com/r/phoenix/comments/example/lookalike-host',
     ).kind).toBeNull()
   })
 
