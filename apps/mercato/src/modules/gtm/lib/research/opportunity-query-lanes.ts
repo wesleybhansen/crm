@@ -121,40 +121,39 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     return ['homeowner community event', 'housing workshop', 'neighborhood housing event']
   }
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
-    const market = marketName(geography)
     if (intent === 'buyer_intent') {
       return [
-        'looking for a realtor to buy a home',
-        'first time home buyer advice',
-        `Reddit moving to ${market} buy a home`,
-        'first time home buyer workshop Eventbrite',
-        'home buyer seminar Meetup',
+        'Reddit "looking for a realtor" "buy a home"',
+        'Reddit "first time home buyer" advice question',
+        'Reddit "made an offer" home buying',
+        'first time home buyer workshop registration',
+        'home buyer seminar registration',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        'looking for a realtor to sell my home',
-        'thinking of selling my house advice',
-        `Reddit what is my home worth ${market}`,
-        'home seller workshop Eventbrite',
-        'selling your home seminar Meetup',
+        'Reddit "looking for a realtor" "sell my home"',
+        'Reddit "thinking of selling my house" advice',
+        'Reddit "what is my home worth"',
+        'home seller workshop registration',
+        'selling your home seminar registration',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        'sell before buying a home advice',
-        'buy before selling a home advice',
-        `Reddit sell then buy a home ${market}`,
-        'buying and selling a home workshop Eventbrite',
-        'sell and buy a home seminar Meetup',
+        'Reddit "sell before buying" advice',
+        'Reddit "buy before selling" advice',
+        'Reddit "sell then buy" home',
+        'buying and selling a home workshop registration',
+        'sell and buy a home seminar registration',
       ]
     }
     return [
-      'neighborhood association meeting calendar',
-      'homeowner community meeting',
-      'home buyer workshop Eventbrite',
-      'home seller workshop Meetup',
-      'housing community event calendar',
+      'neighborhood association public meeting calendar',
+      'homeowner community meeting registration',
+      'home buyer workshop registration',
+      'home seller workshop registration',
+      'housing community event registration',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
@@ -258,23 +257,6 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     ],
   }
   return socialSeeds[intent]
-}
-
-function realtorGlobalRedditSeed(
-  intent: OpportunityIntentLane,
-  geography: string,
-): string | null {
-  const market = marketName(geography)
-  if (intent === 'buyer_intent') {
-    return `${market} home buyer`
-  }
-  if (intent === 'seller_intent') {
-    return `${market} selling home`
-  }
-  if (intent === 'mixed_intent') {
-    return `${market} buy sell home`
-  }
-  return `${market} homeowners community event`
 }
 
 function realtorRedditFilterKeywords(
@@ -454,11 +436,7 @@ export function buildOpportunityQueryLanes(
   const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
   return selectedSeeds.map((seed, index) => {
     const id = `${intent}:${index + 1}`
-    const globalSeed =
-      realtor && adapterId === 'apify-reddit-demand-opportunities' && index === 2
-        ? realtorGlobalRedditSeed(intent, geography)
-        : null
-    const query = queryFor({ adapterId, geography, seed: globalSeed ?? seed })
+    const query = queryFor({ adapterId, geography, seed })
     return {
       id,
       intent,
@@ -466,7 +444,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v39',
+        query_lane_version: 'opportunity-query-v40',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
