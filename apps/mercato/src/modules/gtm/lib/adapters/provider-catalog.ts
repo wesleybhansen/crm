@@ -11,6 +11,18 @@ import {
   DATAFORSEO_REQUIRED_RETENTION_DAYS,
   DATAFORSEO_REQUIRED_TERMS_VERSION,
 } from './dataforseo/maps'
+import {
+  DATAFORSEO_OPPORTUNITY_REQUIRED_PRICE_VERSION,
+  DATAFORSEO_ORGANIC_MAX_DEPTH,
+  DATAFORSEO_ORGANIC_RESULTS_PER_SERP,
+  DATAFORSEO_ORGANIC_USD_PER_SERP,
+} from './dataforseo/opportunity-source'
+import {
+  DATAFORSEO_EVENTS_MAX_DEPTH,
+  DATAFORSEO_EVENTS_REQUIRED_PRICE_VERSION,
+  DATAFORSEO_EVENTS_RESULTS_PER_SERP,
+  DATAFORSEO_EVENTS_USD_PER_SERP,
+} from './dataforseo/event-opportunity-source'
 import { APIFY_MEASURED_USD } from './apify/actors'
 import {
   APIFY_REQUIRED_PRICE_VERSION,
@@ -103,6 +115,38 @@ export function selectedProviderCatalog(
         retention_days: DATAFORSEO_REQUIRED_RETENTION_DAYS,
         terms_version: DATAFORSEO_REQUIRED_TERMS_VERSION,
         price_version: DATAFORSEO_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'dataforseo-google-organic-opportunities',
+        provider: 'DataForSEO',
+        category: 'lead_search',
+        name: 'Public demand-surface search',
+        description:
+          'Finds current public discussions, communities, and event pages for manual consumer-demand research.',
+        unit: `one live search page, up to ${DATAFORSEO_ORGANIC_RESULTS_PER_SERP} results`,
+        provider_usd_per_unit: DATAFORSEO_ORGANIC_USD_PER_SERP,
+        max_results_per_request: DATAFORSEO_ORGANIC_MAX_DEPTH,
+        evidence:
+          'Direct public URL, observation time, returned content summary, locality, and qualification evidence remain attached to each row.',
+        retention_days: DATAFORSEO_REQUIRED_RETENTION_DAYS,
+        terms_version: DATAFORSEO_REQUIRED_TERMS_VERSION,
+        price_version: DATAFORSEO_OPPORTUNITY_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'dataforseo-google-events-opportunities',
+        provider: 'DataForSEO',
+        category: 'lead_search',
+        name: 'Current local event search',
+        description:
+          'Finds upcoming public housing workshops and local events for manual review and participation.',
+        unit: `one live event-search page, up to ${DATAFORSEO_EVENTS_RESULTS_PER_SERP} results`,
+        provider_usd_per_unit: DATAFORSEO_EVENTS_USD_PER_SERP,
+        max_results_per_request: DATAFORSEO_EVENTS_MAX_DEPTH,
+        evidence:
+          'Direct destination, exact event time, venue, returned address, observation time, and qualification evidence remain attached to each row.',
+        retention_days: DATAFORSEO_REQUIRED_RETENTION_DAYS,
+        terms_version: DATAFORSEO_REQUIRED_TERMS_VERSION,
+        price_version: DATAFORSEO_EVENTS_REQUIRED_PRICE_VERSION,
       }, markupMultiplier),
       item({
         id: 'apify-linkedin-company-search',

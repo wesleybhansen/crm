@@ -14,6 +14,10 @@ import {
 import { apifyEnrichEnabled, createApifyEnrichAdapter } from './apify/enrich'
 import { createDataForSeoMapsAdapter, dataForSeoEnabled } from './dataforseo/maps'
 import { createDataForSeoOpportunityAdapter, dataForSeoOpportunityEnabled } from './dataforseo/opportunity-source'
+import {
+  createDataForSeoEventsOpportunityAdapter,
+  dataForSeoEventsOpportunityEnabled,
+} from './dataforseo/event-opportunity-source'
 import { apifyCompanySourceEnabled, createApifyCompanySourceAdapter } from './apify/company-source'
 import {
   apifyCompanyEmployeesEnabled,
@@ -91,6 +95,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (dataForSeoOpportunityEnabled()) {
     const organicOpportunities = createDataForSeoOpportunityAdapter()
     registry[organicOpportunities.descriptor.adapter_id] = organicOpportunities
+  }
+  if (dataForSeoEventsOpportunityEnabled()) {
+    const eventOpportunities = createDataForSeoEventsOpportunityAdapter()
+    registry[eventOpportunities.descriptor.adapter_id] = eventOpportunities
   }
   return registry
 }
