@@ -5,6 +5,7 @@ import {
   calibratedOpportunityConfidence,
   canonicalOpportunityUrl,
   classifyOpportunityIntent,
+  classifyOpportunityIntentV2,
   demonstratedOpportunityLocation,
   opportunityHasContradictoryUsState,
   publicSourceGeographyConflict,
@@ -50,6 +51,25 @@ describe('opportunity quality primitives', () => {
     expect(classifyOpportunityIntent(
       'Phoenix made an offer to a professional basketball player.',
     ).kind).toBeNull()
+  })
+
+  it('does not treat entertainment house-hunting language as buyer intent in the current classifier', () => {
+    const entertainment = [
+      'The nail salon had a television on in the waiting area.',
+      'We watched a house hunting and remodeling show while our appointments finished.',
+    ].join(' ')
+
+    expect(classifyOpportunityIntentV2(entertainment)).toMatchObject({
+      kind: 'buyer_intent',
+      buyerSignals: ['home search'],
+    })
+    expect(classifyOpportunityIntent(entertainment)).toMatchObject({
+      kind: null,
+      buyerSignals: [],
+    })
+    expect(classifyOpportunityIntent(
+      'We are house hunting for a home in Phoenix and comparing neighborhoods before we make an offer.',
+    ).kind).toBe('buyer_intent')
   })
 
   it('excludes provider targeting claims from semantic evidence', () => {

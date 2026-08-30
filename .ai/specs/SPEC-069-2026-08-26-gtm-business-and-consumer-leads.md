@@ -325,21 +325,22 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v43` keeps actor-native syntax explicit and separately quotes
-three Reddit strategies against `clearpath/reddit-search-scraper` build
-`0.0.66`. Each buyer, seller, mixed, or local-audience lane uses the actor's
-documented exact-phrase Boolean grammar, grouping, and `NOT` exclusions instead
-of relying on one plain-text keyword. For buyer, seller, and mixed intent, the
-first lane searches posts in the primary exact-market community, the second
-searches posts in `Ask<Market>`, and the third searches comments in the primary
-exact-market community. All three disable discovery and expose their post or
-comment content type in the immutable quote. Local-audience discovery retains
-primary-market posts, `Ask<Market>` posts, and one guarded global lane with at
-most six actor-discovered subreddits. That global lane must contain the
-requested market, is capped at ten rows, and stays inside the frozen 30-day
-window or it fails before provider contact.
+`opportunity-query-v44` keeps actor-native syntax explicit and separately quotes
+five transaction-intent Reddit strategies against
+`clearpath/reddit-search-scraper` build `0.0.66`. Buyer, seller, and mixed plays
+use three post searches and two comment searches in the primary exact-market
+community. Discovery is off, every post/comment content type is immutable in
+the quote, and the five Boolean query families separate direct transaction
+language, questions, transaction progress, and realtor-recommendation demand.
+The queries do not exclude `realtor`, `agent`, `broker`, or `lender`, because a
+consumer asking for a professional is relevant demand; the returned-content
+noise and fit gates remain authoritative. Local-audience discovery retains its
+three-lane contract: primary-market posts, `Ask<Market>` posts, and one guarded
+global lane with at most six actor-discovered subreddits. That global lane must
+contain the requested market, is capped at ten rows, and stays inside the
+frozen 30-day window or it fails before provider contact.
 
-A frozen `semantic-intent-location-v2` returned-content filter runs after safe
+A frozen `semantic-intent-location-v3` returned-content filter runs after safe
 normalization and before ranking. It classifies only the returned title and
 body; the query never supplies intent or locality evidence. Buyer and seller
 lanes require the corresponding demonstrated intent or mixed intent, mixed
@@ -349,21 +350,24 @@ and global lanes also require the returned content to prove the requested
 market. An actually returned exact-market subreddit may establish scoped
 locality for its frozen lane; the query and an actor-discovered scope prove
 neither. Filter losses are recorded as `returned_content_filtered_rows` with
-the filter version, separate from parser failures. Version 2 narrowly recognizes
-first-person `looking to buy` or equivalent language when the same returned
-content independently demonstrates a residential location decision, such as
-asking about neighborhood fit, commute, schools, or distance. It does not treat
-a product purchase as housing intent. Already-quoted version 1 plans preserve
-their original classifier; legacy non-realtor plans retain their frozen keyword
-filter contract and receipt vocabulary.
+the filter version, separate from parser failures. Version 3 preserves v2's
+narrow recognition of first-person `looking to buy` language coupled to an
+independent residential location decision and additionally removes `house
+hunting` when it is demonstrated only as television or entertainment content.
+Other direct buyer evidence remains eligible, so a genuine housing decision is
+not discarded merely because entertainment is also mentioned. Already-quoted
+version 1 and version 2 plans preserve their original classifiers; legacy
+non-realtor plans retain their frozen keyword-filter contract and receipt
+vocabulary.
 Post and comment retrieval remain separately visible, separately metered lanes.
 The pinned actor's source `createdAt` may satisfy freshness; a replacement actor
 or unpinned build remains untrusted until its timestamp contract is verified.
 Every run reserves one `apify-actor-start` event and both the
 `result-scraped` and `apify-default-dataset-item` events for each possible row.
-DataForSEO receives five separately quoted full market-and-state variants for
-each buyer, seller, mixed, or local-audience play. Buyer, seller, and mixed
-lanes use first-person demand phrases plus bounded Reddit-oriented variants;
+DataForSEO receives three separately quoted full market-and-state variants for
+each buyer, seller, or mixed play and five for local-audience discovery. Buyer,
+seller, and mixed lanes use first-person demand phrases plus bounded
+Reddit-oriented variants;
 they exclude realtor-authored promotions, listings, recruiting, and generic
 market content without excluding ordinary consumer discussion of agents,
 mortgages, or lenders. Local-audience lanes target current registrations,
@@ -395,12 +399,13 @@ LinkedIn, Reddit, X, and organic-search adapters may retain that request as
 `provider_location`, but populate the opportunity's `location` and receive a
 location confidence contribution only when the returned post, author context,
 community name, title/snippet, or URL independently names the requested market.
-The current `fit-v7-quality-v22` revision preserves the evidence-only geography
+The current `fit-v7-quality-v23` revision preserves the evidence-only geography
 contract introduced by quality-v3: targeting-only geography remains unknown, a
 demonstrated contradictory state rejects, and neither the query nor provider
 targeting can create a location pass. It shares the v2 residential-location
-decision primitive while retaining every housing, consumer-need, freshness,
-access, safety, and actionability gate.
+decision primitive, excludes entertainment-only house-search language, and
+retains every housing, consumer-need, freshness, access, safety, and
+actionability gate.
 
 Realtor demand is also narrower than the presence of buyer/seller vocabulary.
 Buyer and seller lanes require housing context plus a returned consumer
@@ -581,3 +586,5 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-30: The bounded query-v40 three-play probe reconciled 24 provider operations exactly for `$0.04991` and confirmed that fit-v7 still rejected irrelevant rows, but it also exposed two implementation gaps: the planner froze `reddit_filter_keywords` without the adapter enforcing them, and stable non-social association or event pages could never satisfy actionability because current participation terms were never observed. `opportunity-query-v41` uses short atomic Reddit searches and enforces the returned-content filter after normalization, separately reporting keyword-filter losses. Plan schema 10 adds a hash-bound, capped, credential-free destination validator for non-social public pages, retains only bounded relevant evidence, and closes DNS resolve/connect TOCTOU through a connection-time public-only lookup. Direct social crawling remains disabled, all consumer actions remain manual-only, and customer activation still requires the independent benchmark.
 - 2026-08-30: The bounded query-v41 seller, local-audience, and buyer probe reconciled 24 provider operations exactly for `$0.05891` (`29,455` Noli credits), producing 16 canonical matches, zero accepted, two held for review, and 14 rejected. A read-only audit of the already-paid Reddit datasets showed that plain-text searches returned some semantically relevant synonyms and active-decision language, but the fixed substring gate discarded them; the same gate admitted completed purchases as plausible buyer demand. The public Windsor Park destination independently proved Austin later in the page, but v1 evidence selection omitted that sentence. `opportunity-query-v42` uses actor-native exact-phrase Boolean queries and a versioned returned-title/body intent-and-location filter with no query leakage. `fit-v7-quality-v21` additionally rejects demonstrated completed buyer transactions while recognizing narrow active property-seeking language. Plan schema 11 binds `safe-public-destination-v2`, which prioritizes returned locality and participation evidence and scans the full bounded page body for sensitive material before retaining an excerpt. The full twelve-play benchmark remains held until a targeted v42 probe demonstrates materially useful retrieval.
 - 2026-08-30: The bounded query-v42 Austin seller, Austin local-audience, and Phoenix buyer probe reconciled 24 provider operations exactly for `$0.04991` (`24,955` Noli credits), producing 16 canonical matches, one accepted, one held for review, 14 rejected, and no duplicates or reconciliation ambiguity. The accepted Windsor Park neighborhood-association destination was current, public, locally proven, and actionable. A read-only audit of the already-paid Reddit datasets found a current Phoenix neighborhood question with 52 visible score and 65 comments whose returned text said “we are looking to buy but not get too far out”; v1 incorrectly filtered it because the object after `buy` was implicit. The same audit confirmed that a sourdough request, a card-collecting request, and basketball offer news were correctly irrelevant, while the seller global lane returned only agent-career, household-item, and investment noise. `opportunity-query-v43` replaces that broad transaction lane with exact-market comment retrieval, moves the second transaction lane to `Ask<Market>`, and freezes `semantic-intent-location-v2`. `fit-v7-quality-v22` recognizes only returned first-person purchase language coupled to an independent residential-location decision and retains the product-purchase, promotion, sensitivity, locality, freshness, access, and actionability exclusions. The full twelve-play benchmark remains held until a targeted v43 probe demonstrates materially useful buyer and seller recall.
+- 2026-08-30: The bounded query-v43 Austin seller, Austin local-audience, and Phoenix buyer probe reconciled 24 provider operations exactly for `$0.04991` (`24,955` Noli credits) with no ambiguity. Seller produced eight rejected matches and no accepted or reviewable opportunity; local audience produced one accepted, one review, and four rejected matches; buyer produced three review and five rejected matches. The probe recovered the genuine current Moon Valley buyer question but showed that the seller post lanes remained empty. It also admitted an irrelevant nail-salon comment because the words `house hunting` referred to a television remodeling show. The full twelve-play benchmark remains held.
+- 2026-08-30: `opportunity-query-v44` reallocates transaction retrieval to five exact-market Reddit lanes—three post and two comment searches—and three organic lanes while keeping local-audience discovery at three Reddit plus five organic lanes. Transaction Reddit queries no longer exclude professional terms that may occur in genuine recommendation requests; returned evidence still must satisfy the frozen fit and noise gates. `semantic-intent-location-v3` and `fit-v7-quality-v23` reject entertainment-only house-search language while preserving an actual first-person residential decision. Already-quoted v1 and v2 semantic plans retain their original classifiers. No wider paid benchmark or customer activation is permitted until a bounded v44 probe demonstrates materially improved buyer and seller yield.
