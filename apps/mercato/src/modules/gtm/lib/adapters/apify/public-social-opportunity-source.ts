@@ -55,6 +55,7 @@ export type PublicSocialOpportunityConfig = {
   eventPricesUsd: Record<string, number>
   oneTimeEvent: string | null
   primaryResultEvent: string
+  auxiliaryResultEvents?: readonly string[]
   perItemQuoteUsd: number
   oneTimeQuoteUsd: number
   datasetFields: readonly string[]
@@ -109,87 +110,74 @@ type PublicSocialDeps = {
 export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-reddit-demand-opportunities',
   platform: 'Reddit',
-  actorId: 'automation-lab/reddit-scraper',
-  actorBuild: '0.1.119',
+  actorId: 'clearpath/reddit-search-scraper',
+  actorBuild: '0.0.66',
   actorEnv: 'GTM_APIFY_ACTOR_REDDIT_SEARCH',
   useApprovalEnv: 'GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_REDDIT_SEARCH_PRICE_VERSION',
-  // The Starter transition was checked against Apify's authenticated user API
-  // and the actor's effective BRONZE tier table on 2026-08-29. Starter retains
-  // the $0.003/run event and prices posts at $0.001 and comments at $0.0005.
-  // This adapter requests posts only;
-  // `comment` remains in the finalized-billing vocabulary so any unexpected
-  // comment charge is visible instead of being mistaken for pricing drift.
-  requiredPriceVersion: 'automation-lab-reddit-scraper-0.1.119-bronze-events-2026-08-29',
+  // Rechecked against the actor's current public pricing contract after the
+  // production account moved to Starter on 2026-08-30. Every run charges one
+  // start event; each returned row charges both a primary result event and the
+  // platform dataset-item event. Keeping all three in the finalized receipt
+  // prevents the Store headline from understating the actual reserved cost.
+  requiredPriceVersion: 'clearpath-reddit-search-0.0.66-starter-events-2026-08-30',
   eventPricesUsd: {
-    start: 0.003,
-    post: 0.001,
-    comment: 0.0005,
+    'apify-actor-start': 0.00099,
+    'apify-default-dataset-item': 0.00001,
+    'result-scraped': 0.00099,
   },
-  oneTimeEvent: 'start',
-  primaryResultEvent: 'post',
+  oneTimeEvent: 'apify-actor-start',
+  primaryResultEvent: 'result-scraped',
+  auxiliaryResultEvents: ['apify-default-dataset-item'],
   perItemQuoteUsd: 0.001,
-  oneTimeQuoteUsd: 0.003,
+  oneTimeQuoteUsd: 0.00099,
   datasetFields: [
-    'type',
+    '_type',
+    '_status',
     'id',
     'title',
     'author',
     'subreddit',
     'score',
-    'numComments',
+    'commentCount',
     'createdAt',
-    'url',
     'permalink',
-    'selfText',
-    'isNSFW',
-    'isStickied',
+    'body',
+    'isNsfw',
+    'isLocked',
+    'isArchived',
+    'subredditInfo',
+    'postId',
+    'postTitle',
+    'postUrl',
+    'postCommentCount',
+    'postCreatedAt',
+    'parentId',
     'subredditSubscribers',
-    'scrapedAt',
-    'warnings',
-    'status',
-    'records',
-    'message',
-    'query',
-    'targetType',
-    'targetLabel',
   ],
   buildInput(plan, maxResults) {
     const subreddits = redditSubreddits(plan)
-    if (redditAutoDiscover(plan)) {
-      throw new TypeError('Reddit subreddit auto-discovery is not approved for this actor contract')
-    }
-    if (redditContentType(plan) === 'comments') {
-      throw new TypeError('Reddit comment search is not supported by this actor contract')
+    const autoDiscoverSubreddits = subreddits.length === 0 && redditAutoDiscover(plan)
+    if (autoDiscoverSubreddits && !redditGlobalSearch(plan)) {
+      throw new TypeError('subreddit auto-discovery requires an explicitly governed global Reddit search')
     }
     const query = queryText(plan, 700)
-    const filterKeywords = redditFilterKeywords(plan)
     validateRedditGlobalSearch(plan, {
       query,
       maxResults,
       subreddits,
-      autoDiscoverSubreddits: false,
+      autoDiscoverSubreddits,
     })
     return {
-      searchQuery: query,
-      ...(subreddits[0] ? { searchSubreddit: subreddits[0] } : {}),
+      query,
+      maxResults,
+      contentType: redditContentType(plan),
       sort: redditSort(plan),
       timeFilter: redditTimeFilter(plan),
-      maxPostsPerSource: maxResults,
-      includeComments: false,
-      filterKeywords,
-      filterKeywordMode: 'any',
-      outputFormat: 'default',
+      subreddits,
+      autoDiscoverSubreddits,
+      ...(autoDiscoverSubreddits ? { maxSubreddits: redditMaxSubreddits(plan) } : {}),
     }
-  },
-  isNoResultDiagnostic(value) {
-    const row = record(value)
-    return (
-      text(row?.type, 40) === 'target-status'
-      && text(row?.status, 40) === 'empty_or_unavailable'
-      && nonNegativeInteger(row?.records) === 0
-      && text(row?.targetType, 40) === 'search'
-    )
   },
   normalize: normalizeRedditOpportunity,
 }
@@ -453,10 +441,10 @@ function redditTimeFilter(plan: SourceSearchPlan): '' | 'hour' | 'day' | 'week' 
   return 'month'
 }
 
-function redditSort(plan: SourceSearchPlan): 'relevance' | 'new' | 'top' | 'hot' | 'rising' {
+function redditSort(plan: SourceSearchPlan): 'relevance' | 'new' | 'top' | 'hot' | 'comments' {
   const value = text(plan.provider_query?.reddit_sort, 20)?.toLowerCase()
-  return value && ['relevance', 'new', 'top', 'hot', 'rising'].includes(value)
-    ? value as 'relevance' | 'new' | 'top' | 'hot' | 'rising'
+  return value && ['relevance', 'new', 'top', 'hot', 'comments'].includes(value)
+    ? value as 'relevance' | 'new' | 'top' | 'hot' | 'comments'
     : 'new'
 }
 
@@ -485,8 +473,8 @@ function validateRedditGlobalSearch(
   },
 ): void {
   if (!redditGlobalSearch(plan)) return
-  if (input.subreddits.length > 0 || input.autoDiscoverSubreddits) {
-    throw new TypeError('global Reddit search cannot use subreddit scopes or auto-discovery')
+  if (input.subreddits.length > 0 || !input.autoDiscoverSubreddits) {
+    throw new TypeError('global Reddit search requires bounded subreddit auto-discovery and no frozen scope')
   }
   if (input.maxResults > 10) {
     throw new TypeError('global Reddit search is limited to 10 results')
@@ -499,6 +487,11 @@ function validateRedditGlobalSearch(
   if (market.length < 3 || !input.query.toLowerCase().includes(market)) {
     throw new TypeError('global Reddit search query must contain the requested market')
   }
+}
+
+function redditMaxSubreddits(plan: SourceSearchPlan): number {
+  const parsed = Number(plan.provider_query?.reddit_max_subreddits)
+  return Number.isSafeInteger(parsed) ? Math.max(1, Math.min(8, parsed)) : 6
 }
 
 function redditSubreddits(plan: SourceSearchPlan): string[] {
@@ -516,32 +509,6 @@ function redditSubreddits(plan: SourceSearchPlan): string[] {
       return true
     })
     .slice(0, 8)
-}
-
-function redditFilterKeywords(plan: SourceSearchPlan): string[] {
-  const values = plan.provider_query?.reddit_filter_keywords
-  if (!Array.isArray(values)) {
-    throw new TypeError('Reddit search requires explicit returned-content filter keywords')
-  }
-  const seen = new Set<string>()
-  const keywords = values
-    .filter((value): value is string => typeof value === 'string')
-    .map((value) => value.trim().replace(/\s+/g, ' '))
-    .filter((value) => value.length >= 3 && value.length <= 80)
-    .filter((value) => {
-      const key = value.toLowerCase()
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    .slice(0, 8)
-  if (keywords.length === 0) {
-    throw new TypeError('Reddit search requires at least one bounded returned-content keyword')
-  }
-  if (plan.provider_query?.reddit_filter_keyword_mode !== 'any') {
-    throw new TypeError('Reddit returned-content keyword mode must be any')
-  }
-  return keywords
 }
 
 function scopedSubredditLocation(
@@ -636,7 +603,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
     rowType === 'post'
     && (row.isNSFW === true || row.isNsfw === true || row.isLocked === true || row.isArchived === true || row.isStickied === true)
   ) return null
-  const sourceUrl = safePlatformUrl(row.url ?? row.permalink, 'Reddit')
+  const sourceUrl = safePlatformUrl(row.permalink ?? row.url, 'Reddit')
   const postTitle = text(rowType === 'comment' ? row.postTitle : row.title, 180)
   const body = text(rowType === 'comment' ? row.body : row.selfText ?? row.body, 600)
   if (!sourceUrl || !postTitle || (rowType === 'comment' && !body)) return null
@@ -685,12 +652,11 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   )
   if (subredditLocation) identity.location = subredditLocation
   identity.member_count = memberCount || null
-  // automation-lab/reddit-scraper build 0.1.119 reports `createdAt` at actor
-  // execution time (the controlled receipt showed seven rows within 201 ms,
-  // after `scrapedAt`), not Reddit publication time. Keep the raw provider
-  // field for audit, but never let it satisfy freshness or confidence gates.
-  const providerReportedCreatedAt = sourcePublishedAt(row.createdAt)
-  const publishedAt = null
+  // clearpath/reddit-search-scraper build 0.0.66 documents `createdAt` as the
+  // source creation timestamp and exposes a provider-side 30-day search
+  // filter. The actor/build pair is immutable in the approved descriptor, so
+  // this value may satisfy freshness while any replacement remains untrusted.
+  const publishedAt = sourcePublishedAt(row.createdAt)
   identity.source_published_at = publishedAt
   const demonstratedIntent = classifyOpportunityIntent(semanticContent)
   return {
@@ -725,8 +691,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
           requested_location: context.location,
           requested_intent: context.expectedIntent ?? null,
           source_published_at: publishedAt,
-          provider_reported_created_at: providerReportedCreatedAt,
-          publication_time_evidence: 'unverified_provider_field',
+          publication_time_evidence: publishedAt ? 'pinned_actor_source_timestamp' : 'missing',
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,
@@ -1123,7 +1088,8 @@ export function createPublicSocialOpportunityAdapter(
         ([event, count]) =>
           count > 0
           && event !== config.primaryResultEvent
-          && (config.oneTimeEvent == null || event !== config.oneTimeEvent),
+          && (config.oneTimeEvent == null || event !== config.oneTimeEvent)
+          && !(config.auxiliaryResultEvents ?? []).includes(event),
       )
       if (unexpectedKnownResult) {
         return {
@@ -1176,6 +1142,20 @@ export function createPublicSocialOpportunityAdapter(
           error: 'invalid_schema: billed result count did not match the bounded dataset',
         }
       }
+      for (const event of config.auxiliaryResultEvents ?? []) {
+        if ((counts[event] ?? 0) !== resultItems.length) {
+          return {
+            status: 'ambiguous',
+            data: null,
+            receipt: providerReceipt({
+              billed_auxiliary_results: counts[event] ?? 0,
+              auxiliary_result_event: event,
+            }),
+            cost_units: null,
+            error: 'invalid_schema: auxiliary billed result count did not match the bounded dataset',
+          }
+        }
+      }
       if (
         diagnosticRows.length > 0
         && resultItems.length === 0
@@ -1196,7 +1176,7 @@ export function createPublicSocialOpportunityAdapter(
         location: locationText(plan),
         expectedIntent: requestedOpportunityIntent(plan),
         scopedSubreddits:
-          config.platform === 'Reddit' ? redditSubreddits(plan).slice(0, 1) : undefined,
+          config.platform === 'Reddit' ? redditSubreddits(plan) : undefined,
         attemptedAt: outcome.attemptedAt,
         actorId,
       }

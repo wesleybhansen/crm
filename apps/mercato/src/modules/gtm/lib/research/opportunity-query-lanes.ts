@@ -466,7 +466,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v38',
+        query_lane_version: 'opportunity-query-v39',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -498,12 +498,13 @@ export function buildOpportunityQueryLanes(
                 }
               : intent === 'buyer_intent' || intent === 'seller_intent' || intent === 'mixed_intent'
                 ? {
-                    // The replacement actor's reliable contract is public post
-                    // search. The third lane is a bounded global search whose
-                    // query must name the market; returned content must still
-                    // independently prove both location and intent.
+                    // The timestamp-capable actor requires bounded subreddit
+                    // discovery when no frozen subreddit is supplied. The
+                    // query must name the market, and returned content must
+                    // still independently prove both location and intent.
                     reddit_subreddits: [],
-                    reddit_auto_discover: false,
+                    reddit_auto_discover: true,
+                    reddit_max_subreddits: 6,
                     reddit_global_search: true,
                     reddit_sort: 'relevance',
                     reddit_content_type: 'posts',
@@ -513,7 +514,8 @@ export function buildOpportunityQueryLanes(
                     // destination search because it is looking for communities
                     // and events rather than an individual's transaction intent.
                     reddit_subreddits: [],
-                    reddit_auto_discover: false,
+                    reddit_auto_discover: true,
+                    reddit_max_subreddits: 6,
                     reddit_global_search: true,
                     reddit_sort: 'relevance',
                     reddit_content_type: 'posts',

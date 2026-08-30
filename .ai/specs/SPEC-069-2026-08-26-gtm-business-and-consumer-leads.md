@@ -272,7 +272,7 @@ manual-only. A credential alone never activates one.
 | Source | Product use | Frozen contract | Required approval and price truth |
 |---|---|---|---|
 | Apify LinkedIn post search | Public LinkedIn posts with buyer, seller, or local-audience demand | `harvestapi/linkedin-post-search` build `0.0.104`; start, post, and no-result events; comments, reactions, and nested profile enrichment off | Exact actor/build rate version plus consumer-opportunity approval |
-| Apify Reddit search | Public, non-sensitive Reddit posts; NSFW, stickied, and sensitive results dropped; live-accessibility and fit remain downstream gates | `automation-lab/reddit-scraper` build `0.1.119`; BRONZE-tier `start`, `post`, and bounded `comment` events | `GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED` plus exact BRONZE-tier rate version |
+| Apify Reddit search | Public, non-sensitive Reddit posts or comments; NSFW, locked, archived, and sensitive results dropped; live-accessibility and fit remain downstream gates | `clearpath/reddit-search-scraper` build `0.0.66`; Starter-tier `apify-actor-start`, `result-scraped`, and `apify-default-dataset-item` events; source `createdAt`, permalink, subreddit, and post/comment context retained | `GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED` plus exact Starter-tier rate version |
 | Apify X post search | Public, recent X posts with bounded buyer, seller, mixed, or local intent | `scraper_one/x-posts-search` build `0.0.154`; initialization and result-item events | `GTM_APIFY_X_OPPORTUNITY_ENABLED`, `GTM_APIFY_X_OPPORTUNITY_USE_APPROVED`, and exact rate version |
 | DataForSEO organic Live Advanced | Public indexed communities, forums, events, discussions, creator pages, and other demand destinations | `/v3/serp/google/organic/live/advanced`; `$0.002` per ten organic results; depth at most 50; price-multiplying operators refused | `GTM_DATAFORSEO_CONSUMER_OPPORTUNITY_USE_APPROVED`, exact terms/retention, and exact organic price version |
 
@@ -325,23 +325,24 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v22` keeps actor-native syntax explicit and separately quotes
-three Reddit post strategies against `automation-lab/reddit-scraper` build
-`0.1.119`. The first lane searches the primary exact-market community, the
+`opportunity-query-v39` keeps actor-native syntax explicit and separately quotes
+three Reddit strategies against `clearpath/reddit-search-scraper` build
+`0.0.66`. The first lane searches the primary exact-market community, the
 second searches one intent community while keeping the market in the query,
-and the third searches an alternate exact-market community for first-person
-buyer, seller, or mixed demand. Local-audience discovery retains one guarded
-global post lane with no subreddit scope and actor auto-discovery disabled.
-That global query must contain the requested market, is capped at ten rows, and
-stays inside the frozen 30-day window. Each actor run accepts only one frozen
-subreddit scope because the replacement contract exposes singular
-`searchSubreddit`; no scope is silently fanned out behind one reservation.
-Returned content must independently prove intent, while only an actually
-returned exact-market subreddit may prove scoped locality. Query text proves
-neither. Exact-market post lanes sort newest while broader intent and global
-local-audience lanes retain relevance sort. Comment retrieval is rejected
-before provider contact because this actor exposes comments only as a
-best-effort expansion of returned posts rather than a bounded comment search.
+and the third is a guarded global lane with no frozen subreddit scope and at
+most six actor-discovered subreddits. The global lane must contain the requested
+market, is capped at ten rows, and stays inside the frozen 30-day window. The
+first two lanes disable discovery, so the actor cannot silently fan out beyond
+their quoted scopes; the global lane must explicitly enable both the governed
+global-search marker and bounded subreddit discovery or it fails before
+provider contact. Returned content must independently prove intent and
+location. Only an actually returned exact-market subreddit may establish
+scoped locality; the query and an actor-discovered scope prove neither.
+Post and comment retrieval remain separately visible, separately metered lanes.
+The pinned actor's source `createdAt` may satisfy freshness; a replacement actor
+or unpinned build remains untrusted until its timestamp contract is verified.
+Every run reserves one `apify-actor-start` event and both the
+`result-scraped` and `apify-default-dataset-item` events for each possible row.
 DataForSEO receives five separately quoted full market-and-state variants for
 each buyer, seller, mixed, or local-audience play. Buyer, seller, and mixed
 lanes use first-person demand phrases plus bounded Reddit-oriented variants;
@@ -539,3 +540,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-30: Zero-cost quality-v21 requalification rejected all three query-v35 Austin buyer matches, confirming that the remaining bottleneck is source recall rather than a need to weaken fit-v7. `opportunity-query-v36` keeps the market inside every literal X phrase while replacing generic or historical transaction wording with current-decision verbs such as looking, trying, planning, thinking, and needing. These terms narrow provider targeting only; returned posts must still independently prove the frozen play, current intent, locality, safety, freshness, public access, and permitted action.
 - 2026-08-30: The bounded Bronze query-v36 Austin buyer probe completed three provider operations for $0.0075 and returned zero rows with zero parser drops or reconciliation ambiguity. The actor's public contract documents a single keyword or hashtag search term, while exact full-sentence phrases were too sparse for this market-window sample. `opportunity-query-v37` therefore uses three short market-and-intent keyword bundles per X lane (for example, `Austin realtor recommendations`, `Austin house hunting`, and `Austin first time homebuyer`). Targeting remains non-evidentiary: fit-v7 must still prove current intent, locality, freshness, public access, safety, and a concrete permitted action from the returned source.
 - 2026-08-30: The bounded Bronze query-v37 Austin buyer probe completed three provider operations for $0.0085, returned four rows with zero parser drops, and reconciled exactly without ambiguity. All four rows were irrelevant: free-text tokenization matched an author handle, Saint Austin, generic housing commentary, or a completed fictional home search rather than current local consumer demand. fit-v7 correctly rejected all four. `opportunity-query-v38` uses the actor's other documented input form—one atomic market-bound hashtag per separately quoted lane, such as `#AustinHomebuyer`, `#AustinHouseHunting`, and `#MovingToAustin`. The hashtag is targeting provenance only; returned content must still independently prove the frozen play, current intent, locality, freshness, safety, public access, and a permitted action.
+- 2026-08-30: The Apify account upgrade was verified read-only as Starter with `$29/month` of prepaid usage and Bronze Store pricing. A contract re-audit found that every earlier zero-row `clearpath/reddit-search-scraper` trial disabled subreddit discovery, including the supposedly global lane with no subreddit scope. `opportunity-query-v39` restores the current timestamp-capable actor at build `0.0.66`, pins its exact Starter-tier `$0.00099` start, `$0.00099` result, and `$0.00001` dataset-item events, and enables at most six actor-discovered subreddits only for the explicitly governed market-bound global lane. The other two lanes retain frozen scopes with discovery off. The actor's source `createdAt` is retained as publication evidence under this exact actor/build pair, while query text and discovered scope remain targeting provenance only. Customer consumer research remains fail-closed until the independently reviewed benchmark passes.
