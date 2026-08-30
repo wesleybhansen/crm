@@ -28,6 +28,8 @@ const SOCIAL_HOSTS = new Set([
 ])
 const PARTICIPATION_TERMS =
   /\b(?:attend(?:ance)?|join(?:ing)?|membership|meetings?|open to|participat\w*|register|registration|required|rules?|volunteer)\b/i
+const PARTICIPATION_RESTRICTION =
+  /\b(?:not allow(?:ed|ing)?|may not|must not|cannot|can't|prohibit(?:ed|s)?|forbid(?:den|s)?)\b.{0,100}\b(?:agents?|realtors?|brokers?|lenders?|industry professionals?|attend|participat|register|join)\w*\b|\b(?:agents?|realtors?|brokers?|lenders?|industry professionals?)\b.{0,100}\b(?:not allow(?:ed|ing)?|may not|must not|cannot|can't|prohibit(?:ed|s)?|forbid(?:den|s)?|attend|participat|register|join)\w*\b/i
 const RELEVANT_PAGE_TEXT =
   /\b(?:attend|buyer|buying|calendar|community|event|home|homeowner|house|housing|join|market|meeting|meetings|membership|neighbou?rhood|participat|public|register|registration|resident|rules?|seller|selling|workshop)\b/i
 
@@ -113,7 +115,9 @@ function pageEvidence(html: string, requestedLocation: string | null): {
   const location = requestedLocation
     ? sentences.find((value) => demonstratedOpportunityLocation(value, requestedLocation)) ?? null
     : null
-  const participation = sentences.find((value) => PARTICIPATION_TERMS.test(value)) ?? null
+  const participation = sentences.find((value) => PARTICIPATION_RESTRICTION.test(value))
+    ?? sentences.find((value) => PARTICIPATION_TERMS.test(value))
+    ?? null
   const relevant = sentences.filter((value) => RELEVANT_PAGE_TEXT.test(value))
   const selected = [location, participation, ...relevant]
     .filter((value): value is string => Boolean(value))

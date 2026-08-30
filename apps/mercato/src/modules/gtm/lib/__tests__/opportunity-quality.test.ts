@@ -102,6 +102,12 @@ describe('opportunity quality primitives', () => {
       opportunityHasContradictoryUsState('First home-buying advice requested in Austin, MN.', 'Austin, Texas'),
     ).toBe(true)
     expect(
+      opportunityHasContradictoryUsState(
+        'This workshop is not allowing agents, brokers, or lenders to attend in Austin.',
+        'Austin, Texas',
+      ),
+    ).toBe(false)
+    expect(
       demonstratedOpportunityLocation('First home-buying advice requested in Austin, MN.', 'Austin, Texas'),
     ).toBeNull()
     expect(

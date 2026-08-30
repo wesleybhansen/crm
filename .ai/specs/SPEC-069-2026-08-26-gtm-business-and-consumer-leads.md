@@ -325,7 +325,7 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v46` keeps actor-native syntax explicit and separately quotes
+`opportunity-query-v47` keeps actor-native syntax explicit and separately quotes
 three transaction-intent Reddit strategies against
 `clearpath/reddit-search-scraper` build `0.0.66`. Buyer, seller, and mixed plays
 use two housing-bound post searches and one housing-bound comment search across
@@ -336,6 +336,11 @@ immutable in the quote. The deeper bounded pool improves recall without letting
 generic food, sports, or news uses of words such as `buy`, `offer`, or `moving`
 consume the candidate ceiling. The semantic filter—not the query—still decides
 whether a row actually demonstrates current housing intent.
+The three separately billed organic transaction lanes use the returned-market
+form `Reddit r/<Market>` plus one exact first-person decision phrase. This is a
+natural, non-price-multiplying query rather than a `site:` operator, and it
+prevents promotional Facebook pages that merely quote unrelated consumer text
+from dominating the bounded SERP candidates.
 The queries do not exclude `realtor`, `agent`, `broker`, or `lender`, because a
 consumer asking for a professional is relevant demand; the returned-content
 noise and fit gates remain authoritative. Local-audience discovery retains its
@@ -421,7 +426,7 @@ unrelated moving language are false positives.
 Production destination checks fail closed on malformed/non-HTTPS URLs,
 non-public access markers, archived or locked conversations, expired events,
 unsupported hosts, and observations outside the play's recency window. Plan
-schema 11 binds `safe-public-destination-v2`, enablement, at most 20 attempts,
+schema 11 binds `safe-public-destination-v3`, enablement, at most 20 attempts,
 three redirects, an eight-second timeout, a 300,000-byte response ceiling, and
 the social-network provider-evidence-only policy into the immutable quote hash.
 Execution may reduce or disable that frozen work but cannot increase it.
@@ -595,3 +600,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-30: The bounded query-v44 Austin seller, Austin local-audience, and Phoenix buyer probe reconciled all 24 operations without ambiguity for `$0.03787` (`18,935` Noli credits). Seller produced three rejected organic matches and no accepted or reviewable opportunity; local audience produced one accepted and five rejected matches; buyer produced one review and four rejected matches. All ten exact-market transaction Reddit runs completed successfully on build `0.0.66` but returned zero rows. The surviving organic rows were predominantly wrong-market, promotional, inaccessible, or undated. The full benchmark remains held.
 - 2026-08-30: `opportunity-query-v45` replaces sparse exact-phrase transaction retrieval with three broad intent-token searches inside the exact city subreddit and two market-bound global searches, one post and one comment. The global lanes alone may auto-discover up to six subreddits and must independently prove the requested market. Every lane stays separately quoted, capped, metered, and filtered by unchanged `semantic-intent-location-v3` and `fit-v7-quality-v23`; no location, intent, freshness, access, safety, or actionability threshold is relaxed. No wider benchmark or customer activation is permitted until the targeted v45 probe materially improves buyer and seller yield.
 - 2026-08-30: The bounded query-v45 Austin seller, Austin local-audience, and Phoenix buyer probe reconciled all operations exactly for `$0.06587` (`32,935` Noli credits), producing four rejected seller matches, one accepted plus four rejected local-audience matches, and six rejected buyer matches. A read-only audit found a genuine current South Austin seller requesting realtor recommendations that `fit-v7-quality-v23` incorrectly rejected because the subject-elided phrase “Thinking of trying to sell” and the direct professional-assistance request did not satisfy the consumer-need predicate. It also found a future Eventbrite housing event whose July publication date was mistaken for its September event date. Raw actor datasets showed that broad `buy`, `moving`, `mortgage`, and `offer` tokens consumed the shallow top rows with food, sports, repair, and generic-news noise. `opportunity-query-v46` replaces the five broad/global transaction lanes with three deeper housing-bound city, `Ask<Market>`, and city-comment lanes, all separately quoted and hard-capped. `fit-v7-quality-v24` recognizes a narrow direct realtor-assistance request without admitting provider promotion, and event normalization plus the destination gate prefer an explicit future event date over an older publication date. Participation rights remain evidence-bound: the recovered seller thread and any event with unverified rules stay in review rather than becoming accepted. The full twelve-play benchmark and customer consumer activation remain held until a targeted v46 probe demonstrates materially better useful recall.
+- 2026-08-30: The bounded query-v46 probe reconciled all 20 provider operations exactly for `$0.03691` (`18,455` Noli credits), recovering the South Austin seller request for review, two Austin local-audience accepts, one local review, six Phoenix buyer reviews, and 30 strict rejections. Evidence audit found that one accepted Eventbrite workshop explicitly prohibited agents, brokers, and lenders from attending, while most transaction reviews were provider-authored Facebook pages or unlocalized snippets rather than actionable consumers. `safe-public-destination-v3` prioritizes participation restrictions over generic registration copy, and `fit-v7-quality-v25` evaluates those restrictions against both the retained rules and returned source evidence. It also rejects social profile URLs whose public handle demonstrates realtor, realty, mortgage, funding, brokerage, or property-provider authorship. `opportunity-query-v47` replaces broad organic transaction phrases with natural, returned-market `Reddit r/<Market>` phrases while retaining the frozen three-SERP ceiling and refusing price-multiplying `site:` operators. The twelve-play benchmark and customer activation remain held pending a materially useful v47 confirmation.

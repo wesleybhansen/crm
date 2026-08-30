@@ -117,20 +117,23 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     return ['homeowner community event', 'housing workshop', 'neighborhood housing event']
   }
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
+    const subreddit = realtorMarketSubreddits(geography)[0]
+      ?? marketName(geography).replace(/[^a-z0-9]/gi, '')
+    const returnedMarket = `Reddit r/${subreddit}`
     if (intent === 'buyer_intent') {
       return [
-        'Reddit "looking for a realtor" "buy a home"',
-        'Reddit "first time home buyer" advice question',
-        'Reddit "made an offer" home buying',
+        `${returnedMarket} "looking for a realtor"`,
+        `${returnedMarket} "first time home buyer"`,
+        `${returnedMarket} "made an offer"`,
         'first time home buyer workshop registration',
         'home buyer seminar registration',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        'Reddit "looking for a realtor" "sell my home"',
-        'Reddit "thinking of selling my house" advice',
-        'Reddit "what is my home worth"',
+        `${returnedMarket} "looking for a realtor"`,
+        `${returnedMarket} "thinking of selling"`,
+        `${returnedMarket} "what is my home worth"`,
         'home seller workshop registration',
         'selling your home seminar registration',
       ]
@@ -374,7 +377,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v46',
+        query_lane_version: 'opportunity-query-v47',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

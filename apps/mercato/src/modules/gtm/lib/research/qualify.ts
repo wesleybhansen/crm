@@ -79,7 +79,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v24' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v25' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -336,12 +336,14 @@ function opportunityActionabilityStatus(args: {
   messageAngle: string | null
   participationRules: string | null
   participationRulesStatus: string | null
+  sourceContent: string
 }): CriterionStatus {
   const {
     recommendedAction,
     messageAngle,
     participationRules,
     participationRulesStatus,
+    sourceContent,
   } = args
   if (!recommendedAction || recommendedAction.length < 20 || !messageAngle || messageAngle.length < 20) {
     return 'unknown'
@@ -354,7 +356,7 @@ function opportunityActionabilityStatus(args: {
   // not demonstrate that the venue permits the proposed participation.
   if (participationRulesStatus !== 'observed' || !participationRules) return 'unknown'
 
-  const rules = participationRules.toLowerCase()
+  const rules = `${participationRules}\n${sourceContent}`.toLowerCase()
   const proposedAction = `${recommendedAction}\n${messageAngle}`.toLowerCase()
   const promotionRestricted =
     /\b(?:no|prohibit(?:s|ed)?|forbid(?:s|den)?|not allowed)\b.{0,70}\b(?:self[- ]?promot|promot|advertis|solicit|marketing|commercial)\w*/i.test(rules)
@@ -366,6 +368,8 @@ function opportunityActionabilityStatus(args: {
     /\b(?:agent|realtor|industry|professional|business|commercial)\w*\b.{0,50}\b(?:may not|must not|cannot|can't|prohibit(?:ed)?|forbid(?:den)?|not allowed)\b.{0,30}\b(?:participat|post|comment|reply|contribut)/i.test(rules)
     || /\b(?:no|prohibit(?:s|ed)?|forbid(?:s|den)?|not allowed)\b.{0,50}\b(?:agent|realtor|industry|professional|business|commercial)\w*\b/i.test(rules)
     || /\b(?:agents?|realtors?|brokers?|lenders?|industry professionals?)\b.{0,80}\b(?:may not|must not|cannot|can't|prohibited|forbidden|not allowed)\b/i.test(rules)
+    || /\bnot allow(?:ed|ing)?\b.{0,80}\b(?:agents?|realtors?|brokers?|lenders?|industry professionals?)\b.{0,80}\b(?:attend|participat|register|join)\w*/i.test(rules)
+    || /\b(?:agents?|realtors?|brokers?|lenders?|industry professionals?)\b.{0,80}\b(?:not allow(?:ed|ing)?|may not|must not|cannot|can't|prohibited|forbidden)\b.{0,80}\b(?:attend|participat|register|join)\w*/i.test(rules)
 
   if (professionalParticipationForbidden || (promotionRestricted && proposedPromotion)) return 'fail'
   return 'pass'
@@ -467,6 +471,7 @@ function scoreOpportunity(
     messageAngle,
     participationRules,
     participationRulesStatus,
+    sourceContent: observedText,
   })
   const noise = isRealtorPlay
     ? realtorOpportunityNoiseReasons(observedText, destination.canonicalUrl)

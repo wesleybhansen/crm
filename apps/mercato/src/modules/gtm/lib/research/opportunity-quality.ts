@@ -93,6 +93,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:i(?:'m| am) (?:a )?(?:realtor|real estate agent|real estate broker|mortgage broker)|contact (?:me|us)|call (?:me|us)|dm (?:me|us)|message (?:me|us)|send (?:me|us) a message|reach out(?: to (?:me|us))?|book (?:a )?(?:call|consultation)|schedule (?:a )?(?:call|consultation)|your local realtor|i help (?:home ?buyers?|home ?sellers?|people buy|people sell)|i work with (?:buyers?|sellers?|investors?|homeowners?)|i hear this question from (?:buyers?|sellers?|homeowners?)|(?:i|we|our team) can help|let (?:me|us) help|follow me)\b|#\w*realtor\b/i,
   ],
   [
+    'provider_authored_social_promotion',
+    /https?:\/\/(?:www\.)?(?:facebook|instagram|threads|x|linkedin)\.com\/[^/\s]*(?:realtor|realty|realestate|mortgage|funding|broker|properties)[^/\s]*\/posts?\b/i,
+  ],
+  [
     'provider_origin_promotion',
     /\b(?:before (?:my|our) team (?:sends?|shows?|shares?) (?:you )?(?:homes?|listings?)|(?:i(?:'ve| have)|we(?:'ve| have)|my team has|our team has) helped (?:hundreds? of |\d+ )?(?:[a-z]+ )?(?:home ?buyers?|home ?sellers?|buyers?|sellers?)|(?:my|our) (?:buyer|seller|home ?buyer|home ?seller) clients?|(?:buyers?|sellers?) (?:i|we) (?:help|represent|serve|work with)|as (?:a|an) (?:realtor|real estate agent|real estate broker|mortgage broker)|(?:realtor|real estate agent|real estate broker) (?:said|says|explained|advised|told))\b/i,
   ],
@@ -367,11 +371,14 @@ function stateNamesIn(value: string, primaryLocation?: string | null): Set<strin
   )
   if (normalized.includes(' district of columbia ')) states.add('district of columbia')
 
-  const abbreviationPatterns = [/,\s*([a-z]{2})(?=\b)/gi]
+  // Postal abbreviations in source material are expected to use their normal
+  // uppercase form. Case-insensitive matching turns ordinary prose such as
+  // “agents, brokers, or lenders” into a false Oregon contradiction.
+  const abbreviationPatterns = [/,\s*([A-Z]{2})(?=\b)/g]
   const primary = primaryLocation?.trim()
   if (primary) {
     abbreviationPatterns.push(
-      new RegExp(`\\b${escapeRegExp(primary)}(?:\\s*,\\s*|\\s+)([a-z]{2})(?=\\b)`, 'gi'),
+      new RegExp(`\\b${escapeRegExp(primary)}(?:\\s*,\\s*|\\s+)([A-Z]{2})(?=\\b)`, 'g'),
     )
   }
   for (const pattern of abbreviationPatterns) {

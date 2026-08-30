@@ -315,6 +315,44 @@ describe('ruleBasedFitScorer', () => {
     expect(result.contradictions).toContain('opportunity.actionability')
   })
 
+  it('rejects the observed Eventbrite phrasing that does not allow agents to attend', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Buy your next house without selling',
+          opportunity_kind: 'event',
+          platform: 'Eventbrite',
+          audience_description:
+            'An Austin workshop for homeowners. We are currently not allowing agents, brokers, or lenders to attend these events due to a conflict of interest.',
+          location: 'Austin, Texas',
+          access_type: 'ticketed',
+          event_start_at: '2026-09-15T17:00:00.000Z',
+          source_published_at: '2026-08-25T10:00:00.000Z',
+          urls: ['https://www.eventbrite.com/e/restricted-austin-homeowner-workshop'],
+          participation_rules: 'Register for this Austin homeowner workshop.',
+          participation_rules_status: 'observed',
+          recommended_action: 'Use the public registration path to attend manually and contribute only when invited.',
+          message_angle: 'Answer homeowner questions with useful local context without promoting services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin homeowners and local housing audiences',
+        signal: 'A current public housing event demonstrates local demand',
+        referenceTime: '2026-08-30T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'local_audience' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.notActionable)
+    expect(result.contradictions).toContain('opportunity.actionability')
+  })
+
   it('rejects an otherwise relevant result when observed venue rules conflict with the proposed promotion', () => {
     const result = ruleBasedFitScorer.score(
       {
@@ -631,6 +669,43 @@ describe('ruleBasedFitScorer', () => {
         referenceTime: '2026-08-27T12:00:00.000Z',
         recencyWindow: '30 days',
         providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.contradictions).toContain('exclusion.realtor_noise')
+  })
+
+  it('rejects a provider-authored social post even when a search snippet contains consumer language', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Scottsdale and Phoenix area residential real estate guidance',
+          opportunity_kind: 'post',
+          platform: 'Facebook',
+          audience_description:
+            'A public snippet mentions someone looking for a Realtor and asks whether they are ready to buy a home in Phoenix.',
+          location: 'Phoenix, Arizona',
+          access_type: 'public',
+          source_published_at: '2026-08-25T10:00:00.000Z',
+          urls: ['https://www.facebook.com/chrissieclinerealtor/posts/example'],
+          participation_rules: 'Public post; review current platform rules.',
+          participation_rules_status: 'unverified',
+          recommended_action: 'Read the full public post before considering a manual response.',
+          message_angle: 'Answer a demonstrated buyer question without promoting services.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Phoenix, Arizona',
+        audience: 'Phoenix residents preparing to buy a home',
+        signal: 'A current public buyer question demonstrates intent',
+        referenceTime: '2026-08-30T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
       },
       strongEvidence,
     )
