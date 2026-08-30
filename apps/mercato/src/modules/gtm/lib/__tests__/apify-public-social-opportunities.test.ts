@@ -1451,7 +1451,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v44',
+        query_lane_version: 'opportunity-query-v45',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'austinhomebuyer',
       },
@@ -1543,7 +1543,7 @@ describe('Apify public social demand opportunities', () => {
       '#MovingToAustin',
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v44'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v45'
       && lane.providerQuery.opportunity_intent_lane === 'buyer_intent'
     ))).toBe(true)
 

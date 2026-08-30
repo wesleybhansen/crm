@@ -156,25 +156,25 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const market = quoted(marketName(geography))
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        '("buying a home" OR "buying a house" OR "looking to buy a home" OR "looking to buy a house" OR "first-time home buyer" OR "first time home buyer")',
-        '("where should we buy" OR "where should I buy" OR "looking to buy a home" OR "house hunting" OR "need a realtor")',
-        '("made an offer" OR "submitted an offer" OR "home inspection" OR "mortgage pre-approval" OR "closing costs")',
-        '("looking to buy a home" OR "looking to buy a house" OR "we are buying a home" OR "I am buying a home")',
-        '("made an offer" OR "need a realtor" OR "first-time home buyer" OR "house hunting for a home")',
+        '(buy OR buying OR homebuyer OR house OR condo OR townhome)',
+        '(realtor OR mortgage OR "down payment" OR inspection OR offer)',
+        '(moving OR relocating OR neighborhood OR commute OR schools OR "where to live")',
+        `${market} AND (buying OR homebuyer OR realtor OR mortgage OR offer)`,
+        `${market} AND (house OR condo OR neighborhood OR moving OR relocating OR inspection)`,
       ],
       seller_intent: [
-        '("selling my home" OR "selling our home" OR "selling my house" OR "selling our house" OR "thinking of selling" OR "planning to sell")',
-        '("what is my home worth" OR "what is my house worth" OR "should I sell my house" OR "repairs before selling")',
-        '("sell my home" OR "sell our home" OR "sell my house" OR "sell our house" OR "listing my home")',
-        '("thinking of selling" OR "planning to sell" OR "sell my home" OR "sell my house")',
-        '("need a realtor" OR "recommend a realtor" OR "listing agent" OR "home worth")',
+        '(sell OR selling OR list OR listing OR realtor)',
+        '("home value" OR "house worth" OR appraisal OR repairs OR renovation)',
+        '(moving OR relocating OR downsizing OR "buy before selling" OR "sell before buying")',
+        `${market} AND (sell OR selling OR listing OR realtor OR "home value")`,
+        `${market} AND (moving OR relocating OR downsizing OR appraisal OR repairs)`,
       ],
       mixed_intent: [
-        '("sell before buying" OR "buy before selling" OR "selling before buying" OR "buying before selling")',
-        '("should I sell first" OR "should we sell first" OR "move-up buyer" OR "sell then buy")',
-        '("buying and selling a home" OR "selling and buying a home" OR "sell then buy" OR "move-up buyer")',
-        '("need a realtor" OR "recommend a realtor" OR "buy and sell a home")',
-        '("made an offer" OR "listing my home" OR "sell before buying")',
+        '(buy OR buying OR sell OR selling OR moving OR relocating)',
+        '(realtor OR mortgage OR appraisal OR inspection OR offer)',
+        '("sell before buying" OR "buy before selling" OR downsizing OR "move-up buyer")',
+        `${market} AND (buy OR buying OR sell OR selling OR realtor)`,
+        `${market} AND (moving OR relocating OR mortgage OR appraisal OR inspection)`,
       ],
       local_audience: [
         '("neighborhood association" OR "community meeting" OR "housing workshop" OR "home buyer workshop" OR "home seller workshop")',
@@ -380,7 +380,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v44',
+        query_lane_version: 'opportunity-query-v45',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -403,19 +403,28 @@ export function buildOpportunityQueryLanes(
                     // The local-audience discovery lane remains global and
                     // must prove the market in returned content.
                     reddit_filter_require_location:
-                      intent === 'local_audience' && index === 2,
+                      realtorTransaction ? index >= 3 : intent === 'local_audience' && index === 2,
                   }
                 : {
                     reddit_filter_keywords: [query].filter(Boolean),
                     reddit_filter_keyword_mode: 'any',
                   }),
               ...(realtorTransaction
-            ? {
-                reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
-                reddit_auto_discover: false,
-                reddit_sort: index === 0 ? 'relevance' : 'new',
-                reddit_content_type: index < 3 ? 'posts' : 'comments',
-              }
+            ? index < 3
+              ? {
+                  reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
+                  reddit_auto_discover: false,
+                  reddit_sort: index === 0 ? 'relevance' : 'new',
+                  reddit_content_type: 'posts',
+                }
+              : {
+                  reddit_subreddits: [],
+                  reddit_auto_discover: true,
+                  reddit_max_subreddits: 6,
+                  reddit_global_search: true,
+                  reddit_sort: 'relevance',
+                  reddit_content_type: index === 3 ? 'posts' : 'comments',
+                }
             : index === 0
             ? {
                 reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
