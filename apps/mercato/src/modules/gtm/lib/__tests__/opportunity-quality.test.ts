@@ -28,6 +28,30 @@ describe('opportunity quality primitives', () => {
     expect(classifyOpportunityIntent('Unrelated technology conference agenda.').kind).toBeNull()
   })
 
+  it('recognizes a returned residential location decision without treating product purchases as homes', () => {
+    const phoenixBuyer = [
+      'What is the scoop on Moon Valley?',
+      'We are looking to buy but not get too far out.',
+      'What is the vibe? Is it family friendly and safe?',
+    ].join(' ')
+
+    expect(classifyOpportunityIntent(phoenixBuyer)).toMatchObject({
+      kind: 'buyer_intent',
+      buyerSignals: expect.arrayContaining(['residential location decision']),
+    })
+    expect(assessRealtorOpportunitySuitability(phoenixBuyer, 'buyer_intent', null, 'thread'))
+      .toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+    expect(classifyOpportunityIntent(
+      'Where to buy sourdough bread? I was looking to buy fresh sourdough and need bakery recommendations.',
+    ).kind).toBeNull()
+    expect(classifyOpportunityIntent(
+      'Looking to buy near-mint Death Phoenix cards. I am not interested in played copies.',
+    ).kind).toBeNull()
+    expect(classifyOpportunityIntent(
+      'Phoenix made an offer to a professional basketball player.',
+    ).kind).toBeNull()
+  })
+
   it('excludes provider targeting claims from semantic evidence', () => {
     const text = opportunityEvidenceText(
       {

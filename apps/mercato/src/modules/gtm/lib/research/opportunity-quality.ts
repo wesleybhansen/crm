@@ -190,6 +190,14 @@ const HISTORICAL_COMPLETED_PROPERTY_TRANSACTION =
 const CURRENT_PROPERTY_DECISION_AFTER_HISTORY =
   /\b(?:now|currently|today|this (?:month|year))\b.{0,180}\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|move|moving|refinance|refinancing)\b/i
 
+// Some genuine residential-location questions omit the object after “buy”
+// because the surrounding question makes it clear (for example, “we are
+// looking to buy but not get too far out; what is the neighborhood like?”).
+// Keep this deliberately narrower than a bare `looking to buy` match so a
+// product purchase, ticket request, or collectible search cannot become a
+// housing lead merely because it was returned by a realtor-oriented query.
+const FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION =
+  /\b(?:i|we)(?:(?:'m|'re| am| are)|(?:'ve| have)(?: been)?)?\s+(?:actively\s+)?(?:looking|trying|planning|hoping|wanting)\s+to\s+(?:buy|purchase)\b(?=.{0,160}\b(?:not (?:get|go|move) too far|what(?:'|’)s the vibe|family[- ]friendly|school districts?|commute|neighbou?rhoods?|areas? (?:to|should|would)|where (?:should|could) (?:i|we) live)\b)/i
 const REALTOR_HOUSING_CONTEXT =
   /\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|community registry|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
 const CONSUMER_QUESTION =
@@ -261,8 +269,17 @@ function matchedSignals(content: string, definitions: Array<[string, RegExp]>): 
  * caller-supplied label are deliberately absent from this signature so they
  * cannot become evidence by accident.
  */
-export function classifyOpportunityIntent(content: string): OpportunityIntentClassification {
-  const buyerSignals = matchedSignals(content, BUYER_SIGNALS)
+function classifyOpportunityIntentWithContract(
+  content: string,
+  includeResidentialLocationDecision: boolean,
+): OpportunityIntentClassification {
+  const buyerSignals = [
+    ...matchedSignals(content, BUYER_SIGNALS),
+    ...(includeResidentialLocationDecision
+      && FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION.test(content)
+      ? ['residential location decision']
+      : []),
+  ]
   const sellerSignals = matchedSignals(content, SELLER_SIGNALS)
   const localAudienceSignals = matchedSignals(content, LOCAL_AUDIENCE_SIGNALS)
   const kind: DemonstratedOpportunityIntent =
@@ -278,6 +295,16 @@ export function classifyOpportunityIntent(content: string): OpportunityIntentCla
   const strongest = Math.max(buyerSignals.length, sellerSignals.length, localAudienceSignals.length)
   const confidence = kind == null ? 0 : Math.min(0.95, 0.56 + Math.max(0, strongest - 1) * 0.1)
   return { kind, buyerSignals, sellerSignals, localAudienceSignals, confidence }
+}
+
+/** Preserves the exact content classifier used by already-quoted v1 plans. */
+export function classifyOpportunityIntentV1(content: string): OpportunityIntentClassification {
+  return classifyOpportunityIntentWithContract(content, false)
+}
+
+/** Current returned-content classifier. */
+export function classifyOpportunityIntent(content: string): OpportunityIntentClassification {
+  return classifyOpportunityIntentWithContract(content, true)
 }
 
 export function realtorOpportunityNoiseReasons(content: string, sourceUrl: string | null = null): string[] {
@@ -439,7 +466,9 @@ export function assessRealtorOpportunitySuitability(
 ): RealtorOpportunitySuitability {
   const intent = classifyOpportunityIntent(content).kind
   const reasons = realtorOpportunityNoiseReasons(content, sourceUrl)
-  const housing = REALTOR_HOUSING_CONTEXT.test(content)
+  const housing =
+    REALTOR_HOUSING_CONTEXT.test(content)
+    || FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION.test(content)
   const consumerNeed =
     CONSUMER_QUESTION.test(content)
     || FIRST_PERSON_HOUSING_NEED.test(content)

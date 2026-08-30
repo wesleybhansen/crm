@@ -28,6 +28,7 @@ import {
 import {
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
+  classifyOpportunityIntentV1,
   demonstratedOpportunityLocation,
   type DemonstratedOpportunityIntent,
   sensitiveConsumerOpportunityReasons,
@@ -83,13 +84,33 @@ function redditFilterKeywords(plan: SourceSearchPlan): string[] {
     .slice(0, 8)
 }
 
+function validateRedditReturnedContentFilter(plan: SourceSearchPlan): void {
+  const version = plan.provider_query?.reddit_returned_content_filter_version
+  if (version == null) return
+  if (version !== 'semantic-intent-location-v1' && version !== 'semantic-intent-location-v2') {
+    throw new TypeError('unsupported Reddit returned-content filter version')
+  }
+  const intent = plan.provider_query?.reddit_filter_required_intent
+  if (!['buyer_intent', 'seller_intent', 'mixed_intent', 'local_audience'].includes(String(intent))) {
+    throw new TypeError('semantic Reddit returned-content filtering requires a supported intent lane')
+  }
+  if (typeof plan.provider_query?.reddit_filter_require_location !== 'boolean') {
+    throw new TypeError('semantic Reddit returned-content filtering requires an explicit location policy')
+  }
+}
+
 function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSearchPlan): boolean {
-  if (plan.provider_query?.reddit_returned_content_filter_version === 'semantic-intent-location-v1') {
+  const filterVersion = plan.provider_query?.reddit_returned_content_filter_version
+  if (filterVersion === 'semantic-intent-location-v1' || filterVersion === 'semantic-intent-location-v2') {
     const content = [candidate.identity.name, candidate.identity.audience_description]
       .filter((value): value is string => typeof value === 'string')
       .join(' ')
     const expected = plan.provider_query?.reddit_filter_required_intent
-    const observed = classifyOpportunityIntent(content).kind
+    const observed = (
+      filterVersion === 'semantic-intent-location-v1'
+        ? classifyOpportunityIntentV1(content)
+        : classifyOpportunityIntent(content)
+    ).kind
     const intentMatches =
       expected === 'local_audience'
         ? observed === 'local_audience'
@@ -209,6 +230,7 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
     'subredditSubscribers',
   ],
   buildInput(plan, maxResults) {
+    validateRedditReturnedContentFilter(plan)
     const subreddits = redditSubreddits(plan)
     const autoDiscoverSubreddits = subreddits.length === 0 && redditAutoDiscover(plan)
     if (autoDiscoverSubreddits && !redditGlobalSearch(plan)) {
@@ -1241,8 +1263,10 @@ export function createPublicSocialOpportunityAdapter(
         : normalizedCandidates
       if (candidates.length === 0) {
         const returnedContentFiltered = config.platform === 'Reddit' ? normalizedCandidates.length : 0
+        const semanticFilterVersion = plan.provider_query?.reddit_returned_content_filter_version
         const semanticFilter =
-          plan.provider_query?.reddit_returned_content_filter_version === 'semantic-intent-location-v1'
+          semanticFilterVersion === 'semantic-intent-location-v1'
+          || semanticFilterVersion === 'semantic-intent-location-v2'
         return {
           status: normalizedCandidates.length > 0 ? 'no_result' : 'error',
           data: null,
@@ -1250,7 +1274,7 @@ export function createPublicSocialOpportunityAdapter(
             parser_dropped_rows: outcome.itemCount - normalizedCandidates.length,
             ...(semanticFilter
               ? {
-                  returned_content_filter_version: 'semantic-intent-location-v1',
+                  returned_content_filter_version: semanticFilterVersion,
                   returned_content_filtered_rows: returnedContentFiltered,
                 }
               : { keyword_filtered_rows: returnedContentFiltered }),
@@ -1264,8 +1288,10 @@ export function createPublicSocialOpportunityAdapter(
       const delivered = candidates.slice(0, maxCandidates)
       const parserDropped = Math.max(0, resultItems.length - normalizedCandidates.length)
       const returnedContentFiltered = Math.max(0, normalizedCandidates.length - candidates.length)
+      const semanticFilterVersion = plan.provider_query?.reddit_returned_content_filter_version
       const semanticFilter =
-        plan.provider_query?.reddit_returned_content_filter_version === 'semantic-intent-location-v1'
+        semanticFilterVersion === 'semantic-intent-location-v1'
+        || semanticFilterVersion === 'semantic-intent-location-v2'
       const dropped = parserDropped + returnedContentFiltered
       const truncated = candidates.length > delivered.length
       return {
@@ -1276,7 +1302,7 @@ export function createPublicSocialOpportunityAdapter(
           parser_dropped_rows: parserDropped,
           ...(semanticFilter
             ? {
-                returned_content_filter_version: 'semantic-intent-location-v1',
+                returned_content_filter_version: semanticFilterVersion,
                 returned_content_filtered_rows: returnedContentFiltered,
               }
             : { keyword_filtered_rows: returnedContentFiltered }),
