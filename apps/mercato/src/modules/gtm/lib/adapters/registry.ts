@@ -4,9 +4,11 @@ import { fixtureConsumerSourceAdapter } from './fixture-consumer'
 import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
 import { apifyOpportunitySourceEnabled, createApifyOpportunitySourceAdapter } from './apify/opportunity-source'
 import {
+  apifyMeetupOpportunityEnabled,
   apifyRedditOpportunityEnabled,
   apifyThreadsOpportunityEnabled,
   apifyXOpportunityEnabled,
+  createApifyMeetupOpportunityAdapter,
   createApifyRedditOpportunityAdapter,
   createApifyThreadsOpportunityAdapter,
   createApifyXOpportunityAdapter,
@@ -83,6 +85,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifyThreadsOpportunityEnabled()) {
     const threadsOpportunities = createApifyThreadsOpportunityAdapter()
     registry[threadsOpportunities.descriptor.adapter_id] = threadsOpportunities
+  }
+  if (apifyMeetupOpportunityEnabled()) {
+    const meetupOpportunities = createApifyMeetupOpportunityAdapter()
+    registry[meetupOpportunities.descriptor.adapter_id] = meetupOpportunities
   }
   if (apifyCompanySourceEnabled()) {
     const apifyCompany = createApifyCompanySourceAdapter()

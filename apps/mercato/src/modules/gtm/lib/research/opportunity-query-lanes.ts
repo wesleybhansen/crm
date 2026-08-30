@@ -118,6 +118,13 @@ export function opportunitySourceRouting(
   ].join(' ')
   const realtor = REALTOR_PLAY.test(playText)
 
+  if (adapterId === 'apify-meetup-demand-opportunities' && intent !== 'local_audience') {
+    return {
+      eligible: false,
+      reason: 'Meetup is limited to public local-audience events; buyer and seller intent require returned-content evidence from another source',
+    }
+  }
+
   if (
     realtor
     && intent === 'local_audience'
@@ -144,6 +151,9 @@ function sourceLocation(geography: string): string {
 }
 
 function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geography: string): string[] {
+  if (adapterId === 'apify-meetup-demand-opportunities') {
+    return ['first time home buyer', 'homeownership', 'neighborhood community']
+  }
   if (adapterId === 'dataforseo-events-demand-opportunities') {
     if (intent === 'buyer_intent') {
       return ['first time home buyer workshop', 'home buyer seminar', 'homeownership class']
@@ -371,6 +381,7 @@ function sourceSeed(
     return seed.toLowerCase().includes(market.toLowerCase()) ? seed : `${market} ${seed}`
   }
   if (adapterId === 'apify-threads-demand-opportunities') return seed
+  if (adapterId === 'apify-meetup-demand-opportunities') return seed
   return `${market} ${seed}`
 }
 
@@ -420,6 +431,7 @@ export function buildOpportunityQueryLanes(
       ? 1
       : adapterId === 'apify-x-demand-opportunities'
         || adapterId === 'apify-threads-demand-opportunities'
+        || adapterId === 'apify-meetup-demand-opportunities'
         ? 3
         : adapterId === 'apify-reddit-demand-opportunities' && realtorTransaction
           ? 5
@@ -445,7 +457,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v55',
+        query_lane_version: 'opportunity-query-v56',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -465,6 +477,18 @@ export function buildOpportunityQueryLanes(
           : {}),
         ...(adapterId === 'dataforseo-events-demand-opportunities'
           ? { date_range: DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE }
+          : {}),
+        ...(adapterId === 'apify-meetup-demand-opportunities'
+          ? {
+              meetup_contract_version: 'public-events-v1',
+              meetup_location: geography,
+              meetup_event_type: 'PHYSICAL',
+              meetup_country: 'us',
+              meetup_radius_miles: 25,
+              meetup_window_days: 30,
+              meetup_min_rsvp_count: 1,
+              meetup_sort: 'DATETIME',
+            }
           : {}),
         ...(adapterId === 'apify-reddit-demand-opportunities'
           ? {
