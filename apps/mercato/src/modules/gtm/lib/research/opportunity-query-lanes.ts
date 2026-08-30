@@ -155,32 +155,39 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
     const market = marketName(geography)
+    // clearpath/reddit-search-scraper treats long Boolean expressions as
+    // brittle source-native searches. Keep each paid lane to one short phrase
+    // and let the returned-content filter plus fit-v7 prove intent, locality,
+    // freshness, access, safety, and actionability from the result itself.
+    // Topic-community lanes intentionally search only the market name: their
+    // frozen subreddit supplies topic scope, while returned content must still
+    // independently demonstrate both the requested market and intent.
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        '("buying a home" OR "buying a house" OR "looking to buy" OR "house hunting" OR "first-time home buyer" OR "first time home buyer" OR "made an offer") NOT (realtor OR agent OR broker OR lender)',
-        '("where should we buy" OR "where should I buy" OR "looking to buy" OR "house hunting" OR "first-time home buyer") NOT (realtor OR agent OR broker OR lender)',
-        '("looking to buy" OR "house hunting" OR "made an offer" OR "need a realtor" OR "first-time home buyer") NOT ("got the keys" OR "closed on" OR "finally did it" OR "just bought")',
-        `${market} AND ("buying a home" OR "buying a house" OR "house hunting" OR "first-time home buyer") NOT (realtor OR agent OR broker OR lender)`,
-        `${market} AND ("looking to buy" OR "made an offer" OR "need a realtor" OR "first-time home buyer") NOT ("got the keys" OR "closed on" OR "just bought")`,
+        'buying home',
+        'house hunting',
+        'first time home buyer',
+        market,
+        market,
       ],
       seller_intent: [
-        '("selling my home" OR "selling my house" OR "thinking of selling" OR "listing my house" OR "realtor recommendation") NOT (realtor OR agent OR broker)',
-        '("realtor recommendation" OR "selling my home" OR "thinking of selling" OR "repairs before selling") NOT (realtor OR agent OR broker)',
-        '("selling my home" OR "selling my house" OR "thinking of selling" OR "need a realtor") NOT ("we buy houses" OR "cash buyer" OR "contact me")',
-        `${market} AND ("selling my home" OR "selling my house" OR "thinking of selling" OR "listing my house") NOT (realtor OR agent OR broker)`,
-        `${market} AND ("realtor recommendation" OR "repairs before selling" OR "need a realtor" OR "home valuation") NOT ("we buy houses" OR "cash buyer" OR "contact me")`,
+        'selling house',
+        'realtor recommendation',
+        'sell my house',
+        market,
+        market,
       ],
       mixed_intent: [
-        '("sell before buying" OR "buy before selling" OR "selling and buying") NOT (realtor OR agent OR broker)',
-        '("realtor recommendation" OR "move-up buyer" OR "selling then buying") NOT (realtor OR agent OR broker)',
-        '("selling my home" OR "selling my house") AND ("buying a home" OR "buying a house")',
-        `${market} AND ("sell before buying" OR "buy before selling" OR "selling and buying") NOT (realtor OR agent OR broker)`,
-        `${market} AND ("selling my home" OR "selling my house") AND ("buying a home" OR "buying a house")`,
+        'sell before buying',
+        'move-up buyer',
+        'selling and buying',
+        market,
+        market,
       ],
       local_audience: [
-        '("neighborhood association" OR "community meeting" OR "housing workshop" OR "home buyer workshop" OR "home seller workshop")',
-        '("neighborhood association" OR "homeowner association" OR "community meeting" OR "housing workshop" OR "homeowner event")',
-        `${market} AND ("neighborhood association" OR "community meeting" OR "housing workshop" OR "home buyer workshop" OR "home seller workshop" OR "homeowner event")`,
+        'neighborhood association',
+        'community meeting',
+        `${market} housing workshop`,
       ],
     }
     return byIntent[intent]
@@ -360,7 +367,14 @@ export function buildOpportunityQueryLanes(
   const playText = [play.audience, play.signal, ...values(providerQuery.audience_keywords)].join(' ')
   const realtor = REALTOR_PLAY.test(playText)
   const realtorTransaction = realtor && intent !== 'local_audience'
-  const seeds = unique(realtor ? realtorSeeds(intent, adapterId, geography) : genericSeeds(play))
+  const authoredSeeds = realtor ? realtorSeeds(intent, adapterId, geography) : genericSeeds(play)
+  // The two fixed Reddit topic-community lanes may intentionally use the same
+  // market-name query against different frozen subreddits. Their scopes and
+  // quote lane IDs are distinct even though the actor-native search text is
+  // identical, so do not collapse them before planning.
+  const seeds = adapterId === 'apify-reddit-demand-opportunities' && realtor
+    ? authoredSeeds
+    : unique(authoredSeeds)
   const sourceLaneCap =
     adapterId === 'apify-linkedin-demand-opportunities'
       ? 1
@@ -391,7 +405,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v53',
+        query_lane_version: 'opportunity-query-v54',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

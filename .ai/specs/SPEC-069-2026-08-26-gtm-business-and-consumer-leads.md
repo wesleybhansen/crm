@@ -325,25 +325,28 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v53` keeps actor-native syntax explicit and separately quotes
-five transaction-intent Reddit strategies against
-`clearpath/reddit-search-scraper` build `0.0.66`. Every buyer, seller, and mixed
-play uses posts in the exact market, posts in `Ask<Market>`, and comments in the
-exact market. Two additional post lanes search fixed housing-topic communities:
+`opportunity-query-v54` separately quotes five transaction-intent Reddit
+strategies against `clearpath/reddit-search-scraper` build `0.0.66`. Production
+receipts showed that long Boolean expressions frequently produced no rows even
+when short source-native searches could recover relevant public discussion.
+Buyer lanes therefore use `buying home`, `house hunting`, and
+`first time home buyer`; seller lanes use `selling house`,
+`realtor recommendation`, and `sell my house`; and mixed lanes use
+`sell before buying`, `move-up buyer`, and `selling and buying`. Those first
+three lanes remain posts in the exact market, posts in `Ask<Market>`, and
+comments in the exact market. Two additional post lanes search fixed
+housing-topic communities using only the market name:
 `FirstTimeHomeBuyer` and `RealEstate` for buyers, and `homeowners` and
-`RealEstate` for sellers. The topic-community lanes bind the market in the
-provider query and require the returned content to independently prove it; they
-do not use provider-discovered subreddit scope. Query text remains targeting
-provenance and never becomes evidence. Exact returned city or `Ask<Market>`
-scope may prove locality, while topic-community content must demonstrate the
-requested market. Each lane may return at most ten rows inside the frozen
-30-day window, and every query, scope, content type, result cap, and evidence
-rule is immutable in the quote. `fit-v7-quality-v27` recognizes narrow direct
-first-person transaction statements and buyer/seller self-identification, but
-no longer treats generic first-person “looking” language as a consumer housing
-need. It also hard-rejects returned child/family-status and current-health
-signals. The semantic filter—not the query—still decides whether a row
-demonstrates current housing intent.
+`RealEstate` for sellers. The topic-community lanes require returned content to
+independently prove both the requested market and intent; the query itself is
+never evidence. Exact returned city or `Ask<Market>` scope may prove locality.
+Each lane may return at most ten rows inside the frozen 30-day window, and every
+query, scope, content type, result cap, and evidence rule is immutable in the
+quote. `fit-v7-quality-v29` remains the scorer revision. It recognizes only
+returned transaction evidence, preserves explicit unknowns, and retains every
+provider-promotion, sensitivity, locality, freshness, access, actionability,
+and participation-rights gate. The semantic filter—not the query—still decides
+whether a row demonstrates current housing intent.
 The three separately billed organic transaction lanes use exactly one positive
 `site:reddit.com/r/<Market>` operator plus one exact first-person decision
 phrase. DataForSEO's published Live Organic contract prices that operator at
@@ -359,10 +362,12 @@ it is normally too late to be useful.
 The queries do not exclude `realtor`, `agent`, `broker`, or `lender`, because a
 consumer asking for a professional is relevant demand; the returned-content
 noise and fit gates remain authoritative. Local-audience discovery retains its
-three-lane contract: primary-market posts, `Ask<Market>` posts, and one guarded
-global lane with at most six actor-discovered subreddits. That global lane must
-contain the requested market, is capped at ten rows, and stays inside the
-frozen 30-day window or it fails before provider contact.
+three-lane contract: primary-market posts search `neighborhood association`,
+`Ask<Market>` posts search `community meeting`, and one guarded global lane
+searches `<Market> housing workshop` with at most six actor-discovered
+subreddits. The global lane's returned content must prove the requested market,
+is capped at ten rows, and stays inside the frozen 30-day window or it fails
+before provider contact.
 
 A frozen `semantic-intent-location-v3` returned-content filter runs after safe
 normalization and before ranking. It classifies only the returned title and
@@ -554,6 +559,7 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 
 ## 16. Changelog
 
+- 2026-08-30: The complete query-v53 / quality-v29 benchmark reconciled 96 provider operations without ambiguity for `184,740` Noli credits (`$0.36948`) and produced 91 canonical matches. The strict scorer retained two accepted, nine review, and 80 rejected opportunities, but only three of twelve plays reached the ten-row labeling floor. Receipt diagnostics showed 34 of 52 Reddit operations returned no result, concentrated in long Boolean actor queries. `opportunity-query-v54` replaces only those Reddit expressions with short source-native phrases while preserving exact market and topic-community scopes, the returned-content semantic-v3 gate, `fit-v7-quality-v29`, the 30-day window, every safety/access/actionability rule, immutable per-lane metering, and manual-only consumer action. Customer activation remains fail-closed until a bounded v54 probe demonstrates better useful recall and the independent twelve-play benchmark passes.
 - 2026-08-26: Initial additive B2B/B2C research and manual-consumer-outreach contract.
 - 2026-08-26: Clarified the consumer product around demand surfaces, added the first-vertical realtor buyer/seller opportunity contract, made named people secondary, and added MCP and dedicated regression requirements after review of the saved Origami lead-magnet, data-source pricing, and realtor campaign experience.
 - 2026-08-26: Implemented the additive policy, provider-rights contract, deterministic consumer adapter, named-person lifecycle, manual-draft route/data model, privacy/removal/retention handling, responsive Hub views, action-queue integration, and counsel-review disclosure drafts. Generated migration `Migration20260826221317` was rehearsed statement-for-statement against an isolated temporary PostgreSQL database with GTM prerequisites; the repository-wide empty-database migration chain remains blocked earlier by the documented unrelated auth baseline.
