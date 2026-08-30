@@ -32,6 +32,10 @@ const BUYER_SIGNALS: Array<[string, RegExp]> = [
   ['home search', /\b(?:house hunt|house hunting|home search|searching for (?:a )?home)\b/i],
   ['financing education', /\b(?:mortgage|pre[- ]?approval|down payment|closing costs?)\b/i],
   ['looking for a home', /\blooking for (?:a )?(?:home|house|condo|townhome)\b/i],
+  [
+    'actively seeking a property',
+    /\b(?:i|we)(?:(?:'m|'re| am| are)|(?:'ve| have)(?: been)?)?\s+(?:waiting|trying|looking)\s+to\s+(?:find|buy|purchase)\s+(?:a|my|our|the)?\s*(?:home|house|condo|townhome|property)\b/i,
+  ],
 ]
 
 const SELLER_SIGNALS: Array<[string, RegExp]> = [
@@ -103,6 +107,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
   [
     'completed_listing_promotion',
     /\b(?:successfully\s+(?:listed\s*(?:&|and)\s*)?sold|(?:just|recently)\s+sold\s*(?::|!|\bthis\s+(?:beautiful\s+)?(?:home|property|listing)\b)|sold\s+(?:this|another)\s+(?:beautiful\s+)?(?:home|property|listing)|another\s+(?:beautiful\s+)?home\s+(?:successfully\s+)?(?:listed\s*(?:&|and)\s*)?sold)\b/i,
+  ],
+  [
+    'completed_buyer_transaction',
+    /\b(?:got|received) (?:the|my|our) keys\b|\bfinally did it\b.{0,100}\b(?:home|house|keys|closed|mortgage|\$[\d,.]+)\b|\b(?:just|recently) bought (?:a|my|our|the) (?:home|house|condo|townhome|property)\b|\bclosed on (?:a|my|our|the) (?:home|house|condo|townhome|property)\b/i,
   ],
   [
     'client_success_promotion',
@@ -187,7 +195,7 @@ const REALTOR_HOUSING_CONTEXT =
 const CONSUMER_QUESTION =
   /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|(?:where|what|which|how) should (?:i|we|my|our)\b|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =
-  /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:actively\s+)?(?:thinking (?:about|of)|considering|planning(?: to)?|preparing(?: to)?|trying(?: to)?|looking(?: to| for)|need(?:ing)?(?: to)?|want(?:ing)?(?: to)?|moving|relocating|wondering|unsure|confused|stressed)\b/i
+  /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:actively\s+)?(?:thinking (?:about|of)|considering|planning(?: to)?|preparing(?: to)?|trying(?: to)?|looking(?: to| for)|waiting(?: to)?|need(?:ing)?(?: to)?|want(?:ing)?(?: to)?|moving|relocating|wondering|unsure|confused|stressed)\b/i
 const FIRST_PERSON_DIRECT_HOUSING_TRANSACTION =
   /\b(?:i|we)(?:'m|'re| am| are)\s+(?:actively\s+)?(?:buying|purchasing|selling|listing)\s+(?:(?:a|my|our|the)\s+)?(?:home|house|condo|townhome|property)\b/i
 const FIRST_PERSON_TRANSACTION_PROGRESS =

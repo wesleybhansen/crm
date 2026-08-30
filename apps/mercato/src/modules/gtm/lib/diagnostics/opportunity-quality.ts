@@ -163,7 +163,9 @@ function operationReceiptCounts(operation: GtmProviderOperation): {
   const receipt = object(operation.receipt)
   if (!receipt) return { input: 0, dropped: 0, keywordFiltered: 0, actorBuild: null }
   const dropped = count(receipt.parser_dropped_rows ?? receipt.dropped_items)
-  const keywordFiltered = count(receipt.keyword_filtered_rows)
+  const keywordFiltered = count(
+    receipt.returned_content_filtered_rows ?? receipt.keyword_filtered_rows,
+  )
   const raw = count(receipt.raw_item_count)
   const returned = count(receipt.returned_count)
   const itemCount = count(receipt.item_count)

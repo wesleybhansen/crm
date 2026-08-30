@@ -84,6 +84,34 @@ function redditFilterKeywords(plan: SourceSearchPlan): string[] {
 }
 
 function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSearchPlan): boolean {
+  if (plan.provider_query?.reddit_returned_content_filter_version === 'semantic-intent-location-v1') {
+    const content = [candidate.identity.name, candidate.identity.audience_description]
+      .filter((value): value is string => typeof value === 'string')
+      .join(' ')
+    const expected = plan.provider_query?.reddit_filter_required_intent
+    const observed = classifyOpportunityIntent(content).kind
+    const intentMatches =
+      expected === 'local_audience'
+        ? observed === 'local_audience'
+          || observed === 'buyer_intent'
+          || observed === 'seller_intent'
+          || observed === 'mixed_intent'
+        : expected === 'mixed_intent'
+          ? observed === 'buyer_intent'
+            || observed === 'seller_intent'
+            || observed === 'mixed_intent'
+          : observed === expected || observed === 'mixed_intent'
+    if (!intentMatches) return false
+    if (plan.provider_query?.reddit_filter_require_location !== true) return true
+    const requestedLocation = locationText(plan)
+    return Boolean(
+      requestedLocation
+      && (
+        candidate.identity.location === requestedLocation
+        || demonstratedOpportunityLocation(content, requestedLocation)
+      ),
+    )
+  }
   const keywords = redditFilterKeywords(plan)
   if (keywords.length === 0) return true
   const content = [candidate.identity.name, candidate.identity.audience_description]
@@ -1212,13 +1240,20 @@ export function createPublicSocialOpportunityAdapter(
         ? normalizedCandidates.filter((candidate) => returnedContentMatchesRedditFilter(candidate, plan))
         : normalizedCandidates
       if (candidates.length === 0) {
-        const keywordFiltered = config.platform === 'Reddit' ? normalizedCandidates.length : 0
+        const returnedContentFiltered = config.platform === 'Reddit' ? normalizedCandidates.length : 0
+        const semanticFilter =
+          plan.provider_query?.reddit_returned_content_filter_version === 'semantic-intent-location-v1'
         return {
           status: normalizedCandidates.length > 0 ? 'no_result' : 'error',
           data: null,
           receipt: providerReceipt({
             parser_dropped_rows: outcome.itemCount - normalizedCandidates.length,
-            keyword_filtered_rows: keywordFiltered,
+            ...(semanticFilter
+              ? {
+                  returned_content_filter_version: 'semantic-intent-location-v1',
+                  returned_content_filtered_rows: returnedContentFiltered,
+                }
+              : { keyword_filtered_rows: returnedContentFiltered }),
           }),
           cost_units: costUnits,
           error: normalizedCandidates.length > 0
@@ -1228,8 +1263,10 @@ export function createPublicSocialOpportunityAdapter(
       }
       const delivered = candidates.slice(0, maxCandidates)
       const parserDropped = Math.max(0, resultItems.length - normalizedCandidates.length)
-      const keywordFiltered = Math.max(0, normalizedCandidates.length - candidates.length)
-      const dropped = parserDropped + keywordFiltered
+      const returnedContentFiltered = Math.max(0, normalizedCandidates.length - candidates.length)
+      const semanticFilter =
+        plan.provider_query?.reddit_returned_content_filter_version === 'semantic-intent-location-v1'
+      const dropped = parserDropped + returnedContentFiltered
       const truncated = candidates.length > delivered.length
       return {
         status: dropped > 0 || truncated ? 'partial' : 'ok',
@@ -1237,7 +1274,12 @@ export function createPublicSocialOpportunityAdapter(
         receipt: providerReceipt({
           returned_count: delivered.length,
           parser_dropped_rows: parserDropped,
-          keyword_filtered_rows: keywordFiltered,
+          ...(semanticFilter
+            ? {
+                returned_content_filter_version: 'semantic-intent-location-v1',
+                returned_content_filtered_rows: returnedContentFiltered,
+              }
+            : { keyword_filtered_rows: returnedContentFiltered }),
           truncated,
           billed_results: counts[config.primaryResultEvent] ?? 0,
         }),
