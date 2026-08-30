@@ -974,6 +974,63 @@ describe('Apify public social demand opportunities', () => {
     })
   })
 
+  it('uses v3 returned-content semantics to exclude entertainment house hunting while preserving v2 plans', async () => {
+    const entertainmentPost = redditPost({
+      title: 'Television in the waiting room',
+      body: 'We watched a house hunting and remodeling show on TV while our nail appointments finished.',
+      subreddit: 'phoenix',
+      permalink: '/r/phoenix/comments/example/waiting_room_tv/',
+      url: 'https://www.reddit.com/r/phoenix/comments/example/waiting_room_tv/',
+    })
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor: async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, entertainmentPost),
+    })
+    const versionedPlan = {
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Phoenix, Arizona'],
+        search_query: '("house hunting" OR "looking to buy a home")',
+        opportunity_intent_lane: 'buyer_intent',
+        reddit_filter_required_intent: 'buyer_intent',
+        reddit_filter_require_location: false,
+        reddit_subreddits: ['Phoenix'],
+        reddit_auto_discover: false,
+      },
+    }
+
+    const legacy = await adapter.search({
+      ...versionedPlan,
+      provider_query: {
+        ...versionedPlan.provider_query,
+        reddit_returned_content_filter_version: 'semantic-intent-location-v2',
+      },
+    })
+    expect(legacy).toMatchObject({
+      status: 'ok',
+      data: [{ identity: { intent_kind: 'buyer_intent' } }],
+      receipt: { returned_content_filter_version: 'semantic-intent-location-v2' },
+    })
+
+    const current = await adapter.search({
+      ...versionedPlan,
+      provider_query: {
+        ...versionedPlan.provider_query,
+        reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+      },
+    })
+    expect(current).toMatchObject({
+      status: 'no_result',
+      data: null,
+      receipt: {
+        returned_content_filter_version: 'semantic-intent-location-v3',
+        returned_content_filtered_rows: 1,
+      },
+    })
+  })
+
   it('refuses an unknown semantic filter version before a paid Reddit call', async () => {
     const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
     const adapter = createApifyRedditOpportunityAdapter({
@@ -1394,7 +1451,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v43',
+        query_lane_version: 'opportunity-query-v44',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'austinhomebuyer',
       },
@@ -1427,7 +1484,7 @@ describe('Apify public social demand opportunities', () => {
     }
   })
 
-  it('plans three Reddit and three fixed-charge-aware X shortfall lanes', () => {
+  it('plans five Reddit and three fixed-charge-aware X shortfall lanes', () => {
     const adapters = [
       createApifyRedditOpportunityAdapter({
         env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
@@ -1456,13 +1513,15 @@ describe('Apify public social demand opportunities', () => {
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
       ])
-      expect(result.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([4, 4, 3, 3, 3, 3])
+      expect(result.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([3, 3, 3, 3, 2, 2, 2, 2])
       expect(result.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(20)
-      expect(new Set(result.adapterPlan.map((batch) => `${batch.adapter_id}:${batch.queryLaneId}`)).size).toBe(6)
+      expect(new Set(result.adapterPlan.map((batch) => `${batch.adapter_id}:${batch.queryLaneId}`)).size).toBe(8)
       expect(result.adapterPlan.every((batch) => batch.billableUnit === 'apify_millidollar')).toBe(true)
     }
   })
@@ -1484,7 +1543,7 @@ describe('Apify public social demand opportunities', () => {
       '#MovingToAustin',
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v43'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v44'
       && lane.providerQuery.opportunity_intent_lane === 'buyer_intent'
     ))).toBe(true)
 

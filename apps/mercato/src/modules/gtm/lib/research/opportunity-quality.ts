@@ -198,6 +198,8 @@ const CURRENT_PROPERTY_DECISION_AFTER_HISTORY =
 // housing lead merely because it was returned by a realtor-oriented query.
 const FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION =
   /\b(?:i|we)(?:(?:'m|'re| am| are)|(?:'ve| have)(?: been)?)?\s+(?:actively\s+)?(?:looking|trying|planning|hoping|wanting)\s+to\s+(?:buy|purchase)\b(?=.{0,160}\b(?:not (?:get|go|move) too far|what(?:'|’)s the vibe|family[- ]friendly|school districts?|commute|neighbou?rhoods?|areas? (?:to|should|would)|where (?:should|could) (?:i|we) live)\b)/i
+const ENTERTAINMENT_HOUSE_SEARCH =
+  /\b(?:tv|television|show|series|episode|channel|watch(?:ed|ing)?)\b.{0,120}\b(?:house hunt(?:ing)?|home remodel(?:ing)?|home renovation)\b|\b(?:house hunt(?:ing)?|home remodel(?:ing)?|home renovation)\b.{0,120}\b(?:tv|television|show|series|episode|channel|watch(?:ed|ing)?)\b/i
 const REALTOR_HOUSING_CONTEXT =
   /\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|community registry|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
 const CONSUMER_QUESTION =
@@ -272,9 +274,17 @@ function matchedSignals(content: string, definitions: Array<[string, RegExp]>): 
 function classifyOpportunityIntentWithContract(
   content: string,
   includeResidentialLocationDecision: boolean,
+  excludeEntertainmentHouseSearch: boolean,
 ): OpportunityIntentClassification {
+  const matchedBuyerSignals = matchedSignals(content, BUYER_SIGNALS).filter(
+    (signal) => !(
+      excludeEntertainmentHouseSearch
+      && signal === 'home search'
+      && ENTERTAINMENT_HOUSE_SEARCH.test(content)
+    ),
+  )
   const buyerSignals = [
-    ...matchedSignals(content, BUYER_SIGNALS),
+    ...matchedBuyerSignals,
     ...(includeResidentialLocationDecision
       && FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION.test(content)
       ? ['residential location decision']
@@ -299,12 +309,17 @@ function classifyOpportunityIntentWithContract(
 
 /** Preserves the exact content classifier used by already-quoted v1 plans. */
 export function classifyOpportunityIntentV1(content: string): OpportunityIntentClassification {
-  return classifyOpportunityIntentWithContract(content, false)
+  return classifyOpportunityIntentWithContract(content, false, false)
+}
+
+/** Preserves the exact content classifier used by already-quoted v2 plans. */
+export function classifyOpportunityIntentV2(content: string): OpportunityIntentClassification {
+  return classifyOpportunityIntentWithContract(content, true, false)
 }
 
 /** Current returned-content classifier. */
 export function classifyOpportunityIntent(content: string): OpportunityIntentClassification {
-  return classifyOpportunityIntentWithContract(content, true)
+  return classifyOpportunityIntentWithContract(content, true, true)
 }
 
 export function realtorOpportunityNoiseReasons(content: string, sourceUrl: string | null = null): string[] {

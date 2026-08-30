@@ -29,6 +29,7 @@ import {
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
   classifyOpportunityIntentV1,
+  classifyOpportunityIntentV2,
   demonstratedOpportunityLocation,
   type DemonstratedOpportunityIntent,
   sensitiveConsumerOpportunityReasons,
@@ -72,6 +73,27 @@ type NormalizeContext = {
   scopedSubreddits?: string[]
   attemptedAt: string
   actorId: string
+  semanticFilterVersion?: string
+}
+
+type SemanticRedditFilterVersion =
+  | 'semantic-intent-location-v1'
+  | 'semantic-intent-location-v2'
+  | 'semantic-intent-location-v3'
+
+function isSemanticRedditFilterVersion(value: unknown): value is SemanticRedditFilterVersion {
+  return value === 'semantic-intent-location-v1'
+    || value === 'semantic-intent-location-v2'
+    || value === 'semantic-intent-location-v3'
+}
+
+function classifyRedditOpportunityIntent(
+  content: string,
+  version: string | undefined,
+) {
+  if (version === 'semantic-intent-location-v1') return classifyOpportunityIntentV1(content)
+  if (version === 'semantic-intent-location-v2') return classifyOpportunityIntentV2(content)
+  return classifyOpportunityIntent(content)
 }
 
 function redditFilterKeywords(plan: SourceSearchPlan): string[] {
@@ -87,7 +109,7 @@ function redditFilterKeywords(plan: SourceSearchPlan): string[] {
 function validateRedditReturnedContentFilter(plan: SourceSearchPlan): void {
   const version = plan.provider_query?.reddit_returned_content_filter_version
   if (version == null) return
-  if (version !== 'semantic-intent-location-v1' && version !== 'semantic-intent-location-v2') {
+  if (!isSemanticRedditFilterVersion(version)) {
     throw new TypeError('unsupported Reddit returned-content filter version')
   }
   const intent = plan.provider_query?.reddit_filter_required_intent
@@ -101,16 +123,12 @@ function validateRedditReturnedContentFilter(plan: SourceSearchPlan): void {
 
 function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSearchPlan): boolean {
   const filterVersion = plan.provider_query?.reddit_returned_content_filter_version
-  if (filterVersion === 'semantic-intent-location-v1' || filterVersion === 'semantic-intent-location-v2') {
+  if (isSemanticRedditFilterVersion(filterVersion)) {
     const content = [candidate.identity.name, candidate.identity.audience_description]
       .filter((value): value is string => typeof value === 'string')
       .join(' ')
     const expected = plan.provider_query?.reddit_filter_required_intent
-    const observed = (
-      filterVersion === 'semantic-intent-location-v1'
-        ? classifyOpportunityIntentV1(content)
-        : classifyOpportunityIntent(content)
-    ).kind
+    const observed = classifyRedditOpportunityIntent(content, filterVersion).kind
     const intentMatches =
       expected === 'local_audience'
         ? observed === 'local_audience'
@@ -644,8 +662,9 @@ function commonIdentity(args: {
   locationEvidence: string
   engagement: number
   people?: CandidateIdentity['people_to_follow']
+  demonstratedIntent?: ReturnType<typeof classifyOpportunityIntent>
 }): CandidateIdentity {
-  const demonstratedIntent = classifyOpportunityIntent(args.content)
+  const demonstratedIntent = args.demonstratedIntent ?? classifyOpportunityIntent(args.content)
   const demonstratedLocation = demonstratedOpportunityLocation(args.locationEvidence, args.requestedLocation)
   return {
     name: args.name,
@@ -699,6 +718,10 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   // Parent-post context is useful provenance but cannot manufacture the
   // comment author's intent. Fit-v7 sees only the returned comment body.
   const semanticContent = rowType === 'comment' ? body ?? '' : content
+  const demonstratedIntent = classifyRedditOpportunityIntent(
+    semanticContent,
+    context.semanticFilterVersion,
+  )
   const identity = commonIdentity({
     name: rowType === 'comment'
       ? `Reddit comment${subreddit ? ` in r/${subreddit}` : ''}`
@@ -709,6 +732,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
     requestedLocation: context.location,
     locationEvidence: `${semanticContent}\n${subreddit ?? ''}`,
     engagement,
+    demonstratedIntent,
     people:
       author && author !== '[deleted]'
         ? [
@@ -733,7 +757,6 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   // this value may satisfy freshness while any replacement remains untrusted.
   const publishedAt = sourcePublishedAt(row.createdAt)
   identity.source_published_at = publishedAt
-  const demonstratedIntent = classifyOpportunityIntent(semanticContent)
   return {
     entity_kind: 'opportunity',
     identity,
@@ -1254,6 +1277,10 @@ export function createPublicSocialOpportunityAdapter(
           config.platform === 'Reddit' ? redditSubreddits(plan) : undefined,
         attemptedAt: outcome.attemptedAt,
         actorId,
+        semanticFilterVersion:
+          typeof plan.provider_query?.reddit_returned_content_filter_version === 'string'
+            ? plan.provider_query.reddit_returned_content_filter_version
+            : undefined,
       }
       const normalizedCandidates = resultItems
         .map((item) => config.normalize(item, context))
@@ -1264,9 +1291,7 @@ export function createPublicSocialOpportunityAdapter(
       if (candidates.length === 0) {
         const returnedContentFiltered = config.platform === 'Reddit' ? normalizedCandidates.length : 0
         const semanticFilterVersion = plan.provider_query?.reddit_returned_content_filter_version
-        const semanticFilter =
-          semanticFilterVersion === 'semantic-intent-location-v1'
-          || semanticFilterVersion === 'semantic-intent-location-v2'
+        const semanticFilter = isSemanticRedditFilterVersion(semanticFilterVersion)
         return {
           status: normalizedCandidates.length > 0 ? 'no_result' : 'error',
           data: null,
@@ -1289,9 +1314,7 @@ export function createPublicSocialOpportunityAdapter(
       const parserDropped = Math.max(0, resultItems.length - normalizedCandidates.length)
       const returnedContentFiltered = Math.max(0, normalizedCandidates.length - candidates.length)
       const semanticFilterVersion = plan.provider_query?.reddit_returned_content_filter_version
-      const semanticFilter =
-        semanticFilterVersion === 'semantic-intent-location-v1'
-        || semanticFilterVersion === 'semantic-intent-location-v2'
+      const semanticFilter = isSemanticRedditFilterVersion(semanticFilterVersion)
       const dropped = parserDropped + returnedContentFiltered
       const truncated = candidates.length > delivered.length
       return {
