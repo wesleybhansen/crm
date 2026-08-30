@@ -2,9 +2,12 @@ import {
   DATAFORSEO_OPPORTUNITY_ADAPTER_ID,
   DATAFORSEO_OPPORTUNITY_PRICE_VERSION_ENV,
   DATAFORSEO_OPPORTUNITY_REQUIRED_PRICE_VERSION,
+  DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_CONTRACT,
+  DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_MULTIPLIER,
   DATAFORSEO_ORGANIC_MAX_DEPTH,
   DATAFORSEO_ORGANIC_USD_PER_SERP,
   createDataForSeoOpportunityAdapter,
+  dataForSeoOpportunityQueryPricing,
   dataForSeoOpportunityEnabled,
   normalizeDataForSeoOpportunityItem,
 } from '../adapters/dataforseo/opportunity-source'
@@ -37,6 +40,18 @@ const plan: SourceSearchPlan = {
     search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
   },
   max_candidates: 20,
+}
+
+const meteredSitePlan: SourceSearchPlan = {
+  ...plan,
+  provider_query: {
+    ...plan.provider_query,
+    search_query: 'South Bay, California site:reddit.com/r/SouthBayLA "first time home buyer"',
+    dataforseo_price_operator_contract: DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_CONTRACT,
+    dataforseo_price_multiplier: DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_MULTIPLIER,
+    dataforseo_site_scope: 'reddit.com/r/SouthBayLA',
+  },
+  max_candidates: 10,
 }
 
 function item(overrides: Record<string, unknown> = {}) {
@@ -126,7 +141,8 @@ describe('DataForSEO organic demand-opportunity source', () => {
         },
       },
       cost_model: {
-        unit: 'organic_serp_10_results',
+        unit: 'organic_serp_base_price_unit',
+        price_version: DATAFORSEO_OPPORTUNITY_REQUIRED_PRICE_VERSION,
         pay_on_found: false,
       },
       dsr: { deletion_supported: true },
@@ -148,6 +164,25 @@ describe('DataForSEO organic demand-opportunity source', () => {
       provider_units: 5,
     })
     expect(DATAFORSEO_ORGANIC_USD_PER_SERP).toBe(0.002)
+  })
+
+  it('quotes one frozen positive site scope at five base-price units per SERP', () => {
+    const adapter = createDataForSeoOpportunityAdapter({ env: approvedEnv })
+    expect(dataForSeoOpportunityQueryPricing(meteredSitePlan)).toEqual({
+      ok: true,
+      multiplier: 5,
+      operator: 'site',
+      contract: DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_CONTRACT,
+    })
+    expect(adapter.quote(meteredSitePlan)).toMatchObject({
+      max_candidates: 10,
+      provider_units: 5,
+      billable_unit: 'organic_serp_base_price_unit',
+    })
+    expect(adapter.quote({ ...meteredSitePlan, max_candidates: 20 })).toMatchObject({
+      max_candidates: 20,
+      provider_units: 10,
+    })
   })
 
   it('creates a canonical consumer opportunity plan with the provider cost included', () => {
@@ -178,10 +213,10 @@ describe('DataForSEO organic demand-opportunity source', () => {
     )
     expect(result.adapterPlan.every((batch) =>
       batch.adapter_id === DATAFORSEO_OPPORTUNITY_ADAPTER_ID
-      && batch.providerUnits === 1
-      && batch.billableUnit === 'organic_serp_10_results',
+      && batch.providerUnits === 5
+      && batch.billableUnit === 'organic_serp_base_price_unit',
     )).toBe(true)
-    expect(result.adapterPlan.reduce((sum, batch) => sum + batch.providerUnits, 0)).toBe(3)
+    expect(result.adapterPlan.reduce((sum, batch) => sum + batch.providerUnits, 0)).toBe(15)
   })
 
   it.each([
@@ -537,7 +572,9 @@ describe('DataForSEO organic demand-opportunity source', () => {
   })
 
   it.each([
-    ['price-multiplying operator', 'site:reddit.com South Bay home buyers', 'unpriced_query_operator'],
+    ['unbound price-multiplying operator', 'site:reddit.com South Bay home buyers', 'unpriced_query_operator'],
+    ['negative site operator', '-site:example.org South Bay home buyers', 'unpriced_query_operator'],
+    ['multiple paid operators', 'site:reddit.com inurl:buyers South Bay', 'unpriced_query_operator'],
     ['cache operator', 'cache:example.org South Bay home buyers', 'unpriced_query_operator'],
     ['definition operator', 'definition:homeowner South Bay', 'unpriced_query_operator'],
     ['sensitive targeting', 'South Bay foreclosure homeowner forum', 'unsafe_consumer_targeting'],
@@ -557,6 +594,46 @@ describe('DataForSEO organic demand-opportunity source', () => {
     expect(result).toMatchObject({ status: 'error', cost_units: 0 })
     expect(result.error).toContain(errorCode)
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('rejects a site scope whose frozen price contract does not exactly match the query', async () => {
+    const fetchImpl = jest.fn() as unknown as typeof fetch
+    const adapter = createDataForSeoOpportunityAdapter({ env: approvedEnv, fetchImpl })
+    const result = await adapter.search({
+      ...meteredSitePlan,
+      provider_query: {
+        ...meteredSitePlan.provider_query,
+        dataforseo_site_scope: 'reddit.com/r/Phoenix',
+      },
+    })
+
+    expect(result).toMatchObject({ status: 'error', cost_units: 0 })
+    expect(result.error).toContain('unpriced_query_operator')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('sends one metered site-scoped task and reconciles the five-times charge', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(response([item()], 0.01)) as unknown as typeof fetch
+    const adapter = createDataForSeoOpportunityAdapter({ env: approvedEnv, fetchImpl, now: () => CLOCK })
+
+    const result = await adapter.search(meteredSitePlan)
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      cost_units: 5,
+      receipt: {
+        task_cost_usd: 0.01,
+        query_price_multiplier: 5,
+        query_price_operator: 'site',
+        query_price_operator_contract: DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_CONTRACT,
+        reserved_base_price_units: 5,
+      },
+    })
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))
+    expect(body[0]).toMatchObject({
+      keyword: 'South Bay, California site:reddit.com/r/SouthBayLA "first time home buyer"',
+      depth: 10,
+    })
   })
 
   it.each([null, '', '&tbs=qdr:y', '&tbs=cdr:1,cd_min:01/01/2026,cd_max:08/26/2026'])(

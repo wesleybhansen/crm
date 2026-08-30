@@ -29,14 +29,75 @@ export const DATAFORSEO_ORGANIC_USD_PER_SERP = 0.002
 export const DATAFORSEO_ORGANIC_RESULTS_PER_SERP = 10
 export const DATAFORSEO_ORGANIC_MAX_DEPTH = 50
 export const DATAFORSEO_OPPORTUNITY_PRICE_VERSION_ENV = 'GTM_DATAFORSEO_ORGANIC_PRICE_VERSION'
-export const DATAFORSEO_OPPORTUNITY_REQUIRED_PRICE_VERSION = 'google-organic-live-advanced-2026-08-26'
+export const DATAFORSEO_OPPORTUNITY_REQUIRED_PRICE_VERSION =
+  'google-organic-live-advanced-operator-aware-2026-08-30'
+export const DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_CONTRACT = 'single-positive-site-v1'
+export const DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_MULTIPLIER = 5
 export const DATAFORSEO_NO_SEARCH_RESULTS_CODE = 40102
 
 const PRICE_MULTIPLYING_QUERY_OPERATOR =
   /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|cache|define|definition|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
+const PRICE_MULTIPLYING_QUERY_OPERATOR_TOKEN =
+  /(^|[^a-z0-9_-])(-?(?:allinanchor|allintext|allintitle|allinurl|cache|define|definition|filetype|id|inanchor|info|intext|intitle|inurl|link|site)):/gi
+const POSITIVE_SITE_OPERATOR = /(^|[^a-z0-9_-])site:([^\s()]+)/gi
+const APPROVED_REDDIT_SITE_SCOPE = /^reddit\.com\/r\/[a-z0-9_]+$/i
 
 export function hasPriceMultiplyingDataForSeoOpportunityQueryOperator(keyword: string): boolean {
   return PRICE_MULTIPLYING_QUERY_OPERATOR.test(keyword)
+}
+
+type OpportunityQueryPricing =
+  | { ok: true; multiplier: number; operator: 'none' | 'site'; contract: string | null }
+  | { ok: false; error: string }
+
+function priceMultiplyingQueryOperators(keyword: string): string[] {
+  return Array.from(keyword.matchAll(PRICE_MULTIPLYING_QUERY_OPERATOR_TOKEN), (match) =>
+    String(match[2] ?? '').toLowerCase(),
+  )
+}
+
+/**
+ * DataForSEO bills a positive Google `site:` operator at five times the base
+ * Live Organic price. Only one exact, Reddit-community scope is supported and
+ * it must be frozen into the provider plan with the matching pricing contract.
+ * Every other paid operator remains fail-closed before provider contact.
+ */
+export function dataForSeoOpportunityQueryPricing(
+  plan: SourceSearchPlan,
+  keyword = dataForSeoOpportunityQuery(plan).keyword,
+): OpportunityQueryPricing {
+  const operators = priceMultiplyingQueryOperators(keyword)
+  if (operators.length === 0) {
+    return { ok: true, multiplier: 1, operator: 'none', contract: null }
+  }
+  if (operators.length !== 1 || operators[0] !== 'site') {
+    return { ok: false, error: 'unpriced_query_operator' }
+  }
+
+  const providerQuery = plan.provider_query ?? {}
+  const contract = stringValue(providerQuery.dataforseo_price_operator_contract)
+  const multiplier = finiteNumber(providerQuery.dataforseo_price_multiplier)
+  const frozenScope = stringValue(providerQuery.dataforseo_site_scope)
+  const siteScopes = Array.from(keyword.matchAll(POSITIVE_SITE_OPERATOR), (match) =>
+    String(match[2] ?? '').replace(/[.,;]+$/, ''),
+  )
+  if (
+    contract !== DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_CONTRACT
+    || multiplier !== DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_MULTIPLIER
+    || !frozenScope
+    || !APPROVED_REDDIT_SITE_SCOPE.test(frozenScope)
+    || siteScopes.length !== 1
+    || siteScopes[0]?.toLowerCase() !== frozenScope.toLowerCase()
+  ) {
+    return { ok: false, error: 'unpriced_query_operator' }
+  }
+
+  return {
+    ok: true,
+    multiplier: DATAFORSEO_OPPORTUNITY_SITE_OPERATOR_MULTIPLIER,
+    operator: 'site',
+    contract,
+  }
 }
 const SENSITIVE_CONSUMER_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
@@ -144,7 +205,7 @@ export function dataForSeoOpportunityDescriptor(env: DataForSeoEnv = process.env
       max_batch: DATAFORSEO_ORGANIC_MAX_DEPTH,
     },
     cost_model: {
-      unit: 'organic_serp_10_results',
+      unit: 'organic_serp_base_price_unit',
       quoted_credits_per_unit: creditsFromUsd(DATAFORSEO_ORGANIC_USD_PER_SERP),
       price_version: envValue(env, DATAFORSEO_OPPORTUNITY_PRICE_VERSION_ENV) || 'unapproved',
       pay_on_found: false,
@@ -596,7 +657,14 @@ export function createDataForSeoOpportunityAdapter(
     descriptor,
     quote(plan) {
       const maxCandidates = Math.max(0, Math.min(Math.floor(plan.max_candidates), DATAFORSEO_ORGANIC_MAX_DEPTH))
-      const providerUnits = Math.ceil(maxCandidates / DATAFORSEO_ORGANIC_RESULTS_PER_SERP)
+      const { keyword } = dataForSeoOpportunityQuery(plan)
+      const pricing = dataForSeoOpportunityQueryPricing(plan, keyword)
+      // An invalid paid-operator contract is rejected before provider contact.
+      // Quote only the base units in that case so an untrusted query can never
+      // manufacture a larger reservation by declaring its own multiplier.
+      const priceMultiplier = pricing.ok ? pricing.multiplier : 1
+      const providerUnits =
+        Math.ceil(maxCandidates / DATAFORSEO_ORGANIC_RESULTS_PER_SERP) * priceMultiplier
       return {
         max_candidates: maxCandidates,
         provider_units: providerUnits,
@@ -612,7 +680,11 @@ export function createDataForSeoOpportunityAdapter(
     },
     async search(plan): Promise<AdapterResult<Candidate[]>> {
       const maxCandidates = Math.max(0, Math.min(Math.floor(plan.max_candidates), DATAFORSEO_ORGANIC_MAX_DEPTH))
-      const reservedUnits = Math.ceil(Math.max(1, maxCandidates) / DATAFORSEO_ORGANIC_RESULTS_PER_SERP)
+      const query = dataForSeoOpportunityQuery(plan)
+      const pricing = dataForSeoOpportunityQueryPricing(plan, query.keyword)
+      const priceMultiplier = pricing.ok ? pricing.multiplier : 1
+      const reservedUnits =
+        Math.ceil(Math.max(1, maxCandidates) / DATAFORSEO_ORGANIC_RESULTS_PER_SERP) * priceMultiplier
       const baseReceipt = (status: string, task: Record<string, unknown> = {}, count = 0) => ({
         provider_request_id: task.id ?? null,
         provider_status: status,
@@ -623,6 +695,10 @@ export function createDataForSeoOpportunityAdapter(
         root_cost_usd: null,
         task_cost_usd: task.cost ?? null,
         items_count: count,
+        query_price_multiplier: priceMultiplier,
+        query_price_operator: pricing.ok ? pricing.operator : 'invalid',
+        query_price_operator_contract: pricing.ok ? pricing.contract : null,
+        reserved_base_price_units: reservedUnits,
       })
       const coverage = capabilityCovers(descriptor, plan)
       if (!coverage.covered) {
@@ -644,7 +720,7 @@ export function createDataForSeoOpportunityAdapter(
             'provider_disabled: DataForSEO organic opportunities require credentials plus exact customer-use, terms, price, and retention approval',
         }
       }
-      const { keyword, location, searchParam } = dataForSeoOpportunityQuery(plan)
+      const { keyword, location, searchParam } = query
       if (!keyword || maxCandidates < 1) {
         return {
           status: 'error',
@@ -682,13 +758,14 @@ export function createDataForSeoOpportunityAdapter(
           error: 'bad_request: DataForSEO keyword exceeds 700 characters',
         }
       }
-      if (hasPriceMultiplyingDataForSeoOpportunityQueryOperator(keyword)) {
+      if (!pricing.ok) {
         return {
           status: 'error',
           data: null,
           cost_units: 0,
           receipt: baseReceipt('unpriced_query_operator'),
-          error: 'unpriced_query_operator: DataForSEO query would multiply the frozen base price',
+          error:
+            'unpriced_query_operator: DataForSEO query operator is not bound to the frozen operator-aware price contract',
         }
       }
       if (SENSITIVE_CONSUMER_TARGETING.test(keyword)) {
