@@ -157,19 +157,19 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const market = marketName(geography)
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        'buying home',
-        'realtor recommendation',
-        `${market} home buyer`,
+        'buying house',
+        'looking for realtor',
+        `${market} house hunting`,
       ],
       seller_intent: [
-        'selling home',
+        'selling house',
         'realtor recommendation',
-        `${market} selling home`,
+        `${market} selling house`,
       ],
       mixed_intent: [
-        'selling buying home',
+        'selling buying house',
         'realtor recommendation',
-        `${market} sell buy home`,
+        `${market} sell buy house`,
       ],
       local_audience: [
         '("neighborhood association" OR "community meeting" OR "housing workshop" OR "home buyer workshop" OR "home seller workshop")',
@@ -379,7 +379,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v50',
+        query_lane_version: 'opportunity-query-v51',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
