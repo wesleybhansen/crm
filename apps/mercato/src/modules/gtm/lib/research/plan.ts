@@ -4,6 +4,10 @@ import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
 import { computeGtmPolicy, policyInputFromPlay, type GtmPolicyResult } from '../policy'
 import { compileQualificationProfile, type QualificationProfile } from './qualify'
 import { buildOpportunityQueryLanes } from './opportunity-query-lanes'
+import {
+  buildOpportunityDestinationValidationPlan,
+  type OpportunityDestinationValidationPlan,
+} from './opportunity-destination-contract'
 
 /*
  * Pure research-run planning (SPEC-066 sections 7 and 11.1). No ORM, no
@@ -105,7 +109,7 @@ export type SourcePlanFailure = {
 
 export type SourcePlanSuccess = {
   ok: true
-  schemaVersion: '9'
+  schemaVersion: '10'
   planHash: string
   adapterPlan: SourcePlanBatch[]
   estimatedCredits: number
@@ -121,6 +125,7 @@ export type SourcePlanSuccess = {
   // priced plans.
   geography: string
   entityKind: 'person' | 'company' | 'opportunity'
+  destinationValidation: OpportunityDestinationValidationPlan
   policy: GtmPolicyResult
 }
 
@@ -411,7 +416,7 @@ export function buildSourcePlan(
       : estimatedCredits
 
   const pricedPlan = {
-    schemaVersion: '9' as const,
+    schemaVersion: '10' as const,
     adapterPlan,
     estimatedCredits,
     plannedRawCapacity,
@@ -426,6 +431,7 @@ export function buildSourcePlan(
     query,
     geography: rawGeography,
     entityKind,
+    destinationValidation: buildOpportunityDestinationValidationPlan(entityKind, maxRawCandidates),
     policy,
   }
   return {

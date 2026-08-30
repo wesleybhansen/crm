@@ -1,5 +1,7 @@
-import dns from 'node:dns/promises'
+import dns from 'node:dns'
+import dnsPromises from 'node:dns/promises'
 import net from 'node:net'
+import { Agent } from 'undici'
 
 /* SSRF-safe fetch. Routes that fetch a USER-SUPPLIED URL (website scanners)
  * must use this instead of a raw fetch, or an authenticated customer can point
@@ -38,6 +40,49 @@ function ipIsBlocked(ip: string): boolean {
   return true
 }
 
+function blockedLookupError(message: string): NodeJS.ErrnoException {
+  const error = new SsrfError(message) as NodeJS.ErrnoException
+  error.code = 'EACCES'
+  return error
+}
+
+function safeLookup(
+  hostname: string,
+  options: dns.LookupOptions,
+  callback: (
+    err: NodeJS.ErrnoException | null,
+    address: string | dns.LookupAddress[],
+    family?: number,
+  ) => void,
+): void {
+  const { all: _all, ...lookupOptions } = options
+  dns.lookup(hostname, { ...lookupOptions, all: true }, (error, addresses) => {
+    if (error) {
+      callback(blockedLookupError(`could not resolve host: ${hostname}`), '0.0.0.0', 4)
+      return
+    }
+    if (addresses.length === 0) {
+      callback(blockedLookupError(`no DNS records for host: ${hostname}`), '0.0.0.0', 4)
+      return
+    }
+    const blocked = addresses.find((row) => ipIsBlocked(row.address))
+    if (blocked) {
+      callback(blockedLookupError(`host resolves to blocked address: ${blocked.address}`), '0.0.0.0', 4)
+      return
+    }
+    if (options.all) callback(null, addresses)
+    else callback(null, addresses[0].address, addresses[0].family)
+  })
+}
+
+// Node's global fetch is powered by undici and accepts a dispatcher even
+// though the web-standard RequestInit type does not expose it. The dispatcher's
+// lookup is the lookup used by the actual TCP/TLS connection. Validating here,
+// rather than only in a preflight DNS query, closes the resolve/connect gap in
+// which a rebinding hostname could resolve publicly during validation and to a
+// private address when the socket is opened.
+const safeDispatcher = new Agent({ connect: { lookup: safeLookup } })
+
 async function assertPublicHost(hostname: string): Promise<void> {
   if (net.isIP(hostname)) {
     if (ipIsBlocked(hostname)) throw new SsrfError(`blocked address: ${hostname}`)
@@ -45,7 +90,7 @@ async function assertPublicHost(hostname: string): Promise<void> {
   }
   let resolved: Array<{ address: string }>
   try {
-    resolved = await dns.lookup(hostname, { all: true })
+    resolved = await dnsPromises.lookup(hostname, { all: true })
   } catch {
     throw new SsrfError(`could not resolve host: ${hostname}`)
   }
@@ -84,7 +129,49 @@ export async function safeFetch(rawUrl: string, init?: RequestInit, maxRedirects
       throw new SsrfError(`blocked protocol: ${url.protocol}`)
     }
     await assertPublicHost(url.hostname)
-    const res = await fetch(url, { ...init, redirect: 'manual' })
+    let res: Response
+    try {
+      res = await fetch(url, {
+        ...init,
+        redirect: 'manual',
+        // Runtime-supported undici extension. `satisfies` is unavailable here
+        // because the DOM RequestInit declaration intentionally omits it.
+        dispatcher: safeDispatcher,
+      } as RequestInit & { dispatcher: Agent })
+    } catch (error) {
+      const pending: unknown[] = [error]
+      const inspected = new Set<unknown>()
+      while (pending.length > 0) {
+        const current = pending.shift()
+        if (current == null || inspected.has(current)) continue
+        inspected.add(current)
+        if (current instanceof SsrfError) throw current
+        if (typeof current !== 'object') continue
+        const wrapped = current as {
+          name?: unknown
+          message?: unknown
+          code?: unknown
+          cause?: unknown
+          errors?: unknown
+        }
+        if (
+          (
+            wrapped.name === 'SsrfError'
+            || wrapped.code === 'EACCES'
+            || (
+              typeof wrapped.message === 'string'
+              && wrapped.message.startsWith('SsrfError: ')
+            )
+          )
+          && typeof wrapped.message === 'string'
+        ) {
+          throw new SsrfError(wrapped.message.replace(/^SsrfError:\s*/, ''))
+        }
+        if (wrapped.cause != null) pending.push(wrapped.cause)
+        if (Array.isArray(wrapped.errors)) pending.push(...wrapped.errors)
+      }
+      throw error
+    }
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get('location')
       if (!location) return res

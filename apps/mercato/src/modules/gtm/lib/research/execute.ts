@@ -12,6 +12,18 @@ import {
   rankOpportunityCandidates,
 } from './opportunity-quality'
 import {
+  validateOpportunityDestination,
+  type OpportunityDestinationValidationResult,
+} from './opportunity-destination-validation'
+import {
+  OPPORTUNITY_DESTINATION_VALIDATION_MAX_ATTEMPTS,
+  OPPORTUNITY_DESTINATION_VALIDATION_MAX_BODY_BYTES,
+  OPPORTUNITY_DESTINATION_VALIDATION_MAX_REDIRECTS,
+  OPPORTUNITY_DESTINATION_VALIDATION_TIMEOUT_MS,
+  OPPORTUNITY_DESTINATION_VALIDATION_VERSION,
+  type OpportunityDestinationValidationPlan,
+} from './opportunity-destination-contract'
+import {
   GtmCandidate,
   GtmCandidateMatch,
   GtmEvidence,
@@ -84,6 +96,12 @@ export type ExecuteResearchRunDeps = {
   scorer?: FitScorer
   markupMultiplier?: number
   now?: () => Date
+  destinationValidator?: (
+    candidate: Candidate,
+    options: { now: () => Date },
+  ) => Promise<OpportunityDestinationValidationResult>
+  destinationValidationEnabled?: boolean
+  maxDestinationValidations?: number
 }
 
 export type BatchOutcome = {
@@ -116,7 +134,23 @@ export type BatchOutcome = {
   accepted: number
   review: number
   rejected: number
+  destinationValidationsAttempted: number
+  destinationValidationsVerified: number
+  destinationValidationsUnavailable: number
+  destinationValidationsBlocked: number
+  destinationValidationsUnknown: number
+  destinationValidationsSkippedSocial: number
   failureReason: string | null
+}
+
+export type DestinationValidationSummary = {
+  attempted: number
+  verified: number
+  unavailable: number
+  blocked: number
+  unknown: number
+  skippedSocial: number
+  cap: number
 }
 
 export type ResearchFunnel = {
@@ -155,6 +189,7 @@ export type ResearchRunExecutionResult = {
   duplicatesSkipped: number
   suppressedSkipped: number
   evidenceInserted: number
+  destinationValidation: DestinationValidationSummary
   funnel: ResearchFunnel
   batches: BatchOutcome[]
 }
@@ -238,13 +273,33 @@ function normalizePart(value: unknown): string {
 type ParsedProviderPlan = {
   adapterPlan: SourcePlanBatch[]
   query: string
+  destinationValidation: OpportunityDestinationValidationPlan | null
+}
+
+function parseDestinationValidationPlan(value: unknown): OpportunityDestinationValidationPlan | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const plan = value as Record<string, unknown>
+  const maxAttempts = Number(plan.maxAttempts)
+  if (
+    plan.version !== OPPORTUNITY_DESTINATION_VALIDATION_VERSION
+    || typeof plan.enabled !== 'boolean'
+    || !Number.isSafeInteger(maxAttempts)
+    || maxAttempts < 0
+    || maxAttempts > OPPORTUNITY_DESTINATION_VALIDATION_MAX_ATTEMPTS
+    || plan.maxRedirects !== OPPORTUNITY_DESTINATION_VALIDATION_MAX_REDIRECTS
+    || plan.timeoutMs !== OPPORTUNITY_DESTINATION_VALIDATION_TIMEOUT_MS
+    || plan.maxBodyBytes !== OPPORTUNITY_DESTINATION_VALIDATION_MAX_BODY_BYTES
+    || plan.socialNetworkPolicy !== 'provider_evidence_only'
+  ) return null
+  return plan as OpportunityDestinationValidationPlan
 }
 
 function parseProviderPlan(run: GtmResearchRun): ParsedProviderPlan {
   const plan = (run.providerPlan ?? {}) as Record<string, unknown>
   const adapterPlan = Array.isArray(plan.adapterPlan) ? (plan.adapterPlan as SourcePlanBatch[]) : []
   const query = typeof plan.query === 'string' ? plan.query : ''
-  return { adapterPlan, query }
+  const destinationValidation = parseDestinationValidationPlan(plan.destinationValidation)
+  return { adapterPlan, query, destinationValidation }
 }
 
 function parseLimits(run: GtmResearchRun): {
@@ -275,9 +330,20 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
   const markup = deps.markupMultiplier ?? defaultMarkupMultiplier()
   const now = deps.now ?? (() => new Date())
   const qualificationReferenceTime = now()
+  const destinationValidator = deps.destinationValidator ?? validateOpportunityDestination
 
-  const { adapterPlan, query } = parseProviderPlan(run)
+  const { adapterPlan, query, destinationValidation: frozenDestinationValidation } = parseProviderPlan(run)
   const limits = parseLimits(run)
+  const destinationValidationEnabled = deps.destinationValidationEnabled
+    ?? (
+      frozenDestinationValidation?.enabled === true
+      && process.env.GTM_OPPORTUNITY_DESTINATION_VALIDATION_DISABLED !== 'true'
+    )
+  const frozenValidationCap = frozenDestinationValidation?.maxAttempts ?? 0
+  const requestedValidationCap = Number(deps.maxDestinationValidations ?? frozenValidationCap)
+  const destinationValidationCap = destinationValidationEnabled && Number.isSafeInteger(requestedValidationCap)
+    ? Math.max(0, Math.min(frozenValidationCap, requestedValidationCap))
+    : 0
 
   const batches: BatchOutcome[] = []
   const adapterBatchCounters = new Map<string, number>()
@@ -289,6 +355,15 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
   let duplicatesSkipped = 0
   let suppressedSkipped = 0
   let evidenceInserted = 0
+  const destinationValidation: DestinationValidationSummary = {
+    attempted: 0,
+    verified: 0,
+    unavailable: 0,
+    blocked: 0,
+    unknown: 0,
+    skippedSocial: 0,
+    cap: destinationValidationCap,
+  }
   let rawCandidatesFound = 0
   let evidenceQualified = 0
   let accepted = 0
@@ -323,6 +398,12 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       accepted: 0,
       review: 0,
       rejected: 0,
+      destinationValidationsAttempted: 0,
+      destinationValidationsVerified: 0,
+      destinationValidationsUnavailable: 0,
+      destinationValidationsBlocked: 0,
+      destinationValidationsUnknown: 0,
+      destinationValidationsSkippedSocial: 0,
       failureReason: null,
     }
 
@@ -648,6 +729,12 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     let batchAccepted = 0
     let batchReview = 0
     let batchRejected = 0
+    let batchDestinationValidationsAttempted = 0
+    let batchDestinationValidationsVerified = 0
+    let batchDestinationValidationsUnavailable = 0
+    let batchDestinationValidationsBlocked = 0
+    let batchDestinationValidationsUnknown = 0
+    let batchDestinationValidationsSkippedSocial = 0
     // Do not release provider output while its canonical billing transition is
     // unresolved. The reserved credits remain escrowed and the receipt is
     // available to the operator; a later explicit reconciliation decides it.
@@ -655,7 +742,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     const plannedEntityKind =
       planned.capability.entity_kind ??
       (planned.capability.entity_unit.toLowerCase().startsWith('compan') ? 'company' : 'person')
-    const rankedProviderRows =
+    const initiallyRankedProviderRows =
       plannedEntityKind === 'opportunity'
         ? rankOpportunityCandidates(providerRows, { ...play, providerQuery: planned.providerQuery ?? play.providerQuery }, qualificationReferenceTime)
         : providerRows
@@ -664,8 +751,51 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     const remainingRaw =
       limits.maxRawCandidates > 0
         ? Math.max(0, limits.maxRawCandidates - rawCandidatesFound)
-        : rankedProviderRows.length
-    const found = rankedProviderRows.slice(0, remainingRaw)
+        : initiallyRankedProviderRows.length
+    const boundedProviderRows = initiallyRankedProviderRows.slice(0, remainingRaw)
+    const validatedProviderRows: Candidate[] = []
+    for (const candidate of boundedProviderRows) {
+      if (
+        candidate.entity_kind !== 'opportunity'
+        || destinationValidation.attempted >= destinationValidation.cap
+      ) {
+        validatedProviderRows.push(candidate)
+        continue
+      }
+      destinationValidation.attempted += 1
+      batchDestinationValidationsAttempted += 1
+      try {
+        const validated = await destinationValidator(candidate, { now })
+        validatedProviderRows.push(validated.candidate)
+        if (validated.outcome === 'verified') {
+          destinationValidation.verified += 1
+          batchDestinationValidationsVerified += 1
+        } else if (validated.outcome === 'unavailable') {
+          destinationValidation.unavailable += 1
+          batchDestinationValidationsUnavailable += 1
+        } else if (validated.outcome === 'blocked') {
+          destinationValidation.blocked += 1
+          batchDestinationValidationsBlocked += 1
+        } else if (validated.outcome === 'skipped_social') {
+          destinationValidation.skippedSocial += 1
+          batchDestinationValidationsSkippedSocial += 1
+        } else {
+          destinationValidation.unknown += 1
+          batchDestinationValidationsUnknown += 1
+        }
+      } catch {
+        destinationValidation.unknown += 1
+        batchDestinationValidationsUnknown += 1
+        validatedProviderRows.push(candidate)
+      }
+    }
+    const found = plannedEntityKind === 'opportunity'
+      ? rankOpportunityCandidates(
+          validatedProviderRows,
+          { ...play, providerQuery: planned.providerQuery ?? play.providerQuery },
+          qualificationReferenceTime,
+        )
+      : validatedProviderRows
     rawCandidatesFound += found.length
     for (const candidate of found) {
       if (candidate.entity_kind !== plannedEntityKind) {
@@ -923,6 +1053,12 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       accepted: batchAccepted,
       review: batchReview,
       rejected: batchRejected,
+      destinationValidationsAttempted: batchDestinationValidationsAttempted,
+      destinationValidationsVerified: batchDestinationValidationsVerified,
+      destinationValidationsUnavailable: batchDestinationValidationsUnavailable,
+      destinationValidationsBlocked: batchDestinationValidationsBlocked,
+      destinationValidationsUnknown: batchDestinationValidationsUnknown,
+      destinationValidationsSkippedSocial: batchDestinationValidationsSkippedSocial,
       failureReason: batchFailure,
     })
   }
@@ -980,6 +1116,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     duplicatesSkipped,
     suppressedSkipped,
     evidenceInserted,
+    destinationValidation,
     funnel,
     batches,
   }
@@ -1005,6 +1142,15 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
         duplicates_skipped: duplicatesSkipped,
         suppressed_skipped: suppressedSkipped,
         evidence_inserted: evidenceInserted,
+        destination_validation: {
+          attempted: destinationValidation.attempted,
+          verified: destinationValidation.verified,
+          unavailable: destinationValidation.unavailable,
+          blocked: destinationValidation.blocked,
+          unknown: destinationValidation.unknown,
+          skipped_social: destinationValidation.skippedSocial,
+          cap: destinationValidation.cap,
+        },
         funnel: {
           target_accepted: funnel.targetAccepted,
           max_raw_candidates: funnel.maxRawCandidates,
@@ -1040,6 +1186,12 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
           accepted: batch.accepted,
           review: batch.review,
           rejected: batch.rejected,
+          destination_validations_attempted: batch.destinationValidationsAttempted,
+          destination_validations_verified: batch.destinationValidationsVerified,
+          destination_validations_unavailable: batch.destinationValidationsUnavailable,
+          destination_validations_blocked: batch.destinationValidationsBlocked,
+          destination_validations_unknown: batch.destinationValidationsUnknown,
+          destination_validations_skipped_social: batch.destinationValidationsSkippedSocial,
           failure_reason: batch.failureReason,
         })),
       },

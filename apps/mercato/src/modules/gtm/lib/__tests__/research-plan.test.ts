@@ -167,7 +167,16 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(plan.ok).toBe(true)
     if (plan.ok) {
-      expect(plan.schemaVersion).toBe('9')
+      expect(plan.schemaVersion).toBe('10')
+      expect(plan.destinationValidation).toEqual({
+        version: 'safe-public-destination-v1',
+        enabled: true,
+        maxAttempts: 9,
+        maxRedirects: 3,
+        timeoutMs: 8_000,
+        maxBodyBytes: 300_000,
+        socialNetworkPolicy: 'provider_evidence_only',
+      })
       expect(plan.adapterPlan).toHaveLength(3)
       expect(plan.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(9)
       expect(new Set(plan.adapterPlan.map((batch) => batch.queryLaneId)).size).toBe(3)
@@ -204,7 +213,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v40')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v41')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -225,7 +234,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(lanes).toHaveLength(5)
     expect(lanes[0]?.query).toBe('Austin, Texas Reddit "looking for a realtor" "buy a home"')
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v40')).toBe(true)
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v41')).toBe(true)
   })
 
   it('uses source-native realtor queries and three economical hashtag X lanes', () => {
@@ -255,7 +264,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       '#SellingInAustin',
       '#AustinHomeValue',
     ])
-    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v40')).toBe(true)
+    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v41')).toBe(true)
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(5)
@@ -267,7 +276,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ])
     expect(events.every((lane) =>
       lane.providerQuery.date_range === DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v40'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v41'
     )).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(
@@ -297,9 +306,11 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'selling my home',
       'selling our home',
       'selling my house',
+      'selling our house',
       'thinking of selling',
     ])
     expect(reddit[1]?.providerQuery.reddit_subreddits).toEqual(['RealEstate'])
+    expect(reddit[1]?.providerQuery.reddit_filter_keyword_mode).toBe('first_and_any')
     expect(reddit[2]?.providerQuery).toMatchObject({
       reddit_subreddits: [],
       reddit_auto_discover: true,
@@ -307,10 +318,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       reddit_global_search: true,
       reddit_sort: 'relevance',
       reddit_content_type: 'posts',
+      reddit_filter_keyword_mode: 'first_and_any',
     })
-    expect(reddit[2]?.query).toBe(
-      '("sell my house in Austin" OR "selling my home in Austin" OR "moving from Austin")',
-    )
+    expect(reddit[2]?.query).toBe('Austin thinking of selling my house')
     expect(
       web.every((lane) => !lane.query.includes(' -')),
     ).toBe(true)
@@ -348,7 +358,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'austinhomevalue',
     ])
     expect(
-      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v40'),
+      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v41'),
     ).toBe(true)
   })
 
@@ -387,7 +397,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       && lane.query.startsWith('#')
       && lane.query.length <= 100
       && !/[()]/.test(lane.query)
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v40'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v41'
     ))).toBe(true)
   })
 
@@ -571,7 +581,7 @@ describe('buildSourcePlan pricing and limits', () => {
         ['fixture-source-b', 15],
       ])
       expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
-      expect(plan.schemaVersion).toBe('9')
+      expect(plan.schemaVersion).toBe('10')
     }
   })
 

@@ -57,6 +57,7 @@ type ProviderAccumulator = {
   staleDestinations: number
   parserInputRows: number
   parserDroppedRows: number
+  keywordFilteredRows: number
   rawCandidatesFound: number
   duplicatesSkipped: number
 }
@@ -66,6 +67,7 @@ export type OpportunityQualitySourceRow = ProviderAccumulator & {
   deadDestinationRate: number
   staleDestinationRate: number
   parserDropRate: number
+  keywordFilterRate: number
   duplicateRate: number
 }
 
@@ -124,6 +126,7 @@ function emptySource(source: string): ProviderAccumulator {
     staleDestinations: 0,
     parserInputRows: 0,
     parserDroppedRows: 0,
+    keywordFilteredRows: 0,
     rawCandidatesFound: 0,
     duplicatesSkipped: 0,
   }
@@ -137,6 +140,10 @@ function finalizeSource(row: ProviderAccumulator): OpportunityQualitySourceRow {
     deadDestinationRate: rate(row.deadDestinations, row.opportunities),
     staleDestinationRate: rate(row.staleDestinations, row.opportunities),
     parserDropRate: rate(row.parserDroppedRows, row.parserInputRows),
+    keywordFilterRate: rate(
+      row.keywordFilteredRows,
+      Math.max(0, row.parserInputRows - row.parserDroppedRows),
+    ),
     duplicateRate: rate(row.duplicatesSkipped, row.rawCandidatesFound),
   }
 }
@@ -150,17 +157,20 @@ function safeReviewReason(value: unknown): string {
 function operationReceiptCounts(operation: GtmProviderOperation): {
   input: number
   dropped: number
+  keywordFiltered: number
   actorBuild: string | null
 } {
   const receipt = object(operation.receipt)
-  if (!receipt) return { input: 0, dropped: 0, actorBuild: null }
+  if (!receipt) return { input: 0, dropped: 0, keywordFiltered: 0, actorBuild: null }
   const dropped = count(receipt.parser_dropped_rows ?? receipt.dropped_items)
+  const keywordFiltered = count(receipt.keyword_filtered_rows)
   const raw = count(receipt.raw_item_count)
   const returned = count(receipt.returned_count)
   const itemCount = count(receipt.item_count)
   return {
-    input: raw > 0 ? raw : itemCount > 0 ? itemCount : returned + dropped,
+    input: raw > 0 ? raw : itemCount > 0 ? itemCount : returned + dropped + keywordFiltered,
     dropped,
+    keywordFiltered,
     actorBuild: string(receipt.actor_build),
   }
 }
@@ -300,6 +310,7 @@ export async function getOpportunityQualityDiagnostics(
     const receipt = operationReceiptCounts(operation)
     row.parserInputRows += receipt.input
     row.parserDroppedRows += receipt.dropped
+    row.keywordFilteredRows += receipt.keywordFiltered
   }
 
   const drift = new Map<string, {
@@ -355,7 +366,8 @@ export async function getOpportunityQualityDiagnostics(
       schemaDrift:
         observed.descriptorHashes.size > 1
         || observed.actorBuilds.size > 1
-        || [...observed.planSchemaVersions].some((version) => version !== '9'),
+        || observed.planSchemaVersions.size > 1
+        || [...observed.planSchemaVersions].some((version) => version !== '9' && version !== '10'),
     }))
     .sort((left, right) => left.adapterId.localeCompare(right.adapterId))
   const sourceRows = [...sources.values()]
@@ -374,6 +386,7 @@ export async function getOpportunityQualityDiagnostics(
     staleDestinations: sum.staleDestinations + row.staleDestinations,
     parserInputRows: sum.parserInputRows + row.parserInputRows,
     parserDroppedRows: sum.parserDroppedRows + row.parserDroppedRows,
+    keywordFilteredRows: sum.keywordFilteredRows + row.keywordFilteredRows,
     rawCandidatesFound: sum.rawCandidatesFound + row.rawCandidatesFound,
     duplicatesSkipped: sum.duplicatesSkipped + row.duplicatesSkipped,
   }), emptySource('all'))

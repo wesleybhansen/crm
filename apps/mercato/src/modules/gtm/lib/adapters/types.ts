@@ -169,6 +169,11 @@ export type CandidateIdentity = {
   member_count?: number | null
   engagement_count?: number | null
   access_type?: 'public' | 'approval_required' | 'ticketed' | 'unknown' | null
+  // Result of a bounded, same-request DNS-pinned public destination check.
+  // Missing means the destination has not been independently validated.
+  destination_validation_status?: 'verified_public' | 'unavailable' | 'blocked' | 'unknown' | null
+  destination_validated_at?: string | null
+  destination_http_status?: number | null
   // Publication time reported by the source platform. This is deliberately
   // distinct from evidence.observed_at (when Noli retrieved the row): using
   // retrieval time as publication time makes old posts look fresh.

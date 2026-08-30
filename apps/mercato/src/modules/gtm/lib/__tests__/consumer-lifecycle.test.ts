@@ -53,6 +53,7 @@ describe('consumer lead lifecycle regression', () => {
         schemaVersion: plan.schemaVersion,
         planHash: plan.planHash,
         adapterPlan: plan.adapterPlan,
+        destinationValidation: plan.destinationValidation,
         policy: plan.policy,
         query: plan.query,
       },
@@ -208,6 +209,7 @@ describe('consumer lead lifecycle regression', () => {
         schemaVersion: plan.schemaVersion,
         planHash: plan.planHash,
         adapterPlan: plan.adapterPlan,
+        destinationValidation: plan.destinationValidation,
         policy: plan.policy,
         query: plan.query,
       },
@@ -229,6 +231,18 @@ describe('consumer lead lifecycle regression', () => {
       noliUserId: USER,
       markupMultiplier: 2,
       now: () => new Date('2026-08-26T12:00:00.000Z'),
+      maxDestinationValidations: 2,
+      destinationValidator: async (candidate) => ({
+        candidate: {
+          ...candidate,
+          identity: {
+            ...candidate.identity,
+            destination_validation_status: 'verified_public',
+            destination_validated_at: '2026-08-26T12:00:00.000Z',
+          },
+        },
+        outcome: 'verified',
+      }),
     })
 
     expect(result).toEqual(
@@ -237,8 +251,21 @@ describe('consumer lead lifecycle regression', () => {
         candidatesInserted: 4,
         candidateMatchesCreated: 4,
         evidenceInserted: 4,
+        destinationValidation: {
+          attempted: 2,
+          verified: 2,
+          unavailable: 0,
+          blocked: 0,
+          unknown: 0,
+          skippedSocial: 0,
+          cap: 2,
+        },
       }),
     )
+    expect(result.batches[0]).toEqual(expect.objectContaining({
+      destinationValidationsAttempted: 2,
+      destinationValidationsVerified: 2,
+    }))
     const opportunities = em.table(GtmCandidate)
     expect(opportunities).toHaveLength(4)
     expect(opportunities.every((candidate) => candidate.entityKind === 'opportunity')).toBe(true)
@@ -287,6 +314,7 @@ describe('consumer lead lifecycle regression', () => {
         schemaVersion: plan.schemaVersion,
         planHash: plan.planHash,
         adapterPlan: plan.adapterPlan,
+        destinationValidation: plan.destinationValidation,
         policy: plan.policy,
         query: plan.query,
       },

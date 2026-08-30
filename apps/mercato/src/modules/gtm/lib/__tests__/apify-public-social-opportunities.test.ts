@@ -43,7 +43,7 @@ const plan: SourceSearchPlan = {
     source_search_keywords: ['South Bay buying or selling a home'],
     locations: ['South Bay, California'],
     recency_window: 'last 7 days',
-    reddit_filter_keywords: ['buying a home', 'selling a home'],
+    reddit_filter_keywords: ['buying a home', 'buy a home', 'selling a home'],
     reddit_filter_keyword_mode: 'any',
   },
   max_candidates: 5,
@@ -750,7 +750,10 @@ describe('Apify public social demand opportunities', () => {
   })
 
   it('uses bounded auto-discovery for a market-bound global search', async () => {
-    const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
+    const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost({
+      title: 'Austin homeowner thinking of selling my house',
+      body: 'I am thinking of selling my house in Austin. Which repairs should I prioritize?',
+    })))
     const adapter = createApifyRedditOpportunityAdapter({
       env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
       now,
@@ -763,7 +766,9 @@ describe('Apify public social demand opportunities', () => {
       provider_query: {
         ...plan.provider_query,
         locations: ['Austin, Texas'],
-        search_query: '("selling my home in Austin" OR "moving from Austin")',
+        search_query: 'Austin thinking of selling my house',
+        reddit_filter_keywords: ['Austin', 'thinking of selling my house', 'thinking of selling my home'],
+        reddit_filter_keyword_mode: 'first_and_any',
         reddit_subreddits: [],
         reddit_auto_discover: true,
         reddit_max_subreddits: 6,
@@ -776,7 +781,7 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).toHaveBeenCalledWith(
       APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
       expect.objectContaining({
-        query: '("selling my home in Austin" OR "moving from Austin")',
+        query: 'Austin thinking of selling my house',
         autoDiscoverSubreddits: true,
         maxSubreddits: 6,
         sort: 'relevance',
@@ -802,7 +807,9 @@ describe('Apify public social demand opportunities', () => {
       provider_query: {
         ...plan.provider_query,
         locations: ['Austin, Texas'],
-        search_query: '("selling my home in Austin" OR "selling my house in Austin")',
+        search_query: 'Austin selling my home',
+        reddit_filter_keywords: ['Austin', 'selling my home', 'selling our home', 'thinking of selling'],
+        reddit_filter_keyword_mode: 'first_and_any',
         reddit_subreddits: [],
         reddit_auto_discover: true,
         reddit_max_subreddits: 6,
@@ -822,6 +829,36 @@ describe('Apify public social demand opportunities', () => {
       }),
       expect.any(Object),
     )
+  })
+
+  it('drops paid Reddit rows that do not match the frozen returned-content filter', async () => {
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor: async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost({
+        title: 'Moving from Austin to Bend for a new job',
+        body: 'Which neighborhood should I rent in while I get settled?',
+      })),
+    })
+
+    const result = await adapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        reddit_filter_keywords: ['Austin', 'selling my home', 'selling my house'],
+        reddit_filter_keyword_mode: 'first_and_any',
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'no_result',
+      data: null,
+      receipt: {
+        parser_dropped_rows: 0,
+        keyword_filtered_rows: 1,
+      },
+      error: 'no_result_after_returned_content_filter',
+    })
   })
 
   it('refuses an unbounded or geographically unanchored global Reddit search before a paid call', async () => {
@@ -1182,7 +1219,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v40',
+        query_lane_version: 'opportunity-query-v41',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'austinhomebuyer',
       },
@@ -1272,7 +1309,7 @@ describe('Apify public social demand opportunities', () => {
       '#MovingToAustin',
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v40'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v41'
       && lane.providerQuery.opportunity_intent_lane === 'buyer_intent'
     ))).toBe(true)
 

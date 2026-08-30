@@ -71,6 +71,7 @@ function runProviderPlan(plan: ReturnType<typeof buildSourcePlan> & { ok: true }
     plannedRawCapacity: plan.plannedRawCapacity,
     unsupportedDimensions: plan.unsupportedDimensions,
     qualificationProfile: plan.qualificationProfile,
+    destinationValidation: plan.destinationValidation,
     query: plan.query,
     trigger: 'auto_refill',
   }
