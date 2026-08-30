@@ -906,6 +906,69 @@ describe('ruleBasedFitScorer', () => {
     }
   })
 
+  it('rejects a seller request from the buyer lane even when its title names buyers', () => {
+    const candidate = {
+      entity_kind: 'opportunity' as const,
+      identity: {
+        name: 'Home buyers/investors',
+        opportunity_kind: 'thread',
+        platform: 'Reddit',
+        intent_kind: 'mixed_intent',
+        audience_description: [
+          'Looking to sell home. Any good buyers and or investors in the Land O Lakes area?',
+          'Would like to more than likely sell before year is over.',
+        ].join(' '),
+        location: 'Tampa, Florida, United States',
+        access_type: 'public',
+        source_published_at: '2026-08-29T17:00:00.000Z',
+        urls: ['https://www.reddit.com/r/tampa/comments/1vuvy27/home_buyersinvestors'],
+        participation_rules: 'Review the current Reddit community and thread rules before participating.',
+        participation_rules_status: 'unverified',
+        recommended_action: 'Read the full public conversation and contribute one useful response manually.',
+        message_angle: 'Answer the seller question with practical local information before mentioning services.',
+      },
+    }
+    const play = {
+      entityUnit: 'opportunities',
+      geography: 'Tampa, Florida, United States',
+      audience: 'People preparing to buy a home in Tampa',
+      signal: 'A recent public discussion demonstrates home-buying intent.',
+      referenceTime: '2026-08-30T18:00:00.000Z',
+      recencyWindow: '30 days',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }
+
+    const buyerResult = ruleBasedFitScorer.score(candidate, play, strongEvidence)
+    expect(buyerResult.verdict).toBe('rejected')
+    expect(buyerResult.reason).toBe(FIT_REASONS.intentMismatch)
+    expect(buyerResult.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'opportunity.intent',
+        status: 'fail',
+        observed: expect.arrayContaining(['seller_intent']),
+      }),
+    ]))
+
+    const sellerResult = ruleBasedFitScorer.score(
+      candidate,
+      {
+        ...play,
+        audience: 'Homeowners preparing to sell a home in Tampa',
+        signal: 'A recent public discussion demonstrates home-selling intent.',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+    expect(sellerResult.verdict).toBe('review')
+    expect(sellerResult.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'opportunity.intent',
+        status: 'pass',
+        observed: expect.arrayContaining(['seller_intent']),
+      }),
+    ]))
+  })
+
   it('does not trust a provider intent label when returned content proves a different lane', () => {
     const result = ruleBasedFitScorer.score(
       {

@@ -206,6 +206,10 @@ const CURRENT_PROPERTY_DECISION_AFTER_HISTORY =
 // housing lead merely because it was returned by a realtor-oriented query.
 const FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION =
   /\b(?:i|we)(?:(?:'m|'re| am| are)|(?:'ve| have)(?: been)?)?\s+(?:actively\s+)?(?:looking|trying|planning|hoping|wanting)\s+to\s+(?:buy|purchase)\b(?=.{0,160}\b(?:not (?:get|go|move) too far|what(?:'|’)s the vibe|family[- ]friendly|school districts?|commute|neighbou?rhoods?|areas? (?:to|should|would)|where (?:should|could) (?:i|we) live)\b)/i
+const FIRST_PERSON_BARE_BUY_INTENT =
+  /\b(?:i|we)(?:(?:'m|'re| am| are)|(?:'ve| have)(?: been)?)?\s+(?:actively\s+)?(?:looking|trying|planning|hoping|wanting)\s+to\s+(?:buy|purchase)\b/i
+const LOCAL_RESIDENTIAL_DECISION_QUESTION =
+  /\b(?:what(?:'|’)s the scoop on|what(?:'|’)s the vibe(?: in| around| near| of)?|thoughts on|how is|how(?:'|’)s|would you recommend)\b.{0,100}\??/i
 const ENTERTAINMENT_HOUSE_SEARCH =
   /\b(?:tv|television|show|series|episode|channel|watch(?:ed|ing)?)\b.{0,120}\b(?:house hunt(?:ing)?|home remodel(?:ing)?|home renovation)\b|\b(?:house hunt(?:ing)?|home remodel(?:ing)?|home renovation)\b.{0,120}\b(?:tv|television|show|series|episode|channel|watch(?:ed|ing)?)\b/i
 const REALTOR_HOUSING_CONTEXT =
@@ -216,6 +220,10 @@ const FIRST_PERSON_HOUSING_NEED =
   /\b(?:i|we)(?:'m|'re| am| are|(?:'ve| have)(?: been)?)?\s+(?:actively\s+)?(?:(?:thinking (?:about|of)|considering)\s+(?:buying|purchasing|selling|listing|moving|relocating)\b|(?:planning|preparing|trying|looking|waiting|hoping|needing|wanting)\s+to\s+(?:buy|purchase|sell|list|move|relocate)\b|(?:planning|preparing|trying|looking|waiting|hoping|needing|wanting)\s+to\s+find\s+(?:(?:a|my|our|the)\s+)?(?:home|house|condo|townhome|property)\b|(?:looking|searching)\s+for\s+(?:a\s+)?(?:home|house|condo|townhome|property|realtor|real estate agent)\b)/i
 const DIRECT_HOUSING_TRANSACTION_NEED =
   /\b(?:looking|trying|planning|hoping|wanting|waiting|preparing|needing)\s+to\s+(?:buy|purchase|sell|list)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)\b|\b(?:looking|searching)\s+for\s+(?:a\s+)?(?:home|house|condo|townhome|property|realtor|real estate agent)\b/i
+const DIRECT_BUYER_TRANSACTION_NEED =
+  /\b(?:looking|trying|planning|hoping|wanting|waiting|preparing|needing)\s+to\s+(?:buy|purchase)\s+(?:(?:a|my|our|the|this)\s+)?(?:(?:first|current|next|new|smaller|larger)\s+)?(?:home|house|condo|townhome|property)\b|\b(?:looking|searching)\s+for\s+(?:a\s+)?(?:home|house|condo|townhome|property)\b|\b(?:and|then)\s+(?:buy|purchase)\s+(?:(?:a|my|our|the|this)\s+)?(?:(?:first|current|next|new|smaller|larger)\s+)?(?:home|house|condo|townhome|property)\b/i
+const DIRECT_SELLER_TRANSACTION_NEED =
+  /\b(?:looking|trying|planning|hoping|wanting|waiting|preparing|needing)\s+to\s+(?:sell|list)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)\b/i
 const FIRST_PERSON_DIRECT_HOUSING_TRANSACTION =
   /\b(?:i|we)(?:'m|'re| am| are)\s+(?:actively\s+)?(?:buying|purchasing|selling|listing)\s+(?:(?:a|my|our|the)\s+)?(?:home|house|condo|townhome|property)\b/i
 const FIRST_PERSON_TRANSACTION_PROGRESS =
@@ -345,7 +353,56 @@ export function classifyOpportunityIntentV2(content: string): OpportunityIntentC
 
 /** Current returned-content classifier. */
 export function classifyOpportunityIntent(content: string): OpportunityIntentClassification {
-  return classifyOpportunityIntentWithContract(content, true, true)
+  const classified = classifyOpportunityIntentWithContract(content, true, true)
+  const directBuyer = DIRECT_BUYER_TRANSACTION_NEED.test(content)
+  const directSeller = DIRECT_SELLER_TRANSACTION_NEED.test(content)
+  const kind = directBuyer === directSeller
+    ? classified.kind
+    : directBuyer
+      ? 'buyer_intent'
+      : 'seller_intent'
+  return { ...classified, kind }
+}
+
+function localRedditCommunity(sourceUrl: string | null): boolean {
+  if (!sourceUrl) return false
+  try {
+    const url = new URL(sourceUrl)
+    const host = url.hostname.toLowerCase()
+    if (host !== 'reddit.com' && !host.endsWith('.reddit.com')) return false
+    const subreddit = normalizedLocationToken(url.pathname.match(/^\/r\/([^/]+)/i)?.[1] ?? '')
+    return Boolean(subreddit) && !NON_LOCAL_REDDIT_COMMUNITIES.has(subreddit)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Adds only destination-grounded context to the returned-content classifier.
+ * A first-person bare purchase phrase is ambiguous by itself, but a locality
+ * question inside a place-specific public Reddit community proves a
+ * residential-location decision even when the provider truncates the words
+ * after `buy`. Topic-wide communities and provider query text never qualify.
+ */
+export function classifyOpportunityIntentAtDestination(
+  content: string,
+  sourceUrl: string | null,
+): OpportunityIntentClassification {
+  const classified = classifyOpportunityIntent(content)
+  if (
+    classified.kind != null
+    || !localRedditCommunity(sourceUrl)
+    || !FIRST_PERSON_BARE_BUY_INTENT.test(content)
+    || !LOCAL_RESIDENTIAL_DECISION_QUESTION.test(content)
+  ) {
+    return classified
+  }
+  return {
+    ...classified,
+    kind: 'buyer_intent',
+    buyerSignals: [...classified.buyerSignals, 'local residential purchase question'],
+    confidence: Math.max(classified.confidence, 0.66),
+  }
 }
 
 export function realtorOpportunityNoiseReasons(content: string, sourceUrl: string | null = null): string[] {
@@ -508,11 +565,15 @@ export function assessRealtorOpportunitySuitability(
   sourceUrl: string | null = null,
   opportunityKind: string | null = null,
 ): RealtorOpportunitySuitability {
-  const intent = classifyOpportunityIntent(content).kind
+  const destinationGroundedBuyer = localRedditCommunity(sourceUrl)
+    && FIRST_PERSON_BARE_BUY_INTENT.test(content)
+    && LOCAL_RESIDENTIAL_DECISION_QUESTION.test(content)
+  const intent = classifyOpportunityIntentAtDestination(content, sourceUrl).kind
   const reasons = realtorOpportunityNoiseReasons(content, sourceUrl)
   const housing =
     REALTOR_HOUSING_CONTEXT.test(content)
     || FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION.test(content)
+    || destinationGroundedBuyer
   const consumerNeed =
     CONSUMER_QUESTION.test(content)
     || FIRST_PERSON_HOUSING_NEED.test(content)
@@ -524,6 +585,7 @@ export function assessRealtorOpportunitySuitability(
     || FIRST_PERSON_IMMINENT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_RECENT_HOUSING_REQUEST.test(content)
     || DIRECT_REALTOR_ASSISTANCE_REQUEST.test(content)
+    || destinationGroundedBuyer
   const directConsumerNeed =
     FIRST_PERSON_HOUSING_NEED.test(content)
     || DIRECT_HOUSING_TRANSACTION_NEED.test(content)
@@ -534,6 +596,7 @@ export function assessRealtorOpportunitySuitability(
     || FIRST_PERSON_IMMINENT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_RECENT_HOUSING_REQUEST.test(content)
     || DIRECT_REALTOR_ASSISTANCE_REQUEST.test(content)
+    || destinationGroundedBuyer
   const surface = PARTICIPATION_SURFACE.test(content)
   const educationalEvent = EDUCATIONAL_EVENT.test(content)
   const participationVenue = ['community', 'forum', 'group', 'thread'].includes(opportunityKind ?? '')
@@ -777,7 +840,7 @@ export function calibratedOpportunityConfidence(args: {
   engagement: number
   location: string | null
 }): number {
-  const intent = classifyOpportunityIntent(args.content)
+  const intent = classifyOpportunityIntentAtDestination(args.content, args.sourceUrl)
   let score = 0.38
   if (args.sourceUrl?.startsWith('https://')) score += 0.12
   if (args.content.trim().length >= 40) score += 0.1
@@ -909,7 +972,7 @@ export function opportunityRelevanceScore(
     maxAgeDays: 30,
     content: text,
   })
-  const observedIntent = classifyOpportunityIntent(text).kind
+  const observedIntent = classifyOpportunityIntentAtDestination(text, destination.canonicalUrl).kind
   const intent = requestedIntent(play)
   const audience = `${play.audience ?? ''} ${play.signal ?? ''}`.trim()
   const location = [identity.location, identity.city, identity.region].filter(Boolean).join(' ')
