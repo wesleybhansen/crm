@@ -154,22 +154,22 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
-    const market = quoted(marketName(geography))
+    const market = marketName(geography)
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        '("buy a home" OR "buy a house" OR "buying a home" OR "buying a house" OR "first time home buyer" OR "house hunting")',
-        '("looking for a realtor" OR "need a realtor" OR "realtor recommendation" OR "where should I buy" OR "where should we buy")',
-        '("made an offer" OR "submitted an offer" OR "home inspection" OR "mortgage pre-approval" OR "closing costs")',
+        'buying home',
+        'realtor recommendation',
+        `${market} home buyer`,
       ],
       seller_intent: [
-        '("sell my home" OR "sell my house" OR "selling my home" OR "selling my house" OR "thinking of selling" OR "planning to sell")',
-        '("looking for a realtor" OR "need a realtor" OR "realtor recommendation" OR "listing agent" OR "what is my home worth")',
-        '("repairs before selling" OR "prepare to sell" OR "listing my home" OR "sell before buying" OR "buy before selling")',
+        'selling home',
+        'realtor recommendation',
+        `${market} selling home`,
       ],
       mixed_intent: [
-        '("sell before buying" OR "buy before selling" OR "selling before buying" OR "buying before selling")',
-        '("looking for a realtor" OR "need a realtor" OR "realtor recommendation" OR "move-up buyer")',
-        '("sell then buy" OR "buying and selling a home" OR "selling and buying a home" OR "listing my home")',
+        'selling buying home',
+        'realtor recommendation',
+        `${market} sell buy home`,
       ],
       local_audience: [
         '("neighborhood association" OR "community meeting" OR "housing workshop" OR "home buyer workshop" OR "home seller workshop")',
@@ -379,7 +379,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v49',
+        query_lane_version: 'opportunity-query-v50',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -406,26 +406,36 @@ export function buildOpportunityQueryLanes(
                 ? {
                     reddit_returned_content_filter_version: 'semantic-intent-location-v3',
                     reddit_filter_required_intent: intent,
-                    // Transaction lanes stay inside the returned city or
-                    // Ask<City> subreddit, so their destination proves the
-                    // local scope. Local-audience discovery lane three remains
-                    // global and must prove the market in returned content.
                     reddit_filter_require_location:
-                      realtorTransaction ? false : intent === 'local_audience' && index === 2,
+                      (realtorTransaction || intent === 'local_audience') && index === 2,
                   }
                 : {
                     reddit_filter_keywords: [query].filter(Boolean),
                     reddit_filter_keyword_mode: 'any',
                   }),
               ...(realtorTransaction
-            ? {
-                reddit_subreddits: index === 1
-                  ? realtorMarketSubreddits(geography).slice(1, 2)
-                  : realtorMarketSubreddits(geography).slice(0, 1),
-                reddit_auto_discover: false,
-                reddit_sort: 'relevance',
-                reddit_content_type: index === 2 ? 'comments' : 'posts',
-              }
+            ? index === 0
+              ? {
+                  reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
+                  reddit_auto_discover: false,
+                  reddit_sort: 'relevance',
+                  reddit_content_type: 'posts',
+                }
+              : index === 1
+                ? {
+                    reddit_subreddits: realtorMarketSubreddits(geography).slice(1, 2),
+                    reddit_auto_discover: false,
+                    reddit_sort: 'relevance',
+                    reddit_content_type: 'posts',
+                  }
+                : {
+                    reddit_subreddits: [],
+                    reddit_auto_discover: true,
+                    reddit_max_subreddits: 6,
+                    reddit_global_search: true,
+                    reddit_sort: 'relevance',
+                    reddit_content_type: 'posts',
+                  }
             : index === 0
             ? {
                 reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
