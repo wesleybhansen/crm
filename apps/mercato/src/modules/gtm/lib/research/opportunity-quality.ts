@@ -224,6 +224,15 @@ const DEMONSTRATED_HOUSING_STATUS =
   /\b(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\s+(?:moving|looking|planning|preparing|trying|considering|thinking|needing|wanting)\b/i
 const FIRST_PERSON_HOUSING_IDENTITY =
   /\b(?:i|we)(?:'m|'re| am| are)\s+(?:a\s+)?(?:first[- ]time (?:home )?buyers?|homeowners?|home buyers?|home sellers?)\b/i
+// Current consumer language is not limited to "planning to sell." Real
+// conversations often use imminent intent ("can't wait to sell my house") or
+// refer back to a very recent public request ("I posted about selling my
+// house recently"). Keep these forms first-person and residential so generic
+// seller articles, agent CTAs, and unrelated product sales cannot qualify.
+const FIRST_PERSON_IMMINENT_HOUSING_TRANSACTION =
+  /\b(?:(?:i|we)(?:'m|'re| am| are)?\s+(?:(?:about|ready|going)\s+to|(?:can(?:not|'t)|could(?: not|n't))\s+wait\s+to)\s+(?:buy|purchase|sell|list)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)|can(?:not|'t)\s+wait\s+to\s+(?:buy|purchase|sell|list)\s+(?:my|our)\s+(?:home|house|condo|townhome|property))\b/i
+const FIRST_PERSON_RECENT_HOUSING_REQUEST =
+  /\b(?:i|we)(?:'ve| have)?\s+(?:(?:recently|just)\s+)?(?:posted|asked|wrote|talked)\s+about\s+(?:buying|purchasing|selling|listing)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)(?:\s+recently)?\b/i
 // Directly asking the public for an agent recommendation is itself a
 // consumer request for transaction help. This deliberately requires an
 // assistance verb plus an agent role; a provider-authored post that merely
@@ -512,6 +521,8 @@ export function assessRealtorOpportunitySuitability(
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
     || FIRST_PERSON_HOUSING_IDENTITY.test(content)
+    || FIRST_PERSON_IMMINENT_HOUSING_TRANSACTION.test(content)
+    || FIRST_PERSON_RECENT_HOUSING_REQUEST.test(content)
     || DIRECT_REALTOR_ASSISTANCE_REQUEST.test(content)
   const directConsumerNeed =
     FIRST_PERSON_HOUSING_NEED.test(content)
@@ -520,6 +531,8 @@ export function assessRealtorOpportunitySuitability(
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
     || FIRST_PERSON_HOUSING_IDENTITY.test(content)
+    || FIRST_PERSON_IMMINENT_HOUSING_TRANSACTION.test(content)
+    || FIRST_PERSON_RECENT_HOUSING_REQUEST.test(content)
     || DIRECT_REALTOR_ASSISTANCE_REQUEST.test(content)
   const surface = PARTICIPATION_SURFACE.test(content)
   const educationalEvent = EDUCATIONAL_EVENT.test(content)

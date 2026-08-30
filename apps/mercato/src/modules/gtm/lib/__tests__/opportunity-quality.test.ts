@@ -264,6 +264,45 @@ describe('opportunity quality primitives', () => {
     ).toBe(false)
   })
 
+  it('recognizes current first-person seller declarations without accepting historical or promotional copy', () => {
+    const currentSellerStatements = [
+      [
+        'I am about to leave Tampa because the traffic has become too much.',
+        'I posted about selling my house recently and am deciding what to do next.',
+      ].join(' '),
+      'Past time to move out of Tampa Bay. Can\'t wait to sell my house and leave the state.',
+    ]
+
+    for (const content of currentSellerStatements) {
+      expect(classifyOpportunityIntent(content).kind).toBe('seller_intent')
+      expect(
+        assessRealtorOpportunitySuitability(
+          content,
+          'seller_intent',
+          'https://www.reddit.com/r/tampa/comments/example/current-seller',
+          'thread',
+        ),
+      ).toMatchObject({ relevant: true, demonstratedIntent: 'seller_intent', reasons: [] })
+    }
+
+    expect(
+      assessRealtorOpportunitySuitability(
+        'I posted about selling my house ten years ago and already sold it.',
+        'seller_intent',
+        'https://www.reddit.com/r/tampa/comments/example/historical-seller',
+        'thread',
+      ).relevant,
+    ).toBe(false)
+    expect(
+      assessRealtorOpportunitySuitability(
+        "Can't wait to sell your house? I'm a realtor—contact me for a free valuation.",
+        'seller_intent',
+        'https://example.com/realtor-promotion',
+        'post',
+      ).relevant,
+    ).toBe(false)
+  })
+
   it('rejects polished professional content that only looks like consumer demand', () => {
     const failures: Array<[string, 'buyer_intent' | 'seller_intent' | 'local_audience', string]> = [
       [
