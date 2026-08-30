@@ -902,6 +902,104 @@ describe('Apify public social demand opportunities', () => {
     })
   })
 
+  it('uses v2 returned-content semantics for a local residential decision without admitting product purchases', async () => {
+    const phoenixBuyer = redditPost({
+      title: 'What is the scoop on Moon Valley?',
+      body: 'We are looking to buy but not get too far out. What is the vibe? Is it family friendly and safe?',
+      subreddit: 'phoenix',
+      permalink: '/r/phoenix/comments/example/moon_valley/',
+      url: 'https://www.reddit.com/r/phoenix/comments/example/moon_valley/',
+    })
+    const buyerAdapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor: async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, phoenixBuyer),
+    })
+    const buyerResult = await buyerAdapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Phoenix, Arizona'],
+        search_query: '("looking to buy" OR "house hunting")',
+        opportunity_intent_lane: 'buyer_intent',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v2',
+        reddit_filter_required_intent: 'buyer_intent',
+        reddit_filter_require_location: false,
+        reddit_subreddits: ['Phoenix'],
+        reddit_auto_discover: false,
+      },
+    })
+
+    expect(buyerResult).toMatchObject({
+      status: 'ok',
+      receipt: {
+        returned_content_filter_version: 'semantic-intent-location-v2',
+        returned_content_filtered_rows: 0,
+      },
+    })
+    expect(buyerResult.data?.[0]?.identity).toMatchObject({
+      intent_kind: 'buyer_intent',
+      location: 'Phoenix, Arizona',
+    })
+
+    const productAdapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor: async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost({
+        title: 'Where to buy sourdough bread?',
+        body: 'I was looking to buy some fresh sourdough bread. Does anyone recommend a bakery?',
+        subreddit: 'phoenix',
+      })),
+    })
+    const productResult = await productAdapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Phoenix, Arizona'],
+        search_query: '("looking to buy" OR "house hunting")',
+        opportunity_intent_lane: 'buyer_intent',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v2',
+        reddit_filter_required_intent: 'buyer_intent',
+        reddit_filter_require_location: false,
+        reddit_subreddits: ['Phoenix'],
+        reddit_auto_discover: false,
+      },
+    })
+    expect(productResult).toMatchObject({
+      status: 'no_result',
+      receipt: {
+        returned_content_filter_version: 'semantic-intent-location-v2',
+        returned_content_filtered_rows: 1,
+      },
+    })
+  })
+
+  it('refuses an unknown semantic filter version before a paid Reddit call', async () => {
+    const runActor = jest.fn(async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost()))
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor,
+    })
+
+    const result = await adapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        reddit_returned_content_filter_version: 'semantic-intent-location-v999',
+        reddit_filter_required_intent: 'buyer_intent',
+        reddit_filter_require_location: false,
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'error',
+      cost_units: 0,
+      error: expect.stringContaining('unsupported Reddit returned-content filter version'),
+    })
+    expect(runActor).not.toHaveBeenCalled()
+  })
+
   it('fails the semantic returned-content filter when the market is not demonstrated', async () => {
     const adapter = createApifyRedditOpportunityAdapter({
       env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
@@ -1296,7 +1394,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v42',
+        query_lane_version: 'opportunity-query-v43',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'austinhomebuyer',
       },
@@ -1386,7 +1484,7 @@ describe('Apify public social demand opportunities', () => {
       '#MovingToAustin',
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v42'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v43'
       && lane.providerQuery.opportunity_intent_lane === 'buyer_intent'
     ))).toBe(true)
 
