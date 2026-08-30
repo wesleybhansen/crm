@@ -204,7 +204,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v39')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v40')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -224,8 +224,8 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     )
 
     expect(lanes).toHaveLength(5)
-    expect(lanes[0]?.query).toBe('Austin, Texas looking for a realtor to buy a home')
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v39')).toBe(true)
+    expect(lanes[0]?.query).toBe('Austin, Texas Reddit "looking for a realtor" "buy a home"')
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v40')).toBe(true)
   })
 
   it('uses source-native realtor queries and three economical hashtag X lanes', () => {
@@ -255,7 +255,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       '#SellingInAustin',
       '#AustinHomeValue',
     ])
-    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v39')).toBe(true)
+    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v40')).toBe(true)
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(5)
@@ -267,7 +267,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ])
     expect(events.every((lane) =>
       lane.providerQuery.date_range === DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v39'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v40'
     )).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(
@@ -308,17 +308,19 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       reddit_sort: 'relevance',
       reddit_content_type: 'posts',
     })
-    expect(reddit[2]?.query).toBe('Austin selling home')
+    expect(reddit[2]?.query).toBe(
+      '("sell my house in Austin" OR "selling my home in Austin" OR "moving from Austin")',
+    )
     expect(
       web.every((lane) => !lane.query.includes(' -')),
     ).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        'Austin, Texas looking for a realtor to sell my home',
-        'Austin, Texas thinking of selling my house advice',
-        'Austin, Texas Reddit what is my home worth Austin',
-        'Austin, Texas home seller workshop Eventbrite',
-        'Austin, Texas selling your home seminar Meetup',
+        'Austin, Texas Reddit "looking for a realtor" "sell my home"',
+        'Austin, Texas Reddit "thinking of selling my house" advice',
+        'Austin, Texas Reddit "what is my home worth"',
+        'Austin, Texas home seller workshop registration',
+        'Austin, Texas selling your home seminar registration',
       ]),
     )
     expect(
@@ -330,11 +332,11 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(buyerWeb).toHaveLength(5)
     expect(buyerWeb.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        'Austin, Texas looking for a realtor to buy a home',
-        'Austin, Texas first time home buyer advice',
-        'Austin, Texas Reddit moving to Austin buy a home',
-        'Austin, Texas first time home buyer workshop Eventbrite',
-        'Austin, Texas home buyer seminar Meetup',
+        'Austin, Texas Reddit "looking for a realtor" "buy a home"',
+        'Austin, Texas Reddit "first time home buyer" advice question',
+        'Austin, Texas Reddit "made an offer" home buying',
+        'Austin, Texas first time home buyer workshop registration',
+        'Austin, Texas home buyer seminar registration',
       ]),
     )
     expect(buyerWeb.every((lane) => lane.query.length < 240)).toBe(true)
@@ -346,7 +348,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'austinhomevalue',
     ])
     expect(
-      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v39'),
+      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v40'),
     ).toBe(true)
   })
 
@@ -385,7 +387,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       && lane.query.startsWith('#')
       && lane.query.length <= 100
       && !/[()]/.test(lane.query)
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v39'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v40'
     ))).toBe(true)
   })
 
