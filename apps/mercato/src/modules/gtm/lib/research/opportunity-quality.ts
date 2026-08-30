@@ -202,7 +202,7 @@ const EDUCATIONAL_EVENT = /\b(?:event|fair|workshop|seminar|webinar|class|meetup
 const VENUE_CONSUMER_DEMAND =
   /\b(?:people|homeowners?|home ?buyers?|home ?sellers?|buyers?|sellers?)\s+(?:ask(?:ing)?|seek(?:ing)?|look(?:ing)?|discuss(?:ing)?|consider(?:ing)?|plan(?:ning)?|prepar(?:ing)?|need(?:ing)?)\b|\b(?:buyer|seller|homeowner|homebuying|home[- ]selling|first[- ]home) questions?\b/i
 const PUBLIC_PARTICIPATION_EVIDENCE =
-  /\b(?:join(?:ing)?|membership|members?|meeting|calendar|upcoming events?|get involved|volunteer|register|attend|discussion|questions?|forum|community conversation|community registry|community groups?|community organizations?|resident organizations?|public workshop|public seminar|neighbou?rhood college)\b/i
+  /\b(?:join(?:ing)?|membership|members?|meetings?|calendar|upcoming events?|get involved|volunteer|register|attend|discussion|questions?|forum|community conversation|community registry|community groups?|community organizations?|resident organizations?|public workshop|public seminar|neighbou?rhood college)\b/i
 const INACTIVE_DESTINATION =
   /\b(?:no upcoming events?|no events? (?:are )?scheduled|event (?:has )?ended|event is over|this event has passed|past event|registration (?:is )?closed|registration unavailable|sold out|event (?:was )?cancelled|event (?:was )?canceled|not currently scheduled|workshop unavailable|page not found|content unavailable)\b/i
 const MONTHS =
@@ -621,6 +621,12 @@ export function assessOpportunityDestination(args: {
   const content = args.content?.trim() ?? ''
   if (content && INACTIVE_DESTINATION.test(content)) issues.push('destination_inactive')
 
+  const validation = typeof identity.destination_validation_status === 'string'
+    ? identity.destination_validation_status
+    : null
+  if (validation === 'unavailable') issues.push('destination_inactive')
+  if (validation === 'blocked') issues.push('destination_validation_blocked')
+
   const access = typeof identity.access_type === 'string' ? identity.access_type : null
   if (access === 'approval_required') issues.push('destination_requires_approval')
   else if (access === 'unknown' || access == null) issues.push('destination_access_unknown')
@@ -658,6 +664,7 @@ export function assessOpportunityDestination(args: {
       'destination_requires_approval',
       'destination_not_public',
       'destination_inactive',
+      'destination_validation_blocked',
       'stale_destination',
       'event_expired',
     ].includes(issue),

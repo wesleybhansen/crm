@@ -73,6 +73,31 @@ type NormalizeContext = {
   actorId: string
 }
 
+function redditFilterKeywords(plan: SourceSearchPlan): string[] {
+  const values = plan.provider_query?.reddit_filter_keywords
+  if (!Array.isArray(values)) return []
+  return values
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim().toLowerCase().replace(/\s+/g, ' '))
+    .filter(Boolean)
+    .slice(0, 8)
+}
+
+function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSearchPlan): boolean {
+  const keywords = redditFilterKeywords(plan)
+  if (keywords.length === 0) return true
+  const content = [candidate.identity.name, candidate.identity.audience_description]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+  const matches = keywords.map((keyword) => content.includes(keyword))
+  const mode = plan.provider_query?.reddit_filter_keyword_mode
+  if (mode === 'all') return matches.every(Boolean)
+  if (mode === 'first_and_any') return matches[0] === true && matches.slice(1).some(Boolean)
+  return matches.some(Boolean)
+}
+
 function requestedOpportunityIntent(plan: SourceSearchPlan): DemonstratedOpportunityIntent {
   const value = plan.provider_query?.opportunity_intent_lane
   return value === 'buyer_intent'
@@ -1180,27 +1205,39 @@ export function createPublicSocialOpportunityAdapter(
         attemptedAt: outcome.attemptedAt,
         actorId,
       }
-      const candidates = resultItems
+      const normalizedCandidates = resultItems
         .map((item) => config.normalize(item, context))
         .filter((candidate): candidate is Candidate => candidate != null)
+      const candidates = config.platform === 'Reddit'
+        ? normalizedCandidates.filter((candidate) => returnedContentMatchesRedditFilter(candidate, plan))
+        : normalizedCandidates
       if (candidates.length === 0) {
+        const keywordFiltered = config.platform === 'Reddit' ? normalizedCandidates.length : 0
         return {
-          status: 'error',
+          status: normalizedCandidates.length > 0 ? 'no_result' : 'error',
           data: null,
-          receipt: providerReceipt({ parser_dropped_rows: outcome.itemCount }),
+          receipt: providerReceipt({
+            parser_dropped_rows: outcome.itemCount - normalizedCandidates.length,
+            keyword_filtered_rows: keywordFiltered,
+          }),
           cost_units: costUnits,
-          error: 'invalid_schema: provider rows contained no safe public opportunity',
+          error: normalizedCandidates.length > 0
+            ? 'no_result_after_returned_content_filter'
+            : 'invalid_schema: provider rows contained no safe public opportunity',
         }
       }
       const delivered = candidates.slice(0, maxCandidates)
-      const dropped = Math.max(0, resultItems.length - candidates.length)
+      const parserDropped = Math.max(0, resultItems.length - normalizedCandidates.length)
+      const keywordFiltered = Math.max(0, normalizedCandidates.length - candidates.length)
+      const dropped = parserDropped + keywordFiltered
       const truncated = candidates.length > delivered.length
       return {
         status: dropped > 0 || truncated ? 'partial' : 'ok',
         data: delivered,
         receipt: providerReceipt({
           returned_count: delivered.length,
-          parser_dropped_rows: dropped,
+          parser_dropped_rows: parserDropped,
+          keyword_filtered_rows: keywordFiltered,
           truncated,
           billed_results: counts[config.primaryResultEvent] ?? 0,
         }),

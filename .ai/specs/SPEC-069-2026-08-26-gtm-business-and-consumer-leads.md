@@ -325,19 +325,25 @@ Every additional paid provider start or billable SERP is represented as a
 separate quoted batch in the immutable plan, reservation, confirmation, plan
 hash, receipt, and reconciliation. No adapter may fan out beyond the quote.
 
-`opportunity-query-v40` keeps actor-native syntax explicit and separately quotes
+`opportunity-query-v41` keeps actor-native syntax explicit and separately quotes
 three Reddit strategies against `clearpath/reddit-search-scraper` build
-`0.0.66`. The first lane searches the primary exact-market community, the
-second searches one intent community while keeping the market in the query,
-and the third is a guarded global lane with no frozen subreddit scope and at
-most six actor-discovered subreddits. The global lane must contain the requested
-market, is capped at ten rows, and stays inside the frozen 30-day window. The
-first two lanes disable discovery, so the actor cannot silently fan out beyond
-their quoted scopes; the global lane must explicitly enable both the governed
-global-search marker and bounded subreddit discovery or it fails before
-provider contact. Returned content must independently prove intent and
-location. Only an actually returned exact-market subreddit may establish
-scoped locality; the query and an actor-discovered scope prove neither.
+`0.0.66`. It replaces broad Boolean bundles with short, atomic buyer, seller,
+or local-participation searches. The first lane searches the primary
+exact-market community, the second searches one intent or secondary exact-market
+community, and the third is a guarded global lane with no frozen subreddit
+scope and at most six actor-discovered subreddits. The global lane must contain
+the requested market, is capped at ten rows, and stays inside the frozen 30-day
+window. The first two lanes disable discovery, so the actor cannot silently fan
+out beyond their quoted scopes; the global lane must explicitly enable both the
+governed global-search marker and bounded subreddit discovery or it fails
+before provider contact. A separately frozen returned-content filter is now
+enforced after normalization and before ranking: the local lane must contain an
+allowed participation phrase, while broader lanes must contain both the market
+and one allowed intent phrase. Filter losses are recorded as
+`keyword_filtered_rows`, separate from parser failures. Returned content must
+independently prove intent and location. Only an actually returned exact-market
+subreddit may establish scoped locality; the query and an actor-discovered
+scope prove neither.
 Post and comment retrieval remain separately visible, separately metered lanes.
 The pinned actor's source `createdAt` may satisfy freshness; a replacement actor
 or unpinned build remains untrusted until its timestamp contract is verified.
@@ -389,10 +395,18 @@ unrelated moving language are false positives.
 
 Production destination checks fail closed on malformed/non-HTTPS URLs,
 non-public access markers, archived or locked conversations, expired events,
-unsupported hosts, and observations outside the play's recency window. Network
-liveness is verified only through the controlled benchmark's bounded checker;
-runtime qualification does not introduce an unquoted fetch or a DNS
-resolve/connect TOCTOU boundary.
+unsupported hosts, and observations outside the play's recency window. Plan
+schema 10 binds `safe-public-destination-v1`, enablement, at most 20 attempts,
+three redirects, an eight-second timeout, a 300,000-byte response ceiling, and
+the social-network provider-evidence-only policy into the immutable quote hash.
+Execution may reduce or disable that frozen work but cannot increase it.
+Non-social public destinations are fetched without credentials through
+`safeFetch`, which revalidates every redirect and uses the same public-only DNS
+lookup at socket connection time, closing the resolve/connect TOCTOU boundary.
+Only a bounded relevant excerpt and observed participation sentence are
+retained. Direct social-network crawling remains disabled; those destinations
+stay review-only unless their provider evidence already proves current access
+and participation terms.
 
 ### 12.3 Realtor benchmark and frozen fixtures
 
@@ -473,6 +487,7 @@ customer quote until a bounded retest demonstrates terminal receipt behavior.
 25. Signed-in Hub checks at 375, 768, 1024, and 1440 CSS pixels show no page-level horizontal overflow, clipped controls, consumer automation affordance, or touch target below 44 CSS pixels.
 26. Counsel disposition is recorded specifically for the consumer provisions covering public communities/posts/events, optional public profiles, manual-only participation, no consent inference, sensitive/minor exclusions, 30-day draft retention, removal, and customer responsibility for platform/community rules; earlier GTM approval is not inferred to cover the August 26 delta.
 27. An approver-only summary repair accepts 1–50 exact research-run IDs, remains organization- and tenant-scoped, and clears a stale reconciliation hold only when every child provider operation is terminal and every charged amount is recoverable from durable evidence. Missing, unresolved, unevidenced, or cross-scope runs remain unchanged.
+28. Plan schema 10 hashes the bounded destination-validation version and ceilings; legacy plans cannot acquire the new external effect, execution cannot exceed the frozen attempt cap, direct social destinations are not crawled, and a DNS answer that changes to a private address at connection time is blocked before the socket connects.
 
 ## 14. Migration & Backward Compatibility
 
@@ -543,3 +558,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-30: The Apify account upgrade was verified read-only as Starter with `$29/month` of prepaid usage and Bronze Store pricing. A contract re-audit found that every earlier zero-row `clearpath/reddit-search-scraper` trial disabled subreddit discovery, including the supposedly global lane with no subreddit scope. `opportunity-query-v39` restores the current timestamp-capable actor at build `0.0.66`, pins its exact Starter-tier `$0.00099` start, `$0.00099` result, and `$0.00001` dataset-item events, and enables at most six actor-discovered subreddits only for the explicitly governed market-bound global lane. The other two lanes retain frozen scopes with discovery off. The actor's source `createdAt` is retained as publication evidence under this exact actor/build pair, while query text and discovered scope remain targeting provenance only. Customer consumer research remains fail-closed until the independently reviewed benchmark passes.
 - 2026-08-30: The first production `opportunity-query-v39` owner probe (`92d2d281-eb63-4bdd-8b58-3781b31bf07d`) ran the Austin buyer play through the canonical quote, exact-plan confirmation, ledger reservation, provider execution, qualification, and reconciliation path with all other consumer sources disabled. Its three Reddit operations returned 2, 1, and 3 rows with zero parser drops and finalized event counts of one actor start plus one dataset event for every billed result. Exact provider cost was `$0.00299 + $0.00199 + $0.00399 = $0.00897`, matching `4,485` reconciled Noli credits with no ambiguity. fit-v7 held two current, market-specific buyer questions for human review because participation rules remained unverified, and rejected four news, generic-market, or promotional false positives; nothing was auto-accepted. The owner-probe flag was restored off immediately afterward, customer consumer approval remained absent, and local plus public health returned HTTP 200. This proves the current source, timestamp, billing, and fail-closed quality contracts, but not the independent twelve-play quality release gate.
 - 2026-08-30: The first complete query-v39 realtor benchmark ran all twelve frozen buyer, seller, and local-audience plays across Austin, Denver, Phoenix, and Tampa. All 96 provider operations reconciled without ambiguity: 194 raw rows, 184 canonical matches, 10 duplicates, 9 held for review, 175 rejected, and zero auto-accepted. Exact provider cost was `$0.25964` (`129,820` reconciled Noli credits at the current two-times markup). fit-v7 correctly rejected irrelevant results, but the retrieval gate failed: the guarded Reddit discovery lane had been replaced with an overly broad market-plus-topic query, while organic search overproduced generic, promotional, stale, or inaccessible result pages. `opportunity-query-v40` restores the exact market-bound Boolean Reddit lane and replaces directory- and brand-oriented organic queries with first-person public-demand phrases and explicit public-event registration patterns. Customer activation remains fail-closed; qualification thresholds are unchanged.
+- 2026-08-30: The bounded query-v40 three-play probe reconciled 24 provider operations exactly for `$0.04991` and confirmed that fit-v7 still rejected irrelevant rows, but it also exposed two implementation gaps: the planner froze `reddit_filter_keywords` without the adapter enforcing them, and stable non-social association or event pages could never satisfy actionability because current participation terms were never observed. `opportunity-query-v41` uses short atomic Reddit searches and enforces the returned-content filter after normalization, separately reporting keyword-filter losses. Plan schema 10 adds a hash-bound, capped, credential-free destination validator for non-social public pages, retains only bounded relevant evidence, and closes DNS resolve/connect TOCTOU through a connection-time public-only lookup. Direct social crawling remains disabled, all consumer actions remain manual-only, and customer activation still requires the independent benchmark.
