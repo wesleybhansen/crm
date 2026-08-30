@@ -160,16 +160,22 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
         '("buying a home" OR "buying a house" OR "looking to buy" OR "house hunting" OR "first-time home buyer" OR "first time home buyer" OR "made an offer") NOT (realtor OR agent OR broker OR lender)',
         '("where should we buy" OR "where should I buy" OR "looking to buy" OR "house hunting" OR "first-time home buyer") NOT (realtor OR agent OR broker OR lender)',
         '("looking to buy" OR "house hunting" OR "made an offer" OR "need a realtor" OR "first-time home buyer") NOT ("got the keys" OR "closed on" OR "finally did it" OR "just bought")',
+        `${market} AND ("buying a home" OR "buying a house" OR "house hunting" OR "first-time home buyer") NOT (realtor OR agent OR broker OR lender)`,
+        `${market} AND ("looking to buy" OR "made an offer" OR "need a realtor" OR "first-time home buyer") NOT ("got the keys" OR "closed on" OR "just bought")`,
       ],
       seller_intent: [
-        'selling house',
-        'realtor recommendation',
-        `${market} selling house`,
+        '("selling my home" OR "selling my house" OR "thinking of selling" OR "listing my house" OR "realtor recommendation") NOT (realtor OR agent OR broker)',
+        '("realtor recommendation" OR "selling my home" OR "thinking of selling" OR "repairs before selling") NOT (realtor OR agent OR broker)',
+        '("selling my home" OR "selling my house" OR "thinking of selling" OR "need a realtor") NOT ("we buy houses" OR "cash buyer" OR "contact me")',
+        `${market} AND ("selling my home" OR "selling my house" OR "thinking of selling" OR "listing my house") NOT (realtor OR agent OR broker)`,
+        `${market} AND ("realtor recommendation" OR "repairs before selling" OR "need a realtor" OR "home valuation") NOT ("we buy houses" OR "cash buyer" OR "contact me")`,
       ],
       mixed_intent: [
-        'selling buying house',
-        'realtor recommendation',
-        `${market} sell buy house`,
+        '("sell before buying" OR "buy before selling" OR "selling and buying") NOT (realtor OR agent OR broker)',
+        '("realtor recommendation" OR "move-up buyer" OR "selling then buying") NOT (realtor OR agent OR broker)',
+        '("selling my home" OR "selling my house") AND ("buying a home" OR "buying a house")',
+        `${market} AND ("sell before buying" OR "buy before selling" OR "selling and buying") NOT (realtor OR agent OR broker)`,
+        `${market} AND ("selling my home" OR "selling my house") AND ("buying a home" OR "buying a house")`,
       ],
       local_audience: [
         '("neighborhood association" OR "community meeting" OR "housing workshop" OR "home buyer workshop" OR "home seller workshop")',
@@ -274,6 +280,12 @@ export function realtorMarketSubreddits(geography: string): string[] {
   ])
 }
 
+function realtorTransactionTopicSubreddits(intent: OpportunityIntentLane): string[] {
+  if (intent === 'buyer_intent') return ['FirstTimeHomeBuyer', 'RealEstate']
+  if (intent === 'seller_intent') return ['homeowners', 'RealEstate']
+  return ['RealEstate', 'homeowners']
+}
+
 function genericSeeds(play: PlanPlayInput): string[] {
   const query = play.providerQuery ?? {}
   const supplied = values(query.source_search_keywords)
@@ -356,7 +368,7 @@ export function buildOpportunityQueryLanes(
         || adapterId === 'apify-threads-demand-opportunities'
         ? 3
         : adapterId === 'apify-reddit-demand-opportunities' && realtorTransaction
-          ? 3
+          ? 5
           : adapterId === 'dataforseo-organic-demand-opportunities'
             ? realtorTransaction ? 3 : 5
           : adapterId === 'dataforseo-events-demand-opportunities'
@@ -379,7 +391,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v52',
+        query_lane_version: 'opportunity-query-v53',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
@@ -407,9 +419,9 @@ export function buildOpportunityQueryLanes(
                     reddit_returned_content_filter_version: 'semantic-intent-location-v3',
                     reddit_filter_required_intent: intent,
                     reddit_filter_require_location:
-                      (realtorTransaction || intent === 'local_audience')
-                      && index === 2
-                      && intent !== 'buyer_intent',
+                      realtorTransaction
+                        ? index >= 3
+                        : intent === 'local_audience' && index === 2,
                   }
                 : {
                     reddit_filter_keywords: [query].filter(Boolean),
@@ -430,23 +442,22 @@ export function buildOpportunityQueryLanes(
                     reddit_sort: 'relevance',
                     reddit_content_type: 'posts',
                   }
-                : intent === 'buyer_intent'
+              : index === 2
                   ? {
-                      // The v43 actor receipt proved that a housing-bound
-                      // Boolean post search inside the exact market can recover
-                      // current buyer demand. The third lane searches comments
-                      // in that same market; semantic-v3 rejects entertainment
-                      // and product uses of house-hunting language.
+                      // Exact-market comments recover active demand expressed
+                      // inside an existing local conversation. The source URL
+                      // proves the market; query text never becomes evidence.
                       reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
                       reddit_auto_discover: false,
                       reddit_sort: 'relevance',
                       reddit_content_type: 'comments',
                     }
                 : {
-                    reddit_subreddits: [],
-                    reddit_auto_discover: true,
-                    reddit_max_subreddits: 6,
-                    reddit_global_search: true,
+                    // Housing-topic communities provide additional recall, but
+                    // unlike the exact-market lanes their returned content must
+                    // independently demonstrate the requested market.
+                    reddit_subreddits: realtorTransactionTopicSubreddits(intent).slice(index - 3, index - 2),
+                    reddit_auto_discover: false,
                     reddit_sort: 'relevance',
                     reddit_content_type: 'posts',
                   }

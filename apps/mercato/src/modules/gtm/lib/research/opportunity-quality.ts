@@ -173,7 +173,7 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
 const SENSITIVE_CONSUMER_OPPORTUNITY: Array<[string, RegExp]> = [
   [
     'sensitive_health_or_disability',
-    /\b(?:disab(?:led|ility)|medical (?:condition|crisis|debt)|health condition|mental health|pregnan(?:t|cy)|substance (?:use|abuse)|addiction|opioid|overdose|sober living|recovery (?:home|house|housing))\b/i,
+    /\b(?:disab(?:led|ility)|medical (?:condition|crisis|debt|issue|issues|symptom|symptoms)|health (?:condition|problem|problems|issue|issues)|hair loss|chronic illness|cancer diagnosis|mental health|pregnan(?:t|cy)|substance (?:use|abuse)|addiction|opioid|overdose|sober living|recovery (?:home|house|housing))\b/i,
   ],
   [
     'sensitive_housing_instability',
@@ -181,7 +181,7 @@ const SENSITIVE_CONSUMER_OPPORTUNITY: Array<[string, RegExp]> = [
   ],
   [
     'sensitive_minor_or_protected_trait',
-    /\b(?:minor|underage|child(?:ren)?(?:'s)? housing|sex offender|sexual orientation|gender identity|immigration status|citizenship status|racial identity|ethnic identity|religious affiliation)\b/i,
+    /\b(?:minor|underage|child(?:ren)?(?:'s)? housing|sex offender|sexual orientation|gender identity|immigration status|citizenship status|racial identity|ethnic identity|religious affiliation)\b|\b(?:i|we)(?:'m|'re| am| are)\s+(?:a\s+)?(?:parent|mother|father|mom|dad)\b|\b(?:my|our|we have|with (?:my|our))\s+(?:an?\s+)?(?:baby|babies|child|children|kid|kids|toddler|toddlers|teen|teens|teenager|teenagers)\b/i,
   ],
   [
     'sensitive_bereavement_or_financial_distress',
@@ -209,11 +209,13 @@ const FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION =
 const ENTERTAINMENT_HOUSE_SEARCH =
   /\b(?:tv|television|show|series|episode|channel|watch(?:ed|ing)?)\b.{0,120}\b(?:house hunt(?:ing)?|home remodel(?:ing)?|home renovation)\b|\b(?:house hunt(?:ing)?|home remodel(?:ing)?|home renovation)\b.{0,120}\b(?:tv|television|show|series|episode|channel|watch(?:ed|ing)?)\b/i
 const REALTOR_HOUSING_CONTEXT =
-  /\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|community registry|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
+  /\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|homeowners? association|community association|community registry|neighbou?rhood college|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
 const CONSUMER_QUESTION =
   /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|(?:where|what|which|how) should (?:i|we|my|our)\b|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =
-  /\b(?:i|we)(?:'m|'re| am| are)?\s+(?:actively\s+)?(?:thinking (?:about|of)|considering|planning(?: to)?|preparing(?: to)?|trying(?: to)?|looking(?: to| for)|waiting(?: to)?|need(?:ing)?(?: to)?|want(?:ing)?(?: to)?|moving|relocating|wondering|unsure|confused|stressed)\b/i
+  /\b(?:i|we)(?:'m|'re| am| are|(?:'ve| have)(?: been)?)?\s+(?:actively\s+)?(?:(?:thinking (?:about|of)|considering)\s+(?:buying|purchasing|selling|listing|moving|relocating)\b|(?:planning|preparing|trying|looking|waiting|hoping|needing|wanting)\s+to\s+(?:buy|purchase|sell|list|move|relocate)\b|(?:planning|preparing|trying|looking|waiting|hoping|needing|wanting)\s+to\s+find\s+(?:(?:a|my|our|the)\s+)?(?:home|house|condo|townhome|property)\b|(?:looking|searching)\s+for\s+(?:a\s+)?(?:home|house|condo|townhome|property|realtor|real estate agent)\b)/i
+const DIRECT_HOUSING_TRANSACTION_NEED =
+  /\b(?:looking|trying|planning|hoping|wanting|waiting|preparing|needing)\s+to\s+(?:buy|purchase|sell|list)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)\b|\b(?:looking|searching)\s+for\s+(?:a\s+)?(?:home|house|condo|townhome|property|realtor|real estate agent)\b/i
 const FIRST_PERSON_DIRECT_HOUSING_TRANSACTION =
   /\b(?:i|we)(?:'m|'re| am| are)\s+(?:actively\s+)?(?:buying|purchasing|selling|listing)\s+(?:(?:a|my|our|the)\s+)?(?:home|house|condo|townhome|property)\b/i
 const FIRST_PERSON_TRANSACTION_PROGRESS =
@@ -221,7 +223,7 @@ const FIRST_PERSON_TRANSACTION_PROGRESS =
 const DEMONSTRATED_HOUSING_STATUS =
   /\b(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\s+(?:moving|looking|planning|preparing|trying|considering|thinking|needing|wanting)\b/i
 const FIRST_PERSON_HOUSING_IDENTITY =
-  /\b(?:i|we)(?:'m|'re| am| are)\s+(?:a\s+)?(?:first[- ]time (?:home )?buyer|homeowner|home buyer|home seller)\b/i
+  /\b(?:i|we)(?:'m|'re| am| are)\s+(?:a\s+)?(?:first[- ]time (?:home )?buyers?|homeowners?|home buyers?|home sellers?)\b/i
 // Directly asking the public for an agent recommendation is itself a
 // consumer request for transaction help. This deliberately requires an
 // assistance verb plus an agent role; a provider-authored post that merely
@@ -505,12 +507,15 @@ export function assessRealtorOpportunitySuitability(
   const consumerNeed =
     CONSUMER_QUESTION.test(content)
     || FIRST_PERSON_HOUSING_NEED.test(content)
+    || DIRECT_HOUSING_TRANSACTION_NEED.test(content)
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)
+    || FIRST_PERSON_HOUSING_IDENTITY.test(content)
     || DIRECT_REALTOR_ASSISTANCE_REQUEST.test(content)
   const directConsumerNeed =
     FIRST_PERSON_HOUSING_NEED.test(content)
+    || DIRECT_HOUSING_TRANSACTION_NEED.test(content)
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
     || DEMONSTRATED_HOUSING_STATUS.test(content)

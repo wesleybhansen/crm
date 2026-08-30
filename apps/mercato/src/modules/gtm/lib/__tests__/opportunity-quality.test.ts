@@ -219,6 +219,51 @@ describe('opportunity quality primitives', () => {
     ).toContain('explicit_realtor_disinterest')
   })
 
+  it('accepts direct transaction statements while rejecting unrelated first-person work', () => {
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Looking to buy a home next year in Denver and comparing neighborhoods now.',
+        'buyer_intent',
+        'https://www.reddit.com/r/Denver/comments/example/buy_next_year',
+        'thread',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+    expect(
+      assessRealtorOpportunitySuitability(
+        'We are first time home buyers. Would you still recommend Suncoast Credit Union for a Tampa mortgage?',
+        'buyer_intent',
+        'https://www.reddit.com/r/Tampa/comments/example/first_time_buyer',
+        'thread',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Looking to sell my home in Land O Lakes. Any good buyers or realtor recommendations?',
+        'seller_intent',
+        'https://www.reddit.com/r/Tampa/comments/example/seller',
+        'thread',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'seller_intent', reasons: [] })
+
+    const permitTangent = assessRealtorOpportunitySuitability(
+      'I am looking to get electrical work permitted. Could it affect insurance or selling the home later?',
+      'seller_intent',
+      'https://www.reddit.com/r/Austin/comments/example/permit_question',
+      'thread',
+    )
+    expect(permitTangent.relevant).toBe(false)
+    expect(permitTangent.reasons).toContain('missing_consumer_need_or_event')
+
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Looking to sell your home? Contact me today for a cash offer and free valuation.',
+        'seller_intent',
+        'https://example.com/provider-promotion',
+        'post',
+      ).relevant,
+    ).toBe(false)
+  })
+
   it('rejects polished professional content that only looks like consumer demand', () => {
     const failures: Array<[string, 'buyer_intent' | 'seller_intent' | 'local_audience', string]> = [
       [
@@ -480,6 +525,42 @@ describe('opportunity quality primitives', () => {
       ),
     ).toEqual([])
     expect(sensitiveConsumerOpportunityReasons('Austin homeowners discussing a neighborhood workshop.')).toEqual([])
+    expect(
+      sensitiveConsumerOpportunityReasons(
+        'We have a baby and are looking to buy a home in Austin before the end of the year.',
+      ),
+    ).toContain('sensitive_minor_or_protected_trait')
+    expect(
+      sensitiveConsumerOpportunityReasons(
+        'Our kids need more space, so we are thinking of selling our Tampa home.',
+      ),
+    ).toContain('sensitive_minor_or_protected_trait')
+    expect(
+      sensitiveConsumerOpportunityReasons(
+        'I have hair loss and other health problems after living near the Denver site. Should I buy elsewhere?',
+      ),
+    ).toContain('sensitive_health_or_disability')
+    expect(
+      sensitiveConsumerOpportunityReasons(
+        'The Austin home includes a baby grand piano that the seller may leave in place.',
+      ),
+    ).toEqual([])
+    expect(
+      assessRealtorOpportunitySuitability(
+        'We have a baby and are looking to buy a home in Austin before the end of the year.',
+        'buyer_intent',
+        'https://www.reddit.com/r/Austin/comments/example/baby',
+        'thread',
+      ).relevant,
+    ).toBe(false)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'I have hair loss and health problems near a toxic site, so I am looking to buy a Denver home elsewhere.',
+        'buyer_intent',
+        'https://www.reddit.com/r/Denver/comments/example/health',
+        'thread',
+      ).relevant,
+    ).toBe(false)
   })
 
   it('canonicalizes tracking variants and source aliases into one destination', () => {
