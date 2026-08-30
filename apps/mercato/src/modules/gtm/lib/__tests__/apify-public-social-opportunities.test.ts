@@ -1191,7 +1191,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v36',
+        query_lane_version: 'opportunity-query-v37',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'austinhomebuyer',
       },
@@ -1276,12 +1276,12 @@ describe('Apify public social demand opportunities', () => {
     }
     const lanes = buildOpportunityQueryLanes(play, APIFY_X_OPPORTUNITY_CONFIG.adapterId, 5)
     expect(lanes.map((lane) => lane.query)).toEqual([
-      '"looking to buy a home in Austin"',
-      '"trying to buy a house in Austin"',
-      '"planning to buy a home in Austin"',
+      'Austin realtor recommendations',
+      'Austin house hunting',
+      'Austin first time homebuyer',
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v36'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v37'
       && lane.providerQuery.opportunity_intent_lane === 'buyer_intent'
     ))).toBe(true)
 
