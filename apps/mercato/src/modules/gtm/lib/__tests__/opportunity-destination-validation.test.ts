@@ -60,7 +60,7 @@ describe('opportunity destination validation', () => {
     expect(result.candidate.evidence.at(-1)).toMatchObject({
       source_url: 'https://windsorpark.example/meetings',
       detail: {
-        validator: 'safe-public-destination-v2',
+        validator: 'safe-public-destination-v3',
         http_status: 200,
       },
     })
@@ -101,6 +101,22 @@ describe('opportunity destination validation', () => {
     expect(result.outcome).toBe('verified')
     expect(result.candidate.identity.location).toBe('Austin, Texas')
     expect(result.candidate.identity.audience_description).toContain('Austin Neighborhood Council')
+  })
+
+  it('prioritizes an observed professional-attendance restriction over generic registration copy', async () => {
+    const result = await validateOpportunityDestination(candidate('https://events.example/restricted-workshop'), {
+      fetchImpl: async () => new Response(`
+        <html><head><title>Buy your next house without selling</title></head><body><main>
+          <p>Register for this Austin homeowner workshop on September 15, 2026.</p>
+          <p>As this event is hosted by Open House Austin, we are currently not allowing agents, brokers, or lenders to attend due to a conflict of interest.</p>
+        </main></body></html>
+      `, { status: 200, headers: { 'content-type': 'text/html' } }),
+      now: () => CLOCK,
+    })
+
+    expect(result.outcome).toBe('verified')
+    expect(result.candidate.identity.participation_rules_status).toBe('observed')
+    expect(result.candidate.identity.participation_rules).toContain('not allowing agents')
   })
 
   it('marks a confirmed missing destination unavailable', async () => {
