@@ -1,5 +1,5 @@
 import { load } from 'cheerio'
-import { safeFetch, SsrfError } from '@/lib/safe-fetch'
+import { safeFetch, SsrfError } from '../../../../lib/safe-fetch'
 import type { Candidate, CandidateEvidence, CandidateIdentity } from '../adapters/types'
 import {
   canonicalOpportunityUrl,
