@@ -30,7 +30,11 @@ type GtmConsumerOwnerProbeLimits = {
 export const GTM_CONSUMER_OWNER_PROBE_CEILINGS = {
   targetAccepted: 10,
   maxRawCandidates: 60,
-  maxCredits: 30_000,
+  // Three TikTok lanes each require a $0.50 provider-side reservation even
+  // though finalized event charges are normally much lower. At the canonical
+  // two-times markup and 250,000 credits/USD this is exactly 750,000 credits.
+  // This remains owner-ID-bound and cannot satisfy the customer quality gate.
+  maxCredits: 750_000,
 } as const
 
 export function gtmConsumerResearchReleaseState(): GtmConsumerResearchReleaseState {
