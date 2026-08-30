@@ -203,30 +203,28 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     return byIntent[intent]
   }
   if (adapterId === 'apify-x-demand-opportunities') {
-    // X's BRONZE contract makes three separately quoted searches economical.
-    // Bind the market inside each literal phrase. A loose market token can
-    // match an author handle (for example, `Austin` in `@austinblair`) while
-    // the post itself proves no geography. Current-decision verbs also avoid
-    // spending the bounded pool on posts that merely recount a completed
-    // purchase or sale. fit-v7 still proves location, intent, recency, safety,
-    // and utility from returned content rather than treating targeting as
-    // evidence.
+    // X's BRONZE contract makes three short keyword searches economical. The
+    // actor only documents one keyword/hashtag search term; exact natural-
+    // language sentences produced no rows in the bounded v36 probe. Keep the
+    // market and intent concepts in each source-native bundle, while fit-v7
+    // independently proves location, intent, recency, safety, and utility from
+    // returned content. A market match in an author handle remains unknown.
     const market = marketName(geography)
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        `"looking to buy a home in ${market}"`,
-        `"trying to buy a house in ${market}"`,
-        `"planning to buy a home in ${market}"`,
+        `${market} realtor recommendations`,
+        `${market} house hunting`,
+        `${market} first time homebuyer`,
       ],
       seller_intent: [
-        `"thinking about selling my home in ${market}"`,
-        `"planning to sell my house in ${market}"`,
-        `"need to sell my home in ${market}"`,
+        `${market} listing agent recommendations`,
+        `${market} thinking selling home`,
+        `${market} need sell house`,
       ],
       mixed_intent: [
-        `"selling my home in ${market} and buying"`,
-        `"buy before selling in ${market}"`,
-        `"sell before buying in ${market}"`,
+        `${market} buy before sell`,
+        `${market} sell before buy`,
+        `${market} move up home`,
       ],
       local_audience: [
         `"home buyer workshop in ${market}"`,
@@ -467,7 +465,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v36',
+        query_lane_version: 'opportunity-query-v37',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,
