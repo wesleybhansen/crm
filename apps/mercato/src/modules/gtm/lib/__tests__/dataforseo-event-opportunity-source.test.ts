@@ -272,7 +272,7 @@ describe('DataForSEO Google Events demand-opportunity source', () => {
     const fetchImpl = jest.fn() as unknown as typeof fetch
     const result = await createDataForSeoEventsOpportunityAdapter({ env: approvedEnv, fetchImpl }).search({
       ...plan,
-      provider_query: { ...plan.provider_query, date_range: 'next_month' },
+      provider_query: { ...plan.provider_query, date_range: 'month' },
     })
     expect(result).toMatchObject({ status: 'error', cost_units: 0 })
     expect(result.error).toContain('unsupported_date_range')
