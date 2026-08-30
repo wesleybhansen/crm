@@ -204,21 +204,32 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   }
   if (adapterId === 'apify-x-demand-opportunities') {
     // X's BRONZE contract makes three separately quoted searches economical.
-    // Keep each query short, literal, and written in the consumer's voice;
-    // fit-v7 still proves location, intent, recency, safety, and utility from
-    // returned content rather than treating the targeting query as evidence.
+    // Bind the market inside each literal phrase. A loose market token can
+    // match an author handle (for example, `Austin` in `@austinblair`) while
+    // the post itself proves no geography. fit-v7 still proves location,
+    // intent, recency, safety, and utility from returned content rather than
+    // treating the targeting query as evidence.
+    const market = marketName(geography)
     const byIntent: Record<OpportunityIntentLane, string[]> = {
-      buyer_intent: ['"I am buying a home"', '"we are buying a home"', '"I want to buy a house"'],
-      seller_intent: ['"I am selling my home"', '"we are selling our home"', '"I am thinking of selling"'],
+      buyer_intent: [
+        `"buy a house in ${market}"`,
+        `"buying a home in ${market}"`,
+        `"moving to ${market} to buy"`,
+      ],
+      seller_intent: [
+        `"sell my house in ${market}"`,
+        `"selling my home in ${market}"`,
+        `"selling our house in ${market}"`,
+      ],
       mixed_intent: [
-        '"I am selling and buying a home"',
-        '"we are selling and buying a home"',
-        '"sell before buying"',
+        `"sell my house and buy in ${market}"`,
+        `"selling our home and buying in ${market}"`,
+        `"sell before buying in ${market}"`,
       ],
       local_audience: [
-        '"home buyer workshop"',
-        '"homeowner community event"',
-        '"neighborhood housing meeting"',
+        `"home buyer workshop in ${market}"`,
+        `"homeowner event in ${market}"`,
+        `"housing meeting in ${market}"`,
       ],
     }
     return byIntent[intent]
@@ -377,7 +388,11 @@ function sourceSeed(
     return seed
   }
   if (adapterId === 'apify-linkedin-demand-opportunities') return `${quoted(market)} AND ${seed}`
-  if (adapterId === 'apify-x-demand-opportunities') return `${market} ${seed}`
+  if (adapterId === 'apify-x-demand-opportunities') {
+    // Realtor X seeds bind the market inside the quoted phrase. Preserve the
+    // generic-source prefix only when the authored seed does not already do so.
+    return seed.toLowerCase().includes(market.toLowerCase()) ? seed : `${market} ${seed}`
+  }
   if (adapterId === 'apify-threads-demand-opportunities') return seed
   return `${market} ${seed}`
 }
@@ -450,7 +465,7 @@ export function buildOpportunityQueryLanes(
       negativeTerms,
       providerQuery: {
         ...providerQuery,
-        query_lane_version: 'opportunity-query-v34',
+        query_lane_version: 'opportunity-query-v35',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
         search_query: query,

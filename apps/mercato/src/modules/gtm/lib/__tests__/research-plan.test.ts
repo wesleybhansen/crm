@@ -204,7 +204,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(social.ok).toBe(true)
     if (social.ok) {
       expect(social.adapterPlan).toHaveLength(3)
-      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v34')).toBe(true)
+      expect(social.adapterPlan.every((batch) => batch.providerQuery?.query_lane_version === 'opportunity-query-v35')).toBe(true)
       const queries = social.adapterPlan.map((batch) => String(batch.providerQuery?.search_query ?? ''))
       expect(queries.every((query) => !query.includes('-"just listed"'))).toBe(true)
       expect(queries.every((query) => !/relocat|moving to/i.test(query))).toBe(true)
@@ -225,7 +225,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(lanes).toHaveLength(5)
     expect(lanes[0]?.query).toBe('Austin, Texas looking for a realtor to buy a home')
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v34')).toBe(true)
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v35')).toBe(true)
   })
 
   it('uses source-native realtor queries and three economical first-person X lanes', () => {
@@ -251,11 +251,11 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     )
 
     expect(x.map((lane) => lane.query)).toEqual([
-      'Austin "I am selling my home"',
-      'Austin "we are selling our home"',
-      'Austin "I am thinking of selling"',
+      '"sell my house in Austin"',
+      '"selling my home in Austin"',
+      '"selling our house in Austin"',
     ])
-    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v34')).toBe(true)
+    expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v35')).toBe(true)
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(3)
     expect(web).toHaveLength(5)
@@ -267,7 +267,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ])
     expect(events.every((lane) =>
       lane.providerQuery.date_range === DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v34'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v35'
     )).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(
@@ -345,7 +345,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'austinhomevalue',
     ])
     expect(
-      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v34'),
+      threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v35'),
     ).toBe(true)
   })
 
@@ -370,20 +370,22 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     )
 
     expect(buyer.map((lane) => lane.query)).toEqual([
-      'Austin "I am buying a home"',
-      'Austin "we are buying a home"',
-      'Austin "I want to buy a house"',
+      '"buy a house in Austin"',
+      '"buying a home in Austin"',
+      '"moving to Austin to buy"',
     ])
     expect(mixed.map((lane) => lane.query)).toEqual([
-      'Austin "I am selling and buying a home"',
-      'Austin "we are selling and buying a home"',
-      'Austin "sell before buying"',
+      '"sell my house and buy in Austin"',
+      '"selling our home and buying in Austin"',
+      '"sell before buying in Austin"',
     ])
     expect([...buyer, ...mixed].every((lane) => (
-      lane.query.startsWith('Austin ')
+      lane.query.includes('Austin')
+      && lane.query.startsWith('"')
+      && lane.query.endsWith('"')
       && lane.query.length <= 100
       && !/[()]/.test(lane.query)
-      && lane.providerQuery.query_lane_version === 'opportunity-query-v34'
+      && lane.providerQuery.query_lane_version === 'opportunity-query-v35'
     ))).toBe(true)
   })
 
