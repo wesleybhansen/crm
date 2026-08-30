@@ -1451,7 +1451,7 @@ describe('Apify public social demand opportunities', () => {
       intent: 'buyer_intent',
       query: 'austinhomebuyer',
       providerQuery: {
-        query_lane_version: 'opportunity-query-v52',
+        query_lane_version: 'opportunity-query-v53',
         source_query_lane_id: 'buyer_intent:1',
         search_query: 'austinhomebuyer',
       },
@@ -1513,13 +1513,15 @@ describe('Apify public social demand opportunities', () => {
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
       ])
-      expect(result.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([4, 4, 3, 3, 3, 3])
+      expect(result.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([3, 3, 3, 3, 2, 2, 2, 2])
       expect(result.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(20)
-      expect(new Set(result.adapterPlan.map((batch) => `${batch.adapter_id}:${batch.queryLaneId}`)).size).toBe(6)
+      expect(new Set(result.adapterPlan.map((batch) => `${batch.adapter_id}:${batch.queryLaneId}`)).size).toBe(8)
       expect(result.adapterPlan.every((batch) => batch.billableUnit === 'apify_millidollar')).toBe(true)
     }
   })
@@ -1541,7 +1543,7 @@ describe('Apify public social demand opportunities', () => {
       '#MovingToAustin',
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v52'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v53'
       && lane.providerQuery.opportunity_intent_lane === 'buyer_intent'
     ))).toBe(true)
 
