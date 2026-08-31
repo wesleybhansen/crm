@@ -60,6 +60,7 @@ export type PublicSocialOpportunityConfig = {
   oneTimeEvent: string | null
   allowedOneTimeEventCounts?: readonly number[]
   primaryResultEvent: string
+  primaryResultCountPolicy?: 'exact' | 'at-most-dataset'
   datasetResultBillingEvent?: string
   auxiliaryResultEvents?: readonly string[]
   partitionedResultEvents?: readonly string[]
@@ -663,6 +664,92 @@ export const APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfi
     }
   },
   normalize: normalizeRedditOpportunity,
+}
+
+export const APIFY_REDDIT_API_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-reddit-api-demand-opportunities',
+  platform: 'Reddit',
+  enabledEnv: 'GTM_APIFY_REDDIT_API_OPPORTUNITY_ENABLED',
+  actorId: 'practicaltools/apify-reddit-api',
+  actorBuild: '0.0.56',
+  actorEnv: 'GTM_APIFY_ACTOR_REDDIT_API_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_REDDIT_API_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_REDDIT_API_SEARCH_PRICE_VERSION',
+  // Rechecked against the signed-in Starter/BRONZE account, public actor
+  // metadata, and bounded terminal receipts on 2026-08-31. Bronze list price
+  // is $0.003 per returned item. The actor may apply its documented monthly
+  // free result allowance, so a finalized run can contain more dataset rows
+  // than charged item_returned events. Reserve the full list-price ceiling and
+  // reconcile only the provider's terminal event count.
+  requiredPriceVersion: 'practicaltools-apify-reddit-api-0.0.56-bronze-events-2026-08-31',
+  eventPricesUsd: {
+    item_returned: 0.003,
+  },
+  oneTimeEvent: null,
+  primaryResultEvent: 'item_returned',
+  primaryResultCountPolicy: 'at-most-dataset',
+  datasetResultBillingEvent: 'item_returned',
+  perItemQuoteUsd: 0.003,
+  oneTimeQuoteUsd: 0,
+  maxBatch: 10,
+  datasetFields: [
+    'dataType',
+    'id',
+    'url',
+    'createdAt',
+    'scrapedAt',
+    'title',
+    'body',
+    'communityName',
+    'parsedCommunityName',
+    'numberOfComments',
+    'upVotes',
+    'username',
+    'over18',
+    'isAd',
+    'isVideo',
+  ],
+  buildInput(plan, maxResults) {
+    validateRedditReturnedContentFilter(plan)
+    if (plan.provider_query?.reddit_api_contract_version !== 'scoped-public-post-search-v1') {
+      throw new TypeError('Reddit API sourcing requires the frozen scoped public-post contract')
+    }
+    if (requestedOpportunityIntent(plan) !== 'buyer_intent') {
+      throw new TypeError('Reddit API sourcing is limited to the calibrated realtor buyer lane')
+    }
+    if (plan.provider_query?.reddit_api_window_days !== 30) {
+      throw new TypeError('Reddit API sourcing requires the frozen 30-day post window')
+    }
+    if (maxResults > 10) {
+      throw new TypeError('Reddit API sourcing is limited to 10 rows per quoted lane')
+    }
+    const subreddits = redditSubreddits(plan)
+    if (subreddits.length !== 1 || redditAutoDiscover(plan) || redditGlobalSearch(plan)) {
+      throw new TypeError('Reddit API sourcing requires exactly one frozen public subreddit')
+    }
+    const query = queryText(plan, 40).toLowerCase()
+    if (!['looking to buy', 'house hunting'].includes(query)) {
+      throw new TypeError('Reddit API sourcing requires a calibrated source-native buyer phrase')
+    }
+    return {
+      startUrls: [{ url: `https://www.reddit.com/r/${subreddits[0]}/` }],
+      searches: [query],
+      sort: 'new',
+      time: 'month',
+      maxItems: maxResults,
+      includeNSFW: false,
+      skipComments: true,
+      skipUserPosts: true,
+      skipCommunity: true,
+      ignorestartUrls: false,
+      searchPosts: true,
+      searchComments: false,
+      fetchPostComments: false,
+      searchCommunities: false,
+      searchUsers: false,
+    }
+  },
+  normalize: normalizeScopedRedditApiOpportunity,
 }
 
 export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
@@ -1797,6 +1884,27 @@ function commonIdentity(args: {
   }
 }
 
+export function normalizeScopedRedditApiOpportunity(
+  value: unknown,
+  context: NormalizeContext,
+): Candidate | null {
+  const row = record(value)
+  const expected = context.scopedSubreddits?.[0]?.toLowerCase().replace(/[^a-z0-9]/g, '') ?? ''
+  const returned = text(row?.parsedCommunityName ?? row?.communityName, 100)
+    ?.replace(/^r\//i, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '') ?? ''
+  const sourceUrl = safePlatformUrl(row?.url, 'Reddit')
+  if (!freshPublicPostTimestamp(row?.createdAt, context.attemptedAt)) return null
+  const pathScope = sourceUrl
+    ? new URL(sourceUrl).pathname.match(/^\/r\/([^/]+)/i)?.[1]
+      ?.toLowerCase()
+      .replace(/[^a-z0-9]/g, '') ?? ''
+    : ''
+  if (!expected || returned !== expected || pathScope !== expected) return null
+  return normalizeRedditOpportunity(value, context)
+}
+
 export function normalizeRedditOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
   const row = record(value)
   const rowType = text(row?.recordType ?? row?.dataType ?? row?.type ?? row?._type, 20)?.toLowerCase()
@@ -1816,6 +1924,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
     || row.isDeleted === true
     || row.isRemoved === true
     || row.isCommercialCommunication === true
+    || row.isAd === true
     || row.isRobotIndexable === false
     || text(row.removedByCategory, 80) != null
   ) return null
@@ -1855,10 +1964,10 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
       + nonNegativeInteger(
         rowType === 'comment'
           ? row.postCommentCount
-          : row.numComments ?? row.num_comments ?? row.commentCount ?? row.commentsCount,
+          : row.numComments ?? row.num_comments ?? row.commentCount ?? row.commentsCount ?? row.numberOfComments,
       ),
   )
-  const author = text(row.author ?? row.authorName, 100)
+  const author = text(row.author ?? row.authorName ?? row.username, 100)
   const memberCount = nonNegativeInteger(
     rowType === 'comment'
       ? row.subredditSubscribers ?? row.subreddit_subscribers
@@ -2684,12 +2793,16 @@ export function createPublicSocialOpportunityAdapter(
           error: 'invalid_schema: provider mixed result rows with a zero-result diagnostic',
         }
       }
-      if ((counts[config.primaryResultEvent] ?? 0) !== resultItems.length) {
+      const billedPrimaryResults = counts[config.primaryResultEvent] ?? 0
+      const primaryResultCountMatches = config.primaryResultCountPolicy === 'at-most-dataset'
+        ? billedPrimaryResults <= resultItems.length
+        : billedPrimaryResults === resultItems.length
+      if (!primaryResultCountMatches) {
         return {
           status: 'ambiguous',
           data: null,
           receipt: providerReceipt({
-            billed_results: counts[config.primaryResultEvent] ?? 0,
+            billed_results: billedPrimaryResults,
           }),
           cost_units: null,
           error: 'invalid_schema: billed result count did not match the bounded dataset',
@@ -2869,6 +2982,12 @@ export function createApifyRedditFreshOpportunityAdapter(
   return createPublicSocialOpportunityAdapter(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyRedditApiOpportunityAdapter(
+  deps: PublicSocialDeps = {},
+): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_REDDIT_API_OPPORTUNITY_CONFIG, deps)
+}
+
 export function createApifyRedditPostedAfterOpportunityAdapter(
   deps: PublicSocialDeps = {},
 ): SourceAdapter {
@@ -2909,6 +3028,10 @@ export function apifyRedditThreadOpportunityEnabled(env: SocialEnv = process.env
 
 export function apifyRedditFreshOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyRedditApiOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_REDDIT_API_OPPORTUNITY_CONFIG, env)
 }
 
 export function apifyRedditPostedAfterOpportunityEnabled(env: SocialEnv = process.env): boolean {

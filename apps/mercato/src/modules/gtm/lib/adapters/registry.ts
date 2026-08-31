@@ -7,6 +7,7 @@ import {
   apifyFacebookOpportunityEnabled,
   apifyInstagramOpportunityEnabled,
   apifyMeetupOpportunityEnabled,
+  apifyRedditApiOpportunityEnabled,
   apifyRedditFreshOpportunityEnabled,
   apifyRedditOpportunityEnabled,
   apifyRedditPostedAfterOpportunityEnabled,
@@ -17,6 +18,7 @@ import {
   createApifyFacebookOpportunityAdapter,
   createApifyInstagramOpportunityAdapter,
   createApifyMeetupOpportunityAdapter,
+  createApifyRedditApiOpportunityAdapter,
   createApifyRedditFreshOpportunityAdapter,
   createApifyRedditOpportunityAdapter,
   createApifyRedditPostedAfterOpportunityAdapter,
@@ -97,6 +99,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifyRedditFreshOpportunityEnabled()) {
     const redditFreshOpportunities = createApifyRedditFreshOpportunityAdapter()
     registry[redditFreshOpportunities.descriptor.adapter_id] = redditFreshOpportunities
+  }
+  if (apifyRedditApiOpportunityEnabled()) {
+    const redditApiOpportunities = createApifyRedditApiOpportunityAdapter()
+    registry[redditApiOpportunities.descriptor.adapter_id] = redditApiOpportunities
   }
   if (apifyRedditPostedAfterOpportunityEnabled()) {
     const redditPostedAfterOpportunities = createApifyRedditPostedAfterOpportunityAdapter()
