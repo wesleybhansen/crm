@@ -1955,7 +1955,7 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).not.toHaveBeenCalled()
   })
 
-  it('builds three market-bound Threads lanes inside one raw ceiling', () => {
+  it('preserves the frozen Threads lane contract while routing realtor plays off the weak source', () => {
     const play = {
       marketType: 'b2c' as const,
       geography: 'Austin, Texas, US',
@@ -1997,15 +1997,13 @@ describe('Apify public social demand opportunities', () => {
       { targetAccepted: 10, maxRawCandidates: 10, maxCredits: 30_000 },
       2,
     )
-    expect(planned.ok).toBe(true)
-    if (planned.ok) {
-      expect(planned.adapterPlan).toHaveLength(3)
-      expect(planned.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([4, 3, 3])
-      expect(planned.plannedRawCapacity).toBe(10)
-      // Each separately quoted lane reserves Apify's $0.01 minimum provider
-      // cap. Final reconciliation still uses only the actual starts and
-      // returned rows; the combined event cost for ten rows is $0.0203.
-      expect(planned.estimatedCredits).toBe(15_000)
+    expect(planned.ok).toBe(false)
+    if (!planned.ok) {
+      expect(planned.code).toBe('empty_adapter_plan')
+      expect(planned.unsupportedDimensions).toContainEqual(expect.objectContaining({
+        adapter_id: APIFY_THREADS_OPPORTUNITY_CONFIG.adapterId,
+        reason: expect.stringContaining('Starter/BRONZE realtor probe'),
+      }))
     }
   })
 

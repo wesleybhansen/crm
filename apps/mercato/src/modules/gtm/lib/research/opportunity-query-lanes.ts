@@ -139,6 +139,13 @@ export function opportunitySourceRouting(
     }
   }
 
+  if (adapterId === 'apify-threads-demand-opportunities' && realtor) {
+    return {
+      eligible: false,
+      reason: 'the bounded Starter/BRONZE realtor probe returned only stale, unlocalized, inaccessible, or provider-promotional rows; Threads remains independently gated until a materially different source contract is qualified',
+    }
+  }
+
   if (
     (adapterId === 'apify-reddit-thread-demand-opportunities'
       || adapterId === 'apify-reddit-fresh-demand-opportunities'
@@ -230,19 +237,19 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     if (intent === 'buyer_intent') {
       return [
         `${marketScope} "house hunting"`,
-        '"looking to buy a house" public forum',
-        '"looking for a realtor" public forum',
         'first time home buyer workshop registration',
-        'home buyer seminar registration',
+        'home buyer education class registration',
+        'homeownership workshop public registration',
+        'home buying seminar public registration',
       ]
     }
     if (intent === 'seller_intent') {
       return [
         `${marketScope} "looking to sell home"`,
-        `${marketScope} "selling my house"`,
-        '"looking to sell my home" public forum',
-        '"thinking of selling my home" public forum',
-        '"recommend a realtor" "sell my house" public forum',
+        'home seller workshop public registration',
+        'selling your home seminar public registration',
+        'home seller education class registration',
+        'prepare your home for sale workshop',
       ]
     }
     if (intent === 'mixed_intent') {
@@ -674,7 +681,7 @@ export function buildOpportunityQueryLanes(
         : adapterId === 'apify-reddit-demand-opportunities' && realtorTransaction
           ? 5
           : adapterId === 'dataforseo-organic-demand-opportunities'
-            ? realtor && intent === 'seller_intent' ? 5 : realtorTransaction ? 3 : 5
+            ? 5
           : adapterId === 'dataforseo-events-demand-opportunities'
             ? 3
           : 3
@@ -706,12 +713,8 @@ export function buildOpportunityQueryLanes(
             ? 'opportunity-query-v79'
             : adapterId === 'apify-reddit-demand-opportunities' && realtor
             ? 'opportunity-query-v80'
-            : adapterId === 'dataforseo-organic-demand-opportunities'
-              && realtor
-              && (intent === 'seller_intent' || intent === 'local_audience')
-            ? 'opportunity-query-v83'
-            : adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
-            ? 'opportunity-query-v73'
+            : adapterId === 'dataforseo-organic-demand-opportunities' && realtor
+            ? 'opportunity-query-v85'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -726,8 +729,8 @@ export function buildOpportunityQueryLanes(
         ...(adapterId === 'dataforseo-organic-demand-opportunities'
           ? {
               search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
-              ...(realtor && (intent === 'seller_intent' || intent === 'local_audience')
-                ? { realtor_retrieval_contract_version: 'evidence-first-public-destination-v1' }
+              ...(realtor
+                ? { realtor_retrieval_contract_version: 'evidence-first-public-destination-v2' }
                 : {}),
               ...(dataForSeoSiteScope
                 ? {
