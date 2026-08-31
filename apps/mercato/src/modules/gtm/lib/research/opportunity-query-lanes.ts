@@ -199,30 +199,30 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   if (adapterId === 'dataforseo-organic-demand-opportunities') {
     const subreddit = realtorMarketSubreddits(geography)[0]
       ?? marketName(geography).replace(/[^a-z0-9]/gi, '')
-    const returnedMarket = `site:reddit.com/r/${subreddit}`
+    const marketScope = `site:reddit.com/r/${subreddit}`
     if (intent === 'buyer_intent') {
       return [
-        `${returnedMarket} "looking for a realtor"`,
-        `${returnedMarket} "first time home buyer"`,
-        `${returnedMarket} "house hunting"`,
+        `${marketScope} "house hunting"`,
+        'site:reddit.com/r/FirstTimeHomeBuyer "looking to buy a house"',
+        'site:reddit.com/r/RealEstate "looking for a realtor"',
         'first time home buyer workshop registration',
         'home buyer seminar registration',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        `${returnedMarket} "looking for a realtor"`,
-        `${returnedMarket} "thinking of selling"`,
-        `${returnedMarket} "repairs before selling"`,
+        `${marketScope} "selling my house"`,
+        'site:reddit.com/r/homeowners "thinking about selling my house"',
+        'site:reddit.com/r/RealEstate "looking to sell my home"',
         'home seller workshop registration',
         'selling your home seminar registration',
       ]
     }
     if (intent === 'mixed_intent') {
       return [
-        `${returnedMarket} "sell before buying"`,
-        `${returnedMarket} "buy before selling"`,
-        `${returnedMarket} "sell then buy"`,
+        `${marketScope} "sell before buying"`,
+        'site:reddit.com/r/homeowners "buy before selling"',
+        'site:reddit.com/r/RealEstate "sell then buy"',
       ]
     }
     return [
@@ -578,13 +578,13 @@ export function buildOpportunityQueryLanes(
   const laneCap = Math.max(1, Math.min(maxLanes, sourceLaneCap))
   const selectedSeeds = seeds.slice(0, laneCap)
   const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
-  const dataForSeoSiteScope =
-    adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
-      ? `reddit.com/r/${realtorMarketSubreddits(geography)[0] ?? marketName(geography).replace(/[^a-z0-9]/gi, '')}`
-      : null
   return selectedSeeds.map((seed, index) => {
     const id = `${intent}:${index + 1}`
     const query = queryFor({ adapterId, geography, seed })
+    const dataForSeoSiteScope =
+      adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
+        ? query.match(/(?:^|\s)site:([^\s()]+)/i)?.[1]?.replace(/[.,;]+$/, '') ?? null
+        : null
     return {
       id,
       intent,
@@ -597,6 +597,8 @@ export function buildOpportunityQueryLanes(
             ? 'opportunity-query-v64'
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
             ? 'opportunity-query-v71'
+            : adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
+            ? 'opportunity-query-v72'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'

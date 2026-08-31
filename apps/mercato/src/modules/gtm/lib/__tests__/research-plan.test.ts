@@ -234,11 +234,19 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     )
 
     expect(lanes).toHaveLength(3)
-    expect(lanes[0]?.query).toBe('Austin, Texas site:reddit.com/r/Austin "looking for a realtor"')
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v57')).toBe(true)
+    expect(lanes.map((lane) => lane.query)).toEqual([
+      'Austin, Texas site:reddit.com/r/Austin "house hunting"',
+      'Austin, Texas site:reddit.com/r/FirstTimeHomeBuyer "looking to buy a house"',
+      'Austin, Texas site:reddit.com/r/RealEstate "looking for a realtor"',
+    ])
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v72')).toBe(true)
     expect(lanes.every((lane) => lane.providerQuery.dataforseo_price_operator_contract === 'single-positive-site-v1')).toBe(true)
     expect(lanes.every((lane) => lane.providerQuery.dataforseo_price_multiplier === 5)).toBe(true)
-    expect(lanes.every((lane) => lane.providerQuery.dataforseo_site_scope === 'reddit.com/r/Austin')).toBe(true)
+    expect(lanes.map((lane) => lane.providerQuery.dataforseo_site_scope)).toEqual([
+      'reddit.com/r/Austin',
+      'reddit.com/r/FirstTimeHomeBuyer',
+      'reddit.com/r/RealEstate',
+    ])
   })
 
   it('builds five independently scoped freshness-enforcing Reddit lanes for realtor demand', () => {
@@ -392,7 +400,11 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ).toBe(true)
     expect(web.every((lane) => !lane.query.includes('United States'))).toBe(true)
     expect(web.every((lane) => !/[()]/.test(lane.query))).toBe(true)
-    expect(web.every((lane) => lane.query.includes('site:reddit.com/r/Austin'))).toBe(true)
+    expect(web.map((lane) => lane.providerQuery.dataforseo_site_scope)).toEqual([
+      'reddit.com/r/Austin',
+      'reddit.com/r/homeowners',
+      'reddit.com/r/RealEstate',
+    ])
     expect(x.every((lane) => !lane.query.includes('-jobs'))).toBe(true)
     expect(
       reddit.slice(0, 3).every((lane) => /sell|selling|realtor|house/i.test(lane.query)),
@@ -455,9 +467,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        'Austin, Texas site:reddit.com/r/Austin "looking for a realtor"',
-        'Austin, Texas site:reddit.com/r/Austin "thinking of selling"',
-        'Austin, Texas site:reddit.com/r/Austin "repairs before selling"',
+        'Austin, Texas site:reddit.com/r/Austin "selling my house"',
+        'Austin, Texas site:reddit.com/r/homeowners "thinking about selling my house"',
+        'Austin, Texas site:reddit.com/r/RealEstate "looking to sell my home"',
       ]),
     )
     expect(
@@ -469,9 +481,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(buyerWeb).toHaveLength(3)
     expect(buyerWeb.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
-        'Austin, Texas site:reddit.com/r/Austin "looking for a realtor"',
-        'Austin, Texas site:reddit.com/r/Austin "first time home buyer"',
         'Austin, Texas site:reddit.com/r/Austin "house hunting"',
+        'Austin, Texas site:reddit.com/r/FirstTimeHomeBuyer "looking to buy a house"',
+        'Austin, Texas site:reddit.com/r/RealEstate "looking for a realtor"',
       ]),
     )
     expect(buyerWeb.every((lane) => lane.query.length < 240)).toBe(true)
