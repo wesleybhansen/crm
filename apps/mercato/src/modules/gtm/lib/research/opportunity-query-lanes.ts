@@ -71,20 +71,9 @@ function unique(valuesToDedupe: string[]): string[] {
   })
 }
 
-function redditConjunctiveFieldSearch(...phraseGroups: string[][]): string {
-  return phraseGroups
-    .map((phrases) => {
-      const clauses = phrases.flatMap((phrase) => {
-        const exact = quoted(phrase)
-        return [`title:${exact}`, `selftext:${exact}`]
-      })
-      return `(${clauses.join(' OR ')})`
-    })
-    .join(' AND ')
-}
-
-function redditMarketBoundPhraseSearch(market: string, ...phrases: string[]): string {
-  return redditConjunctiveFieldSearch([market], phrases)
+function redditExactFieldPhraseSearch(phrase: string): string {
+  const exact = quoted(phrase)
+  return `(title:${exact} OR selftext:${exact})`
 }
 
 function inferredLane(play: PlanPlayInput): OpportunityIntentLane {
@@ -296,25 +285,25 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const market = marketName(geography)
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
-        redditConjunctiveFieldSearch(['realtor', 'real estate agent'], ['buy', 'buyer']),
-        redditConjunctiveFieldSearch(['buying', 'looking to buy'], ['home', 'house']),
-        redditConjunctiveFieldSearch(['first time', 'first-time'], ['home buyer', 'house buyer']),
-        redditMarketBoundPhraseSearch(market, 'first time', 'home buyer', 'buying'),
-        redditMarketBoundPhraseSearch(market, 'realtor', 'house hunting', 'buying'),
+        redditExactFieldPhraseSearch('looking to buy'),
+        redditExactFieldPhraseSearch('buying a home'),
+        redditExactFieldPhraseSearch('house hunting'),
+        redditExactFieldPhraseSearch('first time home buyer'),
+        redditExactFieldPhraseSearch(`buying in ${market}`),
       ],
       seller_intent: [
-        redditConjunctiveFieldSearch(['realtor', 'real estate agent'], ['sell', 'seller']),
-        redditConjunctiveFieldSearch(['selling', 'planning to sell'], ['home', 'house']),
-        redditConjunctiveFieldSearch(['thinking of selling', 'sell my'], ['home', 'house']),
-        redditMarketBoundPhraseSearch(market, 'thinking of selling', 'seller', 'selling'),
-        redditMarketBoundPhraseSearch(market, 'realtor', 'selling my home', 'seller'),
+        redditExactFieldPhraseSearch('thinking of selling'),
+        redditExactFieldPhraseSearch('looking to sell'),
+        redditExactFieldPhraseSearch('selling my home'),
+        redditExactFieldPhraseSearch('planning to sell'),
+        redditExactFieldPhraseSearch(`selling in ${market}`),
       ],
       mixed_intent: [
-        redditConjunctiveFieldSearch(['sell', 'selling a home'], ['buy', 'buying a home']),
-        redditConjunctiveFieldSearch(['selling', 'sell first'], ['buying', 'buy first']),
-        redditConjunctiveFieldSearch(['move up', 'moving'], ['sell', 'buy']),
-        redditMarketBoundPhraseSearch(market, 'sell before buying', 'buy before selling'),
-        redditMarketBoundPhraseSearch(market, 'selling and buying', 'buying and selling'),
+        redditExactFieldPhraseSearch('sell before buying'),
+        redditExactFieldPhraseSearch('buy before selling'),
+        redditExactFieldPhraseSearch('selling and buying'),
+        redditExactFieldPhraseSearch('move-up buyer'),
+        redditExactFieldPhraseSearch(`moving in ${market}`),
       ],
       local_audience: [],
     }
@@ -607,7 +596,7 @@ export function buildOpportunityQueryLanes(
           adapterId === 'apify-reddit-thread-demand-opportunities'
             ? 'opportunity-query-v64'
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
-            ? 'opportunity-query-v67'
+            ? 'opportunity-query-v68'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -672,7 +661,7 @@ export function buildOpportunityQueryLanes(
         ...(adapterId === 'apify-reddit-fresh-demand-opportunities'
           ? {
               reddit_fresh_contract_version: 'public-post-search-v2',
-              reddit_search_syntax_version: 'field-qualified-conjunctive-v2',
+              reddit_search_syntax_version: 'field-qualified-exact-phrase-bank-v3',
               reddit_fresh_window_days: 30,
               reddit_returned_content_filter_version: 'semantic-intent-location-v3',
               reddit_filter_required_intent: intent,
