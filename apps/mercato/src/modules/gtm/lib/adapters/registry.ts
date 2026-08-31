@@ -6,6 +6,7 @@ import { apifyOpportunitySourceEnabled, createApifyOpportunitySourceAdapter } fr
 import {
   apifyInstagramOpportunityEnabled,
   apifyMeetupOpportunityEnabled,
+  apifyRedditFreshOpportunityEnabled,
   apifyRedditOpportunityEnabled,
   apifyRedditThreadOpportunityEnabled,
   apifyThreadsOpportunityEnabled,
@@ -13,6 +14,7 @@ import {
   apifyXOpportunityEnabled,
   createApifyInstagramOpportunityAdapter,
   createApifyMeetupOpportunityAdapter,
+  createApifyRedditFreshOpportunityAdapter,
   createApifyRedditOpportunityAdapter,
   createApifyRedditThreadOpportunityAdapter,
   createApifyThreadsOpportunityAdapter,
@@ -87,6 +89,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifyRedditThreadOpportunityEnabled()) {
     const redditThreadOpportunities = createApifyRedditThreadOpportunityAdapter()
     registry[redditThreadOpportunities.descriptor.adapter_id] = redditThreadOpportunities
+  }
+  if (apifyRedditFreshOpportunityEnabled()) {
+    const redditFreshOpportunities = createApifyRedditFreshOpportunityAdapter()
+    registry[redditFreshOpportunities.descriptor.adapter_id] = redditFreshOpportunities
   }
   if (apifyXOpportunityEnabled()) {
     const xOpportunities = createApifyXOpportunityAdapter()

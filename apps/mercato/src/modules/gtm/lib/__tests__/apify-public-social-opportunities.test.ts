@@ -1,9 +1,11 @@
 import type { ApifyRunOutcome } from '../adapters/apify/client'
 import {
+  APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG,
   APIFY_REDDIT_OPPORTUNITY_CONFIG,
   APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG,
   APIFY_THREADS_OPPORTUNITY_CONFIG,
   APIFY_X_OPPORTUNITY_CONFIG,
+  createApifyRedditFreshOpportunityAdapter,
   createApifyRedditOpportunityAdapter,
   createApifyRedditThreadOpportunityAdapter,
   createApifyThreadsOpportunityAdapter,
@@ -140,6 +142,29 @@ function redditThreadComment(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function freshRedditPost(overrides: Record<string, unknown> = {}) {
+  return {
+    recordType: 'post',
+    id: 'fresh_post',
+    fullId: 't3_fresh_post',
+    title: 'Phoenix first-time buyer looking for a home',
+    text: 'We are house hunting in Phoenix and comparing neighborhoods this month.',
+    author: 'fresh_buyer',
+    subreddit: 'Phoenix',
+    score: 18,
+    numComments: 9,
+    createdAt: '2026-08-25T17:00:00.000Z',
+    scrapedAt: '2026-08-26T23:00:00.000Z',
+    sourceQuery: 'buying home',
+    url: 'https://www.reddit.com/r/Phoenix/comments/fresh_post/phoenix_first_time_buyer/',
+    permalink: '/r/Phoenix/comments/fresh_post/phoenix_first_time_buyer/',
+    isNsfw: false,
+    isLocked: false,
+    isStickied: false,
+    ...overrides,
+  }
+}
+
 function xPost(overrides: Record<string, unknown> = {}) {
   return {
     postText: 'Thinking about selling our South Bay home. What should we prepare first?',
@@ -201,6 +226,11 @@ function outcome(
           'post-scraped': partitionCounts.posts,
           'comment-scraped': partitionCounts.comments,
         }
+      : config.adapterId === APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG.adapterId
+        ? {
+            'apify-actor-start': 1,
+            'apify-default-dataset-item': items.length,
+          }
       : config.platform === 'Reddit'
       ? {
           'apify-actor-start': 1,
@@ -268,6 +298,44 @@ describe('Apify public social demand opportunities', () => {
       perItemQuoteUsd: 0.003,
       minimumBatch: 2,
       maxBatch: 10,
+    })
+  })
+
+  it('pins freshness-enforcing Reddit reservations to the exact BRONZE event contract', () => {
+    expect(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG).toMatchObject({
+      actorId: 'solidcode/reddit-scraper',
+      actorBuild: '1.1.36',
+      requiredPriceVersion: 'solidcode-reddit-scraper-1.1.36-bronze-events-2026-08-30',
+      eventPricesUsd: {
+        'apify-actor-start': 0.01,
+        'apify-default-dataset-item': 0.0022,
+      },
+      oneTimeQuoteUsd: 0.01,
+      perItemQuoteUsd: 0.0022,
+      maxBatch: 10,
+    })
+  })
+
+  it('keeps freshness-enforcing Reddit sourcing held unless its capability switch is explicit', () => {
+    const env = envFor(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG)
+    expect(publicSocialOpportunityEnabled(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG, env)).toBe(false)
+    expect(publicSocialOpportunityEnabled(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG, {
+      ...env,
+      GTM_APIFY_REDDIT_FRESH_OPPORTUNITY_ENABLED: 'true',
+    })).toBe(true)
+  })
+
+  it('quotes a ten-row freshness-enforcing Reddit lane at its exact hard ceiling', () => {
+    const adapter = createApifyRedditFreshOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_FRESH_OPPORTUNITY_ENABLED: 'true',
+      },
+    })
+    expect(adapter.quote({ ...plan, max_candidates: 10 })).toMatchObject({
+      max_candidates: 10,
+      provider_units: 32,
+      estimated_credits_before_markup: 8_000,
     })
   })
 
@@ -402,6 +470,7 @@ describe('Apify public social demand opportunities', () => {
   it.each([
     [APIFY_REDDIT_OPPORTUNITY_CONFIG],
     [APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG],
+    [APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG],
     [APIFY_X_OPPORTUNITY_CONFIG],
     [APIFY_THREADS_OPPORTUNITY_CONFIG],
   ])(
@@ -1835,6 +1904,101 @@ describe('Apify public social demand opportunities', () => {
       // returned rows; the combined event cost for ten rows is $0.0203.
       expect(planned.estimatedCredits).toBe(15_000)
     }
+  })
+
+  it('freezes the fresh Reddit input to one subreddit, newest posts, and a hard 30-day cutoff', async () => {
+    const runActor = jest.fn(async () => outcome(
+      APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG,
+      freshRedditPost(),
+    ))
+    const adapter = createApifyRedditFreshOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_FRESH_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor,
+    })
+    const lane = buildOpportunityQueryLanes({
+      geography: 'Phoenix, Arizona, United States',
+      audience: 'People publicly demonstrating that they want to buy a home in Phoenix',
+      signal: 'A recent public question demonstrates home-buying intent.',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }, APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG.adapterId)[0]!
+    await expect(adapter.search({
+      signal_kind: 'social_engagement',
+      entity_unit: 'opportunities',
+      geography: 'US',
+      query: lane.query,
+      provider_query: lane.providerQuery,
+      max_candidates: 10,
+      max_charge_usd: 0.032,
+    })).resolves.toMatchObject({ status: 'ok' })
+    expect(runActor).toHaveBeenCalledWith(
+      APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG.actorId,
+      {
+        searches: ['buying home'],
+        searchCommunityName: 'Phoenix',
+        searchPosts: true,
+        searchComments: false,
+        searchCommunities: false,
+        searchUsers: false,
+        sort: 'new',
+        time: 'month',
+        postDateLimit: '30 days',
+        includeNSFW: false,
+        skipComments: true,
+        skipCommunityInfo: true,
+        maxItems: 10,
+      },
+      expect.objectContaining({
+        build: '1.1.36',
+        maxItems: 10,
+        maxChargeUsd: 0.032,
+      }),
+    )
+  })
+
+  it('refuses altered fresh Reddit freshness, scope, and content contracts before provider contact', async () => {
+    const runActor = jest.fn()
+    const adapter = createApifyRedditFreshOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_FRESH_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor,
+    })
+    const baseProviderQuery = {
+      source_search_keywords: ['buying home'],
+      search_query: 'buying home',
+      locations: ['Phoenix, Arizona'],
+      opportunity_intent_lane: 'buyer_intent',
+      reddit_fresh_contract_version: 'public-post-search-v1',
+      reddit_fresh_window_days: 30,
+      reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+      reddit_filter_required_intent: 'buyer_intent',
+      reddit_filter_require_location: false,
+      reddit_subreddits: ['Phoenix'],
+      reddit_auto_discover: false,
+      reddit_global_search: false,
+    }
+    for (const provider_query of [
+      { ...baseProviderQuery, reddit_fresh_window_days: 31 },
+      { ...baseProviderQuery, reddit_subreddits: [] },
+      { ...baseProviderQuery, reddit_fresh_contract_version: 'unfrozen' },
+    ]) {
+      await expect(adapter.search({
+        ...plan,
+        provider_query,
+        max_candidates: 10,
+        max_charge_usd: 0.032,
+      })).resolves.toMatchObject({
+        status: 'error',
+        error: expect.stringContaining('bad_request'),
+      })
+    }
+    expect(runActor).not.toHaveBeenCalled()
   })
 
   it('plans three Reddit and three fixed-charge-aware X shortfall lanes', () => {
