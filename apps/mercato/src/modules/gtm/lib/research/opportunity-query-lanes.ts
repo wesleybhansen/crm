@@ -76,6 +76,10 @@ function redditExactFieldPhraseSearch(phrase: string): string {
   return `(title:${exact} OR selftext:${exact})`
 }
 
+function redditExactPhraseBank(phrases: string[]): string {
+  return `(${phrases.map(quoted).join(' OR ')})`
+}
+
 function inferredLane(play: PlanPlayInput): OpportunityIntentLane {
   const query = play.providerQuery ?? {}
   const explicit = values(
@@ -324,22 +328,28 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   }
   if (adapterId === 'apify-reddit-posted-after-demand-opportunities') {
     const market = marketName(geography)
+    const buyer = redditExactPhraseBank([
+      'looking to buy',
+      'house hunting',
+      'first time home buyer',
+      'buy a house',
+    ])
+    const seller = redditExactPhraseBank([
+      'looking to sell',
+      'selling my house',
+      'sell my house',
+      'realtor recommendation',
+    ])
+    const mixed = redditExactPhraseBank([
+      'sell before buying',
+      'buy before selling',
+      'selling and buying',
+      'move up buyer',
+    ])
     const byIntent: Record<OpportunityIntentLane, string[]> = {
-      buyer_intent: [
-        'looking to buy a home',
-        'house hunting',
-        `${market} first time home buyer`,
-      ],
-      seller_intent: [
-        'looking to sell a home',
-        'selling my house',
-        `${market} realtor recommendation`,
-      ],
-      mixed_intent: [
-        'sell before buying',
-        'buy before selling',
-        `${market} selling and buying a home`,
-      ],
+      buyer_intent: [buyer, buyer, `${quoted(market)} AND ${buyer}`],
+      seller_intent: [seller, seller, `${quoted(market)} AND ${seller}`],
+      mixed_intent: [mixed, mixed, `${quoted(market)} AND ${mixed}`],
       local_audience: [],
     }
     return byIntent[intent]
@@ -504,7 +514,7 @@ function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-linkedin-demand-opportunities') return 200
   if (adapterId === 'apify-reddit-thread-demand-opportunities') return 500
   if (adapterId === 'apify-reddit-fresh-demand-opportunities') return 500
-  if (adapterId === 'apify-reddit-posted-after-demand-opportunities') return 160
+  if (adapterId === 'apify-reddit-posted-after-demand-opportunities') return 500
   return 700
 }
 
@@ -666,7 +676,7 @@ export function buildOpportunityQueryLanes(
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
             ? 'opportunity-query-v71'
             : adapterId === 'apify-reddit-posted-after-demand-opportunities'
-            ? 'opportunity-query-v75'
+            ? 'opportunity-query-v76'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
             ? 'opportunity-query-v73'
             : adapterId === 'apify-instagram-demand-opportunities'
@@ -760,8 +770,8 @@ export function buildOpportunityQueryLanes(
         ...(adapterId === 'apify-reddit-posted-after-demand-opportunities'
           ? {
               locations: [geography],
-              reddit_posted_after_contract_version: 'public-post-search-v1',
-              reddit_search_syntax_version: 'natural-phrase-bank-v1',
+              reddit_posted_after_contract_version: 'public-post-search-url-v1',
+              reddit_search_syntax_version: 'exact-phrase-or-url-v1',
               reddit_posted_after_window_days: 30,
               reddit_returned_content_filter_version: 'semantic-intent-location-v3',
               reddit_filter_required_intent: intent,
