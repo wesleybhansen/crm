@@ -231,6 +231,13 @@ const CURRENT_HOUSE_HUNTING_DECLARATION =
 // residential so provider promotion and generic uses of "looking" remain out.
 const FIRST_PERSON_HOUSE_HUNTING_PLAN =
   /\b(?:i|we|(?:(?:my|our)\s+)?(?:husband|wife|spouse|partner)\s+and\s+i)(?:'m|'re| am| are)\s+(?:actively\s+)?(?:looking|planning|hoping|wanting|ready)\s+to\s+(?:start|begin)\s+house hunting\b/i
+// Some current buyers describe the beginning of their search as “starting to
+// look at buying” and name neighborhoods, commute, affordability, or housing
+// in the following text. Requiring both first-person onset language and nearby
+// residential context keeps product purchases and provider-authored content
+// out while preserving genuine local housing questions returned by Reddit.
+const FIRST_PERSON_STARTING_RESIDENTIAL_PURCHASE_SEARCH =
+  /\b(?:i|we)(?:['’]m|['’]re| am| are)\s+(?:just\s+)?(?:starting|beginning)\s+to\s+(?:look at|consider)\s+(?:buying|purchasing)\b(?=[\s\S]{0,600}\b(?:homes?|houses?|condos?|townhomes?|propert(?:y|ies)|neighbou?rhoods?)\b)/i
 const DIRECT_HOUSING_TRANSACTION_NEED =
   /\b(?:looking|trying|planning|hoping|wanting|waiting|preparing|needing)\s+to\s+(?:buy|purchase|sell|list)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)\b|\b(?:looking|searching)\s+for\s+(?:a\s+)?(?:home|house|condo|townhome|property|realtor|real estate agent)\b/i
 const DIRECT_BUYER_TRANSACTION_NEED =
@@ -364,8 +371,8 @@ export function classifyOpportunityIntentV2(content: string): OpportunityIntentC
   return classifyOpportunityIntentWithContract(content, true, false)
 }
 
-/** Current returned-content classifier. */
-export function classifyOpportunityIntent(content: string): OpportunityIntentClassification {
+/** Preserves the exact content classifier used by already-quoted v3 plans. */
+export function classifyOpportunityIntentV3(content: string): OpportunityIntentClassification {
   const classified = classifyOpportunityIntentWithContract(content, true, true)
   const directBuyer = DIRECT_BUYER_TRANSACTION_NEED.test(content)
   const directSeller = DIRECT_SELLER_TRANSACTION_NEED.test(content)
@@ -375,6 +382,24 @@ export function classifyOpportunityIntent(content: string): OpportunityIntentCla
       ? 'buyer_intent'
       : 'seller_intent'
   return { ...classified, kind }
+}
+
+/** Current returned-content classifier. */
+export function classifyOpportunityIntent(content: string): OpportunityIntentClassification {
+  const classified = classifyOpportunityIntentV3(content)
+  if (!FIRST_PERSON_STARTING_RESIDENTIAL_PURCHASE_SEARCH.test(content)) return classified
+  const buyerSignals = classified.buyerSignals.includes('starting residential purchase search')
+    ? classified.buyerSignals
+    : [...classified.buyerSignals, 'starting residential purchase search']
+  const kind = classified.kind === 'seller_intent' || classified.kind === 'mixed_intent'
+    ? 'mixed_intent'
+    : 'buyer_intent'
+  return {
+    ...classified,
+    kind,
+    buyerSignals,
+    confidence: Math.max(classified.confidence, 0.66),
+  }
 }
 
 function localRedditCommunity(sourceUrl: string | null): boolean {
@@ -586,12 +611,14 @@ export function assessRealtorOpportunitySuitability(
   const housing =
     REALTOR_HOUSING_CONTEXT.test(content)
     || FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION.test(content)
+    || FIRST_PERSON_STARTING_RESIDENTIAL_PURCHASE_SEARCH.test(content)
     || destinationGroundedBuyer
   const consumerNeed =
     CONSUMER_QUESTION.test(content)
     || FIRST_PERSON_HOUSING_NEED.test(content)
     || CURRENT_HOUSE_HUNTING_DECLARATION.test(content)
     || FIRST_PERSON_HOUSE_HUNTING_PLAN.test(content)
+    || FIRST_PERSON_STARTING_RESIDENTIAL_PURCHASE_SEARCH.test(content)
     || DIRECT_HOUSING_TRANSACTION_NEED.test(content)
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
@@ -605,6 +632,7 @@ export function assessRealtorOpportunitySuitability(
     FIRST_PERSON_HOUSING_NEED.test(content)
     || CURRENT_HOUSE_HUNTING_DECLARATION.test(content)
     || FIRST_PERSON_HOUSE_HUNTING_PLAN.test(content)
+    || FIRST_PERSON_STARTING_RESIDENTIAL_PURCHASE_SEARCH.test(content)
     || DIRECT_HOUSING_TRANSACTION_NEED.test(content)
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)

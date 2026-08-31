@@ -7,6 +7,7 @@ import {
   classifyOpportunityIntent,
   classifyOpportunityIntentAtDestination,
   classifyOpportunityIntentV2,
+  classifyOpportunityIntentV3,
   demonstratedOpportunityLocation,
   opportunityHasContradictoryUsState,
   publicSourceGeographyConflict,
@@ -130,6 +131,32 @@ describe('opportunity quality primitives', () => {
     expect(classifyOpportunityIntent(
       'We are house hunting for a home in Phoenix and comparing neighborhoods before we make an offer.',
     ).kind).toBe('buyer_intent')
+  })
+
+  it('recovers a first-person search that starts with buying language and residential context', () => {
+    const currentBuyer = [
+      'East Valley home-buying advice: San Tan Valley vs. North Mesa?',
+      'I’m starting to look at buying, but I am new to the area.',
+      'I am balancing commute with affordability and comparing houses in several neighborhoods.',
+    ].join(' ')
+
+    expect(classifyOpportunityIntentV3(currentBuyer).kind).toBeNull()
+    expect(classifyOpportunityIntent(currentBuyer)).toMatchObject({
+      kind: 'buyer_intent',
+      buyerSignals: expect.arrayContaining(['starting residential purchase search']),
+    })
+    expect(assessRealtorOpportunitySuitability(
+      currentBuyer,
+      'buyer_intent',
+      'https://www.reddit.com/r/AskPhoenix/comments/example/east_valley',
+      'thread',
+    )).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+
+    const productBuyer = [
+      'I’m starting to look at buying a mechanical keyboard.',
+      'I need a quiet switch for my office commute.',
+    ].join(' ')
+    expect(classifyOpportunityIntent(productBuyer).kind).toBeNull()
   })
 
   it('accepts a current social house-hunting declaration without accepting agent promotion', () => {
