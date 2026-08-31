@@ -237,19 +237,29 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     if (intent === 'buyer_intent') {
       return [
         `${marketScope} "house hunting"`,
+        `${marketScope} "looking for a realtor"`,
         'first time home buyer workshop registration',
         'home buyer education class registration',
         'homeownership workshop public registration',
         'home buying seminar public registration',
+        'first time buyer class public registration',
+        'homebuyer question and answer event registration',
+        'homeownership education course registration',
+        'housing counseling homebuyer workshop registration',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        `${marketScope} "looking to sell home"`,
+        `${marketScope} "selling my house"`,
+        `${marketScope} "looking for a realtor"`,
+        `${marketScope} "thinking about selling"`,
         'home seller workshop public registration',
         'selling your home seminar public registration',
         'home seller education class registration',
         'prepare your home for sale workshop',
+        'home valuation workshop public registration',
+        'home staging workshop for sellers',
+        'for sale by owner workshop public registration',
       ]
     }
     if (intent === 'mixed_intent') {
@@ -261,10 +271,15 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     }
     return [
       'neighborhood association upcoming meeting',
+      'property owners association upcoming meeting',
       'neighborhood association community calendar',
       'homeowners association public meeting',
+      'residential community association public meeting',
       'resident organization upcoming events',
       'neighborhood community get involved',
+      'neighborhood home tour public event',
+      'homeowner community workshop',
+      'community housing public meeting',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
@@ -642,7 +657,7 @@ function queryFor(args: {
 export function buildOpportunityQueryLanes(
   play: PlanPlayInput,
   adapterId: string,
-  maxLanes = 5,
+  maxLanes = 10,
 ): OpportunityQueryLane[] {
   const providerQuery = play.providerQuery ?? {}
   const intent = inferredLane(play)
@@ -681,7 +696,7 @@ export function buildOpportunityQueryLanes(
         : adapterId === 'apify-reddit-demand-opportunities' && realtorTransaction
           ? 5
           : adapterId === 'dataforseo-organic-demand-opportunities'
-            ? 5
+            ? 10
           : adapterId === 'dataforseo-events-demand-opportunities'
             ? 3
           : 3
@@ -714,7 +729,7 @@ export function buildOpportunityQueryLanes(
             : adapterId === 'apify-reddit-demand-opportunities' && realtor
             ? 'opportunity-query-v80'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtor
-            ? 'opportunity-query-v85'
+            ? 'opportunity-query-v86'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -730,7 +745,7 @@ export function buildOpportunityQueryLanes(
           ? {
               search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
               ...(realtor
-                ? { realtor_retrieval_contract_version: 'evidence-first-public-destination-v2' }
+                ? { realtor_retrieval_contract_version: 'evidence-first-public-destination-v3' }
                 : {}),
               ...(dataForSeoSiteScope
                 ? {

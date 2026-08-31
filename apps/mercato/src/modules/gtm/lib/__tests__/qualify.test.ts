@@ -450,6 +450,52 @@ describe('ruleBasedFitScorer', () => {
     ]))
   })
 
+  it('keeps demonstrated local-audience intent distinct from missing participation evidence', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Neighborhood recognition applications are open',
+          opportunity_kind: 'post',
+          platform: 'Facebook',
+          audience_description:
+            'Eligible groups include HOAs, civic associations, condo associations, and neighborhood groups in Tampa.',
+          location: 'Tampa, Florida',
+          access_type: 'public',
+          source_published_at: '2026-08-31T12:00:00.000Z',
+          urls: ['https://www.facebook.com/HillsboroughFL/posts/example'],
+          participation_rules:
+            'Check current community rules before participating and do not automate contact.',
+          participation_rules_status: 'unverified',
+          recommended_action:
+            'Open the public source, read the current rules, and contribute useful information manually.',
+          message_angle:
+            'Contribute locally useful information that fits the community context.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Tampa, Florida',
+        audience: 'Public communities where Tampa homeowners and neighborhood groups gather',
+        signal: 'A current local-audience destination permits legitimate manual participation.',
+        referenceTime: '2026-08-31T16:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'local_audience' },
+      },
+      strongEvidence,
+    )
+
+    expect(result).toMatchObject({
+      verdict: 'rejected',
+      reason: FIT_REASONS.audienceMismatch,
+    })
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
+      expect.objectContaining({ id: 'opportunity.audience', status: 'fail' }),
+      expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
+    ]))
+  })
+
   it('rejects an otherwise relevant result when observed venue rules conflict with the proposed promotion', () => {
     const result = ruleBasedFitScorer.score(
       {
