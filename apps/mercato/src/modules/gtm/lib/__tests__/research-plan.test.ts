@@ -255,11 +255,11 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(lanes).toHaveLength(5)
     expect(lanes.map((lane) => lane.query)).toEqual([
-      '(title:"looking for a realtor" OR selftext:"looking for a realtor")',
-      '(title:"buying a home" OR selftext:"buying a home") OR (title:"buy a house" OR selftext:"buy a house")',
-      '(title:"house hunting" OR selftext:"house hunting") OR (title:"first time home buyer" OR selftext:"first time home buyer")',
-      '(title:"Phoenix" OR selftext:"Phoenix") AND ((title:"first time home buyer" OR selftext:"first time home buyer") OR (title:"buying a home" OR selftext:"buying a home"))',
-      '(title:"Phoenix" OR selftext:"Phoenix") AND ((title:"looking for a realtor" OR selftext:"looking for a realtor") OR (title:"house hunting" OR selftext:"house hunting"))',
+      '(title:"realtor" OR selftext:"realtor" OR title:"real estate agent" OR selftext:"real estate agent") AND (title:"buy" OR selftext:"buy" OR title:"buyer" OR selftext:"buyer")',
+      '(title:"buying" OR selftext:"buying" OR title:"looking to buy" OR selftext:"looking to buy") AND (title:"home" OR selftext:"home" OR title:"house" OR selftext:"house")',
+      '(title:"first time" OR selftext:"first time" OR title:"first-time" OR selftext:"first-time") AND (title:"home buyer" OR selftext:"home buyer" OR title:"house buyer" OR selftext:"house buyer")',
+      '(title:"Phoenix" OR selftext:"Phoenix") AND (title:"first time" OR selftext:"first time" OR title:"home buyer" OR selftext:"home buyer" OR title:"buying" OR selftext:"buying")',
+      '(title:"Phoenix" OR selftext:"Phoenix") AND (title:"realtor" OR selftext:"realtor" OR title:"house hunting" OR selftext:"house hunting" OR title:"buying" OR selftext:"buying")',
     ])
     expect(lanes.map((lane) => lane.providerQuery.reddit_subreddits)).toEqual([
       ['Phoenix'],
@@ -269,9 +269,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       ['RealEstate'],
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v66'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v67'
       && lane.providerQuery.reddit_fresh_contract_version === 'public-post-search-v2'
-      && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-exact-v1'
+      && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-conjunctive-v2'
       && lane.providerQuery.reddit_fresh_window_days === 30
       && lane.providerQuery.reddit_returned_content_filter_version === 'semantic-intent-location-v3'
     ))).toBe(true)
@@ -288,7 +288,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ).eligible).toBe(false)
   })
 
-  it('uses only bounded exact Reddit title and body clauses for every transaction lane', () => {
+  it('uses only bounded conjunctive Reddit title and body clauses for every transaction lane', () => {
     for (const intent of ['seller_intent', 'mixed_intent'] as const) {
       const lanes = buildOpportunityQueryLanes({
         geography: 'Tampa, Florida, United States',
@@ -303,9 +303,10 @@ describe('buildSourcePlan fail-closed boundaries', () => {
         lane.query.length <= 500
         && /\btitle:"[^"]+"/.test(lane.query)
         && /\bselftext:"[^"]+"/.test(lane.query)
+        && lane.query.includes(' AND ')
         && !/\b(?:author|subreddit|site|url|flair):/i.test(lane.query)
-        && lane.providerQuery.query_lane_version === 'opportunity-query-v66'
-        && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-exact-v1'
+        && lane.providerQuery.query_lane_version === 'opportunity-query-v67'
+        && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-conjunctive-v2'
       ))).toBe(true)
     }
   })
