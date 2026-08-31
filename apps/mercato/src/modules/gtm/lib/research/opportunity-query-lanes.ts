@@ -676,7 +676,7 @@ export function buildOpportunityQueryLanes(
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
             ? 'opportunity-query-v71'
             : adapterId === 'apify-reddit-posted-after-demand-opportunities'
-            ? 'opportunity-query-v76'
+            ? 'opportunity-query-v77'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
             ? 'opportunity-query-v73'
             : adapterId === 'apify-instagram-demand-opportunities'
@@ -773,7 +773,7 @@ export function buildOpportunityQueryLanes(
               reddit_posted_after_contract_version: 'public-post-search-url-v1',
               reddit_search_syntax_version: 'exact-phrase-or-url-v1',
               reddit_posted_after_window_days: 30,
-              reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+              reddit_returned_content_filter_version: 'semantic-intent-location-v4',
               reddit_filter_required_intent: intent,
               reddit_filter_require_location: index === 2,
               reddit_subreddits:

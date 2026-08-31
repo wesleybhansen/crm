@@ -2177,6 +2177,74 @@ describe('Apify public social demand opportunities', () => {
     })
   })
 
+  it('keeps a current AskPhoenix buyer search under the v4 semantic contract', async () => {
+    const adapter = createApifyRedditPostedAfterOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor: async () => outcome(
+        APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG,
+        [
+          postedAfterRedditPost({
+            id: 't3_east_valley',
+            postUrl: 'https://www.reddit.com/r/AskPhoenix/comments/east_valley/home_buying_advice/',
+            title: 'East Valley home-buying advice: San Tan Valley vs. North Mesa?',
+            body: [
+              'I’m starting to look at buying, but I am still new to the area.',
+              'I am balancing commute with affordability and comparing houses in several neighborhoods.',
+            ].join(' '),
+            communityName: 'r/AskPhoenix',
+            parsedCommunityName: 'AskPhoenix',
+          }),
+          postedAfterRedditPost({
+            id: 't3_keyboard',
+            postUrl: 'https://www.reddit.com/r/AskPhoenix/comments/keyboard/product_search/',
+            title: 'Quiet keyboard recommendation?',
+            body: 'I’m starting to look at buying a mechanical keyboard for my office commute.',
+            communityName: 'r/AskPhoenix',
+            parsedCommunityName: 'AskPhoenix',
+          }),
+        ],
+      ),
+    })
+    const lane = buildOpportunityQueryLanes({
+      geography: 'Phoenix, Arizona, United States',
+      audience: 'People publicly demonstrating that they want to buy a home in Phoenix',
+      signal: 'A recent public question demonstrates home-buying intent.',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }, APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.adapterId)[1]!
+
+    expect(lane.providerQuery).toMatchObject({
+      query_lane_version: 'opportunity-query-v77',
+      reddit_returned_content_filter_version: 'semantic-intent-location-v4',
+      reddit_subreddits: ['AskPhoenix'],
+      reddit_filter_require_location: false,
+    })
+    await expect(adapter.search({
+      signal_kind: 'social_engagement',
+      entity_unit: 'opportunities',
+      geography: 'US',
+      query: lane.query,
+      provider_query: lane.providerQuery,
+      max_candidates: 10,
+      max_charge_usd: 0.058,
+    })).resolves.toMatchObject({
+      status: 'partial',
+      data: [{
+        identity: expect.objectContaining({
+          intent_kind: 'buyer_intent',
+          location: 'Phoenix, Arizona, United States',
+        }),
+      }],
+      receipt: expect.objectContaining({
+        returned_content_filter_version: 'semantic-intent-location-v4',
+        returned_content_filtered_rows: 1,
+      }),
+    })
+  })
+
   it('refuses altered posted-after Reddit scope and product contracts before provider contact', async () => {
     const runActor = jest.fn()
     const adapter = createApifyRedditPostedAfterOpportunityAdapter({

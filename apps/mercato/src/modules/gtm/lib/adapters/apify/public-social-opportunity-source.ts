@@ -30,6 +30,7 @@ import {
   classifyOpportunityIntent,
   classifyOpportunityIntentV1,
   classifyOpportunityIntentV2,
+  classifyOpportunityIntentV3,
   demonstratedOpportunityLocation,
   assessRealtorOpportunitySuitability,
   type DemonstratedOpportunityIntent,
@@ -89,11 +90,13 @@ type SemanticRedditFilterVersion =
   | 'semantic-intent-location-v1'
   | 'semantic-intent-location-v2'
   | 'semantic-intent-location-v3'
+  | 'semantic-intent-location-v4'
 
 function isSemanticRedditFilterVersion(value: unknown): value is SemanticRedditFilterVersion {
   return value === 'semantic-intent-location-v1'
     || value === 'semantic-intent-location-v2'
     || value === 'semantic-intent-location-v3'
+    || value === 'semantic-intent-location-v4'
 }
 
 type MeetupReturnedContentFilterVersion = 'realtor-housing-event-v1'
@@ -105,6 +108,14 @@ function isMeetupReturnedContentFilterVersion(
 }
 
 type SocialReturnedContentFilterVersion = 'realtor-public-post-v2'
+type RequiredOpportunityIntent = Exclude<DemonstratedOpportunityIntent, null>
+
+function isRequiredOpportunityIntent(value: unknown): value is RequiredOpportunityIntent {
+  return value === 'buyer_intent'
+    || value === 'seller_intent'
+    || value === 'mixed_intent'
+    || value === 'local_audience'
+}
 
 function isSocialReturnedContentFilterVersion(
   value: unknown,
@@ -122,7 +133,7 @@ function validateSocialReturnedContentFilter(plan: SourceSearchPlan): void {
     throw new TypeError('public-post sourcing requires the frozen returned-content filter')
   }
   const intent = plan.provider_query?.social_filter_required_intent
-  if (!['buyer_intent', 'seller_intent', 'mixed_intent', 'local_audience'].includes(String(intent))) {
+  if (!isRequiredOpportunityIntent(intent)) {
     throw new TypeError('public-post sourcing requires a supported intent lane')
   }
   if (plan.provider_query?.social_filter_require_location !== true) {
@@ -139,6 +150,7 @@ function classifyRedditOpportunityIntent(
 ) {
   if (version === 'semantic-intent-location-v1') return classifyOpportunityIntentV1(content)
   if (version === 'semantic-intent-location-v2') return classifyOpportunityIntentV2(content)
+  if (version === 'semantic-intent-location-v3') return classifyOpportunityIntentV3(content)
   return classifyOpportunityIntent(content)
 }
 
@@ -159,7 +171,7 @@ function validateRedditReturnedContentFilter(plan: SourceSearchPlan): void {
     throw new TypeError('unsupported Reddit returned-content filter version')
   }
   const intent = plan.provider_query?.reddit_filter_required_intent
-  if (!['buyer_intent', 'seller_intent', 'mixed_intent', 'local_audience'].includes(String(intent))) {
+  if (!isRequiredOpportunityIntent(intent)) {
     throw new TypeError('semantic Reddit returned-content filtering requires a supported intent lane')
   }
   if (typeof plan.provider_query?.reddit_filter_require_location !== 'boolean') {
@@ -174,6 +186,8 @@ function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSe
       .filter((value): value is string => typeof value === 'string')
       .join(' ')
     const expected = plan.provider_query?.reddit_filter_required_intent
+    if (!isRequiredOpportunityIntent(expected)) return false
+    const sourceUrl = candidate.identity.urls?.find((value) => typeof value === 'string') ?? null
     const observed = classifyRedditOpportunityIntent(content, filterVersion).kind
     const intentMatches =
       expected === 'local_audience'
@@ -187,6 +201,10 @@ function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSe
             || observed === 'mixed_intent'
           : observed === expected || observed === 'mixed_intent'
     if (!intentMatches) return false
+    if (
+      filterVersion === 'semantic-intent-location-v4'
+      && !assessRealtorOpportunitySuitability(content, expected, sourceUrl, 'thread').relevant
+    ) return false
     if (plan.provider_query?.reddit_filter_require_location !== true) return true
     const requestedLocation = locationText(plan)
     return Boolean(
