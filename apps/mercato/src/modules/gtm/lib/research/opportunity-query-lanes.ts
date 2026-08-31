@@ -152,6 +152,16 @@ export function opportunitySourceRouting(
   }
 
   if (
+    adapterId === 'apify-reddit-api-demand-opportunities'
+    && (!realtor || intent !== 'buyer_intent')
+  ) {
+    return {
+      eligible: false,
+      reason: 'the calibrated Reddit API contract is limited to realtor buyer-intent plays in one frozen local community',
+    }
+  }
+
+  if (
     adapterId === 'apify-reddit-fresh-demand-opportunities'
     && realtor
     && intent === 'seller_intent'
@@ -288,6 +298,15 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
         'community meeting',
         `${market} housing workshop`,
       ],
+    }
+    return byIntent[intent]
+  }
+  if (adapterId === 'apify-reddit-api-demand-opportunities') {
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: ['looking to buy', 'house hunting'],
+      seller_intent: [],
+      mixed_intent: [],
+      local_audience: [],
     }
     return byIntent[intent]
   }
@@ -517,6 +536,7 @@ function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-reddit-thread-demand-opportunities') return 500
   if (adapterId === 'apify-reddit-fresh-demand-opportunities') return 500
   if (adapterId === 'apify-reddit-posted-after-demand-opportunities') return 500
+  if (adapterId === 'apify-reddit-api-demand-opportunities') return 40
   return 700
 }
 
@@ -572,6 +592,7 @@ function sourceSeed(
   if (adapterId === 'apify-reddit-demand-opportunities') {
     return seed
   }
+  if (adapterId === 'apify-reddit-api-demand-opportunities') return seed
   if (adapterId === 'apify-reddit-thread-demand-opportunities') return seed
   if (adapterId === 'apify-reddit-fresh-demand-opportunities') return seed
   if (adapterId === 'apify-reddit-posted-after-demand-opportunities') return seed
@@ -629,6 +650,7 @@ export function buildOpportunityQueryLanes(
   // identical, so do not collapse them before planning.
   const seeds = (
     adapterId === 'apify-reddit-demand-opportunities'
+    || adapterId === 'apify-reddit-api-demand-opportunities'
     || adapterId === 'apify-reddit-fresh-demand-opportunities'
     || adapterId === 'apify-reddit-posted-after-demand-opportunities'
   ) && realtor
@@ -643,6 +665,7 @@ export function buildOpportunityQueryLanes(
         || adapterId === 'apify-tiktok-demand-opportunities'
         || adapterId === 'apify-facebook-demand-opportunities'
         || adapterId === 'apify-meetup-demand-opportunities'
+        || adapterId === 'apify-reddit-api-demand-opportunities'
         || adapterId === 'apify-reddit-thread-demand-opportunities'
         || adapterId === 'apify-reddit-posted-after-demand-opportunities'
         ? 3
@@ -673,7 +696,9 @@ export function buildOpportunityQueryLanes(
       providerQuery: {
         ...providerQuery,
         query_lane_version:
-          adapterId === 'apify-reddit-thread-demand-opportunities'
+          adapterId === 'apify-reddit-api-demand-opportunities'
+            ? 'opportunity-query-v81'
+            : adapterId === 'apify-reddit-thread-demand-opportunities'
             ? 'opportunity-query-v64'
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
             ? 'opportunity-query-v71'
@@ -749,6 +774,19 @@ export function buildOpportunityQueryLanes(
                 index === 1
                   ? realtorMarketSubreddits(geography).slice(1, 2)
                   : realtorMarketSubreddits(geography).slice(0, 1),
+              reddit_auto_discover: false,
+              reddit_global_search: false,
+            }
+          : {}),
+        ...(adapterId === 'apify-reddit-api-demand-opportunities'
+          ? {
+              locations: [geography],
+              reddit_api_contract_version: 'scoped-public-post-search-v1',
+              reddit_api_window_days: 30,
+              reddit_returned_content_filter_version: 'semantic-intent-location-v4',
+              reddit_filter_required_intent: intent,
+              reddit_filter_require_location: false,
+              reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),
               reddit_auto_discover: false,
               reddit_global_search: false,
             }
