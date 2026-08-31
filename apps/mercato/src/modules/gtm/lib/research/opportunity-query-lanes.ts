@@ -553,7 +553,7 @@ export function buildOpportunityQueryLanes(
         ...providerQuery,
         query_lane_version:
           adapterId === 'apify-reddit-thread-demand-opportunities'
-            ? 'opportunity-query-v63'
+            ? 'opportunity-query-v64'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -603,7 +603,7 @@ export function buildOpportunityQueryLanes(
           : {}),
         ...(adapterId === 'apify-reddit-thread-demand-opportunities'
           ? {
-              reddit_thread_contract_version: 'public-post-comments-v1',
+              reddit_thread_contract_version: 'public-post-comments-v2',
               reddit_returned_content_filter_version: 'semantic-intent-location-v3',
               reddit_filter_required_intent: intent,
               reddit_filter_require_location: false,

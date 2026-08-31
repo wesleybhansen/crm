@@ -266,6 +266,7 @@ describe('Apify public social demand opportunities', () => {
       partitionedResultEvents: ['post-scraped', 'comment-scraped'],
       oneTimeQuoteUsd: 0.0005,
       perItemQuoteUsd: 0.003,
+      minimumBatch: 2,
       maxBatch: 10,
     })
   })
@@ -279,6 +280,55 @@ describe('Apify public social demand opportunities', () => {
         GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED: 'true',
       }),
     ).toBe(true)
+  })
+
+  it('does not quote a Reddit thread lane that cannot reserve one post and one comment', () => {
+    const adapter = createApifyRedditThreadOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED: 'true',
+      },
+    })
+    expect(adapter.quote({ ...plan, max_candidates: 1 })).toMatchObject({
+      max_candidates: 0,
+      provider_units: 0,
+      estimated_credits_before_markup: 0,
+    })
+  })
+
+  it('quotes the smallest Reddit thread lane at the platform minimum charge', () => {
+    const adapter = createApifyRedditThreadOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED: 'true',
+      },
+    })
+    expect(adapter.quote({ ...plan, max_candidates: 2 })).toMatchObject({
+      max_candidates: 2,
+      provider_units: 10,
+      estimated_credits_before_markup: 2_500,
+    })
+  })
+
+  it('refuses a direct Reddit thread search below its provider batch minimum', async () => {
+    const runActor = jest.fn()
+    const adapter = createApifyRedditThreadOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor,
+    })
+    await expect(adapter.search({
+      ...plan,
+      max_candidates: 1,
+      max_charge_usd: 0.01,
+    })).resolves.toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('provider batch minimum'),
+    })
+    expect(runActor).not.toHaveBeenCalled()
   })
 
   it('pins X reservations to the production BRONZE account tier', () => {
@@ -998,7 +1048,7 @@ describe('Apify public social demand opportunities', () => {
         locations: ['Austin, Texas'],
         search_query: 'house hunting',
         opportunity_intent_lane: 'buyer_intent',
-        reddit_thread_contract_version: 'public-post-comments-v1',
+        reddit_thread_contract_version: 'public-post-comments-v2',
         reddit_returned_content_filter_version: 'semantic-intent-location-v3',
         reddit_filter_required_intent: 'buyer_intent',
         reddit_filter_require_location: false,
@@ -1026,9 +1076,9 @@ describe('Apify public social demand opportunities', () => {
       APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG.actorId,
       {
         queries: ['house hunting subreddit:Austin'],
-        maxPostsPerQuery: 1,
+        maxPostsPerQuery: 5,
         sort: 'new',
-        maxCommentsPerPost: 9,
+        maxCommentsPerPost: 1,
         expandAllComments: false,
       },
       expect.objectContaining({
@@ -1073,7 +1123,7 @@ describe('Apify public social demand opportunities', () => {
         locations: ['Austin, Texas'],
         search_query: 'selling house',
         opportunity_intent_lane: 'seller_intent',
-        reddit_thread_contract_version: 'public-post-comments-v1',
+        reddit_thread_contract_version: 'public-post-comments-v2',
         reddit_returned_content_filter_version: 'semantic-intent-location-v3',
         reddit_filter_required_intent: 'seller_intent',
         reddit_filter_require_location: false,
@@ -1118,7 +1168,7 @@ describe('Apify public social demand opportunities', () => {
         locations: ['Austin, Texas'],
         search_query: 'house hunting subreddit:Phoenix',
         opportunity_intent_lane: 'buyer_intent',
-        reddit_thread_contract_version: 'public-post-comments-v1',
+        reddit_thread_contract_version: 'public-post-comments-v2',
         reddit_returned_content_filter_version: 'semantic-intent-location-v3',
         reddit_filter_required_intent: 'buyer_intent',
         reddit_filter_require_location: false,
