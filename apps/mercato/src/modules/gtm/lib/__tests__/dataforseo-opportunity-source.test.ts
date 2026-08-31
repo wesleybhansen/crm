@@ -213,10 +213,15 @@ describe('DataForSEO organic demand-opportunity source', () => {
     )
     expect(result.adapterPlan.every((batch) =>
       batch.adapter_id === DATAFORSEO_OPPORTUNITY_ADAPTER_ID
-      && batch.providerUnits === 5
       && batch.billableUnit === 'organic_serp_base_price_unit',
     )).toBe(true)
-    expect(result.adapterPlan.reduce((sum, batch) => sum + batch.providerUnits, 0)).toBe(15)
+    expect(result.adapterPlan.map((batch) => batch.providerUnits)).toEqual([5, 1, 1])
+    expect(result.adapterPlan.map((batch) => batch.providerQuery?.dataforseo_site_scope)).toEqual([
+      'reddit.com/r/California',
+      undefined,
+      undefined,
+    ])
+    expect(result.adapterPlan.reduce((sum, batch) => sum + batch.providerUnits, 0)).toBe(7)
   })
 
   it.each([
