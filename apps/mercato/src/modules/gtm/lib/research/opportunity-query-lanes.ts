@@ -130,12 +130,13 @@ export function opportunitySourceRouting(
   }
 
   if (
-    adapterId === 'apify-reddit-thread-demand-opportunities'
+    (adapterId === 'apify-reddit-thread-demand-opportunities'
+      || adapterId === 'apify-reddit-fresh-demand-opportunities')
     && (!realtor || intent === 'local_audience')
   ) {
     return {
       eligible: false,
-      reason: 'the initial Reddit post-and-comment contract is limited to realtor buyer, seller, and mixed-intent plays',
+      reason: 'the governed Reddit post contracts are limited to realtor buyer, seller, and mixed-intent plays',
     }
   }
 
@@ -275,6 +276,16 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     }
     return byIntent[intent]
   }
+  if (adapterId === 'apify-reddit-fresh-demand-opportunities') {
+    const market = marketName(geography)
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: ['buying home', 'house hunting', 'first time home buyer', market, market],
+      seller_intent: ['selling house', 'realtor recommendation', 'sell my house', market, market],
+      mixed_intent: ['sell before buying', 'move-up buyer', 'selling and buying', market, market],
+      local_audience: [],
+    }
+    return byIntent[intent]
+  }
   if (adapterId === 'apify-threads-demand-opportunities') {
     // Threads search treats multiword input as a broad keyword search and can
     // return global matches for the intent phrase while ignoring the market.
@@ -407,6 +418,7 @@ function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-tiktok-demand-opportunities') return 100
   if (adapterId === 'apify-linkedin-demand-opportunities') return 200
   if (adapterId === 'apify-reddit-thread-demand-opportunities') return 500
+  if (adapterId === 'apify-reddit-fresh-demand-opportunities') return 500
   return 700
 }
 
@@ -463,6 +475,7 @@ function sourceSeed(
     return seed
   }
   if (adapterId === 'apify-reddit-thread-demand-opportunities') return seed
+  if (adapterId === 'apify-reddit-fresh-demand-opportunities') return seed
   if (adapterId === 'apify-linkedin-demand-opportunities') return `${quoted(market)} AND ${seed}`
   if (adapterId === 'apify-x-demand-opportunities') {
     // Realtor X seeds bind the market inside the quoted phrase. Preserve the
@@ -514,7 +527,10 @@ export function buildOpportunityQueryLanes(
   // market-name query against different frozen subreddits. Their scopes and
   // quote lane IDs are distinct even though the actor-native search text is
   // identical, so do not collapse them before planning.
-  const seeds = adapterId === 'apify-reddit-demand-opportunities' && realtor
+  const seeds = (
+    adapterId === 'apify-reddit-demand-opportunities'
+    || adapterId === 'apify-reddit-fresh-demand-opportunities'
+  ) && realtor
     ? authoredSeeds
     : unique(authoredSeeds)
   const sourceLaneCap =
@@ -527,6 +543,8 @@ export function buildOpportunityQueryLanes(
         || adapterId === 'apify-meetup-demand-opportunities'
         || adapterId === 'apify-reddit-thread-demand-opportunities'
         ? 3
+        : adapterId === 'apify-reddit-fresh-demand-opportunities' && realtorTransaction
+          ? 5
         : adapterId === 'apify-reddit-demand-opportunities' && realtorTransaction
           ? 5
           : adapterId === 'dataforseo-organic-demand-opportunities'
@@ -554,6 +572,8 @@ export function buildOpportunityQueryLanes(
         query_lane_version:
           adapterId === 'apify-reddit-thread-demand-opportunities'
             ? 'opportunity-query-v64'
+            : adapterId === 'apify-reddit-fresh-demand-opportunities'
+            ? 'opportunity-query-v65'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -611,6 +631,25 @@ export function buildOpportunityQueryLanes(
                 index === 1
                   ? realtorMarketSubreddits(geography).slice(1, 2)
                   : realtorMarketSubreddits(geography).slice(0, 1),
+              reddit_auto_discover: false,
+              reddit_global_search: false,
+            }
+          : {}),
+        ...(adapterId === 'apify-reddit-fresh-demand-opportunities'
+          ? {
+              reddit_fresh_contract_version: 'public-post-search-v1',
+              reddit_fresh_window_days: 30,
+              reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+              reddit_filter_required_intent: intent,
+              reddit_filter_require_location: index >= 3,
+              reddit_subreddits:
+                index === 0
+                  ? realtorMarketSubreddits(geography).slice(0, 1)
+                  : index === 1
+                    ? realtorMarketSubreddits(geography).slice(1, 2)
+                    : index === 2
+                      ? realtorMarketSubreddits(geography).slice(0, 1)
+                      : realtorTransactionTopicSubreddits(intent).slice(index - 3, index - 2),
               reddit_auto_discover: false,
               reddit_global_search: false,
             }

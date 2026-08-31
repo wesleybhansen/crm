@@ -529,6 +529,90 @@ export const APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG: PublicSocialOpportunityConf
   normalize: normalizeRedditOpportunity,
 }
 
+export const APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-reddit-fresh-demand-opportunities',
+  platform: 'Reddit',
+  enabledEnv: 'GTM_APIFY_REDDIT_FRESH_OPPORTUNITY_ENABLED',
+  actorId: 'solidcode/reddit-scraper',
+  actorBuild: '1.1.36',
+  actorEnv: 'GTM_APIFY_ACTOR_REDDIT_FRESH_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_REDDIT_FRESH_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_REDDIT_FRESH_SEARCH_PRICE_VERSION',
+  // Rechecked against the production Starter/BRONZE account and the actor's
+  // public PAY_PER_EVENT metadata on 2026-08-30. Every run charges one start
+  // plus one dataset-result event per returned row. The actor applies the
+  // frozen postDateLimit before writing rows, so stale results do not consume
+  // the bounded paid candidate pool.
+  requiredPriceVersion: 'solidcode-reddit-scraper-1.1.36-bronze-events-2026-08-30',
+  eventPricesUsd: {
+    'apify-actor-start': 0.01,
+    'apify-default-dataset-item': 0.0022,
+  },
+  oneTimeEvent: 'apify-actor-start',
+  primaryResultEvent: 'apify-default-dataset-item',
+  perItemQuoteUsd: 0.0022,
+  oneTimeQuoteUsd: 0.01,
+  maxBatch: 10,
+  datasetFields: [
+    'recordType',
+    'id',
+    'fullId',
+    'url',
+    'permalink',
+    'createdAt',
+    'scrapedAt',
+    'sourceQuery',
+    'title',
+    'text',
+    'subreddit',
+    'author',
+    'score',
+    'upvoteRatio',
+    'numComments',
+    'flair',
+    'isNsfw',
+    'isSpoiler',
+    'isStickied',
+    'isLocked',
+  ],
+  buildInput(plan, maxResults) {
+    validateRedditReturnedContentFilter(plan)
+    if (plan.provider_query?.reddit_fresh_contract_version !== 'public-post-search-v1') {
+      throw new TypeError('fresh Reddit sourcing requires the frozen public-post search contract')
+    }
+    if (maxResults > 10) {
+      throw new TypeError('fresh Reddit sourcing is limited to 10 rows per quoted lane')
+    }
+    if (requestedOpportunityIntent(plan) === 'local_audience') {
+      throw new TypeError('fresh Reddit sourcing is limited to buyer, seller, and mixed-intent lanes')
+    }
+    if (plan.provider_query?.reddit_fresh_window_days !== 30) {
+      throw new TypeError('fresh Reddit sourcing requires the frozen 30-day post window')
+    }
+    const subreddits = redditSubreddits(plan)
+    if (subreddits.length !== 1 || redditAutoDiscover(plan) || redditGlobalSearch(plan)) {
+      throw new TypeError('fresh Reddit sourcing requires exactly one frozen public subreddit')
+    }
+    const query = queryText(plan, 500)
+    return {
+      searches: [query],
+      searchCommunityName: subreddits[0],
+      searchPosts: true,
+      searchComments: false,
+      searchCommunities: false,
+      searchUsers: false,
+      sort: 'new',
+      time: 'month',
+      postDateLimit: '30 days',
+      includeNSFW: false,
+      skipComments: true,
+      skipCommunityInfo: true,
+      maxItems: maxResults,
+    }
+  },
+  normalize: normalizeRedditOpportunity,
+}
+
 export const APIFY_X_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-x-demand-opportunities',
   platform: 'X',
@@ -1364,7 +1448,7 @@ function commonIdentity(args: {
 
 export function normalizeRedditOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
   const row = record(value)
-  const rowType = text(row?.type ?? row?._type, 20)?.toLowerCase()
+  const rowType = text(row?.recordType ?? row?.type ?? row?._type, 20)?.toLowerCase()
   if (!row || (rowType !== 'post' && rowType !== 'comment')) return null
   if (row._status != null && text(row._status, 20)?.toLowerCase() !== 'found') return null
   if (
@@ -1383,7 +1467,12 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   ) return null
   const sourceUrl = safePlatformUrl(row.permalink ?? row.url, 'Reddit')
   const postTitle = text(rowType === 'comment' ? row.postTitle : row.title, 180)
-  const body = text(rowType === 'comment' ? row.body : row.selfText ?? row.selftext ?? row.body, 600)
+  const body = text(
+    rowType === 'comment'
+      ? row.body ?? row.text
+      : row.selfText ?? row.selftext ?? row.body ?? row.text,
+    600,
+  )
   if (!sourceUrl || (rowType === 'post' && !postTitle) || (rowType === 'comment' && !body)) return null
   const content = rowType === 'comment'
     ? body ?? ''
@@ -2329,6 +2418,12 @@ export function createApifyRedditThreadOpportunityAdapter(
   return createPublicSocialOpportunityAdapter(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyRedditFreshOpportunityAdapter(
+  deps: PublicSocialDeps = {},
+): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG, deps)
+}
+
 export function createApifyXOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
   return createPublicSocialOpportunityAdapter(APIFY_X_OPPORTUNITY_CONFIG, deps)
 }
@@ -2355,6 +2450,10 @@ export function apifyRedditOpportunityEnabled(env: SocialEnv = process.env): boo
 
 export function apifyRedditThreadOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyRedditFreshOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG, env)
 }
 
 export function apifyXOpportunityEnabled(env: SocialEnv = process.env): boolean {

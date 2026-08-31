@@ -241,6 +241,52 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(lanes.every((lane) => lane.providerQuery.dataforseo_site_scope === 'reddit.com/r/Austin')).toBe(true)
   })
 
+  it('builds five independently scoped freshness-enforcing Reddit lanes for realtor demand', () => {
+    const play = {
+      geography: 'Phoenix, Arizona, United States',
+      audience: 'People publicly demonstrating that they want to buy a home in Phoenix',
+      signal: 'A recent public question demonstrates home-buying intent.',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }
+    const lanes = buildOpportunityQueryLanes(
+      play,
+      'apify-reddit-fresh-demand-opportunities',
+    )
+
+    expect(lanes).toHaveLength(5)
+    expect(lanes.map((lane) => lane.query)).toEqual([
+      'buying home',
+      'house hunting',
+      'first time home buyer',
+      'Phoenix',
+      'Phoenix',
+    ])
+    expect(lanes.map((lane) => lane.providerQuery.reddit_subreddits)).toEqual([
+      ['Phoenix'],
+      ['AskPhoenix'],
+      ['Phoenix'],
+      ['FirstTimeHomeBuyer'],
+      ['RealEstate'],
+    ])
+    expect(lanes.every((lane) => (
+      lane.providerQuery.query_lane_version === 'opportunity-query-v65'
+      && lane.providerQuery.reddit_fresh_contract_version === 'public-post-search-v1'
+      && lane.providerQuery.reddit_fresh_window_days === 30
+      && lane.providerQuery.reddit_returned_content_filter_version === 'semantic-intent-location-v3'
+    ))).toBe(true)
+    expect(lanes.map((lane) => lane.providerQuery.reddit_filter_require_location)).toEqual([
+      false,
+      false,
+      false,
+      true,
+      true,
+    ])
+    expect(opportunitySourceRouting(
+      { ...play, providerQuery: { opportunity_intent_lane: 'local_audience' } },
+      'apify-reddit-fresh-demand-opportunities',
+    ).eligible).toBe(false)
+  })
+
   it('uses source-native realtor queries and three economical hashtag X lanes', () => {
     const play = {
       geography: 'Austin, Texas',
