@@ -256,20 +256,20 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(lanes).toHaveLength(5)
     expect(lanes.map((lane) => lane.query)).toEqual([
       '(title:"looking to buy" OR selftext:"looking to buy")',
-      '(title:"buying a home" OR selftext:"buying a home")',
       '(title:"house hunting" OR selftext:"house hunting")',
       '(title:"first time home buyer" OR selftext:"first time home buyer")',
+      '(title:"buying a home" OR selftext:"buying a home")',
       '(title:"buying in Phoenix" OR selftext:"buying in Phoenix")',
     ])
     expect(lanes.map((lane) => lane.providerQuery.reddit_subreddits)).toEqual([
       ['Phoenix'],
-      ['AskPhoenix'],
       ['Phoenix'],
+      ['Phoenix'],
+      ['AskPhoenix'],
       ['FirstTimeHomeBuyer'],
-      ['RealEstate'],
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v68'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v70'
       && lane.providerQuery.reddit_fresh_contract_version === 'public-post-search-v2'
       && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-exact-phrase-bank-v3'
       && lane.providerQuery.reddit_fresh_window_days === 30
@@ -279,7 +279,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       false,
       false,
       false,
-      true,
+      false,
       true,
     ])
     expect(opportunitySourceRouting(
@@ -306,10 +306,41 @@ describe('buildSourcePlan fail-closed boundaries', () => {
         && lane.query.includes(' OR ')
         && !lane.query.includes(' AND ')
         && !/\b(?:author|subreddit|site|url|flair):/i.test(lane.query)
-        && lane.providerQuery.query_lane_version === 'opportunity-query-v68'
+        && lane.providerQuery.query_lane_version === 'opportunity-query-v70'
         && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-exact-phrase-bank-v3'
       ))).toBe(true)
     }
+  })
+
+  it('searches direct seller phrases in the exact market before broader communities', () => {
+    const lanes = buildOpportunityQueryLanes({
+      geography: 'Tampa, Florida, United States',
+      audience: 'Tampa homeowners considering selling a home',
+      signal: 'A current public post demonstrates a residential sale decision.',
+      providerQuery: { opportunity_intent_lane: 'seller_intent' },
+    }, 'apify-reddit-fresh-demand-opportunities')
+
+    expect(lanes.map((lane) => lane.query)).toEqual([
+      '(title:"looking to sell" OR selftext:"looking to sell")',
+      '(title:"thinking of selling" OR selftext:"thinking of selling")',
+      '(title:"selling my home" OR selftext:"selling my home")',
+      '(title:"planning to sell" OR selftext:"planning to sell")',
+      '(title:"selling in Tampa" OR selftext:"selling in Tampa")',
+    ])
+    expect(lanes.map((lane) => lane.providerQuery.reddit_subreddits)).toEqual([
+      ['Tampa'],
+      ['Tampa'],
+      ['Tampa'],
+      ['AskTampa'],
+      ['homeowners'],
+    ])
+    expect(lanes.map((lane) => lane.providerQuery.reddit_filter_require_location)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      true,
+    ])
   })
 
   it('uses source-native realtor queries and three economical hashtag X lanes', () => {

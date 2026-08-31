@@ -412,6 +412,22 @@ remains targeting provenance only; the same semantic-v3, fit-v7, sensitivity,
 locality, access, participation-rights, and manual-action gates independently
 decide whether a returned row is usable.
 
+The bounded v69 cross-market preflight proved that phrase quality and subreddit
+scope cannot be coupled by ordinal position. The first buyer phrase returned one
+billed row in Austin, Denver, and Tampa; semantic-v3 correctly withheld all
+three. The first seller phrase returned no rows in Austin, Denver, Phoenix, or
+Tampa even though prior governed evidence had recovered a current Tampa seller
+under the second phrase from the exact Tampa community. `opportunity-query-v70`
+therefore changes retrieval order and scope only: the first three direct buyer
+or seller phrases each search the exact market community, the fourth searches
+`Ask<Market>`, and the fifth searches one fixed housing-topic community while
+requiring returned market evidence. `looking to sell` becomes the first seller
+phrase; buyer lanes prioritize `looking to buy`, `house hunting`, and
+`first time home buyer`. Every lane remains a separately quoted, separately
+reserved actor operation with the same 30-day, one-subreddit, posts-only,
+exact-event, semantic-v3, fit-v7-quality-v30, sensitivity, access, participation,
+and manual-only gates. No prior provider call is replayed unchanged.
+
 The three separately billed organic transaction lanes use exactly one positive
 `site:reddit.com/r/<Market>` operator plus one exact first-person decision
 phrase. DataForSEO's published Live Organic contract prices that operator at
@@ -626,6 +642,7 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 
 ## 16. Changelog
 
+- 2026-08-31: v69's non-replayed Austin buyer control finalized one dataset row for exactly `$0.0122`, settled `6,101` Noli credits, and safely withheld the row as a returned-content semantic mismatch with no ambiguity. A further six-play preflight covered the remaining buyer markets and all four seller markets for exactly `$0.0644` (`32,202` Noli credits): Denver and Tampa buyer lanes each returned one billed row that semantic-v3 withheld, while the first seller phrase returned zero rows in Austin, Denver, Phoenix, and Tampa. Every operation finalized, customer quality approval remained absent, all temporary source flags were restored off, and the global unsettled count remained zero. This evidence motivates `opportunity-query-v70`'s market-first phrase mapping; qualification and release gates do not change.
 - 2026-08-30: The exact v68 merge deployed dark at `d408cfff2e983175bf753a10cb6272be4b7f874e`. Its one-lane Phoenix buyer owner probe (`5280d595-409c-413e-b942-a3d31cd154ca`) recovered a current public Moon Valley post whose returned text explicitly said “we are looking to buy.” The actor run (`kQSftuf1mVuXWF0xy`) returned one durable row, but the application read its terminal receipt before the matching dataset-item charge event appeared and correctly parked the operation as ambiguous rather than inventing a charge or retaining an unmetered result. A later read-only provider receipt showed the exact `$0.0122` total; operator reconciliation charged `6,101` Noli credits, repaired the run summary, replayed idempotently, and left zero unsettled operations. v69 opts only this frozen actor into at most six delayed GETs of the same durable run after a non-empty dataset appears. It never issues another actor POST, accepts only the exact frozen event prices and counts, and remains ambiguous on drift or non-convergence. Customer consumer activation and every other source flag remain off pending the independent quality gate.
 - 2026-08-30: The exact v67 merge deployed dark at `d04a5b23fb6af10ae88f60ec21faa10b27cdf6cf`. Its one-lane Phoenix buyer owner probe (`777d9f81-b960-4473-a398-d3ac92bd1a9e`) froze one conjunctive `r/Phoenix` returned-field query, reserved `6,101` credits with a `$0.0122` maximum provider charge, returned zero rows, finalized one actor-start event for `$0.01`, and reconciled to `5,000` credits with no ambiguity or unsettled operation. All source and customer consumer flags were restored off. The conjunctive grammar is too restrictive and will not be replayed unchanged. `opportunity-query-v68` replaces only that grammar with separately quoted exact intent phrases grounded in previously observed useful returned content; all semantic, geography, freshness, access, safety, metering, and release gates remain unchanged.
 - 2026-08-30: The exact v66 merge deployed dark at `1319f10989f86977d28d702e7747e053b5b37dcb`. Its one-lane Phoenix buyer owner probe (`058a2fea-98bd-4561-8e7f-0d68cf2e651f`) froze one `r/Phoenix` exact-field query, reserved `6,101` credits with a `$0.0122` maximum provider charge, returned zero rows, finalized one actor-start event for `$0.01`, and reconciled to `5,000` credits with no ambiguity or unsettled operation. All source and customer consumer flags were restored off. The actor and money spine are healthy, but a single exact whole-phrase query is too sparse; an unchanged replay is not justified. `opportunity-query-v67` retains only field-qualified quoted clauses while requiring broader conjunctive concept groups. The returned-content evidence and release gates do not change.
