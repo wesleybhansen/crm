@@ -353,7 +353,9 @@ describe('Apify public social demand opportunities', () => {
       requiredPriceVersion: 'harshmaur-reddit-scraper-0.0.384-bronze-events-2026-08-31',
       eventPricesUsd: { init: 0.02, result: 0.0018 },
       datasetResultBillingEvent: 'result',
-      oneTimeQuoteUsd: 0.02,
+      oneTimeQuoteUsd: 0.04,
+      allowedOneTimeEventCounts: [1, 2],
+      memoryMbytes: 2_048,
       perItemQuoteUsd: 0.0018,
       maxBatch: 10,
     })
@@ -377,8 +379,8 @@ describe('Apify public social demand opportunities', () => {
     })
     expect(adapter.quote({ ...plan, max_candidates: 10 })).toMatchObject({
       max_candidates: 10,
-      provider_units: 38,
-      estimated_credits_before_markup: 9_500,
+      provider_units: 58,
+      estimated_credits_before_markup: 14_500,
     })
   })
 
@@ -2026,7 +2028,7 @@ describe('Apify public social demand opportunities', () => {
     )
   })
 
-  it('freezes posted-after Reddit input to one natural phrase and no optional data products', async () => {
+  it('freezes posted-after Reddit input to a precise direct-search URL and no optional data products', async () => {
     const runActor = jest.fn(async () => outcome(
       APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG,
       postedAfterRedditPost(),
@@ -2052,19 +2054,19 @@ describe('Apify public social demand opportunities', () => {
       requireLocation: providerQuery.reddit_filter_require_location,
     }))).toEqual([
       {
-        query: 'looking to buy a home',
+        query: '("looking to buy" OR "house hunting" OR "first time home buyer" OR "buy a house")',
         subreddits: ['Phoenix'],
         global: false,
         requireLocation: false,
       },
       {
-        query: 'house hunting',
+        query: '("looking to buy" OR "house hunting" OR "first time home buyer" OR "buy a house")',
         subreddits: ['AskPhoenix'],
         global: false,
         requireLocation: false,
       },
       {
-        query: 'Phoenix first time home buyer',
+        query: '"Phoenix" AND ("looking to buy" OR "house hunting" OR "first time home buyer" OR "buy a house")',
         subreddits: [],
         global: true,
         requireLocation: true,
@@ -2078,7 +2080,7 @@ describe('Apify public social demand opportunities', () => {
       query: lane.query,
       provider_query: lane.providerQuery,
       max_candidates: 10,
-      max_charge_usd: 0.038,
+      max_charge_usd: 0.058,
     })).resolves.toMatchObject({
       status: 'ok',
       data: [expect.objectContaining({
@@ -2095,15 +2097,17 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).toHaveBeenCalledWith(
       APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.actorId,
       {
-        searchTerms: ['looking to buy a home'],
-        searchPosts: true,
+        searchTerms: [],
+        searchPosts: false,
         searchComments: false,
         searchCommunities: false,
-        withinCommunity: 'Phoenix',
+        withinCommunity: '',
         searchSort: 'new',
         searchTime: 'month',
-        startUrls: [],
-        fastMode: true,
+        startUrls: [{
+          url: 'https://www.reddit.com/r/Phoenix/search/?q=%28%22looking+to+buy%22+OR+%22house+hunting%22+OR+%22first+time+home+buyer%22+OR+%22buy+a+house%22%29&sort=new&t=month&type=link&restrict_sr=on',
+        }],
+        fastMode: false,
         subredditUrls: [],
         postedAfter: '2026-07-28',
         onlyWithFlair: false,
@@ -2119,10 +2123,58 @@ describe('Apify public social demand opportunities', () => {
       expect.objectContaining({
         build: '0.0.384',
         maxItems: 10,
-        maxChargeUsd: 0.038,
+        maxChargeUsd: 0.058,
+        memoryMbytes: 2_048,
         datasetResultEvent: 'result',
       }),
     )
+  })
+
+  it('binds the global precise Reddit lane to the exact market and reconciles two init units', async () => {
+    const runActor = jest.fn(async () => outcome(
+      APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG,
+      postedAfterRedditPost(),
+      {
+        chargedEventCounts: { init: 2, result: 1 },
+        providerCostUsd: 0.0418,
+      },
+    ))
+    const adapter = createApifyRedditPostedAfterOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor,
+    })
+    const lane = buildOpportunityQueryLanes({
+      geography: 'Phoenix, Arizona, United States',
+      audience: 'People publicly demonstrating that they want to buy a home in Phoenix',
+      signal: 'A recent public question demonstrates home-buying intent.',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }, APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.adapterId)[2]!
+    await expect(adapter.search({
+      signal_kind: 'social_engagement',
+      entity_unit: 'opportunities',
+      geography: 'US',
+      query: lane.query,
+      provider_query: lane.providerQuery,
+      max_candidates: 10,
+      max_charge_usd: 0.058,
+    })).resolves.toMatchObject({ status: 'ok', cost_units: 41.8 })
+
+    const input = runActor.mock.calls[0]![1]
+    const startUrl = new URL((input.startUrls as Array<{ url: string }>)[0]!.url)
+    expect(startUrl.origin).toBe('https://www.reddit.com')
+    expect(startUrl.pathname).toBe('/search/')
+    expect(startUrl.searchParams.get('q')).toBe(
+      '"Phoenix" AND ("looking to buy" OR "house hunting" OR "first time home buyer" OR "buy a house")',
+    )
+    expect(startUrl.searchParams.get('restrict_sr')).toBeNull()
+    expect(runActor.mock.calls[0]![2]).toMatchObject({
+      maxChargeUsd: 0.058,
+      memoryMbytes: 2_048,
+    })
   })
 
   it('refuses altered posted-after Reddit scope and product contracts before provider contact', async () => {
@@ -2148,6 +2200,7 @@ describe('Apify public social demand opportunities', () => {
       { ...lane.providerQuery, reddit_subreddits: [] },
       { ...lane.providerQuery, reddit_filter_require_location: true },
       { ...lane.providerQuery, search_query: 'author:example' },
+      { ...lane.providerQuery, search_query: '("looking to buy" OR "house hunting" OR "first time home buyer" OR "moving soon")' },
     ]) {
       await expect(adapter.search({
         ...plan,

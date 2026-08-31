@@ -57,6 +57,7 @@ export type PublicSocialOpportunityConfig = {
   requiredPriceVersion: string
   eventPricesUsd: Record<string, number>
   oneTimeEvent: string | null
+  allowedOneTimeEventCounts?: readonly number[]
   primaryResultEvent: string
   datasetResultBillingEvent?: string
   auxiliaryResultEvents?: readonly string[]
@@ -64,6 +65,7 @@ export type PublicSocialOpportunityConfig = {
   partitionedResultEvent?(value: unknown): string | null
   perItemQuoteUsd: number
   oneTimeQuoteUsd: number
+  memoryMbytes?: number
   minimumMaxChargeUsd?: number
   minimumBatch?: number
   maxBatch?: number
@@ -330,6 +332,7 @@ type RunActor = (
     timeoutMs: number
     maxItems: number
     maxChargeUsd: number
+    memoryMbytes?: number
     datasetFields: string[]
     maxDatasetBodyBytes: number
     datasetResultEvent?: string
@@ -654,8 +657,12 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
   useApprovalEnv: 'GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_REDDIT_POSTED_AFTER_SEARCH_PRICE_VERSION',
   // Rechecked against the signed-in production Starter/BRONZE account and
-  // public actor metadata on 2026-08-31. AI analysis, custom labels, comments,
-  // profiles, communities, MCP delivery, and NSFW content are all disabled.
+  // public actor/build metadata on 2026-08-31. Direct Reddit search URLs with
+  // fastMode=false use the actor's documented precise path and require 2 GB.
+  // The actor labels its init event as per-GB, so the quote reserves two init
+  // units while reconciliation accepts either one or two exact finalized
+  // units. AI analysis, custom labels, comments, profiles, communities, MCP
+  // delivery, and NSFW content are all disabled.
   requiredPriceVersion: 'harshmaur-reddit-scraper-0.0.384-bronze-events-2026-08-31',
   eventPricesUsd: {
     init: 0.02,
@@ -665,7 +672,9 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
   primaryResultEvent: 'result',
   datasetResultBillingEvent: 'result',
   perItemQuoteUsd: 0.0018,
-  oneTimeQuoteUsd: 0.02,
+  oneTimeQuoteUsd: 0.04,
+  allowedOneTimeEventCounts: [1, 2],
+  memoryMbytes: 2_048,
   maxBatch: 10,
   datasetFields: [
     'dataType',
@@ -690,11 +699,11 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
   ],
   buildInput(plan, maxResults, attemptedAt) {
     validateRedditReturnedContentFilter(plan)
-    if (plan.provider_query?.reddit_posted_after_contract_version !== 'public-post-search-v1') {
-      throw new TypeError('posted-after Reddit sourcing requires the frozen public-post search contract')
+    if (plan.provider_query?.reddit_posted_after_contract_version !== 'public-post-search-url-v1') {
+      throw new TypeError('posted-after Reddit sourcing requires the frozen direct-search-URL contract')
     }
-    if (plan.provider_query?.reddit_search_syntax_version !== 'natural-phrase-bank-v1') {
-      throw new TypeError('posted-after Reddit sourcing requires the frozen natural-phrase search syntax')
+    if (plan.provider_query?.reddit_search_syntax_version !== 'exact-phrase-or-url-v1') {
+      throw new TypeError('posted-after Reddit sourcing requires the frozen exact-phrase OR syntax')
     }
     if (plan.provider_query?.reddit_posted_after_window_days !== 30) {
       throw new TypeError('posted-after Reddit sourcing requires the frozen 30-day post window')
@@ -710,21 +719,60 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
     if (redditAutoDiscover(plan) || (globalSearch ? subreddits.length !== 0 : subreddits.length !== 1)) {
       throw new TypeError('posted-after Reddit sourcing requires one frozen subreddit or one explicit global lane')
     }
-    const query = queryText(plan, 160)
+    const query = queryText(plan, 500)
     if (/\b(?:author|flair|nsfw|subreddit)\s*:/i.test(query) || /[\r\n]/.test(query)) {
-      throw new TypeError('posted-after Reddit sourcing accepts one natural-language phrase without field operators')
+      throw new TypeError('posted-after Reddit sourcing accepts a frozen quoted phrase bank without field operators')
+    }
+    const quotedValues = [...query.matchAll(/"([^"\r\n]+)"/g)].map((match) => match[1]!.trim())
+    const structuralRemainder = query
+      .replace(/"[^"\r\n]+"/g, '')
+      .replace(/\b(?:AND|OR)\b/g, '')
+      .replace(/[()\s]/g, '')
+    const quotedIntentValues = globalSearch ? quotedValues.slice(1) : quotedValues
+    if (
+      quotedIntentValues.some((value) => !/\s/.test(value))
+      || !/\bOR\b/.test(query)
+      || /\bNOT\b/.test(query)
+      || structuralRemainder
+    ) {
+      throw new TypeError('posted-after Reddit sourcing requires exact multiword phrases joined by uppercase OR')
+    }
+    const requiredIntent = requestedOpportunityIntent(plan)
+    const expectedPhrases: Record<'buyer_intent' | 'seller_intent' | 'mixed_intent', string[]> = {
+      buyer_intent: ['looking to buy', 'house hunting', 'first time home buyer', 'buy a house'],
+      seller_intent: ['looking to sell', 'selling my house', 'sell my house', 'realtor recommendation'],
+      mixed_intent: ['sell before buying', 'buy before selling', 'selling and buying', 'move up buyer'],
+    }
+    if (requiredIntent == null || requiredIntent === 'local_audience') {
+      throw new TypeError('posted-after Reddit sourcing does not support local-audience lanes')
     }
     if (globalSearch) {
       const requestedLocation = locationText(plan)
       const market = requestedLocation?.split(',')[0]?.trim()
-      if (!market || !query.toLowerCase().includes(market.toLowerCase())) {
-        throw new TypeError('global posted-after Reddit search must contain the requested market')
+      if (
+        !market
+        || quotedValues.length !== 5
+        || quotedValues[0]?.toLowerCase() !== market.toLowerCase()
+        || !new RegExp(`^"${market.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s+AND\\s+\\(`, 'i').test(query)
+      ) {
+        throw new TypeError('global posted-after Reddit search must bind the exact requested market to four intent phrases')
       }
       if (plan.provider_query?.reddit_filter_require_location !== true) {
         throw new TypeError('global posted-after Reddit search requires returned-content location evidence')
       }
-    } else if (plan.provider_query?.reddit_filter_require_location !== false) {
-      throw new TypeError('scoped posted-after Reddit search requires the returned subreddit location contract')
+    } else {
+      if (quotedValues.length !== 4 || !/^\([\s\S]*\)$/.test(query)) {
+        throw new TypeError('scoped posted-after Reddit search requires four exact intent phrases')
+      }
+      if (plan.provider_query?.reddit_filter_require_location !== false) {
+        throw new TypeError('scoped posted-after Reddit search requires the returned subreddit location contract')
+      }
+    }
+    if (
+      quotedIntentValues.map((value) => value.toLowerCase()).join('\n')
+      !== expectedPhrases[requiredIntent].join('\n')
+    ) {
+      throw new TypeError('posted-after Reddit sourcing requires the frozen phrase bank for its intent lane')
     }
     const attempted = new Date(attemptedAt)
     if (!Number.isFinite(attempted.getTime())) {
@@ -745,16 +793,27 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
       postedAfterDate.setUTCDate(postedAfterDate.getUTCDate() + 1)
     }
     const postedAfter = postedAfterDate.toISOString().slice(0, 10)
+    const searchParams = new URLSearchParams({
+      q: query,
+      sort: 'new',
+      t: 'month',
+      type: 'link',
+      ...(globalSearch ? {} : { restrict_sr: 'on' }),
+    })
+    const subreddit = subreddits[0]
+    const searchUrl = globalSearch
+      ? `https://www.reddit.com/search/?${searchParams.toString()}`
+      : `https://www.reddit.com/r/${encodeURIComponent(subreddit!)}/search/?${searchParams.toString()}`
     return {
-      searchTerms: [query],
-      searchPosts: true,
+      searchTerms: [],
+      searchPosts: false,
       searchComments: false,
       searchCommunities: false,
-      withinCommunity: subreddits[0] ?? '',
+      withinCommunity: '',
       searchSort: 'new',
       searchTime: 'month',
-      startUrls: [],
-      fastMode: true,
+      startUrls: [{ url: searchUrl }],
+      fastMode: false,
       subredditUrls: [],
       postedAfter,
       onlyWithFlair: false,
@@ -2269,8 +2328,10 @@ export function normalizeFacebookOpportunity(value: unknown, context: NormalizeC
 
 function providerUnitsFor(config: PublicSocialOpportunityConfig, maxResults: number): number {
   const estimatedUsd = config.oneTimeQuoteUsd + maxResults * config.perItemQuoteUsd
-  return Math.max(APIFY_MIN_CHARGE_USD, config.minimumMaxChargeUsd ?? 0, estimatedUsd)
-    / APIFY_MILLIDOLLAR_USD
+  const reservedUsd = Math.max(APIFY_MIN_CHARGE_USD, config.minimumMaxChargeUsd ?? 0, estimatedUsd)
+  // Provider units are whole millidollars. Round up conservatively while
+  // ignoring only binary floating-point dust on an exact millidollar amount.
+  return Math.ceil((reservedUsd - 1e-12) / APIFY_MILLIDOLLAR_USD)
 }
 
 function datasetCeiling(config: PublicSocialOpportunityConfig, maxChargeUsd: number): number {
@@ -2445,6 +2506,7 @@ export function createPublicSocialOpportunityAdapter(
         timeoutMs: timeoutMs(env),
         maxItems: datasetCeiling(config, maxChargeUsd),
         maxChargeUsd,
+        memoryMbytes: config.memoryMbytes,
         datasetFields: [...config.datasetFields],
         maxDatasetBodyBytes: MAX_DATASET_BODY_BYTES,
         datasetResultEvent: config.datasetResultBillingEvent,
@@ -2518,11 +2580,13 @@ export function createPublicSocialOpportunityAdapter(
         }
       }
       const costUnits = outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
-      if (config.oneTimeEvent != null && (counts[config.oneTimeEvent] ?? 0) !== 1) {
+      const oneTimeCount = config.oneTimeEvent == null ? 0 : (counts[config.oneTimeEvent] ?? 0)
+      const allowedOneTimeCounts = config.allowedOneTimeEventCounts ?? [1]
+      if (config.oneTimeEvent != null && !allowedOneTimeCounts.includes(oneTimeCount)) {
         return {
           status: 'ambiguous',
           data: null,
-          receipt: providerReceipt({ billed_run_starts: counts[config.oneTimeEvent] ?? 0 }),
+          receipt: providerReceipt({ billed_run_starts: oneTimeCount }),
           cost_units: null,
           error: 'provider_billing_unknown: run-start charge did not match the approved contract',
         }
