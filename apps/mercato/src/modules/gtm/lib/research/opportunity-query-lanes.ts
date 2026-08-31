@@ -286,14 +286,14 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
         redditExactFieldPhraseSearch('looking to buy'),
-        redditExactFieldPhraseSearch('buying a home'),
         redditExactFieldPhraseSearch('house hunting'),
         redditExactFieldPhraseSearch('first time home buyer'),
+        redditExactFieldPhraseSearch('buying a home'),
         redditExactFieldPhraseSearch(`buying in ${market}`),
       ],
       seller_intent: [
-        redditExactFieldPhraseSearch('thinking of selling'),
         redditExactFieldPhraseSearch('looking to sell'),
+        redditExactFieldPhraseSearch('thinking of selling'),
         redditExactFieldPhraseSearch('selling my home'),
         redditExactFieldPhraseSearch('planning to sell'),
         redditExactFieldPhraseSearch(`selling in ${market}`),
@@ -596,7 +596,7 @@ export function buildOpportunityQueryLanes(
           adapterId === 'apify-reddit-thread-demand-opportunities'
             ? 'opportunity-query-v64'
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
-            ? 'opportunity-query-v68'
+            ? 'opportunity-query-v70'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -665,15 +665,13 @@ export function buildOpportunityQueryLanes(
               reddit_fresh_window_days: 30,
               reddit_returned_content_filter_version: 'semantic-intent-location-v3',
               reddit_filter_required_intent: intent,
-              reddit_filter_require_location: index >= 3,
+              reddit_filter_require_location: index >= 4,
               reddit_subreddits:
-                index === 0
+                index <= 2
                   ? realtorMarketSubreddits(geography).slice(0, 1)
-                  : index === 1
+                  : index === 3
                     ? realtorMarketSubreddits(geography).slice(1, 2)
-                    : index === 2
-                      ? realtorMarketSubreddits(geography).slice(0, 1)
-                      : realtorTransactionTopicSubreddits(intent).slice(index - 3, index - 2),
+                    : realtorTransactionTopicSubreddits(intent).slice(0, 1),
               reddit_auto_discover: false,
               reddit_global_search: false,
             }
