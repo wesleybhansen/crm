@@ -2054,19 +2054,19 @@ describe('Apify public social demand opportunities', () => {
       requireLocation: providerQuery.reddit_filter_require_location,
     }))).toEqual([
       {
-        query: '("looking to buy" OR "house hunting" OR "first time home buyer" OR "buy a house") AND ("home" OR "house" OR "condo" OR "townhome" OR "property")',
+        query: '("looking to buy a house" OR "looking to buy a home" OR "house hunting" OR "first time home buyer")',
         subreddits: ['Phoenix'],
         global: false,
         requireLocation: false,
       },
       {
-        query: '("looking to buy" OR "house hunting" OR "first time home buyer" OR "buy a house") AND ("home" OR "house" OR "condo" OR "townhome" OR "property")',
+        query: '("looking to buy a house" OR "looking to buy a home" OR "house hunting" OR "first time home buyer")',
         subreddits: ['AskPhoenix'],
         global: false,
         requireLocation: false,
       },
       {
-        query: '"Phoenix" AND ("looking to buy" OR "house hunting" OR "first time home buyer" OR "buy a house") AND ("home" OR "house" OR "condo" OR "townhome" OR "property")',
+        query: '"Phoenix" AND ("looking to buy a house" OR "looking to buy a home" OR "house hunting" OR "first time home buyer")',
         subreddits: [],
         global: true,
         requireLocation: true,
@@ -2085,22 +2085,22 @@ describe('Apify public social demand opportunities', () => {
       version: providerQuery.query_lane_version,
     }))).toEqual([
       {
-        query: '("looking to sell" OR "selling my house" OR "sell my house" OR "realtor recommendation") AND ("home" OR "house" OR "condo" OR "townhome" OR "property")',
+        query: '("selling my house" OR "selling my home" OR "sell my house" OR "sell my home")',
         subreddits: ['Denver'],
         global: false,
-        version: 'opportunity-query-v78',
+        version: 'opportunity-query-v79',
       },
       {
-        query: '("looking to sell" OR "selling my house" OR "sell my house" OR "realtor recommendation") AND ("home" OR "house" OR "condo" OR "townhome" OR "property")',
+        query: '("selling my house" OR "selling my home" OR "sell my house" OR "sell my home")',
         subreddits: ['AskDenver'],
         global: false,
-        version: 'opportunity-query-v78',
+        version: 'opportunity-query-v79',
       },
       {
-        query: '"Denver" AND ("looking to sell" OR "selling my house" OR "sell my house" OR "realtor recommendation") AND ("home" OR "house" OR "condo" OR "townhome" OR "property")',
+        query: '"Denver" AND ("selling my house" OR "selling my home" OR "sell my house" OR "sell my home")',
         subreddits: [],
         global: true,
-        version: 'opportunity-query-v78',
+        version: 'opportunity-query-v79',
       },
     ])
     const lane = lanes[0]!
@@ -2136,7 +2136,7 @@ describe('Apify public social demand opportunities', () => {
         searchSort: 'new',
         searchTime: 'month',
         startUrls: [{
-          url: 'https://www.reddit.com/r/Phoenix/search/?q=%28%22looking+to+buy%22+OR+%22house+hunting%22+OR+%22first+time+home+buyer%22+OR+%22buy+a+house%22%29+AND+%28%22home%22+OR+%22house%22+OR+%22condo%22+OR+%22townhome%22+OR+%22property%22%29&sort=new&t=month&type=link&restrict_sr=on',
+          url: 'https://www.reddit.com/r/Phoenix/search/?q=%28%22looking+to+buy+a+house%22+OR+%22looking+to+buy+a+home%22+OR+%22house+hunting%22+OR+%22first+time+home+buyer%22%29&sort=new&t=month&type=link&restrict_sr=on',
         }],
         fastMode: false,
         subredditUrls: [],
@@ -2199,7 +2199,7 @@ describe('Apify public social demand opportunities', () => {
     expect(startUrl.origin).toBe('https://www.reddit.com')
     expect(startUrl.pathname).toBe('/search/')
     expect(startUrl.searchParams.get('q')).toBe(
-      '"Phoenix" AND ("looking to buy" OR "house hunting" OR "first time home buyer" OR "buy a house") AND ("home" OR "house" OR "condo" OR "townhome" OR "property")',
+      '"Phoenix" AND ("looking to buy a house" OR "looking to buy a home" OR "house hunting" OR "first time home buyer")',
     )
     expect(startUrl.searchParams.get('restrict_sr')).toBeNull()
     expect(runActor.mock.calls[0]![2]).toMatchObject({
@@ -2254,6 +2254,51 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).toHaveBeenCalledTimes(1)
   })
 
+  it('continues to execute an already-quoted v78 residential-conjunction plan', async () => {
+    const runActor = jest.fn(async () => outcome(
+      APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG,
+      postedAfterRedditPost(),
+    ))
+    const adapter = createApifyRedditPostedAfterOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor,
+    })
+    const legacyQuery = '("looking to buy" OR "house hunting" OR "first time home buyer" OR "buy a house") AND ("home" OR "house" OR "condo" OR "townhome" OR "property")'
+    const currentLane = buildOpportunityQueryLanes({
+      geography: 'Phoenix, Arizona, United States',
+      audience: 'People publicly demonstrating that they want to buy a home in Phoenix',
+      signal: 'A recent public question demonstrates home-buying intent.',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }, APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.adapterId)[0]!
+    const legacyProviderQuery = {
+      ...currentLane.providerQuery,
+      query_lane_version: 'opportunity-query-v78',
+      search_query: legacyQuery,
+      source_search_keywords: [legacyQuery],
+      reddit_search_syntax_version: 'exact-phrase-residential-and-v2',
+    }
+
+    await expect(adapter.search({
+      signal_kind: 'social_engagement',
+      entity_unit: 'opportunities',
+      geography: 'US',
+      query: legacyQuery,
+      provider_query: legacyProviderQuery,
+      max_candidates: 10,
+      max_charge_usd: 0.058,
+    })).resolves.toMatchObject({
+      status: 'ok',
+      receipt: expect.objectContaining({
+        returned_content_filter_version: 'semantic-intent-location-v4',
+      }),
+    })
+    expect(runActor).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps a current AskPhoenix buyer search under the v4 semantic contract', async () => {
     const adapter = createApifyRedditPostedAfterOpportunityAdapter({
       env: {
@@ -2294,7 +2339,8 @@ describe('Apify public social demand opportunities', () => {
     }, APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.adapterId)[1]!
 
     expect(lane.providerQuery).toMatchObject({
-      query_lane_version: 'opportunity-query-v78',
+      query_lane_version: 'opportunity-query-v79',
+      reddit_search_syntax_version: 'exact-residential-intent-phrases-v3',
       reddit_returned_content_filter_version: 'semantic-intent-location-v4',
       reddit_subreddits: ['AskPhoenix'],
       reddit_filter_require_location: false,

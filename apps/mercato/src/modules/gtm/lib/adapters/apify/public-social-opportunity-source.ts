@@ -724,6 +724,7 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
     if (
       searchSyntaxVersion !== 'exact-phrase-or-url-v1'
       && searchSyntaxVersion !== 'exact-phrase-residential-and-v2'
+      && searchSyntaxVersion !== 'exact-residential-intent-phrases-v3'
     ) {
       throw new TypeError('posted-after Reddit sourcing requires a supported frozen search syntax')
     }
@@ -746,18 +747,41 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
       throw new TypeError('posted-after Reddit sourcing accepts a frozen quoted phrase bank without field operators')
     }
     const requiredIntent = requestedOpportunityIntent(plan)
-    const expectedPhrases: Record<'buyer_intent' | 'seller_intent' | 'mixed_intent', string[]> = {
+    const legacyExpectedPhrases: Record<'buyer_intent' | 'seller_intent' | 'mixed_intent', string[]> = {
       buyer_intent: ['looking to buy', 'house hunting', 'first time home buyer', 'buy a house'],
       seller_intent: ['looking to sell', 'selling my house', 'sell my house', 'realtor recommendation'],
       mixed_intent: ['sell before buying', 'buy before selling', 'selling and buying', 'move up buyer'],
+    }
+    const residentialExpectedPhrases: Record<'buyer_intent' | 'seller_intent' | 'mixed_intent', string[]> = {
+      buyer_intent: ['looking to buy a house', 'looking to buy a home', 'house hunting', 'first time home buyer'],
+      seller_intent: ['selling my house', 'selling my home', 'sell my house', 'sell my home'],
+      mixed_intent: [
+        'sell my house before buying',
+        'sell my home before buying',
+        'buy before selling my house',
+        'buy before selling my home',
+      ],
     }
     if (requiredIntent == null || requiredIntent === 'local_audience') {
       throw new TypeError('posted-after Reddit sourcing does not support local-audience lanes')
     }
     const requestedLocation = locationText(plan)
     const market = requestedLocation?.split(',')[0]?.trim()
-    if (searchSyntaxVersion === 'exact-phrase-residential-and-v2') {
-      const intentBank = `(${expectedPhrases[requiredIntent].map((value) => `"${value}"`).join(' OR ')})`
+    if (searchSyntaxVersion === 'exact-residential-intent-phrases-v3') {
+      const scopedQuery = `(${residentialExpectedPhrases[requiredIntent].map((value) => `"${value}"`).join(' OR ')})`
+      const expectedQuery = globalSearch ? `"${market}" AND ${scopedQuery}` : scopedQuery
+      if (
+        plan.provider_query?.query_lane_version !== 'opportunity-query-v79'
+        || !market
+        || query !== expectedQuery
+      ) {
+        throw new TypeError('posted-after Reddit search must match the exact v79 market and residential-intent contract')
+      }
+      if (plan.provider_query?.reddit_filter_require_location !== globalSearch) {
+        throw new TypeError('posted-after Reddit v79 location policy drifted')
+      }
+    } else if (searchSyntaxVersion === 'exact-phrase-residential-and-v2') {
+      const intentBank = `(${legacyExpectedPhrases[requiredIntent].map((value) => `"${value}"`).join(' OR ')})`
       const residentialBank = '("home" OR "house" OR "condo" OR "townhome" OR "property")'
       const scopedQuery = `${intentBank} AND ${residentialBank}`
       const expectedQuery = globalSearch ? `"${market}" AND ${scopedQuery}` : scopedQuery
@@ -787,7 +811,7 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
         || quotedValues.length !== 5
         || quotedValues[0]?.toLowerCase() !== market.toLowerCase()
         || quotedIntentValues.map((value) => value.toLowerCase()).join('\n')
-          !== expectedPhrases[requiredIntent].join('\n')
+          !== legacyExpectedPhrases[requiredIntent].join('\n')
         || !new RegExp(`^"${market.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s+AND\\s+\\(`, 'i').test(query)
       ) {
         throw new TypeError('global posted-after Reddit search must bind the exact requested market to four intent phrases')
@@ -817,7 +841,7 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
       }
       if (
         quotedValues.map((value) => value.toLowerCase()).join('\n')
-        !== expectedPhrases[requiredIntent].join('\n')
+        !== legacyExpectedPhrases[requiredIntent].join('\n')
       ) {
         throw new TypeError('posted-after Reddit sourcing requires the frozen phrase bank for its intent lane')
       }

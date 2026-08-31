@@ -328,32 +328,23 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   }
   if (adapterId === 'apify-reddit-posted-after-demand-opportunities') {
     const market = marketName(geography)
-    const residential = redditExactPhraseBank([
-      'home',
-      'house',
-      'condo',
-      'townhome',
-      'property',
-    ])
-    const residentialTransaction = (phrases: string[]) =>
-      `${redditExactPhraseBank(phrases)} AND ${residential}`
-    const buyer = residentialTransaction([
-      'looking to buy',
+    const buyer = redditExactPhraseBank([
+      'looking to buy a house',
+      'looking to buy a home',
       'house hunting',
       'first time home buyer',
-      'buy a house',
     ])
-    const seller = residentialTransaction([
-      'looking to sell',
+    const seller = redditExactPhraseBank([
       'selling my house',
+      'selling my home',
       'sell my house',
-      'realtor recommendation',
+      'sell my home',
     ])
-    const mixed = residentialTransaction([
-      'sell before buying',
-      'buy before selling',
-      'selling and buying',
-      'move up buyer',
+    const mixed = redditExactPhraseBank([
+      'sell my house before buying',
+      'sell my home before buying',
+      'buy before selling my house',
+      'buy before selling my home',
     ])
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [buyer, buyer, `${quoted(market)} AND ${buyer}`],
@@ -685,7 +676,7 @@ export function buildOpportunityQueryLanes(
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
             ? 'opportunity-query-v71'
             : adapterId === 'apify-reddit-posted-after-demand-opportunities'
-            ? 'opportunity-query-v78'
+            ? 'opportunity-query-v79'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
             ? 'opportunity-query-v73'
             : adapterId === 'apify-instagram-demand-opportunities'
@@ -780,7 +771,7 @@ export function buildOpportunityQueryLanes(
           ? {
               locations: [geography],
               reddit_posted_after_contract_version: 'public-post-search-url-v1',
-              reddit_search_syntax_version: 'exact-phrase-residential-and-v2',
+              reddit_search_syntax_version: 'exact-residential-intent-phrases-v3',
               reddit_posted_after_window_days: 30,
               reddit_returned_content_filter_version: 'semantic-intent-location-v4',
               reddit_filter_required_intent: intent,
