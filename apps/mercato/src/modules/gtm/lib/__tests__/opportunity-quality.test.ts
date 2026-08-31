@@ -833,6 +833,30 @@ describe('opportunity quality primitives', () => {
     expect(futureEventWithOldPublication.issues).not.toContain('stale_destination')
     expect(futureEventWithOldPublication.issues).not.toContain('event_expired')
     expect(futureEventWithOldPublication.newestObservation).toBe('2026-09-14T12:00:00.000Z')
+
+    const futureEventDiscoveredAfterStaleSnippet = assessOpportunityDestination({
+      identity: {
+        name: 'Historic homes tour',
+        opportunity_kind: 'event',
+        access_type: 'public',
+        event_start_at: '2026-08-09T12:00:00.000Z',
+        urls: ['https://events.example/historic-homes-tour'],
+      },
+      evidence: [{
+        claim: 'Public event page',
+        source_url: 'https://events.example/historic-homes-tour',
+        observed_at: '2026-08-30T12:00:00.000Z',
+        confidence: 0.8,
+      }],
+      referenceTime: new Date('2026-08-30T12:00:00.000Z'),
+      maxAgeDays: 30,
+      content: 'Published August 9, 2026. Public Historic Homes Tour on November 15, 2026.',
+    })
+    expect(futureEventDiscoveredAfterStaleSnippet).toMatchObject({
+      status: 'pass',
+      newestObservation: '2026-11-15T00:00:00.000Z',
+    })
+    expect(futureEventDiscoveredAfterStaleSnippet.issues).not.toContain('event_expired')
   })
 
   it('uses source publication time for posts and never retrieval time as a freshness proxy', () => {
@@ -1071,6 +1095,14 @@ describe('opportunity quality primitives', () => {
         'community',
       ).relevant,
     ).toBe(true)
+    expect(
+      assessRealtorOpportunitySuitability(
+        'Apache Shores Property Owners Association in Austin holds a public hybrid POA meeting for residents.',
+        'local_audience',
+        'https://apacheshorespoa.example/',
+        'group',
+      ),
+    ).toMatchObject({ relevant: true, demonstratedIntent: 'local_audience', reasons: [] })
     expect(
       assessRealtorOpportunitySuitability(
         'Wedding venue and guest house near the Austin neighborhood association.',

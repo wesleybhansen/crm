@@ -53,6 +53,10 @@ const SELLER_SIGNALS: Array<[string, RegExp]> = [
 
 const LOCAL_AUDIENCE_SIGNALS: Array<[string, RegExp]> = [
   ['neighborhood community', /\b(?:neighbou?rhood|community|local residents?|homeowners?)\b/i],
+  [
+    'residential owner association',
+    /\b(?:homeowners?|property owners?|residents?)\s+(?:association|organization)\b|\b(?:hoa|poa)\s+(?:meeting|community|association)\b/i,
+  ],
   ['housing discussion', /\b(?:housing|homes?|real estate) (?:discussion|forum|group|community|questions?|workshop|seminar|event)\b/i],
   ['local event', /\b(?:local|community) (?:event|workshop|seminar|meetup|open house)\b/i],
   ['area guide', /\b(?:relocation|neighbou?rhood|city|area) (?:guide|questions?|discussion|group)\b/i],
@@ -810,6 +814,25 @@ function datedEventCandidates(content: string): Date[] {
     .sort((left, right) => left.getTime() - right.getTime())
 }
 
+/**
+ * Resolves the event date from the durable candidate and the bounded public
+ * destination evidence. Search snippets often lead with a publication date,
+ * while the verified page later names the actual upcoming event. A stale
+ * snippet date must not override a demonstrated future event date.
+ */
+export function resolveOpportunityEventStart(
+  explicitValue: unknown,
+  content: string,
+  referenceTime: Date | null,
+): Date | null {
+  const explicit = validDate(explicitValue)
+  const derived = content ? datedEventCandidates(content) : []
+  if (!referenceTime) return explicit ?? derived[0] ?? null
+  if (explicit && explicit.getTime() >= referenceTime.getTime()) return explicit
+  const future = derived.find((date) => date.getTime() >= referenceTime.getTime())
+  return future ?? explicit ?? derived.at(-1) ?? null
+}
+
 export function assessOpportunityDestination(args: {
   identity: CandidateIdentity | Record<string, unknown>
   evidence: CandidateEvidence[]
@@ -843,11 +866,11 @@ export function assessOpportunityDestination(args: {
   const kind = typeof identity.opportunity_kind === 'string' ? identity.opportunity_kind : null
   const published = validDate(identity.source_published_at)
     ?? contentPublicationDate(content, args.referenceTime)
-  const explicitEventStart = validDate(identity.event_start_at)
-  const derivedEventDates = content ? datedEventCandidates(content) : []
-  const eventStart = explicitEventStart
-    ?? derivedEventDates.find((date) => !args.referenceTime || date.getTime() >= args.referenceTime.getTime())
-    ?? derivedEventDates.at(-1)
+  const eventStart = resolveOpportunityEventStart(
+    identity.event_start_at,
+    content,
+    args.referenceTime,
+  )
   // A post/thread's age must come from the platform's publication timestamp.
   // evidence.observed_at is retrieval time and cannot prove that content is
   // inside a play's recency window. Stable destinations such as communities

@@ -404,6 +404,52 @@ describe('ruleBasedFitScorer', () => {
     expect(result.contradictions).toContain('opportunity.actionability')
   })
 
+  it('accepts a current public property-owner association with observed participation evidence', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Apache Shores Property Owners Association',
+          opportunity_kind: 'group',
+          platform: 'Public web',
+          audience_description:
+            'Apache Shores Property Owners Association in Austin holds a public hybrid POA meeting for residents.',
+          location: 'Austin, Texas',
+          access_type: 'public',
+          source_published_at: '2026-08-16T12:00:00.000Z',
+          urls: ['https://apacheshorespoa.example/'],
+          participation_rules:
+            'The Board of Directors holds a public hybrid meeting in person and by video conference.',
+          participation_rules_status: 'observed',
+          recommended_action:
+            'Read the meeting agenda and attend manually only when the public participation rules permit it.',
+          message_angle:
+            'Contribute locally useful homeowner information without unsolicited promotion.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Public communities and events where Austin homeowners and local residents gather',
+        signal: 'A current public local-audience destination permits legitimate manual participation.',
+        referenceTime: '2026-08-31T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: {
+          opportunity_intent_lane: 'local_audience',
+          audience_keywords: ['homeowners', 'neighborhood', 'housing event'],
+        },
+      },
+      strongEvidence,
+    )
+
+    expect(result).toMatchObject({ verdict: 'accepted', reason: FIT_REASONS.accepted })
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
+      expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
+      expect.objectContaining({ id: 'opportunity.actionability', status: 'pass' }),
+    ]))
+  })
+
   it('rejects an otherwise relevant result when observed venue rules conflict with the proposed promotion', () => {
     const result = ruleBasedFitScorer.score(
       {

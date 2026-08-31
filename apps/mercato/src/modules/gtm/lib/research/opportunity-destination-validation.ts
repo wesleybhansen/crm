@@ -4,6 +4,7 @@ import type { Candidate, CandidateEvidence, CandidateIdentity } from '../adapter
 import {
   canonicalOpportunityUrl,
   demonstratedOpportunityLocation,
+  resolveOpportunityEventStart,
   sensitiveConsumerOpportunityReasons,
 } from './opportunity-quality'
 import {
@@ -89,6 +90,7 @@ async function boundedResponseText(response: Response): Promise<string> {
 
 function pageEvidence(html: string, requestedLocation: string | null): {
   excerpt: string
+  eventText: string
   participation: string | null
   sensitive: boolean
   title: string | null
@@ -126,6 +128,7 @@ function pageEvidence(html: string, requestedLocation: string | null): {
   return {
     title,
     excerpt: boundedText([title, ...selected].filter(Boolean).join('. ')),
+    eventText: `${description} ${main}`,
     participation: participation ? boundedText(participation, 360) : null,
     // Scan the bounded page body before selecting an excerpt. A sensitive
     // sentence may occur after the first visually relevant paragraph and must
@@ -227,6 +230,7 @@ export async function validateOpportunityDestination(
   const requestedLocation = candidate.identity.provider_location ?? null
   let page = {
     excerpt: '',
+    eventText: '',
     participation: null as string | null,
     sensitive: false,
     title: null as string | null,
@@ -270,6 +274,9 @@ export async function validateOpportunityDestination(
     1_200,
   )
   const finalUrl = canonicalOpportunityUrl([response.url, canonical]) ?? canonical
+  const eventStart = candidate.identity.opportunity_kind === 'event'
+    ? resolveOpportunityEventStart(candidate.identity.event_start_at, page.eventText, new Date(observedAt))
+    : null
   const evidence: CandidateEvidence = {
     claim: 'Noli verified that the returned public destination responded successfully and retained a bounded evidence excerpt.',
     source_url: finalUrl,
@@ -295,6 +302,7 @@ export async function validateOpportunityDestination(
       location: candidate.identity.location ?? demonstratedLocation,
       participation_rules: page.participation ?? candidate.identity.participation_rules,
       participation_rules_status: page.participation ? 'observed' : candidate.identity.participation_rules_status,
+      event_start_at: eventStart?.toISOString() ?? candidate.identity.event_start_at,
     }, evidence),
     outcome: 'verified',
   }
