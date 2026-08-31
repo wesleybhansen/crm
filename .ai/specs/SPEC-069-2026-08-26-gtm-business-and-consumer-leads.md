@@ -1,7 +1,7 @@
 # SPEC-069: GTM business leads and consumer demand opportunities
 
 **Date:** 2026-08-26 PDT
-**Status:** The additive B2B/B2C foundation, governed consumer-opportunity adapters, MCP tools, customer release gate, manual-only Hub surfaces, `opportunity-query-v66`, and `fit-v7-quality-v30` are merged and deployed. Owner-only paid probes have exercised the canonical quote, reservation, provider, qualification, and reconciliation path, while customer consumer research remains fail-closed. v65 proved that ordinary multiword searches were too loose; the one-lane v66 probe proved that one exact whole phrase was too sparse. `opportunity-query-v67` broadens only the frozen source grammar to conjunctive returned-field term groups. A controlled one-lane confirmation and the independently reviewed twelve-play quality gate remain required before customer activation.
+**Status:** The additive B2B/B2C foundation, governed consumer-opportunity adapters, MCP tools, customer release gate, manual-only Hub surfaces, and `fit-v7-quality-v30` are merged and deployed. Owner-only paid probes have exercised the canonical quote, reservation, provider, qualification, and reconciliation path, while customer consumer research remains fail-closed. v65 proved that ordinary multiword searches were too loose; v66 proved that one exact realtor-request phrase was too sparse; v67 proved that returned-field conjunctive groups were also too restrictive for the actor. `opportunity-query-v68` uses a frozen bank of exact, evidence-backed intent phrases while preserving every returned-content and release gate. A controlled one-lane confirmation and the independently reviewed twelve-play quality gate remain required before customer activation.
 **Authority:** Wesley Hansen's 2026-08-26 product decisions that GTM Engineer must support both B2B and true-consumer B2C demand discovery; that consumer work starts with the places, conversations, events, and engaged audiences where buyers gather; that named people are a useful optional second layer; and that automated cold outreach remains confined to the governed B2B lane while consumer participation or outreach is prepared for a human to perform manually.
 **Companions:** SPEC-067 (durable GTM domain and B2B execution), GTM-SPEC-01 (Audience Plays contract), GTM-SPEC-02 (v1 facade), and GTM-SPEC-04 (GTM workspace).
 
@@ -397,18 +397,20 @@ enter the paid candidate pool. The source remains capped at ten rows and
 `$0.032` per lane under the frozen Starter/Bronze event rate. Its first owner
 probe proved the freshness and exact-reconciliation boundary but also proved
 that ordinary multiword Reddit post search only requires some words to match.
-`opportunity-query-v67` therefore freezes `field-qualified-conjunctive-v2`:
-every search is composed solely of quoted `title:"…"` and `selftext:"…"`
-clauses joined by uppercase `AND` or `OR`. Exact-market lanes require two
-returned-field concept groups, such as a professional term plus a buyer term
-or an active-decision term plus a housing term. Housing-topic lanes require
-the market in one returned-field group and transaction language in another.
-This recovers natural phrasing without returning to Reddit's loose ordinary
-multiword matching. Unqualified terms, other field operators, comments, users,
-community rows, broad discovery, and altered syntax fail before provider
-contact. Search syntax remains targeting provenance only; the same semantic-v3,
-fit-v7, sensitivity, locality, access, participation-rights, and manual-action
-gates independently decide whether a returned row is usable.
+`opportunity-query-v68` therefore freezes
+`field-qualified-exact-phrase-bank-v3`: every separately quoted search contains
+one exact multiword intent phrase repeated across `title:"…"` and
+`selftext:"…"`, joined only by uppercase `OR`. The first buyer lane uses the
+returned phrase `looking to buy`, which is present in a previously observed,
+useful Phoenix buyer result; the remaining buyer, seller, and mixed lanes use
+similarly explicit decision phrases. The city, `Ask<City>`, and housing-topic
+subreddit scopes remain frozen per lane. Topic-community rows must still prove
+the requested market in returned content. Unqualified terms, conjunctive
+expressions, other field operators, comments, users, community rows, broad
+discovery, and altered syntax fail before provider contact. Search syntax
+remains targeting provenance only; the same semantic-v3, fit-v7, sensitivity,
+locality, access, participation-rights, and manual-action gates independently
+decide whether a returned row is usable.
 
 The three separately billed organic transaction lanes use exactly one positive
 `site:reddit.com/r/<Market>` operator plus one exact first-person decision
@@ -624,6 +626,7 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 
 ## 16. Changelog
 
+- 2026-08-30: The exact v67 merge deployed dark at `d04a5b23fb6af10ae88f60ec21faa10b27cdf6cf`. Its one-lane Phoenix buyer owner probe (`777d9f81-b960-4473-a398-d3ac92bd1a9e`) froze one conjunctive `r/Phoenix` returned-field query, reserved `6,101` credits with a `$0.0122` maximum provider charge, returned zero rows, finalized one actor-start event for `$0.01`, and reconciled to `5,000` credits with no ambiguity or unsettled operation. All source and customer consumer flags were restored off. The conjunctive grammar is too restrictive and will not be replayed unchanged. `opportunity-query-v68` replaces only that grammar with separately quoted exact intent phrases grounded in previously observed useful returned content; all semantic, geography, freshness, access, safety, metering, and release gates remain unchanged.
 - 2026-08-30: The exact v66 merge deployed dark at `1319f10989f86977d28d702e7747e053b5b37dcb`. Its one-lane Phoenix buyer owner probe (`058a2fea-98bd-4561-8e7f-0d68cf2e651f`) froze one `r/Phoenix` exact-field query, reserved `6,101` credits with a `$0.0122` maximum provider charge, returned zero rows, finalized one actor-start event for `$0.01`, and reconciled to `5,000` credits with no ambiguity or unsettled operation. All source and customer consumer flags were restored off. The actor and money spine are healthy, but a single exact whole-phrase query is too sparse; an unchanged replay is not justified. `opportunity-query-v67` retains only field-qualified quoted clauses while requiring broader conjunctive concept groups. The returned-content evidence and release gates do not change.
 - 2026-08-30: The exact v65 merge deployed at `464193b1ad8c227a285500781bb1ace10c5f88fd`. Its Phoenix buyer owner probe (`a5499945-80e1-4c7f-828f-c93ef43fa10d`) completed five operations, returned 17 billable rows, and reconciled exactly `$0.0874` (`43,700` Noli credits) with no ambiguous or unsettled operation. One row was structurally unusable and all 16 normalized rows were semantic mismatches, producing zero candidates. Read-only inspection of the paid datasets confirmed that the actor enforced the 30-day cutoff but ordinary multiword search matched unrelated current posts, completed purchases, and one sensitive-life-circumstance row that the existing safety and semantic gates correctly excluded. The source and customer consumer approval were restored off; no unchanged replay is justified.
 - 2026-08-30: `opportunity-query-v66` replaces only the v65 source's loose terms with Reddit's documented exact `title:` and `selftext:` field syntax. Buyer, seller, and mixed-intent lanes remain separately quoted against one frozen city, `Ask<City>`, or housing-topic subreddit, retain the same ten-row and `$0.032` ceiling, and keep the actor-enforced 30-day window. The adapter accepts only the frozen field-qualified grammar and rejects ordinary terms, altered operators, or a downgraded contract before contact. Returned content remains the sole evidence for semantic-v3, fit-v7-quality-v30, locality, freshness, safety, public access, participation rights, and manual action. Customer consumer activation remains fail-closed pending a bounded confirmation and the independent twelve-play benchmark.

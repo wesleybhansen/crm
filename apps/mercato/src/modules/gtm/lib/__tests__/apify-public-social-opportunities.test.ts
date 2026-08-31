@@ -1937,7 +1937,7 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).toHaveBeenCalledWith(
       APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG.actorId,
       {
-        searches: ['(title:"realtor" OR selftext:"realtor" OR title:"real estate agent" OR selftext:"real estate agent") AND (title:"buy" OR selftext:"buy" OR title:"buyer" OR selftext:"buyer")'],
+        searches: ['(title:"looking to buy" OR selftext:"looking to buy")'],
         searchCommunityName: 'Phoenix',
         searchPosts: true,
         searchComments: false,
@@ -1970,12 +1970,12 @@ describe('Apify public social demand opportunities', () => {
       runActor,
     })
     const baseProviderQuery = {
-      source_search_keywords: ['(title:"realtor" OR selftext:"realtor") AND (title:"buy" OR selftext:"buy")'],
-      search_query: '(title:"realtor" OR selftext:"realtor") AND (title:"buy" OR selftext:"buy")',
+      source_search_keywords: ['(title:"looking to buy" OR selftext:"looking to buy")'],
+      search_query: '(title:"looking to buy" OR selftext:"looking to buy")',
       locations: ['Phoenix, Arizona'],
       opportunity_intent_lane: 'buyer_intent',
       reddit_fresh_contract_version: 'public-post-search-v2',
-      reddit_search_syntax_version: 'field-qualified-conjunctive-v2',
+      reddit_search_syntax_version: 'field-qualified-exact-phrase-bank-v3',
       reddit_fresh_window_days: 30,
       reddit_returned_content_filter_version: 'semantic-intent-location-v3',
       reddit_filter_required_intent: 'buyer_intent',
@@ -1993,6 +1993,16 @@ describe('Apify public social demand opportunities', () => {
         ...baseProviderQuery,
         source_search_keywords: ['looking for a realtor'],
         search_query: 'looking for a realtor',
+      },
+      {
+        ...baseProviderQuery,
+        source_search_keywords: ['(title:"realtor recommendation" OR selftext:"realtor recommendation") AND (title:"looking to buy" OR selftext:"looking to buy")'],
+        search_query: '(title:"realtor recommendation" OR selftext:"realtor recommendation") AND (title:"looking to buy" OR selftext:"looking to buy")',
+      },
+      {
+        ...baseProviderQuery,
+        source_search_keywords: ['(title:"looking to buy" OR selftext:"buying a home")'],
+        search_query: '(title:"looking to buy" OR selftext:"buying a home")',
       },
       {
         ...baseProviderQuery,

@@ -580,7 +580,7 @@ export const APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfi
     if (plan.provider_query?.reddit_fresh_contract_version !== 'public-post-search-v2') {
       throw new TypeError('fresh Reddit sourcing requires the frozen public-post search contract')
     }
-    if (plan.provider_query?.reddit_search_syntax_version !== 'field-qualified-conjunctive-v2') {
+    if (plan.provider_query?.reddit_search_syntax_version !== 'field-qualified-exact-phrase-bank-v3') {
       throw new TypeError('fresh Reddit sourcing requires the frozen field-qualified search syntax')
     }
     if (maxResults > 10) {
@@ -598,19 +598,26 @@ export const APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfi
     }
     const query = queryText(plan, 500)
     const quotedValues = query.match(/"[^"\r\n]+"/g) ?? []
+    const titlePhrases = [...query.matchAll(/\btitle:"([^"\r\n]+)"/gi)].map((match) => match[1])
+    const selftextPhrases = [...query.matchAll(/\bselftext:"([^"\r\n]+)"/gi)].map((match) => match[1])
     const structuralRemainder = query
       .replace(/"[^"\r\n]+"/g, '""')
       .replace(/\b(?:title|selftext):""/gi, '')
       .replace(/\b(?:AND|OR)\b/g, '')
       .replace(/[()\s]/g, '')
     if (
-      quotedValues.length < 2
+      quotedValues.length !== 2
+      || titlePhrases.length !== 1
+      || selftextPhrases.length !== 1
+      || titlePhrases[0]?.toLowerCase() !== selftextPhrases[0]?.toLowerCase()
       || !/\btitle:"[^"\r\n]+"/i.test(query)
       || !/\bselftext:"[^"\r\n]+"/i.test(query)
       || !/\b(?:title|selftext):"[^"\r\n]*\s+[^"\r\n]*"/i.test(query)
+      || !/\bOR\b/.test(query)
+      || /\bAND\b/.test(query)
       || structuralRemainder
     ) {
-      throw new TypeError('fresh Reddit sourcing accepts only exact title/selftext field clauses joined by uppercase AND/OR')
+      throw new TypeError('fresh Reddit sourcing accepts one exact multiword phrase across title/selftext joined by uppercase OR')
     }
     return {
       searches: [query],
