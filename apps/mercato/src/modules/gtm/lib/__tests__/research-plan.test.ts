@@ -426,7 +426,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       reddit.slice(0, 3).every((lane) => /sell|selling|realtor|house/i.test(lane.query)),
     ).toBe(true)
     expect(reddit.slice(0, 3).every((lane) => !lane.query.includes('Austin'))).toBe(true)
-    expect(reddit.slice(3).every((lane) => lane.query === 'Austin')).toBe(true)
+    expect(reddit.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v80')).toBe(true)
     expect(reddit.every((lane) => !/\b(?:AND|OR|NOT)\b|[()]/.test(lane.query))).toBe(true)
     expect(
       reddit.every((lane) => Array.isArray(lane.providerQuery.reddit_subreddits)),
@@ -437,7 +437,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       reddit_auto_discover: false,
       reddit_sort: 'relevance',
       reddit_content_type: 'posts',
-      reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+      reddit_returned_content_filter_version: 'semantic-intent-location-v4',
       reddit_filter_required_intent: 'seller_intent',
       reddit_filter_require_location: false,
     })
@@ -453,30 +453,30 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       reddit_auto_discover: false,
       reddit_sort: 'relevance',
       reddit_content_type: 'comments',
-      reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+      reddit_returned_content_filter_version: 'semantic-intent-location-v4',
       reddit_filter_required_intent: 'seller_intent',
       reddit_filter_require_location: false,
     })
     expect(reddit[3]?.providerQuery).toMatchObject({
-      reddit_subreddits: ['homeowners'],
+      reddit_subreddits: ['AskAustin'],
       reddit_auto_discover: false,
       reddit_sort: 'relevance',
-      reddit_content_type: 'posts',
+      reddit_content_type: 'comments',
       reddit_filter_require_location: true,
     })
     expect(reddit[4]?.providerQuery).toMatchObject({
-      reddit_subreddits: ['RealEstate'],
+      reddit_subreddits: ['Austin'],
       reddit_auto_discover: false,
       reddit_sort: 'relevance',
-      reddit_content_type: 'posts',
+      reddit_content_type: 'comments',
       reddit_filter_require_location: true,
     })
     expect(reddit.map((lane) => lane.query)).toEqual([
       'selling house',
       'realtor recommendation',
-      'sell my house',
-      'Austin',
-      'Austin',
+      'realtor recommendation',
+      'selling house advice',
+      'thinking about selling',
     ])
     expect(
       web.every((lane) => !lane.query.includes(' -')),
@@ -543,32 +543,32 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       ['RealEstate'],
     ])
     expect(reddit[0]?.providerQuery).toMatchObject({
-      query_lane_version: 'opportunity-query-v57',
+      query_lane_version: 'opportunity-query-v80',
       reddit_auto_discover: false,
       reddit_content_type: 'posts',
       reddit_filter_require_location: false,
     })
     expect(reddit[1]?.providerQuery).toMatchObject({
-      query_lane_version: 'opportunity-query-v57',
+      query_lane_version: 'opportunity-query-v80',
       reddit_auto_discover: false,
       reddit_content_type: 'posts',
       reddit_filter_require_location: false,
     })
     expect(reddit[2]?.providerQuery).toMatchObject({
-      query_lane_version: 'opportunity-query-v57',
+      query_lane_version: 'opportunity-query-v80',
       reddit_auto_discover: false,
       reddit_content_type: 'comments',
       reddit_filter_require_location: false,
     })
     expect(reddit[3]?.providerQuery).toMatchObject({
-      query_lane_version: 'opportunity-query-v57',
+      query_lane_version: 'opportunity-query-v80',
       reddit_subreddits: ['FirstTimeHomeBuyer'],
       reddit_auto_discover: false,
       reddit_content_type: 'posts',
       reddit_filter_require_location: true,
     })
     expect(reddit[4]?.providerQuery).toMatchObject({
-      query_lane_version: 'opportunity-query-v57',
+      query_lane_version: 'opportunity-query-v80',
       reddit_subreddits: ['RealEstate'],
       reddit_auto_discover: false,
       reddit_content_type: 'posts',

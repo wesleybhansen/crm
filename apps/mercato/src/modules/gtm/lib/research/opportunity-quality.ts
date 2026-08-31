@@ -195,6 +195,13 @@ const SENSITIVE_CONSUMER_OPPORTUNITY: Array<[string, RegExp]> = [
 
 const HISTORICAL_COMPLETED_PROPERTY_TRANSACTION =
   /\b(?:bought|purchased|sold|buy(?:ing)?|sell(?:ing)?)\b.{0,180}\b(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|twenty)\s+years?\s+ago\b|\b(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|twenty)\s+years?\s+ago\b.{0,180}\b(?:bought|purchased|sold|buy(?:ing)?|sell(?:ing)?)\b/i
+// Recent search results can still describe a transaction that is already in
+// the past (for example, "I was selling a home and needed appliances"). The
+// publication date alone cannot turn that historical anecdote into current
+// demand. Keep the pattern first-person and residential, then allow an
+// explicit present decision below to override it.
+const HISTORICAL_PAST_TENSE_PROPERTY_TRANSACTION =
+  /\b(?:(?:i|we)\s+(?:was|were)\s+(?:buying|purchasing|selling|listing)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)|when\s+(?:i|we)\s+(?:bought|purchased|sold|listed)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property))\b/i
 const CURRENT_PROPERTY_DECISION_AFTER_HISTORY =
   /\b(?:now|currently|today|this (?:month|year))\b.{0,180}\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|move|moving|refinance|refinancing)\b/i
 
@@ -445,7 +452,10 @@ export function classifyOpportunityIntentAtDestination(
 
 export function realtorOpportunityNoiseReasons(content: string, sourceUrl: string | null = null): string[] {
   const material = `${content}\n${sourceUrl ?? ''}`
-  const historicalTransaction = HISTORICAL_COMPLETED_PROPERTY_TRANSACTION.test(material)
+  const historicalTransaction = (
+    HISTORICAL_COMPLETED_PROPERTY_TRANSACTION.test(material)
+    || HISTORICAL_PAST_TENSE_PROPERTY_TRANSACTION.test(material)
+  )
     && !CURRENT_PROPERTY_DECISION_AFTER_HISTORY.test(material)
     ? ['historical_completed_transaction']
     : []

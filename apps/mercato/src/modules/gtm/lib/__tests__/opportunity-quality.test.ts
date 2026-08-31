@@ -684,6 +684,24 @@ describe('opportunity quality primitives', () => {
         'We bought our Austin home 20 years ago and now need advice about selling it.',
       ),
     ).not.toContain('historical_completed_transaction')
+    const pastSellerAnecdote =
+      'I was selling a home and needed appliances for the place. What we got was in good shape.'
+    expect(realtorOpportunityNoiseReasons(pastSellerAnecdote)).toContain(
+      'historical_completed_transaction',
+    )
+    expect(
+      assessRealtorOpportunitySuitability(
+        pastSellerAnecdote,
+        'seller_intent',
+        'https://www.reddit.com/r/phoenix/comments/example/comment/past',
+        'thread',
+      ).relevant,
+    ).toBe(false)
+    expect(
+      realtorOpportunityNoiseReasons(
+        'I was selling a home last year, but now I am listing my Phoenix home again and need advice.',
+      ),
+    ).not.toContain('historical_completed_transaction')
     expect(
       sensitiveConsumerOpportunityReasons(
         'I am a senior vice president buying a home in Austin and comparing mortgage rates.',

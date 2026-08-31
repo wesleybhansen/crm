@@ -256,9 +256,11 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     // brittle source-native searches. Keep each paid lane to one short phrase
     // and let the returned-content filter plus fit-v7 prove intent, locality,
     // freshness, access, safety, and actionability from the result itself.
-    // Topic-community lanes intentionally search only the market name: their
-    // frozen subreddit supplies topic scope, while returned content must still
-    // independently demonstrate both the requested market and intent.
+    // Buyer and mixed topic-community lanes intentionally search only the
+    // market name: their frozen subreddit supplies topic scope, while returned
+    // content must still independently demonstrate both market and intent.
+    // Seller recall uses exact-market comments because repeated paid probes
+    // showed the topic-community post lanes returning zero usable rows.
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: [
         'buying home',
@@ -270,9 +272,9 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
       seller_intent: [
         'selling house',
         'realtor recommendation',
-        'sell my house',
-        market,
-        market,
+        'realtor recommendation',
+        'selling house advice',
+        'thinking about selling',
       ],
       mixed_intent: [
         'sell before buying',
@@ -677,6 +679,8 @@ export function buildOpportunityQueryLanes(
             ? 'opportunity-query-v71'
             : adapterId === 'apify-reddit-posted-after-demand-opportunities'
             ? 'opportunity-query-v79'
+            : adapterId === 'apify-reddit-demand-opportunities' && realtor
+            ? 'opportunity-query-v80'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
             ? 'opportunity-query-v73'
             : adapterId === 'apify-instagram-demand-opportunities'
@@ -790,7 +794,7 @@ export function buildOpportunityQueryLanes(
           ? {
               ...(realtor
                 ? {
-                    reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+                    reddit_returned_content_filter_version: 'semantic-intent-location-v4',
                     reddit_filter_required_intent: intent,
                     reddit_filter_require_location:
                       realtorTransaction
@@ -826,15 +830,31 @@ export function buildOpportunityQueryLanes(
                       reddit_sort: 'relevance',
                       reddit_content_type: 'comments',
                     }
-                : {
-                    // Housing-topic communities provide additional recall, but
-                    // unlike the exact-market lanes their returned content must
-                    // independently demonstrate the requested market.
-                    reddit_subreddits: realtorTransactionTopicSubreddits(intent).slice(index - 3, index - 2),
-                    reddit_auto_discover: false,
-                    reddit_sort: 'relevance',
-                    reddit_content_type: 'posts',
-                  }
+                : intent === 'seller_intent'
+                  ? {
+                      // Repeated paid probes showed that recent seller evidence
+                      // appeared only in public comments; the two topic-community
+                      // post lanes returned zero. Keep the two initial local post
+                      // searches, then use exact-market comment searches for an
+                      // agent, selling advice, and an active selling decision.
+                      // Returned content still has to prove intent and safety.
+                      reddit_subreddits:
+                        index === 3
+                          ? realtorMarketSubreddits(geography).slice(1, 2)
+                          : realtorMarketSubreddits(geography).slice(0, 1),
+                      reddit_auto_discover: false,
+                      reddit_sort: 'relevance',
+                      reddit_content_type: 'comments',
+                    }
+                  : {
+                      // Housing-topic communities provide additional recall,
+                      // but unlike exact-market lanes their returned content
+                      // must independently demonstrate market and intent.
+                      reddit_subreddits: realtorTransactionTopicSubreddits(intent).slice(index - 3, index - 2),
+                      reddit_auto_discover: false,
+                      reddit_sort: 'relevance',
+                      reddit_content_type: 'posts',
+                    }
             : index === 0
             ? {
                 reddit_subreddits: realtorMarketSubreddits(geography).slice(0, 1),

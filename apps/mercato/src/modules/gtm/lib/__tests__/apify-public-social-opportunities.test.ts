@@ -1547,6 +1547,41 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).not.toHaveBeenCalled()
   })
 
+  it('drops a recent Reddit seller mention that only describes a past transaction', async () => {
+    const adapter = createApifyRedditOpportunityAdapter({
+      env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+      now,
+      runActor: async () => outcome(APIFY_REDDIT_OPPORTUNITY_CONFIG, redditPost({
+        title: 'Scratch and dent appliance recommendation',
+        body: 'I was selling a home and needed appliances for the place. What we got was in good shape.',
+      })),
+    })
+
+    const result = await adapter.search({
+      ...plan,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Phoenix, Arizona'],
+        search_query: 'selling house advice',
+        opportunity_intent_lane: 'seller_intent',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v4',
+        reddit_filter_required_intent: 'seller_intent',
+        reddit_filter_require_location: false,
+        reddit_subreddits: ['Phoenix'],
+        reddit_auto_discover: false,
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'no_result',
+      data: null,
+      receipt: {
+        returned_content_filter_version: 'semantic-intent-location-v4',
+        returned_content_filtered_rows: 1,
+      },
+    })
+  })
+
   it('fails the semantic returned-content filter when the market is not demonstrated', async () => {
     const adapter = createApifyRedditOpportunityAdapter({
       env: envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
