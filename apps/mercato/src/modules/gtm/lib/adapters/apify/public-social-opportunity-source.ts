@@ -720,8 +720,12 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
     if (plan.provider_query?.reddit_posted_after_contract_version !== 'public-post-search-url-v1') {
       throw new TypeError('posted-after Reddit sourcing requires the frozen direct-search-URL contract')
     }
-    if (plan.provider_query?.reddit_search_syntax_version !== 'exact-phrase-or-url-v1') {
-      throw new TypeError('posted-after Reddit sourcing requires the frozen exact-phrase OR syntax')
+    const searchSyntaxVersion = plan.provider_query?.reddit_search_syntax_version
+    if (
+      searchSyntaxVersion !== 'exact-phrase-or-url-v1'
+      && searchSyntaxVersion !== 'exact-phrase-residential-and-v2'
+    ) {
+      throw new TypeError('posted-after Reddit sourcing requires a supported frozen search syntax')
     }
     if (plan.provider_query?.reddit_posted_after_window_days !== 30) {
       throw new TypeError('posted-after Reddit sourcing requires the frozen 30-day post window')
@@ -741,20 +745,6 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
     if (/\b(?:author|flair|nsfw|subreddit)\s*:/i.test(query) || /[\r\n]/.test(query)) {
       throw new TypeError('posted-after Reddit sourcing accepts a frozen quoted phrase bank without field operators')
     }
-    const quotedValues = [...query.matchAll(/"([^"\r\n]+)"/g)].map((match) => match[1]!.trim())
-    const structuralRemainder = query
-      .replace(/"[^"\r\n]+"/g, '')
-      .replace(/\b(?:AND|OR)\b/g, '')
-      .replace(/[()\s]/g, '')
-    const quotedIntentValues = globalSearch ? quotedValues.slice(1) : quotedValues
-    if (
-      quotedIntentValues.some((value) => !/\s/.test(value))
-      || !/\bOR\b/.test(query)
-      || /\bNOT\b/.test(query)
-      || structuralRemainder
-    ) {
-      throw new TypeError('posted-after Reddit sourcing requires exact multiword phrases joined by uppercase OR')
-    }
     const requiredIntent = requestedOpportunityIntent(plan)
     const expectedPhrases: Record<'buyer_intent' | 'seller_intent' | 'mixed_intent', string[]> = {
       buyer_intent: ['looking to buy', 'house hunting', 'first time home buyer', 'buy a house'],
@@ -764,13 +754,40 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
     if (requiredIntent == null || requiredIntent === 'local_audience') {
       throw new TypeError('posted-after Reddit sourcing does not support local-audience lanes')
     }
-    if (globalSearch) {
-      const requestedLocation = locationText(plan)
-      const market = requestedLocation?.split(',')[0]?.trim()
+    const requestedLocation = locationText(plan)
+    const market = requestedLocation?.split(',')[0]?.trim()
+    if (searchSyntaxVersion === 'exact-phrase-residential-and-v2') {
+      const intentBank = `(${expectedPhrases[requiredIntent].map((value) => `"${value}"`).join(' OR ')})`
+      const residentialBank = '("home" OR "house" OR "condo" OR "townhome" OR "property")'
+      const scopedQuery = `${intentBank} AND ${residentialBank}`
+      const expectedQuery = globalSearch ? `"${market}" AND ${scopedQuery}` : scopedQuery
       if (
-        !market
+        plan.provider_query?.query_lane_version !== 'opportunity-query-v78'
+        || !market
+        || query !== expectedQuery
+      ) {
+        throw new TypeError('posted-after Reddit residential search must match the exact v78 market, intent, and housing contract')
+      }
+      if (plan.provider_query?.reddit_filter_require_location !== globalSearch) {
+        throw new TypeError('posted-after Reddit residential search location policy drifted')
+      }
+    } else if (globalSearch) {
+      const quotedValues = [...query.matchAll(/"([^"\r\n]+)"/g)].map((match) => match[1]!.trim())
+      const structuralRemainder = query
+        .replace(/"[^"\r\n]+"/g, '')
+        .replace(/\b(?:AND|OR)\b/g, '')
+        .replace(/[()\s]/g, '')
+      const quotedIntentValues = quotedValues.slice(1)
+      if (
+        quotedIntentValues.some((value) => !/\s/.test(value))
+        || !/\bOR\b/.test(query)
+        || /\bNOT\b/.test(query)
+        || structuralRemainder
+        || !market
         || quotedValues.length !== 5
         || quotedValues[0]?.toLowerCase() !== market.toLowerCase()
+        || quotedIntentValues.map((value) => value.toLowerCase()).join('\n')
+          !== expectedPhrases[requiredIntent].join('\n')
         || !new RegExp(`^"${market.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s+AND\\s+\\(`, 'i').test(query)
       ) {
         throw new TypeError('global posted-after Reddit search must bind the exact requested market to four intent phrases')
@@ -779,18 +796,31 @@ export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportuni
         throw new TypeError('global posted-after Reddit search requires returned-content location evidence')
       }
     } else {
+      const quotedValues = [...query.matchAll(/"([^"\r\n]+)"/g)].map((match) => match[1]!.trim())
+      const structuralRemainder = query
+        .replace(/"[^"\r\n]+"/g, '')
+        .replace(/\b(?:AND|OR)\b/g, '')
+        .replace(/[()\s]/g, '')
       if (quotedValues.length !== 4 || !/^\([\s\S]*\)$/.test(query)) {
         throw new TypeError('scoped posted-after Reddit search requires four exact intent phrases')
+      }
+      if (
+        quotedValues.some((value) => !/\s/.test(value))
+        || !/\bOR\b/.test(query)
+        || /\bNOT\b/.test(query)
+        || structuralRemainder
+      ) {
+        throw new TypeError('posted-after Reddit sourcing requires exact multiword phrases joined by uppercase OR')
       }
       if (plan.provider_query?.reddit_filter_require_location !== false) {
         throw new TypeError('scoped posted-after Reddit search requires the returned subreddit location contract')
       }
-    }
-    if (
-      quotedIntentValues.map((value) => value.toLowerCase()).join('\n')
-      !== expectedPhrases[requiredIntent].join('\n')
-    ) {
-      throw new TypeError('posted-after Reddit sourcing requires the frozen phrase bank for its intent lane')
+      if (
+        quotedValues.map((value) => value.toLowerCase()).join('\n')
+        !== expectedPhrases[requiredIntent].join('\n')
+      ) {
+        throw new TypeError('posted-after Reddit sourcing requires the frozen phrase bank for its intent lane')
+      }
     }
     const attempted = new Date(attemptedAt)
     if (!Number.isFinite(attempted.getTime())) {

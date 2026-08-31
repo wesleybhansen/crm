@@ -328,19 +328,28 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   }
   if (adapterId === 'apify-reddit-posted-after-demand-opportunities') {
     const market = marketName(geography)
-    const buyer = redditExactPhraseBank([
+    const residential = redditExactPhraseBank([
+      'home',
+      'house',
+      'condo',
+      'townhome',
+      'property',
+    ])
+    const residentialTransaction = (phrases: string[]) =>
+      `${redditExactPhraseBank(phrases)} AND ${residential}`
+    const buyer = residentialTransaction([
       'looking to buy',
       'house hunting',
       'first time home buyer',
       'buy a house',
     ])
-    const seller = redditExactPhraseBank([
+    const seller = residentialTransaction([
       'looking to sell',
       'selling my house',
       'sell my house',
       'realtor recommendation',
     ])
-    const mixed = redditExactPhraseBank([
+    const mixed = residentialTransaction([
       'sell before buying',
       'buy before selling',
       'selling and buying',
@@ -676,7 +685,7 @@ export function buildOpportunityQueryLanes(
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
             ? 'opportunity-query-v71'
             : adapterId === 'apify-reddit-posted-after-demand-opportunities'
-            ? 'opportunity-query-v77'
+            ? 'opportunity-query-v78'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
             ? 'opportunity-query-v73'
             : adapterId === 'apify-instagram-demand-opportunities'
@@ -771,7 +780,7 @@ export function buildOpportunityQueryLanes(
           ? {
               locations: [geography],
               reddit_posted_after_contract_version: 'public-post-search-url-v1',
-              reddit_search_syntax_version: 'exact-phrase-or-url-v1',
+              reddit_search_syntax_version: 'exact-phrase-residential-and-v2',
               reddit_posted_after_window_days: 30,
               reddit_returned_content_filter_version: 'semantic-intent-location-v4',
               reddit_filter_required_intent: intent,
