@@ -233,15 +233,23 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'dataforseo-organic-demand-opportunities',
     )
 
-    expect(lanes).toHaveLength(3)
+    expect(lanes).toHaveLength(5)
     expect(lanes.map((lane) => lane.query)).toEqual([
       'Austin, Texas site:reddit.com/r/Austin "house hunting"',
-      'Austin, Texas "looking to buy a house" public forum',
-      'Austin, Texas "looking for a realtor" public forum',
+      'Austin, Texas first time home buyer workshop registration',
+      'Austin, Texas home buyer education class registration',
+      'Austin, Texas homeownership workshop public registration',
+      'Austin, Texas home buying seminar public registration',
     ])
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v73')).toBe(true)
+    expect(lanes.every((lane) => (
+      lane.providerQuery.query_lane_version === 'opportunity-query-v85'
+      && lane.providerQuery.realtor_retrieval_contract_version
+        === 'evidence-first-public-destination-v2'
+    ))).toBe(true)
     expect(lanes.map((lane) => lane.providerQuery.dataforseo_price_operator_contract)).toEqual([
       'single-positive-site-v1',
+      undefined,
+      undefined,
       undefined,
       undefined,
     ])
@@ -249,9 +257,13 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       5,
       undefined,
       undefined,
+      undefined,
+      undefined,
     ])
     expect(lanes.map((lane) => lane.providerQuery.dataforseo_site_scope)).toEqual([
       'reddit.com/r/Austin',
+      undefined,
+      undefined,
       undefined,
       undefined,
     ])
@@ -418,7 +430,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(web.every((lane) => !/[()]/.test(lane.query))).toBe(true)
     expect(web.map((lane) => lane.providerQuery.dataforseo_site_scope)).toEqual([
       'reddit.com/r/Austin',
-      'reddit.com/r/Austin',
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -485,32 +497,34 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     ).toBe(true)
     expect(web.map((lane) => lane.query)).toEqual([
         'Austin, Texas site:reddit.com/r/Austin "looking to sell home"',
-        'Austin, Texas site:reddit.com/r/Austin "selling my house"',
-        'Austin, Texas "looking to sell my home" public forum',
-        'Austin, Texas "thinking of selling my home" public forum',
-        'Austin, Texas "recommend a realtor" "sell my house" public forum',
+        'Austin, Texas home seller workshop public registration',
+        'Austin, Texas selling your home seminar public registration',
+        'Austin, Texas home seller education class registration',
+        'Austin, Texas prepare your home for sale workshop',
     ])
     expect(web.map((lane) => hasPriceMultiplyingDataForSeoOpportunityQueryOperator(lane.query))).toEqual([
       true,
-      true,
+      false,
       false,
       false,
       false,
     ])
     expect(web.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v83'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v85'
       && lane.providerQuery.realtor_retrieval_contract_version
-        === 'evidence-first-public-destination-v1'
+        === 'evidence-first-public-destination-v2'
     ))).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(web.every((lane) => lane.query.length < 240)).toBe(true)
     expect(new Set(web.map((lane) => lane.query)).size).toBe(5)
-    expect(buyerWeb).toHaveLength(3)
+    expect(buyerWeb).toHaveLength(5)
     expect(buyerWeb.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
         'Austin, Texas site:reddit.com/r/Austin "house hunting"',
-        'Austin, Texas "looking to buy a house" public forum',
-        'Austin, Texas "looking for a realtor" public forum',
+        'Austin, Texas first time home buyer workshop registration',
+        'Austin, Texas home buyer education class registration',
+        'Austin, Texas homeownership workshop public registration',
+        'Austin, Texas home buying seminar public registration',
       ]),
     )
     expect(buyerWeb.every((lane) => lane.query.length < 240)).toBe(true)
@@ -524,6 +538,19 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(
       threads.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v57'),
     ).toBe(true)
+    expect(opportunitySourceRouting(play, 'apify-threads-demand-opportunities')).toEqual({
+      eligible: false,
+      reason: expect.stringContaining('Starter/BRONZE realtor probe'),
+    })
+    expect(opportunitySourceRouting(
+      {
+        geography: 'Austin, Texas',
+        audience: 'People discussing independent pottery classes',
+        signal: 'A current public post asks about learning pottery',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      'apify-threads-demand-opportunities',
+    )).toEqual({ eligible: true, reason: null })
   })
 
   it('uses short source-native queries in three exact-market and two location-proven housing-community Reddit lanes', () => {
@@ -733,9 +760,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'Austin, Texas neighborhood community get involved',
     ])
     expect(web.every(
-      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v83'
+      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v85'
         && lane.providerQuery.realtor_retrieval_contract_version
-          === 'evidence-first-public-destination-v1',
+          === 'evidence-first-public-destination-v2',
     )).toBe(true)
     expect(planned.ok).toBe(true)
     if (planned.ok) {
