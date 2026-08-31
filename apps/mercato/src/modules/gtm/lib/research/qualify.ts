@@ -80,7 +80,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v33' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v34' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -441,12 +441,7 @@ function scoreOpportunity(
   const intentStatus =
     expectedIntent.length === 0 || observedIntent == null
       ? 'unknown'
-      : isRealtorPlay
-        ? suitability.relevant
-          && (requestedIntent === 'local_audience' || intentMatchesLane(expectedIntent, observedIntent))
-          ? 'pass'
-          : 'fail'
-        : intentMatchesLane(expectedIntent, observedIntent)
+      : intentMatchesLane(expectedIntent, observedIntent)
         ? 'pass'
         : 'fail'
   const sourceGeographyConflict = publicSourceGeographyConflict(
