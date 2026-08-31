@@ -1,7 +1,7 @@
 # SPEC-069: GTM business leads and consumer demand opportunities
 
 **Date:** 2026-08-26 PDT
-**Status:** The additive B2B/B2C foundation, governed consumer-opportunity adapters, MCP tools, customer release gate, manual-only Hub surfaces, `opportunity-query-v64`, and `fit-v7-quality-v30` are merged and deployed. Owner-only paid probes have exercised the canonical quote, reservation, provider, qualification, and reconciliation path, while customer consumer research remains fail-closed. The v64 Reddit post-and-comment probe reconciled cleanly but confirmed that its actor cannot enforce current-post recall. `opportunity-query-v65` adds a separately gated, provider-freshness-enforcing Reddit search contract; its controlled confirmation and the independently reviewed twelve-play quality gate remain required before customer activation.
+**Status:** The additive B2B/B2C foundation, governed consumer-opportunity adapters, MCP tools, customer release gate, manual-only Hub surfaces, `opportunity-query-v65`, and `fit-v7-quality-v30` are merged and deployed. Owner-only paid probes have exercised the canonical quote, reservation, provider, qualification, and reconciliation path, while customer consumer research remains fail-closed. The v65 source enforced the frozen 30-day window and reconciled exactly, but its ordinary multiword searches matched unrelated current posts. `opportunity-query-v66` replaces only that loose retrieval syntax with bounded exact `title:` and `selftext:` clauses. A controlled one-lane confirmation and the independently reviewed twelve-play quality gate remain required before customer activation.
 **Authority:** Wesley Hansen's 2026-08-26 product decisions that GTM Engineer must support both B2B and true-consumer B2C demand discovery; that consumer work starts with the places, conversations, events, and engaged audiences where buyers gather; that named people are a useful optional second layer; and that automated cold outreach remains confined to the governed B2B lane while consumer participation or outreach is prepared for a human to perform manually.
 **Companions:** SPEC-067 (durable GTM domain and B2B execution), GTM-SPEC-01 (Audience Plays contract), GTM-SPEC-02 (v1 facade), and GTM-SPEC-04 (GTM workspace).
 
@@ -388,6 +388,26 @@ returned transaction evidence, preserves explicit unknowns, and retains every
 provider-promotion, sensitivity, locality, freshness, access, actionability,
 and participation-rights gate. The semantic filter—not the query—still decides
 whether a row demonstrates current housing intent.
+
+`opportunity-query-v65` adds the independently gated
+`solidcode/reddit-scraper` build `1.1.36` source for transaction-intent plays.
+It searches one frozen subreddit per separately quoted lane, requests posts
+only, sorts newest-first, and applies `postDateLimit: "30 days"` before rows
+enter the paid candidate pool. The source remains capped at ten rows and
+`$0.032` per lane under the frozen Starter/Bronze event rate. Its first owner
+probe proved the freshness and exact-reconciliation boundary but also proved
+that ordinary multiword Reddit post search only requires some words to match.
+`opportunity-query-v66` therefore freezes `field-qualified-exact-v1`: every
+search is composed solely of exact `title:"…"` and `selftext:"…"` clauses
+joined by uppercase `AND` or `OR`. Exact-market lanes search demonstrated
+buyer, seller, or mixed-intent phrases within the returned city community;
+housing-topic lanes additionally require the market in an exact returned
+title/body field. Unqualified terms, other Reddit field operators, comments,
+users, community rows, broad discovery, and altered syntax fail before
+provider contact. Search syntax remains targeting provenance only; the same
+semantic-v3, fit-v7, sensitivity, locality, access, participation-rights, and
+manual-action gates independently decide whether a returned row is usable.
+
 The three separately billed organic transaction lanes use exactly one positive
 `site:reddit.com/r/<Market>` operator plus one exact first-person decision
 phrase. DataForSEO's published Live Organic contract prices that operator at
@@ -602,6 +622,8 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 
 ## 16. Changelog
 
+- 2026-08-30: The exact v65 merge deployed at `464193b1ad8c227a285500781bb1ace10c5f88fd`. Its Phoenix buyer owner probe (`a5499945-80e1-4c7f-828f-c93ef43fa10d`) completed five operations, returned 17 billable rows, and reconciled exactly `$0.0874` (`43,700` Noli credits) with no ambiguous or unsettled operation. One row was structurally unusable and all 16 normalized rows were semantic mismatches, producing zero candidates. Read-only inspection of the paid datasets confirmed that the actor enforced the 30-day cutoff but ordinary multiword search matched unrelated current posts, completed purchases, and one sensitive-life-circumstance row that the existing safety and semantic gates correctly excluded. The source and customer consumer approval were restored off; no unchanged replay is justified.
+- 2026-08-30: `opportunity-query-v66` replaces only the v65 source's loose terms with Reddit's documented exact `title:` and `selftext:` field syntax. Buyer, seller, and mixed-intent lanes remain separately quoted against one frozen city, `Ask<City>`, or housing-topic subreddit, retain the same ten-row and `$0.032` ceiling, and keep the actor-enforced 30-day window. The adapter accepts only the frozen field-qualified grammar and rejects ordinary terms, altered operators, or a downgraded contract before contact. Returned content remains the sole evidence for semantic-v3, fit-v7-quality-v30, locality, freshness, safety, public access, participation rights, and manual action. Customer consumer activation remains fail-closed pending a bounded confirmation and the independent twelve-play benchmark.
 - 2026-08-30: The complete query-v53 / quality-v29 benchmark reconciled 96 provider operations without ambiguity for `184,740` Noli credits (`$0.36948`) and produced 91 canonical matches. The strict scorer retained two accepted, nine review, and 80 rejected opportunities, but only three of twelve plays reached the ten-row labeling floor. Receipt diagnostics showed 34 of 52 Reddit operations returned no result, concentrated in long Boolean actor queries. `opportunity-query-v54` replaces only those Reddit expressions with short source-native phrases while preserving exact market and topic-community scopes, the returned-content semantic-v3 gate, `fit-v7-quality-v29`, the 30-day window, every safety/access/actionability rule, immutable per-lane metering, and manual-only consumer action. Customer activation remains fail-closed until a bounded v54 probe demonstrates better useful recall and the independent twelve-play benchmark passes.
 - 2026-08-26: Initial additive B2B/B2C research and manual-consumer-outreach contract.
 - 2026-08-26: Clarified the consumer product around demand surfaces, added the first-vertical realtor buyer/seller opportunity contract, made named people secondary, and added MCP and dedicated regression requirements after review of the saved Origami lead-magnet, data-source pricing, and realtor campaign experience.
