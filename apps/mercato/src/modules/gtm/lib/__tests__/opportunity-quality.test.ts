@@ -132,6 +132,22 @@ describe('opportunity quality primitives', () => {
     ).kind).toBe('buyer_intent')
   })
 
+  it('accepts a current social house-hunting declaration without accepting agent promotion', () => {
+    expect(assessRealtorOpportunitySuitability(
+      'Way to early house hunting in Austin, TX #househunting #housetour #houseshopping',
+      'buyer_intent',
+      'https://www.tiktok.com/@public-author/video/7400000000000000001',
+      'post',
+    )).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+
+    expect(assessRealtorOpportunitySuitability(
+      'House hunting in Austin? Call me for five buyer tips. #AustinRealtor',
+      'buyer_intent',
+      'https://www.tiktok.com/@agent/video/7400000000000000002',
+      'post',
+    )).toMatchObject({ relevant: false })
+  })
+
   it('excludes provider targeting claims from semantic evidence', () => {
     const text = opportunityEvidenceText(
       {

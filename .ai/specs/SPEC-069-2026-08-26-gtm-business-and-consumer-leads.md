@@ -311,10 +311,10 @@ and actor search scope remain targeting provenance. Participation rules remain
 `unverified` until the independently pinned destination validator observes
 current terms permitting the proposed manual action.
 
-`opportunity-query-v60` adds three source-native Instagram hashtags and three
+`opportunity-query-v62` uses three source-native Instagram hashtags and three
 natural-language TikTok searches per realtor lane. Both sources are limited to
 the initial real-estate vertical until a separate benchmark validates broader
-use. The adapters enforce `realtor-public-post-v1` before candidate storage:
+use. The adapters enforce `realtor-public-post-v2` before candidate storage:
 query text never becomes evidence, returned content must independently prove
 the requested buyer, seller, mixed, or local-audience intent and market, the
 post must carry a source timestamp within 30 days, and the URL must identify a
@@ -382,7 +382,7 @@ independently prove both the requested market and intent; the query itself is
 never evidence. Exact returned city or `Ask<Market>` scope may prove locality.
 Each lane may return at most ten rows inside the frozen 30-day window, and every
 query, scope, content type, result cap, and evidence rule is immutable in the
-quote. `fit-v7-quality-v29` remains the scorer revision. It recognizes only
+quote. `fit-v7-quality-v30` remains the scorer revision. It recognizes only
 returned transaction evidence, preserves explicit unknowns, and retains every
 provider-promotion, sensitivity, locality, freshness, access, actionability,
 and participation-rights gate. The semantic filter—not the query—still decides
@@ -682,3 +682,4 @@ Quality-v2 adds no migration. Deployment order is CRM application with the consu
 - 2026-08-30: The bounded query-v57 Austin Meetup confirmation completed three separately quoted operations, returned 30 provider rows, produced no candidate, and reconciled all `$0.024` (`12,000` Noli credits) exactly. Nineteen rows failed safe normalization and the remaining eleven failed the frozen returned-content relevance filter. Read-only inspection of the already-paid dataset confirmed that the actor returned generic or irrelevant inventory rather than exposing a parser defect. Meetup remains disabled and the unchanged query is not replayed.
 - 2026-08-30: The signed-in Starter account's active direct-source contracts were frozen for `apify/instagram-scraper` build `0.0.775` at `$0.0023` per result and `clockworks/tiktok-scraper` build `0.0.600` at `$0.001` per run, `$0.003` per result, and `$0.001` per result for the required date filter. `opportunity-query-v60` adds separately gated, realtor-only Instagram and TikTok public-post adapters with three source-native lanes, ten-row caps, exact event reconciliation, returned-content-only intent and locality, strict 30-day timestamps, canonical platform URLs, and no paid add-ons beyond TikTok's date filter. The TikTok provider requires a `$0.50` max-total-charge ceiling, which is reserved before the run and reconciled to finalized actual events. Customer consumer activation remains fail-closed pending a bounded owner pilot and the independent twelve-play quality gate.
 - 2026-08-30: The first owner-only Instagram plan failed closed before dispatch because its `34,500`-credit quote exceeded the existing `30,000`-credit owner ceiling. A reduced three-lane plan then executed 24 raw-row slots, reserved `27,600` credits, and reconciled three finalized actor charges for `$0.0069` (`3,450` Noli credits) with no ambiguity. Every actor dataset contained only `no_items` (`Empty or private data for provided input`) for the niche market-bound hashtags, so no candidate was created and no unchanged replay is justified. `opportunity-query-v61` replaces those unproductive Instagram tags with broader intent or market inventory tags while retaining returned-content-only intent, exact locality, recency, safety, public-access, actionability, and fit-v7 gates. The owner-only credit ceiling is raised to exactly `750,000`, the minimum canonical reservation needed for three TikTok lanes at the provider-mandated `$0.50` ceiling each; it remains bound to the configured owner ID, raw/accepted ceilings, exact rate gates, and an absent customer quality approval. Customer activation remains fail-closed.
+- 2026-08-30: The v61 owner probes reconciled six provider operations without ambiguity. Instagram again charged `$0.0069` and returned only provider-authored `no_items` diagnostics, including for broad `#Austin`, so the actor/query path remains disabled and is not a launch-quality source. TikTok returned 30 current rows for `$0.123`; all parsed, 29 were correctly excluded as listings, agent promotion, rentals, or completed transactions, and one current public “house hunting in Austin” declaration exposed a genuine false negative. `realtor-public-post-v2`, `opportunity-query-v62`, and `fit-v7-quality-v30` accept only a narrow explicit first-person or “way too early house hunting in” declaration while retaining independent locality, freshness, public-source, sensitive-targeting, listing, promotion, and actionability gates. Provider receipts now aggregate returned-content rejection reasons without retaining additional personal data. Customer activation remains fail-closed pending the independent twelve-play quality gate.

@@ -532,7 +532,7 @@ export function buildOpportunityQueryLanes(
         query_lane_version:
           adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
-            ? 'opportunity-query-v61'
+            ? 'opportunity-query-v62'
             : 'opportunity-query-v57',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
@@ -571,7 +571,7 @@ export function buildOpportunityQueryLanes(
           || adapterId === 'apify-tiktok-demand-opportunities'
           ? {
               social_public_post_contract_version: 'public-posts-v1',
-              social_returned_content_filter_version: 'realtor-public-post-v1',
+              social_returned_content_filter_version: 'realtor-public-post-v2',
               social_filter_required_intent: intent,
               social_filter_require_location: true,
               social_window_days: 30,
