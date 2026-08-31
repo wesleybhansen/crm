@@ -1937,7 +1937,7 @@ describe('Apify public social demand opportunities', () => {
     expect(runActor).toHaveBeenCalledWith(
       APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG.actorId,
       {
-        searches: ['buying home'],
+        searches: ['(title:"looking for a realtor" OR selftext:"looking for a realtor")'],
         searchCommunityName: 'Phoenix',
         searchPosts: true,
         searchComments: false,
@@ -1970,11 +1970,12 @@ describe('Apify public social demand opportunities', () => {
       runActor,
     })
     const baseProviderQuery = {
-      source_search_keywords: ['buying home'],
-      search_query: 'buying home',
+      source_search_keywords: ['(title:"looking for a realtor" OR selftext:"looking for a realtor")'],
+      search_query: '(title:"looking for a realtor" OR selftext:"looking for a realtor")',
       locations: ['Phoenix, Arizona'],
       opportunity_intent_lane: 'buyer_intent',
-      reddit_fresh_contract_version: 'public-post-search-v1',
+      reddit_fresh_contract_version: 'public-post-search-v2',
+      reddit_search_syntax_version: 'field-qualified-exact-v1',
       reddit_fresh_window_days: 30,
       reddit_returned_content_filter_version: 'semantic-intent-location-v3',
       reddit_filter_required_intent: 'buyer_intent',
@@ -1987,6 +1988,17 @@ describe('Apify public social demand opportunities', () => {
       { ...baseProviderQuery, reddit_fresh_window_days: 31 },
       { ...baseProviderQuery, reddit_subreddits: [] },
       { ...baseProviderQuery, reddit_fresh_contract_version: 'unfrozen' },
+      { ...baseProviderQuery, reddit_search_syntax_version: 'unfrozen' },
+      {
+        ...baseProviderQuery,
+        source_search_keywords: ['looking for a realtor'],
+        search_query: 'looking for a realtor',
+      },
+      {
+        ...baseProviderQuery,
+        source_search_keywords: ['author:"realtor"'],
+        search_query: 'author:"realtor"',
+      },
     ]) {
       await expect(adapter.search({
         ...plan,

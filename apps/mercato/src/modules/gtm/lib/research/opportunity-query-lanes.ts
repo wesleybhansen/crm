@@ -71,6 +71,19 @@ function unique(valuesToDedupe: string[]): string[] {
   })
 }
 
+function redditExactPhrase(phrase: string): string {
+  const exact = quoted(phrase)
+  return `(title:${exact} OR selftext:${exact})`
+}
+
+function redditExactPhraseSearch(...phrases: string[]): string {
+  return phrases.map(redditExactPhrase).join(' OR ')
+}
+
+function redditMarketBoundPhraseSearch(market: string, ...phrases: string[]): string {
+  return `${redditExactPhrase(market)} AND (${redditExactPhraseSearch(...phrases)})`
+}
+
 function inferredLane(play: PlanPlayInput): OpportunityIntentLane {
   const query = play.providerQuery ?? {}
   const explicit = values(
@@ -279,9 +292,27 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   if (adapterId === 'apify-reddit-fresh-demand-opportunities') {
     const market = marketName(geography)
     const byIntent: Record<OpportunityIntentLane, string[]> = {
-      buyer_intent: ['buying home', 'house hunting', 'first time home buyer', market, market],
-      seller_intent: ['selling house', 'realtor recommendation', 'sell my house', market, market],
-      mixed_intent: ['sell before buying', 'move-up buyer', 'selling and buying', market, market],
+      buyer_intent: [
+        redditExactPhraseSearch('looking for a realtor'),
+        redditExactPhraseSearch('buying a home', 'buy a house'),
+        redditExactPhraseSearch('house hunting', 'first time home buyer'),
+        redditMarketBoundPhraseSearch(market, 'first time home buyer', 'buying a home'),
+        redditMarketBoundPhraseSearch(market, 'looking for a realtor', 'house hunting'),
+      ],
+      seller_intent: [
+        redditExactPhraseSearch('looking for a realtor', 'realtor recommendation'),
+        redditExactPhraseSearch('thinking of selling', 'planning to sell'),
+        redditExactPhraseSearch('selling my house', 'selling my home'),
+        redditMarketBoundPhraseSearch(market, 'thinking of selling', 'planning to sell'),
+        redditMarketBoundPhraseSearch(market, 'looking for a realtor', 'selling my home'),
+      ],
+      mixed_intent: [
+        redditExactPhraseSearch('sell before buying', 'buy before selling'),
+        redditExactPhraseSearch('selling and buying', 'buying and selling'),
+        redditExactPhraseSearch('move-up buyer', 'sell then buy'),
+        redditMarketBoundPhraseSearch(market, 'sell before buying', 'buy before selling'),
+        redditMarketBoundPhraseSearch(market, 'selling and buying', 'buying and selling'),
+      ],
       local_audience: [],
     }
     return byIntent[intent]
@@ -573,7 +604,7 @@ export function buildOpportunityQueryLanes(
           adapterId === 'apify-reddit-thread-demand-opportunities'
             ? 'opportunity-query-v64'
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
-            ? 'opportunity-query-v65'
+            ? 'opportunity-query-v66'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -637,7 +668,8 @@ export function buildOpportunityQueryLanes(
           : {}),
         ...(adapterId === 'apify-reddit-fresh-demand-opportunities'
           ? {
-              reddit_fresh_contract_version: 'public-post-search-v1',
+              reddit_fresh_contract_version: 'public-post-search-v2',
+              reddit_search_syntax_version: 'field-qualified-exact-v1',
               reddit_fresh_window_days: 30,
               reddit_returned_content_filter_version: 'semantic-intent-location-v3',
               reddit_filter_required_intent: intent,

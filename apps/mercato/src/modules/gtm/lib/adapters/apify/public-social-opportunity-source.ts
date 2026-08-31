@@ -577,8 +577,11 @@ export const APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfi
   ],
   buildInput(plan, maxResults) {
     validateRedditReturnedContentFilter(plan)
-    if (plan.provider_query?.reddit_fresh_contract_version !== 'public-post-search-v1') {
+    if (plan.provider_query?.reddit_fresh_contract_version !== 'public-post-search-v2') {
       throw new TypeError('fresh Reddit sourcing requires the frozen public-post search contract')
+    }
+    if (plan.provider_query?.reddit_search_syntax_version !== 'field-qualified-exact-v1') {
+      throw new TypeError('fresh Reddit sourcing requires the frozen field-qualified search syntax')
     }
     if (maxResults > 10) {
       throw new TypeError('fresh Reddit sourcing is limited to 10 rows per quoted lane')
@@ -594,6 +597,21 @@ export const APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfi
       throw new TypeError('fresh Reddit sourcing requires exactly one frozen public subreddit')
     }
     const query = queryText(plan, 500)
+    const quotedValues = query.match(/"[^"\r\n]+"/g) ?? []
+    const structuralRemainder = query
+      .replace(/"[^"\r\n]+"/g, '""')
+      .replace(/\b(?:title|selftext):""/gi, '')
+      .replace(/\b(?:AND|OR)\b/g, '')
+      .replace(/[()\s]/g, '')
+    if (
+      quotedValues.length < 2
+      || !/\btitle:"[^"\r\n]+"/i.test(query)
+      || !/\bselftext:"[^"\r\n]+"/i.test(query)
+      || !/\b(?:title|selftext):"[^"\r\n]*\s+[^"\r\n]*"/i.test(query)
+      || structuralRemainder
+    ) {
+      throw new TypeError('fresh Reddit sourcing accepts only exact title/selftext field clauses joined by uppercase AND/OR')
+    }
     return {
       searches: [query],
       searchCommunityName: subreddits[0],
