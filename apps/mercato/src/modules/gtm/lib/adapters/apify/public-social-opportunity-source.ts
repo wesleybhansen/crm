@@ -711,11 +711,19 @@ export const APIFY_REDDIT_API_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig 
   ],
   buildInput(plan, maxResults) {
     validateRedditReturnedContentFilter(plan)
-    if (plan.provider_query?.reddit_api_contract_version !== 'scoped-public-post-search-v1') {
+    const contractVersion = plan.provider_query?.reddit_api_contract_version
+    if (
+      contractVersion !== 'scoped-public-post-search-v1'
+      && contractVersion !== 'scoped-public-post-search-v2'
+    ) {
       throw new TypeError('Reddit API sourcing requires the frozen scoped public-post contract')
     }
-    if (requestedOpportunityIntent(plan) !== 'buyer_intent') {
-      throw new TypeError('Reddit API sourcing is limited to the calibrated realtor buyer lane')
+    const requestedIntent = requestedOpportunityIntent(plan)
+    if (requestedIntent !== 'buyer_intent' && requestedIntent !== 'seller_intent') {
+      throw new TypeError('Reddit API sourcing is limited to the calibrated realtor buyer and seller lanes')
+    }
+    if (contractVersion === 'scoped-public-post-search-v1' && requestedIntent !== 'buyer_intent') {
+      throw new TypeError('legacy Reddit API plans remain limited to the calibrated realtor buyer lane')
     }
     if (plan.provider_query?.reddit_api_window_days !== 30) {
       throw new TypeError('Reddit API sourcing requires the frozen 30-day post window')
@@ -728,8 +736,11 @@ export const APIFY_REDDIT_API_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig 
       throw new TypeError('Reddit API sourcing requires exactly one frozen public subreddit')
     }
     const query = queryText(plan, 40).toLowerCase()
-    if (!['looking to buy', 'house hunting'].includes(query)) {
-      throw new TypeError('Reddit API sourcing requires a calibrated source-native buyer phrase')
+    const phrases = requestedIntent === 'buyer_intent'
+      ? ['looking to buy', 'house hunting']
+      : ['selling my house', 'selling my home']
+    if (!phrases.includes(query)) {
+      throw new TypeError(`Reddit API sourcing requires a calibrated source-native ${requestedIntent === 'buyer_intent' ? 'buyer' : 'seller'} phrase`)
     }
     return {
       startUrls: [{ url: `https://www.reddit.com/r/${subreddits[0]}/` }],

@@ -160,11 +160,11 @@ export function opportunitySourceRouting(
 
   if (
     adapterId === 'apify-reddit-api-demand-opportunities'
-    && (!realtor || intent !== 'buyer_intent')
+    && (!realtor || (intent !== 'buyer_intent' && intent !== 'seller_intent'))
   ) {
     return {
       eligible: false,
-      reason: 'the calibrated Reddit API contract is limited to realtor buyer-intent plays in one frozen local community',
+      reason: 'the calibrated Reddit API contract is limited to realtor buyer- and seller-intent plays in one frozen local community',
     }
   }
 
@@ -326,7 +326,7 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   if (adapterId === 'apify-reddit-api-demand-opportunities') {
     const byIntent: Record<OpportunityIntentLane, string[]> = {
       buyer_intent: ['looking to buy', 'house hunting'],
-      seller_intent: [],
+      seller_intent: ['selling my house', 'selling my home'],
       mixed_intent: [],
       local_audience: [],
     }
@@ -719,7 +719,7 @@ export function buildOpportunityQueryLanes(
         ...providerQuery,
         query_lane_version:
           adapterId === 'apify-reddit-api-demand-opportunities'
-            ? 'opportunity-query-v81'
+            ? 'opportunity-query-v88'
             : adapterId === 'apify-reddit-thread-demand-opportunities'
             ? 'opportunity-query-v64'
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
@@ -806,7 +806,7 @@ export function buildOpportunityQueryLanes(
         ...(adapterId === 'apify-reddit-api-demand-opportunities'
           ? {
               locations: [geography],
-              reddit_api_contract_version: 'scoped-public-post-search-v1',
+              reddit_api_contract_version: 'scoped-public-post-search-v2',
               reddit_api_window_days: 30,
               reddit_returned_content_filter_version: 'semantic-intent-location-v4',
               reddit_filter_required_intent: intent,
