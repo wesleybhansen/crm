@@ -247,9 +247,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'Austin, Texas housing counseling homebuyer workshop registration',
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v86'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v87'
       && lane.providerQuery.realtor_retrieval_contract_version
-        === 'evidence-first-public-destination-v3'
+        === 'evidence-first-public-destination-v4'
     ))).toBe(true)
     expect(lanes.map((lane) => lane.providerQuery.dataforseo_price_operator_contract)).toEqual([
       'single-positive-site-v1',
@@ -545,9 +545,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       false,
     ])
     expect(web.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v86'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v87'
       && lane.providerQuery.realtor_retrieval_contract_version
-        === 'evidence-first-public-destination-v3'
+        === 'evidence-first-public-destination-v4'
     ))).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(web.every((lane) => lane.query.length < 240)).toBe(true)
@@ -800,9 +800,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       'Austin, Texas community housing public meeting',
     ])
     expect(web.every(
-      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v86'
+      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v87'
         && lane.providerQuery.realtor_retrieval_contract_version
-          === 'evidence-first-public-destination-v3',
+          === 'evidence-first-public-destination-v4',
     )).toBe(true)
     expect(planned.ok).toBe(true)
     if (planned.ok) {

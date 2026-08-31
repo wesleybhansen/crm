@@ -729,7 +729,7 @@ export function buildOpportunityQueryLanes(
             : adapterId === 'apify-reddit-demand-opportunities' && realtor
             ? 'opportunity-query-v80'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtor
-            ? 'opportunity-query-v86'
+            ? 'opportunity-query-v87'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -745,7 +745,7 @@ export function buildOpportunityQueryLanes(
           ? {
               search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
               ...(realtor
-                ? { realtor_retrieval_contract_version: 'evidence-first-public-destination-v3' }
+                ? { realtor_retrieval_contract_version: 'evidence-first-public-destination-v4' }
                 : {}),
               ...(dataForSeoSiteScope
                 ? {

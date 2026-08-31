@@ -275,9 +275,30 @@ function platformName(hostname: string): string {
   return host
 }
 
-function opportunityKind(url: URL, title: string, resultType: string): OpportunityKind | null {
+function opportunityKind(
+  url: URL,
+  title: string,
+  description: string | null,
+  resultType: string,
+  observedAt: string,
+): OpportunityKind | null {
   const host = url.hostname.toLowerCase().replace(/^www\./, '')
   const path = url.pathname.toLowerCase()
+  const material = `${title} ${description ?? ''}`
+  const socialPost = (
+    (host.endsWith('facebook.com') && (path.includes('/posts/') || path.includes('/permalink/')))
+    || (host.endsWith('linkedin.com') && (path.includes('/posts/') || path.includes('/feed/update/')))
+  )
+  // An organic search result can expose a public event through a social-post
+  // URL. Require both event language and a returned-content date before
+  // treating that post as an event. This lets the downstream destination gate
+  // distinguish future participation from an expired announcement without
+  // trusting the search query or provider lane as evidence.
+  if (
+    socialPost
+    && EVENT_HINT.test(material)
+    && explicitEventStartAt(material, observedAt)
+  ) return 'event'
   if (resultType === 'discussions_and_forums_element') return 'thread'
   if (resultType === 'perspectives_element') return 'post'
   if (resultType === 'events_element') return 'event'
@@ -503,7 +524,7 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
   if (resultType === 'events_element' && /(^|\.)google\.[a-z.]+$/i.test(url.hostname)) {
     return { candidate: null, dropReason: 'google_event_destination' }
   }
-  const kind = opportunityKind(url, title, resultType)
+  const kind = opportunityKind(url, title, description, resultType, context.observedAt)
   if (!kind) return { candidate: null, dropReason: 'unproven_destination_kind' }
   const demonstratedIntent = classifyOpportunityIntent(searchable)
   const intent = demonstratedIntent.kind

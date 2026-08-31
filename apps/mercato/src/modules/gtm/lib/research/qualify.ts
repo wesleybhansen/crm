@@ -10,6 +10,7 @@ import {
   publicSourceGeographyConflict,
   opportunityEvidenceText,
   realtorOpportunityNoiseReasons,
+  resolveOpportunityEventStart,
 } from './opportunity-quality'
 
 export type FitVerdict = 'accepted' | 'review' | 'rejected'
@@ -80,7 +81,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v34' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v35' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -376,6 +377,39 @@ function opportunityActionabilityStatus(args: {
   return 'pass'
 }
 
+const PUBLIC_EVENT_POST = /\b(?:event|fair|workshop|seminar|webinar|class|meetup|panel|clinic|home tour)\b/i
+
+function effectiveOpportunityIdentity(
+  identity: Record<string, unknown>,
+  observedText: string,
+  referenceTime: Date | null,
+): { identity: Record<string, unknown>; kind: string | null } {
+  const kind = stringValue(identity, ['opportunity_kind'])
+  if (kind !== 'post' || !PUBLIC_EVENT_POST.test(observedText)) {
+    return { identity, kind }
+  }
+  const eventStart = resolveOpportunityEventStart(
+    identity.event_start_at,
+    observedText,
+    referenceTime,
+  )
+  if (!eventStart) return { identity, kind }
+  // Public search sources frequently return an event as a social post URL.
+  // The URL shape describes the container, while the returned content and
+  // date prove the actual participation surface. Score that bounded evidence
+  // as an event so future dates, expiry, relevance, and event-safe actions are
+  // evaluated consistently. Query text and provider targeting are absent from
+  // this decision, so they still cannot manufacture an event.
+  return {
+    identity: {
+      ...identity,
+      opportunity_kind: 'event',
+      event_start_at: eventStart.toISOString(),
+    },
+    kind: 'event',
+  }
+}
+
 function scoreOpportunity(
   identity: Record<string, unknown>,
   play: FitPlayInput,
@@ -385,13 +419,14 @@ function scoreOpportunity(
   if (evidence.length === 0) {
     return result(0, 'rejected', FIT_REASONS.noEvidence, EMPTY_BREAKDOWN, [], ['no_supporting_evidence'])
   }
-  const opportunityKind = stringValue(identity, ['opportunity_kind'])
+  const observedText = opportunityEvidenceText(identity, evidence)
+  const effective = effectiveOpportunityIdentity(identity, observedText, referenceTime)
+  const opportunityKind = effective.kind
   const platform = stringValue(identity, ['platform'])
   const recommendedAction = stringValue(identity, ['recommended_action'])
   const messageAngle = stringValue(identity, ['message_angle'])
   const participationRules = stringValue(identity, ['participation_rules'])
   const participationRulesStatus = stringValue(identity, ['participation_rules_status'])
-  const observedText = opportunityEvidenceText(identity, evidence)
   const expectedIntent = expectedOpportunityIntent(play)
   const audienceExpected = expectedAudience(play)
   const geographyExpected = expectedGeographies(play)
@@ -399,7 +434,7 @@ function scoreOpportunity(
   const targetingLocations = observedValues(identity, ['provider_location'])
   const countryCode = stringValue(identity, ['country_code', 'countryCode'])?.toUpperCase() ?? null
   const destination = assessOpportunityDestination({
-    identity,
+    identity: effective.identity,
     evidence,
     referenceTime,
     maxAgeDays: recencyDays(play.recencyWindow),
