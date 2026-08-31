@@ -98,12 +98,12 @@ function isMeetupReturnedContentFilterVersion(
   return value === 'realtor-housing-event-v1'
 }
 
-type SocialReturnedContentFilterVersion = 'realtor-public-post-v1'
+type SocialReturnedContentFilterVersion = 'realtor-public-post-v2'
 
 function isSocialReturnedContentFilterVersion(
   value: unknown,
 ): value is SocialReturnedContentFilterVersion {
-  return value === 'realtor-public-post-v1'
+  return value === 'realtor-public-post-v2'
 }
 
 function validateSocialReturnedContentFilter(plan: SourceSearchPlan): void {
@@ -221,17 +221,25 @@ function returnedContentMatchesMeetupFilter(candidate: Candidate, plan: SourceSe
   ).relevant
 }
 
-function returnedContentMatchesSocialFilter(candidate: Candidate, plan: SourceSearchPlan): boolean {
+type ReturnedContentAssessment = {
+  matches: boolean
+  reasons: string[]
+}
+
+function assessReturnedContentSocialFilter(
+  candidate: Candidate,
+  plan: SourceSearchPlan,
+): ReturnedContentAssessment {
   if (!isSocialReturnedContentFilterVersion(
     plan.provider_query?.social_returned_content_filter_version,
-  )) return false
+  )) return { matches: false, reasons: ['unsupported_returned_content_filter'] }
   const expected = plan.provider_query?.social_filter_required_intent
   if (
     expected !== 'buyer_intent'
     && expected !== 'seller_intent'
     && expected !== 'mixed_intent'
     && expected !== 'local_audience'
-  ) return false
+  ) return { matches: false, reasons: ['unsupported_intent_lane'] }
   const content = [candidate.identity.name, candidate.identity.audience_description]
     .filter((value): value is string => typeof value === 'string')
     .join(' ')
@@ -243,14 +251,18 @@ function returnedContentMatchesSocialFilter(candidate: Candidate, plan: SourceSe
       || demonstratedOpportunityLocation(content, requestedLocation)
     ),
   )
-  if (!locationMatches) return false
+  if (!locationMatches) return { matches: false, reasons: ['missing_returned_location_evidence'] }
   const sourceUrl = candidate.identity.urls?.find((value) => typeof value === 'string') ?? null
-  return assessRealtorOpportunitySuitability(
+  const suitability = assessRealtorOpportunitySuitability(
     content,
     expected,
     sourceUrl,
     'post',
-  ).relevant
+  )
+  return {
+    matches: suitability.relevant,
+    reasons: suitability.relevant ? [] : suitability.reasons,
+  }
 }
 
 function returnedContentFilterVersion(
@@ -265,17 +277,34 @@ function returnedContentFilterVersion(
   return typeof value === 'string' ? value : undefined
 }
 
-function returnedContentMatches(
+function assessReturnedContent(
   platform: SocialPlatform,
   candidate: Candidate,
   plan: SourceSearchPlan,
-): boolean {
-  if (platform === 'Reddit') return returnedContentMatchesRedditFilter(candidate, plan)
-  if (platform === 'Meetup') return returnedContentMatchesMeetupFilter(candidate, plan)
-  if (platform === 'Instagram' || platform === 'TikTok') {
-    return returnedContentMatchesSocialFilter(candidate, plan)
+): ReturnedContentAssessment {
+  if (platform === 'Reddit') {
+    const matches = returnedContentMatchesRedditFilter(candidate, plan)
+    return { matches, reasons: matches ? [] : ['returned_content_semantic_mismatch'] }
   }
-  return true
+  if (platform === 'Meetup') {
+    const matches = returnedContentMatchesMeetupFilter(candidate, plan)
+    return { matches, reasons: matches ? [] : ['returned_content_semantic_mismatch'] }
+  }
+  if (platform === 'Instagram' || platform === 'TikTok') {
+    return assessReturnedContentSocialFilter(candidate, plan)
+  }
+  return { matches: true, reasons: [] }
+}
+
+function returnedContentReasonCounts(
+  assessments: Array<{ assessment: ReturnedContentAssessment }>,
+): Record<string, number> {
+  const counts = new Map<string, number>()
+  for (const { assessment } of assessments) {
+    if (assessment.matches) continue
+    for (const reason of assessment.reasons) counts.set(reason, (counts.get(reason) ?? 0) + 1)
+  }
+  return Object.fromEntries([...counts.entries()].sort(([left], [right]) => left.localeCompare(right)))
 }
 
 function requestedOpportunityIntent(plan: SourceSearchPlan): DemonstratedOpportunityIntent {
@@ -2032,9 +2061,16 @@ export function createPublicSocialOpportunityAdapter(
         || config.platform === 'Meetup'
         || config.platform === 'Instagram'
         || config.platform === 'TikTok'
-      const candidates = filtersReturnedContent
-        ? normalizedCandidates.filter((candidate) => returnedContentMatches(config.platform, candidate, plan))
-        : normalizedCandidates
+      const assessedCandidates = normalizedCandidates.map((candidate) => ({
+        candidate,
+        assessment: filtersReturnedContent
+          ? assessReturnedContent(config.platform, candidate, plan)
+          : { matches: true, reasons: [] },
+      }))
+      const candidates = assessedCandidates
+        .filter(({ assessment }) => assessment.matches)
+        .map(({ candidate }) => candidate)
+      const filterReasonCounts = returnedContentReasonCounts(assessedCandidates)
       if (candidates.length === 0) {
         const returnedContentFiltered = filtersReturnedContent ? normalizedCandidates.length : 0
         const semanticFilterVersion = returnedContentFilterVersion(config.platform, plan)
@@ -2050,6 +2086,7 @@ export function createPublicSocialOpportunityAdapter(
               ? {
                   returned_content_filter_version: semanticFilterVersion,
                   returned_content_filtered_rows: returnedContentFiltered,
+                  returned_content_filter_reasons: filterReasonCounts,
                 }
               : { keyword_filtered_rows: returnedContentFiltered }),
           }),
@@ -2078,6 +2115,7 @@ export function createPublicSocialOpportunityAdapter(
             ? {
                 returned_content_filter_version: semanticFilterVersion,
                 returned_content_filtered_rows: returnedContentFiltered,
+                returned_content_filter_reasons: filterReasonCounts,
               }
             : { keyword_filtered_rows: returnedContentFiltered }),
           truncated,

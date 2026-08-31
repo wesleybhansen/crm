@@ -45,14 +45,14 @@ function plan(config: PublicPostConfig, query: string): SourceSearchPlan {
     geography: 'US',
     query,
     provider_query: {
-      query_lane_version: 'opportunity-query-v61',
+      query_lane_version: 'opportunity-query-v62',
       source_query_lane_id: 'buyer_intent:1',
       opportunity_intent_lane: 'buyer_intent',
       search_query: query,
       source_search_keywords: [query],
       locations: ['Austin, Texas'],
       social_public_post_contract_version: 'public-posts-v1',
-      social_returned_content_filter_version: 'realtor-public-post-v1',
+      social_returned_content_filter_version: 'realtor-public-post-v2',
       social_filter_required_intent: 'buyer_intent',
       social_filter_require_location: true,
       social_window_days: 30,
@@ -216,9 +216,9 @@ describe('Apify Instagram and TikTok public-post opportunities', () => {
       'moving to Austin home',
     ])
     expect([...instagram, ...tiktok].every((lane) =>
-      lane.providerQuery.query_lane_version === 'opportunity-query-v61'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v62'
       && lane.providerQuery.social_public_post_contract_version === 'public-posts-v1'
-      && lane.providerQuery.social_returned_content_filter_version === 'realtor-public-post-v1'
+      && lane.providerQuery.social_returned_content_filter_version === 'realtor-public-post-v2'
       && lane.providerQuery.social_filter_require_location === true
       && lane.providerQuery.social_window_days === 30
     )).toBe(true)
@@ -276,7 +276,7 @@ describe('Apify Instagram and TikTok public-post opportunities', () => {
       }],
       receipt: expect.objectContaining({
         charged_event_counts: { result: 1 },
-        returned_content_filter_version: 'realtor-public-post-v1',
+        returned_content_filter_version: 'realtor-public-post-v2',
       }),
     })
   })
@@ -368,6 +368,29 @@ describe('Apify Instagram and TikTok public-post opportunities', () => {
     }), tiktokContext)).toBeNull()
   })
 
+  it('keeps the paid TikTok house-hunting false negative as a frozen regression', async () => {
+    const returned = tiktokPost({
+      text: 'Way to early house hunting in Austin, TX #househunting #housetour #houseshopping',
+      locationMeta: { city: 'Austin', locationName: 'Austin, TX' },
+    })
+    const result = await createApifyTikTokOpportunityAdapter({
+      env: approvedEnv(APIFY_TIKTOK_OPPORTUNITY_CONFIG),
+      now,
+      runActor: jest.fn(async () => outcome(APIFY_TIKTOK_OPPORTUNITY_CONFIG, returned)),
+    }).search(plan(APIFY_TIKTOK_OPPORTUNITY_CONFIG, 'Austin house hunting'))
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      data: [{
+        identity: {
+          platform: 'TikTok',
+          intent_kind: 'buyer_intent',
+          location: 'Austin, Texas',
+        },
+      }],
+    })
+  })
+
   it('does not let a buyer-oriented query manufacture intent in irrelevant returned content', async () => {
     const returned = instagramPost({
       caption: 'A beautiful Austin kitchen inspiration board with blue cabinets.',
@@ -384,8 +407,13 @@ describe('Apify Instagram and TikTok public-post opportunities', () => {
       cost_units: 2.3,
       error: 'no_result_after_returned_content_filter',
       receipt: expect.objectContaining({
-        returned_content_filter_version: 'realtor-public-post-v1',
+        returned_content_filter_version: 'realtor-public-post-v2',
         returned_content_filtered_rows: 1,
+        returned_content_filter_reasons: {
+          intent_lane_mismatch: 1,
+          missing_consumer_need_or_event: 1,
+          missing_housing_context: 1,
+        },
       }),
     })
   })
