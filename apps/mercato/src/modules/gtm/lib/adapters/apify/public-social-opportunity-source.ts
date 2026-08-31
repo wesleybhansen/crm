@@ -60,7 +60,7 @@ export type PublicSocialOpportunityConfig = {
   oneTimeEvent: string | null
   allowedOneTimeEventCounts?: readonly number[]
   primaryResultEvent: string
-  primaryResultCountPolicy?: 'exact' | 'at-most-dataset'
+  primaryResultCountPolicy?: 'exact' | 'at-most-dataset' | 'at-most-quoted-cap'
   datasetResultBillingEvent?: string
   auxiliaryResultEvents?: readonly string[]
   partitionedResultEvents?: readonly string[]
@@ -678,16 +678,16 @@ export const APIFY_REDDIT_API_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig 
   // Rechecked against the signed-in Starter/BRONZE account, public actor
   // metadata, and bounded terminal receipts on 2026-08-31. Bronze list price
   // is $0.003 per returned item. The actor may apply its documented monthly
-  // free result allowance, so a finalized run can contain more dataset rows
-  // than charged item_returned events. Reserve the full list-price ceiling and
-  // reconcile only the provider's terminal event count.
+  // free result allowance, and its terminal event count can differ from the
+  // retained dataset row count. Reserve the full list-price ceiling and accept
+  // only a signed event count inside the immutable quoted row cap.
   requiredPriceVersion: 'practicaltools-apify-reddit-api-0.0.56-bronze-events-2026-08-31',
   eventPricesUsd: {
     item_returned: 0.003,
   },
   oneTimeEvent: null,
   primaryResultEvent: 'item_returned',
-  primaryResultCountPolicy: 'at-most-dataset',
+  primaryResultCountPolicy: 'at-most-quoted-cap',
   datasetResultBillingEvent: 'item_returned',
   perItemQuoteUsd: 0.003,
   oneTimeQuoteUsd: 0,
@@ -2796,6 +2796,8 @@ export function createPublicSocialOpportunityAdapter(
       const billedPrimaryResults = counts[config.primaryResultEvent] ?? 0
       const primaryResultCountMatches = config.primaryResultCountPolicy === 'at-most-dataset'
         ? billedPrimaryResults <= resultItems.length
+        : config.primaryResultCountPolicy === 'at-most-quoted-cap'
+        ? billedPrimaryResults <= maxCandidates
         : billedPrimaryResults === resultItems.length
       if (!primaryResultCountMatches) {
         return {
@@ -2805,7 +2807,9 @@ export function createPublicSocialOpportunityAdapter(
             billed_results: billedPrimaryResults,
           }),
           cost_units: null,
-          error: 'invalid_schema: billed result count did not match the bounded dataset',
+          error: config.primaryResultCountPolicy === 'at-most-quoted-cap'
+            ? 'invalid_schema: billed result count exceeded the immutable quoted cap'
+            : 'invalid_schema: billed result count did not match the bounded dataset',
         }
       }
       for (const event of config.auxiliaryResultEvents ?? []) {

@@ -108,7 +108,7 @@ describe('Apify practicaltools Reddit API opportunities', () => {
       requiredPriceVersion: 'practicaltools-apify-reddit-api-0.0.56-bronze-events-2026-08-31',
       eventPricesUsd: { item_returned: 0.003 },
       primaryResultEvent: 'item_returned',
-      primaryResultCountPolicy: 'at-most-dataset',
+      primaryResultCountPolicy: 'at-most-quoted-cap',
       oneTimeQuoteUsd: 0,
       perItemQuoteUsd: 0.003,
       maxBatch: 10,
@@ -218,7 +218,60 @@ describe('Apify practicaltools Reddit API opportunities', () => {
     })
   })
 
-  it('reconciles paid rows and refuses over-counted or unknown billing events', async () => {
+  it('reconciles a signed event count inside the quoted cap even when the actor retains fewer rows', async () => {
+    const retainedRows = [
+      phoenixBuyer(),
+      phoenixBuyer({
+        id: 't3_sanitized_sausage',
+        url: 'https://www.reddit.com/r/phoenix/comments/sanitized/sausage/',
+        title: 'Where can I buy sausage?',
+        body: 'I am looking to buy a particular sausage in Phoenix.',
+      }),
+      phoenixBuyer({
+        id: 't3_sanitized_vehicle',
+        url: 'https://www.reddit.com/r/phoenix/comments/sanitized/vehicle/',
+        title: 'Looking for a used truck',
+        body: 'I am looking to buy a used truck from a local owner.',
+      }),
+      phoenixBuyer({
+        id: 't3_sanitized_bread',
+        url: 'https://www.reddit.com/r/phoenix/comments/sanitized/bread/',
+        title: 'Where can I buy sourdough bread?',
+        body: 'I am looking to buy fresh sourdough from a local bakery.',
+      }),
+      phoenixBuyer({
+        id: 't3_sanitized_cards',
+        url: 'https://www.reddit.com/r/phoenix/comments/sanitized/cards/',
+        title: 'Card shop recommendations',
+        body: 'I am looking for a shop that buys and sells trading cards.',
+      }),
+      phoenixBuyer({
+        id: 't3_sanitized_ice',
+        url: 'https://www.reddit.com/r/phoenix/comments/sanitized/ice/',
+        title: 'Where can I buy ice blocks?',
+        body: 'I want to buy ice blocks for a swimming pool.',
+      }),
+    ]
+    const adapter = createApifyRedditApiOpportunityAdapter({
+      env: approvedEnv(),
+      now,
+      runActor: async () => outcome(retainedRows, 10),
+    })
+    await expect(adapter.search(searchPlan())).resolves.toMatchObject({
+      status: 'partial',
+      cost_units: 30,
+      data: [expect.objectContaining({
+        identity: expect.objectContaining({ intent_kind: 'buyer_intent' }),
+      })],
+      receipt: expect.objectContaining({
+        item_count: 6,
+        charged_event_counts: { item_returned: 10 },
+        provider_cost_usd: 0.03,
+      }),
+    })
+  })
+
+  it('reconciles paid rows and refuses events above the quoted cap or with unknown names', async () => {
     const paid = createApifyRedditApiOpportunityAdapter({
       env: approvedEnv(),
       now,
@@ -232,11 +285,11 @@ describe('Apify practicaltools Reddit API opportunities', () => {
     const overCounted = createApifyRedditApiOpportunityAdapter({
       env: approvedEnv(),
       now,
-      runActor: async () => outcome([phoenixBuyer()], 2),
+      runActor: async () => outcome([phoenixBuyer()], 11),
     })
     await expect(overCounted.search(searchPlan())).resolves.toMatchObject({
       status: 'ambiguous',
-      error: expect.stringContaining('billed result count'),
+      error: expect.stringContaining('immutable quoted cap'),
     })
 
     const unknownEvent = createApifyRedditApiOpportunityAdapter({
