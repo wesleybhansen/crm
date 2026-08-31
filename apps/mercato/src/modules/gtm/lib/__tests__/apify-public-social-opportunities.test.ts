@@ -310,6 +310,7 @@ describe('Apify public social demand opportunities', () => {
         'apify-actor-start': 0.01,
         'apify-default-dataset-item': 0.0022,
       },
+      datasetResultBillingEvent: 'apify-default-dataset-item',
       oneTimeQuoteUsd: 0.01,
       perItemQuoteUsd: 0.0022,
       maxBatch: 10,
@@ -1955,6 +1956,7 @@ describe('Apify public social demand opportunities', () => {
         build: '1.1.36',
         maxItems: 10,
         maxChargeUsd: 0.032,
+        datasetResultEvent: 'apify-default-dataset-item',
       }),
     )
   })

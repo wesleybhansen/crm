@@ -51,6 +51,12 @@ export const APIFY_FINALIZED_BILLING_DELAY_MS = 10_000
 // up with chargedEventCounts. Re-read the same durable run (never restart the
 // Actor) a small, bounded number of times before declaring billing ambiguous.
 export const APIFY_FINALIZED_BILLING_READ_ATTEMPTS = 3
+// A dataset row can become durable a few seconds before its corresponding
+// PAY_PER_EVENT charge appears on the terminal run receipt. For actors whose
+// frozen contract explicitly opts in, re-read that same run after the dataset
+// is known (never restart it) before handing an apparent cardinality mismatch
+// to the adapter for fail-closed settlement.
+export const APIFY_POST_DATASET_BILLING_READ_ATTEMPTS = 6
 // Response bodies are truncated before they reach a receipt: receipts are
 // stored jsonb and read by humans, not a place for a full provider payload.
 export const APIFY_BODY_SNIPPET_LIMIT = 500
@@ -181,6 +187,9 @@ export type ApifyFinalizedBillingContract =
 
 export type ApifyFinalizedRunOptions = ApifyRunOptions & {
   billingContract: ApifyFinalizedBillingContract
+  // Opt-in only. Names the frozen per-dataset-row billing event whose count
+  // must be allowed to converge after durable rows become visible.
+  datasetResultEvent?: string
   finalizationDelayMs?: number
   sleep?: (delayMs: number) => Promise<void>
 }
@@ -751,7 +760,7 @@ export async function runActorWithFinalizedBilling(
       error: 'invalid_schema: finalized billing evidence did not match the frozen contract',
     }
   }
-  const withBilling = {
+  let withBilling = {
     ...withRun,
     billingFinalized: true,
     chargedEventCounts: billing.counts,
@@ -823,6 +832,106 @@ export async function runActorWithFinalizedBilling(
       status: 'ambiguous',
       items: [],
       error: 'invalid_schema: run dataset exceeded the frozen result contract',
+    }
+  }
+  const datasetResultEvent = options.datasetResultEvent?.trim()
+  let postDatasetBillingReadAttempts = 0
+  while (
+    items.length > 0
+    && datasetResultEvent
+    && (billing.counts[datasetResultEvent] ?? 0) < items.length
+    && postDatasetBillingReadAttempts < APIFY_POST_DATASET_BILLING_READ_ATTEMPTS
+  ) {
+    await (options.sleep ?? defaultSleep)(finalizationDelayMs)
+    postDatasetBillingReadAttempts += 1
+    let refreshedResponse: ApifyFetchResponse
+    let refreshedBody: string
+    try {
+      const refreshed = await fetchTextWithTimeout(
+        fetchImpl,
+        `${APIFY_API_BASE}/actor-runs/${encodeURIComponent(startRun.id)}`,
+        { method: 'GET', headers },
+        timeoutMs,
+      )
+      refreshedResponse = refreshed.response
+      refreshedBody = refreshed.body
+    } catch (error) {
+      const message = redactToken(error instanceof Error ? error.message : String(error), options.token)
+      return {
+        ...withBilling,
+        kind: 'transport_unknown',
+        status: 'ambiguous',
+        items: [],
+        error: `transport_unknown: post-dataset billing receipt unavailable (${message})`,
+      }
+    }
+    if (refreshedResponse.status < 200 || refreshedResponse.status >= 300) {
+      return {
+        ...withBilling,
+        kind: 'transport_unknown',
+        status: 'ambiguous',
+        items: [],
+        error: `provider_error: post-dataset billing receipt returned HTTP ${refreshedResponse.status}`,
+      }
+    }
+    let refreshedPayload: unknown
+    try {
+      refreshedPayload = JSON.parse(refreshedBody)
+    } catch {
+      refreshedPayload = null
+    }
+    const refreshedRun = parseRunRecord(
+      (refreshedPayload as { data?: unknown } | null)?.data,
+    )
+    if (
+      !refreshedRun
+      || refreshedRun.id !== startRun.id
+      || refreshedRun.status !== 'SUCCEEDED'
+    ) {
+      return {
+        ...withBilling,
+        kind: 'invalid_schema',
+        status: 'ambiguous',
+        items: [],
+        error: 'invalid_schema: post-dataset billing receipt changed durable run identity or status',
+      }
+    }
+    const refreshedBilling = finalizedProviderCost(
+      refreshedRun,
+      options.billingContract,
+      maxChargeUsd,
+    )
+    if (!refreshedBilling) {
+      if (finalizedBillingCanStillConverge(
+        refreshedRun,
+        options.billingContract,
+        maxChargeUsd,
+      )) {
+        finalRun = refreshedRun
+        continue
+      }
+      const evidence = finalizedProviderEvidence(refreshedRun, maxChargeUsd)
+      return {
+        ...withBilling,
+        ...(evidence ? {
+          chargedEventCounts: evidence.counts,
+          providerCostUsd: evidence.costUsd,
+          pricingModel: evidence.pricingModel,
+        } : {}),
+        kind: 'invalid_schema',
+        status: 'ambiguous',
+        items: [],
+        error: 'invalid_schema: post-dataset billing evidence did not match the frozen contract',
+      }
+    }
+    finalRun = refreshedRun
+    billing = refreshedBilling
+    withBilling = {
+      ...withRun,
+      billingFinalized: true,
+      chargedEventCounts: billing.counts,
+      providerCostUsd: billing.costUsd,
+      pricingModel: finalRun.pricingInfo.pricingModel,
     }
   }
   return {

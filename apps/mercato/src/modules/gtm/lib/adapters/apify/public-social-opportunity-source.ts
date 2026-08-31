@@ -58,6 +58,7 @@ export type PublicSocialOpportunityConfig = {
   eventPricesUsd: Record<string, number>
   oneTimeEvent: string | null
   primaryResultEvent: string
+  datasetResultBillingEvent?: string
   auxiliaryResultEvents?: readonly string[]
   partitionedResultEvents?: readonly string[]
   partitionedResultEvent?(value: unknown): string | null
@@ -331,6 +332,7 @@ type RunActor = (
     maxChargeUsd: number
     datasetFields: string[]
     maxDatasetBodyBytes: number
+    datasetResultEvent?: string
     now: () => Date
   },
 ) => Promise<ApifyRunOutcome>
@@ -550,6 +552,7 @@ export const APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfi
   },
   oneTimeEvent: 'apify-actor-start',
   primaryResultEvent: 'apify-default-dataset-item',
+  datasetResultBillingEvent: 'apify-default-dataset-item',
   perItemQuoteUsd: 0.0022,
   oneTimeQuoteUsd: 0.01,
   maxBatch: 10,
@@ -2165,6 +2168,7 @@ export function createPublicSocialOpportunityAdapter(
         maxChargeUsd,
         datasetFields: [...config.datasetFields],
         maxDatasetBodyBytes: MAX_DATASET_BODY_BYTES,
+        datasetResultEvent: config.datasetResultBillingEvent,
         now,
       })
       const providerReceipt = (extras: Record<string, unknown> = {}) =>
