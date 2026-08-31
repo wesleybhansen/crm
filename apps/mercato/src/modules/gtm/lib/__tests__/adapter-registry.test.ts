@@ -45,6 +45,7 @@ import {
   APIFY_WEBSITE_EMAIL_RETENTION_DAYS_ENV,
 } from '../adapters/apify/website-email'
 import {
+  APIFY_FACEBOOK_OPPORTUNITY_CONFIG,
   APIFY_INSTAGRAM_OPPORTUNITY_CONFIG,
   APIFY_MEETUP_OPPORTUNITY_CONFIG,
   APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG,
@@ -250,6 +251,7 @@ describe('adapter registry environment boundaries', () => {
   })
 
   it.each([
+    APIFY_FACEBOOK_OPPORTUNITY_CONFIG,
     APIFY_INSTAGRAM_OPPORTUNITY_CONFIG,
     APIFY_TIKTOK_OPPORTUNITY_CONFIG,
   ])('registers $platform public posts only behind its exact capability gate', (config) => {
