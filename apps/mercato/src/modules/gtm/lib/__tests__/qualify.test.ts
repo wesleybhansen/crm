@@ -496,6 +496,94 @@ describe('ruleBasedFitScorer', () => {
     ]))
   })
 
+  it('scores a dated public local event announced through a social post as an event surface', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Beats on the Street returns to Water Street Tampa',
+          opportunity_kind: 'post',
+          platform: 'Facebook',
+          audience_description:
+            'Water Street Tampa hosts a homeowner community workshop on Saturday, September 26, 2026. It is free and open to the public.',
+          location: 'Tampa, Florida',
+          access_type: 'public',
+          source_published_at: '2026-08-24T21:22:33.000Z',
+          urls: ['https://www.facebook.com/WaterStreetTampa/posts/public-event-1/'],
+          participation_rules:
+            'Check the current event rules before participating; do not automate contact or promotion.',
+          participation_rules_status: 'unverified',
+          recommended_action:
+            'Open the public event page and review the participation rules before attending.',
+          message_angle:
+            'Contribute useful neighborhood information if the organizer permits professional participation.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Tampa, Florida',
+        audience: 'Public communities and events where Tampa homeowners and local residents gather',
+        signal: 'The destination is current, public, locally relevant, and offers a legitimate way to participate.',
+        referenceTime: '2026-08-31T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'local_audience' },
+      },
+      strongEvidence,
+    )
+
+    expect(result).toMatchObject({ verdict: 'review', reason: FIT_REASONS.review })
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'opportunity.destination', status: 'pass' }),
+      expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
+      expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
+      expect.objectContaining({
+        id: 'signal.freshness',
+        status: 'pass',
+        observed: expect.arrayContaining(['2026-09-26T00:00:00.000Z']),
+      }),
+      expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
+    ]))
+  })
+
+  it('rejects an expired seller workshop announced through a social post', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Free virtual home seller workshop on August 25th',
+          opportunity_kind: 'post',
+          platform: 'Facebook',
+          audience_description:
+            'Join this free home seller workshop on Tuesday, August 25, 2026 at 5 PM to learn how to prepare a home for sale.',
+          location: 'Denver, Colorado',
+          access_type: 'public',
+          urls: ['https://www.facebook.com/ExampleSellerWorkshop/posts/public-event-2/'],
+          participation_rules: 'Review the current event rules before participating.',
+          participation_rules_status: 'unverified',
+          recommended_action: 'Open the event page and review the current rules before attending.',
+          message_angle: 'Answer seller questions only when the event rules permit it.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Denver, Colorado',
+        audience: 'Denver homeowners preparing to sell',
+        signal: 'A current public seller workshop demonstrates home-selling intent.',
+        referenceTime: '2026-08-31T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result).toMatchObject({ verdict: 'rejected', reason: FIT_REASONS.expiredDestination })
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'opportunity.destination', status: 'fail' }),
+      expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
+      expect.objectContaining({ id: 'signal.freshness', status: 'fail' }),
+    ]))
+  })
+
   it('rejects an otherwise relevant result when observed venue rules conflict with the proposed promotion', () => {
     const result = ruleBasedFitScorer.score(
       {

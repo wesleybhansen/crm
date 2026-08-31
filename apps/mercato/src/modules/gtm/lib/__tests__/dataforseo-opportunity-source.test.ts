@@ -390,6 +390,53 @@ describe('DataForSEO organic demand-opportunity source', () => {
     expect(old?.identity.event_start_at).toBe('2024-06-01T12:00:00.000Z')
   })
 
+  it('classifies dated public-event announcements on social post URLs as events', () => {
+    const context = {
+      keyword: 'Tampa neighborhood public event',
+      location: 'Tampa,Florida,United States',
+      observedAt: '2026-08-31T12:00:00.000Z',
+      expectedIntent: 'local_audience' as const,
+    }
+    const upcoming = normalizeDataForSeoOpportunityItem(
+      item({
+        title: 'Mark your calendars — Beats on the Street returns',
+        url: 'https://www.facebook.com/WaterStreetTampa/posts/public-event-1/',
+        description:
+          'Water Street Tampa hosts this neighborhood-wide event on Saturday, September 26. It is free and open to the public.',
+        timestamp: '2026-08-24T21:22:33.000Z',
+      }),
+      context,
+    )
+    expect(upcoming?.identity).toMatchObject({
+      opportunity_kind: 'event',
+      event_start_at: '2026-09-26T12:00:00.000Z',
+      access_type: 'public',
+      intent_kind: 'local_audience',
+    })
+    expect(upcoming?.identity.recommended_action).toMatch(/register|attend/i)
+
+    const expired = normalizeDataForSeoOpportunityItem(
+      item({
+        title: 'Free virtual home seller workshop on August 25th',
+        url: 'https://www.facebook.com/ExampleSellerWorkshop/posts/public-event-2/',
+        description:
+          'Join this free home seller workshop on Tuesday, August 25 at 5 PM and learn how to prepare a home for sale.',
+        timestamp: null,
+      }),
+      {
+        ...context,
+        keyword: 'Denver home seller workshop',
+        location: 'Denver,Colorado,United States',
+        expectedIntent: 'seller_intent',
+      },
+    )
+    expect(expired?.identity).toMatchObject({
+      opportunity_kind: 'event',
+      event_start_at: '2026-08-25T12:00:00.000Z',
+      intent_kind: 'seller_intent',
+    })
+  })
+
   it('does not turn a requested market into evidence for an identically named city in another state', () => {
     const candidate = normalizeDataForSeoOpportunityItem(
       item({
