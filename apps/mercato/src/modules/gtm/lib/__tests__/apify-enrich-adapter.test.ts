@@ -789,13 +789,15 @@ describe('apify enrich actor input (verified schema)', () => {
 
   it('sends queries plus the email mode on the wire, and nothing invented', async () => {
     const { adapter, calls } = adapterWith({ status: 201, body: JSON.stringify([profileItem()]) })
-    await adapter.enrich(baseRequest)
+    const result = await adapter.enrich(baseRequest)
     const body = JSON.parse(calls[0].init.body)
     expect(Object.keys(body).sort()).toEqual(['profileScraperMode', 'queries'])
     expect(body.queries).toEqual([PROFILE_URL])
     expect(body.profileScraperMode).toBe('Profile details + email search ($10 per 1k)')
     // the actor id is addressed with '~' in the API path
     expect(calls[0].url).toContain('/acts/harvestapi~linkedin-profile-scraper/run-sync-get-dataset-items')
+    expect(calls[0].url).toContain('build=0.0.131')
+    expect(result.receipt).toMatchObject({ actor_build: '0.0.131' })
   })
 
   it('runs the cheaper profile-only mode when the email search is turned off', async () => {

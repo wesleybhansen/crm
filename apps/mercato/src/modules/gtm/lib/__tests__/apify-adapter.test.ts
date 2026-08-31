@@ -1080,6 +1080,8 @@ describe('apify source caps and hygiene', () => {
     // the cap is pushed down to the actor so we do not pay for discarded rows
     expect(JSON.parse(calls[0].init.body).maxItems).toBe(1)
     expect(calls[0].url).toContain('maxItems=1')
+    expect(calls[0].url).toContain('build=0.0.30')
+    expect(result.receipt).toMatchObject({ actor_build: '0.0.30' })
   })
 
   it('caps at the descriptor max_batch even when the plan asks for more', async () => {
