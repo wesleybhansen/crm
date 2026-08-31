@@ -468,8 +468,8 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       ['Phoenix'],
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v63'
-      && lane.providerQuery.reddit_thread_contract_version === 'public-post-comments-v1'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v64'
+      && lane.providerQuery.reddit_thread_contract_version === 'public-post-comments-v2'
       && lane.providerQuery.reddit_returned_content_filter_version === 'semantic-intent-location-v3'
       && lane.providerQuery.reddit_filter_required_intent === 'buyer_intent'
       && lane.providerQuery.reddit_filter_require_location === false

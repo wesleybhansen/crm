@@ -64,6 +64,7 @@ export type PublicSocialOpportunityConfig = {
   perItemQuoteUsd: number
   oneTimeQuoteUsd: number
   minimumMaxChargeUsd?: number
+  minimumBatch?: number
   maxBatch?: number
   datasetFields: readonly string[]
   buildInput(plan: SourceSearchPlan, maxResults: number, attemptedAt: string): Record<string, unknown>
@@ -452,6 +453,7 @@ export const APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG: PublicSocialOpportunityConf
   },
   perItemQuoteUsd: 0.003,
   oneTimeQuoteUsd: 0.0005,
+  minimumBatch: 2,
   maxBatch: 10,
   datasetFields: [
     '_type',
@@ -496,7 +498,7 @@ export const APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG: PublicSocialOpportunityConf
   ],
   buildInput(plan, maxResults) {
     validateRedditReturnedContentFilter(plan)
-    if (plan.provider_query?.reddit_thread_contract_version !== 'public-post-comments-v1') {
+    if (plan.provider_query?.reddit_thread_contract_version !== 'public-post-comments-v2') {
       throw new TypeError('Reddit thread sourcing requires the frozen post-and-comment contract')
     }
     if (maxResults > 10) {
@@ -518,9 +520,9 @@ export const APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG: PublicSocialOpportunityConf
     }
     return {
       queries: [`${query} subreddit:${subreddits[0]}`],
-      maxPostsPerQuery: 1,
+      maxPostsPerQuery: Math.max(1, Math.min(5, Math.floor(maxResults / 2))),
       sort: 'new',
-      maxCommentsPerPost: Math.max(0, maxResults - 1),
+      maxCommentsPerPost: 1,
       expandAllComments: false,
     }
   },
@@ -1956,10 +1958,13 @@ export function createPublicSocialOpportunityAdapter(
   return {
     descriptor,
     quote(plan) {
-      const maxCandidates = Math.max(
+      const requestedCandidates = Math.max(
         0,
         Math.min(Math.floor(plan.max_candidates), config.maxBatch ?? MAX_RESULTS),
       )
+      const maxCandidates = requestedCandidates >= (config.minimumBatch ?? 1)
+        ? requestedCandidates
+        : 0
       const providerUnits = maxCandidates > 0 ? providerUnitsFor(config, maxCandidates) : 0
       return {
         max_candidates: maxCandidates,
@@ -2010,6 +2015,9 @@ export function createPublicSocialOpportunityAdapter(
       )
       if (maxCandidates <= 0) {
         return refusal(config, actorId, attemptedAt, 'bad_request: a positive opportunity cap is required')
+      }
+      if (maxCandidates < (config.minimumBatch ?? 1)) {
+        return refusal(config, actorId, attemptedAt, 'bad_request: opportunity cap is below the provider batch minimum')
       }
       const maxChargeUsd = Number(plan.max_charge_usd)
       const minimumMaxChargeUsd = Math.max(
