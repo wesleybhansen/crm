@@ -189,6 +189,13 @@ export function opportunitySourceRouting(
     }
   }
 
+  if (adapterId === 'apify-eventbrite-demand-opportunities' && !realtor) {
+    return {
+      eligible: false,
+      reason: 'the initial Eventbrite contract is limited to realtor buyer, seller, mixed, and local-audience public events',
+    }
+  }
+
   if (
     realtor
     && intent === 'local_audience'
@@ -217,6 +224,18 @@ function sourceLocation(geography: string): string {
 function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geography: string): string[] {
   if (adapterId === 'apify-meetup-demand-opportunities') {
     return ['first time homebuyer workshop', 'home buying seminar', 'homeownership education']
+  }
+  if (adapterId === 'apify-eventbrite-demand-opportunities') {
+    if (intent === 'buyer_intent') {
+      return ['first time home buyer', 'home buying class', 'homeownership workshop']
+    }
+    if (intent === 'seller_intent') {
+      return ['home selling', 'home seller workshop', 'sell before buying']
+    }
+    if (intent === 'mixed_intent') {
+      return ['buy before you sell', 'move up buyer', 'buying and selling a home']
+    }
+    return ['homeowner community', 'neighborhood housing event', 'housing workshop']
   }
   if (adapterId === 'dataforseo-events-demand-opportunities') {
     if (intent === 'buyer_intent') {
@@ -554,6 +573,7 @@ function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-instagram-demand-opportunities') return 100
   if (adapterId === 'apify-tiktok-demand-opportunities') return 100
   if (adapterId === 'apify-facebook-demand-opportunities') return 120
+  if (adapterId === 'apify-eventbrite-demand-opportunities') return 100
   if (adapterId === 'apify-linkedin-demand-opportunities') return 200
   if (adapterId === 'apify-reddit-thread-demand-opportunities') return 500
   if (adapterId === 'apify-reddit-fresh-demand-opportunities') return 500
@@ -629,6 +649,7 @@ function sourceSeed(
   if (adapterId === 'apify-tiktok-demand-opportunities') return seed
   if (adapterId === 'apify-facebook-demand-opportunities') return seed
   if (adapterId === 'apify-meetup-demand-opportunities') return seed
+  if (adapterId === 'apify-eventbrite-demand-opportunities') return seed
   return `${market} ${seed}`
 }
 
@@ -687,6 +708,7 @@ export function buildOpportunityQueryLanes(
         || adapterId === 'apify-tiktok-demand-opportunities'
         || adapterId === 'apify-facebook-demand-opportunities'
         || adapterId === 'apify-meetup-demand-opportunities'
+        || adapterId === 'apify-eventbrite-demand-opportunities'
         || adapterId === 'apify-reddit-api-demand-opportunities'
         || adapterId === 'apify-reddit-thread-demand-opportunities'
         || adapterId === 'apify-reddit-posted-after-demand-opportunities'
@@ -718,7 +740,9 @@ export function buildOpportunityQueryLanes(
       providerQuery: {
         ...providerQuery,
         query_lane_version:
-          adapterId === 'apify-reddit-api-demand-opportunities'
+          adapterId === 'apify-eventbrite-demand-opportunities'
+            ? 'opportunity-query-v90'
+          : adapterId === 'apify-reddit-api-demand-opportunities'
             ? 'opportunity-query-v88'
             : adapterId === 'apify-reddit-thread-demand-opportunities'
             ? 'opportunity-query-v64'
@@ -770,6 +794,17 @@ export function buildOpportunityQueryLanes(
               meetup_min_rsvp_count: 1,
               meetup_sort: 'RELEVANCE',
               meetup_returned_content_filter_version: 'realtor-housing-event-v1',
+            }
+          : {}),
+        ...(adapterId === 'apify-eventbrite-demand-opportunities'
+          ? {
+              eventbrite_contract_version: 'public-events-v1',
+              eventbrite_location: geography,
+              eventbrite_window_days: 30,
+              eventbrite_fetch_details: true,
+              eventbrite_max_pages: 3,
+              eventbrite_returned_content_filter_version: 'realtor-public-event-v1',
+              eventbrite_filter_required_intent: intent,
             }
           : {}),
         ...(adapterId === 'apify-instagram-demand-opportunities'
