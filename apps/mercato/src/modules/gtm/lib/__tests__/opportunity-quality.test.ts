@@ -148,6 +148,29 @@ describe('opportunity quality primitives', () => {
     )).toMatchObject({ relevant: false })
   })
 
+  it('recognizes a first-person plan to begin house hunting and a direct request for lender suggestions', () => {
+    const tampaBuyer = [
+      'Local mortgage lender suggestions?',
+      'Husband and I are looking to start house hunting.',
+      'We would love your suggestions for a local mortgage lender.',
+    ].join(' ')
+
+    expect(classifyOpportunityIntent(tampaBuyer)).toMatchObject({ kind: 'buyer_intent' })
+    expect(assessRealtorOpportunitySuitability(
+      tampaBuyer,
+      'buyer_intent',
+      'https://www.reddit.com/r/tampa/comments/example/house_hunting_lender',
+      'thread',
+    )).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+
+    expect(assessRealtorOpportunitySuitability(
+      'Mortgage broker here. We can help every home buyer; contact us for lender suggestions.',
+      'buyer_intent',
+      'https://www.reddit.com/r/tampa/comments/example/mortgage_promotion',
+      'thread',
+    )).toMatchObject({ relevant: false })
+  })
+
   it('excludes provider targeting claims from semantic evidence', () => {
     const text = opportunityEvidenceText(
       {

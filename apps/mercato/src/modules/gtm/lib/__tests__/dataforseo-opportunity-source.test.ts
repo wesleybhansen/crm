@@ -682,6 +682,7 @@ describe('DataForSEO organic demand-opportunity source', () => {
       raw_item_count: 2,
       returned_count: 2,
       parser_dropped_rows: 0,
+      search_query: 'South Bay home buyer seller discussion events',
     })
     const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))
     expect(body).toEqual([
@@ -746,6 +747,50 @@ describe('DataForSEO organic demand-opportunity source', () => {
         parser_drop_reasons: { unproven_destination_kind: 1 },
       },
     })
+  })
+
+  it('retains a safe public destination for fit-v7 even when the adapter cannot prove realtor relevance', async () => {
+    const adapter = createDataForSeoOpportunityAdapter({
+      env: approvedEnv,
+      fetchImpl: jest.fn().mockResolvedValue(
+        response([
+          item({
+            title: 'Austin public software forum',
+            url: 'https://example.org/forums/austin-software',
+            description: 'A public technology conversation about software releases.',
+          }),
+        ]),
+      ) as unknown as typeof fetch,
+      now: () => CLOCK,
+    })
+
+    const result = await adapter.search(plan)
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      data: [expect.objectContaining({
+        entity_kind: 'opportunity',
+        identity: expect.objectContaining({ opportunity_kind: 'forum', intent_kind: null }),
+      })],
+      receipt: {
+        raw_item_count: 1,
+        returned_count: 1,
+        parser_dropped_rows: 0,
+      },
+    })
+    expect(ruleBasedFitScorer.score(
+      result.data![0]!,
+      {
+        entityUnit: 'opportunities',
+        geography: 'Austin, Texas',
+        audience: 'Austin home buyers',
+        signal: 'A current public buyer request demonstrates intent',
+        referenceTime: CLOCK.toISOString(),
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      result.data![0]!.evidence,
+    ).verdict).toBe('rejected')
   })
 
   it('retains the final provider cost on a definitive DataForSEO application error', async () => {

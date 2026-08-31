@@ -287,16 +287,16 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
       buyer_intent: [
         redditExactFieldPhraseSearch('looking to buy'),
         redditExactFieldPhraseSearch('house hunting'),
-        redditExactFieldPhraseSearch('first time home buyer'),
-        redditExactFieldPhraseSearch('buying a home'),
-        redditExactFieldPhraseSearch(`buying in ${market}`),
+        redditExactFieldPhraseSearch('looking for a realtor'),
+        redditExactFieldPhraseSearch('buy a house'),
+        redditExactFieldPhraseSearch('mortgage lender'),
       ],
       seller_intent: [
         redditExactFieldPhraseSearch('looking to sell'),
-        redditExactFieldPhraseSearch('thinking of selling'),
-        redditExactFieldPhraseSearch('selling my home'),
-        redditExactFieldPhraseSearch('planning to sell'),
-        redditExactFieldPhraseSearch(`selling in ${market}`),
+        redditExactFieldPhraseSearch('sell my house'),
+        redditExactFieldPhraseSearch('selling my house'),
+        redditExactFieldPhraseSearch('thinking about selling'),
+        redditExactFieldPhraseSearch('realtor recommendation'),
       ],
       mixed_intent: [
         redditExactFieldPhraseSearch('sell before buying'),
@@ -596,7 +596,7 @@ export function buildOpportunityQueryLanes(
           adapterId === 'apify-reddit-thread-demand-opportunities'
             ? 'opportunity-query-v64'
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
-            ? 'opportunity-query-v70'
+            ? 'opportunity-query-v71'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -661,7 +661,7 @@ export function buildOpportunityQueryLanes(
         ...(adapterId === 'apify-reddit-fresh-demand-opportunities'
           ? {
               reddit_fresh_contract_version: 'public-post-search-v2',
-              reddit_search_syntax_version: 'field-qualified-exact-phrase-bank-v3',
+              reddit_search_syntax_version: 'field-qualified-exact-phrase-bank-v4',
               reddit_fresh_window_days: 30,
               reddit_returned_content_filter_version: 'semantic-intent-location-v3',
               reddit_filter_required_intent: intent,
