@@ -146,6 +146,17 @@ export function opportunitySourceRouting(
   }
 
   if (
+    adapterId === 'apify-reddit-fresh-demand-opportunities'
+    && realtor
+    && intent === 'seller_intent'
+  ) {
+    return {
+      eligible: false,
+      reason: 'the bounded realtor benchmark returned zero seller rows across repeated fresh Reddit phrase banks; seller discovery uses the governed public-web lanes',
+    }
+  }
+
+  if (
     adapterId === 'apify-meetup-demand-opportunities'
     && (intent !== 'local_audience' || !realtor)
   ) {
@@ -203,8 +214,8 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     if (intent === 'buyer_intent') {
       return [
         `${marketScope} "house hunting"`,
-        'site:reddit.com/r/FirstTimeHomeBuyer "looking to buy a house"',
-        'site:reddit.com/r/RealEstate "looking for a realtor"',
+        '"looking to buy a house" public forum',
+        '"looking for a realtor" public forum',
         'first time home buyer workshop registration',
         'home buyer seminar registration',
       ]
@@ -212,8 +223,8 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     if (intent === 'seller_intent') {
       return [
         `${marketScope} "selling my house"`,
-        'site:reddit.com/r/homeowners "thinking about selling my house"',
-        'site:reddit.com/r/RealEstate "looking to sell my home"',
+        '"thinking about selling my house" public forum',
+        '"looking to sell my home" public forum',
         'home seller workshop registration',
         'selling your home seminar registration',
       ]
@@ -221,8 +232,8 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     if (intent === 'mixed_intent') {
       return [
         `${marketScope} "sell before buying"`,
-        'site:reddit.com/r/homeowners "buy before selling"',
-        'site:reddit.com/r/RealEstate "sell then buy"',
+        '"buy before selling" public forum',
+        '"sell then buy" public forum',
       ]
     }
     return [
@@ -598,7 +609,7 @@ export function buildOpportunityQueryLanes(
             : adapterId === 'apify-reddit-fresh-demand-opportunities'
             ? 'opportunity-query-v71'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
-            ? 'opportunity-query-v72'
+            ? 'opportunity-query-v73'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
