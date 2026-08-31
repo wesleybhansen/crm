@@ -397,7 +397,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(x.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v57')).toBe(true)
     expect(linkedin).toHaveLength(1)
     expect(reddit).toHaveLength(5)
-    expect(web).toHaveLength(3)
+    expect(web).toHaveLength(5)
     expect(events).toHaveLength(3)
     expect(events.map((lane) => lane.query)).toEqual([
       'home seller workshop',
@@ -418,6 +418,8 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(web.every((lane) => !/[()]/.test(lane.query))).toBe(true)
     expect(web.map((lane) => lane.providerQuery.dataforseo_site_scope)).toEqual([
       'reddit.com/r/Austin',
+      'reddit.com/r/Austin',
+      undefined,
       undefined,
       undefined,
     ])
@@ -481,21 +483,28 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(
       web.every((lane) => !lane.query.includes(' -')),
     ).toBe(true)
-    expect(web.map((lane) => lane.query)).toEqual(
-      expect.arrayContaining([
+    expect(web.map((lane) => lane.query)).toEqual([
+        'Austin, Texas site:reddit.com/r/Austin "looking to sell home"',
         'Austin, Texas site:reddit.com/r/Austin "selling my house"',
-        'Austin, Texas "thinking about selling my house" public forum',
         'Austin, Texas "looking to sell my home" public forum',
-      ]),
-    )
+        'Austin, Texas "thinking of selling my home" public forum',
+        'Austin, Texas "recommend a realtor" "sell my house" public forum',
+    ])
     expect(web.map((lane) => hasPriceMultiplyingDataForSeoOpportunityQueryOperator(lane.query))).toEqual([
+      true,
       true,
       false,
       false,
+      false,
     ])
+    expect(web.every((lane) => (
+      lane.providerQuery.query_lane_version === 'opportunity-query-v83'
+      && lane.providerQuery.realtor_retrieval_contract_version
+        === 'evidence-first-public-destination-v1'
+    ))).toBe(true)
     expect(web.every((lane) => lane.query.startsWith('Austin, Texas '))).toBe(true)
     expect(web.every((lane) => lane.query.length < 240)).toBe(true)
-    expect(new Set(web.map((lane) => lane.query)).size).toBe(3)
+    expect(new Set(web.map((lane) => lane.query)).size).toBe(5)
     expect(buyerWeb).toHaveLength(3)
     expect(buyerWeb.map((lane) => lane.query)).toEqual(
       expect.arrayContaining([
@@ -716,8 +725,17 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       reason: null,
     })
     expect(web).toHaveLength(5)
+    expect(web.map((lane) => lane.query)).toEqual([
+      'Austin, Texas neighborhood association upcoming meeting',
+      'Austin, Texas neighborhood association community calendar',
+      'Austin, Texas homeowners association public meeting',
+      'Austin, Texas resident organization upcoming events',
+      'Austin, Texas neighborhood community get involved',
+    ])
     expect(web.every(
-      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v57',
+      (lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v83'
+        && lane.providerQuery.realtor_retrieval_contract_version
+          === 'evidence-first-public-destination-v1',
     )).toBe(true)
     expect(planned.ok).toBe(true)
     if (planned.ok) {

@@ -238,11 +238,11 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     }
     if (intent === 'seller_intent') {
       return [
+        `${marketScope} "looking to sell home"`,
         `${marketScope} "selling my house"`,
-        '"thinking about selling my house" public forum',
         '"looking to sell my home" public forum',
-        'home seller workshop registration',
-        'selling your home seminar registration',
+        '"thinking of selling my home" public forum',
+        '"recommend a realtor" "sell my house" public forum',
       ]
     }
     if (intent === 'mixed_intent') {
@@ -253,11 +253,11 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
       ]
     }
     return [
-      'neighborhood association public meeting calendar',
-      'homeowner community meeting registration',
-      'home buyer workshop registration',
-      'home seller workshop registration',
-      'housing community event registration',
+      'neighborhood association upcoming meeting',
+      'neighborhood association community calendar',
+      'homeowners association public meeting',
+      'resident organization upcoming events',
+      'neighborhood community get involved',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
@@ -674,7 +674,7 @@ export function buildOpportunityQueryLanes(
         : adapterId === 'apify-reddit-demand-opportunities' && realtorTransaction
           ? 5
           : adapterId === 'dataforseo-organic-demand-opportunities'
-            ? realtorTransaction ? 3 : 5
+            ? realtor && intent === 'seller_intent' ? 5 : realtorTransaction ? 3 : 5
           : adapterId === 'dataforseo-events-demand-opportunities'
             ? 3
           : 3
@@ -706,6 +706,10 @@ export function buildOpportunityQueryLanes(
             ? 'opportunity-query-v79'
             : adapterId === 'apify-reddit-demand-opportunities' && realtor
             ? 'opportunity-query-v80'
+            : adapterId === 'dataforseo-organic-demand-opportunities'
+              && realtor
+              && (intent === 'seller_intent' || intent === 'local_audience')
+            ? 'opportunity-query-v83'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtorTransaction
             ? 'opportunity-query-v73'
             : adapterId === 'apify-instagram-demand-opportunities'
@@ -722,6 +726,9 @@ export function buildOpportunityQueryLanes(
         ...(adapterId === 'dataforseo-organic-demand-opportunities'
           ? {
               search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
+              ...(realtor && (intent === 'seller_intent' || intent === 'local_audience')
+                ? { realtor_retrieval_contract_version: 'evidence-first-public-destination-v1' }
+                : {}),
               ...(dataForSeoSiteScope
                 ? {
                     dataforseo_price_operator_contract: 'single-positive-site-v1',
