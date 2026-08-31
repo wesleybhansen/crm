@@ -4,6 +4,7 @@ import { fixtureConsumerSourceAdapter } from './fixture-consumer'
 import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
 import { apifyOpportunitySourceEnabled, createApifyOpportunitySourceAdapter } from './apify/opportunity-source'
 import {
+  apifyFacebookOpportunityEnabled,
   apifyInstagramOpportunityEnabled,
   apifyMeetupOpportunityEnabled,
   apifyRedditFreshOpportunityEnabled,
@@ -12,6 +13,7 @@ import {
   apifyThreadsOpportunityEnabled,
   apifyTikTokOpportunityEnabled,
   apifyXOpportunityEnabled,
+  createApifyFacebookOpportunityAdapter,
   createApifyInstagramOpportunityAdapter,
   createApifyMeetupOpportunityAdapter,
   createApifyRedditFreshOpportunityAdapter,
@@ -109,6 +111,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifyTikTokOpportunityEnabled()) {
     const tiktokOpportunities = createApifyTikTokOpportunityAdapter()
     registry[tiktokOpportunities.descriptor.adapter_id] = tiktokOpportunities
+  }
+  if (apifyFacebookOpportunityEnabled()) {
+    const facebookOpportunities = createApifyFacebookOpportunityAdapter()
+    registry[facebookOpportunities.descriptor.adapter_id] = facebookOpportunities
   }
   if (apifyMeetupOpportunityEnabled()) {
     const meetupOpportunities = createApifyMeetupOpportunityAdapter()

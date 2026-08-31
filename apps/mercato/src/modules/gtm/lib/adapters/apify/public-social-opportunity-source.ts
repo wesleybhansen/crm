@@ -43,7 +43,7 @@ const SENSITIVE_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
 
 type SocialEnv = Record<string, string | undefined>
-type SocialPlatform = 'Reddit' | 'X' | 'Threads' | 'Meetup' | 'Instagram' | 'TikTok'
+type SocialPlatform = 'Reddit' | 'X' | 'Threads' | 'Meetup' | 'Instagram' | 'TikTok' | 'Facebook'
 
 export type PublicSocialOpportunityConfig = {
   adapterId: string
@@ -275,7 +275,7 @@ function returnedContentFilterVersion(
 ): string | undefined {
   const value = platform === 'Meetup'
     ? plan.provider_query?.meetup_returned_content_filter_version
-    : platform === 'Instagram' || platform === 'TikTok'
+    : platform === 'Instagram' || platform === 'TikTok' || platform === 'Facebook'
       ? plan.provider_query?.social_returned_content_filter_version
       : plan.provider_query?.reddit_returned_content_filter_version
   return typeof value === 'string' ? value : undefined
@@ -294,7 +294,7 @@ function assessReturnedContent(
     const matches = returnedContentMatchesMeetupFilter(candidate, plan)
     return { matches, reasons: matches ? [] : ['returned_content_semantic_mismatch'] }
   }
-  if (platform === 'Instagram' || platform === 'TikTok') {
+  if (platform === 'Instagram' || platform === 'TikTok' || platform === 'Facebook') {
     return assessReturnedContentSocialFilter(candidate, plan)
   }
   return { matches: true, reasons: [] }
@@ -870,6 +870,67 @@ export const APIFY_TIKTOK_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   normalize: normalizeTikTokOpportunity,
 }
 
+export const APIFY_FACEBOOK_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-facebook-demand-opportunities',
+  platform: 'Facebook',
+  enabledEnv: 'GTM_APIFY_FACEBOOK_OPPORTUNITY_ENABLED',
+  actorId: 'scrapesmith/facebook-search-scraper',
+  actorBuild: '0.0.6',
+  actorEnv: 'GTM_APIFY_ACTOR_FACEBOOK_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_FACEBOOK_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_FACEBOOK_SEARCH_PRICE_VERSION',
+  // Rechecked against the public actor metadata and the production Starter
+  // account on 2026-08-31. Each run charges one start event plus one dataset
+  // event for every returned search row. The initial contract is posts-only:
+  // groups and events need different freshness and participation evidence and
+  // cannot enter this adapter by changing the provider input at runtime.
+  requiredPriceVersion: 'scrapesmith-facebook-search-0.0.6-starter-events-2026-08-31',
+  eventPricesUsd: {
+    'apify-actor-start': 0.005,
+    'apify-default-dataset-item': 0.0005,
+  },
+  oneTimeEvent: 'apify-actor-start',
+  primaryResultEvent: 'apify-default-dataset-item',
+  perItemQuoteUsd: 0.0005,
+  oneTimeQuoteUsd: 0.005,
+  maxBatch: 10,
+  datasetFields: [
+    'type',
+    'name',
+    'facebookId',
+    'url',
+    'profileUrl',
+    'isVerified',
+    'image',
+    'snippet',
+    'description',
+    'query',
+    'postId',
+    'authorName',
+    'timestamp',
+    'isPrivate',
+    'isSponsored',
+  ],
+  buildInput(plan, maxResults) {
+    validateSocialReturnedContentFilter(plan)
+    if (plan.provider_query?.facebook_search_contract_version !== 'public-search-posts-v1') {
+      throw new TypeError('Facebook sourcing requires the frozen public-search post contract')
+    }
+    if (plan.provider_query?.facebook_search_type !== 'posts') {
+      throw new TypeError('Facebook public-search sourcing is limited to posts')
+    }
+    if (maxResults > 10) {
+      throw new TypeError('Facebook public-post search is limited to 10 results per quoted lane')
+    }
+    return {
+      queries: [queryText(plan, 120)],
+      searchType: 'posts',
+      maxResultsPerQuery: maxResults,
+    }
+  },
+  normalize: normalizeFacebookOpportunity,
+}
+
 function envValue(env: SocialEnv, name: string): string {
   return (env[name] ?? '').trim()
 }
@@ -1259,6 +1320,7 @@ function safePlatformUrl(value: unknown, platform: SocialPlatform): string | nul
     if (platform === 'Meetup' && host !== 'meetup.com' && !host.endsWith('.meetup.com')) return null
     if (platform === 'Instagram' && host !== 'instagram.com') return null
     if (platform === 'TikTok' && host !== 'tiktok.com' && !host.endsWith('.tiktok.com')) return null
+    if (platform === 'Facebook' && host !== 'facebook.com' && !host.endsWith('.facebook.com')) return null
     url.protocol = 'https:'
     url.hash = ''
     return url.toString()
@@ -1991,6 +2053,86 @@ export function normalizeTikTokOpportunity(value: unknown, context: NormalizeCon
   }
 }
 
+export function normalizeFacebookOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
+  const row = record(value)
+  const rowType = text(row?.type, 40)?.toLowerCase()
+  if (
+    !row
+    || rowType !== 'post'
+    || row.isPrivate === true
+    || row.isSponsored === true
+  ) return null
+  const providerPostId = text(row.postId ?? row.facebookId, 200)
+  const sourceUrl = safePlatformUrl(row.url, 'Facebook')
+  const contentParts = [text(row.description, 900), text(row.snippet, 500)]
+    .filter((part): part is string => part != null)
+    .filter((part, index, parts) => parts.indexOf(part) === index)
+  const content = text(contentParts.join('. '), 1_200)
+  const publishedAt = freshPublicPostTimestamp(row.timestamp, context.attemptedAt)
+  if (
+    !providerPostId
+    || !sourceUrl
+    || !content
+    || !publishedAt
+    || SENSITIVE_TARGETING.test(content)
+    || sensitiveConsumerOpportunityReasons(content).length > 0
+  ) return null
+  const authorName = text(row.authorName ?? row.name, 120)
+  const profileUrl = safePlatformUrl(row.profileUrl, 'Facebook')
+  const demonstratedIntent = classifyOpportunityIntent(content)
+  const identity = commonIdentity({
+    name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
+    platform: 'Facebook',
+    content,
+    sourceUrl,
+    requestedLocation: context.location,
+    locationEvidence: content,
+    engagement: 0,
+    demonstratedIntent,
+    people: authorName
+      ? [{
+          name: authorName,
+          role: 'Public Facebook post author shown as secondary source context',
+          profile_url: profileUrl,
+        }]
+      : undefined,
+  })
+  identity.opportunity_kind = 'post'
+  identity.source_published_at = publishedAt
+  identity.participation_rules = 'Review the current public Facebook post, group, and community rules before participating. Do not automate consumer contact or posting.'
+  identity.recommended_action = 'Open the current public post and contribute useful information manually only when participation is relevant and permitted.'
+  return {
+    entity_kind: 'opportunity',
+    identity,
+    evidence: [{
+      claim: 'The approved public source returned this current Facebook post.',
+      source_url: sourceUrl,
+      observed_at: context.attemptedAt,
+      confidence: calibratedOpportunityConfidence({
+        content,
+        sourceUrl,
+        observedAt: publishedAt,
+        attemptedAt: context.attemptedAt,
+        engagement: 0,
+        location: identity.location ?? null,
+      }),
+      detail: {
+        provider: 'apify',
+        actor_id: context.actorId,
+        provider_post_id: providerPostId,
+        requested_location: context.location,
+        requested_intent: context.expectedIntent ?? null,
+        source_published_at: publishedAt,
+        demonstrated_intent_signals: [
+          ...demonstratedIntent.buyerSignals,
+          ...demonstratedIntent.sellerSignals,
+          ...demonstratedIntent.localAudienceSignals,
+        ],
+      },
+    }],
+  }
+}
+
 function providerUnitsFor(config: PublicSocialOpportunityConfig, maxResults: number): number {
   const estimatedUsd = config.oneTimeQuoteUsd + maxResults * config.perItemQuoteUsd
   return Math.max(APIFY_MIN_CHARGE_USD, config.minimumMaxChargeUsd ?? 0, estimatedUsd)
@@ -2152,7 +2294,7 @@ export function createPublicSocialOpportunityAdapter(
       try {
         query = queryText(
           plan,
-          ['X', 'Threads', 'Instagram', 'TikTok'].includes(config.platform) ? 100 : 700,
+          ['X', 'Threads', 'Instagram', 'TikTok', 'Facebook'].includes(config.platform) ? 120 : 700,
         )
         input = config.buildInput(plan, maxCandidates, attemptedAt)
       } catch (error) {
@@ -2374,6 +2516,7 @@ export function createPublicSocialOpportunityAdapter(
         || config.platform === 'Meetup'
         || config.platform === 'Instagram'
         || config.platform === 'TikTok'
+        || config.platform === 'Facebook'
       const assessedCandidates = normalizedCandidates.map((candidate) => ({
         candidate,
         assessment: filtersReturnedContent
@@ -2476,6 +2619,10 @@ export function createApifyTikTokOpportunityAdapter(deps: PublicSocialDeps = {})
   return createPublicSocialOpportunityAdapter(APIFY_TIKTOK_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyFacebookOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_FACEBOOK_OPPORTUNITY_CONFIG, deps)
+}
+
 export function apifyRedditOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_REDDIT_OPPORTUNITY_CONFIG, env)
 }
@@ -2506,4 +2653,8 @@ export function apifyInstagramOpportunityEnabled(env: SocialEnv = process.env): 
 
 export function apifyTikTokOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_TIKTOK_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyFacebookOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_FACEBOOK_OPPORTUNITY_CONFIG, env)
 }

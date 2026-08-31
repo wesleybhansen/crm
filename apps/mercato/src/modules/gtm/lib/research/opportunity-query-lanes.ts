@@ -125,7 +125,8 @@ export function opportunitySourceRouting(
 
   if (
     (adapterId === 'apify-instagram-demand-opportunities'
-      || adapterId === 'apify-tiktok-demand-opportunities')
+      || adapterId === 'apify-tiktok-demand-opportunities'
+      || adapterId === 'apify-facebook-demand-opportunities')
     && !realtor
   ) {
     return {
@@ -420,6 +421,32 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     }
     return byIntent[intent]
   }
+  if (adapterId === 'apify-facebook-demand-opportunities') {
+    const market = marketName(geography)
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: [
+        `${market} first time home buyer`,
+        `${market} house hunting`,
+        `moving to ${market} home`,
+      ],
+      seller_intent: [
+        `selling my ${market} home`,
+        `${market} home seller question`,
+        `thinking of selling in ${market}`,
+      ],
+      mixed_intent: [
+        `${market} buy and sell home`,
+        `${market} move up buyer`,
+        `moving within ${market}`,
+      ],
+      local_audience: [
+        `${market} homeowner community`,
+        `${market} housing discussion`,
+        `${market} homebuyer workshop`,
+      ],
+    }
+    return byIntent[intent]
+  }
   const socialSeeds: Record<OpportunityIntentLane, string[]> = {
     buyer_intent: [
       '("buying a home" OR "house hunting" OR "first-time home buyer") AND ("I am" OR "we are") NOT (realtor OR agent OR broker OR mortgage OR lender)',
@@ -450,6 +477,7 @@ function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-threads-demand-opportunities') return 100
   if (adapterId === 'apify-instagram-demand-opportunities') return 100
   if (adapterId === 'apify-tiktok-demand-opportunities') return 100
+  if (adapterId === 'apify-facebook-demand-opportunities') return 120
   if (adapterId === 'apify-linkedin-demand-opportunities') return 200
   if (adapterId === 'apify-reddit-thread-demand-opportunities') return 500
   if (adapterId === 'apify-reddit-fresh-demand-opportunities') return 500
@@ -519,6 +547,7 @@ function sourceSeed(
   if (adapterId === 'apify-threads-demand-opportunities') return seed
   if (adapterId === 'apify-instagram-demand-opportunities') return seed
   if (adapterId === 'apify-tiktok-demand-opportunities') return seed
+  if (adapterId === 'apify-facebook-demand-opportunities') return seed
   if (adapterId === 'apify-meetup-demand-opportunities') return seed
   return `${market} ${seed}`
 }
@@ -574,6 +603,7 @@ export function buildOpportunityQueryLanes(
         || adapterId === 'apify-threads-demand-opportunities'
         || adapterId === 'apify-instagram-demand-opportunities'
         || adapterId === 'apify-tiktok-demand-opportunities'
+        || adapterId === 'apify-facebook-demand-opportunities'
         || adapterId === 'apify-meetup-demand-opportunities'
         || adapterId === 'apify-reddit-thread-demand-opportunities'
         ? 3
@@ -613,6 +643,8 @@ export function buildOpportunityQueryLanes(
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
+            : adapterId === 'apify-facebook-demand-opportunities'
+            ? 'opportunity-query-v74'
             : 'opportunity-query-v57',
         source_query_lane_id: id,
         opportunity_intent_lane: intent,
@@ -649,12 +681,19 @@ export function buildOpportunityQueryLanes(
           : {}),
         ...(adapterId === 'apify-instagram-demand-opportunities'
           || adapterId === 'apify-tiktok-demand-opportunities'
+          || adapterId === 'apify-facebook-demand-opportunities'
           ? {
               social_public_post_contract_version: 'public-posts-v1',
               social_returned_content_filter_version: 'realtor-public-post-v2',
               social_filter_required_intent: intent,
               social_filter_require_location: true,
               social_window_days: 30,
+              ...(adapterId === 'apify-facebook-demand-opportunities'
+                ? {
+                    facebook_search_contract_version: 'public-search-posts-v1',
+                    facebook_search_type: 'posts',
+                  }
+                : {}),
             }
           : {}),
         ...(adapterId === 'apify-reddit-thread-demand-opportunities'

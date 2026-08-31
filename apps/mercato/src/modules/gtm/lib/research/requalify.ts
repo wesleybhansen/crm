@@ -93,6 +93,7 @@ const LEGACY_TARGETING_LOCATION_ADAPTERS = new Set([
   'apify-threads-demand-opportunities',
   'apify-instagram-demand-opportunities',
   'apify-tiktok-demand-opportunities',
+  'apify-facebook-demand-opportunities',
   'dataforseo-organic-demand-opportunities',
   'dataforseo-events-demand-opportunities',
 ])
