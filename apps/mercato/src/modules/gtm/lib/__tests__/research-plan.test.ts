@@ -170,7 +170,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     if (plan.ok) {
       expect(plan.schemaVersion).toBe('11')
       expect(plan.destinationValidation).toEqual({
-        version: 'safe-public-destination-v3',
+        version: 'safe-public-destination-v4',
         enabled: true,
         maxAttempts: 9,
         maxRedirects: 3,

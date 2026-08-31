@@ -60,7 +60,7 @@ describe('opportunity destination validation', () => {
     expect(result.candidate.evidence.at(-1)).toMatchObject({
       source_url: 'https://windsorpark.example/meetings',
       detail: {
-        validator: 'safe-public-destination-v3',
+        validator: 'safe-public-destination-v4',
         http_status: 200,
       },
     })
@@ -117,6 +117,33 @@ describe('opportunity destination validation', () => {
     expect(result.outcome).toBe('verified')
     expect(result.candidate.identity.participation_rules_status).toBe('observed')
     expect(result.candidate.identity.participation_rules).toContain('not allowing agents')
+  })
+
+  it('replaces a stale snippet date with the future event date demonstrated by the public page', async () => {
+    const original = candidate('https://events.example/historic-homes-tour')
+    original.identity.opportunity_kind = 'event'
+    original.identity.event_start_at = '2026-08-09T12:00:00.000Z'
+
+    const result = await validateOpportunityDestination(original, {
+      fetchImpl: async () => new Response(`
+        <html><head><title>Historic Homes Tour</title></head><body><main>
+          <p>Published August 9, 2026.</p>
+          <p>Join the neighborhood association for the public Historic Homes Tour on November 15, 2026.</p>
+          <p>Residents and visitors may register and attend in Austin, Texas.</p>
+        </main></body></html>
+      `, { status: 200, headers: { 'content-type': 'text/html' } }),
+      now: () => CLOCK,
+    })
+
+    expect(result.outcome).toBe('verified')
+    expect(result.candidate.identity.event_start_at).toBe('2026-11-15T00:00:00.000Z')
+    expect(assessOpportunityDestination({
+      identity: result.candidate.identity,
+      evidence: result.candidate.evidence,
+      referenceTime: CLOCK,
+      maxAgeDays: 30,
+      content: result.candidate.identity.audience_description,
+    })).toMatchObject({ status: 'pass', newestObservation: '2026-11-15T00:00:00.000Z' })
   })
 
   it('marks a confirmed missing destination unavailable', async () => {
