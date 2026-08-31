@@ -47,6 +47,7 @@ import {
 import {
   APIFY_INSTAGRAM_OPPORTUNITY_CONFIG,
   APIFY_MEETUP_OPPORTUNITY_CONFIG,
+  APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG,
   APIFY_TIKTOK_OPPORTUNITY_CONFIG,
 } from '../adapters/apify/public-social-opportunity-source'
 
@@ -194,6 +195,31 @@ describe('adapter registry environment boundaries', () => {
     process.env.GTM_APIFY_ACTOR_MEETUP_SEARCH = 'another/actor'
     expect(Object.keys(sourceAdapterRegistry())).not.toContain(
       APIFY_MEETUP_OPPORTUNITY_CONFIG.adapterId,
+    )
+  })
+
+  it('registers Reddit comment trees only behind its capability, use, actor, and price gates', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.GTM_APIFY_ENABLED = 'true'
+    process.env.GTM_APIFY_TOKEN = 'synthetic-test-token'
+    process.env.GTM_APIFY_CUSTOMER_USE_APPROVED = 'true'
+    process.env.GTM_APIFY_ACCOUNT_TIER = 'BRONZE'
+    process.env.GTM_APIFY_TERMS_VERSION = APIFY_REQUIRED_TERMS_VERSION
+    process.env.GTM_APIFY_PRICE_VERSION = APIFY_REQUIRED_PRICE_VERSION
+    process.env.GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED = 'true'
+    process.env.GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_USE_APPROVED = 'true'
+
+    expect(Object.keys(sourceAdapterRegistry())).not.toContain(
+      APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG.adapterId,
+    )
+    process.env.GTM_APIFY_REDDIT_THREAD_SEARCH_PRICE_VERSION =
+      APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG.requiredPriceVersion
+    expect(Object.keys(sourceAdapterRegistry())).toContain(
+      APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG.adapterId,
+    )
+    process.env.GTM_APIFY_ACTOR_REDDIT_THREAD_SEARCH = 'another/actor'
+    expect(Object.keys(sourceAdapterRegistry())).not.toContain(
+      APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG.adapterId,
     )
   })
 

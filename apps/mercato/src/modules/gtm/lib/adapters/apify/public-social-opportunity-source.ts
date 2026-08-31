@@ -59,6 +59,8 @@ export type PublicSocialOpportunityConfig = {
   oneTimeEvent: string | null
   primaryResultEvent: string
   auxiliaryResultEvents?: readonly string[]
+  partitionedResultEvents?: readonly string[]
+  partitionedResultEvent?(value: unknown): string | null
   perItemQuoteUsd: number
   oneTimeQuoteUsd: number
   minimumMaxChargeUsd?: number
@@ -412,6 +414,114 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
       subreddits,
       autoDiscoverSubreddits,
       ...(autoDiscoverSubreddits ? { maxSubreddits: redditMaxSubreddits(plan) } : {}),
+    }
+  },
+  normalize: normalizeRedditOpportunity,
+}
+
+export const APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-reddit-thread-demand-opportunities',
+  platform: 'Reddit',
+  enabledEnv: 'GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED',
+  actorId: 'clearpath/reddit-post-comments-bulk-scraper',
+  actorBuild: '0.0.60',
+  actorEnv: 'GTM_APIFY_ACTOR_REDDIT_THREAD_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_REDDIT_THREAD_SEARCH_PRICE_VERSION',
+  // Rechecked against the public Starter/Bronze contract on 2026-08-30.
+  // The actor bills a dataset item plus exactly one post/comment event for
+  // every returned row. A post is the most expensive possible row, so the
+  // quote reserves that price for every slot and reconciles the cheaper
+  // comment mix only after finalized provider event counts arrive.
+  requiredPriceVersion: 'clearpath-reddit-post-comments-0.0.60-starter-events-2026-08-30',
+  eventPricesUsd: {
+    'apify-actor-start': 0.0005,
+    'apify-default-dataset-item': 0.00001,
+    'post-scraped': 0.00299,
+    'comment-scraped': 0.00099,
+  },
+  oneTimeEvent: 'apify-actor-start',
+  primaryResultEvent: 'apify-default-dataset-item',
+  partitionedResultEvents: ['post-scraped', 'comment-scraped'],
+  partitionedResultEvent(value) {
+    const row = record(value)
+    const rowType = text(row?.type ?? row?._type, 20)?.toLowerCase()
+    if (rowType === 'post') return 'post-scraped'
+    if (rowType === 'comment') return 'comment-scraped'
+    return null
+  },
+  perItemQuoteUsd: 0.003,
+  oneTimeQuoteUsd: 0.0005,
+  maxBatch: 10,
+  datasetFields: [
+    '_type',
+    '_status',
+    '_post_id',
+    'type',
+    'id',
+    'title',
+    'selfText',
+    'selftext',
+    'body',
+    'author',
+    'subreddit',
+    'score',
+    'numComments',
+    'num_comments',
+    'commentCount',
+    'createdAt',
+    'created_utc',
+    'permalink',
+    'url',
+    'isNSFW',
+    'isNsfw',
+    'isLocked',
+    'isArchived',
+    'isStickied',
+    'over_18',
+    'stickied',
+    'locked',
+    'archived',
+    'isDeleted',
+    'isRemoved',
+    'isCommercialCommunication',
+    'subredditInfo',
+    'subredditSubscribers',
+    'subreddit_subscribers',
+    'postId',
+    'postTitle',
+    'postUrl',
+    'postCommentCount',
+    'parentId',
+  ],
+  buildInput(plan, maxResults) {
+    validateRedditReturnedContentFilter(plan)
+    if (plan.provider_query?.reddit_thread_contract_version !== 'public-post-comments-v1') {
+      throw new TypeError('Reddit thread sourcing requires the frozen post-and-comment contract')
+    }
+    if (maxResults > 10) {
+      throw new TypeError('Reddit thread sourcing is limited to 10 rows per quoted lane')
+    }
+    if (requestedOpportunityIntent(plan) === 'local_audience') {
+      throw new TypeError('Reddit thread sourcing is limited to buyer, seller, and mixed-intent lanes')
+    }
+    if (plan.provider_query?.reddit_filter_require_location !== false) {
+      throw new TypeError('Reddit thread sourcing requires a returned frozen-subreddit location contract')
+    }
+    const subreddits = redditSubreddits(plan)
+    if (subreddits.length !== 1 || redditAutoDiscover(plan) || redditGlobalSearch(plan)) {
+      throw new TypeError('Reddit thread sourcing requires exactly one frozen public subreddit')
+    }
+    const query = queryText(plan, 500)
+    if (/\bsubreddit\s*:/i.test(query)) {
+      throw new TypeError('Reddit thread query scope must be supplied by the frozen subreddit field')
+    }
+    return {
+      queries: [`${query} subreddit:${subreddits[0]}`],
+      maxPostsPerQuery: 1,
+      sort: 'new',
+      maxCommentsPerPost: Math.max(0, maxResults - 1),
+      expandAllComments: false,
     }
   },
   normalize: normalizeRedditOpportunity,
@@ -1256,26 +1366,54 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   if (!row || (rowType !== 'post' && rowType !== 'comment')) return null
   if (row._status != null && text(row._status, 20)?.toLowerCase() !== 'found') return null
   if (
-    rowType === 'post'
-    && (row.isNSFW === true || row.isNsfw === true || row.isLocked === true || row.isArchived === true || row.isStickied === true)
+    row.isNSFW === true
+    || row.isNsfw === true
+    || row.over_18 === true
+    || row.isLocked === true
+    || row.locked === true
+    || row.isArchived === true
+    || row.archived === true
+    || row.isStickied === true
+    || row.stickied === true
+    || row.isDeleted === true
+    || row.isRemoved === true
+    || row.isCommercialCommunication === true
   ) return null
   const sourceUrl = safePlatformUrl(row.permalink ?? row.url, 'Reddit')
   const postTitle = text(rowType === 'comment' ? row.postTitle : row.title, 180)
-  const body = text(rowType === 'comment' ? row.body : row.selfText ?? row.body, 600)
-  if (!sourceUrl || !postTitle || (rowType === 'comment' && !body)) return null
-  const content = body ? `${postTitle}. ${body}` : postTitle
+  const body = text(rowType === 'comment' ? row.body : row.selfText ?? row.selftext ?? row.body, 600)
+  if (!sourceUrl || (rowType === 'post' && !postTitle) || (rowType === 'comment' && !body)) return null
+  const content = rowType === 'comment'
+    ? body ?? ''
+    : body
+      ? `${postTitle}. ${body}`
+      : postTitle ?? ''
   if (SENSITIVE_TARGETING.test(content) || sensitiveConsumerOpportunityReasons(content).length > 0) return null
-  const subreddit = text(row.subreddit, 100)
+  const subredditFromPath = (() => {
+    try {
+      const match = new URL(sourceUrl).pathname.match(/^\/r\/([^/]+)/i)
+      return match?.[1] ? decodeURIComponent(match[1]) : null
+    } catch {
+      return null
+    }
+  })()
+  const subreddit = text(row.subreddit, 100) ?? text(subredditFromPath, 100)
   const subredditInfo = record(row.subredditInfo)
   if (subredditInfo?.isNsfw === true || subredditInfo?.isQuarantined === true) return null
   const engagement = Math.min(
     10_000_000,
     nonNegativeInteger(row.score)
-      + nonNegativeInteger(rowType === 'comment' ? row.postCommentCount : row.numComments ?? row.commentCount),
+      + nonNegativeInteger(
+        rowType === 'comment'
+          ? row.postCommentCount
+          : row.numComments ?? row.num_comments ?? row.commentCount,
+      ),
   )
   const author = text(row.author, 100)
   const memberCount = nonNegativeInteger(
-    rowType === 'comment' ? row.subredditSubscribers : row.subredditSubscribers ?? subredditInfo?.subscribersCount,
+    rowType === 'comment'
+      ? row.subredditSubscribers ?? row.subreddit_subscribers
+      : row.subredditSubscribers ?? row.subreddit_subscribers ?? subredditInfo?.subscribersCount,
   )
   // Parent-post context is useful provenance but cannot manufacture the
   // comment author's intent. Fit-v7 sees only the returned comment body.
@@ -1287,7 +1425,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   const identity = commonIdentity({
     name: rowType === 'comment'
       ? `Reddit comment${subreddit ? ` in r/${subreddit}` : ''}`
-      : postTitle,
+      : postTitle ?? '',
     platform: 'Reddit',
     content: semanticContent,
     sourceUrl,
@@ -1313,11 +1451,11 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   )
   if (subredditLocation) identity.location = subredditLocation
   identity.member_count = memberCount || null
-  // clearpath/reddit-search-scraper build 0.0.66 documents `createdAt` as the
-  // source creation timestamp and exposes a provider-side 30-day search
-  // filter. The actor/build pair is immutable in the approved descriptor, so
-  // this value may satisfy freshness while any replacement remains untrusted.
-  const publishedAt = sourcePublishedAt(row.createdAt)
+  // The pinned search actor documents `createdAt`; the pinned thread actor
+  // documents `created_utc` for posts and `createdAt` for comments. The exact
+  // actor/build pair is immutable in each approved descriptor, so only those
+  // returned source timestamps may satisfy the downstream freshness gate.
+  const publishedAt = sourcePublishedAt(row.createdAt ?? row.created_utc)
   identity.source_published_at = publishedAt
   return {
     entity_kind: 'opportunity',
@@ -1341,7 +1479,10 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
         detail: {
           provider: 'apify',
           actor_id: context.actorId,
-          provider_post_id: text(rowType === 'comment' ? row.postId : row.id, 200),
+          provider_post_id: text(
+            rowType === 'comment' ? row.postId ?? row._post_id : row._post_id ?? row.id,
+            200,
+          ),
           provider_comment_id: rowType === 'comment' ? text(row.id, 200) : null,
           parent_id: rowType === 'comment' ? text(row.parentId, 200) : null,
           parent_post_title: rowType === 'comment' ? postTitle : null,
@@ -1959,7 +2100,8 @@ export function createPublicSocialOpportunityAdapter(
           count > 0
           && event !== config.primaryResultEvent
           && (config.oneTimeEvent == null || event !== config.oneTimeEvent)
-          && !(config.auxiliaryResultEvents ?? []).includes(event),
+          && !(config.auxiliaryResultEvents ?? []).includes(event)
+          && !(config.partitionedResultEvents ?? []).includes(event),
       )
       if (unexpectedKnownResult) {
         return {
@@ -2023,6 +2165,48 @@ export function createPublicSocialOpportunityAdapter(
             }),
             cost_units: null,
             error: 'invalid_schema: auxiliary billed result count did not match the bounded dataset',
+          }
+        }
+      }
+      if ((config.partitionedResultEvents?.length ?? 0) > 0) {
+        if (!config.partitionedResultEvent) {
+          return {
+            status: 'ambiguous',
+            data: null,
+            receipt: providerReceipt(),
+            cost_units: null,
+            error: 'invalid_schema: partitioned result billing has no row classifier',
+          }
+        }
+        const expectedPartitionCounts = Object.fromEntries(
+          config.partitionedResultEvents!.map((event) => [event, 0]),
+        ) as Record<string, number>
+        for (const item of resultItems) {
+          const event = config.partitionedResultEvent(item)
+          if (!event || !(event in expectedPartitionCounts)) {
+            return {
+              status: 'ambiguous',
+              data: null,
+              receipt: providerReceipt({ unclassified_result_rows: 1 }),
+              cost_units: null,
+              error: 'invalid_schema: provider row did not match an approved billed result class',
+            }
+          }
+          expectedPartitionCounts[event] += 1
+        }
+        for (const event of config.partitionedResultEvents!) {
+          if ((counts[event] ?? 0) !== expectedPartitionCounts[event]) {
+            return {
+              status: 'ambiguous',
+              data: null,
+              receipt: providerReceipt({
+                billed_partitioned_results: counts[event] ?? 0,
+                expected_partitioned_results: expectedPartitionCounts[event],
+                partitioned_result_event: event,
+              }),
+              cost_units: null,
+              error: 'invalid_schema: partitioned billed result count did not match the bounded dataset',
+            }
           }
         }
       }
@@ -2131,6 +2315,12 @@ export function createApifyRedditOpportunityAdapter(deps: PublicSocialDeps = {})
   return createPublicSocialOpportunityAdapter(APIFY_REDDIT_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyRedditThreadOpportunityAdapter(
+  deps: PublicSocialDeps = {},
+): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG, deps)
+}
+
 export function createApifyXOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
   return createPublicSocialOpportunityAdapter(APIFY_X_OPPORTUNITY_CONFIG, deps)
 }
@@ -2153,6 +2343,10 @@ export function createApifyTikTokOpportunityAdapter(deps: PublicSocialDeps = {})
 
 export function apifyRedditOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_REDDIT_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyRedditThreadOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG, env)
 }
 
 export function apifyXOpportunityEnabled(env: SocialEnv = process.env): boolean {

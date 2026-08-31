@@ -130,6 +130,16 @@ export function opportunitySourceRouting(
   }
 
   if (
+    adapterId === 'apify-reddit-thread-demand-opportunities'
+    && (!realtor || intent === 'local_audience')
+  ) {
+    return {
+      eligible: false,
+      reason: 'the initial Reddit post-and-comment contract is limited to realtor buyer, seller, and mixed-intent plays',
+    }
+  }
+
+  if (
     adapterId === 'apify-meetup-demand-opportunities'
     && (intent !== 'local_audience' || !realtor)
   ) {
@@ -253,6 +263,15 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
         'community meeting',
         `${market} housing workshop`,
       ],
+    }
+    return byIntent[intent]
+  }
+  if (adapterId === 'apify-reddit-thread-demand-opportunities') {
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: ['buying home', 'house hunting', 'first time home buyer'],
+      seller_intent: ['selling house', 'realtor recommendation', 'sell my house'],
+      mixed_intent: ['sell before buying', 'move-up buyer', 'selling and buying'],
+      local_audience: [],
     }
     return byIntent[intent]
   }
@@ -387,6 +406,7 @@ function sourceMaxQueryLength(adapterId: string): number {
   if (adapterId === 'apify-instagram-demand-opportunities') return 100
   if (adapterId === 'apify-tiktok-demand-opportunities') return 100
   if (adapterId === 'apify-linkedin-demand-opportunities') return 200
+  if (adapterId === 'apify-reddit-thread-demand-opportunities') return 500
   return 700
 }
 
@@ -442,6 +462,7 @@ function sourceSeed(
   if (adapterId === 'apify-reddit-demand-opportunities') {
     return seed
   }
+  if (adapterId === 'apify-reddit-thread-demand-opportunities') return seed
   if (adapterId === 'apify-linkedin-demand-opportunities') return `${quoted(market)} AND ${seed}`
   if (adapterId === 'apify-x-demand-opportunities') {
     // Realtor X seeds bind the market inside the quoted phrase. Preserve the
@@ -504,6 +525,7 @@ export function buildOpportunityQueryLanes(
         || adapterId === 'apify-instagram-demand-opportunities'
         || adapterId === 'apify-tiktok-demand-opportunities'
         || adapterId === 'apify-meetup-demand-opportunities'
+        || adapterId === 'apify-reddit-thread-demand-opportunities'
         ? 3
         : adapterId === 'apify-reddit-demand-opportunities' && realtorTransaction
           ? 5
@@ -530,7 +552,9 @@ export function buildOpportunityQueryLanes(
       providerQuery: {
         ...providerQuery,
         query_lane_version:
-          adapterId === 'apify-instagram-demand-opportunities'
+          adapterId === 'apify-reddit-thread-demand-opportunities'
+            ? 'opportunity-query-v63'
+            : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
             : 'opportunity-query-v57',
@@ -575,6 +599,20 @@ export function buildOpportunityQueryLanes(
               social_filter_required_intent: intent,
               social_filter_require_location: true,
               social_window_days: 30,
+            }
+          : {}),
+        ...(adapterId === 'apify-reddit-thread-demand-opportunities'
+          ? {
+              reddit_thread_contract_version: 'public-post-comments-v1',
+              reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+              reddit_filter_required_intent: intent,
+              reddit_filter_require_location: false,
+              reddit_subreddits:
+                index === 1
+                  ? realtorMarketSubreddits(geography).slice(1, 2)
+                  : realtorMarketSubreddits(geography).slice(0, 1),
+              reddit_auto_discover: false,
+              reddit_global_search: false,
             }
           : {}),
         ...(adapterId === 'apify-reddit-demand-opportunities'
