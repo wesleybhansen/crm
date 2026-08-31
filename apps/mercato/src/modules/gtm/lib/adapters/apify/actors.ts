@@ -71,6 +71,10 @@ export type ApifyActorConfig = {
   kind: ApifyCapabilityKind
   // default actor id, overridable per deployment without a code change
   defaultActorId: string
+  // Exact reviewed build. An admitted capability without a build pin must
+  // fail closed rather than inherit the marketplace Actor's moving `latest`
+  // tag.
+  actorBuild?: string
   // documented alternative if the default degrades; NOT used automatically,
   // because silently switching provider supply hides a real failure
   fallbackActorId: string
@@ -90,6 +94,7 @@ export const APIFY_ACTORS: Record<ApifyCapabilityKind, ApifyActorConfig> = {
     // id, input schema, output shape and cost all LIVE-MEASURED 2026-07-25
     // (two capped probes; see gtm-apify-verified-contract-2026-07-24.md).
     defaultActorId: 'harvestapi/linkedin-post-search',
+    actorBuild: '0.0.104',
     // VERIFY-ON-FIRST-RUN (documented fallback, not auto-selected)
     fallbackActorId: 'datadoping/linkedin-posts-search-scraper',
     envVar: 'GTM_APIFY_ACTOR_LINKEDIN_POST_SEARCH',
@@ -111,6 +116,7 @@ export const APIFY_ACTORS: Record<ApifyCapabilityKind, ApifyActorConfig> = {
     kind: 'linkedin_post_comments',
     // id + input schema + output shape VERIFIED 2026-07-24
     defaultActorId: 'harvestapi/linkedin-post-comments',
+    actorBuild: '0.0.30',
     // VERIFY-ON-FIRST-RUN (documented fallback, not auto-selected)
     fallbackActorId: 'apimaestro/linkedin-profile-comments',
     envVar: 'GTM_APIFY_ACTOR_LINKEDIN_POST_COMMENTS',
@@ -171,6 +177,7 @@ export const APIFY_MEASURED_USD = {
  */
 export type ApifyEnrichActorConfig = {
   defaultActorId: string
+  actorBuild: string
   // documented alternative if the default degrades; NOT auto-selected, because
   // silently switching provider supply hides a real failure
   fallbackActorId: string
@@ -182,6 +189,7 @@ export type ApifyEnrichActorConfig = {
 export const APIFY_ENRICH_ACTOR: ApifyEnrichActorConfig = {
   // id + input schema + output key set VERIFIED 2026-07-24
   defaultActorId: 'harvestapi/linkedin-profile-scraper',
+  actorBuild: '0.0.131',
   // VERIFY-ON-FIRST-RUN (documented fallback, not auto-selected)
   fallbackActorId: 'apimaestro/linkedin-profile-detail',
   envVar: 'GTM_APIFY_ACTOR_LINKEDIN_PROFILE_ENRICH',

@@ -270,6 +270,7 @@ export type ApifyEnrichRunActorFn = (
   input: Record<string, unknown>,
   options: {
     token: string
+    build: string
     timeoutMs: number
     maxItems: number
     // required by the provider; a run without it is HTTP 400
@@ -300,6 +301,7 @@ function receipt(
   // path including refusals.
   return {
     actor_id: actorId,
+    actor_build: extras.actor_build ?? null,
     run_id: runId,
     item_count: itemCount,
     billing_finalized: false,
@@ -336,6 +338,7 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
     ((actorId, input, options) =>
       runActorWithFinalizedBilling(actorId, input, {
         token: options.token,
+        build: options.build,
         timeoutMs: options.timeoutMs,
         maxItems: options.maxItems,
         maxChargeUsd: options.maxChargeUsd,
@@ -419,6 +422,7 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
         buildProfileEnrichInput({ profileUrl: profileUrl.url, withEmail }),
         {
           token,
+          build: APIFY_ENRICH_ACTOR.actorBuild,
           timeoutMs: timeoutMs(env),
           maxItems: APIFY_ENRICH_MAX_BATCH,
           maxChargeUsd,
@@ -428,6 +432,7 @@ export function createApifyEnrichAdapter(deps: ApifyEnrichDeps = {}): EnrichAdap
 
       const providerReceipt = (extras: ReceiptExtras = {}) =>
         receipt(outcome.actorId ?? actorId, outcome.runId, outcome.itemCount, {
+          actor_build: APIFY_ENRICH_ACTOR.actorBuild,
           // what we authorized the provider to spend on this run
           max_charge_usd: maxChargeUsd,
           // the billing model, on every receipt, so a reconciler never has to

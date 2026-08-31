@@ -68,7 +68,7 @@ export const APIFY_SOURCE_ADAPTER_ID = 'apify-social-source'
  * actor_id + item_count + our org-scoped idempotency key instead. Getting a
  * provider run id would mean moving to the two-step run-then-fetch flow.
  */
-export const APIFY_RECEIPT_FIELDS = ['actor_id', 'run_id', 'item_count'] as const
+export const APIFY_RECEIPT_FIELDS = ['actor_id', 'actor_build', 'run_id', 'item_count'] as const
 
 /*
  * CUSTOMER-SERVING RIGHTS DECISION.
@@ -266,6 +266,7 @@ export type ApifyRunActorFn = (
   input: Record<string, unknown>,
   options: {
     token: string
+    build: string
     timeoutMs: number
     maxItems: number
     // required by the provider; see APIFY_MAX_CHARGE_USD_ENV above
@@ -292,7 +293,13 @@ function receipt(
 ): Record<string, unknown> {
   // Always carries the declared ambiguity_contract.receipt_fields, on every
   // path including refusals.
-  return { actor_id: actorId, run_id: runId, item_count: itemCount, ...extras }
+  return {
+    actor_id: actorId,
+    actor_build: extras.actor_build ?? null,
+    run_id: runId,
+    item_count: itemCount,
+    ...extras,
+  }
 }
 
 function refusal(
@@ -318,6 +325,7 @@ export function createApifySourceAdapter(deps: ApifySourceDeps = {}): SourceAdap
     ((actorId, input, options) =>
       runActorSync(actorId, input, {
         token: options.token,
+        build: options.build,
         timeoutMs: options.timeoutMs,
         maxItems: options.maxItems,
         maxChargeUsd: options.maxChargeUsd,
@@ -369,6 +377,7 @@ export function createApifySourceAdapter(deps: ApifySourceDeps = {}): SourceAdap
         })
       }
       const actorId = resolveActorId(signalKind, env)
+      const actorBuild = APIFY_ACTORS[signalKind].actorBuild
 
       // Actor overrides are separate provider contracts. Never let an
       // arbitrary marketplace actor inherit the selected actor's parser,
@@ -378,6 +387,13 @@ export function createApifySourceAdapter(deps: ApifySourceDeps = {}): SourceAdap
           actorId,
           `provider_disabled: actor override for ${signalKind} has no approved contract`,
           { provider_status: 'actor_contract_unapproved', attempted_at: attemptedAt },
+        )
+      }
+      if (!actorBuild) {
+        return refusal(
+          actorId,
+          `provider_disabled: ${signalKind} has no reviewed actor build`,
+          { provider_status: 'actor_build_unapproved', attempted_at: attemptedAt },
         )
       }
 
@@ -463,6 +479,7 @@ export function createApifySourceAdapter(deps: ApifySourceDeps = {}): SourceAdap
         }),
         {
           token,
+          build: actorBuild,
           timeoutMs: timeoutMs(env),
           maxItems: cap,
           maxChargeUsd,
@@ -472,6 +489,7 @@ export function createApifySourceAdapter(deps: ApifySourceDeps = {}): SourceAdap
 
       const providerReceipt = (extras: ReceiptExtras = {}) =>
         receipt(outcome.actorId ?? actorId, outcome.runId, outcome.itemCount, {
+          actor_build: actorBuild,
           // what we authorized the provider to spend on this run
           max_charge_usd: maxChargeUsd,
           provider_status: outcome.kind,
