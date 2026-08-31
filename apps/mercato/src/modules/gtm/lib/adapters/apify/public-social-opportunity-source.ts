@@ -580,7 +580,7 @@ export const APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfi
     if (plan.provider_query?.reddit_fresh_contract_version !== 'public-post-search-v2') {
       throw new TypeError('fresh Reddit sourcing requires the frozen public-post search contract')
     }
-    if (plan.provider_query?.reddit_search_syntax_version !== 'field-qualified-exact-v1') {
+    if (plan.provider_query?.reddit_search_syntax_version !== 'field-qualified-conjunctive-v2') {
       throw new TypeError('fresh Reddit sourcing requires the frozen field-qualified search syntax')
     }
     if (maxResults > 10) {
