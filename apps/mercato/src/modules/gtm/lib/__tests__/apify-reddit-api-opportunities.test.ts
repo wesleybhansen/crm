@@ -52,6 +52,17 @@ function phoenixBuyer(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function phoenixSeller(overrides: Record<string, unknown> = {}) {
+  return phoenixBuyer({
+    id: 't3_sanitized_phoenix_seller',
+    url: 'https://www.reddit.com/r/phoenix/comments/sanitized/selling_question/',
+    title: 'Selling my house and looking for local advice',
+    body: 'I am selling my house in Phoenix this month and looking for a realtor who knows the area.',
+    username: 'sanitized_seller',
+    ...overrides,
+  })
+}
+
 function buyerLanes() {
   return buildOpportunityQueryLanes({
     geography: 'Phoenix, Arizona, United States',
@@ -61,8 +72,30 @@ function buyerLanes() {
   }, config.adapterId)
 }
 
+function sellerLanes() {
+  return buildOpportunityQueryLanes({
+    geography: 'Phoenix, Arizona, United States',
+    audience: 'Phoenix homeowners considering selling a home',
+    signal: 'A current public question demonstrates a residential sale decision.',
+    providerQuery: { opportunity_intent_lane: 'seller_intent' },
+  }, config.adapterId)
+}
+
 function searchPlan(query = buyerLanes()[0]!.query): SourceSearchPlan {
   const lane = buyerLanes().find((candidate) => candidate.query === query) ?? buyerLanes()[0]!
+  return {
+    signal_kind: 'social_engagement',
+    entity_unit: 'opportunities',
+    geography: 'US',
+    query: lane.query,
+    provider_query: lane.providerQuery,
+    max_candidates: 10,
+    max_charge_usd: 0.03,
+  }
+}
+
+function sellerSearchPlan(query = sellerLanes()[0]!.query): SourceSearchPlan {
+  const lane = sellerLanes().find((candidate) => candidate.query === query) ?? sellerLanes()[0]!
   return {
     signal_kind: 'social_engagement',
     entity_unit: 'opportunities',
@@ -134,15 +167,25 @@ describe('Apify practicaltools Reddit API opportunities', () => {
     }))).toBe(false)
   })
 
-  it('routes only calibrated realtor buyer plays into two market-scoped query lanes', () => {
-    const lanes = buyerLanes()
-    expect(lanes.map((lane) => lane.query)).toEqual(['looking to buy', 'house hunting'])
-    expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v81'
-      && lane.providerQuery.reddit_api_contract_version === 'scoped-public-post-search-v1'
+  it('routes only calibrated realtor buyer and seller plays into two market-scoped query lanes each', () => {
+    const buyer = buyerLanes()
+    expect(buyer.map((lane) => lane.query)).toEqual(['looking to buy', 'house hunting'])
+    expect(buyer.every((lane) => (
+      lane.providerQuery.query_lane_version === 'opportunity-query-v88'
+      && lane.providerQuery.reddit_api_contract_version === 'scoped-public-post-search-v2'
       && lane.providerQuery.reddit_api_window_days === 30
       && lane.providerQuery.reddit_subreddits?.[0] === 'Phoenix'
       && lane.providerQuery.reddit_filter_required_intent === 'buyer_intent'
+      && lane.providerQuery.reddit_filter_require_location === false
+    ))).toBe(true)
+    const seller = sellerLanes()
+    expect(seller.map((lane) => lane.query)).toEqual(['selling my house', 'selling my home'])
+    expect(seller.every((lane) => (
+      lane.providerQuery.query_lane_version === 'opportunity-query-v88'
+      && lane.providerQuery.reddit_api_contract_version === 'scoped-public-post-search-v2'
+      && lane.providerQuery.reddit_api_window_days === 30
+      && lane.providerQuery.reddit_subreddits?.[0] === 'Phoenix'
+      && lane.providerQuery.reddit_filter_required_intent === 'seller_intent'
       && lane.providerQuery.reddit_filter_require_location === false
     ))).toBe(true)
     expect(opportunitySourceRouting({
@@ -150,6 +193,12 @@ describe('Apify practicaltools Reddit API opportunities', () => {
       audience: 'Phoenix homeowners considering selling a home',
       signal: 'A current public question demonstrates a sale decision.',
       providerQuery: { opportunity_intent_lane: 'seller_intent' },
+    }, config.adapterId)).toMatchObject({ eligible: true })
+    expect(opportunitySourceRouting({
+      geography: 'Phoenix, Arizona, United States',
+      audience: 'Phoenix homeowners buying and selling in one move',
+      signal: 'A current public question demonstrates a coordinated move.',
+      providerQuery: { opportunity_intent_lane: 'mixed_intent' },
     }, config.adapterId)).toMatchObject({ eligible: false })
     expect(opportunitySourceRouting({
       geography: 'Phoenix, Arizona, United States',
@@ -193,6 +242,62 @@ describe('Apify practicaltools Reddit API opportunities', () => {
         datasetResultEvent: 'item_returned',
       }),
     )
+  })
+
+  it('uses the same bounded posts-only contract for an exact first-person seller phrase', async () => {
+    const runActor = jest.fn(async () => outcome([phoenixSeller()], 1))
+    const adapter = createApifyRedditApiOpportunityAdapter({
+      env: approvedEnv(),
+      now,
+      runActor,
+    })
+    await expect(adapter.search(sellerSearchPlan())).resolves.toMatchObject({
+      status: 'ok',
+      data: [expect.objectContaining({
+        identity: expect.objectContaining({ intent_kind: 'seller_intent' }),
+      })],
+    })
+    expect(runActor).toHaveBeenCalledWith(
+      config.actorId,
+      expect.objectContaining({
+        startUrls: [{ url: 'https://www.reddit.com/r/Phoenix/' }],
+        searches: ['selling my house'],
+        searchPosts: true,
+        searchComments: false,
+        maxItems: 10,
+      }),
+      expect.objectContaining({
+        build: '0.0.56',
+        maxItems: 10,
+        maxChargeUsd: 0.03,
+      }),
+    )
+  })
+
+  it('continues to execute already-frozen v1 buyer plans without admitting seller intent', async () => {
+    const legacyBuyer = searchPlan()
+    legacyBuyer.provider_query = {
+      ...legacyBuyer.provider_query,
+      query_lane_version: 'opportunity-query-v81',
+      reddit_api_contract_version: 'scoped-public-post-search-v1',
+    }
+    const adapter = createApifyRedditApiOpportunityAdapter({
+      env: approvedEnv(),
+      now,
+      runActor: async () => outcome([phoenixBuyer()], 0),
+    })
+    await expect(adapter.search(legacyBuyer)).resolves.toMatchObject({ status: 'ok' })
+
+    const legacySeller = sellerSearchPlan()
+    legacySeller.provider_query = {
+      ...legacySeller.provider_query,
+      query_lane_version: 'opportunity-query-v81',
+      reddit_api_contract_version: 'scoped-public-post-search-v1',
+    }
+    await expect(adapter.search(legacySeller)).resolves.toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('legacy Reddit API plans'),
+    })
   })
 
   it('accepts an authoritative free-allowance receipt while retaining the bounded dataset', async () => {
