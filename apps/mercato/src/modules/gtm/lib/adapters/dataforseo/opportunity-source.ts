@@ -102,12 +102,6 @@ export function dataForSeoOpportunityQueryPricing(
 }
 const SENSITIVE_CONSUMER_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
-const BUYER_INTENT =
-  /\b(?:buy(?:ing)?|buyer|house hunt|home search|first[- ]time home|moving to|move to|relocat(?:e|ing|ion)|looking for (?:a )?(?:home|house|condo))\b/i
-const SELLER_INTENT =
-  /\b(?:sell(?:ing)?|seller|list(?:ing)? (?:a|my|our|the)? ?(?:home|house|property)|home valuation|home worth|prepare (?:a|my|our|the)? ?(?:home|house) for sale)\b/i
-const LOCAL_AUDIENCE =
-  /\b(?:local|neighbou?rhood|resident|community|homeowner|real estate|housing|property|home|house|condo)\b/i
 const EVENT_HINT = /\b(?:event|meetup|workshop|seminar|webinar|open house|home tour|class|fair)\b/i
 const GROUP_HINT = /\b(?:group|club|association)\b/i
 const FORUM_HINT = /\bforum\b/i
@@ -133,6 +127,7 @@ const RECEIPT_FIELDS = [
   'task_cost_usd',
   'items_count',
   'provider_failure_class',
+  'search_query',
 ]
 
 type DataForSeoEnv = Record<string, string | undefined>
@@ -144,7 +139,6 @@ type OpportunityDropReason =
   | 'sensitive_targeting'
   | 'google_event_destination'
   | 'unproven_destination_kind'
-  | 'unproven_realtor_relevance'
 
 function envValue(env: DataForSeoEnv, name: string): string {
   return (env[name] ?? '').trim()
@@ -511,9 +505,6 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
   }
   const kind = opportunityKind(url, title, resultType)
   if (!kind) return { candidate: null, dropReason: 'unproven_destination_kind' }
-  if (!LOCAL_AUDIENCE.test(searchable) && !BUYER_INTENT.test(searchable) && !SELLER_INTENT.test(searchable)) {
-    return { candidate: null, dropReason: 'unproven_realtor_relevance' }
-  }
   const demonstratedIntent = classifyOpportunityIntent(searchable)
   const intent = demonstratedIntent.kind
   const platform = platformName(url.hostname)
@@ -700,6 +691,7 @@ export function createDataForSeoOpportunityAdapter(
         query_price_operator: pricing.ok ? pricing.operator : 'invalid',
         query_price_operator_contract: pricing.ok ? pricing.contract : null,
         reserved_base_price_units: reservedUnits,
+        search_query: query.keyword,
       })
       const coverage = capabilityCovers(descriptor, plan)
       if (!coverage.covered) {

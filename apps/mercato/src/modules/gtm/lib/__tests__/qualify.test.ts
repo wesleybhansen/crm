@@ -186,6 +186,57 @@ describe('ruleBasedFitScorer', () => {
     expect(result.unknowns).toContain('opportunity.actionability')
   })
 
+  it('keeps the observed Tampa house-hunting lender request in review until thread rules are verified', () => {
+    const sourceUrl = 'https://www.reddit.com/r/tampa/comments/example/house_hunting_lender'
+    const content = [
+      'Husband and I are looking to start house hunting.',
+      'We would love your suggestions for a local mortgage lender.',
+    ].join(' ')
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Local mortgage lender suggestions?',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          intent_kind: 'buyer_intent',
+          audience_description: content,
+          location: 'Tampa, Florida',
+          access_type: 'public',
+          source_published_at: '2026-08-22T12:00:00.000Z',
+          urls: [sourceUrl],
+          participation_rules: 'Review the current subreddit and thread rules before participating.',
+          participation_rules_status: 'unverified',
+          recommended_action: 'Read the public thread and contribute one useful response manually.',
+          message_angle: 'Answer the lender-selection question before mentioning professional help.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Tampa, Florida',
+        audience: 'Tampa home buyers beginning a property search',
+        signal: 'A current public buyer request demonstrates intent',
+        referenceTime: '2026-08-31T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      [{
+        claim: content,
+        source_url: sourceUrl,
+        observed_at: '2026-08-31T12:00:00.000Z',
+        confidence: 0.85,
+      }],
+    )
+
+    expect(result.verdict).toBe('review')
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
+      expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
+      expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
+    ]))
+    expect(result.unknowns).toContain('opportunity.actionability')
+  })
+
   it('keeps a current public event in review until its participation terms are observed', () => {
     const result = ruleBasedFitScorer.score(
       {

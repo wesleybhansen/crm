@@ -215,7 +215,7 @@ const ENTERTAINMENT_HOUSE_SEARCH =
 const REALTOR_HOUSING_CONTEXT =
   /\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|homeowners? association|community association|community registry|neighbou?rhood college|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
 const CONSUMER_QUESTION =
-  /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|(?:where|what|which|how) should (?:i|we|my|our)\b|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about))\b/i
+  /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|(?:where|what|which|how) should (?:i|we|my|our)\b|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about)|(?:would|could) love (?:your|some|any)?\s*suggestions?|suggestions? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =
   /\b(?:i|we)(?:'m|'re| am| are|(?:'ve| have)(?: been)?)?\s+(?:actively\s+)?(?:(?:thinking (?:about|of)|considering)\s+(?:buying|purchasing|selling|listing|moving|relocating)\b|(?:planning|preparing|trying|looking|waiting|hoping|needing|wanting)\s+to\s+(?:buy|purchase|sell|list|move|relocate)\b|(?:planning|preparing|trying|looking|waiting|hoping|needing|wanting)\s+to\s+find\s+(?:(?:a|my|our|the)\s+)?(?:home|house|condo|townhome|property)\b|(?:looking|searching)\s+for\s+(?:a\s+)?(?:home|house|condo|townhome|property|realtor|real estate agent)\b)/i
 // Short social captions often omit the subject while still describing the
@@ -225,6 +225,12 @@ const FIRST_PERSON_HOUSING_NEED =
 // and query text remain excluded by the independent noise and evidence gates.
 const CURRENT_HOUSE_HUNTING_DECLARATION =
   /\b(?:(?:i|we)(?:'m|'re| am| are)\s+(?:actively\s+)?house hunting\s+(?:in|around|near)\b|way\s+too?\s+early\s+house hunting\s+(?:in|around|near)\b)/i
+// People often describe the beginning of a housing search as a plan rather
+// than a current state (for example, "my husband and I are looking to start
+// house hunting"). Keep the subject first-person and the action explicitly
+// residential so provider promotion and generic uses of "looking" remain out.
+const FIRST_PERSON_HOUSE_HUNTING_PLAN =
+  /\b(?:i|we|(?:(?:my|our)\s+)?(?:husband|wife|spouse|partner)\s+and\s+i)(?:'m|'re| am| are)\s+(?:actively\s+)?(?:looking|planning|hoping|wanting|ready)\s+to\s+(?:start|begin)\s+house hunting\b/i
 const DIRECT_HOUSING_TRANSACTION_NEED =
   /\b(?:looking|trying|planning|hoping|wanting|waiting|preparing|needing)\s+to\s+(?:buy|purchase|sell|list)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)\b|\b(?:looking|searching)\s+for\s+(?:a\s+)?(?:home|house|condo|townhome|property|realtor|real estate agent)\b/i
 const DIRECT_BUYER_TRANSACTION_NEED =
@@ -585,6 +591,7 @@ export function assessRealtorOpportunitySuitability(
     CONSUMER_QUESTION.test(content)
     || FIRST_PERSON_HOUSING_NEED.test(content)
     || CURRENT_HOUSE_HUNTING_DECLARATION.test(content)
+    || FIRST_PERSON_HOUSE_HUNTING_PLAN.test(content)
     || DIRECT_HOUSING_TRANSACTION_NEED.test(content)
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
@@ -597,6 +604,7 @@ export function assessRealtorOpportunitySuitability(
   const directConsumerNeed =
     FIRST_PERSON_HOUSING_NEED.test(content)
     || CURRENT_HOUSE_HUNTING_DECLARATION.test(content)
+    || FIRST_PERSON_HOUSE_HUNTING_PLAN.test(content)
     || DIRECT_HOUSING_TRANSACTION_NEED.test(content)
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)

@@ -80,7 +80,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v30' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v31' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -409,7 +409,7 @@ function scoreOpportunity(
     observedText,
     destination.canonicalUrl,
   )
-  const isRealtorPlay = /\b(?:realtor|real estate|homeowners?|home buyer|home seller|buy(?:ing)? a home|sell(?:ing)? a home|home for sale|price a home|housing)\b/i.test(
+  const isRealtorPlay = /\b(?:realtor|real estate|homeowners?|home ?buyers?|home ?sellers?|buy(?:ing)? a home|sell(?:ing)? a home|home for sale|price a home|housing)\b/i.test(
     [...audienceExpected, ...expectedIntent, ...geographyExpected].join(' '),
   )
   const requestedIntent = expectedIntent.find((value) =>

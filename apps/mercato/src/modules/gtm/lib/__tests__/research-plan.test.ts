@@ -257,9 +257,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     expect(lanes.map((lane) => lane.query)).toEqual([
       '(title:"looking to buy" OR selftext:"looking to buy")',
       '(title:"house hunting" OR selftext:"house hunting")',
-      '(title:"first time home buyer" OR selftext:"first time home buyer")',
-      '(title:"buying a home" OR selftext:"buying a home")',
-      '(title:"buying in Phoenix" OR selftext:"buying in Phoenix")',
+      '(title:"looking for a realtor" OR selftext:"looking for a realtor")',
+      '(title:"buy a house" OR selftext:"buy a house")',
+      '(title:"mortgage lender" OR selftext:"mortgage lender")',
     ])
     expect(lanes.map((lane) => lane.providerQuery.reddit_subreddits)).toEqual([
       ['Phoenix'],
@@ -269,9 +269,9 @@ describe('buildSourcePlan fail-closed boundaries', () => {
       ['FirstTimeHomeBuyer'],
     ])
     expect(lanes.every((lane) => (
-      lane.providerQuery.query_lane_version === 'opportunity-query-v70'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v71'
       && lane.providerQuery.reddit_fresh_contract_version === 'public-post-search-v2'
-      && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-exact-phrase-bank-v3'
+      && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-exact-phrase-bank-v4'
       && lane.providerQuery.reddit_fresh_window_days === 30
       && lane.providerQuery.reddit_returned_content_filter_version === 'semantic-intent-location-v3'
     ))).toBe(true)
@@ -306,8 +306,8 @@ describe('buildSourcePlan fail-closed boundaries', () => {
         && lane.query.includes(' OR ')
         && !lane.query.includes(' AND ')
         && !/\b(?:author|subreddit|site|url|flair):/i.test(lane.query)
-        && lane.providerQuery.query_lane_version === 'opportunity-query-v70'
-        && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-exact-phrase-bank-v3'
+        && lane.providerQuery.query_lane_version === 'opportunity-query-v71'
+        && lane.providerQuery.reddit_search_syntax_version === 'field-qualified-exact-phrase-bank-v4'
       ))).toBe(true)
     }
   })
@@ -322,10 +322,10 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(lanes.map((lane) => lane.query)).toEqual([
       '(title:"looking to sell" OR selftext:"looking to sell")',
-      '(title:"thinking of selling" OR selftext:"thinking of selling")',
-      '(title:"selling my home" OR selftext:"selling my home")',
-      '(title:"planning to sell" OR selftext:"planning to sell")',
-      '(title:"selling in Tampa" OR selftext:"selling in Tampa")',
+      '(title:"sell my house" OR selftext:"sell my house")',
+      '(title:"selling my house" OR selftext:"selling my house")',
+      '(title:"thinking about selling" OR selftext:"thinking about selling")',
+      '(title:"realtor recommendation" OR selftext:"realtor recommendation")',
     ])
     expect(lanes.map((lane) => lane.providerQuery.reddit_subreddits)).toEqual([
       ['Tampa'],
