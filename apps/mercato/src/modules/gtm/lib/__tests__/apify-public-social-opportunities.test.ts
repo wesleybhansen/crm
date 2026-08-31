@@ -2,11 +2,13 @@ import type { ApifyRunOutcome } from '../adapters/apify/client'
 import {
   APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG,
   APIFY_REDDIT_OPPORTUNITY_CONFIG,
+  APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG,
   APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG,
   APIFY_THREADS_OPPORTUNITY_CONFIG,
   APIFY_X_OPPORTUNITY_CONFIG,
   createApifyRedditFreshOpportunityAdapter,
   createApifyRedditOpportunityAdapter,
+  createApifyRedditPostedAfterOpportunityAdapter,
   createApifyRedditThreadOpportunityAdapter,
   createApifyThreadsOpportunityAdapter,
   createApifyXOpportunityAdapter,
@@ -165,6 +167,31 @@ function freshRedditPost(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function postedAfterRedditPost(overrides: Record<string, unknown> = {}) {
+  return {
+    dataType: 'post',
+    id: 't3_posted_after',
+    postUrl: 'https://www.reddit.com/r/Phoenix/comments/posted_after/phoenix_home_buyer/',
+    title: 'Phoenix first-time buyer looking to buy a home',
+    body: 'We are house hunting in Phoenix and comparing neighborhoods this month.',
+    authorName: 'posted_after_buyer',
+    communityName: 'r/Phoenix',
+    parsedCommunityName: 'Phoenix',
+    score: 18,
+    commentsCount: 9,
+    createdAt: '2026-08-25T17:00:00.000Z',
+    crawledAt: '2026-08-26T23:00:00.000Z',
+    searchTerm: 'looking to buy a home',
+    over18: false,
+    locked: false,
+    archived: false,
+    stickied: false,
+    isRobotIndexable: true,
+    removedByCategory: null,
+    ...overrides,
+  }
+}
+
 function xPost(overrides: Record<string, unknown> = {}) {
   return {
     postText: 'Thinking about selling our South Bay home. What should we prepare first?',
@@ -226,6 +253,8 @@ function outcome(
           'post-scraped': partitionCounts.posts,
           'comment-scraped': partitionCounts.comments,
         }
+      : config.adapterId === APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.adapterId
+        ? { init: 1, result: items.length }
       : config.adapterId === APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG.adapterId
         ? {
             'apify-actor-start': 1,
@@ -314,6 +343,42 @@ describe('Apify public social demand opportunities', () => {
       oneTimeQuoteUsd: 0.01,
       perItemQuoteUsd: 0.0022,
       maxBatch: 10,
+    })
+  })
+
+  it('pins posted-after Reddit reservations to the exact Starter BRONZE event contract', () => {
+    expect(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG).toMatchObject({
+      actorId: 'harshmaur/reddit-scraper',
+      actorBuild: '0.0.384',
+      requiredPriceVersion: 'harshmaur-reddit-scraper-0.0.384-bronze-events-2026-08-31',
+      eventPricesUsd: { init: 0.02, result: 0.0018 },
+      datasetResultBillingEvent: 'result',
+      oneTimeQuoteUsd: 0.02,
+      perItemQuoteUsd: 0.0018,
+      maxBatch: 10,
+    })
+  })
+
+  it('keeps posted-after Reddit sourcing held unless its capability switch is explicit', () => {
+    const env = envFor(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG)
+    expect(publicSocialOpportunityEnabled(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG, env)).toBe(false)
+    expect(publicSocialOpportunityEnabled(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG, {
+      ...env,
+      GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_ENABLED: 'true',
+    })).toBe(true)
+  })
+
+  it('quotes a ten-row posted-after Reddit lane at its exact hard ceiling', () => {
+    const adapter = createApifyRedditPostedAfterOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_ENABLED: 'true',
+      },
+    })
+    expect(adapter.quote({ ...plan, max_candidates: 10 })).toMatchObject({
+      max_candidates: 10,
+      provider_units: 38,
+      estimated_credits_before_markup: 9_500,
     })
   })
 
@@ -1959,6 +2024,176 @@ describe('Apify public social demand opportunities', () => {
         datasetResultEvent: 'apify-default-dataset-item',
       }),
     )
+  })
+
+  it('freezes posted-after Reddit input to one natural phrase and no optional data products', async () => {
+    const runActor = jest.fn(async () => outcome(
+      APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG,
+      postedAfterRedditPost(),
+    ))
+    const adapter = createApifyRedditPostedAfterOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor,
+    })
+    const lanes = buildOpportunityQueryLanes({
+      geography: 'Phoenix, Arizona, United States',
+      audience: 'People publicly demonstrating that they want to buy a home in Phoenix',
+      signal: 'A recent public question demonstrates home-buying intent.',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }, APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.adapterId)
+    expect(lanes.map(({ query, providerQuery }) => ({
+      query,
+      subreddits: providerQuery.reddit_subreddits,
+      global: providerQuery.reddit_global_search,
+      requireLocation: providerQuery.reddit_filter_require_location,
+    }))).toEqual([
+      {
+        query: 'looking to buy a home',
+        subreddits: ['Phoenix'],
+        global: false,
+        requireLocation: false,
+      },
+      {
+        query: 'house hunting',
+        subreddits: ['AskPhoenix'],
+        global: false,
+        requireLocation: false,
+      },
+      {
+        query: 'Phoenix first time home buyer',
+        subreddits: [],
+        global: true,
+        requireLocation: true,
+      },
+    ])
+    const lane = lanes[0]!
+    await expect(adapter.search({
+      signal_kind: 'social_engagement',
+      entity_unit: 'opportunities',
+      geography: 'US',
+      query: lane.query,
+      provider_query: lane.providerQuery,
+      max_candidates: 10,
+      max_charge_usd: 0.038,
+    })).resolves.toMatchObject({
+      status: 'ok',
+      data: [expect.objectContaining({
+        identity: expect.objectContaining({
+          platform: 'Reddit',
+          location: 'Phoenix, Arizona, United States',
+        }),
+      })],
+      receipt: expect.objectContaining({
+        billed_results: 1,
+        billing_finalized: true,
+      }),
+    })
+    expect(runActor).toHaveBeenCalledWith(
+      APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.actorId,
+      {
+        searchTerms: ['looking to buy a home'],
+        searchPosts: true,
+        searchComments: false,
+        searchCommunities: false,
+        withinCommunity: 'Phoenix',
+        searchSort: 'new',
+        searchTime: 'month',
+        startUrls: [],
+        fastMode: true,
+        subredditUrls: [],
+        postedAfter: '2026-07-28',
+        onlyWithFlair: false,
+        crawlCommentsPerPost: false,
+        includeNSFW: false,
+        maxPostsCount: 10,
+        maxCommentsCount: 0,
+        maxCommentsPerPost: 0,
+        maxCommunitiesCount: 0,
+        aiAnalysis: false,
+        customLabels: {},
+      },
+      expect.objectContaining({
+        build: '0.0.384',
+        maxItems: 10,
+        maxChargeUsd: 0.038,
+        datasetResultEvent: 'result',
+      }),
+    )
+  })
+
+  it('refuses altered posted-after Reddit scope and product contracts before provider contact', async () => {
+    const runActor = jest.fn()
+    const adapter = createApifyRedditPostedAfterOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor,
+    })
+    const lane = buildOpportunityQueryLanes({
+      geography: 'Phoenix, Arizona, United States',
+      audience: 'People publicly demonstrating that they want to buy a home in Phoenix',
+      signal: 'A recent public question demonstrates home-buying intent.',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }, APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.adapterId)[0]!
+    for (const provider_query of [
+      { ...lane.providerQuery, reddit_posted_after_window_days: 31 },
+      { ...lane.providerQuery, reddit_posted_after_contract_version: 'unfrozen' },
+      { ...lane.providerQuery, reddit_search_syntax_version: 'unfrozen' },
+      { ...lane.providerQuery, reddit_subreddits: [] },
+      { ...lane.providerQuery, reddit_filter_require_location: true },
+      { ...lane.providerQuery, search_query: 'author:example' },
+    ]) {
+      await expect(adapter.search({
+        ...plan,
+        query: String(provider_query.search_query),
+        provider_query,
+        max_candidates: 10,
+        max_charge_usd: 0.038,
+      })).resolves.toMatchObject({
+        status: 'error',
+        cost_units: 0,
+        error: expect.stringContaining('bad_request'),
+      })
+    }
+    expect(runActor).not.toHaveBeenCalled()
+  })
+
+  it('drops removed posted-after Reddit rows while retaining their finalized cost', async () => {
+    const adapter = createApifyRedditPostedAfterOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor: async () => outcome(
+        APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG,
+        postedAfterRedditPost({ removedByCategory: 'moderator' }),
+      ),
+    })
+    const lane = buildOpportunityQueryLanes({
+      geography: 'Phoenix, Arizona, United States',
+      audience: 'People publicly demonstrating that they want to buy a home in Phoenix',
+      signal: 'A recent public question demonstrates home-buying intent.',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }, APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG.adapterId)[0]!
+    await expect(adapter.search({
+      ...plan,
+      query: lane.query,
+      provider_query: lane.providerQuery,
+      max_candidates: 10,
+      max_charge_usd: 0.038,
+    })).resolves.toMatchObject({
+      status: 'error',
+      data: null,
+      cost_units: 21.8,
+      receipt: expect.objectContaining({ parser_dropped_rows: 1 }),
+    })
   })
 
   it('refuses altered fresh Reddit freshness, scope, and content contracts before provider contact', async () => {

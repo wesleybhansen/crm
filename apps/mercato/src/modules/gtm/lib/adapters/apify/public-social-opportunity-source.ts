@@ -644,6 +644,133 @@ export const APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfi
   normalize: normalizeRedditOpportunity,
 }
 
+export const APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-reddit-posted-after-demand-opportunities',
+  platform: 'Reddit',
+  enabledEnv: 'GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_ENABLED',
+  actorId: 'harshmaur/reddit-scraper',
+  actorBuild: '0.0.384',
+  actorEnv: 'GTM_APIFY_ACTOR_REDDIT_POSTED_AFTER_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_REDDIT_POSTED_AFTER_SEARCH_PRICE_VERSION',
+  // Rechecked against the signed-in production Starter/BRONZE account and
+  // public actor metadata on 2026-08-31. AI analysis, custom labels, comments,
+  // profiles, communities, MCP delivery, and NSFW content are all disabled.
+  requiredPriceVersion: 'harshmaur-reddit-scraper-0.0.384-bronze-events-2026-08-31',
+  eventPricesUsd: {
+    init: 0.02,
+    result: 0.0018,
+  },
+  oneTimeEvent: 'init',
+  primaryResultEvent: 'result',
+  datasetResultBillingEvent: 'result',
+  perItemQuoteUsd: 0.0018,
+  oneTimeQuoteUsd: 0.02,
+  maxBatch: 10,
+  datasetFields: [
+    'dataType',
+    'id',
+    'postUrl',
+    'title',
+    'body',
+    'authorName',
+    'communityName',
+    'parsedCommunityName',
+    'score',
+    'commentsCount',
+    'createdAt',
+    'crawledAt',
+    'searchTerm',
+    'over18',
+    'locked',
+    'archived',
+    'stickied',
+    'isRobotIndexable',
+    'removedByCategory',
+  ],
+  buildInput(plan, maxResults, attemptedAt) {
+    validateRedditReturnedContentFilter(plan)
+    if (plan.provider_query?.reddit_posted_after_contract_version !== 'public-post-search-v1') {
+      throw new TypeError('posted-after Reddit sourcing requires the frozen public-post search contract')
+    }
+    if (plan.provider_query?.reddit_search_syntax_version !== 'natural-phrase-bank-v1') {
+      throw new TypeError('posted-after Reddit sourcing requires the frozen natural-phrase search syntax')
+    }
+    if (plan.provider_query?.reddit_posted_after_window_days !== 30) {
+      throw new TypeError('posted-after Reddit sourcing requires the frozen 30-day post window')
+    }
+    if (maxResults > 10) {
+      throw new TypeError('posted-after Reddit sourcing is limited to 10 rows per quoted lane')
+    }
+    if (requestedOpportunityIntent(plan) === 'local_audience') {
+      throw new TypeError('posted-after Reddit sourcing is limited to buyer, seller, and mixed-intent lanes')
+    }
+    const subreddits = redditSubreddits(plan)
+    const globalSearch = redditGlobalSearch(plan)
+    if (redditAutoDiscover(plan) || (globalSearch ? subreddits.length !== 0 : subreddits.length !== 1)) {
+      throw new TypeError('posted-after Reddit sourcing requires one frozen subreddit or one explicit global lane')
+    }
+    const query = queryText(plan, 160)
+    if (/\b(?:author|flair|nsfw|subreddit)\s*:/i.test(query) || /[\r\n]/.test(query)) {
+      throw new TypeError('posted-after Reddit sourcing accepts one natural-language phrase without field operators')
+    }
+    if (globalSearch) {
+      const requestedLocation = locationText(plan)
+      const market = requestedLocation?.split(',')[0]?.trim()
+      if (!market || !query.toLowerCase().includes(market.toLowerCase())) {
+        throw new TypeError('global posted-after Reddit search must contain the requested market')
+      }
+      if (plan.provider_query?.reddit_filter_require_location !== true) {
+        throw new TypeError('global posted-after Reddit search requires returned-content location evidence')
+      }
+    } else if (plan.provider_query?.reddit_filter_require_location !== false) {
+      throw new TypeError('scoped posted-after Reddit search requires the returned subreddit location contract')
+    }
+    const attempted = new Date(attemptedAt)
+    if (!Number.isFinite(attempted.getTime())) {
+      throw new TypeError('posted-after Reddit sourcing requires a valid attempt time')
+    }
+    const exactFreshnessThreshold = new Date(attempted.getTime() - 30 * 24 * 60 * 60 * 1_000)
+    const postedAfterDate = new Date(Date.UTC(
+      exactFreshnessThreshold.getUTCFullYear(),
+      exactFreshnessThreshold.getUTCMonth(),
+      exactFreshnessThreshold.getUTCDate(),
+    ))
+    if (
+      exactFreshnessThreshold.getUTCHours() !== 0
+      || exactFreshnessThreshold.getUTCMinutes() !== 0
+      || exactFreshnessThreshold.getUTCSeconds() !== 0
+      || exactFreshnessThreshold.getUTCMilliseconds() !== 0
+    ) {
+      postedAfterDate.setUTCDate(postedAfterDate.getUTCDate() + 1)
+    }
+    const postedAfter = postedAfterDate.toISOString().slice(0, 10)
+    return {
+      searchTerms: [query],
+      searchPosts: true,
+      searchComments: false,
+      searchCommunities: false,
+      withinCommunity: subreddits[0] ?? '',
+      searchSort: 'new',
+      searchTime: 'month',
+      startUrls: [],
+      fastMode: true,
+      subredditUrls: [],
+      postedAfter,
+      onlyWithFlair: false,
+      crawlCommentsPerPost: false,
+      includeNSFW: false,
+      maxPostsCount: maxResults,
+      maxCommentsCount: 0,
+      maxCommentsPerPost: 0,
+      maxCommunitiesCount: 0,
+      aiAnalysis: false,
+      customLabels: {},
+    }
+  },
+  normalize: normalizeRedditOpportunity,
+}
+
 export const APIFY_X_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-x-demand-opportunities',
   platform: 'X',
@@ -1541,13 +1668,14 @@ function commonIdentity(args: {
 
 export function normalizeRedditOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
   const row = record(value)
-  const rowType = text(row?.recordType ?? row?.type ?? row?._type, 20)?.toLowerCase()
+  const rowType = text(row?.recordType ?? row?.dataType ?? row?.type ?? row?._type, 20)?.toLowerCase()
   if (!row || (rowType !== 'post' && rowType !== 'comment')) return null
   if (row._status != null && text(row._status, 20)?.toLowerCase() !== 'found') return null
   if (
     row.isNSFW === true
     || row.isNsfw === true
     || row.over_18 === true
+    || row.over18 === true
     || row.isLocked === true
     || row.locked === true
     || row.isArchived === true
@@ -1557,8 +1685,10 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
     || row.isDeleted === true
     || row.isRemoved === true
     || row.isCommercialCommunication === true
+    || row.isRobotIndexable === false
+    || text(row.removedByCategory, 80) != null
   ) return null
-  const sourceUrl = safePlatformUrl(row.permalink ?? row.url, 'Reddit')
+  const sourceUrl = safePlatformUrl(row.permalink ?? row.postUrl ?? row.url, 'Reddit')
   const postTitle = text(rowType === 'comment' ? row.postTitle : row.title, 180)
   const body = text(
     rowType === 'comment'
@@ -1581,7 +1711,11 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
       return null
     }
   })()
-  const subreddit = text(row.subreddit, 100) ?? text(subredditFromPath, 100)
+  const subreddit = (
+    text(row.subreddit ?? row.parsedCommunityName ?? row.communityName, 100)
+      ?.replace(/^r\//i, '')
+    ?? text(subredditFromPath, 100)
+  )
   const subredditInfo = record(row.subredditInfo)
   if (subredditInfo?.isNsfw === true || subredditInfo?.isQuarantined === true) return null
   const engagement = Math.min(
@@ -1590,10 +1724,10 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
       + nonNegativeInteger(
         rowType === 'comment'
           ? row.postCommentCount
-          : row.numComments ?? row.num_comments ?? row.commentCount,
+          : row.numComments ?? row.num_comments ?? row.commentCount ?? row.commentsCount,
       ),
   )
-  const author = text(row.author, 100)
+  const author = text(row.author ?? row.authorName, 100)
   const memberCount = nonNegativeInteger(
     rowType === 'comment'
       ? row.subredditSubscribers ?? row.subreddit_subscribers
@@ -2599,6 +2733,12 @@ export function createApifyRedditFreshOpportunityAdapter(
   return createPublicSocialOpportunityAdapter(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyRedditPostedAfterOpportunityAdapter(
+  deps: PublicSocialDeps = {},
+): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG, deps)
+}
+
 export function createApifyXOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
   return createPublicSocialOpportunityAdapter(APIFY_X_OPPORTUNITY_CONFIG, deps)
 }
@@ -2633,6 +2773,10 @@ export function apifyRedditThreadOpportunityEnabled(env: SocialEnv = process.env
 
 export function apifyRedditFreshOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_REDDIT_FRESH_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyRedditPostedAfterOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_REDDIT_POSTED_AFTER_OPPORTUNITY_CONFIG, env)
 }
 
 export function apifyXOpportunityEnabled(env: SocialEnv = process.env): boolean {
