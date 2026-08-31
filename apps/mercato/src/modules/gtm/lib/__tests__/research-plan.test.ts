@@ -444,6 +444,72 @@ describe('buildSourcePlan fail-closed boundaries', () => {
     })
   })
 
+  it('plans three separately quoted, exact-subreddit Reddit post-and-comment lanes', () => {
+    const play = {
+      geography: 'Phoenix, Arizona',
+      audience: 'Phoenix first-time home buyers',
+      signal: 'A current public conversation demonstrates home-buying intent',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }
+    const lanes = buildOpportunityQueryLanes(
+      play,
+      'apify-reddit-thread-demand-opportunities',
+    )
+
+    expect(lanes).toHaveLength(3)
+    expect(lanes.map((lane) => lane.query)).toEqual([
+      'buying home',
+      'house hunting',
+      'first time home buyer',
+    ])
+    expect(lanes.map((lane) => lane.providerQuery.reddit_subreddits)).toEqual([
+      ['Phoenix'],
+      ['AskPhoenix'],
+      ['Phoenix'],
+    ])
+    expect(lanes.every((lane) => (
+      lane.providerQuery.query_lane_version === 'opportunity-query-v63'
+      && lane.providerQuery.reddit_thread_contract_version === 'public-post-comments-v1'
+      && lane.providerQuery.reddit_returned_content_filter_version === 'semantic-intent-location-v3'
+      && lane.providerQuery.reddit_filter_required_intent === 'buyer_intent'
+      && lane.providerQuery.reddit_filter_require_location === false
+      && lane.providerQuery.reddit_auto_discover === false
+      && lane.providerQuery.reddit_global_search === false
+      && !lane.query.includes('subreddit:')
+    ))).toBe(true)
+    expect(opportunitySourceRouting(
+      play,
+      'apify-reddit-thread-demand-opportunities',
+    )).toEqual({ eligible: true, reason: null })
+  })
+
+  it('keeps Reddit post-and-comment trees off generic and local-audience plays', () => {
+    expect(opportunitySourceRouting(
+      {
+        geography: 'Austin, Texas',
+        audience: 'Austin homeowners and neighborhood communities',
+        signal: 'Current public community discussions',
+        providerQuery: { opportunity_intent_lane: 'local_audience' },
+      },
+      'apify-reddit-thread-demand-opportunities',
+    )).toEqual({
+      eligible: false,
+      reason: expect.stringContaining('buyer, seller, and mixed-intent'),
+    })
+    expect(opportunitySourceRouting(
+      {
+        geography: 'Seattle, Washington',
+        audience: 'Independent ceramic artists',
+        signal: 'A current public discussion about kiln access',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      'apify-reddit-thread-demand-opportunities',
+    )).toEqual({
+      eligible: false,
+      reason: expect.stringContaining('realtor'),
+    })
+  })
+
   it('keeps X realtor intent lanes atomic, market-bound, and under the actor limit', () => {
     const buyer = buildOpportunityQueryLanes(
       {

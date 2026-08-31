@@ -1,9 +1,11 @@
 import type { ApifyRunOutcome } from '../adapters/apify/client'
 import {
   APIFY_REDDIT_OPPORTUNITY_CONFIG,
+  APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG,
   APIFY_THREADS_OPPORTUNITY_CONFIG,
   APIFY_X_OPPORTUNITY_CONFIG,
   createApifyRedditOpportunityAdapter,
+  createApifyRedditThreadOpportunityAdapter,
   createApifyThreadsOpportunityAdapter,
   createApifyXOpportunityAdapter,
   normalizeRedditOpportunity,
@@ -92,6 +94,52 @@ function redditComment(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function redditThreadPost(overrides: Record<string, unknown> = {}) {
+  return {
+    _type: 'post',
+    _post_id: 't3_thread_post',
+    _status: 'found',
+    id: 'thread_post',
+    title: 'Austin first-time buyer looking for a home',
+    selftext: 'We are house hunting in Austin and comparing neighborhoods.',
+    author: 'thread_starter',
+    subreddit: 'Austin',
+    score: 12,
+    commentCount: 3,
+    num_comments: 3,
+    created_utc: Date.parse('2026-08-25T17:00:00.000Z') / 1_000,
+    permalink: '/r/Austin/comments/thread_post/austin_first_time_buyer/',
+    over_18: false,
+    stickied: false,
+    locked: false,
+    archived: false,
+    subreddit_subscribers: 790_000,
+    ...overrides,
+  }
+}
+
+function redditThreadComment(overrides: Record<string, unknown> = {}) {
+  return {
+    _type: 'comment',
+    _post_id: 't3_thread_post',
+    _status: 'found',
+    id: 't1_thread_comment',
+    author: 'comment_buyer',
+    score: 4,
+    createdAt: '2026-08-25T18:00:00.000Z',
+    parentId: null,
+    permalink: '/r/Austin/comments/thread_post/austin_first_time_buyer/thread_comment/',
+    body: 'We are also looking to buy a home in Austin this month.',
+    isStickied: false,
+    isLocked: false,
+    isDeleted: false,
+    isArchived: false,
+    isRemoved: false,
+    isCommercialCommunication: false,
+    ...overrides,
+  }
+}
+
 function xPost(overrides: Record<string, unknown> = {}) {
   return {
     postText: 'Thinking about selling our South Bay home. What should we prepare first?',
@@ -132,15 +180,32 @@ function threadsPost(overrides: Record<string, unknown> = {}) {
 
 function outcome(
   config: PublicSocialOpportunityConfig,
-  item: Record<string, unknown>,
+  item: Record<string, unknown> | Array<Record<string, unknown>>,
   values: Partial<ApifyRunOutcome> = {},
 ): ApifyRunOutcome {
+  const items = Array.isArray(item) ? item : [item]
+  const partitionCounts = items.reduce(
+    (counts, row) => {
+      const rowType = String(row.type ?? row._type ?? '').toLowerCase()
+      if (rowType === 'post') counts.posts += 1
+      if (rowType === 'comment') counts.comments += 1
+      return counts
+    },
+    { posts: 0, comments: 0 },
+  )
   const counts =
-    config.platform === 'Reddit'
+    config.adapterId === APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG.adapterId
       ? {
           'apify-actor-start': 1,
-          'apify-default-dataset-item': 1,
-          'result-scraped': 1,
+          'apify-default-dataset-item': items.length,
+          'post-scraped': partitionCounts.posts,
+          'comment-scraped': partitionCounts.comments,
+        }
+      : config.platform === 'Reddit'
+      ? {
+          'apify-actor-start': 1,
+          'apify-default-dataset-item': items.length,
+          'result-scraped': items.length,
         }
       : config.platform === 'X'
         ? { init: 1, 'result-item': 1 }
@@ -152,10 +217,10 @@ function outcome(
   return {
     kind: 'ok',
     status: 'ok',
-    items: [item],
+    items,
     actorId: config.actorId,
     runId: 'synthetic-run',
-    itemCount: 1,
+    itemCount: items.length,
     httpStatus: 201,
     retryAfterSeconds: null,
     bodySnippet: null,
@@ -184,6 +249,36 @@ describe('Apify public social demand opportunities', () => {
       oneTimeQuoteUsd: 0.00099,
       perItemQuoteUsd: 0.001,
     })
+  })
+
+  it('pins Reddit post-and-comment reservations to exact Starter event prices', () => {
+    expect(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG).toMatchObject({
+      actorId: 'clearpath/reddit-post-comments-bulk-scraper',
+      actorBuild: '0.0.60',
+      requiredPriceVersion: 'clearpath-reddit-post-comments-0.0.60-starter-events-2026-08-30',
+      eventPricesUsd: {
+        'apify-actor-start': 0.0005,
+        'apify-default-dataset-item': 0.00001,
+        'post-scraped': 0.00299,
+        'comment-scraped': 0.00099,
+      },
+      primaryResultEvent: 'apify-default-dataset-item',
+      partitionedResultEvents: ['post-scraped', 'comment-scraped'],
+      oneTimeQuoteUsd: 0.0005,
+      perItemQuoteUsd: 0.003,
+      maxBatch: 10,
+    })
+  })
+
+  it('keeps Reddit post-and-comment sourcing held unless its capability switch is explicit', () => {
+    const env = envFor(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG)
+    expect(publicSocialOpportunityEnabled(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG, env)).toBe(false)
+    expect(
+      publicSocialOpportunityEnabled(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG, {
+        ...env,
+        GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED: 'true',
+      }),
+    ).toBe(true)
   })
 
   it('pins X reservations to the production BRONZE account tier', () => {
@@ -256,6 +351,7 @@ describe('Apify public social demand opportunities', () => {
 
   it.each([
     [APIFY_REDDIT_OPPORTUNITY_CONFIG],
+    [APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG],
     [APIFY_X_OPPORTUNITY_CONFIG],
     [APIFY_THREADS_OPPORTUNITY_CONFIG],
   ])(
@@ -374,6 +470,52 @@ describe('Apify public social demand opportunities', () => {
     )
     expect(candidate?.identity.intent_kind).toBeNull()
     expect(candidate?.identity.audience_description).toBe('Thanks for sharing this general information.')
+  })
+
+  it('normalizes the exact post-and-comment actor schema without inventing parent context', () => {
+    const context = {
+      query: 'targeting text must not become evidence',
+      location: 'Austin, Texas',
+      scopedSubreddits: ['Austin'],
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG.actorId,
+      semanticFilterVersion: 'semantic-intent-location-v3',
+    }
+    const post = normalizeRedditOpportunity(redditThreadPost(), context)
+    const comment = normalizeRedditOpportunity(redditThreadComment(), context)
+
+    expect(post).toMatchObject({
+      identity: {
+        intent_kind: 'buyer_intent',
+        location: 'Austin, Texas',
+        member_count: 790_000,
+        source_published_at: '2026-08-25T17:00:00.000Z',
+      },
+      evidence: [{ detail: { provider_post_id: 't3_thread_post' } }],
+    })
+    expect(comment).toMatchObject({
+      identity: {
+        name: 'Reddit comment in r/Austin',
+        intent_kind: 'buyer_intent',
+        location: 'Austin, Texas',
+        audience_description: 'We are also looking to buy a home in Austin this month.',
+        source_published_at: '2026-08-25T18:00:00.000Z',
+      },
+      evidence: [{
+        detail: {
+          provider_post_id: 't3_thread_post',
+          provider_comment_id: 't1_thread_comment',
+          parent_post_title: null,
+          subreddit: 'Austin',
+          location_basis: 'scoped_returned_subreddit',
+        },
+      }],
+    })
+    expect(normalizeRedditOpportunity(redditThreadComment({ isRemoved: true }), context)).toBeNull()
+    expect(normalizeRedditOpportunity(
+      redditThreadComment({ isCommercialCommunication: true }),
+      context,
+    )).toBeNull()
   })
 
   it('drops locked, archived, NSFW, stickied, quarantined, and sensitive Reddit posts', () => {
@@ -831,6 +973,167 @@ describe('Apify public social demand opportunities', () => {
       }),
       expect.any(Object),
     )
+  })
+
+  it('builds one bounded public-thread query and reconciles post and comment events exactly', async () => {
+    const post = redditThreadPost()
+    const comment = redditThreadComment()
+    const runActor = jest.fn(async () =>
+      outcome(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG, [post, comment]),
+    )
+    const adapter = createApifyRedditThreadOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor,
+    })
+    const result = await adapter.search({
+      ...plan,
+      max_candidates: 10,
+      max_charge_usd: 0.0305,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Austin, Texas'],
+        search_query: 'house hunting',
+        opportunity_intent_lane: 'buyer_intent',
+        reddit_thread_contract_version: 'public-post-comments-v1',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+        reddit_filter_required_intent: 'buyer_intent',
+        reddit_filter_require_location: false,
+        reddit_subreddits: ['Austin'],
+        reddit_auto_discover: false,
+        reddit_global_search: false,
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      cost_units: 4.5,
+      receipt: {
+        charged_event_counts: {
+          'apify-actor-start': 1,
+          'apify-default-dataset-item': 2,
+          'post-scraped': 1,
+          'comment-scraped': 1,
+        },
+        billed_results: 2,
+        returned_count: 2,
+      },
+    })
+    expect(runActor).toHaveBeenCalledWith(
+      APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG.actorId,
+      {
+        queries: ['house hunting subreddit:Austin'],
+        maxPostsPerQuery: 1,
+        sort: 'new',
+        maxCommentsPerPost: 9,
+        expandAllComments: false,
+      },
+      expect.objectContaining({
+        build: '0.0.60',
+        maxItems: 10,
+        maxChargeUsd: 0.0305,
+      }),
+    )
+  })
+
+  it('parks a Reddit thread run when a post/comment event count does not match returned rows', async () => {
+    const billed = outcome(
+      APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG,
+      [
+        redditThreadPost(),
+        redditThreadComment(),
+      ],
+      {
+        chargedEventCounts: {
+          'apify-actor-start': 1,
+          'apify-default-dataset-item': 2,
+          'post-scraped': 1,
+          'comment-scraped': 0,
+        },
+        providerCostUsd: 0.00351,
+      },
+    )
+    const adapter = createApifyRedditThreadOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor: async () => billed,
+    })
+    const result = await adapter.search({
+      ...plan,
+      max_candidates: 10,
+      max_charge_usd: 0.0305,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Austin, Texas'],
+        search_query: 'selling house',
+        opportunity_intent_lane: 'seller_intent',
+        reddit_thread_contract_version: 'public-post-comments-v1',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+        reddit_filter_required_intent: 'seller_intent',
+        reddit_filter_require_location: false,
+        reddit_subreddits: ['Austin'],
+        reddit_auto_discover: false,
+        reddit_global_search: false,
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'ambiguous',
+      data: null,
+      cost_units: null,
+      receipt: {
+        partitioned_result_event: 'comment-scraped',
+        billed_partitioned_results: 0,
+        expected_partitioned_results: 1,
+      },
+      error: expect.stringContaining('partitioned billed result count'),
+    })
+  })
+
+  it('refuses Reddit thread fan-out, deep expansion, and unfrozen scope before provider contact', async () => {
+    const runActor = jest.fn(async () => outcome(
+      APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG,
+      redditThreadPost(),
+    ))
+    const adapter = createApifyRedditThreadOpportunityAdapter({
+      env: {
+        ...envFor(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_THREAD_OPPORTUNITY_ENABLED: 'true',
+      },
+      now,
+      runActor,
+    })
+    const result = await adapter.search({
+      ...plan,
+      max_candidates: 10,
+      max_charge_usd: 0.0305,
+      provider_query: {
+        ...plan.provider_query,
+        locations: ['Austin, Texas'],
+        search_query: 'house hunting subreddit:Phoenix',
+        opportunity_intent_lane: 'buyer_intent',
+        reddit_thread_contract_version: 'public-post-comments-v1',
+        reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+        reddit_filter_required_intent: 'buyer_intent',
+        reddit_filter_require_location: false,
+        reddit_subreddits: ['Austin', 'AskAustin'],
+        reddit_auto_discover: false,
+        reddit_global_search: false,
+      },
+    })
+
+    expect(result).toMatchObject({
+      status: 'error',
+      cost_units: 0,
+      error: expect.stringContaining('exactly one frozen public subreddit'),
+    })
+    expect(runActor).not.toHaveBeenCalled()
   })
 
   it('drops paid Reddit rows that do not match the frozen returned-content filter', async () => {
