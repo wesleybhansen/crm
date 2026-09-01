@@ -603,6 +603,46 @@ export function publicSourceGeographyConflict(
   }
 }
 
+/**
+ * Returns a requested locality only when the returned Reddit destination is
+ * itself an exact local-community form for that market. This is source
+ * evidence, not query targeting: broad topic subreddits remain unknown, and
+ * non-matching local communities are handled by publicSourceGeographyConflict.
+ */
+export function demonstratedPublicSourceGeography(
+  sourceUrl: string | null,
+  expectedGeographies: string[],
+): string | null {
+  if (!sourceUrl || expectedGeographies.length === 0) return null
+  try {
+    const url = new URL(sourceUrl)
+    if (!url.hostname.toLowerCase().endsWith('reddit.com')) return null
+    const subreddit = url.pathname.match(/^\/r\/([^/]+)/i)?.[1]
+    if (!subreddit) return null
+    const returned = normalizedLocationToken(subreddit)
+    if (!returned || NON_LOCAL_REDDIT_COMMUNITIES.has(returned)) return null
+
+    for (const geography of expectedGeographies) {
+      const primary = normalizedLocationToken(geography.split(',')[0] ?? '')
+      if (primary.length < 3) continue
+      const exactLocalForms = new Set([
+        primary,
+        `ask${primary}`,
+        `${primary}homes`,
+        `${primary}homeowners`,
+        `${primary}housing`,
+        `${primary}locals`,
+        `${primary}metro`,
+        `${primary}realestate`,
+      ])
+      if (exactLocalForms.has(returned)) return geography
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 export type RealtorOpportunitySuitability = {
   relevant: boolean
   demonstratedIntent: DemonstratedOpportunityIntent

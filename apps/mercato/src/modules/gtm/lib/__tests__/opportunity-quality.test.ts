@@ -9,6 +9,7 @@ import {
   classifyOpportunityIntentV2,
   classifyOpportunityIntentV3,
   demonstratedOpportunityLocation,
+  demonstratedPublicSourceGeography,
   opportunityHasContradictoryUsState,
   publicSourceGeographyConflict,
   rankOpportunityCandidates,
@@ -239,6 +240,30 @@ describe('opportunity quality primitives', () => {
     expect(
       demonstratedOpportunityLocation('First home-buying advice requested in Austin, TX.', 'Austin, Texas'),
     ).toBe('Austin, Texas')
+    expect(
+      demonstratedPublicSourceGeography(
+        'https://www.reddit.com/r/Tampa/comments/example/selling_this_fall',
+        ['Tampa, Florida'],
+      ),
+    ).toBe('Tampa, Florida')
+    expect(
+      demonstratedPublicSourceGeography(
+        'https://www.reddit.com/r/AskAustin/comments/example/first_home',
+        ['Austin, Texas'],
+      ),
+    ).toBe('Austin, Texas')
+    expect(
+      demonstratedPublicSourceGeography(
+        'https://www.reddit.com/r/RealEstate/comments/example/tampa_question',
+        ['Tampa, Florida'],
+      ),
+    ).toBeNull()
+    expect(
+      demonstratedPublicSourceGeography(
+        'https://www.reddit.com/r/ChicagoApartments/comments/example/austin_comparison',
+        ['Austin, Texas'],
+      ),
+    ).toBeNull()
     expect(
       publicSourceGeographyConflict(
         'https://www.reddit.com/r/houston/comments/example/cannot_sell_house',

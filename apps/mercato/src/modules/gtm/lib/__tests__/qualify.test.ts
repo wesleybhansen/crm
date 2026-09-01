@@ -1366,6 +1366,86 @@ describe('ruleBasedFitScorer', () => {
     )
   })
 
+  it('credits the returned exact local subreddit as geography evidence without using the search target', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Thinking of selling our home this fall',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          audience_description: 'We are considering selling our house and would value advice about what to repair first.',
+          access_type: 'public',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://www.reddit.com/r/Tampa/comments/example/selling_this_fall'],
+          participation_rules: 'Public educational replies are permitted when professional affiliation is disclosed.',
+          participation_rules_status: 'observed',
+          recommended_action: 'Read the current conversation and contribute one useful response manually.',
+          message_angle: 'Answer the repair question directly before mentioning any professional service.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Tampa, Florida',
+        audience: 'Tampa homeowners preparing to sell',
+        signal: 'A current public seller question demonstrates intent',
+        referenceTime: '2026-08-29T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('accepted')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'geography.location',
+          status: 'pass',
+          observed: expect.arrayContaining(['destination locality: Tampa, Florida']),
+        }),
+      ]),
+    )
+  })
+
+  it('does not treat a broad topic subreddit as local-market evidence', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Thinking of selling our home this fall',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          audience_description: 'We are considering selling our house and would value advice about what to repair first.',
+          access_type: 'public',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://www.reddit.com/r/RealEstate/comments/example/selling_this_fall'],
+          participation_rules: 'Public educational replies are permitted when professional affiliation is disclosed.',
+          participation_rules_status: 'observed',
+          recommended_action: 'Read the current conversation and contribute one useful response manually.',
+          message_angle: 'Answer the repair question directly before mentioning any professional service.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Tampa, Florida',
+        audience: 'Tampa homeowners preparing to sell',
+        signal: 'A current public seller question demonstrates intent',
+        referenceTime: '2026-08-29T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'seller_intent' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('review')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'geography.location', status: 'unknown' }),
+      ]),
+    )
+  })
+
   it('rejects a second-person cash-buyer solicitation even when the provider truncates its title', () => {
     const result = ruleBasedFitScorer.score(
       {
