@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import {
   importIndependentHumanReviews,
+  realtorBenchmarkEvidenceSourceSha256,
   type IndependentHumanReviewBatch,
   type RealtorBenchmarkEvidence,
 } from '../human-review'
@@ -31,7 +32,7 @@ function evidence(): RealtorBenchmarkEvidence {
 function batch(): IndependentHumanReviewBatch {
   return {
     benchmarkVersion: REALTOR_BENCHMARK_VERSION,
-    sourceSha256: crypto.createHash('sha256').update('frozen source').digest('hex'),
+    sourceSha256: realtorBenchmarkEvidenceSourceSha256([evidence()]),
     exportedAt: '2026-08-28T20:00:00.000Z',
     reviews: [{
       benchmarkVersion: REALTOR_BENCHMARK_VERSION,
@@ -74,6 +75,20 @@ describe('independent human realtor benchmark review import', () => {
     const changed = batch()
     changed.reviews[0].destinationHash = crypto.createHash('sha256').update('other').digest('hex')
     expect(() => importIndependentHumanReviews([evidence()], changed)).toThrow('Destination hash changed')
+  })
+
+  it('rejects decisions bound to a different frozen evidence payload', () => {
+    const changed = batch()
+    changed.sourceSha256 = crypto.createHash('sha256').update('different evidence').digest('hex')
+    expect(() => importIndependentHumanReviews([evidence()], changed)).toThrow(
+      'Frozen benchmark evidence source hash does not match',
+    )
+  })
+
+  it('rejects duplicate frozen evidence rows', () => {
+    expect(() => importIndependentHumanReviews([evidence(), evidence()], batch())).toThrow(
+      'Duplicate frozen benchmark evidence',
+    )
   })
 
   it('rejects duplicate decisions and non-human attestations', () => {

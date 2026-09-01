@@ -116,6 +116,15 @@ function stableDecisionPayload(decisions: IndependentHumanReviewDecision[]): str
   )
 }
 
+export function realtorBenchmarkEvidenceSourceSha256(evidence: RealtorBenchmarkEvidence[]): string {
+  const stableEvidence = [...evidence]
+    .sort((left, right) => {
+      const playOrder = left.playId.localeCompare(right.playId)
+      return playOrder === 0 ? left.rank - right.rank : playOrder
+    })
+  return crypto.createHash('sha256').update(JSON.stringify(stableEvidence)).digest('hex')
+}
+
 /**
  * Joins blind, independently attested decisions to the frozen system evidence.
  * The reviewer payload cannot alter provider content, system disposition, or
@@ -128,7 +137,18 @@ export function importIndependentHumanReviews(
 ): ImportedHumanReview {
   const evidence = rawEvidence.map((row) => realtorBenchmarkEvidenceSchema.parse(row))
   const batch = independentHumanReviewBatchSchema.parse(rawBatch)
-  const evidenceByKey = new Map(evidence.map((row) => [`${row.playId}:${row.rank}`, row]))
+  const evidenceByKey = new Map<string, RealtorBenchmarkEvidence>()
+  for (const row of evidence) {
+    const evidenceKey = `${row.playId}:${row.rank}`
+    if (evidenceByKey.has(evidenceKey)) {
+      throw new Error(`Duplicate frozen benchmark evidence: ${evidenceKey}`)
+    }
+    evidenceByKey.set(evidenceKey, row)
+  }
+  const actualSourceSha256 = realtorBenchmarkEvidenceSourceSha256(evidence)
+  if (batch.sourceSha256 !== actualSourceSha256) {
+    throw new Error('Frozen benchmark evidence source hash does not match the independent review batch.')
+  }
   const seenReviewIds = new Set<string>()
 
   const labels = batch.reviews.map((review) => {
@@ -161,7 +181,7 @@ export function importIndependentHumanReviews(
     labels,
     audit: {
       benchmarkVersion: REALTOR_BENCHMARK_VERSION,
-      sourceSha256: batch.sourceSha256,
+      sourceSha256: actualSourceSha256,
       decisionSha256: crypto.createHash('sha256').update(stableDecisionPayload(batch.reviews)).digest('hex'),
       reviewCount: labels.length,
       reviewers: [...new Set(batch.reviews.map((review) => review.reviewerName))].sort(),
