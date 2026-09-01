@@ -5,6 +5,7 @@ import {
   assessOpportunityDestination,
   classifyOpportunityIntent,
   classifyOpportunityIntentAtDestination,
+  demonstratedPublicSourceGeography,
   demonstratedOpportunityLocation,
   opportunityHasContradictoryUsState,
   publicSourceGeographyConflict,
@@ -81,7 +82,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v36' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v37' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -484,8 +485,14 @@ function scoreOpportunity(
     geographyExpected,
     observedText,
   )
+  const sourceGeographyEvidence = demonstratedPublicSourceGeography(
+    destination.canonicalUrl,
+    geographyExpected,
+  )
   const geoStatus = sourceGeographyConflict
     ? 'fail'
+    : sourceGeographyEvidence
+      ? 'pass'
     : geographyCriterionStatus(
         geographyExpected,
         locations,
@@ -550,6 +557,7 @@ function scoreOpportunity(
       [
         ...locations,
         ...(sourceGeographyConflict ? [`destination conflict: ${sourceGeographyConflict}`] : []),
+        ...(sourceGeographyEvidence ? [`destination locality: ${sourceGeographyEvidence}`] : []),
         ...geographyExpected
           .map((value) => demonstratedOpportunityLocation(observedText, value))
           .filter((value): value is string => Boolean(value)),
