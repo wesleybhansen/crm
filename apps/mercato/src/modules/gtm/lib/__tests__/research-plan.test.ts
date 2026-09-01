@@ -168,7 +168,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(plan.ok).toBe(true)
     if (plan.ok) {
-      expect(plan.schemaVersion).toBe('12')
+      expect(plan.schemaVersion).toBe('13')
       expect(plan.destinationValidation).toEqual({
         version: 'safe-public-destination-v4',
         enabled: true,
@@ -1006,7 +1006,7 @@ describe('buildSourcePlan pricing and limits', () => {
         ['fixture-source-b', 15],
       ])
       expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
-      expect(plan.schemaVersion).toBe('12')
+      expect(plan.schemaVersion).toBe('13')
     }
   })
 

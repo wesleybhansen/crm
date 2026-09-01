@@ -73,6 +73,7 @@ function plan(overrides: Partial<SourceSearchPlan> = {}): SourceSearchPlan {
     geography: 'US',
     query: 'Austin first-time home buyer',
     provider_query: {
+      locations: ['Austin, Texas'],
       reddit_url_hydration_contract_version: REDDIT_URL_HYDRATION_CONTRACT_VERSION,
       reddit_post_urls: [URL],
       reddit_post_urls_hash: redditUrlSetHash([URL]),
@@ -244,8 +245,8 @@ describe('Reddit URL hydration contract', () => {
         _post_id: 't3_abc123',
         _status: 'found',
         id: 'abc123',
-        title: 'Torn between two scenarios for where to buy our next ...',
-        selftext: '',
+        title: 'Torn between two scenarios for where to buy our next house. If you have a long commute please weigh in',
+        selftext: '[deleted]',
         author: 'thread_starter',
         subreddit: 'Austin',
         score: 12,
@@ -299,9 +300,36 @@ describe('Reddit URL hydration contract', () => {
       },
     })
     expect(result.data).toHaveLength(1)
+    expect(result.data?.[0]?.identity.location).toBe('Austin, Texas')
     expect(result.data?.[0]?.identity.name).toBe(
-      'Torn between two scenarios for where to buy our next ...',
+      'Torn between two scenarios for where to buy our next house. If you have a long commute please weigh in',
     )
+  })
+
+  it('does not treat a country code embedded inside a subreddit name as local-market evidence', async () => {
+    const adapter = createApifyRedditUrlHydrationAdapter({
+      env: env(),
+      now: NOW,
+      runActor: async () => outcome(),
+    })
+    const countryOnly = plan({
+      geography: 'US',
+      provider_query: {
+        ...plan().provider_query,
+        locations: [],
+      },
+    })
+
+    const result = await adapter.search(countryOnly)
+
+    expect(result).toMatchObject({
+      status: 'no_result',
+      receipt: {
+        returned_content_filtered_rows: 2,
+        returned_content_filter_reasons: { returned_content_semantic_mismatch: 2 },
+      },
+    })
+    expect(result.data).toBeNull()
   })
 
   it('freezes hydration under only the priced DataForSEO Reddit discovery batches', () => {
@@ -334,7 +362,7 @@ describe('Reddit URL hydration contract', () => {
     )
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.reason)
-    expect(result.schemaVersion).toBe('12')
+    expect(result.schemaVersion).toBe('13')
     expect(result.adapterPlan.every((batch) => batch.adapter_id !== hydration.descriptor.adapter_id)).toBe(true)
     const dependent = result.adapterPlan
       .map((batch) => batch.dependentHydration)
@@ -353,6 +381,7 @@ describe('Reddit URL hydration contract', () => {
             frozenSiteScope: 'reddit.com/r/Austin',
           }),
           providerQuery: expect.objectContaining({
+            locations: ['Austin, Texas, US'],
             reddit_url_hydration_contract_version: REDDIT_URL_HYDRATION_CONTRACT_VERSION,
             reddit_post_urls: [],
             reddit_post_urls_hash: null,
