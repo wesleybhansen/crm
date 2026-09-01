@@ -236,6 +236,74 @@ describe('Reddit URL hydration contract', () => {
     )
   })
 
+  it('keeps a destination-grounded buyer decision while filtering an unrelated returned comment', async () => {
+    const paidShape = outcome()
+    paidShape.items = [
+      {
+        _type: 'post',
+        _post_id: 't3_abc123',
+        _status: 'found',
+        id: 'abc123',
+        title: 'Torn between two scenarios for where to buy our next ...',
+        selftext: '',
+        author: 'thread_starter',
+        subreddit: 'Austin',
+        score: 12,
+        num_comments: 4,
+        created_utc: Date.parse('2026-08-31T17:00:00.000Z') / 1_000,
+        permalink: '/r/Austin/comments/abc123/torn_between_two_scenarios/',
+        over_18: false,
+        stickied: false,
+        locked: false,
+        archived: false,
+      },
+      {
+        _type: 'comment',
+        _post_id: 't3_abc123',
+        _status: 'found',
+        id: 't1_comment',
+        postId: 't3_abc123',
+        postTitle: 'Torn between two scenarios for where to buy our next ...',
+        author: 'local_commenter',
+        subreddit: 'Austin',
+        score: 3,
+        createdAt: '2026-08-31T18:00:00.000Z',
+        parentId: 't3_abc123',
+        permalink: '/r/Austin/comments/abc123/torn_between_two_scenarios/comment/',
+        body: 'Following this discussion.',
+        isStickied: false,
+        isLocked: false,
+        isDeleted: false,
+        isArchived: false,
+        isRemoved: false,
+        isCommercialCommunication: false,
+      },
+    ]
+    const adapter = createApifyRedditUrlHydrationAdapter({
+      env: env(),
+      now: NOW,
+      runActor: async () => paidShape,
+    })
+
+    const result = await adapter.search(plan())
+
+    expect(result).toMatchObject({
+      status: 'partial',
+      cost_units: 4.5,
+      receipt: {
+        returned_content_filter_version: 'semantic-intent-location-v4',
+        returned_content_filtered_rows: 1,
+        returned_content_filter_reasons: { returned_content_semantic_mismatch: 1 },
+        requested_url_count: 1,
+        hydrated_destination_count: 1,
+      },
+    })
+    expect(result.data).toHaveLength(1)
+    expect(result.data?.[0]?.identity.name).toBe(
+      'Torn between two scenarios for where to buy our next ...',
+    )
+  })
+
   it('freezes hydration under only the priced DataForSEO Reddit discovery batches', () => {
     const discovery = createDataForSeoOpportunityAdapter({
       env: {

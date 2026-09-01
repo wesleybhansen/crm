@@ -28,6 +28,7 @@ import {
 import {
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
+  classifyOpportunityIntentAtDestination,
   classifyOpportunityIntentV1,
   classifyOpportunityIntentV2,
   classifyOpportunityIntentV3,
@@ -215,7 +216,9 @@ function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSe
     const expected = plan.provider_query?.reddit_filter_required_intent
     if (!isRequiredOpportunityIntent(expected)) return false
     const sourceUrl = candidate.identity.urls?.find((value) => typeof value === 'string') ?? null
-    const observed = classifyRedditOpportunityIntent(content, filterVersion).kind
+    const observed = filterVersion === 'semantic-intent-location-v4'
+      ? classifyOpportunityIntentAtDestination(content, sourceUrl).kind
+      : classifyRedditOpportunityIntent(content, filterVersion).kind
     const intentMatches =
       expected === 'local_audience'
         ? observed === 'local_audience'
