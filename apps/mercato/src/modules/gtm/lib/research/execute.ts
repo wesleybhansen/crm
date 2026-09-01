@@ -3,7 +3,7 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { Candidate, SourceAdapter } from '../adapters/types'
 import { GtmCreditLedgerError, type GtmCreditLedger, type GtmSettleOutcome } from '../credits/ledger'
 import { creditsForUnits, defaultMarkupMultiplier, providerSpendCapUsd } from '../credits/markup'
-import type { SourcePlanBatch } from './plan'
+import { descriptorHash, type SourcePlanBatch, type SourcePlanDependentHydration } from './plan'
 import { FIT_SCORER_REVISION, ruleBasedFitScorer, type FitScorer } from './qualify'
 import { assessEvidence } from './evidence-quality'
 import {
@@ -23,6 +23,14 @@ import {
   OPPORTUNITY_DESTINATION_VALIDATION_VERSION,
   type OpportunityDestinationValidationPlan,
 } from './opportunity-destination-contract'
+import {
+  REDDIT_URL_HYDRATION_ROWS_PER_URL,
+  REDDIT_URL_HYDRATION_SELECTOR_VERSION,
+  fuseRedditHydrationCandidates,
+  redditThreadSubreddit,
+  redditUrlSetHash,
+  selectRedditHydrationTargets,
+} from './reddit-url-hydration'
 import {
   GtmCandidate,
   GtmCandidateMatch,
@@ -122,6 +130,7 @@ export type BatchOutcome = {
     | 'skipped_max_credits'
     | 'skipped_source_exhausted'
     | 'skipped_source_unresolved'
+    | 'skipped_no_hydration_destinations'
     | 'blocked_insufficient_credits'
   ledgerStatus: string | null
   chargedCredits: number
@@ -140,6 +149,8 @@ export type BatchOutcome = {
   destinationValidationsBlocked: number
   destinationValidationsUnknown: number
   destinationValidationsSkippedSocial: number
+  hydrationRequestedUrls: number
+  hydratedDestinations: number
   failureReason: string | null
 }
 
@@ -376,6 +387,404 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
   let failureReason: string | null = null
   const seenOpportunityConversations: Candidate[] = []
 
+  const runDependentHydration = async (
+    dependent: SourcePlanDependentHydration,
+    planned: SourcePlanBatch,
+    sourceCandidates: Candidate[],
+    parentOperationId: string,
+  ): Promise<{ candidates: Candidate[]; batch: BatchOutcome }> => {
+    const batchNo = (adapterBatchCounters.get(dependent.adapter_id) ?? 0) + 1
+    adapterBatchCounters.set(dependent.adapter_id, batchNo)
+    const empty = (overrides: Partial<BatchOutcome>): BatchOutcome => ({
+      batchNo,
+      adapterId: dependent.adapter_id,
+      idempotencyKey: '',
+      operationId: null,
+      outcome: 'error',
+      ledgerStatus: null,
+      chargedCredits: 0,
+      candidatesInserted: 0,
+      candidateMatchesCreated: 0,
+      candidatesReused: 0,
+      duplicatesSkipped: 0,
+      suppressedSkipped: 0,
+      rawCandidatesFound: 0,
+      accepted: 0,
+      review: 0,
+      rejected: 0,
+      destinationValidationsAttempted: 0,
+      destinationValidationsVerified: 0,
+      destinationValidationsUnavailable: 0,
+      destinationValidationsBlocked: 0,
+      destinationValidationsUnknown: 0,
+      destinationValidationsSkippedSocial: 0,
+      hydrationRequestedUrls: 0,
+      hydratedDestinations: 0,
+      failureReason: null,
+      ...overrides,
+    })
+
+    if (
+      dependent.selector.version !== REDDIT_URL_HYDRATION_SELECTOR_VERSION
+      || dependent.selector.sourceAdapterId !== planned.adapter_id
+      || dependent.selector.sourceQueryLaneId !== (planned.queryLaneId ?? null)
+      || dependent.rowsPerUrl !== REDDIT_URL_HYDRATION_ROWS_PER_URL
+    ) {
+      const reason = 'dependent hydration selector does not match the frozen source batch'
+      failureReason ??= reason
+      return { candidates: sourceCandidates, batch: empty({ failureReason: reason }) }
+    }
+
+    const targets = selectRedditHydrationTargets(
+      sourceCandidates,
+      dependent.selector.frozenSiteScope,
+      dependent.maxUrls,
+    )
+    if (targets.length === 0) {
+      return {
+        candidates: sourceCandidates,
+        batch: empty({ outcome: 'skipped_no_hydration_destinations' }),
+      }
+    }
+
+    const urlHash = redditUrlSetHash(targets)
+    const idempotencyKey = [
+      run.id,
+      dependent.adapter_id,
+      planned.queryLaneId ?? 'lane',
+      planned.continuationPage ?? 1,
+      urlHash,
+    ].join(':')
+    const exactProviderQuery = {
+      ...dependent.providerQuery,
+      reddit_post_urls: targets,
+      reddit_post_urls_hash: urlHash,
+      reddit_subreddits: [...new Set(targets.map(redditThreadSubreddit).filter(Boolean))],
+    }
+    const exactRows = targets.length * dependent.rowsPerUrl
+    const adapter = adapters[dependent.adapter_id]
+    if (!adapter) {
+      const reason = `unknown dependent hydration adapter ${dependent.adapter_id}`
+      failureReason ??= reason
+      return {
+        candidates: sourceCandidates,
+        batch: empty({ idempotencyKey, hydrationRequestedUrls: targets.length, failureReason: reason }),
+      }
+    }
+    if (
+      descriptorHash(adapter.descriptor) !== dependent.descriptorHash
+      || adapter.descriptor.cost_model.price_version !== dependent.priceVersion
+      || adapter.descriptor.constraints.license.terms_version !== dependent.termsVersion
+    ) {
+      const reason = 'dependent hydration descriptor changed after quote confirmation'
+      failureReason ??= reason
+      return {
+        candidates: sourceCandidates,
+        batch: empty({ idempotencyKey, hydrationRequestedUrls: targets.length, failureReason: reason }),
+      }
+    }
+    const exactQuery =
+      typeof planned.providerQuery?.search_query === 'string'
+        ? planned.providerQuery.search_query
+        : query
+    const exactQuote = adapter.quote({
+      signal_kind: dependent.capability.signal_kind,
+      entity_unit: dependent.capability.entity_unit,
+      geography: dependent.capability.geography,
+      query: exactQuery,
+      provider_query: exactProviderQuery,
+      max_candidates: exactRows,
+    })
+    if (
+      exactQuote.max_candidates !== exactRows
+      || exactQuote.provider_units <= 0
+      || exactQuote.provider_units > dependent.providerUnits
+      || exactRows > dependent.maxCandidates
+    ) {
+      const reason = 'dependent hydration quote exceeded the frozen maximum'
+      failureReason ??= reason
+      return {
+        candidates: sourceCandidates,
+        batch: empty({ idempotencyKey, hydrationRequestedUrls: targets.length, failureReason: reason }),
+      }
+    }
+    const batchEstimatedCredits = creditsForUnits(
+      exactQuote.provider_units,
+      dependent.quotedCreditsPerUnit,
+      markup,
+    )
+    if (
+      limits.maxCredits > 0
+      && reconciledCredits + outstandingReserved + batchEstimatedCredits > limits.maxCredits
+    ) {
+      return {
+        candidates: sourceCandidates,
+        batch: empty({
+          idempotencyKey,
+          outcome: 'skipped_max_credits',
+          hydrationRequestedUrls: targets.length,
+        }),
+      }
+    }
+
+    let operationId: string
+    try {
+      const reserved = await ledger.reserve({
+        orgId: noliOrgId,
+        userId: noliUserId,
+        kind: 'source_search',
+        provider: dependent.adapter_id,
+        estimatedCredits: batchEstimatedCredits,
+        idempotencyKey,
+        unitCostSnapshot: {
+          unit: dependent.billableUnit,
+          provider_units: exactQuote.provider_units,
+          quoted_credits_per_unit: dependent.quotedCreditsPerUnit,
+          markup_multiplier: markup,
+          price_version: dependent.priceVersion,
+          terms_version: dependent.termsVersion,
+        },
+        fingerprint: {
+          research_run_id: run.id,
+          parent_provider_operation_id: parentOperationId,
+          adapter_id: dependent.adapter_id,
+          selector_version: dependent.selector.version,
+          source_adapter_id: dependent.selector.sourceAdapterId,
+          source_query_lane_id: dependent.selector.sourceQueryLaneId,
+          source_site_scope: dependent.selector.frozenSiteScope,
+          exact_reddit_urls: targets,
+          exact_reddit_urls_hash: urlHash,
+          max_candidates: exactRows,
+          provider_units: exactQuote.provider_units,
+          billable_unit: dependent.billableUnit,
+          descriptor_hash: dependent.descriptorHash,
+        },
+      })
+      operationId = reserved.operationId
+      if (reserved.status !== 'reserved') {
+        if (reserved.status === 'provider_started' || reserved.status === 'reconciliation_required') {
+          reconciliationRequired = true
+          unresolvedAdapters.add(dependent.adapter_id)
+        }
+        return {
+          candidates: sourceCandidates,
+          batch: empty({
+            idempotencyKey,
+            operationId,
+            outcome: 'ambiguous',
+            ledgerStatus: reserved.status,
+            hydrationRequestedUrls: targets.length,
+            failureReason: 'existing hydration operation requires reconciliation',
+          }),
+        }
+      }
+    } catch (error) {
+      if (error instanceof GtmCreditLedgerError && error.code === 'insufficient_credits') {
+        return {
+          candidates: sourceCandidates,
+          batch: empty({
+            idempotencyKey,
+            outcome: 'blocked_insufficient_credits',
+            hydrationRequestedUrls: targets.length,
+            failureReason: error.message,
+          }),
+        }
+      }
+      throw error
+    }
+    outstandingReserved += batchEstimatedCredits
+
+    let shadow = await em.findOne(GtmProviderOperation, {
+      noliCoreOperationId: operationId,
+      organizationId: run.organizationId,
+      tenantId: run.tenantId,
+    })
+    if (!shadow) {
+      try {
+        shadow = await em.transactional(async (tem) => {
+          const row = tem.create(GtmProviderOperation, {
+            organizationId: run.organizationId,
+            tenantId: run.tenantId,
+            noliCoreOperationId: operationId,
+            researchRunId: run.id,
+            kind: 'source_search',
+            provider: dependent.adapter_id,
+            localStatusMirror: 'reserved',
+            requestedAt: now(),
+          })
+          tem.persist(row)
+          await tem.flush()
+          return row
+        })
+      } catch (error) {
+        if (!(error instanceof UniqueConstraintViolationException)) throw error
+        shadow = await em.findOne(GtmProviderOperation, {
+          noliCoreOperationId: operationId,
+          organizationId: run.organizationId,
+          tenantId: run.tenantId,
+        })
+        if (!shadow) throw error
+      }
+    }
+
+    const started = await ledger.start(operationId)
+    shadow.localStatusMirror = started.status
+    await em.transactional(async (tem) => {
+      tem.persist(shadow)
+      await tem.flush()
+    })
+    if (!started.startedNow) {
+      reconciliationRequired = true
+      unresolvedAdapters.add(dependent.adapter_id)
+      return {
+        candidates: sourceCandidates,
+        batch: empty({
+          idempotencyKey,
+          operationId,
+          outcome: 'ambiguous',
+          ledgerStatus: started.status,
+          hydrationRequestedUrls: targets.length,
+          failureReason: 'hydration provider start is already owned by another execution',
+        }),
+      }
+    }
+
+    const result = await adapter.search({
+      signal_kind: dependent.capability.signal_kind,
+      entity_unit: dependent.capability.entity_unit,
+      geography: dependent.capability.geography,
+      query: exactQuery,
+      provider_query: exactProviderQuery,
+      max_candidates: exactRows,
+      max_charge_usd: providerSpendCapUsd(batchEstimatedCredits, markup),
+    })
+    const receipt = (result.receipt ?? null) as Record<string, unknown> | null
+    const observedAt = now()
+    let ledgerStatus = shadow.localStatusMirror ?? 'provider_started'
+    let chargedCredits = 0
+    let settlementPending = false
+    let settlementError: string | null = null
+    let intendedAction: GtmSettleOutcome | 'mark_ambiguous'
+    if (result.status === 'ok' || result.status === 'partial') {
+      chargedCredits = Math.min(
+        creditsForUnits(result.cost_units ?? 0, dependent.quotedCreditsPerUnit, markup),
+        batchEstimatedCredits,
+      )
+      intendedAction = result.status === 'partial' ? 'partially_charged' : 'charged'
+    } else if (result.status === 'no_result') {
+      chargedCredits = Math.min(
+        creditsForUnits(result.cost_units ?? 0, dependent.quotedCreditsPerUnit, markup),
+        batchEstimatedCredits,
+      )
+      intendedAction = adapter.descriptor.cost_model.pay_on_found ? 'refunded' : 'charged'
+    } else if (result.status === 'ambiguous') {
+      intendedAction = 'mark_ambiguous'
+    } else if (result.cost_units != null && result.cost_units > 0) {
+      chargedCredits = Math.min(
+        creditsForUnits(result.cost_units, dependent.quotedCreditsPerUnit, markup),
+        batchEstimatedCredits,
+      )
+      intendedAction = 'charged'
+    } else {
+      intendedAction = 'refunded'
+    }
+    const observedReceipt = {
+      ...(receipt ?? {}),
+      dependent_hydration: {
+        selector_version: dependent.selector.version,
+        parent_provider_operation_id: parentOperationId,
+        exact_url_count: targets.length,
+        exact_url_hash: urlHash,
+      },
+      gtm_observation: {
+        schema_version: 'gtm-provider-outcome-v1',
+        observed_at: observedAt.toISOString(),
+        adapter_status: result.status,
+        intended_ledger_action: intendedAction,
+        intended_charged_credits: chargedCredits,
+        provider_error: result.error ?? null,
+        output_count: Array.isArray(result.data) ? result.data.length : 0,
+        settlement_pending: true,
+      },
+    }
+    await em.transactional(async (tem) => {
+      shadow.receipt = observedReceipt
+      tem.persist(shadow)
+      await tem.flush()
+    })
+    try {
+      if (intendedAction === 'mark_ambiguous') {
+        ledgerStatus = await ledger.markAmbiguous(operationId, {
+          error: result.error ?? 'ambiguous hydration provider outcome',
+          receipt,
+        })
+        reconciliationRequired = true
+        unresolvedAdapters.add(dependent.adapter_id)
+      } else {
+        ledgerStatus = await ledger.settle(operationId, intendedAction, chargedCredits, receipt)
+        outstandingReserved -= batchEstimatedCredits
+        if (intendedAction === 'charged' || intendedAction === 'partially_charged') {
+          reconciledCredits += chargedCredits
+        }
+      }
+    } catch (error) {
+      settlementPending = true
+      reconciliationRequired = true
+      unresolvedAdapters.add(dependent.adapter_id)
+      settlementError =
+        error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : 'unknown canonical ledger error'
+    }
+    await em.transactional(async (tem) => {
+      shadow.localStatusMirror = ledgerStatus
+      shadow.receipt = {
+        ...observedReceipt,
+        gtm_observation: {
+          ...observedReceipt.gtm_observation,
+          settlement_pending: settlementPending,
+          canonical_status: ledgerStatus,
+          settlement_error: settlementError,
+        },
+      }
+      if (!settlementPending && result.status !== 'ambiguous') shadow.settledAt = now()
+      tem.persist(shadow)
+      await tem.flush()
+    })
+
+    const hydrated =
+      !settlementPending && (result.status === 'ok' || result.status === 'partial') && Array.isArray(result.data)
+        ? result.data.map((candidate) => ({
+            ...candidate,
+            evidence: candidate.evidence.map((evidence) => ({
+              ...evidence,
+              detail: {
+                ...(evidence.detail ?? {}),
+                gtm_provider_adapter_id: dependent.adapter_id,
+                gtm_provider_operation_id: operationId,
+                gtm_provider_request_id: receipt?.provider_request_id ?? receipt?.run_id ?? null,
+              },
+            })),
+          }))
+        : []
+    return {
+      candidates: fuseRedditHydrationCandidates(sourceCandidates, hydrated),
+      batch: empty({
+        idempotencyKey,
+        operationId,
+        outcome: settlementPending ? 'ambiguous' : result.status,
+        ledgerStatus,
+        chargedCredits,
+        hydrationRequestedUrls: targets.length,
+        hydratedDestinations: hydrated.length,
+        failureReason:
+          settlementPending
+            ? 'canonical ledger outcome unresolved after hydration response'
+            : result.status === 'error' || result.status === 'ambiguous'
+              ? result.error ?? 'hydration provider error'
+              : null,
+      }),
+    }
+  }
+
   for (const planned of adapterPlan) {
     const batchNo = (adapterBatchCounters.get(planned.adapter_id) ?? 0) + 1
     adapterBatchCounters.set(planned.adapter_id, batchNo)
@@ -404,6 +813,8 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       destinationValidationsBlocked: 0,
       destinationValidationsUnknown: 0,
       destinationValidationsSkippedSocial: 0,
+      hydrationRequestedUrls: 0,
+      hydratedDestinations: 0,
       failureReason: null,
     }
 
@@ -738,7 +1149,22 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     // Do not release provider output while its canonical billing transition is
     // unresolved. The reserved credits remain escrowed and the receipt is
     // available to the operator; a later explicit reconciliation decides it.
-    const providerRows = settlementPending ? [] : Array.isArray(result.data) ? result.data : []
+    let providerRows = settlementPending ? [] : Array.isArray(result.data) ? result.data : []
+    let dependentHydrationBatch: BatchOutcome | null = null
+    if (
+      planned.dependentHydration
+      && !settlementPending
+      && (result.status === 'ok' || result.status === 'partial')
+    ) {
+      const hydrated = await runDependentHydration(
+        planned.dependentHydration,
+        planned,
+        providerRows,
+        operationId,
+      )
+      providerRows = hydrated.candidates
+      dependentHydrationBatch = hydrated.batch
+    }
     const plannedEntityKind =
       planned.capability.entity_kind ??
       (planned.capability.entity_unit.toLowerCase().startsWith('compan') ? 'company' : 'person')
@@ -913,6 +1339,19 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
           let evidenceRows = 0
           for (const assessed of evidenceAssessment.rows) {
             const evidence = assessed.evidence
+            const evidenceDetail = evidence.detail ?? {}
+            const evidenceProvider =
+              typeof evidenceDetail.gtm_provider_adapter_id === 'string'
+                ? evidenceDetail.gtm_provider_adapter_id
+                : planned.adapter_id
+            const evidenceOperationId =
+              typeof evidenceDetail.gtm_provider_operation_id === 'string'
+                ? evidenceDetail.gtm_provider_operation_id
+                : operationId
+            const evidenceProviderRequestId =
+              typeof evidenceDetail.gtm_provider_request_id === 'string'
+                ? evidenceDetail.gtm_provider_request_id
+                : receipt?.provider_request_id ?? null
             const evidenceRow = tem.create(GtmEvidence, {
               organizationId: run.organizationId,
               tenantId: run.tenantId,
@@ -921,9 +1360,9 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
               claim: evidence.claim,
               sourceUrl: evidence.source_url ?? null,
               providerRef: {
-                provider: planned.adapter_id,
-                operation_id: operationId,
-                provider_request_id: receipt?.provider_request_id ?? null,
+                provider: evidenceProvider,
+                operation_id: evidenceOperationId,
+                provider_request_id: evidenceProviderRequestId,
                 query,
                 ...(evidence.detail ? { detail: evidence.detail } : {}),
               },
@@ -1061,6 +1500,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       destinationValidationsSkippedSocial: batchDestinationValidationsSkippedSocial,
       failureReason: batchFailure,
     })
+    if (dependentHydrationBatch) batches.push(dependentHydrationBatch)
   }
 
   // A definitive provider/application error may fall through to a later source,
@@ -1192,6 +1632,8 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
           destination_validations_blocked: batch.destinationValidationsBlocked,
           destination_validations_unknown: batch.destinationValidationsUnknown,
           destination_validations_skipped_social: batch.destinationValidationsSkippedSocial,
+          hydration_requested_urls: batch.hydrationRequestedUrls,
+          hydrated_destinations: batch.hydratedDestinations,
           failure_reason: batch.failureReason,
         })),
       },

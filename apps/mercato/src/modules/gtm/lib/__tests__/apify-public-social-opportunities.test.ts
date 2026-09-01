@@ -1713,7 +1713,7 @@ describe('Apify public social demand opportunities', () => {
       },
       expect.objectContaining({
         build: APIFY_THREADS_OPPORTUNITY_CONFIG.actorBuild,
-        maxItems: 9,
+        maxItems: 5,
         maxChargeUsd: 0.02,
       }),
     )

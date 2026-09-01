@@ -8,6 +8,13 @@ import {
   buildOpportunityDestinationValidationPlan,
   type OpportunityDestinationValidationPlan,
 } from './opportunity-destination-contract'
+import {
+  APIFY_REDDIT_URL_HYDRATION_ADAPTER_ID,
+  REDDIT_URL_HYDRATION_CONTRACT_VERSION,
+  REDDIT_URL_HYDRATION_MAX_URLS,
+  REDDIT_URL_HYDRATION_ROWS_PER_URL,
+  REDDIT_URL_HYDRATION_SELECTOR_VERSION,
+} from './reddit-url-hydration'
 
 /*
  * Pure research-run planning (SPEC-066 sections 7 and 11.1). No ORM, no
@@ -90,6 +97,31 @@ export type SourcePlanBatch = {
   continuationOffset?: number | null
   adaptiveOrder: number
   stopWhenTargetAccepted: boolean
+  dependentHydration?: SourcePlanDependentHydration | null
+}
+
+export type SourcePlanDependentHydration = {
+  adapter_id: string
+  capability: SourcePlanBatch['capability']
+  estimatedUnits: number
+  providerUnits: number
+  billableUnit: string
+  maxCandidates: number
+  maxUrls: number
+  rowsPerUrl: number
+  expectedCandidates: SourcePlanBatch['expectedCandidates']
+  quotedCreditsPerUnit: number
+  estimatedCredits: number
+  priceVersion: string
+  termsVersion: string
+  descriptorHash: string
+  providerQuery: Record<string, unknown>
+  selector: {
+    version: typeof REDDIT_URL_HYDRATION_SELECTOR_VERSION
+    sourceAdapterId: string
+    sourceQueryLaneId: string | null
+    frozenSiteScope: string
+  }
 }
 
 export type UnsupportedDimension = {
@@ -109,7 +141,7 @@ export type SourcePlanFailure = {
 
 export type SourcePlanSuccess = {
   ok: true
-  schemaVersion: '11'
+  schemaVersion: '12'
   planHash: string
   adapterPlan: SourcePlanBatch[]
   estimatedCredits: number
@@ -283,10 +315,17 @@ export function buildSourcePlan(
   const adapterPlan: SourcePlanBatch[] = []
   const unsupportedDimensions: UnsupportedDimension[] = []
   const eligibleAdapters: SourceAdapter[] = []
+  const redditUrlHydrationAdapter =
+    entityKind === 'opportunity'
+      ? adapters.find((adapter) => adapter.descriptor.adapter_id === APIFY_REDDIT_URL_HYDRATION_ADAPTER_ID)
+      : undefined
 
   for (const adapter of adapters) {
     const descriptor = adapter.descriptor
     if (descriptor.layer !== 'source') continue
+    // This adapter consumes an exact URL set derived from a paid discovery
+    // result. It can only appear under the source batch that governs that set.
+    if (descriptor.adapter_id === APIFY_REDDIT_URL_HYDRATION_ADAPTER_ID) continue
     const rights = adapterAudienceRights(
       descriptor,
       policy.lead_mode === 'consumer' ? 'consumer' : 'business',
@@ -377,6 +416,84 @@ export function buildSourcePlan(
         max_candidates: requestedCandidates,
       })
       if (quote.max_candidates <= 0 || quote.provider_units <= 0) break
+      const frozenSiteScope =
+        descriptor.adapter_id === 'dataforseo-organic-demand-opportunities'
+        && typeof plannedSource.providerQuery?.dataforseo_site_scope === 'string'
+          ? plannedSource.providerQuery.dataforseo_site_scope.trim()
+          : ''
+      const scopedSubreddit = frozenSiteScope.match(/^(?:www\.)?reddit\.com\/r\/([a-z0-9_]+)\/?$/i)?.[1] ?? null
+      let dependentHydration: SourcePlanDependentHydration | null = null
+      if (redditUrlHydrationAdapter && scopedSubreddit) {
+        const hydrationDescriptor = redditUrlHydrationAdapter.descriptor
+        const hydrationRights = adapterAudienceRights(
+          hydrationDescriptor,
+          policy.lead_mode === 'consumer' ? 'consumer' : 'business',
+          'opportunity',
+        )
+        const hydrationCoverage = capabilityCovers(hydrationDescriptor, {
+          signal_kind: signalKind,
+          entity_unit: 'opportunities',
+          geography: geographyCode,
+        })
+        if (hydrationRights.allowed && hydrationCoverage.covered) {
+          const maxUrls = Math.min(quote.max_candidates, REDDIT_URL_HYDRATION_MAX_URLS)
+          const hydrationProviderQuery = {
+            reddit_url_hydration_contract_version: REDDIT_URL_HYDRATION_CONTRACT_VERSION,
+            reddit_url_selector_version: REDDIT_URL_HYDRATION_SELECTOR_VERSION,
+            reddit_post_urls: [],
+            reddit_post_urls_hash: null,
+            reddit_returned_content_filter_version: 'semantic-intent-location-v4',
+            reddit_filter_required_intent: plannedSource.providerQuery?.opportunity_intent_lane,
+            reddit_filter_require_location: true,
+            reddit_subreddits: [scopedSubreddit],
+            source_adapter_id: descriptor.adapter_id,
+            source_query_lane_id: plannedSource.queryLaneId,
+            source_site_scope: frozenSiteScope,
+          }
+          const hydrationQuote = redditUrlHydrationAdapter.quote({
+            signal_kind: signalKind,
+            entity_unit: 'opportunities',
+            geography: geographyCode,
+            query: plannedSource.query,
+            provider_query: hydrationProviderQuery,
+            max_candidates: maxUrls * REDDIT_URL_HYDRATION_ROWS_PER_URL,
+          })
+          if (hydrationQuote.max_candidates > 0 && hydrationQuote.provider_units > 0) {
+            dependentHydration = {
+              adapter_id: hydrationDescriptor.adapter_id,
+              capability: {
+                signal_kind: signalKind,
+                entity_unit: 'opportunities',
+                entity_kind: 'opportunity',
+                geography: geographyCode,
+              },
+              estimatedUnits: hydrationQuote.provider_units,
+              providerUnits: hydrationQuote.provider_units,
+              billableUnit: hydrationQuote.billable_unit,
+              maxCandidates: hydrationQuote.max_candidates,
+              maxUrls,
+              rowsPerUrl: REDDIT_URL_HYDRATION_ROWS_PER_URL,
+              expectedCandidates: hydrationQuote.expected_candidates,
+              quotedCreditsPerUnit: hydrationQuote.quoted_credits_per_unit,
+              estimatedCredits: creditsForUnits(
+                hydrationQuote.provider_units,
+                hydrationQuote.quoted_credits_per_unit,
+                markupMultiplier,
+              ),
+              priceVersion: hydrationDescriptor.cost_model.price_version,
+              termsVersion: hydrationDescriptor.constraints.license.terms_version,
+              descriptorHash: descriptorHash(hydrationDescriptor),
+              providerQuery: hydrationProviderQuery,
+              selector: {
+                version: REDDIT_URL_HYDRATION_SELECTOR_VERSION,
+                sourceAdapterId: descriptor.adapter_id,
+                sourceQueryLaneId: plannedSource.queryLaneId,
+                frozenSiteScope,
+              },
+            }
+          }
+        }
+      }
       adapterPlan.push({
         adapter_id: descriptor.adapter_id,
         capability: {
@@ -401,6 +518,7 @@ export function buildSourcePlan(
         continuationOffset: pagination ? (page - 1) * pageSize : null,
         adaptiveOrder: adapterPlan.length + 1,
         stopWhenTargetAccepted: true,
+        ...(dependentHydration ? { dependentHydration } : {}),
       })
       adapterRemaining -= quote.max_candidates
       remaining -= quote.max_candidates
@@ -418,7 +536,10 @@ export function buildSourcePlan(
     }
   }
 
-  const estimatedCredits = adapterPlan.reduce((sum, batch) => sum + batch.estimatedCredits, 0)
+  const estimatedCredits = adapterPlan.reduce(
+    (sum, batch) => sum + batch.estimatedCredits + (batch.dependentHydration?.estimatedCredits ?? 0),
+    0,
+  )
   const plannedRawCapacity = adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)
   const requestedMaxCredits = limits?.maxCredits
   const maxCredits =
@@ -427,7 +548,7 @@ export function buildSourcePlan(
       : estimatedCredits
 
   const pricedPlan = {
-    schemaVersion: '11' as const,
+    schemaVersion: '12' as const,
     adapterPlan,
     estimatedCredits,
     plannedRawCapacity,

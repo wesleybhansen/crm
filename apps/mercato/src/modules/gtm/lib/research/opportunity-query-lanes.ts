@@ -127,6 +127,13 @@ export function opportunitySourceRouting(
   ].join(' ')
   const realtor = REALTOR_PLAY.test(playText)
 
+  if (adapterId === 'apify-reddit-url-hydration') {
+    return {
+      eligible: false,
+      reason: 'destination hydration is a dependent, exact-URL operation and cannot run as primary discovery',
+    }
+  }
+
   if (
     (adapterId === 'apify-instagram-demand-opportunities'
       || adapterId === 'apify-tiktok-demand-opportunities'
