@@ -82,7 +82,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v37' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v38' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -264,6 +264,18 @@ function expectedOpportunityIntent(play: FitPlayInput): string[] {
 
 function intentMatchesLane(expected: string[], observed: string): boolean {
   if (expected.includes(observed)) return true
+  // A local-audience play asks for public places where relevant consumers
+  // gather. A returned event or community can therefore demonstrate a more
+  // specific buyer, seller, or mixed housing intent and still satisfy that
+  // umbrella lane. Preserve the observed subtype in criterion evidence; this
+  // compatibility rule must not relabel it or make the inverse true for a
+  // frozen buyer- or seller-intent play.
+  if (
+    expected.includes('local_audience')
+    && ['buyer_intent', 'seller_intent', 'mixed_intent'].includes(observed)
+  ) {
+    return true
+  }
   // A result can demonstrate both buyer and seller language while still
   // satisfying a frozen single-intent lane. Preserve the requested signal
   // instead of discarding a seller question merely because the author also

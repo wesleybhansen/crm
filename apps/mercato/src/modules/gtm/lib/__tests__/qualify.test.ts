@@ -325,6 +325,77 @@ describe('ruleBasedFitScorer', () => {
     )
   })
 
+  it.each([
+    {
+      intent: 'buyer_intent',
+      title: 'Denver homeownership workshop — September 10, 2026',
+      audience:
+        'A Denver workshop for people preparing to buy a home, with financing and offer education.',
+    },
+    {
+      intent: 'seller_intent',
+      title: 'Denver home seller workshop — September 10, 2026',
+      audience:
+        'A Denver workshop for homeowners preparing to sell, with pricing, staging, and listing education.',
+    },
+  ])(
+    'accepts demonstrated $intent as a specific subtype of a local-audience play',
+    ({ intent, title, audience }) => {
+      const result = ruleBasedFitScorer.score(
+        {
+          entity_kind: 'opportunity',
+          identity: {
+            name: title,
+            opportunity_kind: 'event',
+            platform: 'Eventbrite',
+            intent_kind: intent,
+            audience_description: audience,
+            location: 'Denver, Colorado',
+            access_type: 'ticketed',
+            event_start_at: '2026-09-10T17:00:00.000Z',
+            source_published_at: '2026-08-28T10:00:00.000Z',
+            urls: [`https://www.eventbrite.com/e/${intent}-denver-workshop-456`],
+            participation_rules:
+              'This public workshop welcomes local consumers and real estate professionals. Educational participation is permitted; unsolicited promotion is not.',
+            participation_rules_status: 'observed',
+            recommended_action:
+              'Use the public registration path to attend manually and contribute only when invited by the organizer.',
+            message_angle:
+              'Answer housing questions with useful local context and do not automate contact or promote services.',
+          },
+        },
+        {
+          entityUnit: 'opportunities',
+          geography: 'Denver, Colorado',
+          audience: 'Public events where Denver home buyers, sellers, and homeowners gather',
+          signal: 'A current public local housing event provides a legitimate participation path',
+          referenceTime: '2026-08-31T12:00:00.000Z',
+          recencyWindow: '30 days',
+          providerQuery: { opportunity_intent_lane: 'local_audience' },
+        },
+        [{
+          claim: `${title}. ${audience}`,
+          source_url: `https://www.eventbrite.com/e/${intent}-denver-workshop-456`,
+          observed_at: '2026-08-31T12:00:00.000Z',
+          confidence: 0.9,
+        }],
+      )
+
+      expect(result).toMatchObject({ verdict: 'accepted', reason: FIT_REASONS.accepted })
+      expect(result.criteria).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
+        expect.objectContaining({
+          id: 'opportunity.intent',
+          status: 'pass',
+          observed: expect.arrayContaining([intent]),
+        }),
+        expect.objectContaining({ id: 'opportunity.actionability', status: 'pass' }),
+        expect.objectContaining({ id: 'geography.location', status: 'pass' }),
+        expect.objectContaining({ id: 'signal.freshness', status: 'pass' }),
+      ]))
+    },
+  )
+
   it('rejects a public buyer event when observed terms prohibit real estate professionals', () => {
     const result = ruleBasedFitScorer.score(
       {
