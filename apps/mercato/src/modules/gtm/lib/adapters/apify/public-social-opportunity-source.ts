@@ -36,6 +36,16 @@ import {
   type DemonstratedOpportunityIntent,
   sensitiveConsumerOpportunityReasons,
 } from '../../research/opportunity-quality'
+import {
+  APIFY_REDDIT_URL_HYDRATION_ADAPTER_ID,
+  REDDIT_URL_HYDRATION_CONTRACT_VERSION,
+  REDDIT_URL_HYDRATION_MAX_URLS,
+  REDDIT_URL_HYDRATION_ROWS_PER_URL,
+  canonicalRedditThreadUrl,
+  mergeRedditHydrationCandidates,
+  redditThreadSubreddit,
+  redditUrlSetHash,
+} from '../../research/reddit-url-hydration'
 
 const APIFY_MILLIDOLLAR_USD = 0.001
 const MAX_RESULTS = 25
@@ -604,6 +614,88 @@ export const APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG: PublicSocialOpportunityConf
     return {
       queries: [`${query} subreddit:${subreddits[0]}`],
       maxPostsPerQuery: Math.max(1, Math.min(5, Math.floor(maxResults / 2))),
+      sort: 'new',
+      maxCommentsPerPost: 1,
+      expandAllComments: false,
+    }
+  },
+  normalize: normalizeRedditOpportunity,
+}
+
+/**
+ * Separately metered destination hydration for URLs already returned by an
+ * approved DataForSEO discovery batch. It is never a primary search adapter:
+ * the planner freezes a dependency selector and execution injects the exact
+ * canonical URL set into a child provider operation.
+ */
+export const APIFY_REDDIT_URL_HYDRATION_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: APIFY_REDDIT_URL_HYDRATION_ADAPTER_ID,
+  platform: 'Reddit',
+  enabledEnv: 'GTM_APIFY_REDDIT_URL_HYDRATION_ENABLED',
+  actorId: 'clearpath/reddit-post-comments-bulk-scraper',
+  actorBuild: '0.0.65',
+  actorEnv: 'GTM_APIFY_ACTOR_REDDIT_URL_HYDRATION',
+  useApprovalEnv: 'GTM_APIFY_REDDIT_URL_HYDRATION_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_REDDIT_URL_HYDRATION_PRICE_VERSION',
+  // Verified from the actor's public API and the production Starter/Bronze
+  // account on 2026-09-01. One URL can return at most one post and one comment.
+  requiredPriceVersion: 'clearpath-reddit-post-comments-0.0.65-starter-bronze-events-2026-09-01',
+  eventPricesUsd: {
+    'apify-actor-start': 0.0005,
+    'apify-default-dataset-item': 0.00001,
+    'post-scraped': 0.00299,
+    'comment-scraped': 0.00099,
+  },
+  oneTimeEvent: 'apify-actor-start',
+  primaryResultEvent: 'apify-default-dataset-item',
+  partitionedResultEvents: ['post-scraped', 'comment-scraped'],
+  partitionedResultEvent(value) {
+    const row = record(value)
+    const rowType = text(row?.type ?? row?._type, 20)?.toLowerCase()
+    if (rowType === 'post') return 'post-scraped'
+    if (rowType === 'comment') return 'comment-scraped'
+    return null
+  },
+  // $0.004 maximum per URL = two bounded rows at a conservative $0.002
+  // average, plus the separately quoted one-time start event.
+  perItemQuoteUsd: 0.002,
+  oneTimeQuoteUsd: 0.0005,
+  minimumBatch: REDDIT_URL_HYDRATION_ROWS_PER_URL,
+  maxBatch: REDDIT_URL_HYDRATION_MAX_URLS * REDDIT_URL_HYDRATION_ROWS_PER_URL,
+  datasetFields: APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG.datasetFields,
+  buildInput(plan, maxResults) {
+    validateRedditReturnedContentFilter(plan)
+    if (plan.provider_query?.reddit_url_hydration_contract_version !== REDDIT_URL_HYDRATION_CONTRACT_VERSION) {
+      throw new TypeError('Reddit URL hydration requires the frozen destination contract')
+    }
+    const values = plan.provider_query?.reddit_post_urls
+    if (!Array.isArray(values)) throw new TypeError('Reddit URL hydration requires an exact URL array')
+    const postUrls = values.map(canonicalRedditThreadUrl)
+    if (
+      postUrls.some((value) => value == null)
+      || new Set(postUrls).size !== postUrls.length
+      || postUrls.length < 1
+      || postUrls.length > REDDIT_URL_HYDRATION_MAX_URLS
+      || maxResults !== postUrls.length * REDDIT_URL_HYDRATION_ROWS_PER_URL
+    ) {
+      throw new TypeError('Reddit URL hydration URL set does not match the immutable quoted cap')
+    }
+    const canonicalUrls = postUrls as string[]
+    if (plan.provider_query?.reddit_post_urls_hash !== redditUrlSetHash(canonicalUrls)) {
+      throw new TypeError('Reddit URL hydration URL hash does not match the exact input')
+    }
+    const scopedSubreddits = [...new Set(canonicalUrls.map(redditThreadSubreddit).filter(Boolean))]
+    if (
+      scopedSubreddits.length !== 1
+      || plan.provider_query?.reddit_filter_require_location !== true
+      || !Array.isArray(plan.provider_query?.reddit_subreddits)
+      || plan.provider_query.reddit_subreddits.length !== 1
+      || String(plan.provider_query.reddit_subreddits[0]).toLowerCase() !== scopedSubreddits[0]!.toLowerCase()
+    ) {
+      throw new TypeError('Reddit URL hydration requires one frozen local subreddit')
+    }
+    return {
+      postUrls: canonicalUrls,
       sort: 'new',
       maxCommentsPerPost: 1,
       expandAllComments: false,
@@ -3045,7 +3137,10 @@ export function createPublicSocialOpportunityAdapter(
         token,
         build: config.actorBuild,
         timeoutMs: timeoutMs(env),
-        maxItems: datasetCeiling(config, maxChargeUsd),
+        // The account-level minimum maxTotalChargeUsd can buy more rows than
+        // this immutable batch approved. Keep the provider dataset ceiling at
+        // the smaller of the spend-derived capacity and the quoted row cap.
+        maxItems: Math.min(maxCandidates, datasetCeiling(config, maxChargeUsd)),
         maxChargeUsd,
         memoryMbytes: config.memoryMbytes,
         datasetFields: [...config.datasetFields],
@@ -3347,6 +3442,48 @@ export function createApifyRedditThreadOpportunityAdapter(
   return createPublicSocialOpportunityAdapter(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyRedditUrlHydrationAdapter(
+  deps: PublicSocialDeps = {},
+): SourceAdapter {
+  const base = createPublicSocialOpportunityAdapter(APIFY_REDDIT_URL_HYDRATION_CONFIG, deps)
+  return {
+    ...base,
+    async search(plan) {
+      const result = await base.search(plan)
+      const requestedUrls = Array.isArray(plan.provider_query?.reddit_post_urls)
+        ? plan.provider_query.reddit_post_urls
+          .map(canonicalRedditThreadUrl)
+          .filter((value): value is string => value != null)
+        : []
+      if (!Array.isArray(result.data) || result.data.length === 0) return result
+      const merged = mergeRedditHydrationCandidates(result.data, requestedUrls)
+      const receipt = {
+        ...(result.receipt ?? {}),
+        hydration_contract_version: REDDIT_URL_HYDRATION_CONTRACT_VERSION,
+        requested_url_count: requestedUrls.length,
+        requested_url_hash: redditUrlSetHash(requestedUrls),
+        hydrated_destination_count: merged.length,
+        normalized_source_rows: result.data.length,
+      }
+      if (merged.length === 0) {
+        return {
+          status: 'no_result',
+          data: null,
+          receipt,
+          cost_units: result.cost_units,
+          error: 'no_result_after_destination_hydration_filter',
+        }
+      }
+      return {
+        status: result.status === 'partial' || merged.length < requestedUrls.length ? 'partial' : 'ok',
+        data: merged,
+        receipt,
+        cost_units: result.cost_units,
+      }
+    },
+  }
+}
+
 export function createApifyRedditFreshOpportunityAdapter(
   deps: PublicSocialDeps = {},
 ): SourceAdapter {
@@ -3399,6 +3536,10 @@ export function apifyRedditOpportunityEnabled(env: SocialEnv = process.env): boo
 
 export function apifyRedditThreadOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_REDDIT_THREAD_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyRedditUrlHydrationEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_REDDIT_URL_HYDRATION_CONFIG, env)
 }
 
 export function apifyRedditFreshOpportunityEnabled(env: SocialEnv = process.env): boolean {

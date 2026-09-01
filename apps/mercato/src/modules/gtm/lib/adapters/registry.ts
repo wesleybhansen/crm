@@ -13,6 +13,7 @@ import {
   apifyRedditOpportunityEnabled,
   apifyRedditPostedAfterOpportunityEnabled,
   apifyRedditThreadOpportunityEnabled,
+  apifyRedditUrlHydrationEnabled,
   apifyThreadsOpportunityEnabled,
   apifyTikTokOpportunityEnabled,
   apifyXOpportunityEnabled,
@@ -25,6 +26,7 @@ import {
   createApifyRedditOpportunityAdapter,
   createApifyRedditPostedAfterOpportunityAdapter,
   createApifyRedditThreadOpportunityAdapter,
+  createApifyRedditUrlHydrationAdapter,
   createApifyThreadsOpportunityAdapter,
   createApifyTikTokOpportunityAdapter,
   createApifyXOpportunityAdapter,
@@ -97,6 +99,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifyRedditThreadOpportunityEnabled()) {
     const redditThreadOpportunities = createApifyRedditThreadOpportunityAdapter()
     registry[redditThreadOpportunities.descriptor.adapter_id] = redditThreadOpportunities
+  }
+  if (apifyRedditUrlHydrationEnabled()) {
+    const redditUrlHydration = createApifyRedditUrlHydrationAdapter()
+    registry[redditUrlHydration.descriptor.adapter_id] = redditUrlHydration
   }
   if (apifyRedditFreshOpportunityEnabled()) {
     const redditFreshOpportunities = createApifyRedditFreshOpportunityAdapter()
