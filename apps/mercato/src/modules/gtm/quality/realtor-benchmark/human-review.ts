@@ -56,13 +56,6 @@ export const independentHumanReviewDecisionSchema = z.object({
       message: 'Review ID must bind the reviewed play and rank.',
     })
   }
-  if (decision.duplicateOfHash === decision.destinationHash) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['duplicateOfHash'],
-      message: 'A destination cannot be a duplicate of itself.',
-    })
-  }
   const needsReason =
     !decision.relevantToPlay
     || !decision.geographyCorrect
@@ -150,6 +143,13 @@ export function importIndependentHumanReviews(
     throw new Error('Frozen benchmark evidence source hash does not match the independent review batch.')
   }
   const seenReviewIds = new Set<string>()
+  const orderedEvidence = [...evidence].sort((left, right) => {
+    const playOrder = left.playId.localeCompare(right.playId)
+    return playOrder === 0 ? left.rank - right.rank : playOrder
+  })
+  const evidenceIndexByKey = new Map(
+    orderedEvidence.map((row, index) => [`${row.playId}:${row.rank}`, index]),
+  )
 
   const labels = batch.reviews.map((review) => {
     if (seenReviewIds.has(review.reviewId)) {
@@ -160,6 +160,15 @@ export function importIndependentHumanReviews(
     if (!frozen) throw new Error(`No frozen evidence for review: ${review.reviewId}`)
     if (frozen.destinationHash !== review.destinationHash) {
       throw new Error(`Destination hash changed for review: ${review.reviewId}`)
+    }
+    if (review.duplicateOfHash !== null) {
+      const currentIndex = evidenceIndexByKey.get(review.reviewId)
+      const earlierMatch = currentIndex !== undefined && orderedEvidence
+        .slice(0, currentIndex)
+        .some((row) => row.destinationHash === review.duplicateOfHash)
+      if (!earlierMatch) {
+        throw new Error(`Duplicate hash does not identify an earlier frozen result: ${review.reviewId}`)
+      }
     }
     return realtorBenchmarkLabelSchema.parse({
       ...frozen,
