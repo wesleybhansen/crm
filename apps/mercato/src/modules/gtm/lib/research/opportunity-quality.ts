@@ -109,6 +109,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:before (?:my|our) team (?:sends?|shows?|shares?) (?:you )?(?:homes?|listings?)|(?:i(?:'ve| have)|we(?:'ve| have)|my team has|our team has) helped (?:hundreds? of |\d+ )?(?:[a-z]+ )?(?:home ?buyers?|home ?sellers?|buyers?|sellers?)|(?:my|our) (?:buyer|seller|home ?buyer|home ?seller) clients?|(?:buyers?|sellers?) (?:i|we) (?:help|represent|serve|work with)|as (?:a|an) (?:realtor|real estate agent|real estate broker|mortgage broker)|(?:realtor|real estate agent|real estate broker) (?:said|says|explained|advised|told))\b/i,
   ],
   [
+    'provider_origin_real_estate_event',
+    /\b(?:real estate (?:group|team|brokerage|company)|realty (?:group|team|partners)|keller williams|coldwell banker|century 21|re\/?max|compass real estate|e\s*x\s*p realty)\b(?=.{0,320}\b(?:present(?:s|ed)?|host(?:s|ed)?|workshops?|seminars?|classes?|training|register|attend|free\s+\d+\s*min)\b)|\b(?:present(?:s|ed)?|host(?:s|ed)?|workshops?|seminars?|classes?|training|register|attend|free\s+\d+\s*min)\b(?=.{0,320}\b(?:real estate (?:group|team|brokerage|company)|realty (?:group|team|partners)|keller williams|coldwell banker|century 21|re\/?max|compass real estate|e\s*x\s*p realty)\b)/i,
+  ],
+  [
     'generic_advice_content',
     /\b(?:\d+|five|six|seven|eight|nine|ten) (?:tips?|things?|steps?|mistakes?|questions?) (?:for|every) (?:home ?buyers?|home ?sellers?)\b|\b(?:buyer|seller) tips?\b|\b(?:thinking about selling your home|how much is your home worth|if i were buying (?:a|my) first home|home ?buyer(?:'s)? guide|buyers? aren(?:'|’)t just looking|questions worth answering before (?:you )?(?:buy|sell))\b/i,
   ],
