@@ -118,6 +118,51 @@ function frozenTargetLocations(play: FitPlayInput): string[] {
   ].map((value) => value.trim()).filter(Boolean)
 }
 
+function returnedStructuredVenue(evidence: GtmEvidence[]): {
+  location: string
+  city: string
+  region: string
+  countryCode?: string
+} | null {
+  for (const row of evidence) {
+    const detail = row.providerRef?.detail
+    if (!detail || typeof detail !== 'object' || Array.isArray(detail)) continue
+    const venue = (detail as Record<string, unknown>).structured_venue
+    if (!venue || typeof venue !== 'object' || Array.isArray(venue)) continue
+    const record = venue as Record<string, unknown>
+    const city = typeof record.city === 'string' ? record.city.trim() : ''
+    const region = typeof record.state === 'string' ? record.state.trim() : ''
+    if (!city || !region) continue
+    const country = typeof record.country === 'string' ? record.country.trim() : ''
+    const countryCode = /^(?:us|usa|united states(?: of america)?)$/i.test(country)
+      ? 'US'
+      : undefined
+    return {
+      location: [city, region, country].filter(Boolean).join(', '),
+      city,
+      region,
+      ...(countryCode ? { countryCode } : {}),
+    }
+  }
+  return null
+}
+
+function restoreReturnedVenueLocation(
+  identity: CandidateIdentity,
+  evidence: GtmEvidence[],
+): CandidateIdentity {
+  if (typeof identity.location === 'string' && identity.location.trim()) return identity
+  const venue = returnedStructuredVenue(evidence)
+  if (!venue) return identity
+  return {
+    ...identity,
+    location: venue.location,
+    city: identity.city ?? venue.city,
+    region: identity.region ?? venue.region,
+    country_code: identity.country_code ?? venue.countryCode,
+  }
+}
+
 /**
  * The first paid realtor benchmark was stored before social/organic adapters
  * separated provider targeting from returned evidence. Those adapter versions
@@ -134,6 +179,14 @@ function demoteLegacyTargetingLocation(args: {
   priorScorerRevision: unknown
 }): CandidateIdentity {
   if (args.entityKind !== 'opportunity' || args.priorScorerRevision === FIT_SCORER_REVISION) {
+    return args.identity
+  }
+  // provider_location was introduced when adapters began separating search
+  // targeting from returned geography. Its presence means identity.location
+  // came from returned content, not from the frozen provider query. Without
+  // this boundary, every scorer revision would erase valid current-adapter
+  // locations during replay.
+  if (typeof args.identity.provider_location === 'string' && args.identity.provider_location.trim()) {
     return args.identity
   }
   const provider = args.evidence.find((row) =>
@@ -330,8 +383,11 @@ export async function requalifyResearchRun(input: {
       const baseIdentity = providerLocation && !candidate.identity.provider_location
         ? { ...candidate.identity, provider_location: providerLocation }
         : candidate.identity
+      const returnedIdentity = candidate.entityKind === 'opportunity'
+        ? restoreReturnedVenueLocation(baseIdentity as CandidateIdentity, storedEvidence)
+        : baseIdentity as CandidateIdentity
       const identity = demoteLegacyTargetingLocation({
-        identity: baseIdentity as CandidateIdentity,
+        identity: returnedIdentity,
         entityKind: candidate.entityKind,
         evidence: storedEvidence,
         play,
