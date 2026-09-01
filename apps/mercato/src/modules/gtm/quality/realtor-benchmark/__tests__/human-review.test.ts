@@ -107,6 +107,39 @@ describe('independent human realtor benchmark review import', () => {
     expect(() => importIndependentHumanReviews([evidence()], invalid)).toThrow('reason is required')
   })
 
+  it('accepts an exact destination-hash duplicate when it binds to an earlier frozen row', () => {
+    const first = evidence()
+    const second: RealtorBenchmarkEvidence = {
+      ...first,
+      playId: 'realtor-austin-local',
+      rank: 2,
+      sanitizedContent: 'The same public destination was returned for a second play.',
+      systemIntent: 'local_audience',
+    }
+    const reviews = batch()
+    reviews.sourceSha256 = realtorBenchmarkEvidenceSourceSha256([first, second])
+    reviews.reviews.push({
+      ...reviews.reviews[0],
+      reviewId: 'realtor-austin-local:2',
+      playId: 'realtor-austin-local',
+      rank: 2,
+      duplicateOfHash: destinationHash,
+    })
+
+    const result = importIndependentHumanReviews([first, second], reviews)
+
+    expect(result.labels[1].duplicateOfHash).toBe(destinationHash)
+  })
+
+  it('rejects a duplicate hash that does not bind to an earlier frozen row', () => {
+    const invalid = batch()
+    invalid.reviews[0].duplicateOfHash = crypto.createHash('sha256').update('missing').digest('hex')
+
+    expect(() => importIndependentHumanReviews([evidence()], invalid)).toThrow(
+      'Duplicate hash does not identify an earlier frozen result',
+    )
+  })
+
   it('rejects reviewer attempts to overwrite frozen system fields', () => {
     const invalid = batch() as unknown as { reviews: Array<Record<string, unknown>> }
     invalid.reviews[0].systemDisposition = 'rejected'
