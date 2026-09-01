@@ -321,4 +321,107 @@ describe('requalifyResearchRun', () => {
       ]),
     }))
   })
+
+  it('restores returned structured venue geography without treating it as provider targeting', async () => {
+    const em = new FakeEm()
+    const run = em.create(GtmResearchRun, {
+      id: RUN_ID,
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: WORKSPACE,
+      playId: '50000000-0000-4000-8000-000000000003',
+      status: 'completed',
+      startedAt: STARTED,
+      inputSnapshot: {
+        play: {
+          entity_unit: 'opportunities',
+          geography: 'Phoenix, Arizona, United States',
+          audience: 'Public events where Phoenix home buyers gather',
+          signal: 'A current public homebuyer event with a legitimate participation path',
+          recency_window: '30 days',
+          provider_query: {
+            locations: ['Phoenix, Arizona, United States'],
+            opportunity_intent_lane: 'local_audience',
+          },
+        },
+      },
+      providerPlan: {},
+    })
+    const candidate = em.create(GtmCandidate, {
+      id: '60000000-0000-4000-8000-000000000011',
+      organizationId: ORG,
+      tenantId: TENANT,
+      researchRunId: RUN_ID,
+      workspaceId: WORKSPACE,
+      entityKind: 'opportunity',
+      identity: {
+        name: 'Free Phoenix Homebuyer Education Class',
+        opportunity_kind: 'event',
+        platform: 'Eventbrite',
+        intent_kind: 'buyer_intent',
+        audience_description: 'A current public homebuyer education event at Trellis in Phoenix, AZ.',
+        access_type: 'public',
+        location: null,
+        provider_location: 'Phoenix, Arizona',
+        urls: ['https://eventbrite.com/e/free-phoenix-homebuyer-education-class-1001'],
+        event_start_at: '2026-09-12T08:00:00.000Z',
+        destination_validation_status: 'verified_public',
+        destination_validated_at: STARTED.toISOString(),
+        participation_rules: 'The public event page provides an active registration path.',
+        participation_rules_status: 'observed',
+        recommended_action: 'Open the event page and register to attend under the organizer rules.',
+        message_angle: 'Offer practical local housing guidance only when invited by the organizer.',
+      },
+      dedupeKey: 'returned-structured-venue',
+      fitStatus: 'rejected',
+      fitScore: '0',
+      rejectReason: 'outside_play_geography',
+      qualificationVersion: 'fit-v7',
+      qualification: {
+        reason: 'outside_play_geography',
+        scorer_revision: 'fit-v7-quality-v39',
+      },
+    })
+    const evidence = em.create(GtmEvidence, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      candidateId: candidate.id,
+      claim: 'The approved provider returned a current public homebuyer education event.',
+      sourceUrl: 'https://eventbrite.com/e/free-phoenix-homebuyer-education-class-1001',
+      providerRef: {
+        provider: 'apify-eventbrite-demand-opportunities',
+        detail: {
+          structured_venue: {
+            name: 'Trellis',
+            city: 'Phoenix',
+            state: 'AZ',
+            postal_code: '85006',
+          },
+        },
+      },
+      observedAt: STARTED,
+      confidence: '0.9',
+      qualityStatus: 'strong',
+      qualityIssues: [],
+    })
+    for (const row of [run, candidate, evidence]) em.persist(row)
+    await em.flush()
+
+    const result = await requalifyResearchRun({ em, run, actorUserId: USER })
+
+    expect(result.alreadyCurrent).toBe(false)
+    expect(candidate.identity).toEqual(expect.objectContaining({
+      location: 'Phoenix, AZ',
+      city: 'Phoenix',
+      region: 'AZ',
+      provider_location: 'Phoenix, Arizona',
+    }))
+    expect(candidate.fitStatus).toBe('accepted')
+    expect(candidate.qualification).toEqual(expect.objectContaining({
+      scorer_revision: FIT_SCORER_REVISION,
+      criteria: expect.arrayContaining([
+        expect.objectContaining({ id: 'geography.location', status: 'pass' }),
+      ]),
+    }))
+  })
 })
