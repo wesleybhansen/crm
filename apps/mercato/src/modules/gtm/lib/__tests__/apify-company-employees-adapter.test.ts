@@ -274,6 +274,43 @@ describe('Apify company-employees decision-maker contract', () => {
     }), CLOCK.toISOString(), COMPANIES)).toBeNull()
   })
 
+  it('binds a current employer when frozen and live names differ only by punctuation', () => {
+    const companies = [{
+      ...COMPANIES[0],
+      name: 'TechnSEO - Digital Marketing Agency',
+      linkedin_url: 'https://www.linkedin.com/company/technseodma/',
+      linkedin_company_ids: [],
+    }]
+    const liveShape = employeeItem({
+      currentPosition: [{
+        position: 'Company Owner',
+        companyName: 'TechnSEO | Digital Marketing Agency',
+        companyLinkedinUrl: 'https://www.linkedin.com/search/results/all/?keywords=technseo',
+        endDate: { text: 'Present' },
+      }],
+      experience: [],
+      _meta: {
+        query: {
+          currentCompanies: ['https://www.linkedin.com/company/technseodma/'],
+        },
+      },
+    })
+    expect(normalizeApifyCompanyEmployeeItem(
+      liveShape,
+      CLOCK.toISOString(),
+      companies,
+    )).toEqual(expect.objectContaining({ current_title: 'Company Owner' }))
+    expect(normalizeApifyCompanyEmployeeItem(employeeItem({
+      ...liveShape,
+      currentPosition: [{
+        position: 'Company Owner',
+        companyName: 'TechnSEO Digital Advertising Agency',
+        companyLinkedinUrl: 'https://www.linkedin.com/search/results/all/?keywords=technseo',
+        endDate: { text: 'Present' },
+      }],
+    }), CLOCK.toISOString(), companies)).toBeNull()
+  })
+
   it('binds a numeric canonical company URL only through the frozen source id', () => {
     const liveShape = employeeItem({
       currentPosition: undefined,

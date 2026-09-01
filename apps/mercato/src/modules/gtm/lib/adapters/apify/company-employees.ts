@@ -369,7 +369,16 @@ function currentExperience(value: unknown): CurrentPosition[] {
 }
 
 function normalizedCompanyName(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toLowerCase()
+  // LinkedIn and the Actor can render the same display name with different
+  // separators (for example `Brand - Agency` versus `Brand | Agency`). Keep
+  // the fallback exact after Unicode normalization and punctuation removal;
+  // do not use token overlap or fuzzy similarity for employer identity.
+  return value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function echoedCompanyUrls(row: Record<string, unknown>): string[] {
