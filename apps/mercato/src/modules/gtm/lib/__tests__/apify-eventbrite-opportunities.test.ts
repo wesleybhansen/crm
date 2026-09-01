@@ -289,19 +289,32 @@ describe('Apify Eventbrite public event opportunities', () => {
         formats: ['Seminar or Talk'],
         keywords: ['mortgage', 'realestate', 'whybuynow'],
       }),
+      eventbriteEvent({
+        event_id: '1997641137417',
+        name: 'Short-Term Rentals Workshop: Turn Properties into Cash-Flow!',
+        summary:
+          'Attend our free 90 min STR workshop and learn how investment properties go from purchase to profit using real case studies.',
+        url: 'https://www.eventbrite.com/e/short-term-rentals-workshop-tickets-1997641137417',
+        venue_name: 'Keller Williams Arizona - Biltmore',
+        organizer_name: 'Modern Pitch Real Estate Group',
+        categories: ['Business & Professional'],
+        subcategories: ['Real Estate'],
+        formats: ['Class, Training, or Workshop'],
+        keywords: ['realestate', 'investment', 'shortterm rentals'],
+      }),
     ]
     const runActor = jest.fn(async () => outcome(rows))
     const result = await createApifyEventbriteOpportunityAdapter({ env: approvedEnv(), now, runActor })
       .search(plan)
-    expect(result.cost_units).toBeCloseTo(18)
+    expect(result.cost_units).toBeCloseTo(22.5)
     expect(result).toMatchObject({
       status: 'partial',
       data: [{ identity: { name: 'Austin First-Time Home Buyer Workshop' } }],
       receipt: expect.objectContaining({
         returned_content_filter_version: 'realtor-public-event-v2',
-        returned_content_filtered_rows: 3,
+        returned_content_filtered_rows: 4,
         returned_count: 1,
-        billed_results: 4,
+        billed_results: 5,
       }),
     })
   })

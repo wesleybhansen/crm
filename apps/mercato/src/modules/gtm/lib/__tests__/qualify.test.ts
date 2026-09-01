@@ -825,6 +825,50 @@ describe('ruleBasedFitScorer', () => {
     )
   })
 
+  it('hard-rejects a brokerage-hosted workshop from a local-audience play', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Short-Term Rentals Workshop: Turn Properties into Cash-Flow!',
+          opportunity_kind: 'event',
+          platform: 'Eventbrite',
+          audience_description:
+            'Attend our free 90 min STR workshop at Keller Williams Arizona - Biltmore. Modern Pitch Real Estate Group presents real investment case studies.',
+          location: 'Phoenix, Arizona',
+          access_type: 'public',
+          event_start_at: '2026-09-17T17:00:00.000Z',
+          source_published_at: '2026-08-28T10:00:00.000Z',
+          urls: ['https://www.eventbrite.com/e/short-term-rentals-workshop-1997641137417'],
+          participation_rules: 'Register for the free workshop.',
+          participation_rules_status: 'observed',
+          recommended_action: 'Use the public registration path and follow the organizer rules.',
+          message_angle: 'Offer practical local housing guidance without inferring individual intent.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Phoenix, Arizona',
+        audience: 'Phoenix homeowners and local housing audiences',
+        signal: 'A current public housing event demonstrates local demand',
+        referenceTime: '2026-09-01T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'local_audience' },
+      },
+      strongEvidence,
+    )
+
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.realtorNoise)
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'exclusion.realtor_noise',
+        status: 'fail',
+        observed: expect.arrayContaining(['provider_origin_real_estate_event']),
+      }),
+    ]))
+  })
+
   it('hard-rejects a historical buyer transaction with sensitive financial and age context', () => {
     const result = ruleBasedFitScorer.score(
       {

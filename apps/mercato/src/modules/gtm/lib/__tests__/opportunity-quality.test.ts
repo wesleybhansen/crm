@@ -527,6 +527,31 @@ describe('opportunity quality primitives', () => {
     ).toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
   })
 
+  it('rejects a brokerage-hosted public workshop without rejecting neutral homebuyer education', () => {
+    const brokerageWorkshop = [
+      'Short-Term Rentals Workshop: Turn Properties into Cash-Flow!',
+      'Attend our free 90 min workshop at Keller Williams Arizona - Biltmore.',
+      'Modern Pitch Real Estate Group presents practical investment case studies.',
+    ].join(' ')
+    expect(realtorOpportunityNoiseReasons(brokerageWorkshop)).toContain(
+      'provider_origin_real_estate_event',
+    )
+    expect(
+      assessRealtorOpportunitySuitability(
+        brokerageWorkshop,
+        'local_audience',
+        'https://www.eventbrite.com/e/short-term-rentals-workshop-tickets-123',
+        'event',
+      ).relevant,
+    ).toBe(false)
+
+    const neutralEducation =
+      'Join Trellis and Bankers Trust for a free Homebuyer Education Class at Trellis in Phoenix.'
+    expect(realtorOpportunityNoiseReasons(neutralEducation)).not.toContain(
+      'provider_origin_real_estate_event',
+    )
+  })
+
   it('requires a participation venue or demonstrated consumer participation for local discovery', () => {
     expect(
       assessRealtorOpportunitySuitability(
