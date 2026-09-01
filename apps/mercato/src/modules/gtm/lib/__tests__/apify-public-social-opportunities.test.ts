@@ -298,8 +298,8 @@ describe('Apify public social demand opportunities', () => {
   it('pins Reddit reservations to the production BRONZE account tier', () => {
     expect(APIFY_REDDIT_OPPORTUNITY_CONFIG).toMatchObject({
       actorId: 'clearpath/reddit-search-scraper',
-      actorBuild: '0.0.66',
-      requiredPriceVersion: 'clearpath-reddit-search-0.0.66-starter-events-2026-08-30',
+      actorBuild: '0.0.76',
+      requiredPriceVersion: 'clearpath-reddit-search-0.0.76-starter-events-2026-09-01',
       eventPricesUsd: {
         'apify-actor-start': 0.00099,
         'apify-default-dataset-item': 0.00001,
