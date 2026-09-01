@@ -44,7 +44,15 @@ const SENSITIVE_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
 
 type SocialEnv = Record<string, string | undefined>
-type SocialPlatform = 'Reddit' | 'X' | 'Threads' | 'Meetup' | 'Instagram' | 'TikTok' | 'Facebook'
+type SocialPlatform =
+  | 'Reddit'
+  | 'X'
+  | 'Threads'
+  | 'Meetup'
+  | 'Eventbrite'
+  | 'Instagram'
+  | 'TikTok'
+  | 'Facebook'
 
 export type PublicSocialOpportunityConfig = {
   adapterId: string
@@ -106,6 +114,14 @@ function isMeetupReturnedContentFilterVersion(
   value: unknown,
 ): value is MeetupReturnedContentFilterVersion {
   return value === 'realtor-housing-event-v1'
+}
+
+type EventbriteReturnedContentFilterVersion = 'realtor-public-event-v1'
+
+function isEventbriteReturnedContentFilterVersion(
+  value: unknown,
+): value is EventbriteReturnedContentFilterVersion {
+  return value === 'realtor-public-event-v1'
 }
 
 type SocialReturnedContentFilterVersion = 'realtor-public-post-v2'
@@ -246,6 +262,46 @@ function returnedContentMatchesMeetupFilter(candidate: Candidate, plan: SourceSe
   ).relevant
 }
 
+function assessReturnedContentEventbriteFilter(
+  candidate: Candidate,
+  plan: SourceSearchPlan,
+): ReturnedContentAssessment {
+  if (!isEventbriteReturnedContentFilterVersion(
+    plan.provider_query?.eventbrite_returned_content_filter_version,
+  )) return { matches: false, reasons: ['unsupported_returned_content_filter'] }
+  const expected = plan.provider_query?.eventbrite_filter_required_intent
+  if (!isRequiredOpportunityIntent(expected)) {
+    return { matches: false, reasons: ['unsupported_intent_lane'] }
+  }
+  const content = [candidate.identity.name, candidate.identity.audience_description]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+  const requestedLocation = text(plan.provider_query?.eventbrite_location, 180)
+  const returnedStructuredLocation = [candidate.identity.city, candidate.identity.region]
+    .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+    .join(', ')
+  const locationMatches = Boolean(
+    requestedLocation
+    && (
+      candidate.identity.location === requestedLocation
+      || demonstratedOpportunityLocation(returnedStructuredLocation, requestedLocation)
+      || demonstratedOpportunityLocation(content, requestedLocation)
+    ),
+  )
+  if (!locationMatches) return { matches: false, reasons: ['missing_returned_location_evidence'] }
+  const sourceUrl = candidate.identity.urls?.find((value) => typeof value === 'string') ?? null
+  const suitability = assessRealtorOpportunitySuitability(
+    content,
+    expected,
+    sourceUrl,
+    'event',
+  )
+  return {
+    matches: suitability.relevant,
+    reasons: suitability.relevant ? [] : suitability.reasons,
+  }
+}
+
 type ReturnedContentAssessment = {
   matches: boolean
   reasons: string[]
@@ -296,6 +352,8 @@ function returnedContentFilterVersion(
 ): string | undefined {
   const value = platform === 'Meetup'
     ? plan.provider_query?.meetup_returned_content_filter_version
+    : platform === 'Eventbrite'
+      ? plan.provider_query?.eventbrite_returned_content_filter_version
     : platform === 'Instagram' || platform === 'TikTok' || platform === 'Facebook'
       ? plan.provider_query?.social_returned_content_filter_version
       : plan.provider_query?.reddit_returned_content_filter_version
@@ -315,6 +373,7 @@ function assessReturnedContent(
     const matches = returnedContentMatchesMeetupFilter(candidate, plan)
     return { matches, reasons: matches ? [] : ['returned_content_semantic_mismatch'] }
   }
+  if (platform === 'Eventbrite') return assessReturnedContentEventbriteFilter(candidate, plan)
   if (platform === 'Instagram' || platform === 'TikTok' || platform === 'Facebook') {
     return assessReturnedContentSocialFilter(candidate, plan)
   }
@@ -1146,6 +1205,62 @@ export const APIFY_MEETUP_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   normalize: normalizeMeetupOpportunity,
 }
 
+export const APIFY_EVENTBRITE_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
+  adapterId: 'apify-eventbrite-demand-opportunities',
+  platform: 'Eventbrite',
+  enabledEnv: 'GTM_APIFY_EVENTBRITE_OPPORTUNITY_ENABLED',
+  actorId: 'scrapersdelight/eventbrite-scraper',
+  actorBuild: '0.1.6',
+  actorEnv: 'GTM_APIFY_ACTOR_EVENTBRITE_SEARCH',
+  useApprovalEnv: 'GTM_APIFY_EVENTBRITE_OPPORTUNITY_USE_APPROVED',
+  priceVersionEnv: 'GTM_APIFY_EVENTBRITE_SEARCH_PRICE_VERSION',
+  // Rechecked with a bounded paid Starter/Bronze run on 2026-08-31. The actor
+  // charges exactly $0.0045 for each event-scraped event and has no run-start
+  // charge. Three ten-row Denver probes reconciled to $0.135 exactly.
+  requiredPriceVersion: 'scrapersdelight-eventbrite-scraper-0.1.6-bronze-events-2026-08-31',
+  eventPricesUsd: { 'event-scraped': 0.0045 },
+  oneTimeEvent: null,
+  primaryResultEvent: 'event-scraped',
+  perItemQuoteUsd: 0.0045,
+  oneTimeQuoteUsd: 0,
+  maxBatch: 10,
+  datasetFields: [
+    'event_id',
+    'name',
+    'summary',
+    'url',
+    'start_date',
+    'start_time',
+    'end_date',
+    'end_time',
+    'timezone',
+    'is_online_event',
+    'venue_name',
+    'venue_address',
+    'venue_city',
+    'venue_region',
+    'venue_postal_code',
+    'venue_latitude',
+    'venue_longitude',
+    'organizer_name',
+    'organizer_url',
+    'organizer_id',
+    'price_min',
+    'price_max',
+    'price_currency',
+    'is_free',
+    'ticket_availability',
+    'categories',
+    'subcategories',
+    'formats',
+    'keywords',
+    'image',
+    'tickets_url',
+  ],
+  buildInput: buildEventbriteInput,
+  normalize: normalizeEventbriteOpportunity,
+}
+
 export const APIFY_INSTAGRAM_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-instagram-demand-opportunities',
   platform: 'Instagram',
@@ -1454,6 +1569,37 @@ function requiredMeetupContract(plan: SourceSearchPlan): void {
   }
 }
 
+function eventbriteLocation(plan: SourceSearchPlan): string {
+  const value = text(plan.provider_query?.eventbrite_location, 180)
+  if (!value) throw new TypeError('Eventbrite requires a frozen city and state location')
+  const parts = value.split(',').map((part) => part.trim()).filter(Boolean)
+  if (parts.length < 2) throw new TypeError('Eventbrite location must include city and state')
+  return `${parts[0]}, ${parts[1]}`
+}
+
+function requiredEventbriteContract(plan: SourceSearchPlan): void {
+  const expected: Array<[string, unknown]> = [
+    ['eventbrite_contract_version', 'public-events-v1'],
+    ['eventbrite_window_days', 30],
+    ['eventbrite_fetch_details', true],
+    ['eventbrite_max_pages', 3],
+  ]
+  for (const [field, value] of expected) {
+    if (plan.provider_query?.[field] !== value) {
+      throw new TypeError(`Eventbrite ${field} does not match the frozen public-events contract`)
+    }
+  }
+  const intent = plan.provider_query?.eventbrite_filter_required_intent
+  if (!isRequiredOpportunityIntent(intent) || intent !== requestedOpportunityIntent(plan)) {
+    throw new TypeError('Eventbrite requires one frozen buyer, seller, mixed, or local-audience lane')
+  }
+  if (!isEventbriteReturnedContentFilterVersion(
+    plan.provider_query?.eventbrite_returned_content_filter_version,
+  )) {
+    throw new TypeError('unsupported Eventbrite returned-content filter version')
+  }
+}
+
 function buildMeetupInput(
   plan: SourceSearchPlan,
   maxResults: number,
@@ -1478,6 +1624,27 @@ function buildMeetupInput(
     minRsvpCount: 1,
     sortBy: 'RELEVANCE',
     maxResults,
+  }
+}
+
+function buildEventbriteInput(
+  plan: SourceSearchPlan,
+  maxResults: number,
+  attemptedAt: string,
+): Record<string, unknown> {
+  requiredEventbriteContract(plan)
+  if (maxResults > 10) throw new TypeError('Eventbrite is limited to 10 results per quoted lane')
+  const start = new Date(attemptedAt)
+  if (!Number.isFinite(start.getTime())) throw new TypeError('Eventbrite requires a valid attempt time')
+  const end = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1_000)
+  return {
+    location: eventbriteLocation(plan),
+    keyword: queryText(plan, 100),
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+    maxResults,
+    maxPages: 3,
+    fetchDetails: true,
   }
 }
 
@@ -1674,6 +1841,7 @@ function safePlatformUrl(value: unknown, platform: SocialPlatform): string | nul
     if (platform === 'X' && host !== 'x.com' && host !== 'twitter.com') return null
     if (platform === 'Threads' && host !== 'threads.com' && host !== 'threads.net') return null
     if (platform === 'Meetup' && host !== 'meetup.com' && !host.endsWith('.meetup.com')) return null
+    if (platform === 'Eventbrite' && host !== 'eventbrite.com' && !host.endsWith('.eventbrite.com')) return null
     if (platform === 'Instagram' && host !== 'instagram.com') return null
     if (platform === 'TikTok' && host !== 'tiktok.com' && !host.endsWith('.tiktok.com')) return null
     if (platform === 'Facebook' && host !== 'facebook.com' && !host.endsWith('.facebook.com')) return null
@@ -1683,6 +1851,65 @@ function safePlatformUrl(value: unknown, platform: SocialPlatform): string | nul
   } catch {
     return null
   }
+}
+
+function boundedStringList(value: unknown, maxItems = 12, maxLength = 120): string[] {
+  const rows = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+  const seen = new Set<string>()
+  return rows
+    .map((item) => text(record(item)?.name ?? item, maxLength))
+    .filter((item): item is string => item != null)
+    .filter((item) => {
+      const key = item.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, maxItems)
+}
+
+function booleanValue(value: unknown): boolean | null {
+  if (value === true || value === false) return value
+  if (typeof value !== 'string') return null
+  if (value.trim().toLowerCase() === 'true') return true
+  if (value.trim().toLowerCase() === 'false') return false
+  return null
+}
+
+function eventbriteEventId(row: Record<string, unknown>, sourceUrl: string): string {
+  const explicit = text(row.event_id ?? row.eventId, 200)
+  if (explicit) return explicit
+  const pathname = new URL(sourceUrl).pathname
+  return pathname.match(/-tickets-(\d+)(?:\/)?$/i)?.[1]
+    ?? pathname.replace(/^\/+|\/+$/g, '').slice(-200)
+}
+
+function safeEventbriteEventUrl(value: unknown): string | null {
+  const sourceUrl = safePlatformUrl(value, 'Eventbrite')
+  if (!sourceUrl) return null
+  const pathname = new URL(sourceUrl).pathname
+  return /^\/e\/[a-z0-9-]+-tickets-\d+\/?$/i.test(pathname) ? sourceUrl : null
+}
+
+function eventbriteDateTime(dateValue: unknown, timeValue: unknown): string | null {
+  const date = text(dateValue, 80)
+  if (!date) return null
+  if (date.includes('T')) return sourcePublishedAt(date)
+  const time = text(timeValue, 40)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date) && time) {
+    return sourcePublishedAt(`${date} ${time} UTC`)
+  }
+  return sourcePublishedAt(date)
+}
+
+function eventbritePeople(row: Record<string, unknown>): CandidateIdentity['people_to_follow'] {
+  const name = text(row.organizer_name ?? row.organizerName, 120)
+  if (!name) return undefined
+  return [{
+    name,
+    role: 'Public Eventbrite organizer shown as secondary source context',
+    profile_url: safePlatformUrl(row.organizer_url ?? row.organizerUrl, 'Eventbrite'),
+  }]
 }
 
 function safePublicPostUrl(value: unknown, platform: 'Instagram' | 'TikTok'): string | null {
@@ -1848,6 +2075,128 @@ export function normalizeMeetupOpportunity(value: unknown, context: NormalizeCon
         },
       },
     ],
+  }
+}
+
+export function normalizeEventbriteOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
+  const row = record(value)
+  if (!row || !context.location) return null
+  const eventName = text(row.name, 180)
+  const description = text(row.summary, 1_200)
+  const sourceUrl = safeEventbriteEventUrl(row.url)
+  if (!eventName || !description || !sourceUrl || booleanValue(row.is_online_event) === true) return null
+
+  const attemptedAt = new Date(context.attemptedAt)
+  const eventStart = eventbriteDateTime(
+    row.start_date ?? row.startDate,
+    row.start_time ?? row.startTime,
+  )
+  if (!eventStart) return null
+  const eventDate = new Date(eventStart)
+  if (
+    !Number.isFinite(attemptedAt.getTime())
+    || !Number.isFinite(eventDate.getTime())
+    || eventDate.getTime() <= attemptedAt.getTime()
+    || eventDate.getTime() > attemptedAt.getTime() + 30 * 24 * 60 * 60 * 1_000
+  ) return null
+
+  const availability = text(row.ticket_availability ?? row.ticketAvailability, 80)?.toLowerCase()
+  if (availability && /(?:sold\s*out|unavailable|closed|cancelled|canceled)/i.test(availability)) return null
+
+  const venueCity = text(row.venue_city ?? row.venueCity, 120)
+  const venueState = text(row.venue_region ?? row.venueRegion, 120)
+  const returnedLocation = [venueCity, venueState].filter(Boolean).join(', ')
+  const demonstratedLocation = demonstratedOpportunityLocation(returnedLocation, context.location)
+  if (!venueCity || !venueState || !demonstratedLocation) return null
+
+  const categories = boundedStringList(row.categories)
+  const subcategories = boundedStringList(row.subcategories)
+  const formats = boundedStringList(row.formats)
+  const keywords = boundedStringList(row.keywords)
+  const organizerName = text(row.organizer_name ?? row.organizerName, 120)
+  const content = [
+    eventName,
+    description,
+    organizerName,
+    ...categories,
+    ...subcategories,
+    ...formats,
+    ...keywords,
+  ].filter(Boolean).join('. ')
+  if (SENSITIVE_TARGETING.test(content) || sensitiveConsumerOpportunityReasons(content).length > 0) return null
+
+  const demonstratedIntent = classifyOpportunityIntent(content)
+  const identity = commonIdentity({
+    name: eventName,
+    platform: 'Eventbrite',
+    content,
+    sourceUrl,
+    requestedLocation: context.location,
+    locationEvidence: returnedLocation,
+    engagement: 0,
+    demonstratedIntent,
+    people: eventbritePeople(row),
+  })
+  const priceMin = Number(row.price_min ?? row.priceMin)
+  const paid = booleanValue(row.is_free ?? row.isFree) === false
+    || (Number.isFinite(priceMin) && priceMin > 0)
+  identity.opportunity_kind = 'event'
+  identity.location = demonstratedLocation
+  identity.city = venueCity
+  identity.region = venueState
+  identity.country_code = 'US'
+  identity.access_type = paid ? 'ticketed' : 'public'
+  identity.event_start_at = eventStart
+  identity.participation_rules = 'Review the current public event details, organizer requirements, ticket terms, and venue rules before participating.'
+  identity.participation_rules_status = 'unverified'
+  identity.recommended_action = 'Open the public event page, confirm registration remains available and appropriate, then attend or contact the organizer manually under the posted rules.'
+  identity.message_angle = 'Offer practical local housing guidance that directly helps this event audience; do not infer individual buying or selling intent.'
+  return {
+    entity_kind: 'opportunity',
+    identity,
+    evidence: [{
+      claim: 'The approved public source returned this current public Eventbrite event.',
+      source_url: sourceUrl,
+      observed_at: context.attemptedAt,
+      confidence: calibratedOpportunityConfidence({
+        content,
+        sourceUrl,
+        observedAt: eventStart,
+        attemptedAt: context.attemptedAt,
+        engagement: 0,
+        location: demonstratedLocation,
+      }),
+      detail: {
+        provider: 'apify',
+        actor_id: context.actorId,
+        provider_event_id: eventbriteEventId(row, sourceUrl),
+        requested_location: context.location,
+        requested_intent: context.expectedIntent ?? null,
+        structured_venue: {
+          name: text(row.venue_name ?? row.venueName, 180),
+          address: text(row.venue_address ?? row.venueAddress, 300),
+          city: venueCity,
+          state: venueState,
+          postal_code: text(row.venue_postal_code ?? row.venuePostalCode, 20),
+        },
+        organizer_name: organizerName,
+        event_start_at: eventStart,
+        event_end_at: eventbriteDateTime(
+          row.end_date ?? row.endDate,
+          row.end_time ?? row.endTime,
+        ),
+        ticket_availability: availability ?? null,
+        categories,
+        subcategories,
+        formats,
+        keywords,
+        demonstrated_intent_signals: [
+          ...demonstratedIntent.buyerSignals,
+          ...demonstratedIntent.sellerSignals,
+          ...demonstratedIntent.localAudienceSignals,
+        ],
+      },
+    }],
   }
 }
 
@@ -2896,7 +3245,11 @@ export function createPublicSocialOpportunityAdapter(
       }
       const context = {
         query,
-        location: config.platform === 'Meetup' ? meetupLocation(plan) : locationText(plan),
+        location: config.platform === 'Meetup'
+          ? meetupLocation(plan)
+          : config.platform === 'Eventbrite'
+            ? eventbriteLocation(plan)
+            : locationText(plan),
         expectedIntent: requestedOpportunityIntent(plan),
         scopedSubreddits:
           config.platform === 'Reddit' ? redditSubreddits(plan) : undefined,
@@ -2912,6 +3265,7 @@ export function createPublicSocialOpportunityAdapter(
         .filter((candidate): candidate is Candidate => candidate != null)
       const filtersReturnedContent = config.platform === 'Reddit'
         || config.platform === 'Meetup'
+        || config.platform === 'Eventbrite'
         || config.platform === 'Instagram'
         || config.platform === 'TikTok'
         || config.platform === 'Facebook'
@@ -2930,6 +3284,7 @@ export function createPublicSocialOpportunityAdapter(
         const semanticFilterVersion = returnedContentFilterVersion(config.platform, plan)
         const semanticFilter = isSemanticRedditFilterVersion(semanticFilterVersion)
           || isMeetupReturnedContentFilterVersion(semanticFilterVersion)
+          || isEventbriteReturnedContentFilterVersion(semanticFilterVersion)
           || isSocialReturnedContentFilterVersion(semanticFilterVersion)
         return {
           status: normalizedCandidates.length > 0 ? 'no_result' : 'error',
@@ -2956,6 +3311,7 @@ export function createPublicSocialOpportunityAdapter(
       const semanticFilterVersion = returnedContentFilterVersion(config.platform, plan)
       const semanticFilter = isSemanticRedditFilterVersion(semanticFilterVersion)
         || isMeetupReturnedContentFilterVersion(semanticFilterVersion)
+        || isEventbriteReturnedContentFilterVersion(semanticFilterVersion)
         || isSocialReturnedContentFilterVersion(semanticFilterVersion)
       const dropped = parserDropped + returnedContentFiltered
       const truncated = candidates.length > delivered.length
@@ -3021,6 +3377,10 @@ export function createApifyMeetupOpportunityAdapter(deps: PublicSocialDeps = {})
   return createPublicSocialOpportunityAdapter(APIFY_MEETUP_OPPORTUNITY_CONFIG, deps)
 }
 
+export function createApifyEventbriteOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
+  return createPublicSocialOpportunityAdapter(APIFY_EVENTBRITE_OPPORTUNITY_CONFIG, deps)
+}
+
 export function createApifyInstagramOpportunityAdapter(deps: PublicSocialDeps = {}): SourceAdapter {
   return createPublicSocialOpportunityAdapter(APIFY_INSTAGRAM_OPPORTUNITY_CONFIG, deps)
 }
@@ -3063,6 +3423,10 @@ export function apifyThreadsOpportunityEnabled(env: SocialEnv = process.env): bo
 
 export function apifyMeetupOpportunityEnabled(env: SocialEnv = process.env): boolean {
   return publicSocialOpportunityEnabled(APIFY_MEETUP_OPPORTUNITY_CONFIG, env)
+}
+
+export function apifyEventbriteOpportunityEnabled(env: SocialEnv = process.env): boolean {
+  return publicSocialOpportunityEnabled(APIFY_EVENTBRITE_OPPORTUNITY_CONFIG, env)
 }
 
 export function apifyInstagramOpportunityEnabled(env: SocialEnv = process.env): boolean {
