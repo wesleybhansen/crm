@@ -38,7 +38,7 @@ const plan: SourceSearchPlan = {
   geography: 'US',
   query: 'first time home buyer',
   provider_query: {
-    query_lane_version: 'opportunity-query-v91',
+    query_lane_version: 'opportunity-query-v94',
     source_query_lane_id: 'buyer_intent:1',
     opportunity_intent_lane: 'buyer_intent',
     search_query: 'first time home buyer',
@@ -147,9 +147,9 @@ describe('Apify Eventbrite public event opportunities', () => {
   })
 
   it.each([
-    ['buyer_intent', ['first time home buyer', 'home buying class', 'homeownership workshop']],
-    ['seller_intent', ['home selling', 'home seller workshop', 'sell before buying']],
-    ['local_audience', ['homeowner community', 'neighborhood housing event', 'housing workshop']],
+    ['buyer_intent', ['first time homebuyer seminar', 'homebuyer education workshop', 'path to homeownership']],
+    ['seller_intent', ['home seller seminar', 'preparing your home to sell', 'home valuation workshop']],
+    ['local_audience', ['homeownership education', 'homeowner workshop', 'neighborhood home tour']],
   ] as const)('creates three separately quoted realtor %s lanes', (intent, expectedQueries) => {
     const play = {
       audience: 'Austin home buyers, sellers, and homeowners',
@@ -165,7 +165,7 @@ describe('Apify Eventbrite public event opportunities', () => {
     expect(lanes).toHaveLength(3)
     expect(lanes.map((lane) => lane.query)).toEqual(expectedQueries)
     expect(lanes.every((lane) =>
-      lane.providerQuery.query_lane_version === 'opportunity-query-v91'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v94'
       && lane.providerQuery.eventbrite_location === 'Austin, Texas'
       && lane.providerQuery.eventbrite_contract_version === 'public-events-v1'
       && lane.providerQuery.eventbrite_returned_content_filter_version === 'realtor-public-event-v2'

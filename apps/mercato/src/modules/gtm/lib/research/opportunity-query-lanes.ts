@@ -227,15 +227,15 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
   }
   if (adapterId === 'apify-eventbrite-demand-opportunities') {
     if (intent === 'buyer_intent') {
-      return ['first time home buyer', 'home buying class', 'homeownership workshop']
+      return ['first time homebuyer seminar', 'homebuyer education workshop', 'path to homeownership']
     }
     if (intent === 'seller_intent') {
-      return ['home selling', 'home seller workshop', 'sell before buying']
+      return ['home seller seminar', 'preparing your home to sell', 'home valuation workshop']
     }
     if (intent === 'mixed_intent') {
       return ['buy before you sell', 'move up buyer', 'buying and selling a home']
     }
-    return ['homeowner community', 'neighborhood housing event', 'housing workshop']
+    return ['homeownership education', 'homeowner workshop', 'neighborhood home tour']
   }
   if (adapterId === 'dataforseo-events-demand-opportunities') {
     if (intent === 'buyer_intent') {
@@ -256,29 +256,29 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     if (intent === 'buyer_intent') {
       return [
         `${marketScope} "house hunting"`,
-        `${marketScope} "looking for a realtor"`,
-        'first time home buyer workshop registration',
-        'home buyer education class registration',
-        'homeownership workshop public registration',
-        'home buying seminar public registration',
-        'first time buyer class public registration',
-        'homebuyer question and answer event registration',
-        'homeownership education course registration',
-        'housing counseling homebuyer workshop registration',
+        `${marketScope} "first time home buyer"`,
+        'homebuyer workshop tickets',
+        'first time buyer seminar registration',
+        'down payment assistance workshop registration',
+        'homeownership education webinar registration',
+        'mortgage readiness workshop registration',
+        'home buying question and answer registration',
+        'buying your first home class registration',
+        'housing counseling homebuyer class registration',
       ]
     }
     if (intent === 'seller_intent') {
       return [
-        `${marketScope} "selling my house"`,
-        `${marketScope} "looking for a realtor"`,
-        `${marketScope} "thinking about selling"`,
-        'home seller workshop public registration',
-        'selling your home seminar public registration',
-        'home seller education class registration',
-        'prepare your home for sale workshop',
-        'home valuation workshop public registration',
-        'home staging workshop for sellers',
-        'for sale by owner workshop public registration',
+        `${marketScope} "sell my house"`,
+        `${marketScope} "sell my home"`,
+        `${marketScope} "list my house"`,
+        'home selling workshop event registration',
+        'sell your house seminar registration',
+        'home seller webinar registration',
+        'prepare a home to sell class registration',
+        'home valuation event registration',
+        'downsizing home seminar registration',
+        'home staging class seller registration',
       ]
     }
     if (intent === 'mixed_intent') {
@@ -289,16 +289,16 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
       ]
     }
     return [
-      'neighborhood association upcoming meeting',
-      'property owners association upcoming meeting',
-      'neighborhood association community calendar',
-      'homeowners association public meeting',
-      'residential community association public meeting',
-      'resident organization upcoming events',
-      'neighborhood community get involved',
-      'neighborhood home tour public event',
-      'homeowner community workshop',
-      'community housing public meeting',
+      'homeowners association public event calendar',
+      'neighborhood association public event calendar',
+      'property owners association public meeting',
+      'historic home tour tickets',
+      'homeownership workshop registration',
+      'housing education workshop registration',
+      'neighborhood planning public meeting',
+      'community development public meeting',
+      'resident association upcoming meeting',
+      'homeowner resource fair registration',
     ]
   }
   if (adapterId === 'apify-reddit-demand-opportunities') {
@@ -321,11 +321,11 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
         market,
       ],
       seller_intent: [
-        'selling house',
-        'realtor recommendation',
-        'realtor recommendation',
-        'selling house advice',
-        'thinking about selling',
+        'sell my house',
+        'sell my home',
+        'list my home',
+        'prepare home to sell',
+        'home value',
       ],
       mixed_intent: [
         'sell before buying',
@@ -741,7 +741,7 @@ export function buildOpportunityQueryLanes(
         ...providerQuery,
         query_lane_version:
           adapterId === 'apify-eventbrite-demand-opportunities'
-            ? 'opportunity-query-v91'
+            ? 'opportunity-query-v94'
           : adapterId === 'apify-reddit-api-demand-opportunities'
             ? 'opportunity-query-v88'
             : adapterId === 'apify-reddit-thread-demand-opportunities'
@@ -751,9 +751,9 @@ export function buildOpportunityQueryLanes(
             : adapterId === 'apify-reddit-posted-after-demand-opportunities'
             ? 'opportunity-query-v79'
             : adapterId === 'apify-reddit-demand-opportunities' && realtor
-            ? 'opportunity-query-v80'
+            ? 'opportunity-query-v94'
             : adapterId === 'dataforseo-organic-demand-opportunities' && realtor
-            ? 'opportunity-query-v87'
+            ? 'opportunity-query-v94'
             : adapterId === 'apify-instagram-demand-opportunities'
             || adapterId === 'apify-tiktok-demand-opportunities'
             ? 'opportunity-query-v62'
@@ -769,7 +769,7 @@ export function buildOpportunityQueryLanes(
           ? {
               search_param: DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM,
               ...(realtor
-                ? { realtor_retrieval_contract_version: 'evidence-first-public-destination-v4' }
+                ? { realtor_retrieval_contract_version: 'evidence-first-public-destination-v5' }
                 : {}),
               ...(dataForSeoSiteScope
                 ? {
