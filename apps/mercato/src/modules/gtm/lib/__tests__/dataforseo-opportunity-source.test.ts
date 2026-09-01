@@ -688,6 +688,82 @@ describe('DataForSEO organic demand-opportunity source', () => {
     })
   })
 
+  it('uses the full paid first page to retain the first in-scope result under a smaller output ceiling', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(
+      response([
+        item({
+          title: 'South Bay home buyer discussion outside the frozen source',
+          url: 'https://example.org/forums/south-bay-home-buyers',
+        }),
+        item({
+          url: 'https://www.reddit.com/r/SouthBayLA/comments/abc123/buying_a_home/',
+          rank_group: 2,
+          rank_absolute: 2,
+        }),
+        item({
+          url: 'https://www.reddit.com/r/SouthBayLA/comments/def456/another_home_search/',
+          rank_group: 3,
+          rank_absolute: 3,
+        }),
+      ], 0.01),
+    ) as unknown as typeof fetch
+    const adapter = createDataForSeoOpportunityAdapter({ env: approvedEnv, fetchImpl, now: () => CLOCK })
+
+    const result = await adapter.search({ ...meteredSitePlan, max_candidates: 1 })
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      cost_units: 5,
+      data: [expect.objectContaining({
+        identity: expect.objectContaining({
+          urls: ['https://www.reddit.com/r/SouthBayLA/comments/abc123/buying_a_home/'],
+        }),
+      })],
+      receipt: {
+        items_count: 1,
+        raw_item_count: 3,
+        returned_count: 1,
+        parser_dropped_rows: 2,
+        parser_drop_reasons: {
+          outside_frozen_site_scope: 1,
+          bounded_output_ceiling: 1,
+        },
+      },
+    })
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))
+    expect(body[0]).toMatchObject({ depth: 10 })
+  })
+
+  it('fails a metered site-scoped result closed when every returned destination is outside the frozen scope', async () => {
+    const adapter = createDataForSeoOpportunityAdapter({
+      env: approvedEnv,
+      fetchImpl: jest.fn().mockResolvedValue(
+        response([
+          item({
+            title: 'South Bay home buyer discussion outside the frozen source',
+            url: 'https://example.org/forums/south-bay-home-buyers',
+          }),
+        ], 0.01),
+      ) as unknown as typeof fetch,
+      now: () => CLOCK,
+    })
+
+    const result = await adapter.search({ ...meteredSitePlan, max_candidates: 1 })
+
+    expect(result).toMatchObject({
+      status: 'no_result',
+      data: null,
+      cost_units: 5,
+      receipt: {
+        items_count: 0,
+        raw_item_count: 1,
+        returned_count: 0,
+        parser_dropped_rows: 1,
+        parser_drop_reasons: { outside_frozen_site_scope: 1 },
+      },
+    })
+  })
+
   it.each([null, '', '&tbs=qdr:y', '&tbs=cdr:1,cd_min:01/01/2026,cd_max:08/26/2026'])(
     'rejects a missing or altered freshness parameter before provider contact: %s',
     async (searchParam) => {

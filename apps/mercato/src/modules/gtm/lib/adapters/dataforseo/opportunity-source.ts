@@ -136,9 +136,22 @@ type OpportunityKind = NonNullable<Candidate['identity']['opportunity_kind']>
 type OpportunityDropReason =
   | 'unsupported_result_type'
   | 'unsafe_url_or_missing_title'
+  | 'outside_frozen_site_scope'
   | 'sensitive_targeting'
   | 'google_event_destination'
   | 'unproven_destination_kind'
+  | 'bounded_output_ceiling'
+
+function matchesFrozenSiteScope(url: URL, frozenSiteScope: string | null | undefined): boolean {
+  if (!frozenSiteScope) return true
+  const match = frozenSiteScope.trim().match(/^reddit\.com\/r\/([a-z0-9_]+)\/?$/i)
+  if (!match) return false
+  const host = url.hostname.toLowerCase().replace(/^(?:www|old|new|np)\./, '')
+  if (host !== 'reddit.com') return false
+  const subreddit = match[1]!.toLowerCase()
+  return url.pathname.toLowerCase() === `/r/${subreddit}`
+    || url.pathname.toLowerCase().startsWith(`/r/${subreddit}/`)
+}
 
 function envValue(env: DataForSeoEnv, name: string): string {
   return (env[name] ?? '').trim()
@@ -506,6 +519,7 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
     location: string
     observedAt: string
     expectedIntent?: DemonstratedOpportunityIntent
+    frozenSiteScope?: string | null
   },
 ): { candidate: Candidate | null; dropReason: OpportunityDropReason | null } {
   const resultType = stringValue(item.type)?.toLowerCase() ?? ''
@@ -516,6 +530,9 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
   const title = boundedText(item.title, 180)
   const description = boundedText(item.description, 500)
   if (!url || !title) return { candidate: null, dropReason: 'unsafe_url_or_missing_title' }
+  if (!matchesFrozenSiteScope(url, context.frozenSiteScope)) {
+    return { candidate: null, dropReason: 'outside_frozen_site_scope' }
+  }
   const searchable = `${title} ${description ?? ''} ${url.pathname}`
   if (
     SENSITIVE_CONSUMER_TARGETING.test(searchable)
@@ -605,6 +622,7 @@ export function normalizeDataForSeoOpportunityItem(
     location: string
     observedAt: string
     expectedIntent?: DemonstratedOpportunityIntent
+    frozenSiteScope?: string | null
   },
 ): Candidate | null {
   return normalizeDataForSeoOpportunityItemWithDiagnostics(item, context).candidate
@@ -795,6 +813,16 @@ export function createDataForSeoOpportunityAdapter(
         const authorization = Buffer.from(
           `${envValue(env, 'GTM_DATAFORSEO_LOGIN')}:${envValue(env, 'GTM_DATAFORSEO_PASSWORD')}`,
         ).toString('base64')
+        // One billed SERP page covers up to ten organic positions. Fetch the
+        // complete first paid page even when the customer output ceiling is
+        // smaller, then enforce that output ceiling after source-scope and
+        // safety normalization. This avoids paying the same page price for a
+        // single off-scope Google module while never increasing the reserved
+        // provider units or the number of customer-visible candidates.
+        const rawFetchDepth = Math.min(
+          DATAFORSEO_ORGANIC_MAX_DEPTH,
+          Math.max(maxCandidates, DATAFORSEO_ORGANIC_RESULTS_PER_SERP),
+        )
         const response = await fetchImpl(DATAFORSEO_ORGANIC_URL, {
           method: 'POST',
           headers: {
@@ -806,7 +834,7 @@ export function createDataForSeoOpportunityAdapter(
               keyword,
               location_name: location,
               language_code: 'en',
-              depth: maxCandidates,
+              depth: rawFetchDepth,
               search_param: searchParam,
             },
           ]),
@@ -907,18 +935,23 @@ export function createDataForSeoOpportunityAdapter(
         }
         const result = objectValue(Array.isArray(task.result) ? task.result[0] : {})
         const observedAt = stringValue(result.datetime) ?? now().toISOString()
-        const rawItems = opportunityItems(task).slice(0, maxCandidates)
+        const rawItems = opportunityItems(task)
         const normalizedItems = rawItems.map((item) =>
           normalizeDataForSeoOpportunityItemWithDiagnostics(item, {
             keyword,
             location,
             observedAt,
             expectedIntent: requestedOpportunityIntent(plan),
+            frozenSiteScope:
+              pricing.operator === 'site'
+                ? stringValue(plan.provider_query?.dataforseo_site_scope)
+                : null,
           }),
         )
-        const candidates = normalizedItems
+        const eligibleCandidates = normalizedItems
           .map(({ candidate }) => candidate)
           .filter((candidate): candidate is Candidate => candidate !== null)
+        const candidates = eligibleCandidates.slice(0, maxCandidates)
         const parserDropReasons = normalizedItems.reduce<Partial<Record<OpportunityDropReason, number>>>(
           (counts, { dropReason }) => {
             if (dropReason) counts[dropReason] = (counts[dropReason] ?? 0) + 1
@@ -926,6 +959,8 @@ export function createDataForSeoOpportunityAdapter(
           },
           {},
         )
+        const boundedOutputRows = Math.max(0, eligibleCandidates.length - candidates.length)
+        if (boundedOutputRows > 0) parserDropReasons.bounded_output_ceiling = boundedOutputRows
         if (candidates.length === 0) {
           return {
             status: 'no_result',
