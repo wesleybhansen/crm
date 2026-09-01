@@ -444,7 +444,7 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-reddit-demand-opportunities',
   platform: 'Reddit',
   actorId: 'clearpath/reddit-search-scraper',
-  actorBuild: '0.0.66',
+  actorBuild: '0.0.76',
   actorEnv: 'GTM_APIFY_ACTOR_REDDIT_SEARCH',
   useApprovalEnv: 'GTM_APIFY_REDDIT_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_REDDIT_SEARCH_PRICE_VERSION',
@@ -453,7 +453,7 @@ export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   // start event; each returned row charges both a primary result event and the
   // platform dataset-item event. Keeping all three in the finalized receipt
   // prevents the Store headline from understating the actual reserved cost.
-  requiredPriceVersion: 'clearpath-reddit-search-0.0.66-starter-events-2026-08-30',
+  requiredPriceVersion: 'clearpath-reddit-search-0.0.76-starter-events-2026-09-01',
   eventPricesUsd: {
     'apify-actor-start': 0.00099,
     'apify-default-dataset-item': 0.00001,
