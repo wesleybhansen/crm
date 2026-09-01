@@ -457,6 +457,16 @@ describe('opportunity quality primitives', () => {
         'post',
       ],
       [
+        'Indy Realtor Connect Series. Realtors and lenders host workshops to boost brand visibility, showcase their expertise, and connect with prospective clients.',
+        'buyer_intent',
+        'event',
+      ],
+      [
+        'Why Buy Now Austin. Step into an exclusive afternoon built for real estate agents to stay ahead, gain insights, connect with peers, and better serve clients. All agents in attendance receive a bonus commission voucher.',
+        'buyer_intent',
+        'event',
+      ],
+      [
         "Tips to deter solicitors: I rent and don't own this home, but salespeople keep knocking.",
         'local_audience',
         'thread',

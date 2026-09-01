@@ -741,7 +741,7 @@ export function buildOpportunityQueryLanes(
         ...providerQuery,
         query_lane_version:
           adapterId === 'apify-eventbrite-demand-opportunities'
-            ? 'opportunity-query-v90'
+            ? 'opportunity-query-v91'
           : adapterId === 'apify-reddit-api-demand-opportunities'
             ? 'opportunity-query-v88'
             : adapterId === 'apify-reddit-thread-demand-opportunities'
@@ -803,7 +803,7 @@ export function buildOpportunityQueryLanes(
               eventbrite_window_days: 30,
               eventbrite_fetch_details: true,
               eventbrite_max_pages: 3,
-              eventbrite_returned_content_filter_version: 'realtor-public-event-v1',
+              eventbrite_returned_content_filter_version: 'realtor-public-event-v2',
               eventbrite_filter_required_intent: intent,
             }
           : {}),
