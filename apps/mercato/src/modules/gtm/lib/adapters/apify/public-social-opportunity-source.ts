@@ -1915,7 +1915,15 @@ function scopedSubredditLocation(
   )
   if (!isScoped) return null
   const market = requestedLocation.split(',')[0]?.toLowerCase().replace(/[^a-z0-9]/g, '') ?? ''
-  return market && returned.includes(market) ? requestedLocation : null
+  // A local subreddit can prove the authored market only when its normalized
+  // name is one of the explicit local forms below. Do not use substring
+  // matching here: country-level `US` previously matched
+  // `Austin`, which both invented locality and made otherwise identical cities
+  // behave differently.
+  const exactLocalForms = new Set([market, `ask${market}`, `${market}housing`])
+  return market && exactLocalForms.has(returned)
+    ? requestedLocation
+    : null
 }
 
 function activityLevel(count: number): NonNullable<CandidateIdentity['activity_level']> {

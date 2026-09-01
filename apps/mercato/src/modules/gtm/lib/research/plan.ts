@@ -141,7 +141,7 @@ export type SourcePlanFailure = {
 
 export type SourcePlanSuccess = {
   ok: true
-  schemaVersion: '12'
+  schemaVersion: '13'
   planHash: string
   adapterPlan: SourcePlanBatch[]
   estimatedCredits: number
@@ -422,8 +422,21 @@ export function buildSourcePlan(
           ? plannedSource.providerQuery.dataforseo_site_scope.trim()
           : ''
       const scopedSubreddit = frozenSiteScope.match(/^(?:www\.)?reddit\.com\/r\/([a-z0-9_]+)\/?$/i)?.[1] ?? null
+      const authoredHydrationLocations = Array.isArray(plannedSource.providerQuery?.locations)
+        ? plannedSource.providerQuery.locations
+            .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+            .map((value) => value.trim().replace(/\s+/g, ' '))
+        : []
+      const playGeography = typeof play.geography === 'string'
+        ? play.geography.trim().replace(/\s+/g, ' ')
+        : ''
+      const hydrationLocations = authoredHydrationLocations.length > 0
+        ? authoredHydrationLocations
+        : playGeography
+          ? [playGeography]
+          : []
       let dependentHydration: SourcePlanDependentHydration | null = null
-      if (redditUrlHydrationAdapter && scopedSubreddit) {
+      if (redditUrlHydrationAdapter && scopedSubreddit && hydrationLocations.length > 0) {
         const hydrationDescriptor = redditUrlHydrationAdapter.descriptor
         const hydrationRights = adapterAudienceRights(
           hydrationDescriptor,
@@ -438,6 +451,7 @@ export function buildSourcePlan(
         if (hydrationRights.allowed && hydrationCoverage.covered) {
           const maxUrls = Math.min(quote.max_candidates, REDDIT_URL_HYDRATION_MAX_URLS)
           const hydrationProviderQuery = {
+            locations: hydrationLocations,
             reddit_url_hydration_contract_version: REDDIT_URL_HYDRATION_CONTRACT_VERSION,
             reddit_url_selector_version: REDDIT_URL_HYDRATION_SELECTOR_VERSION,
             reddit_post_urls: [],
@@ -548,7 +562,7 @@ export function buildSourcePlan(
       : estimatedCredits
 
   const pricedPlan = {
-    schemaVersion: '12' as const,
+    schemaVersion: '13' as const,
     adapterPlan,
     estimatedCredits,
     plannedRawCapacity,
