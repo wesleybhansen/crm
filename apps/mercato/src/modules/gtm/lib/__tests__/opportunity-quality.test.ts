@@ -160,6 +160,25 @@ describe('opportunity quality primitives', () => {
     expect(classifyOpportunityIntent(productBuyer).kind).toBeNull()
   })
 
+  it('recovers a truncated next-home location choice only at a local Reddit destination', () => {
+    const currentBuyer = [
+      'Torn between two scenarios for where to buy our next ...',
+      'I drove from Cottonwood to Tempe M-F for 9 months while I was house hunting for my first house.',
+    ].join(' ')
+    const localUrl = 'https://www.reddit.com/r/phoenix/comments/1vyfppk/torn_between_two_scenarios_for_where_to_buy_our/'
+
+    expect(classifyOpportunityIntentAtDestination(currentBuyer, localUrl)).toMatchObject({
+      kind: 'buyer_intent',
+      buyerSignals: expect.arrayContaining(['next residential purchase location choice']),
+    })
+    expect(assessRealtorOpportunitySuitability(currentBuyer, 'buyer_intent', localUrl, 'thread'))
+      .toMatchObject({ relevant: true, demonstratedIntent: 'buyer_intent', reasons: [] })
+    expect(classifyOpportunityIntentAtDestination(
+      'Torn between two scenarios for where to buy our next ...',
+      'https://example.org/forums/shopping',
+    ).kind).toBeNull()
+  })
+
   it('accepts a current social house-hunting declaration without accepting agent promotion', () => {
     expect(assessRealtorOpportunitySuitability(
       'Way to early house hunting in Austin, TX #househunting #housetour #houseshopping',
@@ -762,6 +781,19 @@ describe('opportunity quality primitives', () => {
         'I was selling a home last year, but now I am listing my Phoenix home again and need advice.',
       ),
     ).not.toContain('historical_completed_transaction')
+    const historicalHouseHunt =
+      'Many years ago, when my wife and I were house hunting in Phoenix for the first time, it hailed while we were inside one house.'
+    expect(realtorOpportunityNoiseReasons(historicalHouseHunt)).toContain(
+      'historical_completed_transaction',
+    )
+    expect(
+      assessRealtorOpportunitySuitability(
+        historicalHouseHunt,
+        'buyer_intent',
+        'https://www.reddit.com/r/phoenix/comments/example/hail_in_the_north_valley',
+        'thread',
+      ).relevant,
+    ).toBe(false)
     expect(
       sensitiveConsumerOpportunityReasons(
         'I am a senior vice president buying a home in Austin and comparing mortgage rates.',

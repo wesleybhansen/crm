@@ -206,7 +206,7 @@ const SENSITIVE_CONSUMER_OPPORTUNITY: Array<[string, RegExp]> = [
 ]
 
 const HISTORICAL_COMPLETED_PROPERTY_TRANSACTION =
-  /\b(?:bought|purchased|sold|buy(?:ing)?|sell(?:ing)?)\b.{0,180}\b(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|twenty)\s+years?\s+ago\b|\b(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|twenty)\s+years?\s+ago\b.{0,180}\b(?:bought|purchased|sold|buy(?:ing)?|sell(?:ing)?)\b/i
+  /\b(?:bought|purchased|sold|buy(?:ing)?|sell(?:ing)?|house hunt(?:ing)?)\b.{0,180}\b(?:(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|twenty)\s+|many\s+)years?\s+ago\b|\b(?:(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|twenty)\s+|many\s+)years?\s+ago\b.{0,180}\b(?:bought|purchased|sold|buy(?:ing)?|sell(?:ing)?|house hunt(?:ing)?)\b/i
 // Recent search results can still describe a transaction that is already in
 // the past (for example, "I was selling a home and needed appliances"). The
 // publication date alone cannot turn that historical anecdote into current
@@ -257,6 +257,13 @@ const FIRST_PERSON_HOUSE_HUNTING_PLAN =
 // out while preserving genuine local housing questions returned by Reddit.
 const FIRST_PERSON_STARTING_RESIDENTIAL_PURCHASE_SEARCH =
   /\b(?:i|we)(?:['’]m|['’]re| am| are)\s+(?:just\s+)?(?:starting|beginning)\s+to\s+(?:look at|consider)\s+(?:buying|purchasing)\b(?=[\s\S]{0,600}\b(?:homes?|houses?|condos?|townhomes?|propert(?:y|ies)|neighbou?rhoods?)\b)/i
+// Search-result titles can truncate the noun after a clearly residential
+// location decision (for example, "Torn between two scenarios for where to
+// buy our next ..."). Accept this only at a place-specific Reddit destination
+// and only when the returned title demonstrates both a comparison and a
+// first-person next purchase. The provider query is never part of the match.
+const FIRST_PERSON_NEXT_PURCHASE_LOCATION_CHOICE =
+  /\b(?:torn\s+between|deciding\s+between|choosing\s+between|comparing)\b.{0,120}\bwhere\s+to\s+buy\s+(?:my|our)\s+next(?:\s+(?:home|house|condo|townhome|property))?\b/i
 const DIRECT_HOUSING_TRANSACTION_NEED =
   /\b(?:looking|trying|planning|hoping|wanting|waiting|preparing|needing)\s+to\s+(?:buy|purchase|sell|list)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)\b|\b(?:looking|searching)\s+for\s+(?:a\s+)?(?:home|house|condo|townhome|property|realtor|real estate agent)\b/i
 const DIRECT_BUYER_TRANSACTION_NEED =
@@ -446,6 +453,21 @@ export function classifyOpportunityIntentAtDestination(
   sourceUrl: string | null,
 ): OpportunityIntentClassification {
   const classified = classifyOpportunityIntent(content)
+  const destinationGroundedLocationChoice = localRedditCommunity(sourceUrl)
+    && FIRST_PERSON_NEXT_PURCHASE_LOCATION_CHOICE.test(content)
+  if (destinationGroundedLocationChoice) {
+    const buyerSignals = classified.buyerSignals.includes('next residential purchase location choice')
+      ? classified.buyerSignals
+      : [...classified.buyerSignals, 'next residential purchase location choice']
+    return {
+      ...classified,
+      kind: classified.kind === 'seller_intent' || classified.kind === 'mixed_intent'
+        ? 'mixed_intent'
+        : 'buyer_intent',
+      buyerSignals,
+      confidence: Math.max(classified.confidence, 0.66),
+    }
+  }
   if (
     classified.kind != null
     || !localRedditCommunity(sourceUrl)
@@ -668,12 +690,15 @@ export function assessRealtorOpportunitySuitability(
   const destinationGroundedBuyer = localRedditCommunity(sourceUrl)
     && FIRST_PERSON_BARE_BUY_INTENT.test(content)
     && LOCAL_RESIDENTIAL_DECISION_QUESTION.test(content)
+  const destinationGroundedLocationChoice = localRedditCommunity(sourceUrl)
+    && FIRST_PERSON_NEXT_PURCHASE_LOCATION_CHOICE.test(content)
   const intent = classifyOpportunityIntentAtDestination(content, sourceUrl).kind
   const reasons = realtorOpportunityNoiseReasons(content, sourceUrl)
   const housing =
     REALTOR_HOUSING_CONTEXT.test(content)
     || FIRST_PERSON_BUY_WITH_RESIDENTIAL_LOCATION_DECISION.test(content)
     || FIRST_PERSON_STARTING_RESIDENTIAL_PURCHASE_SEARCH.test(content)
+    || destinationGroundedLocationChoice
     || destinationGroundedBuyer
   const consumerNeed =
     CONSUMER_QUESTION.test(content)
@@ -681,6 +706,7 @@ export function assessRealtorOpportunitySuitability(
     || CURRENT_HOUSE_HUNTING_DECLARATION.test(content)
     || FIRST_PERSON_HOUSE_HUNTING_PLAN.test(content)
     || FIRST_PERSON_STARTING_RESIDENTIAL_PURCHASE_SEARCH.test(content)
+    || destinationGroundedLocationChoice
     || DIRECT_HOUSING_TRANSACTION_NEED.test(content)
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)
@@ -695,6 +721,7 @@ export function assessRealtorOpportunitySuitability(
     || CURRENT_HOUSE_HUNTING_DECLARATION.test(content)
     || FIRST_PERSON_HOUSE_HUNTING_PLAN.test(content)
     || FIRST_PERSON_STARTING_RESIDENTIAL_PURCHASE_SEARCH.test(content)
+    || destinationGroundedLocationChoice
     || DIRECT_HOUSING_TRANSACTION_NEED.test(content)
     || FIRST_PERSON_DIRECT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_TRANSACTION_PROGRESS.test(content)

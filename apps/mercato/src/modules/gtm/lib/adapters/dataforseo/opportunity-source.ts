@@ -18,6 +18,7 @@ import {
   assessRealtorOpportunitySuitability,
   calibratedOpportunityConfidence,
   classifyOpportunityIntent,
+  classifyOpportunityIntentAtDestination,
   demonstratedOpportunityLocation,
   type DemonstratedOpportunityIntent,
   sensitiveConsumerOpportunityReasons,
@@ -133,10 +134,14 @@ const RECEIPT_FIELDS = [
 type DataForSeoEnv = Record<string, string | undefined>
 type DataForSeoFetch = typeof fetch
 type OpportunityKind = NonNullable<Candidate['identity']['opportunity_kind']>
+const DATAFORSEO_REALTOR_PRESELECTION_CONTRACT = 'evidence-first-public-destination-v5'
 type OpportunityDropReason =
   | 'unsupported_result_type'
   | 'unsafe_url_or_missing_title'
   | 'outside_frozen_site_scope'
+  | 'realtor_non_thread_destination'
+  | 'realtor_historical_completed_transaction'
+  | 'realtor_preselection_rejected'
   | 'sensitive_targeting'
   | 'google_event_destination'
   | 'unproven_destination_kind'
@@ -151,6 +156,18 @@ function matchesFrozenSiteScope(url: URL, frozenSiteScope: string | null | undef
   const subreddit = match[1]!.toLowerCase()
   return url.pathname.toLowerCase() === `/r/${subreddit}`
     || url.pathname.toLowerCase().startsWith(`/r/${subreddit}/`)
+}
+
+function matchesFrozenRedditThread(url: URL, frozenSiteScope: string | null | undefined): boolean {
+  const match = frozenSiteScope?.trim().match(/^reddit\.com\/r\/([a-z0-9_]+)\/?$/i)
+  if (!match) return false
+  const host = url.hostname.toLowerCase().replace(/^(?:www|old|new|np)\./, '')
+  if (host !== 'reddit.com') return false
+  const parts = url.pathname.toLowerCase().split('/').filter(Boolean)
+  return parts[0] === 'r'
+    && parts[1] === match[1]!.toLowerCase()
+    && parts[2] === 'comments'
+    && /^[a-z0-9]+$/.test(parts[3] ?? '')
 }
 
 function envValue(env: DataForSeoEnv, name: string): string {
@@ -520,6 +537,7 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
     observedAt: string
     expectedIntent?: DemonstratedOpportunityIntent
     frozenSiteScope?: string | null
+    applyRealtorPreselection?: boolean
   },
 ): { candidate: Candidate | null; dropReason: OpportunityDropReason | null } {
   const resultType = stringValue(item.type)?.toLowerCase() ?? ''
@@ -533,6 +551,12 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
   if (!matchesFrozenSiteScope(url, context.frozenSiteScope)) {
     return { candidate: null, dropReason: 'outside_frozen_site_scope' }
   }
+  if (
+    context.applyRealtorPreselection
+    && !matchesFrozenRedditThread(url, context.frozenSiteScope)
+  ) {
+    return { candidate: null, dropReason: 'realtor_non_thread_destination' }
+  }
   const searchable = `${title} ${description ?? ''} ${url.pathname}`
   if (
     SENSITIVE_CONSUMER_TARGETING.test(searchable)
@@ -543,7 +567,25 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
   }
   const kind = opportunityKind(url, title, description, resultType, context.observedAt)
   if (!kind) return { candidate: null, dropReason: 'unproven_destination_kind' }
-  const demonstratedIntent = classifyOpportunityIntent(searchable)
+  if (context.applyRealtorPreselection) {
+    const suitability = assessRealtorOpportunitySuitability(
+      searchable,
+      context.expectedIntent ?? null,
+      url.toString(),
+      kind,
+    )
+    if (!suitability.relevant) {
+      return {
+        candidate: null,
+        dropReason: suitability.reasons.includes('historical_completed_transaction')
+          ? 'realtor_historical_completed_transaction'
+          : 'realtor_preselection_rejected',
+      }
+    }
+  }
+  const demonstratedIntent = context.applyRealtorPreselection
+    ? classifyOpportunityIntentAtDestination(searchable, url.toString())
+    : classifyOpportunityIntent(searchable)
   const intent = demonstratedIntent.kind
   const platform = platformName(url.hostname)
   const demonstratedLocation = context.expectedIntent == null
@@ -623,6 +665,7 @@ export function normalizeDataForSeoOpportunityItem(
     observedAt: string
     expectedIntent?: DemonstratedOpportunityIntent
     frozenSiteScope?: string | null
+    applyRealtorPreselection?: boolean
   },
 ): Candidate | null {
   return normalizeDataForSeoOpportunityItemWithDiagnostics(item, context).candidate
@@ -936,16 +979,21 @@ export function createDataForSeoOpportunityAdapter(
         const result = objectValue(Array.isArray(task.result) ? task.result[0] : {})
         const observedAt = stringValue(result.datetime) ?? now().toISOString()
         const rawItems = opportunityItems(task)
+        const frozenSiteScope = pricing.operator === 'site'
+          ? stringValue(plan.provider_query?.dataforseo_site_scope)
+          : null
+        const applyRealtorPreselection = pricing.operator === 'site'
+          && stringValue(plan.provider_query?.realtor_retrieval_contract_version)
+            === DATAFORSEO_REALTOR_PRESELECTION_CONTRACT
+          && /^reddit\.com\/r\/[a-z0-9_]+\/?$/i.test(frozenSiteScope ?? '')
         const normalizedItems = rawItems.map((item) =>
           normalizeDataForSeoOpportunityItemWithDiagnostics(item, {
             keyword,
             location,
             observedAt,
             expectedIntent: requestedOpportunityIntent(plan),
-            frozenSiteScope:
-              pricing.operator === 'site'
-                ? stringValue(plan.provider_query?.dataforseo_site_scope)
-                : null,
+            frozenSiteScope,
+            applyRealtorPreselection,
           }),
         )
         const eligibleCandidates = normalizedItems

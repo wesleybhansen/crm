@@ -734,6 +734,79 @@ describe('DataForSEO organic demand-opportunity source', () => {
     expect(body[0]).toMatchObject({ depth: 10 })
   })
 
+  it('preselects a demonstrated realtor thread before applying the one-result customer ceiling', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(
+      response([
+        item({
+          title: 'Life in Phoenix, AZ',
+          url: 'https://www.reddit.com/r/phoenix/rising/',
+          description: 'Jobs, lost pets, apartment or house hunting and other classified topics should be posted elsewhere.',
+        }),
+        item({
+          title: 'Hail in the north valley : r/phoenix',
+          url: 'https://www.reddit.com/r/phoenix/comments/1w33xf5/hail_in_the_north_valley/',
+          description: 'Many years ago, when my wife and I were house hunting in Phoenix for the first time, it hailed while we were inside one house.',
+          rank_group: 2,
+          rank_absolute: 2,
+        }),
+        item({
+          title: 'Torn between two scenarios for where to buy our next ...',
+          url: 'https://www.reddit.com/r/phoenix/comments/1vyfppk/torn_between_two_scenarios_for_where_to_buy_our/',
+          description: 'I drove from Cottonwood to Tempe for 9 months while I was house hunting for my first house.',
+          rank_group: 3,
+          rank_absolute: 3,
+        }),
+        item({
+          title: 'Recommended Home Security Companies : r/phoenix',
+          url: 'https://www.reddit.com/r/phoenix/comments/1vxbjsu/recommended_home_security_companies/',
+          description: 'Home security system recommendations. A related navigation label says House Hunting.',
+          rank_group: 4,
+          rank_absolute: 4,
+        }),
+      ], 0.01),
+    ) as unknown as typeof fetch
+    const adapter = createDataForSeoOpportunityAdapter({ env: approvedEnv, fetchImpl, now: () => CLOCK })
+    const realtorPlan: SourceSearchPlan = {
+      ...meteredSitePlan,
+      geography: 'US',
+      provider_query: {
+        ...meteredSitePlan.provider_query,
+        search_query: 'Phoenix, Arizona site:reddit.com/r/phoenix "house hunting"',
+        locations: ['Phoenix, Arizona'],
+        dataforseo_site_scope: 'reddit.com/r/phoenix',
+        opportunity_intent_lane: 'buyer_intent',
+        realtor_retrieval_contract_version: 'evidence-first-public-destination-v5',
+      },
+      max_candidates: 1,
+    }
+
+    const result = await adapter.search(realtorPlan)
+
+    expect(result.error).toBeUndefined()
+    expect(result).toMatchObject({
+      status: 'ok',
+      cost_units: 5,
+      data: [expect.objectContaining({
+        identity: expect.objectContaining({
+          intent_kind: 'buyer_intent',
+          opportunity_kind: 'thread',
+          urls: ['https://www.reddit.com/r/phoenix/comments/1vyfppk/torn_between_two_scenarios_for_where_to_buy_our/'],
+        }),
+      })],
+      receipt: {
+        items_count: 1,
+        raw_item_count: 4,
+        returned_count: 1,
+        parser_dropped_rows: 3,
+        parser_drop_reasons: {
+          realtor_non_thread_destination: 1,
+          realtor_historical_completed_transaction: 1,
+          realtor_preselection_rejected: 1,
+        },
+      },
+    })
+  })
+
   it('fails a metered site-scoped result closed when every returned destination is outside the frozen scope', async () => {
     const adapter = createDataForSeoOpportunityAdapter({
       env: approvedEnv,
