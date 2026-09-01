@@ -116,12 +116,12 @@ function isMeetupReturnedContentFilterVersion(
   return value === 'realtor-housing-event-v1'
 }
 
-type EventbriteReturnedContentFilterVersion = 'realtor-public-event-v1'
+type EventbriteReturnedContentFilterVersion = 'realtor-public-event-v2'
 
 function isEventbriteReturnedContentFilterVersion(
   value: unknown,
 ): value is EventbriteReturnedContentFilterVersion {
-  return value === 'realtor-public-event-v1'
+  return value === 'realtor-public-event-v2'
 }
 
 type SocialReturnedContentFilterVersion = 'realtor-public-post-v2'

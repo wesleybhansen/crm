@@ -38,7 +38,7 @@ const plan: SourceSearchPlan = {
   geography: 'US',
   query: 'first time home buyer',
   provider_query: {
-    query_lane_version: 'opportunity-query-v90',
+    query_lane_version: 'opportunity-query-v91',
     source_query_lane_id: 'buyer_intent:1',
     opportunity_intent_lane: 'buyer_intent',
     search_query: 'first time home buyer',
@@ -48,7 +48,7 @@ const plan: SourceSearchPlan = {
     eventbrite_window_days: 30,
     eventbrite_fetch_details: true,
     eventbrite_max_pages: 3,
-    eventbrite_returned_content_filter_version: 'realtor-public-event-v1',
+    eventbrite_returned_content_filter_version: 'realtor-public-event-v2',
     eventbrite_filter_required_intent: 'buyer_intent',
   },
   max_candidates: 25,
@@ -165,10 +165,10 @@ describe('Apify Eventbrite public event opportunities', () => {
     expect(lanes).toHaveLength(3)
     expect(lanes.map((lane) => lane.query)).toEqual(expectedQueries)
     expect(lanes.every((lane) =>
-      lane.providerQuery.query_lane_version === 'opportunity-query-v90'
+      lane.providerQuery.query_lane_version === 'opportunity-query-v91'
       && lane.providerQuery.eventbrite_location === 'Austin, Texas'
       && lane.providerQuery.eventbrite_contract_version === 'public-events-v1'
-      && lane.providerQuery.eventbrite_returned_content_filter_version === 'realtor-public-event-v1'
+      && lane.providerQuery.eventbrite_returned_content_filter_version === 'realtor-public-event-v2'
       && lane.providerQuery.eventbrite_filter_required_intent === intent
     )).toBe(true)
   })
@@ -267,19 +267,41 @@ describe('Apify Eventbrite public event opportunities', () => {
         subcategories: ['Karaoke'],
         keywords: ['nightlife'],
       }),
+      eventbriteEvent({
+        event_id: '1982542022558',
+        name: 'Indy Realtor Connect Series',
+        summary: 'A monthly event where realtors and lenders build community, boost brand visibility, showcase expertise, and connect with prospective clients.',
+        url: 'https://www.eventbrite.com/e/indy-realtor-connect-series-tickets-1982542022558',
+        organizer_name: 'Member Experience Manager',
+        categories: ['Business & Professional'],
+        subcategories: ['Real Estate'],
+        formats: ['Meeting or Networking Event'],
+        keywords: ['homeownership', 'firsttimehomebuyer', 'realestatenetworking'],
+      }),
+      eventbriteEvent({
+        event_id: '1996451581423',
+        name: 'Why Buy Now | Austin',
+        summary: 'An exclusive afternoon built for real estate agents to stay ahead, gain insights, connect with peers, and better serve clients. Agents in attendance receive a bonus commission voucher.',
+        url: 'https://www.eventbrite.com/e/why-buy-now-austin-tickets-1996451581423',
+        organizer_name: 'DHI Mortgage',
+        categories: ['Business & Professional'],
+        subcategories: ['Real Estate'],
+        formats: ['Seminar or Talk'],
+        keywords: ['mortgage', 'realestate', 'whybuynow'],
+      }),
     ]
     const runActor = jest.fn(async () => outcome(rows))
     const result = await createApifyEventbriteOpportunityAdapter({ env: approvedEnv(), now, runActor })
       .search(plan)
+    expect(result.cost_units).toBeCloseTo(18)
     expect(result).toMatchObject({
       status: 'partial',
-      cost_units: 9,
       data: [{ identity: { name: 'Austin First-Time Home Buyer Workshop' } }],
       receipt: expect.objectContaining({
-        returned_content_filter_version: 'realtor-public-event-v1',
-        returned_content_filtered_rows: 1,
+        returned_content_filter_version: 'realtor-public-event-v2',
+        returned_content_filtered_rows: 3,
         returned_count: 1,
-        billed_results: 2,
+        billed_results: 4,
       }),
     })
   })

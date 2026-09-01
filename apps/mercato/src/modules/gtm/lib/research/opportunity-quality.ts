@@ -133,6 +133,10 @@ const REALTOR_NOISE: Array<[string, RegExp]> = [
     /\b(?:let(?:'|’)s connect (?:tampa )?professionals?|real estate professionals? (?:network|meetup)|realtor networking|broker networking)\b/i,
   ],
   [
+    'agent_business_development_event',
+    /\b(?:realtors?|real estate agents?|real estate professionals?|brokers?|lenders?|mortgage professionals?)\b.{0,220}\b(?:boost (?:your|their|our) brand visibility|showcase (?:your|their|our) expertise|connect with (?:peers|prospective clients?)|build (?:your|their|our) referral network|realtor connect(?: series)?|real estate networking|bonus commission)\b|\b(?:boost (?:your|their|our) brand visibility|showcase (?:your|their|our) expertise|connect with (?:peers|prospective clients?)|build (?:your|their|our) referral network|realtor connect(?: series)?|real estate networking|bonus commission)\b.{0,220}\b(?:realtors?|real estate agents?|real estate professionals?|brokers?|lenders?|mortgage professionals?)\b|\b(?:built|created|designed) (?:specifically |exclusively )?for (?:real estate )?(?:agents?|realtors?|brokers?|lenders?|mortgage professionals?)\b|\b(?:bonus )?commission (?:voucher|giveaway|incentive)\b/i,
+  ],
+  [
     'market_lifestyle_promotion',
     /\b(?:wallethub|ranked?|ranking|study|report)\b.{0,240}\b(?:cities?|real estate|housing|relocat(?:e|ing|ion)|rental listings?)\b|\b(?:but there(?:'|’)s a bigger real estate story|when people relocate, they aren(?:'|’)t simply choosing)\b/i,
   ],
