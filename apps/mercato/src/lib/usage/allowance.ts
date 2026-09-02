@@ -17,7 +17,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
  *   - org has a BYO key for this feature's provider → allowed, `byoApiKey` set
  *     (use it for the call + meter byoKey: true).
  *   - no key → blocked with the pause-and-prompt message.
- * Most CRM AI runs on Gemini, so `provider` defaults to 'google'. FAIL-OPEN.
+ * Most CRM AI runs on Gemini, so `provider` defaults to 'google'. Legacy CRM
+ * callers remain fail-open by default; consequential surfaces such as GTM pass
+ * `failureMode: 'closed'` and do not contact a model while the canonical
+ * allowance store or organization mapping is unavailable.
  *
  *   const gate = await checkCustomersAiAllowance(auth)
  *   if (!gate.allowed) return NextResponse.json({ error: gate.message }, { status: 402 })
@@ -32,19 +35,35 @@ const TOKENS_PER_BOOST = 10_000_000 // each purchased token-boost add-on (P-9)
 
 export const ALLOWANCE_BLOCK_MESSAGE =
   "You've used your team's monthly AI allowance. Add your own provider API key or upgrade your plan to keep using AI."
+export const ALLOWANCE_UNAVAILABLE_MESSAGE =
+  'AI usage is temporarily unavailable. Please try again shortly.'
 
-export type AllowanceResult = { allowed: boolean; message?: string; byoApiKey?: string }
+export type AllowanceResult = {
+  allowed: boolean
+  message?: string
+  byoApiKey?: string
+  code?: 'ai_allowance' | 'ai_metering_unavailable'
+}
+
+export type AllowanceOptions = { failureMode?: 'open' | 'closed' }
+
+function unavailable(options: AllowanceOptions): AllowanceResult {
+  return options.failureMode === 'closed'
+    ? { allowed: false, message: ALLOWANCE_UNAVAILABLE_MESSAGE, code: 'ai_metering_unavailable' }
+    : { allowed: true }
+}
 
 export async function checkCustomersAiAllowance(
   auth: { orgId?: string | null } | null | undefined,
   provider: ByoProvider = 'google',
+  options: AllowanceOptions = {},
 ): Promise<AllowanceResult> {
   try {
-    if (!auth?.orgId) return { allowed: true }
+    if (!auth?.orgId) return unavailable(options)
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const org = await em.findOne(Organization, { id: auth.orgId })
-    if (!org?.noliOrgId) return { allowed: true } // not linked to noli-core
+    if (!org?.noliOrgId) return unavailable(options) // not linked to noli-core
     const supabase = getNoliCoreClient()
 
     const now = new Date()
@@ -56,7 +75,7 @@ export async function checkCustomersAiAllowance(
         .eq('organization_id', org.noliOrgId)
         .in('status', [...LIVE_NOLI_SUBSCRIPTION_STATUSES]),
     ])
-    if (membersResult.error || subscriptionsResult.error) return { allowed: true }
+    if (membersResult.error || subscriptionsResult.error) return unavailable(options)
     const members = membersResult.data
     const subs = subscriptionsResult.data
     // Paid seats (base + purchased overflow) drive allowance, matching the hub —
@@ -76,7 +95,7 @@ export async function checkCustomersAiAllowance(
       .eq('organization_id', org.noliOrgId)
       .eq('byo_key', false)
       .gte('ts', periodStart.toISOString())
-    if (usageResult.error) return { allowed: true }
+    if (usageResult.error) return unavailable(options)
     const usage = usageResult.data
     const memberSeats = Math.max(1, ((members as unknown[]) ?? []).length)
     const seats = sub?.seats && sub.seats > 0 ? sub.seats : memberSeats
@@ -96,7 +115,7 @@ export async function checkCustomersAiAllowance(
         .from('user_cap_overrides')
         .select('monthly_credits, expires_at')
         .in('user_id', memberIds)
-      if (overridesResult.error) return { allowed: true }
+      if (overridesResult.error) return unavailable(options)
       const ov = overridesResult.data
       const nowIso = now.toISOString()
       overrideCredits = ((ov as { monthly_credits: number | null; expires_at: string | null }[]) ?? []).reduce(
@@ -112,10 +131,10 @@ export async function checkCustomersAiAllowance(
       const keys = await resolveOrgByoKeys(org.noliOrgId)
       const byoApiKey = keys[provider]
       if (byoApiKey) return { allowed: true, byoApiKey }
-      return { allowed: false, message: ALLOWANCE_BLOCK_MESSAGE }
+      return { allowed: false, message: ALLOWANCE_BLOCK_MESSAGE, code: 'ai_allowance' }
     }
     return { allowed: true }
   } catch {
-    return { allowed: true }
+    return unavailable(options)
   }
 }

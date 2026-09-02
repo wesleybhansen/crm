@@ -168,7 +168,7 @@ async function resolveOwnerUserId(noliOrgId: string): Promise<string | null> {
   }
 }
 
-export async function logCrmAiUsage(args: {
+export type CrmAiUsageInput = {
   noliUserId?: string | null;
   noliOrgId?: string | null;
   model: string;
@@ -185,40 +185,64 @@ export async function logCrmAiUsage(args: {
   // Optional insert-once key for retryable product operations. Callers must
   // bind this to the exact feature operation, not merely a user or feature.
   idempotencyKey?: string | null;
-}): Promise<void> {
-  try {
-    if (!process.env.NOLI_CORE_SUPABASE_URL || !process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY) return;
-    if (!args.model) return;
+};
 
-    // Resolve { userId, orgId } from whichever context the caller has.
-    let userId = args.noliUserId ?? null;
-    let orgId = args.noliOrgId ?? null;
-    if (userId && !orgId) {
-      orgId = await findPrimaryOrgIdForUser(userId).catch(() => null);
-    } else if (!userId && orgId) {
-      userId = await resolveOwnerUserId(orgId);
-    }
-    if (!userId) return; // ai_usage.user_id is NOT NULL — skip if unresolved
+export class CrmAiUsageMeteringError extends Error {
+  constructor(
+    public readonly code:
+      | 'metering_unconfigured'
+      | 'invalid_metering_input'
+      | 'metering_identity_unresolved'
+      | 'metering_write_failed',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CrmAiUsageMeteringError';
+  }
+}
 
-    await refreshCatalog();
-    const rate = rateForModel(args.model);
-    const tokensIn = Math.max(0, args.tokensIn || 0);
-    const tokensOut = Math.max(0, args.tokensOut || 0);
+async function writeCrmAiUsage(args: CrmAiUsageInput): Promise<void> {
+  if (!process.env.NOLI_CORE_SUPABASE_URL || !process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY) {
+    throw new CrmAiUsageMeteringError('metering_unconfigured', 'Noli Core AI metering is not configured');
+  }
+  if (!args.model?.trim()) {
+    throw new CrmAiUsageMeteringError('invalid_metering_input', 'AI metering requires a model identifier');
+  }
+
+  // Resolve { userId, orgId } from whichever context the caller has.
+  let userId = args.noliUserId ?? null;
+  let orgId = args.noliOrgId ?? null;
+  if (userId && !orgId) {
+    orgId = await findPrimaryOrgIdForUser(userId).catch(() => null);
+  } else if (!userId && orgId) {
+    userId = await resolveOwnerUserId(orgId);
+  }
+  if (!userId) {
+    throw new CrmAiUsageMeteringError(
+      'metering_identity_unresolved',
+      'AI metering could not resolve a Noli user for the organization',
+    );
+  }
+
+  await refreshCatalog();
+  const rate = rateForModel(args.model);
+  const tokensIn = Math.max(0, args.tokensIn || 0);
+  const tokensOut = Math.max(0, args.tokensOut || 0);
     // Cache netting: cached input is billed at the cached rate, the rest at the
     // full input rate. Clamp cached to the total input so it can never go negative.
-    const cachedIn = Math.min(tokensIn, Math.max(0, args.cachedTokensIn || 0));
-    const freshIn = tokensIn - cachedIn;
-    const costDollars =
-      (freshIn / 1_000_000) * rate.in +
-      (cachedIn / 1_000_000) * rate.cached +
-      (tokensOut / 1_000_000) * rate.out;
+  const cachedIn = Math.min(tokensIn, Math.max(0, args.cachedTokensIn || 0));
+  const freshIn = tokensIn - cachedIn;
+  const costDollars =
+    (freshIn / 1_000_000) * rate.in +
+    (cachedIn / 1_000_000) * rate.cached +
+    (tokensOut / 1_000_000) * rate.out;
     // Round provider cost UP to whole cents so we never under-bill.
-    const costCents = Math.ceil(costDollars * 100);
-    const creditsConsumed = Math.round(costDollars * DISPLAY_TOKENS_PER_DOLLAR);
+  const costCents = Math.ceil(costDollars * 100);
+  const creditsConsumed = Math.round(costDollars * DISPLAY_TOKENS_PER_DOLLAR);
 
-    const supabase = getNoliCoreClient();
-    const normalizedKey = args.idempotencyKey?.trim() || null;
-    const receiptId = normalizedKey
+  const supabase = getNoliCoreClient();
+  const normalizedKey = args.idempotencyKey?.trim() || null;
+  const receiptId = normalizedKey
       ? (() => {
           const digest = createHash('sha256')
             .update(
@@ -233,7 +257,7 @@ export async function logCrmAiUsage(args: {
           return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
         })()
       : null;
-    const row = {
+  const row = {
       ...(receiptId ? { id: receiptId } : {}),
       user_id: userId,
       organization_id: orgId,
@@ -249,13 +273,39 @@ export async function logCrmAiUsage(args: {
         idempotency_key_present: Boolean(normalizedKey),
         ...(args.metadata ?? {}),
       },
-    };
-    const query = normalizedKey
-      ? supabase.from('ai_usage').upsert(row, { onConflict: 'id', ignoreDuplicates: true })
-      : supabase.from('ai_usage').insert(row);
-    const { error } = await query;
-    if (error) console.error('[crm ai_usage] insert failed', error);
+  };
+  const query = normalizedKey
+    ? supabase.from('ai_usage').upsert(row, { onConflict: 'id', ignoreDuplicates: true })
+    : supabase.from('ai_usage').insert(row);
+  const { error } = await query;
+  if (error) {
+    throw new CrmAiUsageMeteringError(
+      'metering_write_failed',
+      'Noli Core rejected the AI usage receipt',
+    );
+  }
+}
+
+/**
+ * Legacy CRM metering boundary. Existing non-GTM callers intentionally retain
+ * best-effort behavior while they migrate to the strict contract.
+ */
+export async function logCrmAiUsage(args: CrmAiUsageInput): Promise<void> {
+  try {
+    await writeCrmAiUsage(args);
   } catch (err) {
+    if (err instanceof CrmAiUsageMeteringError) {
+      if (err.code === 'metering_write_failed') console.error('[crm ai_usage] insert failed', err);
+      return;
+    }
     console.error('[crm ai_usage] unexpected error', err);
   }
+}
+
+/**
+ * Fail-closed metering for consequential customer-facing operations. The
+ * caller must await this before returning model output to the customer.
+ */
+export async function logCrmAiUsageStrict(args: CrmAiUsageInput): Promise<void> {
+  await writeCrmAiUsage(args);
 }

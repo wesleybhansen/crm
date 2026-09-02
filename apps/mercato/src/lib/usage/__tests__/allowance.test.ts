@@ -59,6 +59,28 @@ describe('checkCustomersAiAllowance', () => {
     expect(fixture.mocks.usageGte).toHaveBeenCalledWith('ts', '2026-06-30T10:00:00.000Z')
   })
 
+  it('gives a solo-plan organization its one-seat pooled allowance', async () => {
+    const fixture = createAllowanceTestClient()
+    fixture.results.members = successfulAllowanceQuery([{ user_id: 'solo-owner' }])
+    fixture.results.subscriptions = successfulAllowanceQuery([{
+      id: 'solo-subscription',
+      seats: 1,
+      token_boosts: 0,
+      status: 'active',
+      billing_interval: 'month',
+      current_period_start: '2026-07-15T12:00:00.000Z',
+      updated_at: '2026-07-15T12:00:00.000Z',
+    }])
+    fixture.results.usage = successfulAllowanceQuery([{ credits_consumed: 9_999_999 }])
+    getNoliCoreClientMock.mockReturnValue(fixture.client as never)
+
+    await expect(checkCustomersAiAllowance(
+      { orgId: 'crm-org-1' },
+      'google',
+      { failureMode: 'closed' },
+    )).resolves.toEqual({ allowed: true })
+  })
+
   it('rejects a future period while retaining the paid seat count', async () => {
     const fixture = createAllowanceTestClient()
     fixture.results.subscriptions = successfulAllowanceQuery([{
@@ -117,4 +139,37 @@ describe('checkCustomersAiAllowance', () => {
       }
     },
   )
+
+  it.each<AllowanceQueryName>(['members', 'subscriptions', 'usage', 'overrides'])(
+    'fails closed for GTM when the %s read is unavailable',
+    async (queryName) => {
+      const fixture = createAllowanceTestClient()
+      fixture.results[queryName] = { data: null, error: { message: `${queryName} unavailable` } }
+      getNoliCoreClientMock.mockReturnValue(fixture.client as never)
+
+      await expect(checkCustomersAiAllowance(
+        { orgId: 'crm-org-1' },
+        'google',
+        { failureMode: 'closed' },
+      )).resolves.toEqual({
+        allowed: false,
+        message: 'AI usage is temporarily unavailable. Please try again shortly.',
+        code: 'ai_metering_unavailable',
+      })
+    },
+  )
+
+  it('fails closed for GTM when the CRM organization is not linked to Noli Core', async () => {
+    findOneMock.mockResolvedValueOnce({ noliOrgId: null })
+
+    await expect(checkCustomersAiAllowance(
+      { orgId: 'crm-org-1' },
+      'google',
+      { failureMode: 'closed' },
+    )).resolves.toEqual({
+      allowed: false,
+      message: 'AI usage is temporarily unavailable. Please try again shortly.',
+      code: 'ai_metering_unavailable',
+    })
+  })
 })

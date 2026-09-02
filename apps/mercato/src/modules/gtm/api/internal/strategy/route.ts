@@ -9,6 +9,7 @@ import { gtmStrategyBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
 import { GtmVersionError, versionShape, type VersionKind } from '../../../lib/versions'
 import { GtmDraftError } from '../../../lib/campaign/ai-draft'
+import { GtmAiMeteringError } from '../../../lib/ai/telemetry'
 
 /*
  * Internal GTM strategy: ICP + Voice Profile version CRUD, locks, revert, and
@@ -161,10 +162,15 @@ export async function POST(req: Request) {
     }
 
     const { checkCustomersAiAllowance } = await import('@/lib/usage/allowance')
-    const { meterCustomersAi } = await import('@/lib/usage/meter')
-    const gate = await checkCustomersAiAllowance({ orgId: ctx.organizationId })
+    const { meterCustomersAiStrict } = await import('@/lib/usage/meter')
+    const gate = await checkCustomersAiAllowance(
+      { orgId: ctx.organizationId },
+      'google',
+      { failureMode: 'closed' },
+    )
     if (!gate.allowed) {
-      return NextResponse.json({ ok: false, error: gate.message, code: 'ai_allowance' }, { status: 402 })
+      const code = gate.code ?? 'ai_allowance'
+      return NextResponse.json({ ok: false, error: gate.message, code }, { status: code === 'ai_metering_unavailable' ? 503 : 402 })
     }
     const apiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
     if (!apiKey) {
@@ -183,16 +189,15 @@ export async function POST(req: Request) {
       status?: 'succeeded' | 'failed'
       failureCode?: string | null
       retryCount?: number
-    }) => {
-      await meterCustomersAi({ orgId: ctx.organizationId }, {
+    }, operationKey: string) => {
+      await meterCustomersAiStrict({ orgId: ctx.organizationId }, {
+        noliUserId: body.noliUserId,
         model: usage.model,
         tokensIn: usage.tokensIn,
         tokensOut: usage.tokensOut,
         feature: usage.feature,
         byoKey: !!gate.byoApiKey,
-        idempotencyKey: body.idempotency_key
-          ? `gtm:voice-derive:${ctx.organizationId}:${body.workspaceId}:${body.idempotency_key}`
-          : null,
+        idempotencyKey: operationKey,
         metadata: {
           status: usage.status === 'failed' ? 'failed' : 'completed',
           attempt: 1,
@@ -227,6 +232,12 @@ export async function POST(req: Request) {
     }
     if (err instanceof GtmDraftError) {
       return NextResponse.json({ ok: false, error: err.message, code: err.code }, { status: 502 })
+    }
+    if (err instanceof GtmAiMeteringError) {
+      return NextResponse.json(
+        { ok: false, error: 'AI usage is temporarily unavailable. Please try again shortly.', code: 'ai_metering_unavailable' },
+        { status: 503 },
+      )
     }
     console.error('[internal.gtm.strategy]', err)
     return NextResponse.json({ ok: false, error: 'Strategy operation failed' }, { status: 500 })

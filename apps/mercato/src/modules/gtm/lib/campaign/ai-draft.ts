@@ -15,6 +15,7 @@ import {
 import { getLatestLockedVersion } from '../versions'
 import type { CampaignEm, GtmCtx } from './build'
 import { estimateModelTokens, type GtmAiMeter, type GtmDraftModel } from '../ai/model'
+import { GtmAiMeteringError } from '../ai/telemetry'
 import {
   GtmCandidate,
   GtmEvidence,
@@ -404,7 +405,8 @@ export async function regenerateMessageForCandidate(
       draftedByStep.set(step.key, drafted)
       previousMessages.push({ subject: drafted.subject, body: drafted.body_text })
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof GtmAiMeteringError) throw error
     // Drafting failed (provider/parse). Honest fallback: leave the recipient on
     // the deterministic template, mutate nothing.
     return { provenance: 'template', invalidated: false, reason: 'draft_failed' }

@@ -15,6 +15,7 @@ import {
 } from '../manual-outreach'
 import { FakeModel } from './support/fake-model'
 import { FakeEm } from './support/fake-em'
+import { GtmAiMeteringError } from '../ai/telemetry'
 import {
   ORG,
   TENANT,
@@ -150,6 +151,37 @@ describe('manual-only consumer outreach', () => {
       workspaceId: WORKSPACE,
       playId: play.id,
     })).resolves.toEqual([])
+  })
+
+  it('propagates a canonical metering failure without a second meter attempt', async () => {
+    const em = new FakeEm()
+    const { play, candidate, match } = await consumerContext(em)
+    const prepared = await prepareManualOutreachDraft(em, ctx, {
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      candidateId: candidate.id,
+      matchId: match.id,
+      channel: 'public_profile',
+      idempotencyKey: 'manual-meter-failure-1',
+    })
+    const meter = jest.fn(async () => {
+      throw new GtmAiMeteringError('temporary Noli Core outage')
+    })
+
+    await expect(draftManualOutreachMessage({
+      model: new FakeModel(() => ({
+        text: JSON.stringify({
+          body: 'Hi Avery, I saw your public request for more information after the neighborhood workshop. I have a concise local guide that may help. Would it be useful if I shared it here? No problem if the timing is not right.',
+        }),
+        model: 'fake-gemini',
+        tokensIn: 120,
+        tokensOut: 50,
+      })),
+      meter,
+    }, prepared)).rejects.toBeInstanceOf(GtmAiMeteringError)
+
+    expect(meter).toHaveBeenCalledTimes(1)
+    expect(em.table(GtmManualOutreachDraft)).toHaveLength(0)
   })
 
   it('blocks B2B plays and consumer evidence without exact manual rights', async () => {

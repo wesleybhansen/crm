@@ -3,6 +3,11 @@ import { GtmAiTelemetry } from '../../data/entities'
 import type { CampaignEm, GtmCtx } from '../campaign/build'
 import type { GtmAiMeter } from './model'
 
+type GtmCanonicalAiMeter = (
+  usage: Parameters<GtmAiMeter>[0],
+  operationKey: string,
+) => void | Promise<void>
+
 const COMPONENT_KEYS = [
   'system',
   'tool_schema',
@@ -25,6 +30,13 @@ export type GtmAiTelemetryInput = {
   retryCount?: number
   failureCode?: string | null
   requestId?: string | null
+}
+
+export class GtmAiMeteringError extends Error {
+  constructor(message = 'GTM AI usage could not be recorded') {
+    super(message)
+    this.name = 'GtmAiMeteringError'
+  }
 }
 
 function boundedInteger(value: number | null | undefined, max: number): number | null {
@@ -115,23 +127,43 @@ export function createGtmTelemetryMeter(input: {
   ctx: GtmCtx
   operationKey: string
   surface: string
-  canonicalMeter: GtmAiMeter
+  canonicalMeter: GtmCanonicalAiMeter
 }): GtmAiMeter {
+  let invocation = 0
   return async (usage) => {
-    await input.canonicalMeter(usage)
-    await recordGtmAiTelemetry(input.em, input.ctx, {
-      operationKey: input.operationKey,
-      surface: input.surface,
-      model: usage.model,
-      status: usage.status ?? 'succeeded',
-      tokensIn: usage.tokensIn,
-      tokensOut: usage.tokensOut,
-      tokenUsageKnown: usage.tokenUsageKnown,
-      componentEstimates: usage.componentEstimates ?? null,
-      latencyMs: usage.latencyMs ?? null,
-      retryCount: usage.retryCount ?? 0,
-      failureCode: usage.failureCode ?? null,
-      requestId: input.ctx.requestId ?? null,
-    })
+    invocation += 1
+    const operationKey = `${input.operationKey}:call:${invocation}`
+    // Preserve a local, content-free receipt before crossing the Noli Core
+    // boundary. If canonical metering is temporarily unavailable the call is
+    // not returned as successful, while the exact invocation remains observable
+    // for operator reconciliation.
+    try {
+      await recordGtmAiTelemetry(input.em, input.ctx, {
+        operationKey,
+        surface: input.surface,
+        model: usage.model,
+        status: usage.status ?? 'succeeded',
+        tokensIn: usage.tokensIn,
+        tokensOut: usage.tokensOut,
+        tokenUsageKnown: usage.tokenUsageKnown,
+        componentEstimates: usage.componentEstimates ?? null,
+        latencyMs: usage.latencyMs ?? null,
+        retryCount: usage.retryCount ?? 0,
+        failureCode: usage.failureCode ?? null,
+        requestId: input.ctx.requestId ?? null,
+      })
+    } catch (error) {
+      // Canonical metering can still succeed even if observational telemetry
+      // is degraded. Never skip the customer credit write because this table
+      // failed independently.
+      console.error('[gtm.ai.telemetry]', error)
+    }
+    try {
+      await input.canonicalMeter(usage, operationKey)
+    } catch (error) {
+      throw new GtmAiMeteringError(
+        error instanceof Error ? error.message : 'GTM AI usage could not be recorded',
+      )
+    }
   }
 }

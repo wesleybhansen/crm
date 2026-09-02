@@ -4,6 +4,7 @@ import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('Manage the scoped GTM reply inbox')
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { GtmAiMeteringError } from '../../../lib/ai/telemetry'
 import { gtmEnabled } from '../../../lib/flags'
 import { gtmInboxBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
@@ -261,10 +262,15 @@ export async function POST(req: Request) {
       // library returns an honest template fallback when there is no locked
       // voice or the model call/parse fails (never a hard failure).
       const { checkCustomersAiAllowance } = await import('@/lib/usage/allowance')
-      const { meterCustomersAi } = await import('@/lib/usage/meter')
-      const gate = await checkCustomersAiAllowance({ orgId: ctx.organizationId })
+      const { meterCustomersAiStrict } = await import('@/lib/usage/meter')
+      const gate = await checkCustomersAiAllowance(
+        { orgId: ctx.organizationId },
+        'google',
+        { failureMode: 'closed' },
+      )
       if (!gate.allowed) {
-        return NextResponse.json({ ok: false, error: gate.message, code: 'ai_allowance' }, { status: 402 })
+        const code = gate.code ?? 'ai_allowance'
+        return NextResponse.json({ ok: false, error: gate.message, code }, { status: code === 'ai_metering_unavailable' ? 503 : 402 })
       }
       const apiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
       if (!apiKey) {
@@ -282,16 +288,15 @@ export async function POST(req: Request) {
         status?: 'succeeded' | 'failed'
         failureCode?: string | null
         retryCount?: number
-      }) => {
-        await meterCustomersAi({ orgId: ctx.organizationId }, {
+      }, operationKey: string) => {
+        await meterCustomersAiStrict({ orgId: ctx.organizationId }, {
+          noliUserId: body.noliUserId,
           model: usage.model,
           tokensIn: usage.tokensIn,
           tokensOut: usage.tokensOut,
           feature: usage.feature,
           byoKey: !!gate.byoApiKey,
-          idempotencyKey: body.idempotency_key
-            ? `gtm:reply-draft:${ctx.organizationId}:${body.replyId}:${body.idempotency_key}`
-            : null,
+          idempotencyKey: operationKey,
           metadata: {
             status: usage.status === 'failed' ? 'failed' : 'completed',
             attempt: 1,
@@ -343,6 +348,12 @@ export async function POST(req: Request) {
       attempt_id: result.attempt?.id ?? null,
     })
   } catch (err) {
+    if (err instanceof GtmAiMeteringError) {
+      return NextResponse.json(
+        { ok: false, error: 'AI usage is temporarily unavailable. Please try again shortly.', code: 'ai_metering_unavailable' },
+        { status: 503 },
+      )
+    }
     if (err instanceof GtmExecutionError) {
       if (
         err.code === 'reply_not_found' ||
