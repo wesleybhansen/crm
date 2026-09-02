@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { Candidate, CandidateIdentity, ContactPoint } from '../types'
 
 /*
@@ -634,13 +635,27 @@ function buildIdentity(parts: {
   title: string | null
   company: string | null
   profileUrl: string | null
+  linkedinEngagementFingerprint?: string | null
 }): CandidateIdentity {
   const identity: CandidateIdentity = { name: parts.name }
   // omitted, never invented
   if (parts.title) identity.title = parts.title
   if (parts.company) identity.company = parts.company
   if (parts.profileUrl) identity.urls = [parts.profileUrl]
+  if (parts.linkedinEngagementFingerprint) {
+    identity.linkedin_engagement_fingerprint = parts.linkedinEngagementFingerprint
+  }
   return identity
+}
+
+function linkedinEngagementFingerprint(name: string, title: string | null): string {
+  const normalize = (value: string) => value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+  return createHash('sha256').update(`${normalize(name)}|${normalize(title ?? '')}`).digest('hex')
 }
 
 export type NormalizeContext = {
@@ -794,11 +809,15 @@ function linkedinCandidate(
     // false for the verified comments actor: it returns no company field
     allowCompany: boolean
     postContent?: string | null
+    // Post search is the one actor contract that returns incompatible profile
+    // URL forms across its comment and reaction lanes.
+    stableEngagementFingerprint?: boolean
   },
 ): Candidate | null {
   const name = pick(item, LINKEDIN_NAME_PATHS) ?? joinName(item, LINKEDIN_FIRST_PATHS, LINKEDIN_LAST_PATHS)
   // No usable name = no candidate. We never synthesize one.
   if (!name) return null
+  const title = pickMeaningful(item, LINKEDIN_TITLE_PATHS)
 
   const detail: Record<string, unknown> = { engagement_kind: opts.engagementKind }
   const reactions = reactionTypes(item)
@@ -820,9 +839,12 @@ function linkedinCandidate(
     identity: buildIdentity({
       name,
       // "--" and friends are treated as absent, not as a real title
-      title: pickMeaningful(item, LINKEDIN_TITLE_PATHS),
+      title,
       company: opts.allowCompany ? pick(item, LINKEDIN_COMPANY_PATHS) : null,
       profileUrl: pickUrl(item, LINKEDIN_PROFILE_URL_PATHS),
+      linkedinEngagementFingerprint: opts.stableEngagementFingerprint
+        ? linkedinEngagementFingerprint(name, title)
+        : null,
     }),
     evidence: [
       {
@@ -930,6 +952,7 @@ function normalizePostSearch(items: unknown[], ctx: NormalizeContext): Normalize
             claimPrefix: 'Commented on a public LinkedIn post',
             allowCompany: false,
             postContent,
+            stableEngagementFingerprint: true,
           }),
         )
       }
@@ -947,6 +970,7 @@ function normalizePostSearch(items: unknown[], ctx: NormalizeContext): Normalize
             claimPrefix: 'Reacted to a public LinkedIn post',
             allowCompany: true,
             postContent,
+            stableEngagementFingerprint: true,
           }),
         )
       }

@@ -2308,6 +2308,16 @@ describe('criterion matching is token-based, not substring', () => {
       ),
     ).toBe('pass')
   })
+
+  it('does not treat customers named after for/helping/serving as the observed professional title', () => {
+    for (const title of [
+      'I install 24/7 AI receptionists for realtors',
+      'Helping Realtors automate their follow-up',
+      'Technology services serving REALTORS',
+    ]) {
+      expect(criterion({ ...base, title }, { titles: ['Realtor'] }, 'persona.title')).toBe('fail')
+    }
+  })
 })
 
 describe('signal recency cannot pass without a trustworthy reference time', () => {

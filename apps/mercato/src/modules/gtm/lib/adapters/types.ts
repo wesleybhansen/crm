@@ -158,6 +158,12 @@ export type CandidateIdentity = {
   company_description?: string | null
   seniority?: string | null
   department?: string | null
+  // The LinkedIn post-search actor returns vanity profile URLs for commenters
+  // and opaque profile URLs for reactors. This adapter-owned fingerprint is
+  // derived only from the same returned public name + headline so those two
+  // URL representations dedupe without making every LinkedIn source abandon
+  // its stronger canonical-URL identity contract.
+  linkedin_engagement_fingerprint?: string | null
   // SPEC-069 demand-surface fields. These are intentionally bounded and
   // source-shaped, not an open provider payload. A consumer opportunity is a
   // public place or conversation where an audience gathers, never a recipient.

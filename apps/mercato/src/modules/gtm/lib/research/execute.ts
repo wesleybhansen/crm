@@ -213,6 +213,11 @@ const CANDIDATE_RETENTION_DAYS = 90
 export function candidateDedupeKey(candidate: Pick<Candidate, 'entity_kind' | 'identity'>): string {
   const identity = (candidate.identity ?? {}) as Record<string, unknown>
   const name = normalizePart(identity.name)
+  const linkedinEngagementFingerprint =
+    typeof identity.linkedin_engagement_fingerprint === 'string'
+    && /^[0-9a-f]{64}$/.test(identity.linkedin_engagement_fingerprint)
+      ? identity.linkedin_engagement_fingerprint
+      : ''
   const opportunityUrl =
     candidate.entity_kind === 'opportunity'
       ? canonicalOpportunityUrl([
@@ -235,7 +240,9 @@ export function candidateDedupeKey(candidate: Pick<Candidate, 'entity_kind' | 'i
   const domainOrCity =
     normalizePart(identity.domain) || normalizePart(identity.city) || normalizePart(identity.location)
   const opportunityKind = normalizePart(identity.opportunity_kind)
-  const material = opportunityUrl
+  const material = linkedinEngagementFingerprint && candidate.entity_kind === 'person'
+    ? `${candidate.entity_kind}|linkedin-engagement|${linkedinEngagementFingerprint}`
+    : opportunityUrl
     ? `${candidate.entity_kind}|url|${opportunityUrl}`
     : profileUrl
       ? `${candidate.entity_kind}|linkedin|${profileUrl}`

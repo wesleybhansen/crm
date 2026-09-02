@@ -832,6 +832,30 @@ describe('candidateDedupeKey', () => {
     expect(first).toBe(providerAlias)
   })
 
+  it('prefers the adapter-owned engagement fingerprint across incompatible LinkedIn URL forms', () => {
+    const fingerprint = 'a'.repeat(64)
+    const commenter = candidateDedupeKey({
+      entity_kind: 'person',
+      identity: {
+        name: 'Dana Reyes',
+        title: 'Broker/Owner, Results Realtors',
+        urls: ['https://www.linkedin.com/in/dana-reyes'],
+        linkedin_engagement_fingerprint: fingerprint,
+      },
+    })
+    const reactor = candidateDedupeKey({
+      entity_kind: 'person',
+      identity: {
+        name: 'Dana Reyes',
+        title: 'Broker/Owner, Results Realtors',
+        urls: ['https://www.linkedin.com/in/ACoAAExample'],
+        linkedin_engagement_fingerprint: fingerprint,
+      },
+    })
+
+    expect(commenter).toBe(reactor)
+  })
+
   it('uses the canonical public destination for opportunity identity', () => {
     const first = candidateDedupeKey({
       entity_kind: 'opportunity',
