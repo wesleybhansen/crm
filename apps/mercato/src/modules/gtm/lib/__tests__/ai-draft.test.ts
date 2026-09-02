@@ -12,6 +12,7 @@ import {
 } from '../campaign/ai-draft'
 import { GtmCampaign, GtmRenderedMessage } from '../../data/entities'
 import type { GtmEvidence } from '../../data/entities'
+import { GtmAiMeteringError } from '../ai/telemetry'
 
 function evidence(rows: { claim: string; confidence: number }[]): GtmEvidence[] {
   return rows as unknown as GtmEvidence[]
@@ -216,6 +217,28 @@ describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)',
     // The CAN-SPAM footer is still appended to the AI body.
     expect(rowA.bodyText).toContain('Unsubscribe:')
     expect(rowB.provenance).toBe('template')
+  })
+
+  it('does not turn a canonical metering failure into an unmetered template fallback', async () => {
+    const { em, campaign, a } = await setup()
+    await lockVoice(em)
+    const model = jsonModel(
+      'Voiced subject',
+      'This grounded message has enough useful words and offers one concise next step for the recipient today.',
+    )
+    const meter = jest.fn(async () => {
+      throw new GtmAiMeteringError('temporary Noli Core outage')
+    })
+
+    await expect(regenerateMessageForCandidate(em, ctx, { model, meter }, {
+      campaignId: campaign.id,
+      candidateId: a.id,
+      idempotencyKey: 'meter-failure-1',
+    })).rejects.toBeInstanceOf(GtmAiMeteringError)
+
+    expect(model.calls).toHaveLength(1)
+    expect(meter).toHaveBeenCalledTimes(1)
+    expect(((campaign.channelMix ?? {}) as Record<string, unknown>).ai_drafts).toBeUndefined()
   })
 
   it('drafts a step-specific, materially distinct three-email sequence', async () => {

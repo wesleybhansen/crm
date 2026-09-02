@@ -11,6 +11,7 @@ import {
   GtmVoiceVersion,
 } from '../data/entities'
 import { estimateModelTokens, type GtmAiMeter, type GtmDraftModel } from './ai/model'
+import { GtmAiMeteringError } from './ai/telemetry'
 import { computeGtmPolicy, policyInputFromPlay } from './policy'
 import { getLatestLockedVersion } from './versions'
 
@@ -332,6 +333,7 @@ export async function draftManualOutreachMessage(
       },
     }
   } catch (error) {
+    if (error instanceof GtmAiMeteringError) throw error
     await deps.meter?.({
       model: result?.model ?? deps.model.modelId ?? 'unknown',
       tokensIn: result?.tokensIn ?? 0,

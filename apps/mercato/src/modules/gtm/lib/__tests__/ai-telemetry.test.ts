@@ -1,5 +1,5 @@
 import { GtmAiTelemetry } from '../../data/entities'
-import { createGtmTelemetryMeter, recordGtmAiTelemetry } from '../ai/telemetry'
+import { GtmAiMeteringError, createGtmTelemetryMeter, recordGtmAiTelemetry } from '../ai/telemetry'
 import { FakeEm } from './support/fake-em'
 
 const ORG = '00000000-0000-4000-8000-000000000001'
@@ -95,6 +95,37 @@ describe('GTM AI telemetry', () => {
     expect(first.estimatedCostMicrousd).toBeNull()
     expect(second.id).not.toBe(first.id)
     expect(em.table(GtmAiTelemetry)).toHaveLength(2)
+  })
+
+  it('preserves the local receipt and fails the operation when canonical metering fails', async () => {
+    const em = new FakeEm()
+    const canonicalMeter = jest.fn(async () => {
+      throw new Error('temporary Noli Core outage')
+    })
+    const meter = createGtmTelemetryMeter({
+      em,
+      ctx: { organizationId: ORG, tenantId: TENANT, userId: USER, requestId: 'request-meter-failure' },
+      operationKey: 'gtm:test:canonical-meter-failure',
+      surface: 'voice_derive',
+      canonicalMeter,
+    })
+
+    await expect(meter({
+      model: 'gemini-3.7-flash',
+      tokensIn: 100,
+      tokensOut: 20,
+      feature: 'gtm-voice-derive',
+      status: 'succeeded',
+    })).rejects.toBeInstanceOf(GtmAiMeteringError)
+
+    expect(canonicalMeter).toHaveBeenCalledTimes(1)
+    expect(em.table(GtmAiTelemetry)).toHaveLength(1)
+    expect(em.table(GtmAiTelemetry)[0]).toMatchObject({
+      operationKey: 'gtm:test:canonical-meter-failure',
+      status: 'succeeded',
+      tokensIn: 100,
+      tokensOut: 20,
+    })
   })
 
   it('records provider failure and retry metadata idempotently without changing token truth', async () => {

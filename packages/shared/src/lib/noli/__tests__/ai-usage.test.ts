@@ -35,7 +35,7 @@ jest.mock('../core-client', () => {
   }
 })
 
-import { logCrmAiUsage } from '../ai-usage'
+import { logCrmAiUsage, logCrmAiUsageStrict } from '../ai-usage'
 
 describe('logCrmAiUsage cost attribution', () => {
   const originalEnv = process.env
@@ -109,6 +109,33 @@ describe('logCrmAiUsage cost attribution', () => {
     expect(upsertMock.mock.calls[0][0].metadata).toEqual(expect.objectContaining({
       idempotency_key_present: true,
     }))
+  })
+
+  it('strict mode rejects a failed canonical insert instead of swallowing it', async () => {
+    upsertMock.mockResolvedValueOnce({ error: { message: 'temporary write failure' } })
+
+    await expect(logCrmAiUsageStrict({
+      noliUserId: 'user-1',
+      noliOrgId: 'org-1',
+      model: 'gemini-3.7-flash',
+      tokensIn: 1_000,
+      tokensOut: 100,
+      idempotencyKey: 'gtm:strict:operation-1',
+    })).rejects.toMatchObject({ code: 'metering_write_failed' })
+  })
+
+  it('strict mode rejects missing Noli Core configuration', async () => {
+    delete process.env.NOLI_CORE_SUPABASE_URL
+    delete process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY
+
+    await expect(logCrmAiUsageStrict({
+      noliUserId: 'user-1',
+      noliOrgId: 'org-1',
+      model: 'gemini-3.7-flash',
+      tokensIn: 1_000,
+      tokensOut: 100,
+      idempotencyKey: 'gtm:strict:operation-2',
+    })).rejects.toMatchObject({ code: 'metering_unconfigured' })
   })
 
   it('retries an unresolved owner after the short negative-cache window expires', async () => {

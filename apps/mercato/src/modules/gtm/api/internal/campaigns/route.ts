@@ -20,6 +20,7 @@ import type {
   UpdateCampaignSettingsInput,
 } from '../../../lib/campaign/draft-config'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { GtmAiMeteringError } from '../../../lib/ai/telemetry'
 
 /*
  * Internal GTM campaigns (SPEC-066 sections 4, 5, 7, 8, 12, 14 Tranche 5).
@@ -460,10 +461,15 @@ export async function POST(req: Request) {
       // returns an honest template fallback when no locked voice exists or the
       // model call/parse fails (never a hard failure).
       const { checkCustomersAiAllowance } = await import('@/lib/usage/allowance')
-      const { meterCustomersAi } = await import('@/lib/usage/meter')
-      const gate = await checkCustomersAiAllowance({ orgId: ctx.organizationId })
+      const { meterCustomersAiStrict } = await import('@/lib/usage/meter')
+      const gate = await checkCustomersAiAllowance(
+        { orgId: ctx.organizationId },
+        'google',
+        { failureMode: 'closed' },
+      )
       if (!gate.allowed) {
-        return NextResponse.json({ ok: false, error: gate.message, code: 'ai_allowance' }, { status: 402 })
+        const code = gate.code ?? 'ai_allowance'
+        return NextResponse.json({ ok: false, error: gate.message, code }, { status: code === 'ai_metering_unavailable' ? 503 : 402 })
       }
       const apiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
       if (!apiKey) {
@@ -482,7 +488,8 @@ export async function POST(req: Request) {
         failureCode?: string | null
         retryCount?: number
       }) => {
-        await meterCustomersAi({ orgId: ctx.organizationId }, {
+        await meterCustomersAiStrict({ orgId: ctx.organizationId }, {
+          noliUserId: body.noliUserId,
           model: usage.model,
           tokensIn: usage.tokensIn,
           tokensOut: usage.tokensOut,
@@ -572,6 +579,12 @@ export async function POST(req: Request) {
         : null,
     })
   } catch (err) {
+    if (err instanceof GtmAiMeteringError) {
+      return NextResponse.json(
+        { ok: false, error: 'AI usage is temporarily unavailable. Please try again shortly.', code: 'ai_metering_unavailable' },
+        { status: 503 },
+      )
+    }
     if (err instanceof GtmCampaignError) {
       return errorResponse(err)
     }
