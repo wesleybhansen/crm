@@ -345,6 +345,29 @@ describe('Apify LinkedIn commenter-lead contract', () => {
     }
   })
 
+  it('selects only the frozen engagement kind when both source adapters are available', () => {
+    const commenter = createApifyLinkedInEngagerAdapter({ env: ENABLED_ENV, now })
+    const reactor = createApifyLinkedInReactorAdapter({ env: ENABLED_ENV, now })
+    const plan = buildSourcePlan(
+      {
+        marketType: 'b2b',
+        geography: 'Austin, TX',
+        signal: 'Public LinkedIn reactions to a real-estate AI topic',
+        signalKind: 'social_engagement',
+        entityUnit: 'people',
+        audience: 'Residential real-estate agents',
+        sourceHint: 'public LinkedIn posts',
+        providerQuery: { ...PLAN.provider_query, engagement_kind: 'reaction' },
+      },
+      [commenter, reactor],
+      { targetAccepted: 2, maxRawCandidates: 5 },
+    )
+    expect(plan).toMatchObject({
+      ok: true,
+      adapterPlan: [expect.objectContaining({ adapter_id: APIFY_LINKEDIN_REACTOR_ADAPTER_ID })],
+    })
+  })
+
   it('excludes the adapter from a plan when returned-content topics are not frozen', () => {
     const adapter = createApifyLinkedInEngagerAdapter({ env: ENABLED_ENV, now })
     const plan = buildSourcePlan(

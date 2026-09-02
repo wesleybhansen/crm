@@ -448,6 +448,13 @@ export function buildSourcePlan(
         })
         continue
       }
+      const contractedAdapterId = queryContract.value.engagementKind === 'comment'
+        ? APIFY_LINKEDIN_ENGAGER_ADAPTER_ID
+        : APIFY_LINKEDIN_REACTOR_ADAPTER_ID
+      // Comments and reactions are separately quoted source lanes. A frozen
+      // play selects exactly one; enabling both runtime adapters must not
+      // duplicate a run or make the other adapter's quote fail the plan.
+      if (descriptor.adapter_id !== contractedAdapterId) continue
     }
     const rights = adapterAudienceRights(
       descriptor,
