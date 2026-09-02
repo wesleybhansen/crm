@@ -67,6 +67,32 @@ export type ResearchLimits = {
   maxCredits: number
 }
 
+export type OpportunitySourceRoutingSignal = {
+  adapterId: string
+  geography?: string | null
+  intent?: string | null
+  opportunities: number
+  accepted: number
+  humanUsefulAccepted: number
+  chargedCredits: number
+  deadDestinationRate: number
+  staleDestinationRate: number
+  duplicateRate: number
+}
+
+export type OpportunitySourceRoutingInput = {
+  evidenceScope?: 'market_lane' | 'play' | 'organization_recent' | 'none'
+  signals?: OpportunitySourceRoutingSignal[] | null
+}
+
+export type OpportunitySourceRoutingSnapshot = {
+  policyVersion: 'opportunity-source-routing-v1'
+  evidenceScope: 'market_lane' | 'play' | 'organization_recent' | 'none'
+  geography: string
+  intent: string | null
+  signals: OpportunitySourceRoutingSignal[]
+}
+
 export type SourcePlanBatch = {
   adapter_id: string
   capability: {
@@ -141,7 +167,7 @@ export type SourcePlanFailure = {
 
 export type SourcePlanSuccess = {
   ok: true
-  schemaVersion: '13'
+  schemaVersion: '14'
   planHash: string
   adapterPlan: SourcePlanBatch[]
   estimatedCredits: number
@@ -158,6 +184,7 @@ export type SourcePlanSuccess = {
   geography: string
   entityKind: 'person' | 'company' | 'opportunity'
   destinationValidation: OpportunityDestinationValidationPlan
+  sourceRouting: OpportunitySourceRoutingSnapshot
   policy: GtmPolicyResult
 }
 
@@ -188,6 +215,82 @@ export function immutableHash(value: unknown): string {
 
 export function descriptorHash(descriptor: AdapterDescriptor): string {
   return immutableHash(descriptor)
+}
+
+function finiteNonNegative(value: number): number {
+  return Number.isFinite(value) && value >= 0 ? value : 0
+}
+
+function boundedRate(value: number): number {
+  return Math.max(0, Math.min(1, finiteNonNegative(value)))
+}
+
+function normalizedRoutingSignals(
+  input: OpportunitySourceRoutingInput | null | undefined,
+  adapterIds: Set<string>,
+): OpportunitySourceRoutingSignal[] {
+  return (input?.signals ?? [])
+    .filter((signal) =>
+      signal != null
+      && typeof signal === 'object'
+      && typeof signal.adapterId === 'string'
+      && adapterIds.has(signal.adapterId.trim()),
+    )
+    .map((signal) => ({
+      adapterId: signal.adapterId.trim(),
+      geography: signal.geography?.trim().replace(/\s+/g, ' ') || null,
+      intent: signal.intent?.trim().toLowerCase().replace(/[\s-]+/g, '_') || null,
+      opportunities: Math.floor(finiteNonNegative(signal.opportunities)),
+      accepted: Math.floor(finiteNonNegative(signal.accepted)),
+      humanUsefulAccepted: Math.floor(finiteNonNegative(signal.humanUsefulAccepted)),
+      chargedCredits: finiteNonNegative(signal.chargedCredits),
+      deadDestinationRate: boundedRate(signal.deadDestinationRate),
+      staleDestinationRate: boundedRate(signal.staleDestinationRate),
+      duplicateRate: boundedRate(signal.duplicateRate),
+    }))
+    .sort((left, right) =>
+      left.adapterId.localeCompare(right.adapterId)
+      || (left.geography ?? '').localeCompare(right.geography ?? '')
+      || (left.intent ?? '').localeCompare(right.intent ?? ''),
+    )
+}
+
+function normalizedRoutingEvidenceScope(
+  value: OpportunitySourceRoutingInput['evidenceScope'],
+  signalCount: number,
+): OpportunitySourceRoutingSnapshot['evidenceScope'] {
+  if (value === 'market_lane' || value === 'play' || value === 'organization_recent') {
+    return signalCount > 0 ? value : 'none'
+  }
+  if (value == null && signalCount > 0) return 'organization_recent'
+  return 'none'
+}
+
+function routingSignalFor(
+  signals: OpportunitySourceRoutingSignal[],
+  adapterId: string,
+  geography: string,
+  intent: string | null,
+): OpportunitySourceRoutingSignal | null {
+  const normalizedGeography = geography.toLowerCase()
+  return signals
+    .filter((signal) => signal.adapterId === adapterId)
+    .map((signal) => ({
+      signal,
+      specificity:
+        (signal.geography?.toLowerCase() === normalizedGeography ? 2 : signal.geography ? -10 : 0)
+        + (signal.intent === intent ? 1 : signal.intent ? -10 : 0),
+    }))
+    .filter((row) => row.specificity >= 0)
+    .sort((left, right) => right.specificity - left.specificity)[0]?.signal ?? null
+}
+
+function routingEvidenceTier(signal: OpportunitySourceRoutingSignal | null): number {
+  if (!signal) return 2
+  if (signal.humanUsefulAccepted > 0) return 0
+  if (signal.accepted > 0) return 1
+  if (signal.opportunities > 0 || signal.chargedCredits > 0) return 3
+  return 2
 }
 
 // Maps a capabilityCovers reason string onto the dimension it names, so the
@@ -256,6 +359,7 @@ export function buildSourcePlan(
   adapters: SourceAdapter[],
   limits?: ResearchLimitsInput | null,
   markupMultiplier: number = defaultMarkupMultiplier(),
+  opportunityRouting?: OpportunitySourceRoutingInput | null,
 ): SourcePlanResult {
   const policy = computeGtmPolicy(policyInputFromPlay(play))
   if (policy.research_eligibility !== 'provider_runnable') {
@@ -367,7 +471,7 @@ export function buildSourcePlan(
     eligibleAdapters.push(adapter)
   }
 
-  const plannedSources: Array<{
+  const unorderedPlannedSources: Array<{
     adapter: SourceAdapter
     query: string
     providerQuery: Record<string, unknown> | null
@@ -375,10 +479,10 @@ export function buildSourcePlan(
   }> = []
   for (const adapter of eligibleAdapters) {
     if (entityKind !== 'opportunity') {
-      plannedSources.push({ adapter, query, providerQuery: play.providerQuery ?? null, queryLaneId: null })
+      unorderedPlannedSources.push({ adapter, query, providerQuery: play.providerQuery ?? null, queryLaneId: null })
       continue
     }
-    plannedSources.push(
+    unorderedPlannedSources.push(
       ...buildOpportunityQueryLanes(play, adapter.descriptor.adapter_id).map((lane) => ({
         adapter,
         query: lane.query,
@@ -387,6 +491,99 @@ export function buildSourcePlan(
       })),
     )
   }
+
+  const routingIntent = entityKind === 'opportunity'
+    ? typeof unorderedPlannedSources[0]?.providerQuery?.opportunity_intent_lane === 'string'
+      ? unorderedPlannedSources[0].providerQuery.opportunity_intent_lane
+      : null
+    : null
+  const eligibleAdapterIds = new Set(eligibleAdapters.map((adapter) => adapter.descriptor.adapter_id))
+  const routingSignals = entityKind === 'opportunity'
+    ? normalizedRoutingSignals(opportunityRouting, eligibleAdapterIds)
+    : []
+  const sourceRouting: OpportunitySourceRoutingSnapshot = {
+    policyVersion: 'opportunity-source-routing-v1',
+    evidenceScope: entityKind === 'opportunity'
+      ? normalizedRoutingEvidenceScope(opportunityRouting?.evidenceScope, routingSignals.length)
+      : 'none',
+    geography: rawGeography,
+    intent: routingIntent,
+    signals: routingSignals,
+  }
+
+  const plannedSources = (() => {
+    if (entityKind !== 'opportunity') return unorderedPlannedSources
+    const groups = new Map<string, typeof unorderedPlannedSources>()
+    for (const source of unorderedPlannedSources) {
+      const adapterId = source.adapter.descriptor.adapter_id
+      const rows = groups.get(adapterId) ?? []
+      rows.push(source)
+      groups.set(adapterId, rows)
+    }
+    const representative = (adapterId: string) => groups.get(adapterId)?.[0]
+    const quotedCreditsPerExpectedCandidate = (adapterId: string): number => {
+      const source = representative(adapterId)
+      if (!source) return Number.POSITIVE_INFINITY
+      try {
+        const quote = source.adapter.quote({
+          signal_kind: signalKind,
+          entity_unit: providerEntityUnit,
+          geography: geographyCode,
+          query: source.query,
+          provider_query: source.providerQuery ?? undefined,
+          max_candidates: Math.min(10, maxRawCandidates),
+        })
+        const expected = Math.max(1, quote.expected_candidates.high)
+        return creditsForUnits(
+          quote.provider_units,
+          quote.quoted_credits_per_unit,
+          markupMultiplier,
+        ) / expected
+      } catch {
+        return Number.POSITIVE_INFINITY
+      }
+    }
+    const adapterOrder = [...groups.keys()].sort((leftId, rightId) => {
+      const left = routingSignalFor(routingSignals, leftId, rawGeography, routingIntent)
+      const right = routingSignalFor(routingSignals, rightId, rawGeography, routingIntent)
+      const tierDelta = routingEvidenceTier(left) - routingEvidenceTier(right)
+      if (tierDelta !== 0) return tierDelta
+      const leftUsefulYield = left && left.opportunities > 0
+        ? left.humanUsefulAccepted / left.opportunities
+        : 0
+      const rightUsefulYield = right && right.opportunities > 0
+        ? right.humanUsefulAccepted / right.opportunities
+        : 0
+      if (leftUsefulYield !== rightUsefulYield) return rightUsefulYield - leftUsefulYield
+      const leftAcceptedYield = left && left.opportunities > 0 ? left.accepted / left.opportunities : 0
+      const rightAcceptedYield = right && right.opportunities > 0 ? right.accepted / right.opportunities : 0
+      if (leftAcceptedYield !== rightAcceptedYield) return rightAcceptedYield - leftAcceptedYield
+      const leftPenalty = left
+        ? left.deadDestinationRate + left.staleDestinationRate + left.duplicateRate
+        : 0
+      const rightPenalty = right
+        ? right.deadDestinationRate + right.staleDestinationRate + right.duplicateRate
+        : 0
+      if (leftPenalty !== rightPenalty) return leftPenalty - rightPenalty
+      const leftCost = left && (left.humanUsefulAccepted > 0 || left.accepted > 0)
+        ? left.chargedCredits / Math.max(1, left.humanUsefulAccepted || left.accepted)
+        : quotedCreditsPerExpectedCandidate(leftId)
+      const rightCost = right && (right.humanUsefulAccepted > 0 || right.accepted > 0)
+        ? right.chargedCredits / Math.max(1, right.humanUsefulAccepted || right.accepted)
+        : quotedCreditsPerExpectedCandidate(rightId)
+      if (leftCost !== rightCost) return leftCost - rightCost
+      return leftId.localeCompare(rightId)
+    })
+    const interleaved: typeof unorderedPlannedSources = []
+    const maxLanes = Math.max(0, ...[...groups.values()].map((rows) => rows.length))
+    for (let laneIndex = 0; laneIndex < maxLanes; laneIndex += 1) {
+      for (const adapterId of adapterOrder) {
+        const source = groups.get(adapterId)?.[laneIndex]
+        if (source) interleaved.push(source)
+      }
+    }
+    return interleaved
+  })()
 
   let remaining = maxRawCandidates
   for (const [index, plannedSource] of plannedSources.entries()) {
@@ -562,7 +759,7 @@ export function buildSourcePlan(
       : estimatedCredits
 
   const pricedPlan = {
-    schemaVersion: '13' as const,
+    schemaVersion: '14' as const,
     adapterPlan,
     estimatedCredits,
     plannedRawCapacity,
@@ -578,6 +775,7 @@ export function buildSourcePlan(
     geography: rawGeography,
     entityKind,
     destinationValidation: buildOpportunityDestinationValidationPlan(entityKind, maxRawCandidates),
+    sourceRouting,
     policy,
   }
   return {

@@ -362,7 +362,7 @@ describe('Reddit URL hydration contract', () => {
     )
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.reason)
-    expect(result.schemaVersion).toBe('13')
+    expect(result.schemaVersion).toBe('14')
     expect(result.adapterPlan.every((batch) => batch.adapter_id !== hydration.descriptor.adapter_id)).toBe(true)
     const dependent = result.adapterPlan
       .map((batch) => batch.dependentHydration)

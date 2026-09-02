@@ -1248,53 +1248,50 @@ export const APIFY_MEETUP_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-meetup-demand-opportunities',
   platform: 'Meetup',
   enabledEnv: 'GTM_APIFY_MEETUP_OPPORTUNITY_ENABLED',
-  actorId: 'filip_cicvarek/meetup-scraper',
-  actorBuild: '3.0.14',
+  actorId: 'scrapersdelight/meetup-scraper',
+  actorBuild: '0.1.4',
   actorEnv: 'GTM_APIFY_ACTOR_MEETUP_SEARCH',
   useApprovalEnv: 'GTM_APIFY_MEETUP_OPPORTUNITY_USE_APPROVED',
   priceVersionEnv: 'GTM_APIFY_MEETUP_SEARCH_PRICE_VERSION',
-  // Rechecked against the signed-in Starter account on 2026-08-30. The
-  // established actor prices BRONZE at $0.0008 per returned event with
-  // platform usage included. There is no separate run-start event.
-  requiredPriceVersion: 'filip-cicvarek-meetup-scraper-3.0.14-bronze-events-2026-08-30',
-  eventPricesUsd: { 'apify-default-dataset-item': 0.0008 },
+  // Rechecked against the public Actor API and Store contract on 2026-09-01.
+  // The replacement actor charges $0.0009 for each unique event returned and
+  // has no run-start charge. Duplicate event IDs are removed before billing.
+  requiredPriceVersion: 'scrapersdelight-meetup-scraper-0.1.4-event-scraped-2026-09-01',
+  eventPricesUsd: { 'event-scraped': 0.0009 },
   oneTimeEvent: null,
-  primaryResultEvent: 'apify-default-dataset-item',
-  perItemQuoteUsd: 0.0008,
+  primaryResultEvent: 'event-scraped',
+  perItemQuoteUsd: 0.0009,
   oneTimeQuoteUsd: 0,
   maxBatch: 10,
   datasetFields: [
-    'eventId',
-    'eventName',
-    'eventDescription',
+    'id',
+    'title',
+    'description',
     'eventType',
-    'date',
-    'address',
     'eventUrl',
-    'organizedByGroup',
-    'maxAttendees',
-    'actualAttendees',
-    'isPaidEvent',
-    'feeAmount',
-    'feeCurrency',
-    'feeRequired',
-    'eventShortUrl',
-    'eventStatus',
     'isOnline',
-    'startDateTime',
-    'endDateTime',
-    'durationISO',
-    'timezone',
-    'createdTime',
-    'featuredPhotoUrl',
-    'ratingAverage',
-    'ratingCount',
-    'reviewCount',
-    'venue',
-    'group',
-    'hosts',
-    'topics',
-    'series',
+    'dateTime',
+    'endTime',
+    'rsvpCount',
+    'maxTickets',
+    'rsvpState',
+    'venueName',
+    'venueAddress',
+    'venueCity',
+    'venueState',
+    'venueCountry',
+    'groupId',
+    'groupName',
+    'groupUrl',
+    'groupTimezone',
+    'groupIsNew',
+    'groupRatingAverage',
+    'groupRatingCount',
+    'hostName',
+    'hostMemberId',
+    'searchKeyword',
+    'searchLocation',
+    'scraped_at',
   ],
   buildInput: buildMeetupInput,
   normalize: normalizeMeetupOpportunity,
@@ -1604,6 +1601,11 @@ function nonNegativeInteger(value: unknown): number {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0
 }
 
+function nonNegativeNumber(value: unknown): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+}
+
 function sourceKeywords(plan: SourceSearchPlan): string | null {
   const values = plan.provider_query?.source_search_keywords
   if (!Array.isArray(values)) return null
@@ -1641,7 +1643,7 @@ function meetupLocation(plan: SourceSearchPlan): string {
 
 function requiredMeetupContract(plan: SourceSearchPlan): void {
   const expected: Array<[string, unknown]> = [
-    ['meetup_contract_version', 'public-events-v2'],
+    ['meetup_contract_version', 'public-events-v3'],
     ['meetup_event_type', 'PHYSICAL'],
     ['meetup_country', 'us'],
     ['meetup_radius_miles', 25],
@@ -1707,17 +1709,14 @@ function buildMeetupInput(
   if (!Number.isFinite(start.getTime())) throw new TypeError('Meetup requires a valid attempt time')
   const end = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1_000)
   return {
-    mode: 'events',
-    searchKeyword: queryText(plan, 100),
-    city,
-    state,
-    country: 'us',
+    keyword: queryText(plan, 100),
+    location: `${city}, ${state}`,
     eventType: 'PHYSICAL',
-    radius: 25,
-    startDateRange: start.toISOString(),
-    endDateRange: end.toISOString(),
+    radiusMiles: 25,
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
     minRsvpCount: 1,
-    sortBy: 'RELEVANCE',
+    sort: 'RELEVANCE',
     maxResults,
   }
 }
@@ -2035,6 +2034,7 @@ function meetupTopicNames(value: unknown): string[] {
 function meetupPeople(
   group: Record<string, unknown> | null,
   hostsValue: unknown,
+  flatRow?: Record<string, unknown>,
 ): CandidateIdentity['people_to_follow'] {
   const people: NonNullable<CandidateIdentity['people_to_follow']> = []
   const organizerName = text(group?.organizerName, 120)
@@ -2059,18 +2059,27 @@ function meetupPeople(
       if (people.length >= 5) break
     }
   }
+  const flatHostName = text(flatRow?.hostName, 120)
+  if (flatHostName && !people.some((person) => person.name.toLowerCase() === flatHostName.toLowerCase())) {
+    people.push({
+      name: flatHostName,
+      role: 'Public Meetup event host shown as secondary source context',
+      profile_url: null,
+    })
+  }
   return people.length > 0 ? people : undefined
 }
 
 export function normalizeMeetupOpportunity(value: unknown, context: NormalizeContext): Candidate | null {
   const row = record(value)
   if (!row || !context.location) return null
-  const eventId = text(row.eventId, 200)
-  const eventName = text(row.eventName, 180)
-  const description = text(row.eventDescription, 1_200)
+  const eventId = text(row.id ?? row.eventId, 200)
+  const eventName = text(row.title ?? row.eventName, 180)
+  const description = text(row.description ?? row.eventDescription, 1_200)
   const sourceUrl = safePlatformUrl(row.eventUrl ?? row.eventShortUrl, 'Meetup')
   const eventType = text(row.eventType, 40)?.toUpperCase()
   const status = text(row.eventStatus, 40)?.toLowerCase()
+  const rsvpState = text(row.rsvpState, 40)?.toUpperCase()
   if (
     !eventId
     || !eventName
@@ -2078,12 +2087,12 @@ export function normalizeMeetupOpportunity(value: unknown, context: NormalizeCon
     || !sourceUrl
     || eventType !== 'PHYSICAL'
     || row.isOnline === true
-    || !status
-    || !['active', 'upcoming', 'scheduled', 'published'].includes(status)
+    || (status != null && !['active', 'upcoming', 'scheduled', 'published'].includes(status))
+    || rsvpState === 'CANCELLED'
   ) return null
 
   const attemptedAt = new Date(context.attemptedAt)
-  const eventStart = sourcePublishedAt(row.startDateTime ?? row.date)
+  const eventStart = sourcePublishedAt(row.dateTime ?? row.startDateTime ?? row.date)
   if (!eventStart) return null
   const eventDate = new Date(eventStart)
   if (
@@ -2094,19 +2103,19 @@ export function normalizeMeetupOpportunity(value: unknown, context: NormalizeCon
   ) return null
 
   const venue = record(row.venue)
-  const venueCity = text(venue?.city, 120)
-  const venueState = text(venue?.state, 120)
-  const venueCountry = text(venue?.country, 20)?.toLowerCase()
+  const venueCity = text(row.venueCity ?? venue?.city, 120)
+  const venueState = text(row.venueState ?? venue?.state, 120)
+  const venueCountry = text(row.venueCountry ?? venue?.country, 20)?.toLowerCase()
   const returnedLocation = [venueCity, venueState, venueCountry].filter(Boolean).join(', ')
   const demonstratedLocation = demonstratedOpportunityLocation(returnedLocation, context.location)
   if (!demonstratedLocation || !['us', 'usa', 'united states'].includes(venueCountry ?? '')) return null
 
   const group = record(row.group)
-  const groupName = text(group?.name ?? row.organizedByGroup, 180)
+  const groupName = text(row.groupName ?? group?.name ?? row.organizedByGroup, 180)
   const topics = meetupTopicNames(row.topics)
   const content = [eventName, description, groupName, ...topics].filter(Boolean).join('. ')
   if (SENSITIVE_TARGETING.test(content) || sensitiveConsumerOpportunityReasons(content).length > 0) return null
-  const engagement = Math.min(10_000_000, nonNegativeInteger(row.actualAttendees))
+  const engagement = Math.min(10_000_000, nonNegativeInteger(row.rsvpCount ?? row.actualAttendees))
   const memberCount = Math.min(10_000_000, nonNegativeInteger(group?.memberCount))
   const paid = row.isPaidEvent === true || row.feeRequired === true
   const publishedAt = sourcePublishedAt(row.createdTime)
@@ -2120,7 +2129,7 @@ export function normalizeMeetupOpportunity(value: unknown, context: NormalizeCon
     locationEvidence: returnedLocation,
     engagement,
     demonstratedIntent,
-    people: meetupPeople(group, row.hosts),
+    people: meetupPeople(group, row.hosts, row),
   })
   identity.opportunity_kind = 'event'
   identity.location = demonstratedLocation
@@ -2128,7 +2137,11 @@ export function normalizeMeetupOpportunity(value: unknown, context: NormalizeCon
   identity.region = venueState
   identity.country_code = 'US'
   identity.member_count = memberCount || null
-  identity.access_type = paid ? 'ticketed' : 'public'
+  identity.access_type = paid
+    ? 'ticketed'
+    : rsvpState === 'JOIN_APPROVAL' || rsvpState === 'JOIN_DUES_APPROVAL'
+      ? 'approval_required'
+      : 'public'
   identity.source_published_at = publishedAt
   identity.event_start_at = eventStart
   identity.participation_rules = 'Review the current public event details, host requirements, ticket terms, and Meetup community rules before participating.'
@@ -2160,12 +2173,16 @@ export function normalizeMeetupOpportunity(value: unknown, context: NormalizeCon
           requested_location: context.location,
           requested_intent: context.expectedIntent ?? null,
           structured_venue: {
-            name: text(venue?.name, 180),
+            name: text(row.venueName ?? venue?.name, 180),
             city: venueCity,
             state: venueState,
             country: venueCountry,
           },
           group_name: groupName,
+          group_url: safePlatformUrl(row.groupUrl, 'Meetup'),
+          group_rating_average: nonNegativeNumber(row.groupRatingAverage),
+          group_rating_count: nonNegativeInteger(row.groupRatingCount),
+          rsvp_state: rsvpState,
           topic_names: topics,
           event_start_at: eventStart,
           source_published_at: publishedAt,
@@ -3179,7 +3196,7 @@ export function createPublicSocialOpportunityAdapter(
       if (outcome.status === 'error') {
         const finalizedCostUnits =
           outcome.billingFinalized && outcome.providerCostUsd != null
-            ? outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
+            ? Math.round((outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD) * 1_000_000_000) / 1_000_000_000
             : 0
         return {
           status: 'error',
@@ -3226,7 +3243,9 @@ export function createPublicSocialOpportunityAdapter(
           error: 'provider_billing_unknown: an unrequested public social result event was charged',
         }
       }
-      const costUnits = outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
+      const costUnits = Math.round(
+        (outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD) * 1_000_000_000,
+      ) / 1_000_000_000
       const oneTimeCount = config.oneTimeEvent == null ? 0 : (counts[config.oneTimeEvent] ?? 0)
       const allowedOneTimeCounts = config.allowedOneTimeEventCounts ?? [1]
       if (config.oneTimeEvent != null && !allowedOneTimeCounts.includes(oneTimeCount)) {

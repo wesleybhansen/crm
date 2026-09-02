@@ -2,6 +2,10 @@ import type { EnrichAdapter, SourceAdapter, VerifyAdapter } from './types'
 import { fixtureEnrichAdapter, fixtureSourceAdapter, fixtureVerifyAdapter } from './fixture'
 import { fixtureConsumerSourceAdapter } from './fixture-consumer'
 import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
+import {
+  apifyLinkedInEngagerEnabled,
+  createApifyLinkedInEngagerAdapter,
+} from './apify/engager-source'
 import { apifyOpportunitySourceEnabled, createApifyOpportunitySourceAdapter } from './apify/opportunity-source'
 import {
   apifyEventbriteOpportunityEnabled,
@@ -87,6 +91,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifySourceEnabled()) {
     const apify = createApifySourceAdapter()
     registry[apify.descriptor.adapter_id] = apify
+  }
+  if (apifyLinkedInEngagerEnabled()) {
+    const linkedInEngagers = createApifyLinkedInEngagerAdapter()
+    registry[linkedInEngagers.descriptor.adapter_id] = linkedInEngagers
   }
   if (apifyOpportunitySourceEnabled()) {
     const opportunities = createApifyOpportunitySourceAdapter()

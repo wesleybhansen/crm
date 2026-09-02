@@ -168,7 +168,7 @@ describe('buildSourcePlan fail-closed boundaries', () => {
 
     expect(plan.ok).toBe(true)
     if (plan.ok) {
-      expect(plan.schemaVersion).toBe('13')
+      expect(plan.schemaVersion).toBe('14')
       expect(plan.destinationValidation).toEqual({
         version: 'safe-public-destination-v4',
         enabled: true,
@@ -1006,7 +1006,7 @@ describe('buildSourcePlan pricing and limits', () => {
         ['fixture-source-b', 15],
       ])
       expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
-      expect(plan.schemaVersion).toBe('13')
+      expect(plan.schemaVersion).toBe('14')
     }
   })
 
@@ -1041,6 +1041,72 @@ describe('buildSourcePlan pricing and limits', () => {
         { units: 25, page: 2, offset: 25 },
       ])
       expect(plan.plannedRawCapacity).toBe(50)
+    }
+  })
+
+  it('interleaves opportunity sources and freezes useful-result routing evidence into the quote', () => {
+    const first: SourceAdapter = {
+      descriptor: { ...fixtureConsumerSourceDescriptor, adapter_id: 'fixture-opportunity-a' },
+      quote: fixtureConsumerSourceAdapter.quote,
+      search: fixtureConsumerSourceAdapter.search,
+    }
+    const proven: SourceAdapter = {
+      descriptor: { ...fixtureConsumerSourceDescriptor, adapter_id: 'fixture-opportunity-b' },
+      quote: fixtureConsumerSourceAdapter.quote,
+      search: fixtureConsumerSourceAdapter.search,
+    }
+    const play: PlanPlayInput = {
+      marketType: 'b2c',
+      geography: 'Austin, Texas',
+      signal: 'Public homebuyer questions and current local housing events',
+      signalKind: 'social_engagement',
+      entityUnit: 'opportunities',
+      audience: 'Austin residents looking to buy a home',
+      providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+    }
+    const plan = buildSourcePlan(
+      play,
+      [first, proven],
+      { targetAccepted: 4, maxRawCandidates: 12 },
+      undefined,
+      {
+        evidenceScope: 'market_lane',
+        signals: [
+          {
+            adapterId: 'fixture-opportunity-b',
+            geography: 'Austin, Texas',
+            intent: 'buyer_intent',
+            opportunities: 10,
+            accepted: 8,
+            humanUsefulAccepted: 7,
+            chargedCredits: 70,
+            deadDestinationRate: 0,
+            staleDestinationRate: 0,
+            duplicateRate: 0.05,
+          },
+        ],
+      },
+    )
+
+    expect(plan.ok).toBe(true)
+    if (plan.ok) {
+      expect(plan.sourceRouting).toEqual(expect.objectContaining({
+        policyVersion: 'opportunity-source-routing-v1',
+        evidenceScope: 'market_lane',
+        geography: 'Austin, Texas',
+        intent: 'buyer_intent',
+      }))
+      expect(plan.adapterPlan.map((batch) => batch.adapter_id)).toEqual([
+        'fixture-opportunity-b',
+        'fixture-opportunity-a',
+        'fixture-opportunity-b',
+        'fixture-opportunity-a',
+        'fixture-opportunity-b',
+        'fixture-opportunity-a',
+      ])
+      const baseline = buildSourcePlan(play, [first, proven], { targetAccepted: 4, maxRawCandidates: 12 })
+      expect(baseline.ok).toBe(true)
+      if (baseline.ok) expect(plan.planHash).not.toBe(baseline.planHash)
     }
   })
 

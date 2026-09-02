@@ -11,7 +11,11 @@ import {
 } from '../../../lib/flags'
 import { gtmResearchRunsBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
-import { buildSourcePlan } from '../../../lib/research/plan'
+import {
+  buildSourcePlan,
+  canonicalEntityKind,
+  type OpportunitySourceRoutingInput,
+} from '../../../lib/research/plan'
 import type { GtmResearchRun } from '../../../data/entities'
 import type { GtmCreditLedger } from '../../../lib/credits/ledger'
 
@@ -215,7 +219,40 @@ export async function POST(req: Request) {
       })
       if (!play) return opaqueNotFound()
 
-      const plan = buildSourcePlan(play, sourceAdapterList(), body.limits ?? null)
+      let opportunityRouting: OpportunitySourceRoutingInput = { evidenceScope: 'none', signals: [] }
+      if (canonicalEntityKind(play.entityUnit ?? '') === 'opportunity') {
+        try {
+          const { getOpportunityQualityDiagnostics } = await import(
+            '../../../lib/diagnostics/opportunity-quality'
+          )
+          const diagnostics = await getOpportunityQualityDiagnostics(
+            em as unknown as import('../../../lib/campaign/build').CampaignEm,
+            { organizationId, tenantId },
+          )
+          opportunityRouting = {
+            evidenceScope: 'organization_recent',
+            signals: diagnostics.sources.map((source) => ({
+              adapterId: source.source,
+              opportunities: source.opportunities,
+              accepted: source.accepted,
+              humanUsefulAccepted: source.humanUsefulAccepted,
+              chargedCredits: source.chargedCredits,
+              deadDestinationRate: source.deadDestinationRate,
+              staleDestinationRate: source.staleDestinationRate,
+              duplicateRate: source.duplicateRate,
+            })),
+          }
+        } catch (error) {
+          console.error('[internal.gtm.research-runs] source quality history unavailable', error)
+        }
+      }
+      const plan = buildSourcePlan(
+        play,
+        sourceAdapterList(),
+        body.limits ?? null,
+        undefined,
+        opportunityRouting,
+      )
       if (!plan.ok) {
         // Fail-closed plan error (non-executable play or empty adapter plan).
         return NextResponse.json(
@@ -249,6 +286,7 @@ export async function POST(req: Request) {
             limits: plan.limits,
             qualificationProfile: plan.qualificationProfile,
             destinationValidation: plan.destinationValidation,
+            sourceRouting: plan.sourceRouting,
             policy: plan.policy,
             schema_version: plan.schemaVersion,
             plan_hash: plan.planHash,
@@ -272,6 +310,7 @@ export async function POST(req: Request) {
               limits: plan.limits,
               qualificationProfile: plan.qualificationProfile,
               destinationValidation: plan.destinationValidation,
+              sourceRouting: plan.sourceRouting,
               policy: plan.policy,
               schema_version: plan.schemaVersion,
               plan_hash: plan.planHash,
@@ -316,6 +355,7 @@ export async function POST(req: Request) {
             unsupportedDimensions: plan.unsupportedDimensions,
             qualificationProfile: plan.qualificationProfile,
             destinationValidation: plan.destinationValidation,
+            sourceRouting: plan.sourceRouting,
             policy: plan.policy,
             query: plan.query,
           },
@@ -353,6 +393,7 @@ export async function POST(req: Request) {
           limits: plan.limits,
           qualificationProfile: plan.qualificationProfile,
           destinationValidation: plan.destinationValidation,
+          sourceRouting: plan.sourceRouting,
           policy: plan.policy,
           schema_version: plan.schemaVersion,
           plan_hash: plan.planHash,
@@ -435,7 +476,14 @@ export async function POST(req: Request) {
         maxCandidates?: number
         maxCredits?: number
       }
-      const currentPlan = buildSourcePlan(play, Object.values(adapters), limits)
+      const frozenSourceRouting = frozenProviderPlan.sourceRouting as OpportunitySourceRoutingInput | undefined
+      const currentPlan = buildSourcePlan(
+        play,
+        Object.values(adapters),
+        limits,
+        undefined,
+        frozenSourceRouting,
+      )
       if (!currentPlan.ok || currentPlan.planHash !== frozenPlanHash) {
         return NextResponse.json(
           {
