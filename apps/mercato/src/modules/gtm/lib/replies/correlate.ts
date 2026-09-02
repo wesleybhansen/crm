@@ -16,7 +16,7 @@ import {
   GtmStep,
   GtmSuppression,
 } from '../../data/entities'
-import { EmailMessage } from '../../../email/data/schema'
+import { EmailConnection, EmailMessage } from '../../../email/data/schema'
 
 /*
  * Reply correlation + THE atomic stop (SPEC-066 sections 9, 3.3, Tranche 6).
@@ -243,6 +243,29 @@ const EVENT_KINDS = new Set<InboundEventKind>([
 
 function messageMetadata(message: EmailMessage): Record<string, unknown> {
   return (message.metadata ?? {}) as Record<string, unknown>
+}
+
+/**
+ * Personal-mailbox syncs can surface a sent message again when the recipient
+ * is an alias of the connected mailbox (for example, a Gmail plus-address).
+ * It is not an inbound prospect reply and must never stop an enrollment or be
+ * classified from the message's own unsubscribe footer.
+ */
+async function isMailboxOriginatedMessage(
+  em: ExecutionEm,
+  ctx: GtmCtx,
+  message: EmailMessage,
+): Promise<boolean> {
+  if (!message.accountId || !message.fromAddress?.trim()) return false
+  const connection = await em.findOne(EmailConnection, {
+    id: message.accountId,
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    isActive: true,
+    deletedAt: null,
+  })
+  if (!connection?.emailAddress?.trim()) return false
+  return connection.emailAddress.trim().toLowerCase() === message.fromAddress.trim().toLowerCase()
 }
 
 function messageHeaders(message: EmailMessage): Record<string, string> {
@@ -705,6 +728,9 @@ export async function correlateReplies(
   let unmatched = 0
   let failed = 0
   for (const message of messages) {
+    if (await isMailboxOriginatedMessage(em, ctx, message)) {
+      continue
+    }
     const kind = detectInboundEventKind(message)
     const event = await persistInboundEvent(em, ctx, message, kind, now)
     const claim = await claimInboundEvent(em, event, now)

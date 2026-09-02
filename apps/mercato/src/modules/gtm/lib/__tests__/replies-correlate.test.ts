@@ -4,6 +4,7 @@ import {
   FakeTransport,
   LAUNCH_ISO,
   MAILBOX,
+  SENDER_ADDRESS,
   fixedClock,
   seedInboundMessage,
   seedLaunchedCampaign,
@@ -230,6 +231,22 @@ describe('correlateReplies + atomic stop (SPEC-066 sections 9, 3.3)', () => {
     const result = await correlateReplies(s.em, ctx, { clock: s.clock })
     expect(result.matched).toHaveLength(0)
     expect(await s.em.find(GtmReply, {})).toHaveLength(0)
+    expect(s.enrollment.status).toBe('active')
+  })
+
+  it('ignores a sent-message echo from the connected mailbox even when it references the attempt', async () => {
+    const s = await sent()
+    await seedInboundMessage(s.em, {
+      from: SENDER_ADDRESS,
+      headers: { 'in-reply-to': `<${s.rfcBare}>` },
+      bodyText: 'Original message body with an unsubscribe footer.',
+      createdAt: s.clock.now(),
+    })
+
+    const result = await correlateReplies(s.em, ctx, { clock: s.clock })
+    expect(result.matched).toHaveLength(0)
+    expect(await s.em.find(GtmReply, {})).toHaveLength(0)
+    expect(s.sentAttempt.state).toBe('accepted')
     expect(s.enrollment.status).toBe('active')
   })
 
