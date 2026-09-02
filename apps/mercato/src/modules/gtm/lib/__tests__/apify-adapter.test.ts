@@ -680,6 +680,7 @@ function postSearchBody(options: { comments?: number; reactions?: number; url?: 
   return JSON.stringify([
     {
       linkedinUrl: options.url ?? DISCOVERED_POST,
+      content: 'How real estate agents can use AI to improve their client service.',
       engagement: { likes: reactions.length, comments: comments.length },
       comments,
       reactions,
@@ -764,6 +765,10 @@ describe('linkedin_post_search normalization', () => {
       // There is no caller-supplied url here, so evidence anchors to the post
       // the person was actually found on.
       expect(candidate.evidence[0].source_url).toBe(DISCOVERED_POST)
+      expect(candidate.evidence[0].claim).not.toContain('matching the audience search')
+      expect(candidate.evidence[0].detail).toMatchObject({
+        post_content: 'How real estate agents can use AI to improve their client service.',
+      })
     }
   })
 

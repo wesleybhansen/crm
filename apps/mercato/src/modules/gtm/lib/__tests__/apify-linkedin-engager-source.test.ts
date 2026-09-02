@@ -8,6 +8,7 @@ import {
   APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD,
   APIFY_LINKEDIN_ENGAGER_PRICE_VERSION_ENV,
   APIFY_LINKEDIN_ENGAGER_REQUIRED_PRICE_VERSION,
+  LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
   apifyLinkedInEngagerApproved,
   apifyLinkedInEngagerDescriptor,
   apifyLinkedInEngagerEnabled,
@@ -36,7 +37,12 @@ const PLAN: SourceSearchPlan = {
   entity_unit: 'people',
   geography: 'US',
   query: 'Austin homeowners asking about selling a home',
-  provider_query: { recency_window: 'last 30 days' },
+  provider_query: {
+    recency_window: 'last 30 days',
+    linkedin_engagement_query_contract_version: LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
+    search_query: '("AI in real estate" OR "AI for real estate agents" OR "real estate AI") NOT (proptech OR "commercial real estate")',
+    engagement_topics: ['AI in real estate', 'AI for real estate agents', 'real estate AI'],
+  },
   max_candidates: 5,
   max_charge_usd: 0.02,
 }
@@ -64,6 +70,7 @@ function items(): unknown[] {
       type: 'post',
       id: '7486634839639523328',
       linkedinUrl: POST_URL,
+      content: 'How real estate agents can use AI to improve their client service.',
       comments: [comment()],
       reactions: [],
     },
@@ -138,7 +145,7 @@ describe('Apify LinkedIn commenter-lead contract', () => {
 
   it('scrapes bounded comments but leaves lower-intent reactions off', () => {
     expect(buildApifyLinkedInEngagerInput(PLAN)).toEqual({
-      searchQueries: ['Austin homeowners asking about selling a home'],
+      searchQueries: ['("AI in real estate" OR "AI for real estate agents" OR "real estate AI") NOT (proptech OR "commercial real estate")'],
       maxPosts: 1,
       postedLimit: 'month',
       sortBy: 'relevance',
@@ -159,6 +166,14 @@ describe('Apify LinkedIn commenter-lead contract', () => {
     expect(quote.billable_unit).toBe('apify_millidollar')
   })
 
+  it('refuses a quote without the frozen returned-content query contract', () => {
+    const adapter = createApifyLinkedInEngagerAdapter({ env: ENABLED_ENV, now })
+    expect(() => adapter.quote({
+      ...PLAN,
+      provider_query: { recency_window: 'last 30 days' },
+    })).toThrow('missing frozen LinkedIn engagement query contract')
+  })
+
   it('returns one deduplicated commenter anchored to the public post and finalized spend', async () => {
     const calls: Array<{ input: Record<string, unknown>; options: Record<string, unknown> }> = []
     const adapter = createApifyLinkedInEngagerAdapter({
@@ -176,7 +191,13 @@ describe('Apify LinkedIn commenter-lead contract', () => {
       expect.objectContaining({
         entity_kind: 'person',
         identity: expect.objectContaining({ name: 'Jamie Example', urls: [PROFILE_URL] }),
-        evidence: [expect.objectContaining({ source_url: POST_URL })],
+        evidence: [expect.objectContaining({
+          claim: 'Commented on a public LinkedIn post (COMMENT)',
+          source_url: POST_URL,
+          detail: expect.objectContaining({
+            post_content: 'How real estate agents can use AI to improve their client service.',
+          }),
+        })],
       }),
     ])
     expect(result.receipt).toMatchObject({
@@ -186,6 +207,8 @@ describe('Apify LinkedIn commenter-lead contract', () => {
       charged_event_counts: { 'apify-actor-start': 1, post: 1, comment: 1 },
       returned_count: 1,
       skipped_child_rows: 1,
+      query_contract_version: LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
+      engagement_topics: ['AI in real estate', 'AI for real estate agents', 'real estate AI'],
       reactions_scraped: false,
     })
     expect(calls[0]?.options.datasetFields).toEqual([...APIFY_LINKEDIN_ENGAGER_DATASET_FIELDS])
@@ -219,6 +242,7 @@ describe('Apify LinkedIn commenter-lead contract', () => {
         entityUnit: 'people',
         audience: 'Homeowners considering a move',
         sourceHint: 'public LinkedIn posts',
+        providerQuery: PLAN.provider_query,
       },
       [adapter],
       { targetAccepted: 2, maxRawCandidates: 5 },
@@ -235,5 +259,32 @@ describe('Apify LinkedIn commenter-lead contract', () => {
     if (plan.ok) {
       expect(plan.policy.outreach_mode).toBe(marketType === 'b2b' ? 'automated_email' : 'manual_only')
     }
+  })
+
+  it('excludes the adapter from a plan when returned-content topics are not frozen', () => {
+    const adapter = createApifyLinkedInEngagerAdapter({ env: ENABLED_ENV, now })
+    const plan = buildSourcePlan(
+      {
+        marketType: 'b2b',
+        geography: 'Austin, TX',
+        signal: 'Public LinkedIn comments demonstrating real-estate demand',
+        signalKind: 'social_engagement',
+        entityUnit: 'people',
+        audience: 'Residential real-estate agents',
+        sourceHint: 'public LinkedIn posts',
+        providerQuery: { recency_window: 'last 30 days' },
+      },
+      [adapter],
+      { targetAccepted: 2, maxRawCandidates: 5 },
+    )
+    expect(plan).toMatchObject({
+      ok: false,
+      code: 'empty_adapter_plan',
+      unsupportedDimensions: [expect.objectContaining({
+        adapter_id: APIFY_LINKEDIN_ENGAGER_ADAPTER_ID,
+        dimension: 'source_query',
+        reason: 'missing frozen LinkedIn engagement query contract',
+      })],
+    })
   })
 })

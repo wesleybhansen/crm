@@ -23,6 +23,11 @@ import {
   postedLimitFromRecencyWindow,
 } from './actors'
 import {
+  APIFY_LINKEDIN_ENGAGER_ADAPTER_ID,
+  LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
+  linkedinEngagerQueryContract,
+} from '../../research/linkedin-engagement'
+import {
   APIFY_DEFAULT_TIMEOUT_MS,
   APIFY_MIN_CHARGE_USD,
   runActorWithFinalizedBilling,
@@ -45,7 +50,7 @@ import {
  * public post that supports the result.
  */
 
-export const APIFY_LINKEDIN_ENGAGER_ADAPTER_ID = 'apify-linkedin-commenter-leads'
+export { APIFY_LINKEDIN_ENGAGER_ADAPTER_ID, LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION }
 export const APIFY_LINKEDIN_ENGAGER_SIGNAL = 'social_engagement'
 export const APIFY_LINKEDIN_ENGAGER_ACTOR_ID = 'harvestapi/linkedin-post-search'
 export const APIFY_LINKEDIN_ENGAGER_ACTOR_BUILD = '0.0.104'
@@ -62,6 +67,7 @@ export const APIFY_LINKEDIN_ENGAGER_DATASET_FIELDS = [
   'type',
   'id',
   'linkedinUrl',
+  'content',
   'comments',
   'actor',
   'commentary',
@@ -191,8 +197,9 @@ export function apifyLinkedInEngagerDescriptor(env: EngagerEnv = processEnv()): 
 }
 
 function normalizedQuery(plan: SourceSearchPlan): string {
-  const providerQuery = plan.provider_query?.search_query
-  return (typeof providerQuery === 'string' ? providerQuery : plan.query).trim().replace(/\s+/g, ' ').slice(0, 500)
+  const contract = linkedinEngagerQueryContract(plan.provider_query)
+  if (!contract.ok) throw new TypeError(contract.reason)
+  return contract.value.query
 }
 
 function requestedPosts(maxCandidates: number): number {
@@ -324,6 +331,8 @@ export function createApifyLinkedInEngagerAdapter(deps: ApifyLinkedInEngagerDeps
   return {
     descriptor,
     quote(plan) {
+      const contract = linkedinEngagerQueryContract(plan.provider_query)
+      if (!contract.ok) throw new TypeError(contract.reason)
       const maxCandidates = Math.max(
         0,
         Math.min(Math.floor(plan.max_candidates), APIFY_LINKEDIN_ENGAGER_MAX_PEOPLE),
@@ -387,15 +396,19 @@ export function createApifyLinkedInEngagerAdapter(deps: ApifyLinkedInEngagerDeps
         maxDatasetBodyBytes: APIFY_LINKEDIN_ENGAGER_DATASET_BYTES,
         now,
       })
-      const providerReceipt = (extras: Record<string, unknown> = {}) =>
-        receipt(outcome, {
+      const providerReceipt = (extras: Record<string, unknown> = {}) => {
+        const contract = linkedinEngagerQueryContract(plan.provider_query)
+        return receipt(outcome, {
           max_charge_usd: maxChargeUsd,
           max_people: maxCandidates,
           query: normalizedQuery(plan),
+          query_contract_version: LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
+          engagement_topics: contract.ok ? contract.value.topics : [],
           comments_scraped: true,
           reactions_scraped: false,
           ...extras,
         })
+      }
       if (outcome.status === 'ambiguous') {
         return {
           status: 'ambiguous',
