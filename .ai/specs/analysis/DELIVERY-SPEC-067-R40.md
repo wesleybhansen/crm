@@ -1,5 +1,7 @@
 # SPEC-067 R40 owner production pilot evidence
 
+> Historical pilot record. The current production disposition is recorded in “2026-09-02 customer-release validation” below and supersedes this document's earlier dark/Free-tier holds without rewriting the evidence that produced them.
+
 Date: 2026-08-24  
 Scope: one owner-controlled recipient, one owner-controlled Gmail sender, one message, one reply, one unsubscribe, and no prospect outreach  
 Authority: the owner explicitly approved completing the bounded lifecycle straight through with strict spend/send caps
@@ -136,6 +138,20 @@ R41 makes `imapflow`, `mailparser`, and `nodemailer` direct app production depen
 9. **Complete:** CRM PR `#84` merged as `61be34a161f82fd06c33666160a0e09d304baf1c` after every CI lane passed and was deployed with all three runtime gates off. Hub PR `#263` merged as `29ebc177d265e01ec629732e11e92720e3a7155a`; its full local 1,270-test suite and typecheck passed, Vercel preview/production deployments passed, and GitHub's two zero-step jobs were unavailable only because of the account billing limit. GTM Setup now collects the sending customer's own mailing address; campaign review remains an editable correction path, and approval stays blocked when the address is absent or changed.
 10. **Held outside this owner pilot:** auto-refill remains off, customer/public GTM promotion remains off, and execution remains review-and-approve. A synthetic footer address is not a customer default and cannot authorize prospect outreach. Wider activation requires a real sending-customer address, GTM-specific public legal/privacy disclosures, and a provider account that passes the reviewed Full-mode decision-maker contract.
 11. **R46 production validation:** the pinned Full-mode implementation, exact quote, canonical reservation, provider run, and fail-closed mismatch path are proven in production. The Apify account tier is the remaining decision-maker yield gate: the current FREE account downgraded the request to a short-profile event. The exact `$0.003` charge is terminal and reconciled; zero untrusted people were released. Public/customer provider activation remains off until a Full-mode receipt and safely bound person pass on an account entitled to that mode.
+
+## 2026-09-02 customer-release validation
+
+The prior Apify entitlement hold is closed. The account is now Starter/BRONZE, and the currently deployed image completed a bounded, quote-confirmed company-to-person lifecycle without exposing an ambiguously matched person:
+
+- Company research run `aac34f01-6331-423b-9f5f-6717f1d424d4` returned one exact accepted company under play `4d6aee25-7a8e-4fb2-a09b-a2f05f36bf6c`.
+- Canonical operation `30d236d1-edcc-427c-80cc-ef39aae74247` ran pinned company-employees build `0.0.157` in Full mode. It charged exactly `$0.028` / `14,000` Noli credits and created one accepted person plus one company relation.
+- The durable evidence contains a sole exact company-query echo, current-employment proof, the frozen parent-candidate binding, observation within 30 days, and `decision-maker-v1` acceptance. No contradictory or ambiguous person was persisted.
+- Enrichment then ran under immutable plan hash `49c47976cd434da636b9dbdb8c4595f8d47c964b3d9b8e0de074f4c210a7e59e`. Profile operation `616f1c8c-601d-4cbb-b189-cf17877e8df5` and verification operation `e5ebca6e-a896-495c-b788-71d5ea715cc9` both settled `charged`, totaling `6,850` Noli credits against a `10,000`-credit reservation. One source-backed email was found; verification honestly remained `unknown`, so the product did not represent it as deliverable.
+- No message was sent to the provider-sourced person. The earlier Yahoo and Proton owner fixtures remain actively suppressed and were not bypassed or reactivated.
+
+The current-image consumer acceptance run `3ef73440-5b5f-4614-bc81-04adc1be2db4` exercised ten quote-confirmed Eventbrite, Reddit, and DataForSEO operations. All ten canonical operations settled `charged` for exactly `21,235` credits against `42,000` reserved, with zero unresolved reconciliation. Two source-backed matches were both rejected—one as not actionable under observed rules and one as a realtor false positive—demonstrating that customer release does not weaken quality gates merely to return a result.
+
+Production now has the GTM module, customer consumer research, execution, mailbox ingestion, DataForSEO, the contract-pinned Apify stack, and the precise LinkedIn commenter/reaction sources enabled. Auto-refill remains off. Consumer outreach remains manual-only. LinkedIn engagement sources are accepted as a precise, low-volume supplement; they are not a volume guarantee.
 
 ## Replay correction and recovery
 

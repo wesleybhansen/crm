@@ -77,7 +77,7 @@ function shapeCandidate(candidate: GtmCandidate, match?: GtmCandidateMatch | nul
 }
 
 export async function POST(req: Request) {
-  // 0. Feature gate: the GTM Engineer ships dark; flag-off fails closed.
+  // 0. Operational kill switch: customer release is live; flag-off fails closed.
   if (!gtmEnabled()) {
     return opaqueNotFound()
   }
