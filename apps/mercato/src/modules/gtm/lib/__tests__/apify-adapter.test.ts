@@ -789,6 +789,48 @@ describe('linkedin_post_search normalization', () => {
     expect(result.candidates).toHaveLength(1)
   })
 
+  it('gives vanity-url commenters and opaque-url reactors the same cross-run identity fingerprint', () => {
+    const result = normalizeItems(
+      'linkedin_post_search',
+      [
+        {
+          linkedinUrl: DISCOVERED_POST,
+          comments: [
+            {
+              actor: {
+                name: 'Dana Reyes',
+                position: 'Broker/Owner, Results Realtors',
+                linkedinUrl: 'https://www.linkedin.com/in/dana-reyes',
+              },
+            },
+          ],
+          reactions: [],
+        },
+        {
+          linkedinUrl: `${DISCOVERED_POST}-second`,
+          comments: [],
+          reactions: [
+            {
+              type: 'LIKE',
+              actor: {
+                name: 'Dana Reyes',
+                position: 'Broker/Owner, Results Realtors',
+                linkedinUrl: 'https://www.linkedin.com/in/ACoAAExample',
+              },
+            },
+          ],
+        },
+      ],
+      { observedAt: CLOCK.toISOString() },
+    )
+
+    expect(result.candidates).toHaveLength(2)
+    expect(result.candidates[0].identity.linkedin_engagement_fingerprint).toMatch(/^[0-9a-f]{64}$/)
+    expect(result.candidates[0].identity.linkedin_engagement_fingerprint).toBe(
+      result.candidates[1].identity.linkedin_engagement_fingerprint,
+    )
+  })
+
   it('skips the duplicate flat child rows the actor emits beside the posts', () => {
     /*
      * Shape verified on the LIVE payload 2026-07-25: a 30-item run was 12 post
