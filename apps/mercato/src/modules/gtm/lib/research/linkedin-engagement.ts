@@ -1,9 +1,13 @@
 export const APIFY_LINKEDIN_ENGAGER_ADAPTER_ID = 'apify-linkedin-commenter-leads'
-export const LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION = 'linkedin-engagement-topic-v1'
+export const APIFY_LINKEDIN_REACTOR_ADAPTER_ID = 'apify-linkedin-reactor-leads'
+export const LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION = 'linkedin-engagement-topic-v2'
+
+export type LinkedInEngagementKind = 'comment' | 'reaction'
 
 export type LinkedInEngagerQueryContract = {
   query: string
   topics: string[]
+  engagementKind: LinkedInEngagementKind
 }
 
 function strings(value: unknown): string[] {
@@ -39,5 +43,9 @@ export function linkedinEngagerQueryContract(
   if (topics.some((topic) => topic.length > 120)) {
     return { ok: false, reason: 'LinkedIn engagement topic exceeds 120 characters' }
   }
-  return { ok: true, value: { query, topics } }
+  const engagementKind = providerQuery.engagement_kind
+  if (engagementKind !== 'comment' && engagementKind !== 'reaction') {
+    return { ok: false, reason: 'missing frozen LinkedIn engagement kind' }
+  }
+  return { ok: true, value: { query, topics, engagementKind } }
 }

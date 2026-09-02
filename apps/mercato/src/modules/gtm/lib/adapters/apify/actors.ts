@@ -25,7 +25,9 @@ import type { Candidate, CandidateIdentity, ContactPoint } from '../types'
  * - `harvestapi/linkedin-post-search`: its current multi-event rate card bills
  *   posts, optional reactions/comments, zero-result queries and actor starts.
  *   Separate, independently gated adapters use it for public demand surfaces
- *   (comments/reactions off) and commenter leads (comments on, reactions off).
+ *   (comments/reactions off), commenter leads (comments only), and reactor
+ *   leads (reactions only). Each engagement mode has an independent quote,
+ *   receipt, and feature gate.
  * Pricing lives in APIFY_MEASURED_USD below, in DOLLARS. The selected actor
  * rates were rechecked against their public Apify Store pages on 2026-08-21.
  */

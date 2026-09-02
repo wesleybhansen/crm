@@ -82,7 +82,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v41' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v42' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -809,6 +809,10 @@ const ALIAS_GROUPS: string[][] = [
   ['junior', 'jr'],
   ['manager', 'mgr'],
   ['director', 'dir'],
+  // LinkedIn alternates between singular and plural REALTOR terminology in
+  // professional headlines. This does not broaden the role: it only treats
+  // the inflection as the same exact title token.
+  ['realtor', 'realtors'],
   // US state code / name pairs. Providers return the code (LeadMagic sends
   // contact_state_code) while a play names the state, so without these every
   // location criterion hard-fails on "Austin, TX" versus "Austin, Texas".
@@ -928,6 +932,40 @@ function wordsMatch(observed: string, expected: string): boolean {
   // Multi-word expectations may appear out of order or split by extra words,
   // so "VP Sales" still matches "Vice President, Global Sales".
   return needle.length > 1 && needle.every((token) => haystack.includes(token))
+}
+
+/*
+ * Professional headlines frequently contain several unrelated roles. For a
+ * real-estate title we therefore require the role token to occur close to the
+ * "real estate" phrase. The generic token-set fallback otherwise lets a title
+ * such as "AI strategist | real estate operations | AI agent" satisfy the
+ * requested "real estate agent" role by collecting words from unrelated
+ * clauses.
+ */
+function titleWordsMatch(observed: string, expected: string): boolean {
+  const haystack = canonicalTokens(observed)
+  const needle = canonicalTokens(expected)
+  if (!haystack.length || !needle.length) return false
+  if (containsSequence(haystack, needle)) return true
+
+  const realEstateAt = needle.findIndex(
+    (token, index) => token === 'real' && needle[index + 1] === 'estate',
+  )
+  if (realEstateAt < 0) return wordsMatch(observed, expected)
+
+  const clauses = observed.split(/[|;\u2022\u00b7\u2014\u2013]+/)
+  for (const clause of clauses) {
+    const clauseTokens = canonicalTokens(clause)
+    for (let start = 0; start < clauseTokens.length - 1; start += 1) {
+      if (clauseTokens[start] !== 'real' || clauseTokens[start + 1] !== 'estate') continue
+      // Three extra words allow normal qualifiers such as "residential" or
+      // "associate" while refusing tokens pulled from a different headline
+      // clause.
+      const window = clauseTokens.slice(start, start + needle.length + 3)
+      if (needle.every((token) => window.includes(token))) return true
+    }
+  }
+  return false
 }
 
 function parseRange(value: string): { min: number; max: number } | null {
@@ -1265,7 +1303,13 @@ function evaluateCriterion(
     (rangeStatus === null &&
       (definition.id === 'signal.engagement_topic'
         ? observed.some((actual) => engagementTopicMatches(definition.expected, actual))
-        : definition.expected.some((expected) => observed.some((actual) => wordsMatch(actual, expected)))))
+        : definition.expected.some((expected) =>
+            observed.some((actual) =>
+              definition.id === 'persona.title'
+                ? titleWordsMatch(actual, expected)
+                : wordsMatch(actual, expected),
+            ),
+          )))
   const targetingMatches = definition.expected.some((expected) =>
     targetingValues.some((actual) => wordsMatch(actual, expected)),
   )

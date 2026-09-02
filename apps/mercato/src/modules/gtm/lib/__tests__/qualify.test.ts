@@ -2277,6 +2277,37 @@ describe('criterion matching is token-based, not substring', () => {
       ),
     ).toBe('pass')
   })
+
+  it('keeps a requested real-estate role inside one professional-title clause', () => {
+    expect(
+      criterion(
+        {
+          ...base,
+          title:
+            'AI, Enterprise Transformation & Operations Expert | Real Estate/Facility Operations | AI Agent Strategy',
+        },
+        { titles: ['Real Estate Agent'] },
+        'persona.title',
+      ),
+    ).toBe('fail')
+    expect(
+      criterion(
+        { ...base, title: 'Residential Real Estate Associate Broker and Realtor' },
+        { titles: ['Real Estate Realtor'] },
+        'persona.title',
+      ),
+    ).toBe('pass')
+  })
+
+  it('recognises the narrow plural REALTOR title used in LinkedIn headlines', () => {
+    expect(
+      criterion(
+        { ...base, title: 'Broker/Owner at Austin REALTORS' },
+        { titles: ['Realtor'] },
+        'persona.title',
+      ),
+    ).toBe('pass')
+  })
 })
 
 describe('signal recency cannot pass without a trustworthy reference time', () => {

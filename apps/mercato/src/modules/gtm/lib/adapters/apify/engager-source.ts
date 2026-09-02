@@ -24,8 +24,10 @@ import {
 } from './actors'
 import {
   APIFY_LINKEDIN_ENGAGER_ADAPTER_ID,
+  APIFY_LINKEDIN_REACTOR_ADAPTER_ID,
   LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
   linkedinEngagerQueryContract,
+  type LinkedInEngagementKind,
 } from '../../research/linkedin-engagement'
 import {
   APIFY_DEFAULT_TIMEOUT_MS,
@@ -37,28 +39,33 @@ import {
 } from './client'
 
 /*
- * LinkedIn commenter discovery for social-engagement PEOPLE plays.
+ * LinkedIn commenter and reactor discovery for social-engagement PEOPLE plays.
  *
  * This is intentionally separate from both older URL-supplied comment
  * scraping and public demand-opportunity discovery. It discovers public posts
- * from a frozen play query and returns only people who actually commented.
- * Reactions remain off: a comment is stronger evidence of interest, costs the
- * same as a reaction, and avoids billing customers for low-intent likes.
+ * from a frozen play query. Comments and reactions are distinct adapters,
+ * quotes, receipts, and feature gates: a lower-intent reaction can never be
+ * represented or billed as a higher-intent comment.
  *
  * Consumer records remain manual-only under policy.ts. This adapter never
  * sends, connects, or infers consent; it provides a public profile and the
  * public post that supports the result.
  */
 
-export { APIFY_LINKEDIN_ENGAGER_ADAPTER_ID, LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION }
+export {
+  APIFY_LINKEDIN_ENGAGER_ADAPTER_ID,
+  APIFY_LINKEDIN_REACTOR_ADAPTER_ID,
+  LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
+}
 export const APIFY_LINKEDIN_ENGAGER_SIGNAL = 'social_engagement'
 export const APIFY_LINKEDIN_ENGAGER_ACTOR_ID = 'harvestapi/linkedin-post-search'
 export const APIFY_LINKEDIN_ENGAGER_ACTOR_BUILD = '0.0.104'
 export const APIFY_LINKEDIN_ENGAGER_ENABLED_ENV = 'GTM_APIFY_LINKEDIN_ENGAGER_ENABLED'
+export const APIFY_LINKEDIN_REACTOR_ENABLED_ENV = 'GTM_APIFY_LINKEDIN_REACTOR_ENABLED'
 export const APIFY_LINKEDIN_ENGAGER_ACTOR_ENV = 'GTM_APIFY_ACTOR_LINKEDIN_POST_SEARCH'
 export const APIFY_LINKEDIN_ENGAGER_PRICE_VERSION_ENV = 'GTM_APIFY_LINKEDIN_ENGAGER_PRICE_VERSION'
 export const APIFY_LINKEDIN_ENGAGER_REQUIRED_PRICE_VERSION =
-  'harvestapi-linkedin-post-search-0.0.104-bronze-comment-events-2026-09-01'
+  'harvestapi-linkedin-post-search-0.0.104-bronze-engagement-events-2026-09-02'
 
 export const APIFY_LINKEDIN_ENGAGER_MAX_PEOPLE = 25
 export const APIFY_LINKEDIN_ENGAGER_MAX_POSTS = 5
@@ -69,6 +76,7 @@ export const APIFY_LINKEDIN_ENGAGER_DATASET_FIELDS = [
   'linkedinUrl',
   'content',
   'comments',
+  'reactions',
   'actor',
   'commentary',
   'postId',
@@ -80,6 +88,7 @@ export const APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD = {
   'apify-actor-start': 0.00005,
   post: 0.002,
   comment: 0.002,
+  reaction: 0.002,
   'no-result': 0.001,
 } as const
 
@@ -145,11 +154,26 @@ export function apifyLinkedInEngagerEnabled(env: EngagerEnv = processEnv()): boo
   )
 }
 
-export function apifyLinkedInEngagerDescriptor(env: EngagerEnv = processEnv()): AdapterDescriptor {
+export function apifyLinkedInReactorEnabled(env: EngagerEnv = processEnv()): boolean {
+  return (
+    env[APIFY_LINKEDIN_REACTOR_ENABLED_ENV] === 'true' &&
+    apifyEnabled(env) &&
+    apifyToken(env) !== null &&
+    apifyLinkedInEngagerApproved(env)
+  )
+}
+
+function descriptorFor(
+  engagementKind: LinkedInEngagementKind,
+  env: EngagerEnv = processEnv(),
+): AdapterDescriptor {
   const approved = apifyLinkedInEngagerApproved(env)
   return {
     contract_version: '2',
-    adapter_id: APIFY_LINKEDIN_ENGAGER_ADAPTER_ID,
+    adapter_id:
+      engagementKind === 'comment'
+        ? APIFY_LINKEDIN_ENGAGER_ADAPTER_ID
+        : APIFY_LINKEDIN_REACTOR_ADAPTER_ID,
     layer: 'source',
     capabilities: [
       {
@@ -196,6 +220,14 @@ export function apifyLinkedInEngagerDescriptor(env: EngagerEnv = processEnv()): 
   }
 }
 
+export function apifyLinkedInEngagerDescriptor(env: EngagerEnv = processEnv()): AdapterDescriptor {
+  return descriptorFor('comment', env)
+}
+
+export function apifyLinkedInReactorDescriptor(env: EngagerEnv = processEnv()): AdapterDescriptor {
+  return descriptorFor('reaction', env)
+}
+
 function normalizedQuery(plan: SourceSearchPlan): string {
   const contract = linkedinEngagerQueryContract(plan.provider_query)
   if (!contract.ok) throw new TypeError(contract.reason)
@@ -211,7 +243,9 @@ function requestedComments(maxCandidates: number, maxPosts: number): number {
 }
 
 export function buildApifyLinkedInEngagerInput(plan: SourceSearchPlan): Record<string, unknown> {
-  const query = normalizedQuery(plan)
+  const contract = linkedinEngagerQueryContract(plan.provider_query)
+  if (!contract.ok) throw new TypeError(contract.reason)
+  const query = contract.value.query
   const recency = typeof plan.provider_query?.recency_window === 'string'
     ? plan.provider_query.recency_window
     : null
@@ -219,26 +253,40 @@ export function buildApifyLinkedInEngagerInput(plan: SourceSearchPlan): Record<s
   if (!parsed.ok) throw new TypeError(parsed.reason)
   const maxCandidates = Math.max(1, Math.min(Math.floor(plan.max_candidates), APIFY_LINKEDIN_ENGAGER_MAX_PEOPLE))
   const maxPosts = requestedPosts(maxCandidates)
-  return {
+  const input: Record<string, unknown> = {
     searchQueries: [parsed.search.keywords],
     maxPosts,
     postedLimit: parsed.search.postedLimit,
     sortBy: 'relevance',
-    scrapeComments: true,
-    postNestedComments: true,
-    maxComments: requestedComments(maxCandidates, maxPosts),
-    commentsProfileScraperMode: 'short',
-    scrapeReactions: false,
-    postNestedReactions: false,
+  }
+  if (contract.value.engagementKind === 'comment') {
+    return {
+      ...input,
+      scrapeComments: true,
+      postNestedComments: true,
+      maxComments: requestedComments(maxCandidates, maxPosts),
+      commentsProfileScraperMode: 'short',
+      scrapeReactions: false,
+      postNestedReactions: false,
+    }
+  }
+  return {
+    ...input,
+    scrapeComments: false,
+    postNestedComments: false,
+    scrapeReactions: true,
+    postNestedReactions: true,
+    maxReactions: requestedComments(maxCandidates, maxPosts),
+    reactionsProfileScraperMode: 'short',
   }
 }
 
-function providerUnitsFor(maxCandidates: number): number {
+function providerUnitsFor(maxCandidates: number, engagementKind: LinkedInEngagementKind): number {
   const maxPosts = requestedPosts(maxCandidates)
   const estimatedUsd =
     APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD['apify-actor-start'] +
     maxPosts * APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD.post +
-    maxCandidates * APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD.comment
+    maxCandidates * APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD[engagementKind]
   return Math.max(APIFY_MIN_CHARGE_USD, estimatedUsd) / APIFY_MILLIDOLLAR_USD
 }
 
@@ -247,6 +295,7 @@ function datasetCeilingFor(maxChargeUsd: number): number {
   const cheapestItem = Math.min(
     APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD.post,
     APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD.comment,
+    APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD.reaction,
   )
   return Math.max(1, Math.min(100, Math.floor((available + 1e-9) / cheapestItem)))
 }
@@ -306,10 +355,13 @@ function refusal(actorId: string, attemptedAt: string, error: string): AdapterRe
   }
 }
 
-export function createApifyLinkedInEngagerAdapter(deps: ApifyLinkedInEngagerDeps = {}): SourceAdapter {
+function createAdapter(
+  engagementKind: LinkedInEngagementKind,
+  deps: ApifyLinkedInEngagerDeps = {},
+): SourceAdapter {
   const env = deps.env ?? processEnv()
   const now = deps.now ?? (() => new Date())
-  const descriptor = apifyLinkedInEngagerDescriptor(env)
+  const descriptor = descriptorFor(engagementKind, env)
   const runActor: EngagerRunActor =
     deps.runActor ??
     ((actorId, input, options) =>
@@ -333,11 +385,14 @@ export function createApifyLinkedInEngagerAdapter(deps: ApifyLinkedInEngagerDeps
     quote(plan) {
       const contract = linkedinEngagerQueryContract(plan.provider_query)
       if (!contract.ok) throw new TypeError(contract.reason)
+      if (contract.value.engagementKind !== engagementKind) {
+        throw new TypeError(`LinkedIn ${engagementKind} adapter requires engagement_kind '${engagementKind}'`)
+      }
       const maxCandidates = Math.max(
         0,
         Math.min(Math.floor(plan.max_candidates), APIFY_LINKEDIN_ENGAGER_MAX_PEOPLE),
       )
-      const providerUnits = maxCandidates > 0 ? providerUnitsFor(maxCandidates) : 0
+      const providerUnits = maxCandidates > 0 ? providerUnitsFor(maxCandidates, engagementKind) : 0
       return {
         max_candidates: maxCandidates,
         provider_units: providerUnits,
@@ -382,6 +437,11 @@ export function createApifyLinkedInEngagerAdapter(deps: ApifyLinkedInEngagerDeps
       }
       let input: Record<string, unknown>
       try {
+        const contract = linkedinEngagerQueryContract(plan.provider_query)
+        if (!contract.ok) throw new TypeError(contract.reason)
+        if (contract.value.engagementKind !== engagementKind) {
+          throw new TypeError(`LinkedIn ${engagementKind} adapter requires engagement_kind '${engagementKind}'`)
+        }
         input = buildApifyLinkedInEngagerInput({ ...plan, max_candidates: maxCandidates })
       } catch (error) {
         return refusal(actorId, attemptedAt, `bad_request: ${error instanceof Error ? error.message : String(error)}`)
@@ -404,8 +464,9 @@ export function createApifyLinkedInEngagerAdapter(deps: ApifyLinkedInEngagerDeps
           query: normalizedQuery(plan),
           query_contract_version: LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
           engagement_topics: contract.ok ? contract.value.topics : [],
-          comments_scraped: true,
-          reactions_scraped: false,
+          engagement_kind: engagementKind,
+          comments_scraped: engagementKind === 'comment',
+          reactions_scraped: engagementKind === 'reaction',
           ...extras,
         })
       }
@@ -452,29 +513,45 @@ export function createApifyLinkedInEngagerAdapter(deps: ApifyLinkedInEngagerDeps
           error: 'provider_billing_unknown: an unapproved LinkedIn engager event was charged',
         }
       }
+      const offModeCharge = engagementKind === 'comment' ? counts.reaction : counts.comment
+      if ((offModeCharge ?? 0) > 0) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt({
+            unexpected_engagement_charge: engagementKind === 'comment' ? 'reaction' : 'comment',
+          }),
+          cost_units: null,
+          error: 'provider_billing_unknown: an off-contract LinkedIn engagement event was charged',
+        }
+      }
       const costUnits = outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
       if (outcome.status === 'no_result') {
         return { status: 'no_result', data: null, receipt: providerReceipt(), cost_units: costUnits }
       }
-      const billedDatasetItems = (counts.post ?? 0) + (counts.comment ?? 0)
+      const billedDatasetItems = (counts.post ?? 0) + (counts[engagementKind] ?? 0)
       if (billedDatasetItems !== outcome.itemCount) {
         return {
           status: 'ambiguous',
           data: null,
           receipt: providerReceipt({ billed_dataset_items: billedDatasetItems }),
           cost_units: null,
-          error: 'invalid_schema: billed post/comment count did not match the bounded dataset',
+          error: `invalid_schema: billed post/${engagementKind} count did not match the bounded dataset`,
         }
       }
       const normalized = normalizeItems('linkedin_post_search', outcome.items, { observedAt: outcome.attemptedAt })
-      const candidates = normalized.candidates.slice(0, maxCandidates)
+      const candidates = normalized.candidates
+        .filter((candidate) => candidate.evidence.some(
+          (row) => row.detail?.engagement_kind === engagementKind,
+        ))
+        .slice(0, maxCandidates)
       if (candidates.length === 0) {
         return {
           status: 'ambiguous',
           data: null,
           receipt: providerReceipt({ dropped_items: normalized.dropped }),
           cost_units: null,
-          error: 'invalid_schema: billed LinkedIn comments produced no usable public identity',
+          error: `invalid_schema: billed LinkedIn ${engagementKind}s produced no usable public identity`,
         }
       }
       return {
@@ -490,6 +567,14 @@ export function createApifyLinkedInEngagerAdapter(deps: ApifyLinkedInEngagerDeps
       }
     },
   }
+}
+
+export function createApifyLinkedInEngagerAdapter(deps: ApifyLinkedInEngagerDeps = {}): SourceAdapter {
+  return createAdapter('comment', deps)
+}
+
+export function createApifyLinkedInReactorAdapter(deps: ApifyLinkedInEngagerDeps = {}): SourceAdapter {
+  return createAdapter('reaction', deps)
 }
 
 // Guard the actor build used above against an accidental split from the
