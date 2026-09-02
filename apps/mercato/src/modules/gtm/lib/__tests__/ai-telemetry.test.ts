@@ -20,7 +20,7 @@ describe('GTM AI telemetry', () => {
     else process.env.GTM_AI_OUTPUT_USD_PER_MILLION_TOKENS = priorOutput
   })
 
-  it('awaits canonical metering then stores one bounded content-free receipt', async () => {
+  it('stores one bounded content-free receipt per model invocation and forwards unique canonical keys', async () => {
     process.env.GTM_AI_RATE_CARD_VERSION = 'fixture-v1'
     process.env.GTM_AI_INPUT_USD_PER_MILLION_TOKENS = '1.25'
     process.env.GTM_AI_OUTPUT_USD_PER_MILLION_TOKENS = '5'
@@ -52,8 +52,13 @@ describe('GTM AI telemetry', () => {
     await meter(usage)
 
     expect(canonicalMeter).toHaveBeenCalledTimes(2)
-    expect(em.table(GtmAiTelemetry)).toHaveLength(1)
+    expect(canonicalMeter.mock.calls.map((call) => call[1])).toEqual([
+      'gtm:test:operation-1:call:1',
+      'gtm:test:operation-1:call:2',
+    ])
+    expect(em.table(GtmAiTelemetry)).toHaveLength(2)
     expect(em.table(GtmAiTelemetry)[0]).toMatchObject({
+      operationKey: 'gtm:test:operation-1:call:1',
       surface: 'reply_draft',
       model: 'model-1',
       tokensIn: 100,
@@ -71,6 +76,7 @@ describe('GTM AI telemetry', () => {
       durable_summary: 0,
     })
     expect(JSON.stringify(em.table(GtmAiTelemetry)[0])).not.toContain('unexpected_raw_prompt')
+    expect(em.table(GtmAiTelemetry)[1].operationKey).toBe('gtm:test:operation-1:call:2')
   })
 
   it('leaves cost null without a complete configured rate card and scopes operation keys by org', async () => {
@@ -121,14 +127,14 @@ describe('GTM AI telemetry', () => {
     expect(canonicalMeter).toHaveBeenCalledTimes(1)
     expect(em.table(GtmAiTelemetry)).toHaveLength(1)
     expect(em.table(GtmAiTelemetry)[0]).toMatchObject({
-      operationKey: 'gtm:test:canonical-meter-failure',
+      operationKey: 'gtm:test:canonical-meter-failure:call:1',
       status: 'succeeded',
       tokensIn: 100,
       tokensOut: 20,
     })
   })
 
-  it('records provider failure and retry metadata idempotently without changing token truth', async () => {
+  it('records failure and retry metadata for every reported model invocation without changing token truth', async () => {
     process.env.GTM_AI_RATE_CARD_VERSION = 'fixture-v1'
     process.env.GTM_AI_INPUT_USD_PER_MILLION_TOKENS = '1.25'
     process.env.GTM_AI_OUTPUT_USD_PER_MILLION_TOKENS = '5'
@@ -157,8 +163,9 @@ describe('GTM AI telemetry', () => {
     await meter(failure)
 
     expect(canonicalMeter).toHaveBeenCalledTimes(2)
-    expect(em.table(GtmAiTelemetry)).toHaveLength(1)
+    expect(em.table(GtmAiTelemetry)).toHaveLength(2)
     expect(em.table(GtmAiTelemetry)[0]).toMatchObject({
+      operationKey: 'gtm:test:failed-operation:call:1',
       status: 'failed',
       tokensIn: 0,
       tokensOut: 0,
@@ -169,5 +176,6 @@ describe('GTM AI telemetry', () => {
       estimatedCostMicrousd: null,
       rateCardVersion: null,
     })
+    expect(em.table(GtmAiTelemetry)[1].operationKey).toBe('gtm:test:failed-operation:call:2')
   })
 })

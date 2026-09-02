@@ -3,6 +3,11 @@ import { GtmAiTelemetry } from '../../data/entities'
 import type { CampaignEm, GtmCtx } from '../campaign/build'
 import type { GtmAiMeter } from './model'
 
+type GtmCanonicalAiMeter = (
+  usage: Parameters<GtmAiMeter>[0],
+  operationKey: string,
+) => void | Promise<void>
+
 const COMPONENT_KEYS = [
   'system',
   'tool_schema',
@@ -122,16 +127,19 @@ export function createGtmTelemetryMeter(input: {
   ctx: GtmCtx
   operationKey: string
   surface: string
-  canonicalMeter: GtmAiMeter
+  canonicalMeter: GtmCanonicalAiMeter
 }): GtmAiMeter {
+  let invocation = 0
   return async (usage) => {
+    invocation += 1
+    const operationKey = `${input.operationKey}:call:${invocation}`
     // Preserve a local, content-free receipt before crossing the Noli Core
     // boundary. If canonical metering is temporarily unavailable the call is
-    // not returned as successful, while the exact operation remains available
-    // for reconciliation without another provider invocation.
+    // not returned as successful, while the exact invocation remains observable
+    // for operator reconciliation.
     try {
       await recordGtmAiTelemetry(input.em, input.ctx, {
-        operationKey: input.operationKey,
+        operationKey,
         surface: input.surface,
         model: usage.model,
         status: usage.status ?? 'succeeded',
@@ -151,7 +159,7 @@ export function createGtmTelemetryMeter(input: {
       console.error('[gtm.ai.telemetry]', error)
     }
     try {
-      await input.canonicalMeter(usage)
+      await input.canonicalMeter(usage, operationKey)
     } catch (error) {
       throw new GtmAiMeteringError(
         error instanceof Error ? error.message : 'GTM AI usage could not be recorded',

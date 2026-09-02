@@ -146,7 +146,7 @@ export async function POST(req: Request) {
       status?: 'succeeded' | 'failed'
       failureCode?: string | null
       retryCount?: number
-    }) => {
+    }, invocationKey: string) => {
       await meterCustomersAiStrict({ orgId: ctx.organizationId }, {
         noliUserId: body.noliUserId,
         model: usage.model,
@@ -154,7 +154,7 @@ export async function POST(req: Request) {
         tokensOut: usage.tokensOut,
         feature: usage.feature,
         byoKey: !!gate.byoApiKey,
-        idempotencyKey: operationKey,
+        idempotencyKey: invocationKey,
         metadata: {
           status: usage.status === 'failed' ? 'failed' : 'completed',
           attempt: 1,

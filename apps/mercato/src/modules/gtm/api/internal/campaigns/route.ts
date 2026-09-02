@@ -487,7 +487,7 @@ export async function POST(req: Request) {
         status?: 'succeeded' | 'failed'
         failureCode?: string | null
         retryCount?: number
-      }) => {
+      }, operationKey: string) => {
         await meterCustomersAiStrict({ orgId: ctx.organizationId }, {
           noliUserId: body.noliUserId,
           model: usage.model,
@@ -495,9 +495,7 @@ export async function POST(req: Request) {
           tokensOut: usage.tokensOut,
           feature: usage.feature,
           byoKey: !!gate.byoApiKey,
-          idempotencyKey: body.idempotency_key
-            ? `gtm:campaign-draft:${ctx.organizationId}:${body.campaignId}:${body.candidateId}:${body.idempotency_key}`
-            : null,
+          idempotencyKey: operationKey,
           metadata: {
             status: usage.status === 'failed' ? 'failed' : 'completed',
             attempt: 1,
