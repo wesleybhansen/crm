@@ -749,6 +749,8 @@ export function buildOpportunityQueryLanes(
         query_lane_version:
           adapterId === 'apify-eventbrite-demand-opportunities'
             ? 'opportunity-query-v94'
+          : adapterId === 'apify-meetup-demand-opportunities'
+            ? 'opportunity-query-v95'
           : adapterId === 'apify-reddit-api-demand-opportunities'
             ? 'opportunity-query-v88'
             : adapterId === 'apify-reddit-thread-demand-opportunities'
@@ -792,7 +794,7 @@ export function buildOpportunityQueryLanes(
           : {}),
         ...(adapterId === 'apify-meetup-demand-opportunities'
           ? {
-              meetup_contract_version: 'public-events-v2',
+              meetup_contract_version: 'public-events-v3',
               meetup_location: geography,
               meetup_event_type: 'PHYSICAL',
               meetup_country: 'us',

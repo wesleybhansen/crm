@@ -2563,14 +2563,14 @@ describe('Apify public social demand opportunities', () => {
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.adapterPlan.map((batch) => batch.adapter_id)).toEqual([
-        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
-        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
-        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
-        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_X_OPPORTUNITY_CONFIG.adapterId,
         APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
         APIFY_X_OPPORTUNITY_CONFIG.adapterId,
-        APIFY_X_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
+        APIFY_REDDIT_OPPORTUNITY_CONFIG.adapterId,
       ])
       expect(result.adapterPlan.map((batch) => batch.maxCandidates)).toEqual([3, 3, 3, 3, 2, 2, 2, 2])
       expect(result.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(20)

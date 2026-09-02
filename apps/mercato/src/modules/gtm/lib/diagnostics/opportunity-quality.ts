@@ -369,7 +369,7 @@ export async function getOpportunityQualityDiagnostics(
         observed.descriptorHashes.size > 1
         || observed.actorBuilds.size > 1
         || observed.planSchemaVersions.size > 1
-        || [...observed.planSchemaVersions].some((version) => version !== '9' && version !== '10'),
+        || [...observed.planSchemaVersions].some((version) => !['9', '10', '11', '12', '13', '14'].includes(version)),
     }))
     .sort((left, right) => left.adapterId.localeCompare(right.adapterId))
   const sourceRows = [...sources.values()]

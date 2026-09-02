@@ -38,12 +38,12 @@ const plan: SourceSearchPlan = {
   geography: 'US',
   query: 'first time home buyer',
   provider_query: {
-    query_lane_version: 'opportunity-query-v57',
+    query_lane_version: 'opportunity-query-v95',
     source_query_lane_id: 'local_audience:1',
     opportunity_intent_lane: 'local_audience',
     search_query: 'first time home buyer',
     source_search_keywords: ['first time home buyer'],
-    meetup_contract_version: 'public-events-v2',
+    meetup_contract_version: 'public-events-v3',
     meetup_location: 'Austin, Texas',
     meetup_event_type: 'PHYSICAL',
     meetup_country: 'us',
@@ -59,39 +59,31 @@ const plan: SourceSearchPlan = {
 
 function meetupEvent(overrides: Record<string, unknown> = {}) {
   return {
-    eventId: 'event-123',
-    eventName: 'Austin First-Time Homebuyer Workshop',
-    eventDescription: 'A public community workshop about preparing to buy a first home in Austin.',
+    id: 'event-123',
+    title: 'Austin First-Time Homebuyer Workshop',
+    description: 'A public community workshop about preparing to buy a first home in Austin.',
     eventType: 'PHYSICAL',
     eventUrl: 'https://www.meetup.com/austin-homeownership/events/123456789/',
-    eventStatus: 'ACTIVE',
     isOnline: false,
-    startDateTime: '2026-09-05T17:00:00.000Z',
-    endDateTime: '2026-09-05T19:00:00.000Z',
-    createdTime: '2026-08-20T12:00:00.000Z',
-    actualAttendees: 18,
-    isPaidEvent: false,
-    feeRequired: false,
-    venue: {
-      name: 'Austin Central Library',
-      city: 'Austin',
-      state: 'TX',
-      country: 'US',
-      postalCode: '78701',
-    },
-    group: {
-      name: 'Austin Homeownership Community',
-      memberCount: 2_400,
-      organizerName: 'Alex Organizer',
-      organizerProfileUrl: 'https://www.meetup.com/members/123456/',
-    },
-    hosts: [
-      {
-        name: 'Jordan Host',
-        memberUrl: 'https://www.meetup.com/members/789012/',
-      },
-    ],
-    topics: [{ id: '1', name: 'Homeownership', urlkey: 'homeownership' }],
+    dateTime: '2026-09-05T17:00:00.000Z',
+    endTime: '2026-09-05T19:00:00.000Z',
+    rsvpCount: 18,
+    rsvpState: 'JOIN_OPEN',
+    venueName: 'Austin Central Library',
+    venueAddress: '710 W Cesar Chavez St',
+    venueCity: 'Austin',
+    venueState: 'TX',
+    venueCountry: 'us',
+    groupId: 'group-123',
+    groupName: 'Austin Homeownership Community',
+    groupUrl: 'https://www.meetup.com/austin-homeownership/',
+    groupRatingAverage: 4.8,
+    groupRatingCount: 32,
+    hostName: 'Jordan Host',
+    hostMemberId: '789012',
+    searchKeyword: 'first time home buyer',
+    searchLocation: 'Austin, Texas, United States',
+    scraped_at: CLOCK.toISOString(),
     ...overrides,
   }
 }
@@ -110,12 +102,12 @@ function outcome(
     httpStatus: 201,
     retryAfterSeconds: null,
     bodySnippet: null,
-    requestUrl: 'https://api.apify.com/v2/acts/filip_cicvarek~meetup-scraper/runs?token=[redacted]',
+    requestUrl: 'https://api.apify.com/v2/acts/scrapersdelight~meetup-scraper/runs?token=[redacted]',
     attemptedAt: CLOCK.toISOString(),
     error: null,
     billingFinalized: true,
-    chargedEventCounts: { 'apify-default-dataset-item': 1 },
-    providerCostUsd: 0.0008,
+    chargedEventCounts: { 'event-scraped': 1 },
+    providerCostUsd: 0.0009,
     pricingModel: 'PAY_PER_EVENT',
     ...overrides,
   }
@@ -124,14 +116,14 @@ function outcome(
 describe('Apify Meetup public event opportunities', () => {
   it('pins the established actor and exact Starter/Bronze pay-per-event contract', () => {
     expect(APIFY_MEETUP_OPPORTUNITY_CONFIG).toMatchObject({
-      actorId: 'filip_cicvarek/meetup-scraper',
-      actorBuild: '3.0.14',
+      actorId: 'scrapersdelight/meetup-scraper',
+      actorBuild: '0.1.4',
       requiredPriceVersion:
-        'filip-cicvarek-meetup-scraper-3.0.14-bronze-events-2026-08-30',
-      eventPricesUsd: { 'apify-default-dataset-item': 0.0008 },
+        'scrapersdelight-meetup-scraper-0.1.4-event-scraped-2026-09-01',
+      eventPricesUsd: { 'event-scraped': 0.0009 },
       oneTimeEvent: null,
       oneTimeQuoteUsd: 0,
-      perItemQuoteUsd: 0.0008,
+      perItemQuoteUsd: 0.0009,
       maxBatch: 10,
     })
   })
@@ -178,10 +170,10 @@ describe('Apify Meetup public event opportunities', () => {
       'home buying seminar',
       'homeownership education',
     ])
-    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v57')).toBe(true)
+    expect(lanes.every((lane) => lane.providerQuery.query_lane_version === 'opportunity-query-v95')).toBe(true)
     expect(lanes.every((lane) => lane.providerQuery.meetup_location === 'Austin, Texas')).toBe(true)
     expect(lanes.every((lane) =>
-      lane.providerQuery.meetup_contract_version === 'public-events-v2'
+      lane.providerQuery.meetup_contract_version === 'public-events-v3'
       && lane.providerQuery.meetup_sort === 'RELEVANCE'
       && lane.providerQuery.meetup_returned_content_filter_version === 'realtor-housing-event-v1'
     )).toBe(true)
@@ -214,28 +206,25 @@ describe('Apify Meetup public event opportunities', () => {
     expect(runActor).toHaveBeenCalledWith(
       APIFY_MEETUP_OPPORTUNITY_CONFIG.actorId,
       {
-        mode: 'events',
-        searchKeyword: 'first time home buyer',
-        city: 'Austin',
-        state: 'Texas',
-        country: 'us',
+        keyword: 'first time home buyer',
+        location: 'Austin, Texas',
         eventType: 'PHYSICAL',
-        radius: 25,
-        startDateRange: '2026-08-26T23:00:00.000Z',
-        endDateRange: '2026-09-25T23:00:00.000Z',
+        radiusMiles: 25,
+        startDate: '2026-08-26',
+        endDate: '2026-09-25',
         minRsvpCount: 1,
-        sortBy: 'RELEVANCE',
+        sort: 'RELEVANCE',
         maxResults: 10,
       },
       expect.objectContaining({
-        build: '3.0.14',
+        build: '0.1.4',
         maxChargeUsd: 0.01,
         maxItems: 10,
       }),
     )
     expect(result).toMatchObject({
       status: 'ok',
-      cost_units: 0.8,
+      cost_units: 0.9,
       data: [
         {
           entity_kind: 'opportunity',
@@ -246,10 +235,9 @@ describe('Apify Meetup public event opportunities', () => {
             location: 'Austin, Texas',
             access_type: 'public',
             event_start_at: '2026-09-05T17:00:00.000Z',
-            member_count: 2_400,
+            member_count: null,
             engagement_count: 18,
             people_to_follow: [
-              { name: 'Alex Organizer' },
               { name: 'Jordan Host' },
             ],
           },
@@ -265,20 +253,20 @@ describe('Apify Meetup public event opportunities', () => {
         },
       ],
       receipt: expect.objectContaining({
-        charged_event_counts: { 'apify-default-dataset-item': 1 },
-        provider_cost_usd: 0.0008,
+        charged_event_counts: { 'event-scraped': 1 },
+        provider_cost_usd: 0.0009,
       }),
     })
   })
 
   it.each([
-    ['wrong market', { venue: { city: 'Dallas', state: 'TX', country: 'US' } }],
+    ['wrong market', { venueCity: 'Dallas' }],
     ['online', { eventType: 'ONLINE', isOnline: true }],
-    ['cancelled', { eventStatus: 'CANCELLED' }],
-    ['expired', { startDateTime: '2026-08-20T17:00:00.000Z' }],
-    ['too far away', { startDateTime: '2026-10-05T17:00:00.000Z' }],
+    ['cancelled', { rsvpState: 'CANCELLED' }],
+    ['expired', { dateTime: '2026-08-20T17:00:00.000Z' }],
+    ['too far away', { dateTime: '2026-10-05T17:00:00.000Z' }],
     ['off platform', { eventUrl: 'https://example.com/events/123' }],
-    ['sensitive', { eventDescription: 'A foreclosure distress targeting workshop.' }],
+    ['sensitive', { description: 'A foreclosure distress targeting workshop.' }],
   ])('drops %s event rows before fit-v7', (_label, overrides) => {
     expect(
       normalizeMeetupOpportunity(meetupEvent(overrides), {
@@ -293,8 +281,8 @@ describe('Apify Meetup public event opportunities', () => {
 
   it('parks billed-count mismatches and unknown event charges as ambiguous', async () => {
     const mismatchedRun = jest.fn(async () => outcome(meetupEvent(), {
-      chargedEventCounts: { 'apify-default-dataset-item': 2 },
-      providerCostUsd: 0.0016,
+      chargedEventCounts: { 'event-scraped': 2 },
+      providerCostUsd: 0.0018,
     }))
     const mismatch = await createApifyMeetupOpportunityAdapter({
       env: approvedEnv(),
@@ -304,8 +292,8 @@ describe('Apify Meetup public event opportunities', () => {
     expect(mismatch).toMatchObject({ status: 'ambiguous', cost_units: null })
 
     const unknownRun = jest.fn(async () => outcome(meetupEvent(), {
-      chargedEventCounts: { 'apify-default-dataset-item': 1, 'unknown-event': 1 },
-      providerCostUsd: 0.0018,
+      chargedEventCounts: { 'event-scraped': 1, 'unknown-event': 1 },
+      providerCostUsd: 0.0019,
     }))
     const unknown = await createApifyMeetupOpportunityAdapter({
       env: approvedEnv(),
@@ -330,34 +318,32 @@ describe('Apify Meetup public event opportunities', () => {
     const rows = [
       meetupEvent(),
       meetupEvent({
-        eventId: 'event-generic',
-        eventName: 'Austin Friday Social Mixer',
-        eventDescription: 'Meet local professionals for food and networking.',
+        id: 'event-generic',
+        title: 'Austin Friday Social Mixer',
+        description: 'Meet local professionals for food and networking.',
         eventUrl: 'https://www.meetup.com/austin-social/events/223456789/',
-        group: { name: 'Austin Social Club', memberCount: 4_000 },
-        topics: [{ id: '2', name: 'Social Networking' }],
+        groupName: 'Austin Social Club',
       }),
       meetupEvent({
-        eventId: 'event-investor',
-        eventName: 'Real Estate Investing',
-        eventDescription: 'An event about wholesaling and flipping investment property.',
+        id: 'event-investor',
+        title: 'Real Estate Investing',
+        description: 'An event about wholesaling and flipping investment property.',
         eventUrl: 'https://www.meetup.com/austin-investors/events/323456789/',
-        group: { name: 'Austin Real Estate Investors', memberCount: 3_000 },
-        topics: [{ id: '3', name: 'Real Estate Investing' }],
+        groupName: 'Austin Real Estate Investors',
       }),
     ]
     const runActor = jest.fn(async () => outcome(rows[0]!, {
       items: rows,
       itemCount: rows.length,
-      chargedEventCounts: { 'apify-default-dataset-item': rows.length },
-      providerCostUsd: 0.0024,
+      chargedEventCounts: { 'event-scraped': rows.length },
+      providerCostUsd: 0.0027,
     }))
     const result = await createApifyMeetupOpportunityAdapter({ env: approvedEnv(), now, runActor })
       .search(plan)
 
     expect(result).toMatchObject({
       status: 'partial',
-      cost_units: 2.4,
+      cost_units: 2.7,
       data: [{ identity: { name: 'Austin First-Time Homebuyer Workshop' } }],
       receipt: expect.objectContaining({
         returned_content_filter_version: 'realtor-housing-event-v1',
@@ -370,11 +356,10 @@ describe('Apify Meetup public event opportunities', () => {
 
   it('returns a metered no-result when every safe row fails returned-content relevance', async () => {
     const generic = meetupEvent({
-      eventName: 'Austin Neighborhood Karaoke',
-      eventDescription: 'A public community social event with music and food.',
+      title: 'Austin Neighborhood Karaoke',
+      description: 'A public community social event with music and food.',
       eventUrl: 'https://www.meetup.com/austin-social/events/423456789/',
-      group: { name: 'Austin Community Social Club', memberCount: 4_000 },
-      topics: [{ id: '4', name: 'Karaoke' }],
+      groupName: 'Austin Community Social Club',
     })
     const runActor = jest.fn(async () => outcome(generic))
     const result = await createApifyMeetupOpportunityAdapter({ env: approvedEnv(), now, runActor })
@@ -383,7 +368,7 @@ describe('Apify Meetup public event opportunities', () => {
     expect(result).toMatchObject({
       status: 'no_result',
       data: null,
-      cost_units: 0.8,
+      cost_units: 0.9,
       error: 'no_result_after_returned_content_filter',
       receipt: expect.objectContaining({
         returned_content_filter_version: 'realtor-housing-event-v1',
