@@ -17,6 +17,7 @@ import {
 } from './reddit-url-hydration'
 import {
   APIFY_LINKEDIN_ENGAGER_ADAPTER_ID,
+  APIFY_LINKEDIN_REACTOR_ADAPTER_ID,
   linkedinEngagerQueryContract,
 } from './linkedin-engagement'
 
@@ -434,7 +435,10 @@ export function buildSourcePlan(
     // This adapter consumes an exact URL set derived from a paid discovery
     // result. It can only appear under the source batch that governs that set.
     if (descriptor.adapter_id === APIFY_REDDIT_URL_HYDRATION_ADAPTER_ID) continue
-    if (descriptor.adapter_id === APIFY_LINKEDIN_ENGAGER_ADAPTER_ID) {
+    if (
+      descriptor.adapter_id === APIFY_LINKEDIN_ENGAGER_ADAPTER_ID
+      || descriptor.adapter_id === APIFY_LINKEDIN_REACTOR_ADAPTER_ID
+    ) {
       const queryContract = linkedinEngagerQueryContract(play.providerQuery)
       if (!queryContract.ok) {
         unsupportedDimensions.push({
@@ -444,6 +448,13 @@ export function buildSourcePlan(
         })
         continue
       }
+      const contractedAdapterId = queryContract.value.engagementKind === 'comment'
+        ? APIFY_LINKEDIN_ENGAGER_ADAPTER_ID
+        : APIFY_LINKEDIN_REACTOR_ADAPTER_ID
+      // Comments and reactions are separately quoted source lanes. A frozen
+      // play selects exactly one; enabling both runtime adapters must not
+      // duplicate a run or make the other adapter's quote fail the plan.
+      if (descriptor.adapter_id !== contractedAdapterId) continue
     }
     const rights = adapterAudienceRights(
       descriptor,

@@ -8,12 +8,16 @@ import {
   APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD,
   APIFY_LINKEDIN_ENGAGER_PRICE_VERSION_ENV,
   APIFY_LINKEDIN_ENGAGER_REQUIRED_PRICE_VERSION,
+  APIFY_LINKEDIN_REACTOR_ADAPTER_ID,
+  APIFY_LINKEDIN_REACTOR_ENABLED_ENV,
   LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
   apifyLinkedInEngagerApproved,
   apifyLinkedInEngagerDescriptor,
   apifyLinkedInEngagerEnabled,
+  apifyLinkedInReactorEnabled,
   buildApifyLinkedInEngagerInput,
   createApifyLinkedInEngagerAdapter,
+  createApifyLinkedInReactorAdapter,
 } from '../adapters/apify/engager-source'
 import { APIFY_REQUIRED_PRICE_VERSION, APIFY_REQUIRED_TERMS_VERSION } from '../adapters/apify/source'
 import type { SourceSearchPlan } from '../adapters/types'
@@ -40,6 +44,7 @@ const PLAN: SourceSearchPlan = {
   provider_query: {
     recency_window: 'last 30 days',
     linkedin_engagement_query_contract_version: LINKEDIN_ENGAGER_QUERY_CONTRACT_VERSION,
+    engagement_kind: 'comment',
     search_query: '("AI in real estate" OR "AI for real estate agents" OR "real estate AI") NOT (proptech OR "commercial real estate")',
     engagement_topics: ['AI in real estate', 'AI for real estate agents', 'real estate AI'],
   },
@@ -117,6 +122,12 @@ describe('Apify LinkedIn commenter-lead contract', () => {
       }),
     ).toBe(true)
     expect(
+      apifyLinkedInReactorEnabled({
+        ...ENABLED_ENV,
+        [APIFY_LINKEDIN_REACTOR_ENABLED_ENV]: 'true',
+      }),
+    ).toBe(true)
+    expect(
       apifyLinkedInEngagerApproved({
         ...ENABLED_ENV,
         [APIFY_LINKEDIN_ENGAGER_PRICE_VERSION_ENV]: 'stale-price',
@@ -156,6 +167,26 @@ describe('Apify LinkedIn commenter-lead contract', () => {
       scrapeReactions: false,
       postNestedReactions: false,
     })
+  })
+
+  it('scrapes bounded reactions under a distinct frozen contract', () => {
+    expect(buildApifyLinkedInEngagerInput({
+      ...PLAN,
+      provider_query: { ...PLAN.provider_query, engagement_kind: 'reaction' },
+    })).toEqual({
+      searchQueries: ['("AI in real estate" OR "AI for real estate agents" OR "real estate AI") NOT (proptech OR "commercial real estate")'],
+      maxPosts: 1,
+      postedLimit: 'month',
+      sortBy: 'relevance',
+      scrapeComments: false,
+      postNestedComments: false,
+      scrapeReactions: true,
+      postNestedReactions: true,
+      maxReactions: 5,
+      reactionsProfileScraperMode: 'short',
+    })
+    expect(createApifyLinkedInReactorAdapter({ env: ENABLED_ENV, now }).descriptor.adapter_id)
+      .toBe(APIFY_LINKEDIN_REACTOR_ADAPTER_ID)
   })
 
   it('quotes the full post-plus-comment ceiling before markup', () => {
@@ -214,7 +245,7 @@ describe('Apify LinkedIn commenter-lead contract', () => {
     expect(calls[0]?.options.datasetFields).toEqual([...APIFY_LINKEDIN_ENGAGER_DATASET_FIELDS])
   })
 
-  it('parks an unexpected reaction charge instead of billing it under the approved quote', async () => {
+  it('parks an off-contract reaction charge instead of billing it under a comments quote', async () => {
     const adapter = createApifyLinkedInEngagerAdapter({
       env: ENABLED_ENV,
       now,
@@ -227,7 +258,60 @@ describe('Apify LinkedIn commenter-lead contract', () => {
     await expect(adapter.search(PLAN)).resolves.toMatchObject({
       status: 'ambiguous',
       cost_units: null,
-      error: expect.stringContaining('unapproved LinkedIn engager event'),
+      error: expect.stringContaining('off-contract LinkedIn engagement event'),
+    })
+  })
+
+  it('returns only the requested reaction candidates under a finalized reaction receipt', async () => {
+    const reactor = {
+      type: 'LIKE',
+      actor: {
+        id: 'ACoAAReactor',
+        name: 'Riley Reactor',
+        linkedinUrl: 'https://www.linkedin.com/in/riley-reactor',
+        position: 'Residential Realtor',
+      },
+    }
+    const adapter = createApifyLinkedInReactorAdapter({
+      env: ENABLED_ENV,
+      now,
+      runActor: async () => outcome({
+        items: [
+          {
+            type: 'post',
+            id: '7486634839639523328',
+            linkedinUrl: POST_URL,
+            content: 'How real estate agents can use AI to improve their client service.',
+            comments: [],
+            reactions: [reactor],
+          },
+          { type: 'reaction', ...reactor, postId: '7486634839639523328' },
+        ],
+        itemCount: 2,
+        chargedEventCounts: { 'apify-actor-start': 1, post: 1, reaction: 1 },
+        providerCostUsd: 0.00405,
+      }),
+    })
+    const result = await adapter.search({
+      ...PLAN,
+      provider_query: { ...PLAN.provider_query, engagement_kind: 'reaction' },
+    })
+    expect(result).toMatchObject({
+      status: 'ok',
+      cost_units: 4.05,
+      receipt: {
+        engagement_kind: 'reaction',
+        comments_scraped: false,
+        reactions_scraped: true,
+        charged_event_counts: { 'apify-actor-start': 1, post: 1, reaction: 1 },
+      },
+      data: [expect.objectContaining({
+        identity: expect.objectContaining({ name: 'Riley Reactor' }),
+        evidence: [expect.objectContaining({
+          claim: 'Reacted to a public LinkedIn post (LIKE)',
+          detail: expect.objectContaining({ engagement_kind: 'reaction' }),
+        })],
+      })],
     })
   })
 
@@ -259,6 +343,29 @@ describe('Apify LinkedIn commenter-lead contract', () => {
     if (plan.ok) {
       expect(plan.policy.outreach_mode).toBe(marketType === 'b2b' ? 'automated_email' : 'manual_only')
     }
+  })
+
+  it('selects only the frozen engagement kind when both source adapters are available', () => {
+    const commenter = createApifyLinkedInEngagerAdapter({ env: ENABLED_ENV, now })
+    const reactor = createApifyLinkedInReactorAdapter({ env: ENABLED_ENV, now })
+    const plan = buildSourcePlan(
+      {
+        marketType: 'b2b',
+        geography: 'Austin, TX',
+        signal: 'Public LinkedIn reactions to a real-estate AI topic',
+        signalKind: 'social_engagement',
+        entityUnit: 'people',
+        audience: 'Residential real-estate agents',
+        sourceHint: 'public LinkedIn posts',
+        providerQuery: { ...PLAN.provider_query, engagement_kind: 'reaction' },
+      },
+      [commenter, reactor],
+      { targetAccepted: 2, maxRawCandidates: 5 },
+    )
+    expect(plan).toMatchObject({
+      ok: true,
+      adapterPlan: [expect.objectContaining({ adapter_id: APIFY_LINKEDIN_REACTOR_ADAPTER_ID })],
+    })
   })
 
   it('excludes the adapter from a plan when returned-content topics are not frozen', () => {

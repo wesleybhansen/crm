@@ -4,7 +4,9 @@ import { fixtureConsumerSourceAdapter } from './fixture-consumer'
 import { apifySourceEnabled, createApifySourceAdapter } from './apify/source'
 import {
   apifyLinkedInEngagerEnabled,
+  apifyLinkedInReactorEnabled,
   createApifyLinkedInEngagerAdapter,
+  createApifyLinkedInReactorAdapter,
 } from './apify/engager-source'
 import { apifyOpportunitySourceEnabled, createApifyOpportunitySourceAdapter } from './apify/opportunity-source'
 import {
@@ -95,6 +97,10 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
   if (apifyLinkedInEngagerEnabled()) {
     const linkedInEngagers = createApifyLinkedInEngagerAdapter()
     registry[linkedInEngagers.descriptor.adapter_id] = linkedInEngagers
+  }
+  if (apifyLinkedInReactorEnabled()) {
+    const linkedInReactors = createApifyLinkedInReactorAdapter()
+    registry[linkedInReactors.descriptor.adapter_id] = linkedInReactors
   }
   if (apifyOpportunitySourceEnabled()) {
     const opportunities = createApifyOpportunitySourceAdapter()
