@@ -25,6 +25,11 @@ import {
 } from './dataforseo/event-opportunity-source'
 import { APIFY_MEASURED_USD } from './apify/actors'
 import {
+  APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD,
+  APIFY_LINKEDIN_ENGAGER_MAX_PEOPLE,
+  APIFY_LINKEDIN_ENGAGER_REQUIRED_PRICE_VERSION,
+} from './apify/engager-source'
+import {
   APIFY_REQUIRED_PRICE_VERSION,
   APIFY_REQUIRED_TERMS_VERSION,
 } from './apify/source'
@@ -177,6 +182,21 @@ export function selectedProviderCatalog(
         retention_days: null,
         terms_version: APIFY_REQUIRED_TERMS_VERSION,
         price_version: APIFY_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'apify-linkedin-commenter-leads',
+        provider: 'Apify',
+        category: 'lead_search',
+        name: 'LinkedIn commenter lead discovery',
+        description:
+          'Finds current public LinkedIn posts from a play query and returns people who commented as evidence-backed leads. Reactions remain off.',
+        unit: `one commenter; each bounded run also meters post and actor-start events`,
+        provider_usd_per_unit: APIFY_LINKEDIN_ENGAGER_EVENT_PRICES_USD.comment,
+        max_results_per_request: APIFY_LINKEDIN_ENGAGER_MAX_PEOPLE,
+        evidence: 'Public profile URL, source post URL, comment observation, and finalized event receipt remain attached.',
+        retention_days: 30,
+        terms_version: APIFY_REQUIRED_TERMS_VERSION,
+        price_version: APIFY_LINKEDIN_ENGAGER_REQUIRED_PRICE_VERSION,
       }, markupMultiplier),
       item({
         id: 'apify-linkedin-profile',
