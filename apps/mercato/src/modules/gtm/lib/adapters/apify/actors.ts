@@ -24,9 +24,8 @@ import type { Candidate, CandidateIdentity, ContactPoint } from '../types'
  *   capability is not selectable.
  * - `harvestapi/linkedin-post-search`: its current multi-event rate card bills
  *   posts, optional reactions/comments, zero-result queries and actor starts.
- *   It is intentionally not selected by this people-source adapter. The
- *   separate opportunity-source adapter uses the finalized two-step receipt
- *   client and keeps comments/reactions off to return public demand surfaces.
+ *   Separate, independently gated adapters use it for public demand surfaces
+ *   (comments/reactions off) and commenter leads (comments on, reactions off).
  * Pricing lives in APIFY_MEASURED_USD below, in DOLLARS. The selected actor
  * rates were rechecked against their public Apify Store pages on 2026-08-21.
  */
@@ -792,6 +791,7 @@ function linkedinCandidate(
     claimPrefix: string
     // false for the verified comments actor: it returns no company field
     allowCompany: boolean
+    postContent?: string | null
   },
 ): Candidate | null {
   const name = pick(item, LINKEDIN_NAME_PATHS) ?? joinName(item, LINKEDIN_FIRST_PATHS, LINKEDIN_LAST_PATHS)
@@ -805,6 +805,7 @@ function linkedinCandidate(
   // reaches a claim, a template, or any instruction path.
   const commentary = str(at(item, ['commentary']))
   if (commentary) detail.commentary = commentary.slice(0, MAX_COMMENTARY_CHARS)
+  if (opts.postContent) detail.post_content = opts.postContent.slice(0, MAX_COMMENTARY_CHARS)
   const createdAt = str(at(item, ['createdAt']))
   if (createdAt) detail.created_at = createdAt
   // The actor's echo of the post we asked for. Recorded for reconciliation
@@ -904,6 +905,7 @@ function normalizePostSearch(items: unknown[], ctx: NormalizeContext): Normalize
       continue
     }
     const postCtx: NormalizeContext = { postUrl, observedAt: ctx.observedAt }
+    const postContent = str(at(post, ['content']))
     const seen = new Set<string>()
     const push = (candidate: Candidate | null) => {
       if (!candidate) {
@@ -923,8 +925,9 @@ function normalizePostSearch(items: unknown[], ctx: NormalizeContext): Normalize
           linkedinCandidate(row, postCtx, {
             engagementKind: 'comment',
             engagementType: 'COMMENT',
-            claimPrefix: 'Commented on a LinkedIn post matching the audience search',
+            claimPrefix: 'Commented on a public LinkedIn post',
             allowCompany: false,
+            postContent,
           }),
         )
       }
@@ -939,8 +942,9 @@ function normalizePostSearch(items: unknown[], ctx: NormalizeContext): Normalize
               at(row, ['type']) ?? at(row, ['reactionType']) ?? at(row, ['reaction']),
               'REACTION',
             ),
-            claimPrefix: 'Reacted to a LinkedIn post matching the audience search',
+            claimPrefix: 'Reacted to a public LinkedIn post',
             allowCompany: true,
+            postContent,
           }),
         )
       }

@@ -15,6 +15,10 @@ import {
   REDDIT_URL_HYDRATION_ROWS_PER_URL,
   REDDIT_URL_HYDRATION_SELECTOR_VERSION,
 } from './reddit-url-hydration'
+import {
+  APIFY_LINKEDIN_ENGAGER_ADAPTER_ID,
+  linkedinEngagerQueryContract,
+} from './linkedin-engagement'
 
 /*
  * Pure research-run planning (SPEC-066 sections 7 and 11.1). No ORM, no
@@ -430,6 +434,17 @@ export function buildSourcePlan(
     // This adapter consumes an exact URL set derived from a paid discovery
     // result. It can only appear under the source batch that governs that set.
     if (descriptor.adapter_id === APIFY_REDDIT_URL_HYDRATION_ADAPTER_ID) continue
+    if (descriptor.adapter_id === APIFY_LINKEDIN_ENGAGER_ADAPTER_ID) {
+      const queryContract = linkedinEngagerQueryContract(play.providerQuery)
+      if (!queryContract.ok) {
+        unsupportedDimensions.push({
+          adapter_id: descriptor.adapter_id,
+          dimension: 'source_query',
+          reason: queryContract.reason,
+        })
+        continue
+      }
+    }
     const rights = adapterAudienceRights(
       descriptor,
       policy.lead_mode === 'consumer' ? 'consumer' : 'business',

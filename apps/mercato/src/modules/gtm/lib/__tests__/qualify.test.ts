@@ -2322,3 +2322,56 @@ describe('signal recency cannot pass without a trustworthy reference time', () =
     expect(result.criteria?.find((row) => row.id === 'signal.recency')?.status).toBe('unknown')
   })
 })
+
+describe('LinkedIn engagement topic evidence', () => {
+  const play = {
+    entityUnit: 'people',
+    geography: 'United States',
+    recencyWindow: 'last 30 days',
+    referenceTime: '2026-09-02T00:00:00.000Z',
+    providerQuery: {
+      titles: ['Real Estate Agent', 'Realtor', 'Real Estate Broker', 'Broker Associate', 'Real Estate Team Lead'],
+      exclude_titles: ['Commercial Real Estate', 'Appraiser', 'PropTech', 'Investor'],
+      engagement_topics: ['AI in real estate', 'AI for real estate agents', 'real estate AI'],
+    },
+  }
+  const candidate = {
+    entity_kind: 'person' as const,
+    identity: { name: 'Example Agent', title: 'Residential Real Estate Agent' },
+  }
+  const evidence = (postContent: string) => [{
+    claim: 'Commented on a public LinkedIn post (COMMENT)',
+    source_url: 'https://www.linkedin.com/posts/example-ai-real-estate',
+    observed_at: '2026-09-01T00:00:00.000Z',
+    confidence: 0.9,
+    detail: { post_content: postContent, commentary: 'Useful perspective.' },
+  }]
+
+  it('accepts only when returned post content proves the frozen topic', () => {
+    const result = ruleBasedFitScorer.score(candidate, play, evidence('Practical AI in real estate workflows for agents.'))
+    expect(result.verdict).toBe('accepted')
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'signal.engagement_topic', status: 'pass' }),
+    ]))
+  })
+
+  it('rejects a role-matching commenter when the returned post is off-topic', () => {
+    const result = ruleBasedFitScorer.score(candidate, play, evidence('Free general-purpose API credits for developers.'))
+    expect(result.verdict).toBe('rejected')
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'signal.engagement_topic', status: 'fail' }),
+    ]))
+  })
+
+  it('does not treat real-estate words alone as proof of an AI topic', () => {
+    const result = ruleBasedFitScorer.score(
+      candidate,
+      play,
+      evidence('Residential real estate market update for local agents.'),
+    )
+    expect(result.verdict).toBe('rejected')
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'signal.engagement_topic', status: 'fail' }),
+    ]))
+  })
+})

@@ -82,7 +82,7 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v40' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v41' as const
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -237,6 +237,28 @@ function semanticallyMatches(expected: string[], observedText: string): boolean 
     const hits = wanted.filter((token) => observed.has(token)).length
     const required = wanted.length <= 2 ? 1 : Math.max(2, Math.ceil(wanted.length * 0.4))
     return hits >= required
+  })
+}
+
+/*
+ * Engagement-topic evidence is stricter than the general profile matcher.
+ * The provider query may retrieve a post because it contains a broad phrase,
+ * but a returned commenter is useful only when the returned post itself
+ * demonstrates the complete frozen topic. In particular, "real estate"
+ * without "AI" must not satisfy "AI in real estate".
+ */
+function engagementTopicMatches(expected: string[], observedText: string): boolean {
+  const observed = new Set(canonicalTokens(observedText))
+  return expected.some((phrase) => {
+    const wanted = [...new Set(
+      canonicalTokens(phrase).filter((token) => !OPPORTUNITY_STOP_WORDS.has(token)),
+    )]
+    if (wanted.length === 0) return false
+    if (wanted.includes('ai') && !observed.has('ai')) return false
+    const nonAi = wanted.filter((token) => token !== 'ai')
+    if (nonAi.length === 0) return true
+    const hits = nonAi.filter((token) => observed.has(token)).length
+    return hits >= Math.max(1, Math.ceil(nonAi.length * 0.6))
   })
 }
 
@@ -1066,6 +1088,16 @@ function compileDefinitions(play: FitPlayInput, candidateKind: Candidate['entity
     fields: ['location', 'city', 'geography', 'region'],
     targetingFields: ['provider_location'],
   })
+  if (candidateKind === 'person') {
+    addCriterion(definitions, query, 'engagement_topics', {
+      id: 'signal.engagement_topic',
+      dimension: 'signal',
+      label: 'Returned engagement topic',
+      hard: true,
+      fields: [],
+      useEvidence: true,
+    })
+  }
 
   const exclusionSpecs = [
     ['exclude_industries', 'exclusion.industry', 'Excluded industry', ['industry', 'company_industry']],
@@ -1231,7 +1263,9 @@ function evaluateCriterion(
   const matches =
     rangeStatus === 'pass' ||
     (rangeStatus === null &&
-      definition.expected.some((expected) => observed.some((actual) => wordsMatch(actual, expected))))
+      (definition.id === 'signal.engagement_topic'
+        ? observed.some((actual) => engagementTopicMatches(definition.expected, actual))
+        : definition.expected.some((expected) => observed.some((actual) => wordsMatch(actual, expected)))))
   const targetingMatches = definition.expected.some((expected) =>
     targetingValues.some((actual) => wordsMatch(actual, expected)),
   )
@@ -1249,7 +1283,12 @@ function evaluateCriterion(
   // Generic provider evidence proves the row was sourced, but a claim that
   // omits the criterion cannot prove a contradiction. Only exposed identity
   // fields can turn a non-match into a hard fail.
-  if (!matches && identityValues.length === 0 && evidenceValues.length > 0) {
+  if (
+    definition.id !== 'signal.engagement_topic'
+    && !matches
+    && identityValues.length === 0
+    && evidenceValues.length > 0
+  ) {
     return {
       id: definition.id,
       dimension: definition.dimension,
