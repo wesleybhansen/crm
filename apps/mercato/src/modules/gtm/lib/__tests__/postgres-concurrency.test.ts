@@ -5,7 +5,9 @@ const connectionString = process.env.GTM_TEST_DATABASE_URL
 // Locally a missing connection string skips this suite. Under CI it is a hard
 // failure: the gtm-regression job provisions Postgres and sets the URL, and a
 // silently skipped suite let these contracts go unverified (review M14).
-const runningInCi = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true'
+// Only the gtm-regression job provisions a Postgres service and sets this
+// flag; the generic app test job has no database and must keep skipping.
+const runningInCi = process.env.GTM_REQUIRE_POSTGRES_CONTRACTS === 'true'
 
 if (!connectionString && runningInCi) {
   describe('GTM real PostgreSQL concurrency contracts (CI guard)', () => {
