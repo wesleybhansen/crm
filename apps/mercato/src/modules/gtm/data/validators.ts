@@ -904,3 +904,28 @@ export const gtmChatBodySchema = z.discriminatedUnion('op', [
 ])
 
 export type GtmChatBody = z.infer<typeof gtmChatBodySchema>
+
+// ---------------------------------------------------------------------------
+// Official social-platform connections (Threads keyword search)
+// ---------------------------------------------------------------------------
+
+export const gtmSocialConnectionsBodySchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('list'),
+    noliUserId: idString,
+  }),
+  z.object({
+    op: z.literal('threads-connect-start'),
+    noliUserId: idString,
+    // Absolute https URL on an owned Noli browser domain the callback may
+    // return the user to. Validated again server-side before use.
+    return_to: z.string().trim().url().max(2000),
+  }),
+  z.object({
+    op: z.literal('disconnect'),
+    noliUserId: idString,
+    connectionId: idString,
+  }),
+])
+
+export type GtmSocialConnectionsBody = z.infer<typeof gtmSocialConnectionsBodySchema>

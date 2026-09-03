@@ -52,6 +52,12 @@ import {
 } from './apify/company-employees'
 import { apifyEmailVerifierEnabled, createApifyEmailVerifierAdapter } from './apify/email-verifier'
 import { apifyWebsiteEmailEnabled, createApifyWebsiteEmailAdapter } from './apify/website-email'
+import { createXaiXSearchOpportunityAdapter, xaiXSearchEnabled } from './xai/x-search-opportunity-source'
+import {
+  createThreadsKeywordSearchAdapter,
+  threadsKeywordSearchEnabled,
+} from './threads/keyword-search-opportunity-source'
+import type { ThreadsConnectionAccess } from './threads/connection'
 
 /*
  * Adapter registries (SPEC-066 Tranches 3/4).
@@ -84,7 +90,17 @@ export function fixtureAdaptersEnabled(env: NodeJS.ProcessEnv = process.env): bo
   return true
 }
 
-export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
+/*
+ * Per-request adapter context. Official platform sources that act on a
+ * customer's own OAuth grant (Threads) register only when the caller has
+ * resolved that grant for the exact organization/tenant being served; a
+ * missing context means those sources are simply absent from the plan.
+ */
+export type SourceAdapterContext = {
+  threadsConnection?: ThreadsConnectionAccess | null
+}
+
+export function sourceAdapterRegistry(context: SourceAdapterContext = {}): Record<string, SourceAdapter> {
   const registry: Record<string, SourceAdapter> = {}
   if (fixtureAdaptersEnabled()) {
     registry[fixtureSourceAdapter.descriptor.adapter_id] = fixtureSourceAdapter
@@ -174,11 +190,23 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
     const eventOpportunities = createDataForSeoEventsOpportunityAdapter()
     registry[eventOpportunities.descriptor.adapter_id] = eventOpportunities
   }
+  // Official xAI X Search discovery (plus optional official X API record
+  // hydration). Deployment-gated only; no customer grant is involved.
+  if (xaiXSearchEnabled()) {
+    const xSearch = createXaiXSearchOpportunityAdapter()
+    registry[xSearch.descriptor.adapter_id] = xSearch
+  }
+  // Official Threads keyword search runs on the customer's own connected
+  // account, so it needs both the deployment gate and a resolved connection.
+  if (threadsKeywordSearchEnabled() && context.threadsConnection) {
+    const threads = createThreadsKeywordSearchAdapter({ connection: context.threadsConnection })
+    registry[threads.descriptor.adapter_id] = threads
+  }
   return registry
 }
 
-export function sourceAdapterList(): SourceAdapter[] {
-  return Object.values(sourceAdapterRegistry())
+export function sourceAdapterList(context: SourceAdapterContext = {}): SourceAdapter[] {
+  return Object.values(sourceAdapterRegistry(context))
 }
 
 /*

@@ -51,7 +51,7 @@ import {
 const APIFY_MILLIDOLLAR_USD = 0.001
 const MAX_RESULTS = 25
 const MAX_DATASET_BODY_BYTES = 2_000_000
-const SENSITIVE_TARGETING =
+export const SENSITIVE_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
 
 type SocialEnv = Record<string, string | undefined>

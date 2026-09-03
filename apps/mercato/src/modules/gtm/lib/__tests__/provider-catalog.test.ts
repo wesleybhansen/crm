@@ -1,7 +1,7 @@
 import { selectedProviderCatalog } from '../adapters/provider-catalog'
 
 describe('selected GTM provider catalog', () => {
-  it('publishes only the selected DataForSEO and Apify stack with frozen unit economics', () => {
+  it('publishes only the selected DataForSEO, official X/Threads, and Apify stack with frozen unit economics', () => {
     const catalog = selectedProviderCatalog(2)
 
     expect(catalog.basis).toEqual({
@@ -13,6 +13,9 @@ describe('selected GTM provider catalog', () => {
       'dataforseo-google-maps',
       'dataforseo-google-organic-opportunities',
       'dataforseo-google-events-opportunities',
+      'xai-x-search-discovery',
+      'x-api-post-lookup',
+      'threads-keyword-search',
       'apify-linkedin-company-search',
       'apify-linkedin-post-comments',
       'apify-linkedin-commenter-leads',
@@ -26,6 +29,9 @@ describe('selected GTM provider catalog', () => {
       0.002,
       0.002,
       0.002,
+      0.085,
+      0.005,
+      0,
       0.004,
       0.002,
       0.002,
@@ -39,6 +45,9 @@ describe('selected GTM provider catalog', () => {
       1_000,
       1_000,
       1_000,
+      42_500,
+      2_500,
+      1,
       2_000,
       1_000,
       1_000,

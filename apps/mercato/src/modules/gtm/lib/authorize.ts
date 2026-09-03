@@ -112,3 +112,7 @@ export async function hasGtmFeature(
     return false
   }
 }
+
+export function socialConnectionFeatureForOp(op: string): GtmFeature {
+  return op === 'list' ? 'gtm.view' : 'gtm.edit'
+}

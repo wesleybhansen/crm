@@ -30,6 +30,7 @@ describe('GTM internal route RBAC contract', () => {
       'privacy',
       'reconciliation',
       'research-runs',
+      'social-connections',
       'strategy',
       'tasks',
     ])

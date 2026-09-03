@@ -165,6 +165,11 @@ export async function POST(req: Request) {
       GtmAuditEvent,
     } = entities
     const { sourceAdapterList, sourceAdapterRegistry } = await import('../../../lib/adapters/registry')
+    // Customer-grant-backed sources (Threads) are resolved once per request
+    // for the exact org/tenant being served; absent grants simply mean those
+    // sources are not in the plan.
+    const { resolveSourceAdapterContext } = await import('../../../lib/adapters/context')
+    const adapterContext = await resolveSourceAdapterContext(container, em, { organizationId, tenantId })
     const requestId = req.headers.get('x-request-id')
 
     if (body.op === 'list') {
@@ -248,7 +253,7 @@ export async function POST(req: Request) {
       }
       const plan = buildSourcePlan(
         play,
-        sourceAdapterList(),
+        sourceAdapterList(adapterContext),
         body.limits ?? null,
         undefined,
         opportunityRouting,
@@ -455,7 +460,7 @@ export async function POST(req: Request) {
           { status: 503 },
         )
       }
-      const adapters = sourceAdapterRegistry()
+      const adapters = sourceAdapterRegistry(adapterContext)
 
       const play = await em.findOne(GtmPlay, {
         id: run.playId,

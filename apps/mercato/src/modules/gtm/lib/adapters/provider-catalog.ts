@@ -46,6 +46,27 @@ import {
   APIFY_EMAIL_VERIFY_START_USD,
 } from './apify/email-verifier'
 import {
+  XAI_CEILING_INPUT_TOKENS,
+  XAI_CEILING_X_SEARCH_CALLS,
+  XAI_MAX_OUTPUT_TOKENS,
+  XAI_MAX_RESULTS,
+  XAI_MAX_TURNS,
+  XAI_REQUIRED_PRICE_VERSION,
+  XAI_REQUIRED_TERMS_VERSION,
+  XAI_RETENTION_DAYS,
+  XAI_X_SEARCH_USD_PER_CALL,
+  X_API_REQUIRED_PRICE_VERSION,
+  X_API_USD_PER_POST_READ,
+  xaiLaneCeilingUsd,
+} from './xai/x-search-opportunity-source'
+import {
+  THREADS_MAX_RESULTS,
+  THREADS_REQUIRED_PRICE_VERSION,
+  THREADS_REQUIRED_TERMS_VERSION,
+  THREADS_RETENTION_DAYS,
+} from './threads/keyword-search-opportunity-source'
+import { THREADS_QUERY_BUDGET_PER_WINDOW } from './threads/connection'
+import {
   APIFY_WEBSITE_EMAIL_MAX_ADDRESSES,
   APIFY_WEBSITE_EMAIL_MAX_PAGES,
   APIFY_WEBSITE_EMAIL_PROVIDER_CAP_USD,
@@ -54,7 +75,7 @@ import {
 
 export type SelectedProviderCatalogItem = {
   id: string
-  provider: 'DataForSEO' | 'Apify'
+  provider: 'DataForSEO' | 'Apify' | 'xAI' | 'X' | 'Meta'
   category: 'lead_search' | 'enrichment'
   name: string
   description: string
@@ -152,6 +173,54 @@ export function selectedProviderCatalog(
         retention_days: DATAFORSEO_REQUIRED_RETENTION_DAYS,
         terms_version: DATAFORSEO_REQUIRED_TERMS_VERSION,
         price_version: DATAFORSEO_EVENTS_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'xai-x-search-discovery',
+        provider: 'xAI',
+        category: 'lead_search',
+        name: 'X post discovery (official xAI X Search)',
+        description:
+          `Runs one bounded Grok agent turn set (at most ${XAI_MAX_TURNS} tool turns, ${XAI_MAX_OUTPUT_TOKENS.toLocaleString('en-US')} output units) that searches public X posts and cites each one. Only cited post URLs are kept; the quoted amount is a per-search ceiling and the settled charge comes from the returned usage (X Search at $${XAI_X_SEARCH_USD_PER_CALL.toFixed(3)} per call plus model usage; the ceiling assumes ${XAI_CEILING_X_SEARCH_CALLS} calls and ${XAI_CEILING_INPUT_TOKENS.toLocaleString('en-US')} input units).`,
+        unit: `one bounded discovery search, up to ${XAI_MAX_RESULTS} cited posts (ceiling)`,
+        provider_usd_per_unit: xaiLaneCeilingUsd({ GTM_XAI_MODEL: 'grok-4.3' }),
+        max_results_per_request: XAI_MAX_RESULTS,
+        evidence:
+          'Cited x.com post URL, snowflake-derived post time, the model transcript labeled as such, and the provider usage receipt remain attached to each row.',
+        retention_days: XAI_RETENTION_DAYS,
+        terms_version: XAI_REQUIRED_TERMS_VERSION,
+        price_version: XAI_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'x-api-post-lookup',
+        provider: 'X',
+        category: 'lead_search',
+        name: 'X post record retrieval (official X API)',
+        description:
+          'Re-reads each cited post through the official X API so the stored text, timestamp, and public metrics are the platform record rather than a model transcript. Pay-per-use, charged per post returned; never requests user objects.',
+        unit: 'one public post returned',
+        provider_usd_per_unit: X_API_USD_PER_POST_READ,
+        max_results_per_request: XAI_MAX_RESULTS,
+        evidence:
+          'Official post id, text, created time, public metrics, conversation id, and the provider receipt remain attached to each row.',
+        retention_days: XAI_RETENTION_DAYS,
+        terms_version: XAI_REQUIRED_TERMS_VERSION,
+        price_version: X_API_REQUIRED_PRICE_VERSION,
+      }, markupMultiplier),
+      item({
+        id: 'threads-keyword-search',
+        provider: 'Meta',
+        category: 'lead_search',
+        name: 'Threads keyword search (official Threads API, your connected account)',
+        description:
+          `Searches recent public Threads posts through the official keyword-search endpoint using the customer's own connected Threads account. Meta charges no per-call fee; the account allows a rolling 24-hour query window, of which Noli uses at most ${THREADS_QUERY_BUDGET_PER_WINDOW.toLocaleString('en-US')} queries.`,
+        unit: `one keyword search, up to ${THREADS_MAX_RESULTS} public posts`,
+        provider_usd_per_unit: 0,
+        max_results_per_request: THREADS_MAX_RESULTS,
+        evidence:
+          'Official post id, permalink, text, publication time, author handle, and the provider trace id remain attached to each row.',
+        retention_days: THREADS_RETENTION_DAYS,
+        terms_version: THREADS_REQUIRED_TERMS_VERSION,
+        price_version: THREADS_REQUIRED_PRICE_VERSION,
       }, markupMultiplier),
       item({
         id: 'apify-linkedin-company-search',
