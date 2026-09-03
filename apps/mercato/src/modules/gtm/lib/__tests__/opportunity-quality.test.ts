@@ -1394,3 +1394,21 @@ describe('opportunity quality primitives', () => {
     ])
   })
 })
+
+
+describe('active home-search language (X lane calibration 2026-09-03)', () => {
+  const samples = [
+    'Looking at houses in Austin .. going to take a trip to Texas .. I feel Austin is a good move',
+    'We just got pre-approved and start touring homes in Round Rock this weekend, any neighborhoods to avoid?',
+    'Put in an offer on a house in Pflugerville today, fingers crossed',
+    "We're under contract on a house in Cedar Park and closing next month",
+  ]
+  it.each(samples)('classifies %s as buyer intent and realtor-suitable', (content) => {
+    expect(classifyOpportunityIntent(content).kind).toBe('buyer_intent')
+    expect(assessRealtorOpportunitySuitability(content, 'buyer_intent', 'https://x.com/a/status/1', 'post').relevant).toBe(true)
+  })
+  it('still ignores a bare relocation announcement without housing context', () => {
+    expect(classifyOpportunityIntent("I'm MOVING to Austin!!!").kind).toBeNull()
+    expect(assessRealtorOpportunitySuitability("I'm MOVING to Austin!!!", 'buyer_intent', null, 'post').relevant).toBe(false)
+  })
+})

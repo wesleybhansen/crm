@@ -891,6 +891,16 @@ export function createXaiXSearchOpportunityAdapter(deps: XaiXSearchDeps = {}): S
       const kept = assessed.filter(({ assessment }) => assessment.matches).map(({ candidate }) => candidate)
       const filtered = normalized.length - kept.length
       const filterReasons = returnedContentReasonCounts(assessed)
+      // Bounded calibration diagnostics: which cited posts the realtor gate
+      // dropped and why, so the lane can be tuned from receipts alone.
+      const filteredExamples = assessed
+        .filter(({ assessment }) => !assessment.matches)
+        .slice(0, 5)
+        .map(({ candidate, assessment }) => ({
+          url: candidate.identity.urls?.[0] ?? null,
+          reasons: assessment.reasons,
+          text: (candidate.identity.audience_description ?? '').slice(0, 140),
+        }))
       if (kept.length === 0) {
         return {
           status: 'no_result',
@@ -900,6 +910,7 @@ export function createXaiXSearchOpportunityAdapter(deps: XaiXSearchDeps = {}): S
             returned_content_filter_version: plan.provider_query?.social_returned_content_filter_version ?? null,
             returned_content_filtered_rows: filtered,
             returned_content_filter_reasons: filterReasons,
+            filtered_examples: filteredExamples,
             returned_count: 0,
           }),
           cost_units: costUnits,
@@ -919,6 +930,7 @@ export function createXaiXSearchOpportunityAdapter(deps: XaiXSearchDeps = {}): S
           returned_content_filter_version: plan.provider_query?.social_returned_content_filter_version ?? null,
           returned_content_filtered_rows: filtered,
           returned_content_filter_reasons: filterReasons,
+          filtered_examples: filteredExamples,
           truncated,
         }),
         cost_units: costUnits,
