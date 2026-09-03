@@ -33,6 +33,19 @@ const BUYER_SIGNALS: Array<[string, RegExp]> = [
   ['home search', /\b(?:house hunt|house hunting|home search|searching for (?:a )?home)\b/i],
   ['financing education', /\b(?:mortgage|pre[- ]?approval|down payment|closing costs?)\b/i],
   ['looking for a home', /\blooking for (?:a )?(?:home|house|condo|townhome)\b/i],
+  // Plain active-search language people actually post mid-purchase
+  // (owner calibration of the X lane, 2026-09-03): touring, viewing,
+  // offers, contracts, closings. Agents rarely describe themselves this way.
+  [
+    'active home search',
+    /\b(?:looking at|touring|toured|viewing|viewed|shopping for|checking out|went to see|seeing)\s+(?:a few |some |several |more |a couple of )?(?:homes?|houses?|condos?|townhomes?|listings?|open houses?)\b|\b(?:home|house)\s+(?:shopping|tour(?:s|ing)?|showings?)\b|\bopen houses? (?:this|next|on|tomorrow|today)\b/i,
+  ],
+  [
+    'offer or contract',
+    // Every clause is bound to a residence so "made an offer to a player" or
+    // "pre-approved for a card" never read as a home purchase.
+    /\b(?:put in|made|submitted|placed|wrote)\s+(?:an?|the|my|our)\s+offer\s+on\s+(?:(?:a|the|my|our|this)\s+)?(?:(?:first|new|second|little|small|bigger)\s+)?(?:home|house|condo|townhome|property|place)\b|\bunder contract\s+(?:on|for)\s+(?:(?:a|the|my|our|this)\s+)?(?:home|house|condo|townhome|property)\b|\b(?:home|house|condo|townhome|property)\b[^.!?\n]{0,60}\bunder contract\b|\b(?:our|my)\s+offer\s+on\s+(?:the|a)\s+(?:home|house|condo|townhome|property)\s+(?:was|got)\s+accepted\b|\bclosing on (?:a|my|our|the)\s+(?:new\s+)?(?:home|house|condo|townhome)\b|\bpre[- ]?approved\s+for\s+(?:a\s+)?(?:mortgage|home loan|house)\b|\b(?:got|gotten|been|just)\s+pre[- ]?approved\b[^.!?\n]{0,80}\b(?:homes?|houses?|mortgage|condos?|townhomes?)\b/i,
+  ],
   [
     'actively seeking a property',
     /\b(?:i|we)(?:(?:'m|'re| am| are)|(?:'ve| have)(?: been)?)?\s+(?:waiting|trying|looking)\s+to\s+(?:find|buy|purchase)\s+(?:a|my|our|the)?\s*(?:home|house|condo|townhome|property)\b/i,
@@ -233,7 +246,7 @@ const LOCAL_RESIDENTIAL_DECISION_QUESTION =
 const ENTERTAINMENT_HOUSE_SEARCH =
   /\b(?:tv|television|show|series|episode|channel|watch(?:ed|ing)?)\b.{0,120}\b(?:house hunt(?:ing)?|home remodel(?:ing)?|home renovation)\b|\b(?:house hunt(?:ing)?|home remodel(?:ing)?|home renovation)\b.{0,120}\b(?:tv|television|show|series|episode|channel|watch(?:ed|ing)?)\b/i
 const REALTOR_HOUSING_CONTEXT =
-  /\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|homeowners? association|community association|community registry|neighbou?rhood college|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
+  /\b(?:touring|toured|viewing|viewed|looking at|shopping for|checking out)\s+(?:a few |some |several |more |a couple of )?homes?\b|\bunder contract\s+(?:on|for)\b|\bpre[- ]?approved\b[^.!?\n]{0,80}\b(?:homes?|houses?|mortgage)\b|\boffer on (?:a|the|my|our|this) (?:new |first )?(?:home|house)\b|\b(?:houses?|housing|propert(?:y|ies)|condos?|townhomes?|homeowners?|home ?buyers?|home ?sellers?|first[- ]time buyers?|mortgage|down payment|closing costs?|real estate|neighbou?rhood association|homeowners? association|community association|community registry|neighbou?rhood college|homebuyer education)\b|\b(?:buy|buying|purchase|purchasing|sell|selling|list|listing|price|pricing|prepare|preparing)\b.{0,60}\bhome\b/i
 const CONSUMER_QUESTION =
   /\b(?:(?:does|can|could|would|has|is) anyone|(?:where|what|which|how|should|can|could|would|do|does|has|have|is|are) (?:i|we)|(?:where|what|which|how) should (?:i|we|my|our)\b|i(?:'m| am) ask(?:ing)?|we(?:'re| are) ask(?:ing)?|need (?:some )?help|looking for (?:advice|help|recommendations?)|recommendations? (?:for|on|about)|(?:would|could) love (?:your|some|any)?\s*suggestions?|suggestions? (?:for|on|about))\b/i
 const FIRST_PERSON_HOUSING_NEED =
@@ -286,6 +299,11 @@ const FIRST_PERSON_HOUSING_IDENTITY =
 // seller articles, agent CTAs, and unrelated product sales cannot qualify.
 const FIRST_PERSON_IMMINENT_HOUSING_TRANSACTION =
   /\b(?:(?:i|we)(?:'m|'re| am| are)?\s+(?:(?:about|ready|going)\s+to|(?:can(?:not|'t)|could(?: not|n't))\s+wait\s+to)\s+(?:buy|purchase|sell|list)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)|can(?:not|'t)\s+wait\s+to\s+(?:buy|purchase|sell|list)\s+(?:my|our)\s+(?:home|house|condo|townhome|property))\b/i
+// First-person active purchase progress: touring, viewing, pre-approval,
+// offers, contracts. The subject is optional because short posts drop it
+// ("Looking at houses in Austin this weekend").
+const FIRST_PERSON_ACTIVE_HOME_SEARCH =
+  /(?:\b(?:i|we)(?:['’]m|['’]re|['’]ve| am| are| have| just)?\s+(?:just\s+|been\s+)?|(?:^|[.!?\n]\s*))(?:looking at|touring|toured|viewing|viewed|shopping for|checking out|went to see|seeing)\s+(?:a few |some |several |more |a couple of )?(?:homes?|houses?|condos?|townhomes?|listings?|open houses?)\b|\b(?:i|we)(?:['’]ve| have)?\s+(?:just\s+)?(?:got|gotten|been)\s+pre[- ]?approved\b[^.!?\n]{0,80}\b(?:homes?|houses?|mortgage|condos?|townhomes?)\b|(?:\b(?:i|we)\s+(?:just\s+)?|(?:^|[.!?\n]\s*))(?:put in|made|submitted|placed|wrote)\s+(?:an?|the|my|our)\s+offer\s+on\s+(?:(?:a|the|my|our|this)\s+)?(?:home|house|condo|townhome|property|place)\b|\b(?:i|we)(?:['’]m|['’]re| am| are)\s+(?:now\s+)?under contract\s+(?:on|for)\s+(?:(?:a|the|my|our|this)\s+)?(?:home|house|condo|townhome|property)\b|\b(?:i|we)(?:['’]m|['’]re| am| are)\s+closing on\s+(?:a|my|our|the)\s+(?:new\s+)?(?:home|house|condo|townhome)\b/i
 const FIRST_PERSON_RECENT_HOUSING_REQUEST =
   /\b(?:i|we)(?:'ve| have)?\s+(?:(?:recently|just)\s+)?(?:posted|asked|wrote|talked)\s+about\s+(?:buying|purchasing|selling|listing)\s+(?:(?:a|my|our|the|this)\s+)?(?:home|house|condo|townhome|property)(?:\s+recently)?\b/i
 // Directly asking the public for an agent recommendation is itself a
@@ -720,6 +738,7 @@ export function assessRealtorOpportunitySuitability(
     || FIRST_PERSON_HOUSING_IDENTITY.test(content)
     || FIRST_PERSON_IMMINENT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_RECENT_HOUSING_REQUEST.test(content)
+    || FIRST_PERSON_ACTIVE_HOME_SEARCH.test(content)
     || DIRECT_REALTOR_ASSISTANCE_REQUEST.test(content)
     || destinationGroundedBuyer
   const directConsumerNeed =
@@ -735,6 +754,7 @@ export function assessRealtorOpportunitySuitability(
     || FIRST_PERSON_HOUSING_IDENTITY.test(content)
     || FIRST_PERSON_IMMINENT_HOUSING_TRANSACTION.test(content)
     || FIRST_PERSON_RECENT_HOUSING_REQUEST.test(content)
+    || FIRST_PERSON_ACTIVE_HOME_SEARCH.test(content)
     || DIRECT_REALTOR_ASSISTANCE_REQUEST.test(content)
     || destinationGroundedBuyer
   const surface = PARTICIPATION_SURFACE.test(content)
