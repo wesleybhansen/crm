@@ -1,5 +1,5 @@
 import { EmailConnection } from '../../../email/data/schema'
-import { GtmInboundEvent, GtmMailboxHealth } from '../../data/entities'
+import { GtmInboundEvent, GtmMailboxHealth, GtmSendAttempt } from '../../data/entities'
 import {
   clearMailboxPause,
   GtmMailboxControlError,
@@ -101,15 +101,50 @@ describe('GTM mailbox operator controls', () => {
     )).rejects.toMatchObject({ code: 'mailbox_not_found' })
   })
 
-  it('allows the next safety refresh to re-latch a cleared mailbox', async () => {
+  it('allows the next safety refresh to re-latch a cleared mailbox on NEW evidence only', async () => {
     const em = new FakeEm()
     await seedPausedMailbox(em)
+    const attempt = em.create(GtmSendAttempt, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      mailboxConnectionId: MAILBOX,
+      idempotencyKey: 'send:1',
+      acceptedAt: new Date(NOW.getTime() - 60_000),
+    })
+    em.persist(attempt)
+    // The complaint the operator judged a false positive (at/before the clear).
+    em.persist(em.create(GtmInboundEvent, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      mailboxConnectionId: MAILBOX,
+      provider: 'gmail',
+      providerEventId: 'old-complaint',
+      dedupeKey: 'old-complaint',
+      eventKind: 'complaint',
+      sendAttemptId: attempt.id,
+      processingState: 'processed',
+      occurredAt: new Date(NOW.getTime() - 1_000),
+    }))
+    await em.flush()
     await clearMailboxPause(
       em,
       { organizationId: ORG, tenantId: TENANT },
       { mailboxConnectionId: MAILBOX, expectedFence: 7, reason: 'false_positive' },
       { clock: { now: () => NOW } },
     )
+    // Reviewed behaviour (api-send-privacy M2): the rows that caused the
+    // false positive must not re-latch the pause on the next refresh.
+    const stillClear = await refreshMailboxHealth(
+      em,
+      { organizationId: ORG, tenantId: TENANT },
+      MAILBOX,
+      { clock: { now: () => new Date(NOW.getTime() + 500) } },
+    )
+    expect(stillClear).toMatchObject({ status: 'healthy', complaintCount: 0, fence: 9 })
+
+    // A NEW correlated complaint after the clear pauses again. (The event
+    // carries a send_attempt_id and is processed: uncorrelated rows never
+    // count, see mailbox-health.ts.)
     em.persist(em.create(GtmInboundEvent, {
       organizationId: ORG,
       tenantId: TENANT,
@@ -118,7 +153,9 @@ describe('GTM mailbox operator controls', () => {
       providerEventId: 'new-complaint',
       dedupeKey: 'new-complaint',
       eventKind: 'complaint',
-      occurredAt: NOW,
+      sendAttemptId: attempt.id,
+      processingState: 'processed',
+      occurredAt: new Date(NOW.getTime() + 800),
     }))
     await em.flush()
     const refreshed = await refreshMailboxHealth(
@@ -132,7 +169,7 @@ describe('GTM mailbox operator controls', () => {
       pauseReason: 'complaint',
       pauseUntil: null,
       complaintCount: 1,
-      fence: 9,
+      fence: 10,
     })
   })
 })

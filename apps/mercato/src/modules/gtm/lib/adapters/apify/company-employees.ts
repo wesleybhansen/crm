@@ -287,6 +287,17 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+const CLAIM_TEXT_LIMIT = 120
+
+// Bounded, quoted provider strings for the evidence claim (review 2026-09-02,
+// M3/H9): the claim reaches the drafting prompt, the raw values stay in detail.
+function claimText(value: string | null): string | null {
+  if (!value) return null
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (!compact) return null
+  return `"${Array.from(compact).slice(0, CLAIM_TEXT_LIMIT).join('').replace(/"/g, "'")}"`
+}
+
 function safeLinkedInUrl(value: unknown, kind: 'person' | 'company'): string | null {
   const raw = text(value)
   if (!raw) return null
@@ -465,13 +476,16 @@ export function normalizeApifyCompanyEmployeeItem(
       entity_kind: 'person',
       identity,
       evidence: [{
-        claim: `${name} is currently listed as ${position.title} at ${parent.name}.`,
+        claim: `${claimText(name)} is currently listed as ${claimText(position.title)} at ${claimText(parent.name)}.`,
         source_url: profileUrl,
         observed_at: observedAt,
         confidence: 0.9,
         detail: {
           provider: 'apify',
           actor_id: APIFY_COMPANY_EMPLOYEES_ACTOR_ID,
+          person_name: name,
+          // A profile listing has no publication time (review 2026-09-02, H7).
+          published_at_unknown: true,
           parent_company_candidate_id: parent.candidate_id,
           parent_company_match_id: parent.match_id,
           parent_company_url: parent.linkedin_url,

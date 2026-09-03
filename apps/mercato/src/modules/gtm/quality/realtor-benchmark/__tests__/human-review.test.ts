@@ -14,6 +14,9 @@ function evidence(): RealtorBenchmarkEvidence {
     benchmarkVersion: REALTOR_BENCHMARK_VERSION,
     playId: 'realtor-austin-buyer',
     rank: 1,
+    researchRunId: '10000000-0000-4000-8000-000000000001',
+    candidateMatchId: '20000000-0000-4000-8000-000000000001',
+    providerOperationId: '30000000-0000-4000-8000-000000000001',
     source: 'apify-reddit',
     destinationHash,
     destinationKind: 'thread',
@@ -138,6 +141,14 @@ describe('independent human realtor benchmark review import', () => {
     expect(() => importIndependentHumanReviews([evidence()], invalid)).toThrow(
       'Duplicate hash does not identify an earlier frozen result',
     )
+  })
+
+  it('fails closed when frozen evidence does not bind to a real run, match, and provider operation (C1)', () => {
+    const unbound = { ...evidence() } as Record<string, unknown>
+    delete unbound.researchRunId
+    expect(() => importIndependentHumanReviews([unbound as never], batch())).toThrow()
+    const malformed = { ...evidence(), candidateMatchId: 'not-a-uuid' }
+    expect(() => importIndependentHumanReviews([malformed], batch())).toThrow()
   })
 
   it('rejects reviewer attempts to overwrite frozen system fields', () => {

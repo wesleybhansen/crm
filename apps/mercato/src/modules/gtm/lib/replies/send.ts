@@ -1,19 +1,29 @@
 import crypto from 'crypto'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { GtmCtx } from '../campaign/build'
 import type { Clock, ExecutionEm } from '../execute/schedule'
-import { GtmExecutionError } from '../execute/schedule'
+import {
+  GtmExecutionError,
+  allocateCapacitySlotKey,
+  allocateDailyCapacitySlot,
+  buildCapacityReservations,
+  clampToBusinessWindow,
+  isWithinBusinessWindow,
+} from '../execute/schedule'
 import { hashAddress } from '../campaign/exclusions'
 import { buildUnsubscribeUrl } from '../unsubscribe'
 import type { GtmSendTransport } from '../execute/transport'
-import { GtmSendTimeoutError } from '../execute/transport'
+import { isAmbiguousTransportError } from '../execute/transport'
+import { findSuppression, loadCapacityRows } from '../execute/send'
+import { settingsFromMailboxPolicy } from '../execute/mailbox-policy'
+import { readMailboxSendPermission } from '../reputation/mailbox-health'
 import {
   GtmAuditEvent,
   GtmContactPoint,
   GtmEnrollment,
+  GtmMailboxPolicy,
   GtmReply,
   GtmSendAttempt,
-  GtmSuppression,
 } from '../../data/entities'
 import { EmailConnection, EmailMessage } from '../../../email/data/schema'
 
@@ -31,14 +41,25 @@ import { EmailConnection, EmailMessage } from '../../../email/data/schema'
  *
  * Differences from a campaign send (send.ts), all deliberate:
  *   - The pre-send recheck is the reply-appropriate subset: suppression on the
- *     recipient + sender-connection health. It does NOT re-check the enrollment
- *     as active, the campaign/version, or play eligibility: a reply is a single
+ *     recipient, sender-connection health, AND the mailbox safety controls a
+ *     campaign send honours (review api-send-privacy H3): the reputation
+ *     pause (readMailboxSendPermission), the canonical mailbox policy's send
+ *     window and daily cap, all under the same connection-row lock. A reply
+ *     from a complaint-paused mailbox is exactly the mail the pause exists
+ *     to stop. Policy refusals are NOT terminal: the row goes back to
+ *     'approved' so re-approving after the pause clears / the window opens
+ *     sends it. It does NOT re-check the enrollment as active, the
+ *     campaign/version, or play eligibility: a reply is a single
  *     human-approved message to a conversation that has already stopped, and it
  *     must NOT reopen the stopped enrollment.
  *   - Content comes from the reply draft (draft_response.subject/body), not a
  *     frozen rendered message. The row's rendered_message_id / campaign_version
  *     / step / mailbox are borrowed from the original outbound attempt purely to
- *     satisfy the non-null columns and to reuse the same thread mailbox.
+ *     satisfy the non-null columns and to reuse the same thread mailbox; the
+ *     row is stamped kind 'reply' so analytics and the campaign tick can
+ *     tell it apart (L11).
+ *   - An accepted reply takes a capacity slot for the mailbox-local day, so
+ *     it counts against the daily cap like any other send from the mailbox.
  *   - Idempotency key `reply:{replyId}:1` under (organization_id,
  *     idempotency_key): re-approve / re-send returns the existing attempt and
  *     never sends twice.
@@ -79,6 +100,11 @@ export type ReplySendOutcome =
   | 'fenced'
   | 'dry_run'
   | 'already_sent'
+  // Mailbox safety refusals: the attempt is back in 'approved' and can be
+  // re-approved once the condition clears.
+  | 'paused'
+  | 'outside_send_window'
+  | 'daily_cap_reached'
 
 export type ApproveSendResult = {
   reply: GtmReply
@@ -122,23 +148,13 @@ async function loadReply(em: ExecutionEm, ctx: GtmCtx, replyId: string): Promise
   return reply
 }
 
-// Org + global email suppression check (mirrors send.ts findSuppression).
-async function findSuppression(
-  em: ExecutionEm,
-  organizationId: string,
-  addressHash: string,
-  now: Date,
-): Promise<GtmSuppression | null> {
-  const rows = [
-    ...(await em.find(GtmSuppression, { organizationId, addressHash, deletedAt: null })),
-    ...(await em.find(GtmSuppression, { scope: 'global', addressHash, deletedAt: null })),
-  ]
-  for (const row of rows) {
-    if (row.channel !== 'email' && row.channel !== 'all') continue
-    if (row.expiresAt && row.expiresAt.getTime() <= now.getTime()) continue
-    return row
-  }
-  return null
+// One RFC 5322 addr-spec, nothing else: no lists, no display names, no
+// comments, no whitespace. The inbound From is sender-controlled and a
+// bracketed list would otherwise be delivered to extra recipients (M5).
+const SINGLE_ADDRESS = /^[^\s@<>,;:"()[\]\\]+@[^\s@<>,;:"()[\]\\]+\.[^\s@<>,;:"()[\]\\]+$/
+
+export function isSingleMailbox(value: string): boolean {
+  return value.length <= 320 && SINGLE_ADDRESS.test(value)
 }
 
 type SendContext = {
@@ -190,8 +206,8 @@ async function resolveSendContext(
   }
 }
 
-// Who the reply is addressed to: the inbound message's from address, else the
-// enrollment's verified email contact point (mirrors classify.resolveReplyAddress).
+// Who the reply is addressed to: the inbound message's from address when it
+// is exactly one mailbox, else the enrollment's verified email contact point.
 async function resolveRecipient(
   em: ExecutionEm,
   ctx: GtmCtx,
@@ -204,7 +220,8 @@ async function resolveRecipient(
       organizationId: ctx.organizationId,
       tenantId: ctx.tenantId,
     })
-    if (message?.fromAddress) return message.fromAddress.trim().toLowerCase()
+    const from = message?.fromAddress?.trim().toLowerCase() ?? ''
+    if (from && isSingleMailbox(from)) return from
   }
   const points = await em.find(GtmContactPoint, {
     organizationId: ctx.organizationId,
@@ -298,6 +315,16 @@ async function executeReplyAttempt(
       { id: attemptId, claimToken, fence, ...extraWhere },
       { ...data, updatedAt: now() },
     )
+  const fencedUpdateOn = (
+    targetEm: ExecutionEm,
+    extraWhere: Record<string, unknown>,
+    data: Record<string, unknown>,
+  ): Promise<number> =>
+    targetEm.nativeUpdate(
+      GtmSendAttempt,
+      { id: attemptId, claimToken, fence, ...extraWhere },
+      { ...data, updatedAt: now() },
+    )
   const fail = async (reason: string): Promise<ReplySendOutcome> => {
     const n = await fencedUpdate({}, { state: 'failed', failureReason: reason, failedAt: now() })
     return n === 1 ? 'failed' : 'fenced'
@@ -306,6 +333,7 @@ async function executeReplyAttempt(
   if (attempt.organizationId !== ctx.organizationId || attempt.tenantId !== ctx.tenantId) {
     return fail('org_tenant_mismatch')
   }
+  if (!isSingleMailbox(opts.recipient)) return fail('recipient_invalid')
 
   // Sender connection exists, belongs to this org/tenant, and is active.
   const connection = await em.findOne(EmailConnection, {
@@ -315,18 +343,119 @@ async function executeReplyAttempt(
     deletedAt: null,
   })
   if (!connection || !connection.isActive) return fail('sender_inactive')
+  const mailboxConnectionId = connection.id
 
   // Suppression recheck on the recipient at claim time.
   const addressHash = hashAddress(opts.recipient)
   const suppressed = await findSuppression(em, ctx.organizationId, addressHash, now())
   if (suppressed) return fail('suppressed')
 
-  // Mint rfc_message_id + go provider_started DURABLY before transport contact.
+  // Mint rfc_message_id + go provider_started DURABLY before transport contact,
+  // inside the same locked decision a campaign send makes (H3): the sender
+  // row is locked, the reputation pause, the canonical policy's send window
+  // and daily cap are honoured, the suppression is re-read, and the accepted
+  // reply reserves a capacity slot for the mailbox-local day.
   const senderDomain = (connection.emailAddress || '').split('@')[1] || 'invalid.local'
   const rfcMessageId = `<${crypto.randomUUID()}@${senderDomain}>`
-  const started = await fencedUpdate({ state: 'claimed' }, { state: 'provider_started', rfcMessageId })
-  if (started !== 1) return 'fenced'
-  attempt.rfcMessageId = rfcMessageId
+  const releaseTo = async (
+    tem: ExecutionEm,
+    outcome: 'paused' | 'outside_send_window' | 'daily_cap_reached',
+    failureReason: string,
+  ): Promise<ReplySendOutcome> => {
+    const updated = await fencedUpdateOn(
+      tem,
+      { state: 'claimed' },
+      { state: 'approved', claimToken: null, claimExpiresAt: null, failureReason, failedAt: null },
+    )
+    return updated === 1 ? outcome : 'fenced'
+  }
+  const startDecision = await em.transactional(async (tem): Promise<ReplySendOutcome | 'started'> => {
+    const locked = await tem.findOne(
+      EmailConnection,
+      {
+        id: mailboxConnectionId,
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    )
+    if (!locked || !locked.isActive) {
+      const updated = await fencedUpdateOn(
+        tem,
+        { state: 'claimed' },
+        { state: 'failed', failureReason: 'sender_inactive', failedAt: now() },
+      )
+      return updated === 1 ? 'failed' : 'fenced'
+    }
+    if (await findSuppression(tem, ctx.organizationId, addressHash, now())) {
+      const updated = await fencedUpdateOn(
+        tem,
+        { state: 'claimed' },
+        { state: 'failed', failureReason: 'suppressed', failedAt: now() },
+      )
+      return updated === 1 ? 'failed' : 'fenced'
+    }
+    const decisionNow = now()
+    const permission = await readMailboxSendPermission(tem, ctx, mailboxConnectionId, decisionNow)
+    if (!permission.allowed) {
+      return releaseTo(tem, 'paused', `mailbox_paused:${permission.pauseReason}`)
+    }
+    // The canonical policy exists for every mailbox a campaign was approved
+    // on. A mailbox without one has no frozen window/cap to enforce.
+    const policy = await tem.findOne(
+      GtmMailboxPolicy,
+      {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        mailboxConnectionId,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_READ },
+    )
+    let capacitySlotKey: string | null = null
+    if (policy) {
+      const settings = settingsFromMailboxPolicy(policy)
+      if (!isWithinBusinessWindow(decisionNow, settings.send_window)) {
+        return releaseTo(tem, 'outside_send_window', 'outside_send_window')
+      }
+      const capacityRows = await loadCapacityRows(tem, ctx, mailboxConnectionId, decisionNow)
+      const reservations = buildCapacityReservations(
+        capacityRows,
+        settings.send_window.timezone,
+        attemptId,
+      )
+      const slot = allocateDailyCapacitySlot(
+        clampToBusinessWindow(decisionNow, settings.send_window),
+        settings,
+        reservations,
+      )
+      if (slot.getTime() !== decisionNow.getTime()) {
+        return releaseTo(tem, 'daily_cap_reached', 'daily_cap_reached')
+      }
+      capacitySlotKey = allocateCapacitySlotKey(
+        mailboxConnectionId,
+        decisionNow,
+        settings,
+        capacityRows,
+        { excludeAttemptId: attemptId, preferredKey: attempt.capacitySlotKey },
+      )
+    }
+    const started = await fencedUpdateOn(
+      tem,
+      { state: 'claimed' },
+      {
+        state: 'provider_started',
+        rfcMessageId,
+        capacitySlotKey,
+        claimExpiresAt: new Date(now().getTime() + REPLY_LEASE_MINUTES * 60 * 1000),
+      },
+    )
+    return started === 1 ? 'started' : 'fenced'
+  })
+  if (startDecision !== 'started') return startDecision
+  // The managed entity is not mutated after the fenced write (see send.ts C1
+  // note); rfcMessageId lives in the local above.
 
   // RFC 8058 one-click headers on the reply send too (section 8).
   const unsubscribeUrl = buildUnsubscribeUrl({
@@ -368,7 +497,7 @@ async function executeReplyAttempt(
     )
     return n === 1 ? 'accepted' : 'fenced'
   } catch (err) {
-    if (err instanceof GtmSendTimeoutError || (err as Error)?.name === 'GtmSendTimeoutError') {
+    if (isAmbiguousTransportError(err)) {
       const reason = `transport_timeout: ${(err as Error).message}`
       const n = await fencedUpdate(
         { state: 'provider_started' },
@@ -469,6 +598,7 @@ export async function approveAndSendReply(
           fence: 0,
           attemptNo: 1,
           idempotencyKey: key,
+          kind: 'reply',
           rfcMessageId: null,
           scheduledFor: now,
         })

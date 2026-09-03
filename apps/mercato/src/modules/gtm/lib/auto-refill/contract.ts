@@ -8,6 +8,14 @@ import {
 } from '../campaign/build'
 
 export const GTM_AUTO_REFILL_QUEUE = 'gtm-auto-refill'
+// Campaign statuses under which auto-refill may activate or run a cycle.
+// 'paused' is deliberately absent (review 2026-09-02, M13): pausing a
+// campaign must pause its provider spend too.
+export const AUTO_REFILL_CAMPAIGN_STATUSES: readonly string[] = ['approved', 'launching', 'active']
+// A cycle still 'running' after this long has lost its worker (the process
+// died or the failure path itself threw). The sweep marks it for
+// reconciliation so escrowed credits are never silently locked.
+export const AUTO_REFILL_STALE_CYCLE_MS = 6 * 60 * 60 * 1000
 export const AUTO_REFILL_POLICY_SCHEMA_VERSION = 'gtm-auto-refill-policy-v1'
 export const AUTO_REFILL_CYCLE_SCHEMA_VERSION = 'gtm-auto-refill-cycle-v1'
 

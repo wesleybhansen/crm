@@ -10,8 +10,17 @@ import {
   type LaunchedFixture,
 } from './support/execution-fixtures'
 import { approveAndSendReply, buildReplyIdempotencyKey } from '../replies/send'
+import { clearMailboxPause } from '../reputation/mailbox-control'
 import { hashAddress } from '../campaign/exclusions'
-import { GtmAuditEvent, GtmReply, GtmSendAttempt, GtmSuppression } from '../../data/entities'
+import {
+  GtmAuditEvent,
+  GtmMailboxHealth,
+  GtmReply,
+  GtmSendAttempt,
+  GtmSuppression,
+} from '../../data/entities'
+import { MAILBOX } from './support/execution-fixtures'
+import { EmailMessage } from '../../../email/data/schema'
 
 const SEND_ISO = '2026-07-22T17:00:00.000Z'
 
@@ -25,12 +34,13 @@ describe('approveAndSendReply (approved-draft SEND path)', () => {
     process.env.GTM_PUBLIC_BASE_URL = 'https://crm.fixture.example'
   })
 
-  async function prepare() {
+  async function prepare(options: { dailyCap?: number } = {}) {
     const em = new FakeEm()
     const fixture = await seedLaunchedCampaign(em, {
       clock: fixedClock(LAUNCH_ISO),
       recipients: 1,
       emails: 1,
+      dailyCap: options.dailyCap,
     })
     const enrollment = fixture.enrollments[0]
     // The conversation has already stopped (an inbound reply arrived).
@@ -92,10 +102,13 @@ describe('approveAndSendReply (approved-draft SEND path)', () => {
     expect(stateAtCall).toBe('provider_started')
     expect(rfcAtCall).toMatch(/^<[0-9a-f-]{36}@fixture\.example>$/)
 
-    // Exactly one durable attempt, now accepted.
+    // Exactly one durable attempt, now accepted, stamped as a reply and
+    // holding a capacity slot for the mailbox-local day (L11, H3).
     const attempts = replyAttempts(em, reply)
     expect(attempts).toHaveLength(1)
     expect(attempts[0].state).toBe('accepted')
+    expect(attempts[0].kind).toBe('reply')
+    expect(attempts[0].capacitySlotKey).toMatch(/^v1:.*:2026-07-22:\d+$/)
     expect(attempts[0].rfcMessageId).toBeTruthy()
     expect(attempts[0].sentAt).toBeInstanceOf(Date)
 
@@ -201,6 +214,90 @@ describe('approveAndSendReply (approved-draft SEND path)', () => {
     expect(result.outcome).toBe('failed')
     expect(transport.calls).toHaveLength(0)
     expect(replyAttempts(em, reply)[0].failureReason).toBe('sender_inactive')
+  })
+
+  it('a paused mailbox refuses the reply without contacting the transport, and sends once the pause is cleared (H3)', async () => {
+    const { em, reply } = await prepare()
+    const health = em.create(GtmMailboxHealth, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      mailboxConnectionId: MAILBOX,
+      status: 'paused',
+      rollingWindowStartedAt: new Date('2026-07-15T16:30:00.000Z'),
+      pauseReason: 'complaint',
+      pauseUntil: null,
+      fence: 3,
+    })
+    em.persist(health)
+    await em.flush()
+    const transport = new FakeTransport()
+    const deps = { executionEnabled: true, transport, clock: fixedClock(SEND_ISO) }
+
+    const refused = await approveAndSendReply(em, ctx, { replyId: reply.id }, deps)
+    expect(refused.outcome).toBe('paused')
+    expect(transport.calls).toHaveLength(0)
+    // Not terminal: the row waits in 'approved' for the pause to clear.
+    const attempt = replyAttempts(em, reply)[0]
+    expect(attempt).toMatchObject({ state: 'approved', claimToken: null, failureReason: 'mailbox_paused:complaint' })
+    expect(reply.draftStatus).toBe('approved')
+
+    await clearMailboxPause(
+      em,
+      { organizationId: ORG, tenantId: TENANT },
+      { mailboxConnectionId: MAILBOX, expectedFence: 3, reason: 'manual_investigation_complete' },
+    )
+    const sent = await approveAndSendReply(em, ctx, { replyId: reply.id }, deps)
+    expect(sent.outcome).toBe('accepted')
+    expect(transport.calls).toHaveLength(1)
+    expect(replyAttempts(em, reply)).toHaveLength(1)
+    expect(reply.draftStatus).toBe('sent')
+  })
+
+  it('honours the mailbox policy send window: outside it the reply waits in approved (H3)', async () => {
+    const { em, reply } = await prepare()
+    const transport = new FakeTransport()
+    // 19:00 America/New_York, outside the frozen 9-17 window.
+    const result = await approveAndSendReply(
+      em,
+      ctx,
+      { replyId: reply.id },
+      { executionEnabled: true, transport, clock: fixedClock('2026-07-22T23:00:00.000Z') },
+    )
+    expect(result.outcome).toBe('outside_send_window')
+    expect(transport.calls).toHaveLength(0)
+    expect(replyAttempts(em, reply)[0]).toMatchObject({ state: 'approved', claimToken: null })
+  })
+
+  it('honours the mailbox daily cap: a full day refuses the reply until capacity frees (H3)', async () => {
+    // Cap 1: the campaign's own pending step already reserves today's slot.
+    const { em, reply } = await prepare({ dailyCap: 1 })
+    const transport = new FakeTransport()
+    const result = await approveAndSendReply(
+      em,
+      ctx,
+      { replyId: reply.id },
+      { executionEnabled: true, transport, clock: fixedClock(SEND_ISO) },
+    )
+    expect(result.outcome).toBe('daily_cap_reached')
+    expect(transport.calls).toHaveLength(0)
+    expect(replyAttempts(em, reply)[0]).toMatchObject({ state: 'approved', claimToken: null })
+  })
+
+  it('never addresses a reply to a smuggled recipient list: falls back to the verified contact point (M5)', async () => {
+    const { em, fixture, enrollment, reply } = await prepare()
+    const verified = fixture.addressFor(enrollment)
+    // Simulate a From header a lenient ingest turned into a list.
+    const stored = (await em.findOne(EmailMessage, { id: reply.emailMessageId! }))!
+    stored.fromAddress = `${verified}, victim@z.example`
+    const transport = new FakeTransport()
+    const result = await approveAndSendReply(
+      em,
+      ctx,
+      { replyId: reply.id },
+      { executionEnabled: true, transport, clock: fixedClock(SEND_ISO) },
+    )
+    expect(result.outcome).toBe('accepted')
+    expect(transport.calls[0].to).toBe(verified)
   })
 
   it('honors the GTM_EXECUTION_ENABLED double-lock: dry-run when off (no attempt, no transport)', async () => {

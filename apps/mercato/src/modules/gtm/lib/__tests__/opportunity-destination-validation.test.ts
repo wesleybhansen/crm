@@ -55,7 +55,9 @@ describe('opportunity destination validation', () => {
       location: 'Austin, Texas',
       participation_rules_status: 'observed',
     })
-    expect(result.candidate.identity.participation_rules).toContain('meetings are held')
+    // The rule sentence is the permission sentence ("Residents may attend"),
+    // not any sentence that happens to mention meetings (H2).
+    expect(result.candidate.identity.participation_rules).toContain('Residents may attend')
     expect(result.candidate.identity.audience_description).toContain('Windsor Park Neighborhood Association')
     expect(result.candidate.evidence.at(-1)).toMatchObject({
       source_url: 'https://windsorpark.example/meetings',
@@ -92,7 +94,7 @@ describe('opportunity destination validation', () => {
           <p>The community calendar includes workshops and public meetings.</p>
           <p>Residents can join the association and volunteer.</p>
           <p>Meeting materials are posted after every session.</p>
-          <p>Austin Neighborhood Council meetings are held at the Austin Energy Building.</p>
+          <p>Austin Neighborhood Council meetings are held at the Austin Energy Building, 721 Barton Springs Road, Austin, Texas.</p>
         </main></body></html>
       `, { status: 200, headers: { 'content-type': 'text/html' } }),
       now: () => CLOCK,
@@ -144,6 +146,112 @@ describe('opportunity destination validation', () => {
       maxAgeDays: 30,
       content: result.candidate.identity.audience_description,
     })).toMatchObject({ status: 'pass', newestObservation: '2026-11-15T00:00:00.000Z' })
+  })
+
+  it('does not harvest geography from a passing mention of the market (H2)', async () => {
+    const result = await validateOpportunityDestination(candidate('https://brokerage.example/education'), {
+      fetchImpl: async () => new Response(`
+        <html><head><title>Homebuyer education</title></head><body><main>
+          <p>Serving Austin, Dallas, Houston and Phoenix homeowners nationwide.</p>
+          <p>Register for our free homebuyer webinar and join thousands of attendees.</p>
+        </main></body></html>
+      `, { status: 200, headers: { 'content-type': 'text/html' } }),
+      now: () => CLOCK,
+    })
+
+    expect(result.outcome).toBe('verified')
+    expect(result.candidate.identity.location ?? null).toBeNull()
+    // "Register" and "join" are marketing copy, not participation rules.
+    expect(result.candidate.identity.participation_rules_status).toBe('unverified')
+  })
+
+  it('treats a redirect to the site root as an unavailable destination and keeps the requested URL (H1)', async () => {
+    const requested = 'https://www.meetup.com/austin-buyers/events/123456/'
+    const result = await validateOpportunityDestination(candidate(requested), {
+      fetchImpl: async () => {
+        const response = new Response('<html><body><main>Find your people on Meetup.</main></body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        })
+        Object.defineProperty(response, 'url', { value: 'https://www.meetup.com/' })
+        return response
+      },
+      now: () => CLOCK,
+    })
+
+    expect(result.outcome).toBe('unavailable')
+    expect(result.candidate.identity.destination_validation_status).toBe('unavailable')
+    expect(result.candidate.identity.urls).toEqual([requested])
+    expect(result.candidate.evidence.at(-1)?.detail).toMatchObject({
+      destination_final_url: 'https://meetup.com',
+      redirect_outcome: 'materially_different_destination',
+    })
+  })
+
+  it('treats a 200 soft-404 or ended-event page as unavailable (H1)', async () => {
+    const result = await validateOpportunityDestination(candidate('https://events.example/ended-workshop'), {
+      fetchImpl: async () => new Response(`
+        <html><head><title>Homebuyer Workshop</title></head><body><main>
+          <p>Register to attend the Austin homebuyer workshop.</p>
+          <p>Residents may attend and bring questions about buying in Austin, Texas.</p>
+          <p>Sorry, this event has ended and registration is closed.</p>
+        </main></body></html>
+      `, { status: 200, headers: { 'content-type': 'text/html' } }),
+      now: () => CLOCK,
+    })
+
+    expect(result.outcome).toBe('unavailable')
+    expect(assessOpportunityDestination({
+      identity: result.candidate.identity,
+      evidence: result.candidate.evidence,
+      referenceTime: CLOCK,
+      maxAgeDays: 30,
+    })).toMatchObject({ status: 'fail', issues: expect.arrayContaining(['destination_inactive']) })
+  })
+
+  it('treats a 200 login wall as approval_required, never verified public (H1)', async () => {
+    const result = await validateOpportunityDestination(candidate('https://neighbors.example/post/42'), {
+      fetchImpl: async () => new Response(`
+        <html><head><title>Neighborhood post</title></head><body><main>
+          <p>Join to see the discussion and register for neighborhood meetings in Austin, Texas.</p>
+          <p>Log in to see this post.</p>
+        </main></body></html>
+      `, { status: 200, headers: { 'content-type': 'text/html' } }),
+      now: () => CLOCK,
+    })
+
+    expect(result.outcome).toBe('unknown')
+    expect(result.candidate.identity).toMatchObject({
+      access_type: 'approval_required',
+      destination_validation_status: 'unknown',
+    })
+    expect(assessOpportunityDestination({
+      identity: result.candidate.identity,
+      evidence: result.candidate.evidence,
+      referenceTime: CLOCK,
+      maxAgeDays: 30,
+    }).status).toBe('fail')
+  })
+
+  it('records a same-page redirect target as evidence without overwriting identity.urls (H1)', async () => {
+    const requested = 'https://windsorpark.example/meetings'
+    const result = await validateOpportunityDestination(candidate(requested), {
+      fetchImpl: async () => {
+        const response = new Response(`
+          <html><head><title>Windsor Park Neighborhood Association</title></head><body><main>
+            <p>Public neighborhood association meetings are held in Austin, Texas on the second Saturday.</p>
+            <p>Residents may attend the meeting and register for community updates.</p>
+          </main></body></html>
+        `, { status: 200, headers: { 'content-type': 'text/html' } })
+        Object.defineProperty(response, 'url', { value: 'https://windsorpark.example/meetings/?ref=nav' })
+        return response
+      },
+      now: () => CLOCK,
+    })
+
+    expect(result.outcome).toBe('verified')
+    expect(result.candidate.identity.urls).toEqual([requested])
+    expect(result.candidate.evidence.at(-1)?.detail).toMatchObject({ destination_final_url: requested })
   })
 
   it('marks a confirmed missing destination unavailable', async () => {

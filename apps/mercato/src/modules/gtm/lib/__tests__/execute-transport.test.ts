@@ -1,9 +1,13 @@
 import { EmailConnection } from '../../../email/data/schema'
 import { buildGtmMimeMessage } from '../execute/mime'
 import {
+  classifyHttpSendStatus,
+  classifySmtpError,
   createMailboxTransport,
+  GtmSendRetryableError,
   GtmSendTimeoutError,
   type GtmTransportSendArgs,
+  type RefreshedMailboxCredentials,
 } from '../execute/transport'
 
 function connection(provider: string): EmailConnection {
@@ -162,14 +166,100 @@ describe('C2 mailbox MIME transports', () => {
     expect(mime).toContain('List-Unsubscribe-Post: List-Unsubscribe=One-Click')
   })
 
-  it('separates known provider rejection from an unknown dispatch outcome', async () => {
+  it('separates known rejection, pre-acceptance refusal, and an unknown dispatch outcome', async () => {
     const known = recordingFetch(() => new Response(null, { status: 400 }))
-    const ambiguous = recordingFetch(() => new Response(null, { status: 503 }))
+    // Reviewed behaviour change (M1): a 503/429 is the provider explicitly
+    // refusing the request before accepting the payload. It used to be
+    // parked 'ambiguous' forever; it is now a bounded, rescheduled retry.
+    const refused = recordingFetch(() => new Response(null, { status: 503 }))
+    const rateLimited = recordingFetch(() => new Response(null, { status: 429 }))
+    const ambiguous = recordingFetch(() => new Response(null, { status: 500 }))
+    const dropped = recordingFetch(() => {
+      throw new Error('socket hang up')
+    })
     const now = () => new Date('2026-08-17T00:00:00.000Z')
     await expect(createMailboxTransport({ fetch: known.fetchImpl, now }).send(sendArgs('gmail')))
       .rejects.toThrow('gmail send failed (HTTP 400)')
+    await expect(createMailboxTransport({ fetch: refused.fetchImpl, now }).send(sendArgs('gmail')))
+      .rejects.toBeInstanceOf(GtmSendRetryableError)
+    await expect(createMailboxTransport({ fetch: rateLimited.fetchImpl, now }).send(sendArgs('gmail')))
+      .rejects.toBeInstanceOf(GtmSendRetryableError)
     await expect(createMailboxTransport({ fetch: ambiguous.fetchImpl, now }).send(sendArgs('gmail')))
       .rejects.toBeInstanceOf(GtmSendTimeoutError)
+    await expect(createMailboxTransport({ fetch: dropped.fetchImpl, now }).send(sendArgs('gmail')))
+      .rejects.toBeInstanceOf(GtmSendTimeoutError)
+    expect(classifyHttpSendStatus(202)).toBe('accepted')
+    expect(classifyHttpSendStatus(408)).toBe('retryable')
+    expect(classifyHttpSendStatus(502)).toBe('ambiguous')
+    expect(classifyHttpSendStatus(403)).toBe('failed')
+  })
+
+  it('classifies SMTP failures by whether the payload could have reached the server', () => {
+    // Connection never established: nothing sent.
+    expect(classifySmtpError({ code: 'ETIMEDOUT', command: 'CONN' })).toBe('retryable')
+    expect(classifySmtpError({ code: 'ECONNECTION', command: 'CONN' })).toBe('retryable')
+    // Socket lost before DATA: nothing sent.
+    expect(classifySmtpError({ code: 'ESOCKET', command: 'RCPT TO' })).toBe('retryable')
+    // Temporary server refusal (4xx) at any phase: explicitly not accepted.
+    expect(classifySmtpError({ code: 'EENVELOPE', command: 'RCPT TO', responseCode: 450 })).toBe('retryable')
+    expect(classifySmtpError({ code: 'EMESSAGE', command: 'DATA', responseCode: 451 })).toBe('retryable')
+    // Socket lost during DATA: the server may have accepted the message.
+    expect(classifySmtpError({ code: 'ETIMEDOUT', command: 'DATA' })).toBe('ambiguous')
+    expect(classifySmtpError({ code: 'ESOCKET' })).toBe('ambiguous')
+    // Definitive rejections.
+    expect(classifySmtpError({ code: 'EAUTH', command: 'AUTH PLAIN', responseCode: 535 })).toBe('failed')
+    expect(classifySmtpError({ code: 'EENVELOPE', command: 'RCPT TO', responseCode: 550 })).toBe('failed')
+    expect(classifySmtpError(new Error('boom'))).toBe('failed')
+  })
+
+  it('persists a refreshed Microsoft token (rotated refresh token included) without touching updated_at', async () => {
+    const args = sendArgs('microsoft')
+    args.connection.tokenExpiry = new Date('2026-08-16T00:00:00.000Z')
+    const originalUpdatedAt = args.connection.updatedAt
+    const recorder = recordingFetch((_url, _init, index) => index === 0
+      ? new Response(JSON.stringify({
+          access_token: 'fresh-access-token',
+          refresh_token: 'rotated-refresh-token',
+          expires_in: 3600,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      : new Response(null, { status: 202 }))
+    const persisted: Array<{ id: string; refreshed: RefreshedMailboxCredentials }> = []
+    const transport = createMailboxTransport({
+      fetch: recorder.fetchImpl,
+      now: () => new Date('2026-08-17T00:00:00.000Z'),
+      persistRefreshedToken: async (connection, refreshed) => {
+        persisted.push({ id: connection.id, refreshed })
+      },
+    })
+    const result = await transport.send(args)
+    expect(result.receipt).toMatchObject({ token_source: 'refreshed_persisted' })
+    expect(persisted).toEqual([{
+      id: args.connection.id,
+      refreshed: {
+        accessToken: 'fresh-access-token',
+        refreshToken: 'rotated-refresh-token',
+        tokenExpiry: new Date('2026-08-17T01:00:00.000Z'),
+      },
+    }])
+    // The in-memory approved connection is never mutated by the transport,
+    // and nothing secret leaks into the receipt.
+    expect(args.connection.accessToken).toBe('stored-access-token')
+    expect(args.connection.updatedAt).toBe(originalUpdatedAt)
+    expect(JSON.stringify(result)).not.toContain('fresh-access-token')
+    expect(JSON.stringify(result)).not.toContain('rotated-refresh-token')
+  })
+
+  it('treats a token endpoint outage as retryable (nothing reached the mail API)', async () => {
+    const args = sendArgs('gmail')
+    args.connection.tokenExpiry = new Date('2026-08-16T00:00:00.000Z')
+    const outage = recordingFetch(() => new Response(null, { status: 503 }))
+    const now = () => new Date('2026-08-17T00:00:00.000Z')
+    await expect(createMailboxTransport({ fetch: outage.fetchImpl, now }).send(args))
+      .rejects.toBeInstanceOf(GtmSendRetryableError)
+    expect(outage.calls).toHaveLength(1)
+    const revoked = recordingFetch(() => new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 }))
+    await expect(createMailboxTransport({ fetch: revoked.fetchImpl, now }).send(args))
+      .rejects.toThrow('gmail token refresh failed (400)')
   })
 
   it('rejects an unsupported mailbox provider without touching the network', async () => {

@@ -40,6 +40,9 @@ async function main(): Promise<void> {
       sourceSha256: imported.audit.sourceSha256,
       decisionSha256: imported.audit.decisionSha256,
       reviewCount: imported.audit.reviewCount,
+      acceptedRows: evaluation.byPlay.reduce((sum, play) => sum + play.acceptedRows, 0),
+      // precisionOverAccepted is the gate; rankedPrecisionAt10 is reported
+      // only so old artifacts remain comparable.
       metrics: evaluation.metrics,
     })}\n`)
     if (!evaluation.passed) process.exitCode = 2

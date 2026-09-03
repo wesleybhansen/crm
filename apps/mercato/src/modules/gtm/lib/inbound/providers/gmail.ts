@@ -6,6 +6,8 @@ import {
   headerAddress,
   MailboxProviderCursorExpiredError,
   normalizeHeaderMap,
+  parseDeliveryStatus,
+  type DeliveryStatusInfo,
   type MailboxProviderReader,
   type NormalizedMailboxMessage,
 } from './types'
@@ -53,17 +55,27 @@ function decodeBase64Url(value: string): string {
   }
 }
 
-function readBodies(part: z.infer<typeof messagePartSchema> | undefined): { html: string; text: string } {
+function readBodies(part: z.infer<typeof messagePartSchema> | undefined): {
+  html: string
+  text: string
+  dsn: DeliveryStatusInfo | null
+} {
   let html = ''
   let text = ''
+  let dsn: DeliveryStatusInfo | null = null
   const visit = (node: z.infer<typeof messagePartSchema> | undefined): void => {
     if (!node) return
-    if (!html && node.mimeType === 'text/html' && node.body?.data) html = decodeBase64Url(node.body.data)
-    if (!text && node.mimeType === 'text/plain' && node.body?.data) text = decodeBase64Url(node.body.data)
+    const mime = node.mimeType?.toLowerCase()
+    if (!html && mime === 'text/html' && node.body?.data) html = decodeBase64Url(node.body.data)
+    if (!text && mime === 'text/plain' && node.body?.data) text = decodeBase64Url(node.body.data)
+    // RFC 3464 machine-readable bounce part (H2).
+    if (!dsn && mime === 'message/delivery-status' && node.body?.data) {
+      dsn = parseDeliveryStatus(decodeBase64Url(node.body.data))
+    }
     for (const child of node.parts ?? []) visit(messagePartSchema.safeParse(child).data)
   }
   visit(part)
-  return { html: boundedText(html), text: boundedText(text) }
+  return { html: boundedText(html), text: boundedText(text), dsn }
 }
 
 function encodeCursor(value: z.infer<typeof gmailCursorSchema>): string {
@@ -139,6 +151,7 @@ export function createGmailMailboxReader(input: {
             ? new Date(Number(message.internalDate))
             : new Date(),
           headers,
+          dsn: bodies.dsn,
         })
       }
       const nextCursor = page.nextPageToken

@@ -1,5 +1,6 @@
 import type { Candidate, CandidateEvidence } from '../adapters/types'
 import { isUsGeography } from '../eligibility'
+import { evidencePublishedAt } from './evidence-quality'
 import {
   assessRealtorOpportunitySuitability,
   assessOpportunityDestination,
@@ -82,7 +83,25 @@ export interface FitScorer {
 export const FIT_ACCEPT_THRESHOLD = 70
 export const FIT_REVIEW_THRESHOLD = 45
 export const FIT_SCORER_VERSION = 'fit-v7' as const
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v43' as const
+// v44: evidence confidence is a tie-breaker (max 5 points), public posts with
+// first-person intent are actionable under public-reply norms, geography is
+// derived from the play when the provider query has no locations, recency ages
+// platform publication time, and zero evaluated criteria can no longer accept.
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v44' as const
+
+/*
+ * Fixed participation note for public posts and threads whose venue rules
+ * were not observed. Social adapters never see subreddit or group rules, so
+ * without this path no Reddit/X/Threads post could ever be accepted; the
+ * product decision is that a fresh, public, first-person post is actionable
+ * under ordinary public-reply norms (read the venue rules, reply once, no
+ * automation, no promotion). Events, communities, groups, and creator
+ * audiences still require observed rules.
+ */
+export const PUBLIC_REPLY_PARTICIPATION_NOTE =
+  'Public post: reply manually under the platform and community rules; one useful response, no automation, no promotion.'
+
+const FIRST_PERSON_INTENT = /\b(?:i|i'm|i\u2019m|i am|i've|i\u2019ve|we|we're|we\u2019re|we are|we've|my|our|me|husband and i|wife and i)\b/i
 
 export const FIT_REASONS = {
   accepted: 'meets_fit_rules',
@@ -374,26 +393,35 @@ function opportunityActionabilityStatus(args: {
   participationRules: string | null
   participationRulesStatus: string | null
   sourceContent: string
-}): CriterionStatus {
+  // Public-post path (C1b): a fresh, public post or thread carrying a
+  // first-person demand signal on the requested lane is actionable under
+  // public-reply norms even though its venue rules were not observed.
+  publicPostReply: boolean
+}): { status: CriterionStatus; participationNote: string | null } {
   const {
     recommendedAction,
     messageAngle,
     participationRules,
     participationRulesStatus,
     sourceContent,
+    publicPostReply,
   } = args
   if (!recommendedAction || recommendedAction.length < 20 || !messageAngle || messageAngle.length < 20) {
-    return 'unknown'
+    return { status: 'unknown', participationNote: null }
   }
+  const observedRules = participationRulesStatus === 'observed' && Boolean(participationRules)
   // A live public event proves that a destination exists, but not that a
   // realtor may attend or participate. Some consumer workshops explicitly
   // prohibit agents, brokers, or lenders. Keep actionability unknown until
   // the source's participation terms have been observed.
   // A provider row that merely tells the customer to review the rules does
   // not demonstrate that the venue permits the proposed participation.
-  if (participationRulesStatus !== 'observed' || !participationRules) return 'unknown'
+  if (!observedRules && !publicPostReply) return { status: 'unknown', participationNote: null }
+  const participationNote = observedRules ? null : PUBLIC_REPLY_PARTICIPATION_NOTE
 
-  const rules = `${participationRules}\n${sourceContent}`.toLowerCase()
+  // The public-reply note is Noli's own guidance, not the venue's rules, so
+  // only the returned content is screened for restrictions on that path.
+  const rules = `${observedRules ? participationRules : ''}\n${sourceContent}`.toLowerCase()
   const proposedAction = `${recommendedAction}\n${messageAngle}`.toLowerCase()
   const promotionRestricted =
     /\b(?:no|prohibit(?:s|ed)?|forbid(?:s|den)?|not allowed)\b.{0,70}\b(?:self[- ]?promot|promot|advertis|solicit|marketing|commercial)\w*/i.test(rules)
@@ -408,8 +436,10 @@ function opportunityActionabilityStatus(args: {
     || /\bnot allow(?:ed|ing)?\b.{0,80}\b(?:agents?|realtors?|brokers?|lenders?|industry professionals?)\b.{0,80}\b(?:attend|participat|register|join)\w*/i.test(rules)
     || /\b(?:agents?|realtors?|brokers?|lenders?|industry professionals?)\b.{0,80}\b(?:not allow(?:ed|ing)?|may not|must not|cannot|can't|prohibited|forbidden)\b.{0,80}\b(?:attend|participat|register|join)\w*/i.test(rules)
 
-  if (professionalParticipationForbidden || (promotionRestricted && proposedPromotion)) return 'fail'
-  return 'pass'
+  if (professionalParticipationForbidden || (promotionRestricted && proposedPromotion)) {
+    return { status: 'fail', participationNote }
+  }
+  return { status: 'pass', participationNote }
 }
 
 const PUBLIC_EVENT_POST = /\b(?:event|fair|workshop|seminar|webinar|class|meetup|panel|clinic|home tour)\b/i
@@ -541,13 +571,28 @@ function scoreOpportunity(
       || destination.issues.includes('event_time_unknown')
       ? 'unknown'
       : 'pass'
-  const actionStatus = opportunityActionabilityStatus({
+  // Public-post acceptance requires every one of: a post/thread, a public
+  // access observation, a platform publication time inside the play window
+  // (freshStatus 'pass' with a known age), a demonstrated buyer/seller demand
+  // signal on the requested lane, and first-person language. Query text is
+  // absent from observedText, so provider targeting cannot manufacture it.
+  const publicPostReply =
+    (opportunityKind === 'post' || opportunityKind === 'thread')
+    && accessObserved === 'public'
+    && freshStatus === 'pass'
+    && destination.ageDays != null
+    && intentStatus === 'pass'
+    && (observedIntent === 'buyer_intent' || observedIntent === 'seller_intent' || observedIntent === 'mixed_intent')
+    && FIRST_PERSON_INTENT.test(observedText)
+  const actionability = opportunityActionabilityStatus({
     recommendedAction,
     messageAngle,
     participationRules,
     participationRulesStatus,
     sourceContent: observedText,
+    publicPostReply,
   })
+  const actionStatus = actionability.status
   const noise = isRealtorPlay
     ? realtorOpportunityNoiseReasons(observedText, destination.canonicalUrl)
     : []
@@ -616,6 +661,7 @@ function scoreOpportunity(
       ['source-observed participation rules and a compatible venue-appropriate manual action'],
       [
         participationRulesStatus ? `rules_status:${participationRulesStatus}` : null,
+        actionability.participationNote ? `participation_note:${actionability.participationNote}` : null,
         participationRules,
         recommendedAction,
         messageAngle,
@@ -645,13 +691,16 @@ function scoreOpportunity(
   const avgConfidence = averageConfidence(evidence)
   const earned = (status: CriterionStatus, pass: number, unknown: number) =>
     status === 'pass' ? pass : status === 'unknown' ? unknown : 0
+  // Adapter-assigned confidence is not an independent check of anything, so
+  // it is a tie-breaker worth at most 5 points; freshness and actionability
+  // carry the evidence dimension.
   const breakdown: FitBreakdown = {
     identity: earned(destination.status, 15, 6),
     account: earned(audienceStatus, 25, 7),
     persona: earned(intentStatus, 20, 5),
     geography: earned(geoStatus, 15, 5),
     evidence:
-      avgConfidence * 12.5 + earned(freshStatus, 7.5, 2.5) + earned(actionStatus, 5, 1.5),
+      avgConfidence * 5 + earned(freshStatus, 12.5, 4) + earned(actionStatus, 7.5, 2),
   }
   const fitScore = Object.values(breakdown).reduce((sum, value) => sum + value, 0)
   if (noise.length > 0) {
@@ -1052,6 +1101,30 @@ function recencyDays(value: string | null | undefined): number | null {
   return null
 }
 
+/*
+ * The play geography becomes a location criterion only when it names
+ * something below country level. A country-only US play is already enforced
+ * by the top-level "not US" rejection, and demanding a city from a provider
+ * that returns none would turn every country-wide play into review.
+ */
+function derivedPlayGeography(play: FitPlayInput): string | null {
+  const geography = (play.geography ?? '').trim()
+  if (!geography) return null
+  const countryAlias = ALIAS_CANONICAL.get('united states')
+  // Drop the country segment ("California, US" -> "California") so a row
+  // that names the state but not the country still matches; the country is
+  // enforced separately by the top-level "not US" rejection.
+  const belowCountry = geography
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part && !meaningfulTokens(part).every((token) => token === countryAlias || token === 'america'))
+  if (belowCountry.length === 0) return null
+  const tokens = meaningfulTokens(belowCountry.join(', ')).filter(
+    (token) => token !== countryAlias && token !== 'united' && token !== 'states' && token !== 'america',
+  )
+  return tokens.length > 0 ? belowCountry.join(', ') : null
+}
+
 function addCriterion(
   output: CriterionDefinition[],
   query: Record<string, unknown>,
@@ -1134,6 +1207,22 @@ function compileDefinitions(play: FitPlayInput, candidateKind: Candidate['entity
     fields: ['location', 'city', 'geography', 'region'],
     targetingFields: ['provider_location'],
   })
+  const derivedGeography = derivedPlayGeography(play)
+  if (!strings(query.locations).length && derivedGeography) {
+    // A play for "Realtors in Austin, Texas" whose provider query names no
+    // locations used to check nothing below country level, so a Seattle
+    // realtor was accepted on title alone. The play geography is the
+    // customer's stated boundary; evaluate it like any other hard criterion.
+    definitions.push({
+      id: 'geography.location',
+      dimension: 'geography',
+      label: 'Location',
+      hard: true,
+      expected: [derivedGeography],
+      fields: ['location', 'city', 'geography', 'region'],
+      targetingFields: ['provider_location'],
+    })
+  }
   if (candidateKind === 'person') {
     addCriterion(definitions, query, 'engagement_topics', {
       id: 'signal.engagement_topic',
@@ -1260,23 +1349,49 @@ function evaluateCriterion(
   referenceTime: Date | null,
 ): CriterionResult {
   if (definition.recencyDays != null) {
-    const observed = evidence.map((row) => row.observed_at).filter(Boolean)
-    const newest = observed
-      .map((value) => new Date(value).getTime())
-      .filter(Number.isFinite)
-      .sort((a, b) => b - a)[0]
+    // Age the signal by the platform's publication time (identity
+    // source_published_at, or the adapter's evidence detail published_at).
+    // Every live adapter stamps observed_at with retrieval time, so it can
+    // only prove staleness (content cannot be newer than its retrieval),
+    // never freshness: with no platform timestamp the age is unknown and the
+    // row routes to review instead of reading "0 days old".
     // Without a trustworthy reference time, age is unknowable. It must NOT
     // default to the evidence's own timestamp, which makes every signal look
     // zero days old and silently passes a hard recency gate.
-    const ageDays =
-      newest == null || referenceTime == null ? null : Math.max(0, (referenceTime.getTime() - newest) / 86_400_000)
+    const publishedTimes = [
+      ...(typeof identity.source_published_at === 'string' ? [new Date(identity.source_published_at).getTime()] : []),
+      ...evidence.map((row) => evidencePublishedAt(row)?.getTime() ?? Number.NaN),
+    ].filter(Number.isFinite)
+    const newestPublished = publishedTimes.sort((a, b) => b - a)[0]
+    const newestObserved = evidence
+      .map((row) => new Date(row.observed_at).getTime())
+      .filter(Number.isFinite)
+      .sort((a, b) => b - a)[0]
+    const publishedAgeDays =
+      newestPublished == null || referenceTime == null
+        ? null
+        : Math.max(0, (referenceTime.getTime() - newestPublished) / 86_400_000)
+    const retrievalAgeDays =
+      newestObserved == null || referenceTime == null
+        ? null
+        : Math.max(0, (referenceTime.getTime() - newestObserved) / 86_400_000)
+    const status: CriterionStatus =
+      publishedAgeDays != null
+        ? publishedAgeDays <= definition.recencyDays ? 'pass' : 'fail'
+        : retrievalAgeDays != null && retrievalAgeDays > definition.recencyDays
+          ? 'fail'
+          : 'unknown'
     return {
       id: definition.id,
       dimension: definition.dimension,
       label: definition.label,
       expected: definition.expected,
-      observed: ageDays == null ? [] : [`${Math.floor(ageDays)} days old`],
-      status: ageDays == null ? 'unknown' : ageDays <= definition.recencyDays ? 'pass' : 'fail',
+      observed: publishedAgeDays != null
+        ? [`${Math.floor(publishedAgeDays)} days old`]
+        : retrievalAgeDays != null
+          ? [`retrieved ${Math.floor(retrievalAgeDays)} days ago`, 'publication time unknown']
+          : [],
+      status,
       hard: true,
     }
   }
@@ -1285,7 +1400,13 @@ function evaluateCriterion(
   const evidenceValues = definition.useEvidence
     ? evidence.flatMap((row) => [
         row.claim,
-        ...Object.values(row.detail ?? {}).filter((value): value is string => typeof value === 'string'),
+        ...Object.entries(row.detail ?? {})
+          // Provenance keys echo the customer's own query, the adapter id, or
+          // provider request ids. A keyword criterion must never match on
+          // the text that produced the row.
+          .filter(([key]) => !PROVENANCE_EVIDENCE_KEY.test(key))
+          .map(([, value]) => value)
+          .filter((value): value is string => typeof value === 'string'),
       ])
     : []
   const observed = [...new Set([...identityValues, ...evidenceValues])]
@@ -1378,6 +1499,9 @@ function evaluateCriterion(
   }
 }
 
+const PROVENANCE_EVIDENCE_KEY =
+  /^(?:gtm_.*|search_query|query|search_keywords?|keywords?|provider_request_id|request_id|run_id|task_id|dataset_id|actor_id|adapter_id|.*_adapter_id|provider|provider_id|source_adapter_id|idempotency_key)$/i
+
 function criterionScore(
   criteria: CriterionResult[],
   dimension: CriterionResult['dimension'],
@@ -1452,19 +1576,32 @@ export const ruleBasedFitScorer: FitScorer = {
     unknowns.push(...criteria.filter((row) => row.status === 'unknown').map((row) => row.id))
 
     const contradictions = criteria.filter((row) => row.status === 'fail').map((row) => row.id)
+    // Correctness criteria carry the score; adapter-assigned confidence is a
+    // 5-point tie-breaker (it was 25 points awarded to whatever the provider
+    // said about itself). A dimension the play did not ask about is not a
+    // contradiction: it keeps most of its weight (all of it when the field
+    // is present) so a row that passes every requested criterion is not
+    // dragged below accept by fields nobody asked for. The zero-criteria cap
+    // below keeps presence alone from ever accepting.
+    const unasked = (present: boolean, max: number) => (present ? max : Math.round(max * 0.6))
     const breakdown: FitBreakdown = {
       identity: 15,
-      account: criterionScore(criteria, 'account', domain || company ? 25 : 8, 25),
+      account: criterionScore(criteria, 'account', unasked(Boolean(domain || company), 30), 30),
       persona: criterionScore(
         criteria,
         'persona',
-        candidate.entity_kind === 'person' ? (title ? 20 : 8) : industry ? 20 : 10,
-        20,
+        unasked(candidate.entity_kind === 'person' ? Boolean(title) : Boolean(industry), 25),
+        25,
       ),
-      geography: criterionScore(criteria, 'geography', location ? 15 : 7, 15),
-      evidence: avgConfidence * 25,
+      geography: criterionScore(criteria, 'geography', unasked(Boolean(location), 25), 25),
+      evidence: avgConfidence * 5,
     }
-    const fitScore = Object.values(breakdown).reduce((sum, value) => sum + value, 0)
+    // Field presence is not fit. With no evaluated criterion at all the
+    // fallback points describe what the provider returned, not whether it
+    // matches the play, so the row can reach review but never accept.
+    const evaluatedCriteria = criteria.filter((row) => row.dimension !== 'exclusion').length
+    const rawFitScore = Object.values(breakdown).reduce((sum, value) => sum + value, 0)
+    const fitScore = evaluatedCriteria === 0 ? Math.min(rawFitScore, FIT_ACCEPT_THRESHOLD - 1) : rawFitScore
     const exclusionFailure = criteria.find((row) => row.dimension === 'exclusion' && row.status === 'fail')
     if (exclusionFailure) {
       return result(fitScore, 'rejected', FIT_REASONS.excluded, breakdown, unknowns, contradictions, profile, criteria)

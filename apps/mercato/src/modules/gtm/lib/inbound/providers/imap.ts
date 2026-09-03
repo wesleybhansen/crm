@@ -5,7 +5,10 @@ import type { EmailConnection } from '../../../../email/data/schema'
 import {
   boundedText,
   cleanMessageId,
+  headerAddress,
   MailboxProviderCursorExpiredError,
+  parseDeliveryStatus,
+  STORED_HEADER_NAMES,
   type MailboxProviderReader,
   type NormalizedMailboxMessage,
 } from './types'
@@ -69,6 +72,19 @@ export function imapIncrementalSearch(
   }
 }
 
+/**
+ * RFC 3501 quirk: a `N:*` UID range ALWAYS includes the highest existing
+ * UID even when it is below N, so every poll would re-fetch the last message
+ * (and, once it is expunged, resurrect an older pre-baseline one). Drop
+ * everything at or below the cursor before selecting a page (M6).
+ */
+export function selectIncrementalUids(uids: Iterable<number>, afterUid: number, limit: number): number[] {
+  return [...uids]
+    .filter((uid) => Number.isSafeInteger(uid) && uid > afterUid)
+    .sort((a, b) => a - b)
+    .slice(0, Math.max(0, limit))
+}
+
 export function createProductionImapPageSource(
   connection: EmailConnection,
   options: { inReplyTo?: string | null } = {},
@@ -103,18 +119,21 @@ export function createProductionImapPageSource(
         imapIncrementalSearch(afterUid, options.inReplyTo),
         { uid: true },
       )
-      let uids = [...(searchResult === false ? [] : searchResult)].sort((a, b) => a - b)
-      const selected = uids.slice(0, limit)
+      const selected = selectIncrementalUids(searchResult === false ? [] : searchResult, afterUid, limit)
       const messages: ImapSourcePage['messages'] = []
       if (selected.length === 0) return { uidValidity, messages }
       for await (const raw of client.fetch(
         selected,
-        { envelope: true, source: { start: 0, maxLength: MAX_IMAP_SOURCE_BYTES } },
+        { envelope: true, internalDate: true, source: { start: 0, maxLength: MAX_IMAP_SOURCE_BYTES } },
         { uid: true },
       )) {
         if (!raw.source) continue
+        if (raw.uid <= afterUid) continue
         const parsed = await simpleParser(raw.source)
-        const from = parsed.from?.value?.[0]?.address?.trim().toLowerCase() ?? ''
+        // mailparser already picks the first mailbox; the single-address
+        // guard rejects a From that still is not one plain addr-spec.
+        const fromValues = parsed.from?.value ?? []
+        const from = fromValues.length === 1 ? headerAddress(fromValues[0]?.address ?? '') : ''
         const to = parsed.to
           ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to])
               .flatMap((address) => address.value)
@@ -130,18 +149,16 @@ export function createProductionImapPageSource(
               .join(', ')
           : ''
         const headers: Record<string, string> = {}
-        for (const name of [
-          'auto-submitted',
-          'feedback-type',
-          'in-reply-to',
-          'references',
-          'x-autoreply',
-          'x-autorespond',
-          'x-complaint-type',
-        ]) {
+        for (const name of STORED_HEADER_NAMES) {
           const value = textHeader(parsed.headers.get(name))
           if (value) headers[name] = value
         }
+        // RFC 3464 delivery-status part: mailparser exposes it as an
+        // attachment with its own content type (H2).
+        const dsnPart = (parsed.attachments ?? []).find(
+          (attachment) => attachment.contentType?.toLowerCase() === 'message/delivery-status',
+        )
+        const dsn = dsnPart?.content ? parseDeliveryStatus(dsnPart.content.toString('utf8')) : null
         const providerMessageId = cleanMessageId(parsed.messageId) ?? `uid:${raw.uid}`
         messages.push({
           uid: raw.uid,
@@ -156,8 +173,11 @@ export function createProductionImapPageSource(
           subject: boundedText(parsed.subject || '(no subject)', 998),
           bodyHtml: boundedText(typeof parsed.html === 'string' ? parsed.html : ''),
           bodyText: boundedText(parsed.text) || null,
-          receivedAt: parsed.date ?? new Date(),
+          // Server receive time, never the sender-controlled Date header
+          // (which could park the message outside every scan window).
+          receivedAt: raw.internalDate instanceof Date ? raw.internalDate : new Date(),
           headers,
+          dsn,
         })
       }
       return { uidValidity, messages }

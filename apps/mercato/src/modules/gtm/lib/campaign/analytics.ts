@@ -230,6 +230,9 @@ export async function getCampaignAnalytics(
     : await Promise.all([
         em.find(GtmSendAttempt, {
           ...scope,
+          // Reply attempts borrow a step/rendered row to satisfy NOT NULL
+          // columns; they are not campaign sends and must not count here.
+          kind: 'campaign',
           enrollmentId: { $in: enrollmentIds },
           campaignVersionId: { $in: currentVersionIds },
         }),

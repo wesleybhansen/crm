@@ -47,6 +47,16 @@ export function evaluateMailboxHealth(
   return { status: 'healthy', pauseReason: null, pauseUntil: null }
 }
 
+/*
+ * Only evidence about OUR sends counts (review H1c / api-send-privacy M2):
+ * events correlated to a send attempt (send_attempt_id set) whose
+ * disposition actually ran ('processed'). Uncorrelated inbound mail in a
+ * personal mailbox (the customer's own bounces), forged Feedback-Type
+ * headers, and events the disposition refused as unauthenticated (left with
+ * correlation_confidence 'unauthenticated') never pause the mailbox. Events
+ * at or before a false-positive clear are excluded by the window start the
+ * clear advanced (mailbox-control.ts).
+ */
 async function loadCounts(
   em: ExecutionEm,
   ctx: Pick<GtmCtx, 'organizationId' | 'tenantId'>,
@@ -60,13 +70,18 @@ async function loadCounts(
     acceptedAt: { $gte: windowStart },
     deletedAt: null,
   })
-  const events = await em.find(GtmInboundEvent, {
-    organizationId: ctx.organizationId,
-    tenantId: ctx.tenantId,
-    mailboxConnectionId,
-    occurredAt: { $gte: windowStart },
-    deletedAt: null,
-  })
+  const events = (
+    await em.find(GtmInboundEvent, {
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      mailboxConnectionId,
+      occurredAt: { $gt: windowStart },
+      processingState: 'processed',
+      deletedAt: null,
+    })
+  ).filter(
+    (event) => Boolean(event.sendAttemptId) && event.correlationConfidence !== 'unauthenticated',
+  )
   return {
     accepted: attempts.length,
     delivered: attempts.filter((attempt) => Boolean(attempt.deliveredAt)).length,
@@ -135,14 +150,21 @@ export async function refreshMailboxHealth(
       { lockMode: LockMode.PESSIMISTIC_WRITE },
     )
     if (!row) throw new Error('mailbox health row disappeared')
-    const counts = await loadCounts(tem, ctx, mailboxConnectionId, windowStart)
+    // A false-positive clear moves the window start forward to the clear
+    // instant so the same rows cannot re-latch the pause; the rolling
+    // window then catches up naturally.
+    const effectiveWindowStart =
+      row.rollingWindowStartedAt && row.rollingWindowStartedAt.getTime() > windowStart.getTime()
+        ? row.rollingWindowStartedAt
+        : windowStart
+    const counts = await loadCounts(tem, ctx, mailboxConnectionId, effectiveWindowStart)
     const decision = evaluateMailboxHealth(counts, now)
     const hasIndefiniteSafetyPause =
       row.status === 'paused'
       && row.pauseUntil == null
       && (row.pauseReason === 'complaint' || row.pauseReason === 'hard_bounce_threshold')
     row.policyVersion = MAILBOX_HEALTH_POLICY_VERSION
-    row.rollingWindowStartedAt = windowStart
+    row.rollingWindowStartedAt = effectiveWindowStart
     row.acceptedCount = counts.accepted
     row.deliveredCount = counts.delivered
     row.softBounceCount = counts.softBounces

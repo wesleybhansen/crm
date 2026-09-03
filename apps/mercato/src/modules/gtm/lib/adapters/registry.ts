@@ -86,8 +86,13 @@ import type { ThreadsConnectionAccess } from './threads/connection'
 export function fixtureAdaptersEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.NODE_ENV === 'test') return true
   if (env.GTM_FIXTURE_ADAPTERS_ENABLED !== 'true') return false
-  if (env.NODE_ENV === 'production') return env.OM_TEST_MODE === '1'
-  return true
+  // Only an explicit 'development' build gets fixtures on the flag alone. An
+  // unset or unrecognized NODE_ENV (ad-hoc worker, misconfigured container) is
+  // treated like production and needs the ephemeral OM_TEST_MODE harness too
+  // (review 2026-09-02, L1/H14): synthetic customer data must never be one
+  // missing env var away.
+  if (env.NODE_ENV === 'development') return true
+  return env.OM_TEST_MODE === '1'
 }
 
 /*

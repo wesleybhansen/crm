@@ -14,7 +14,12 @@ import {
 } from './build'
 import { getLatestLockedVersion } from '../versions'
 import type { CampaignEm, GtmCtx } from './build'
-import { estimateModelTokens, type GtmAiMeter, type GtmDraftModel } from '../ai/model'
+import {
+  estimateModelTokens,
+  sanitizeUntrustedPromptText,
+  type GtmAiMeter,
+  type GtmDraftModel,
+} from '../ai/model'
 import { GtmAiMeteringError } from '../ai/telemetry'
 import {
   GtmCandidate,
@@ -111,7 +116,9 @@ function coreHtml(bodyText: string): string {
 function groundingFacts(evidence: GtmEvidence[], limit = 6): string[] {
   return [...evidence]
     .sort((a, b) => Number(b.confidence ?? 0) - Number(a.confidence ?? 0))
-    .map((row) => sanitizeMergeValue(row.claim))
+    // Claims can carry provider-authored text; strip the two tools an injected
+    // payload needs (angle brackets, line breaks) before they enter the prompt.
+    .map((row) => sanitizeUntrustedPromptText(sanitizeMergeValue(row.claim), 400))
     .filter((claim) => claim.length > 0)
     .slice(0, limit)
 }

@@ -453,7 +453,10 @@ describe('apify status mapping', () => {
       no_result: 'no_result',
       auth_error: 'error',
       rate_limited: 'error',
-      server_error: 'error',
+      // Review 2026-09-02 (H1/T1): this test previously pinned 'error' here,
+      // which settled a post-dispatch 5xx as refunded while Apify may have
+      // billed the run. A 5xx after the POST is an unknown outcome and parks.
+      server_error: 'ambiguous',
       client_error: 'error',
       // Only reachable below the 2xx gate, so the actor ran and Apify billed:
       // 'error' would settle the operation 'refunded' and eat the cost.
@@ -464,15 +467,19 @@ describe('apify status mapping', () => {
   })
 
   // VERIFIED: the live API answers this endpoint with 201, not 200.
-  it('201 (the real success status) with items -> ok, charged on the units returned', async () => {
+  // Review 2026-09-02 (M1): this used to assert cost_units 2 for 3 billed
+  // rows (one dropped by the normalizer), i.e. Noli silently ate the third.
+  // The actor bills every returned item, so the charge is 3 and the result
+  // is 'partial' because fewer usable rows were delivered than paid for.
+  it('201 (the real success status) with items -> charged on the items the actor billed, partial when rows were dropped', async () => {
     const { adapter } = adapterWith({
       status: 201,
       body: JSON.stringify(reactionsPayload),
     })
     const result = await adapter.search(basePlan)
-    expect(result.status).toBe('ok')
+    expect(result.status).toBe('partial')
     expect(result.data).toHaveLength(2)
-    expect(result.cost_units).toBe(2)
+    expect(result.cost_units).toBe(3)
     expectReceiptContract(result)
     expect(result.receipt).toMatchObject({
       actor_id: APIFY_ACTORS.linkedin_post_comments.defaultActorId,
@@ -481,15 +488,30 @@ describe('apify status mapping', () => {
       item_count: 3,
       returned_count: 2,
       dropped_items: 1,
+      undelivered_billed_results: 1,
       http_status: 201,
     })
+  })
+
+  it('charges exactly the billed items and reports ok when every row was usable', async () => {
+    const usable = (reactionsPayload as Array<Record<string, unknown>>).filter(
+      (row) => typeof row.name === 'string' || typeof (row.actor as { name?: unknown } | undefined)?.name === 'string',
+    )
+    const { adapter } = adapterWith({ status: 201, body: JSON.stringify(usable) })
+    const result = await adapter.search(basePlan)
+    expect(result.status).toBe('ok')
+    expect(result.data).toHaveLength(usable.length)
+    expect(result.cost_units).toBe(usable.length)
+    expect(result.receipt).toMatchObject({ undelivered_billed_results: 0 })
   })
 
   it('treats any 2xx with a JSON array as success, never special-casing 200', async () => {
     for (const status of [200, 201, 202]) {
       const { adapter } = adapterWith({ status, body: JSON.stringify(reactionsPayload) })
       const result = await adapter.search(basePlan)
-      expect(result.status).toBe('ok')
+      // 'partial', not 'error': the payload has one unusable row (M1)
+      expect(result.status).toBe('partial')
+      expect(result.data).toHaveLength(2)
       expect(result.receipt).toMatchObject({ http_status: status, item_count: 3 })
     }
   })
@@ -514,7 +536,7 @@ describe('apify status mapping', () => {
       headers: { 'x-apify-pagination-total': '0', 'x-apify-pagination-count': '0' },
     })
     const result = await adapter.search(basePlan)
-    expect(result.status).toBe('ok')
+    expect(result.status).toBe('partial')
     expect(result.receipt).toMatchObject({ item_count: 3, returned_count: 2 })
   })
 
@@ -586,14 +608,21 @@ describe('apify status mapping', () => {
     })
   })
 
-  it('500 -> error, zero units', async () => {
-    const { adapter } = adapterWith({ status: 500, body: 'upstream exploded' })
+  // Review 2026-09-02 (H1/T1): the old assertion here ('error', zero units)
+  // pinned the double-spend mapping. The sync endpoint bills when the actor
+  // ran even if the gateway then answers 502/504, so a post-dispatch 5xx is
+  // parked with unknown cost, exactly like a timeout.
+  it.each([500, 502, 503, 504])('HTTP %s after dispatch -> ambiguous with unknown cost, never refunded', async (status) => {
+    const { adapter, calls } = adapterWith({ status, body: 'upstream exploded' })
     const result = await adapter.search(basePlan)
-    expect(result.status).toBe('error')
+    expect(result.status).toBe('ambiguous')
+    expect(result.data).toBeNull()
+    expect(result.cost_units).toBeNull()
     expect(result.error).toContain('provider_5xx')
-    expect(result.cost_units).toBe(0)
     expectReceiptContract(result)
-    expect(result.receipt).toMatchObject({ http_status: 500, provider_status: 'server_error' })
+    expect(result.receipt).toMatchObject({ http_status: status, provider_status: 'server_error' })
+    // never retried: the run may have started and billed
+    expect(calls).toHaveLength(1)
   })
 
   it('timeout / abort -> ambiguous with unknown cost, never a silent retry', async () => {
@@ -940,7 +969,9 @@ describe('apify normalizers', () => {
           source_url: POST_URL,
           observed_at: CLOCK.toISOString(),
           confidence: APIFY_EVIDENCE_CONFIDENCE,
-          detail: { engagement_kind: 'reaction' },
+          // no createdAt on the reactions row: the qualifier must not read
+          // retrieval time as freshness (research H7)
+          detail: { engagement_kind: 'reaction', published_at_unknown: true },
         },
       ],
     })
@@ -968,6 +999,8 @@ describe('apify normalizers', () => {
         title: 'Founder and Head of Ops',
         // NO company: the comments actor returns none in `short` mode
         urls: ['https://www.linkedin.com/in/priya-nair-example'],
+        // the engagement's platform time, distinct from retrieval (H7)
+        source_published_at: '2026-07-20T15:04:05.000Z',
       },
       evidence: [
         {
@@ -982,6 +1015,7 @@ describe('apify normalizers', () => {
             reaction_types: ['EMPATHY'],
             commentary: 'This matches what we saw last quarter, would love the data.',
             created_at: '2026-07-20T15:04:05.000Z',
+            published_at: '2026-07-20T15:04:05.000Z',
             query_post: POST_URL,
           },
         },
@@ -995,12 +1029,14 @@ describe('apify normalizers', () => {
     expect(second.identity).toEqual({
       name: 'Marcus Webb',
       urls: ['https://www.linkedin.com/in/marcus-webb-example'],
+      source_published_at: '2026-07-21T09:00:00.000Z',
     })
     // no reactions on that comment: the key is omitted, never an empty array
     expect(second.evidence[0].detail).toEqual({
       engagement_kind: 'comment',
       commentary: 'Sending this to my team.',
       created_at: '2026-07-21T09:00:00.000Z',
+      published_at: '2026-07-21T09:00:00.000Z',
       query_post: POST_URL,
     })
   })
@@ -1037,6 +1073,29 @@ describe('apify normalizers', () => {
     expect(result.data![0].evidence[0].observed_at).toBe(CLOCK.toISOString())
     // the unparseable provider value is still kept verbatim as data
     expect(result.data![0].evidence[0].detail!.created_at).toBe('3 weeks ago')
+    // ...and the missing publication time is flagged, never substituted (H7)
+    expect(result.data![0].evidence[0].detail!.published_at_unknown).toBe(true)
+    expect(result.data![0].identity.source_published_at).toBeUndefined()
+  })
+
+  // Review 2026-09-02 (L6): any http(s) URL used to be stored as the
+  // candidate's displayed profile link; only the platform's hosts survive.
+  it('drops a profile URL on a foreign host instead of storing it as the candidate link', async () => {
+    const { adapter } = adapterWith({
+      status: 201,
+      body: JSON.stringify([
+        { actor: { name: 'Priya Nair', linkedinUrl: 'https://attacker.example/in/priya-nair' }, query: { post: POST_URL } },
+        { actor: { name: 'Sam Okafor', linkedinUrl: 'https://evil.linkedin.com.example/in/sam' }, query: { post: POST_URL } },
+        { actor: { name: 'Dana Rivera', linkedinUrl: 'https://user:pw@www.linkedin.com/in/dana' }, query: { post: POST_URL } },
+        { actor: { name: 'Lee Park', linkedinUrl: 'https://www.linkedin.com/in/lee-park' }, query: { post: POST_URL } },
+      ]),
+    })
+    const result = await adapter.search(commentsPlan)
+    const [attacker, lookalike, userinfo, real] = result.data!
+    expect(attacker.identity.urls).toBeUndefined()
+    expect(lookalike.identity.urls).toBeUndefined()
+    expect(userinfo.identity.urls).toBeUndefined()
+    expect(real.identity.urls).toEqual(['https://www.linkedin.com/in/lee-park'])
   })
 
   it('retains the historical X normalizer without exposing the capability', () => {
@@ -1058,6 +1117,8 @@ describe('apify normalizers', () => {
           source_url: xUrl,
           observed_at: CLOCK.toISOString(),
           confidence: APIFY_EVIDENCE_CONFIDENCE,
+          // the historical X rows carry no timestamp: flagged, not invented (H7)
+          detail: { published_at_unknown: true },
         },
       ],
     })
@@ -1120,10 +1181,13 @@ describe('apify source caps and hygiene', () => {
   it('honors the plan result cap and flags the truncation on the receipt', async () => {
     const { adapter, calls } = adapterWith({ status: 201, body: JSON.stringify(reactionsPayload) })
     const result = await adapter.search({ ...basePlan, max_candidates: 1 })
-    expect(result.status).toBe('ok')
+    // Review 2026-09-02 (M1): the actor billed 3 returned rows; the cap
+    // discards two. The customer is charged what was invoiced, flagged
+    // partial, and the gap is visible on the receipt.
+    expect(result.status).toBe('partial')
     expect(result.data).toHaveLength(1)
-    expect(result.cost_units).toBe(1)
-    expect(result.receipt).toMatchObject({ returned_count: 1, truncated: true })
+    expect(result.cost_units).toBe(3)
+    expect(result.receipt).toMatchObject({ returned_count: 1, truncated: true, undelivered_billed_results: 2 })
     // the cap is pushed down to the actor so we do not pay for discarded rows
     expect(JSON.parse(calls[0].init.body).maxItems).toBe(1)
     expect(calls[0].url).toContain('maxItems=1')

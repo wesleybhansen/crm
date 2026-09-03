@@ -259,6 +259,17 @@ function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+const CLAIM_TEXT_LIMIT = 120
+
+// Bounded, quoted provider strings for the evidence claim (review 2026-09-02,
+// H9/M3): the claim reaches the drafting prompt, raw values stay in detail.
+function claimText(value: string | null): string | null {
+  if (!value) return null
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (!compact) return null
+  return `"${Array.from(compact).slice(0, CLAIM_TEXT_LIMIT).join('').replace(/"/g, "'")}"`
+}
+
 function finiteNumber(value: unknown): number | null {
   if (typeof value !== 'number' && typeof value !== 'string') return null
   const parsed = Number(value)
@@ -626,7 +637,10 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
     },
     evidence: [
       {
-        claim: `${title} appeared in public search results for “${context.keyword}” in ${context.location}.`,
+        // Provider-only claim (review 2026-09-02, H9): the customer's search
+        // keyword lives in detail.search_query, never in the claim, so a
+        // keyword criterion cannot match on the query text itself.
+        claim: `${claimText(title)} appeared in public search results on ${platform}.`,
         source_url: url.toString(),
         observed_at: context.observedAt,
         confidence: calibratedOpportunityConfidence({
@@ -641,8 +655,10 @@ function normalizeDataForSeoOpportunityItemWithDiagnostics(
           provider: 'dataforseo',
           result_type: resultType,
           platform,
+          search_query: context.keyword,
           requested_location: context.location,
           requested_intent: context.expectedIntent ?? null,
+          ...(sourcePublishedAt ? { published_at: sourcePublishedAt } : { published_at_unknown: true }),
           rank_group: finiteNumber(item.rank_group),
           rank_absolute: finiteNumber(item.rank_absolute),
           demonstrated_intent_signals: [

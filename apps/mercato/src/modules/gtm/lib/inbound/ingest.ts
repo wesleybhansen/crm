@@ -14,6 +14,7 @@ import {
 } from './cursor'
 import {
   MailboxProviderCursorExpiredError,
+  type MailboxProviderPage,
   type MailboxProviderReader,
   type NormalizedMailboxMessage,
 } from './providers/types'
@@ -82,6 +83,7 @@ async function persistNormalizedMessages(
         event_id: message.providerEventId,
         rfc_message_id: message.rfcMessageId,
         headers: message.headers,
+        dsn: message.dsn ?? null,
       },
       createdAt: message.receivedAt,
       updatedAt: message.receivedAt,
@@ -105,6 +107,7 @@ const EMPTY_CORRELATION: CorrelateResult = {
   systemEvents: 0,
   unmatched: 0,
   failed: 0,
+  quarantined: 0,
 }
 
 function mergeCorrelation(left: CorrelateResult, right: CorrelateResult): CorrelateResult {
@@ -114,8 +117,31 @@ function mergeCorrelation(left: CorrelateResult, right: CorrelateResult): Correl
     systemEvents: left.systemEvents + right.systemEvents,
     unmatched: left.unmatched + right.unmatched,
     failed: left.failed + right.failed,
+    quarantined: left.quarantined + right.quarantined,
   }
 }
+
+// Recovery sweep bound: this mailbox only, this many days back, this many
+// rows. Picks up messages whose page committed but whose disposition never
+// ran (crash between the two) or failed and is still re-claimable.
+export const INGEST_SWEEP_DAYS = 7
+export const INGEST_SWEEP_LIMIT = 200
+
+/*
+ * Page commit vs. disposition (review H4). The page's rows and the cursor
+ * advancement commit together in one real transaction (cursor.ts). The GTM
+ * disposition of those rows (correlation, atomic stops, suppressions, health)
+ * runs AFTER that commit, bounded to exactly the page's message ids, with
+ * per-event failure state persisted on gtm_inbound_events. Previously the
+ * disposition ran inside the page transaction over the whole org's 30-day
+ * inbound history and any single failing message rolled the page back,
+ * wedged the cursor in 'error', and re-poisoned every mailbox of the org on
+ * every retry. Now a failing message marks only ITS event 'failed'
+ * (re-claimable, quarantined after MAX_EVENT_ATTEMPTS) and the cursor keeps
+ * moving. The trade: a crash between page commit and disposition leaves
+ * rows without an event, which the bounded per-mailbox sweep at the end of
+ * every job recovers.
+ */
 
 export async function ingestMailbox(
   em: ExecutionEm,
@@ -141,14 +167,24 @@ export async function ingestMailbox(
   let pages = 0
   let messages = 0
   let correlation = EMPTY_CORRELATION
+  const sweep = async (): Promise<void> => {
+    const now = deps.clock?.now() ?? new Date()
+    const recovered = await correlateReplies(em, ctx, {
+      mailboxConnectionId: input.mailboxConnectionId,
+      sinceMinutes: INGEST_SWEEP_DAYS * 24 * 60,
+      limit: INGEST_SWEEP_LIMIT,
+      clock: deps.clock ?? { now: () => now },
+    })
+    correlation = mergeCorrelation(correlation, recovered)
+  }
   for (; pages < maxPages; pages += 1) {
     const lease = await acquireMailboxCursor(em, context, { clock: deps.clock })
     const readable = await readMailboxCursor(em, context, input.codec)
     const expectedCursorHash = readable.cursor.cursorHash ?? null
+    let page: MailboxProviderPage
     try {
-      const page = await input.reader.readPage(readable.cursorValue)
+      page = await input.reader.readPage(readable.cursorValue)
       let inserted = 0
-      let pageCorrelation = EMPTY_CORRELATION
       await commitMailboxPage(
         em,
         context,
@@ -166,21 +202,6 @@ export async function ingestMailbox(
               input.mailboxConnectionId,
               page.messages,
             )
-            // The cursor may advance only with the durable GTM disposition.
-            // Running correlation inside this transaction also recovers a
-            // replay where the message row already exists but its prior
-            // processing attempt never committed.
-            if (page.messages.length > 0) {
-              await tem.flush()
-              pageCorrelation = await correlateReplies(
-                tem as ExecutionEm,
-                ctx,
-                { sinceMinutes: 60 * 24 * 30, clock: deps.clock },
-              )
-              if (pageCorrelation.failed > 0) {
-                throw new Error('mailbox_page_disposition_failed')
-              }
-            }
           },
           cursorValue: page.nextCursor,
           lastOccurredAt: page.messages.reduce<Date | null>(
@@ -194,18 +215,14 @@ export async function ingestMailbox(
         { codec: input.codec, clock: deps.clock },
       )
       messages += inserted
-      correlation = mergeCorrelation(correlation, pageCorrelation)
-      if (!page.hasMore) {
-        return { pages: pages + 1, messages, correlation, resyncRequired: false }
-      }
     } catch (error) {
       if (error instanceof MailboxProviderCursorExpiredError) {
-        await requireMailboxResync(em, ctx, {
+        await requireMailboxResync(em, context, {
           cursorId: lease.cursor.id,
           leaseToken: lease.leaseToken,
           fence: lease.fence,
         }, error.reason, { clock: deps.clock })
-        return { pages: pages + 1, messages, correlation: EMPTY_CORRELATION, resyncRequired: true }
+        return { pages: pages + 1, messages, correlation, resyncRequired: true }
       }
       await failMailboxCursor(em, ctx, {
         cursorId: lease.cursor.id,
@@ -214,6 +231,20 @@ export async function ingestMailbox(
       }, 'mailbox_ingest_failed', { clock: deps.clock })
       throw error
     }
+    // Disposition of exactly this page, outside the page transaction: a
+    // failing message marks its own event and never blocks the cursor.
+    if (page.messages.length > 0) {
+      const pageCorrelation = await correlateReplies(em, ctx, {
+        messageIds: page.messages.map((message) => emailMessageId(ctx, input.mailboxConnectionId, message)),
+        clock: deps.clock,
+      })
+      correlation = mergeCorrelation(correlation, pageCorrelation)
+    }
+    if (!page.hasMore) {
+      await sweep()
+      return { pages: pages + 1, messages, correlation, resyncRequired: false }
+    }
   }
+  await sweep()
   return { pages, messages, correlation, resyncRequired: false }
 }

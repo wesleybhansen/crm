@@ -1,5 +1,5 @@
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
+import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('Manage GTM campaigns and immutable approvals')
@@ -166,14 +166,8 @@ export async function POST(req: Request) {
   }
 
   // 1. Shared-secret auth (length-guarded constant-time compare)
-  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret ||
-    authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-  ) {
+  // Byte-length guarded constant-time compare (lib/authorize.ts).
+  if (!internalServiceBearerAuthorized(req)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -510,15 +504,16 @@ export async function POST(req: Request) {
         em,
         ctx,
         surface: 'campaign_message_draft',
-        operationKey: body.idempotency_key
-          ? `gtm:campaign-draft:${ctx.organizationId}:${body.campaignId}:${body.candidateId}:${body.idempotency_key}`
-          : `gtm:campaign-draft:${ctx.organizationId}:${body.campaignId}:${body.candidateId}:${crypto.randomUUID()}`,
+        // idempotency_key is required by the validator; no random fallback
+        // (a relaxed schema must never turn a retry into a second metered
+        // AI call).
+        operationKey: `gtm:campaign-draft:${ctx.organizationId}:${body.campaignId}:${body.candidateId}:${body.idempotency_key}`,
         canonicalMeter,
       })
       const result = await regenerateMessageForCandidate(em, ctx, { model, meter }, {
         campaignId: body.campaignId,
         candidateId: body.candidateId,
-        idempotencyKey: body.idempotency_key ?? null,
+        idempotencyKey: body.idempotency_key,
       })
       return NextResponse.json({
         ok: true,

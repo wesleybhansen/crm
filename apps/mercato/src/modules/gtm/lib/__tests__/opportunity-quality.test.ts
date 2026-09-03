@@ -845,9 +845,29 @@ describe('opportunity quality primitives', () => {
     const canonical = canonicalOpportunityUrl(['https://x.com/Example/status/123?a=1&b=2'])
     expect(x).toBe(canonical)
 
+    // Reddit paths are case-insensitive; the slug case used to split one
+    // thread into several candidates (M5).
     expect(
       canonicalOpportunityUrl(['https://old.reddit.com/r/SouthBay/comments/abc/?utm_campaign=test']),
-    ).toBe('https://reddit.com/r/SouthBay/comments/abc')
+    ).toBe('https://reddit.com/r/southbay/comments/abc')
+  })
+
+  it('collapses reddit thread permalink, sort, context, and share variants onto one destination (M5)', () => {
+    const variants = [
+      'https://www.reddit.com/r/Austin/comments/1abc23/some_slug/',
+      'https://www.reddit.com/r/Austin/comments/1abc23/some_slug/?sort=top',
+      'https://www.reddit.com/r/austin/comments/1abc23/some_slug/xyz987/?context=3',
+      'https://old.reddit.com/r/Austin/comments/1abc23/some_slug/?rdt=12345&ref=share',
+    ]
+    const canonical = new Set(variants.map((url) => canonicalOpportunityUrl([url])))
+    expect([...canonical]).toEqual(['https://reddit.com/r/austin/comments/1abc23'])
+    // Subreddit-less forms cannot recover the subreddit (it is kept for the
+    // geography-conflict rules), so they canonicalize to the bare post URL.
+    expect(canonicalOpportunityUrl(['https://www.reddit.com/comments/1abc23/?sort=new']))
+      .toBe('https://reddit.com/comments/1abc23')
+    expect(canonicalOpportunityUrl(['https://redd.it/1abc23'])).toBe('https://reddit.com/comments/1abc23')
+    expect(canonicalOpportunityUrl(['https://community.example/Thread/?sort=new&utm_source=x&page=2']))
+      .toBe('https://community.example/Thread?page=2')
   })
 
   it('rejects expired events and inaccessible groups while treating unproven access as unknown', () => {

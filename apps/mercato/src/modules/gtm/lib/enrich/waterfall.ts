@@ -4,6 +4,7 @@ import {
   type AdapterDescriptor,
   type AdapterResult,
   type CandidateIdentity,
+  type ContactPoint,
   type EnrichAdapter,
   type VerificationState,
   type VerifyAdapter,
@@ -14,6 +15,7 @@ import {
   type GtmCreditLedger,
   type GtmSettleOutcome,
 } from '../credits/ledger'
+import type { GtmReserveResultWithEcho } from '../credits/noli-core-ledger'
 import {
   creditsForUnits,
   defaultMarkupMultiplier,
@@ -22,6 +24,13 @@ import {
 import { descriptorHash } from '../research/plan'
 import type { ResearchEm } from '../research/execute'
 import { GtmCandidate, GtmContactPoint, GtmProviderOperation } from '../../data/entities'
+import { lookupIdentityForEnrichment } from './company-domain'
+import {
+  enrichmentOperationDisposition,
+  enrichmentRequestFingerprint,
+  indexEnrichmentOperations,
+  type EnrichmentOperationProjection,
+} from './plan'
 
 /*
  * Enrichment + verification waterfall (SPEC-066 sections 4, 11.2, 14 Tranche 4).
@@ -35,10 +44,14 @@ import { GtmCandidate, GtmContactPoint, GtmProviderOperation } from '../../data/
  *   enrich phase (only when the candidate has no email contact point yet):
  *     adapters run in registry order through the SAME 11.2 credit-coupled
  *     wrapper research uses: reserve -> shadow row -> start -> provider call
- *     -> settle | markAmbiguous. Idempotency key `enrich:{candidateId}:{adapter_id}`.
+ *     -> retain data in the shadow receipt -> settle | markAmbiguous.
+ *     Idempotency key `enrich:{candidateId}:{adapter_id}:{request fingerprint}`
+ *     where the fingerprint is the adapter's own or, failing that, the
+ *     candidate's company domain (a corrected domain is a new request).
  *     pay_on_found: a definitive no_result settles 'refunded' 0 when the
  *     descriptor's cost model is pay_on_found, else 'charged'. Found points
- *     are written as gtm_contact_points rows (channel 'email', state 'found',
+ *     are written as gtm_contact_points rows (channel 'email', state 'found'
+ *     or the trusted provider's own verification state,
  *     provider_operation_id = the SHADOW row id, provenance jsonb). The first
  *     adapter that yields points ends the enrich waterfall for the candidate.
  *     An ambiguous outcome parks the operation (never auto-retried) and stops
@@ -50,16 +63,35 @@ import { GtmCandidate, GtmContactPoint, GtmProviderOperation } from '../../data/
  *     verified | risky | catch_all | not_found | unknown | provider_ambiguous.
  *     provider_ambiguous points are PARKED: they are skipped on every later
  *     run and never auto-retried (reconciliation resolves the SAME parked
- *     noli-core operation). A definitive outcome ends the verify waterfall
- *     for that point; 'verified' ends the whole candidate ("stop at first
- *     verified point").
+ *     noli-core operation and then resolveParkedContactPoints un-parks the
+ *     row). 'unknown' is not definitive and falls through to the next
+ *     verifier; a definitive outcome ends the verify waterfall for that
+ *     point; 'verified' ends the whole candidate ("stop at first verified
+ *     point").
+ *
+ * Money invariants of the wrapper:
+ * - adapter data is written into the shadow receipt in the SAME transaction
+ *   as the settlement_pending observation, BEFORE settle is called, so a
+ *   settle whose response is lost after the canonical ledger committed never
+ *   loses what the customer paid for: the next run rehydrates the points from
+ *   the receipt instead of paying the next adapter for the same person;
+ * - a settle/markAmbiguous echo must equal the intended outcome to count as
+ *   settled; anything else leaves the operation parked for reconciliation;
+ * - the provider spend cap and the settle ceiling derive from the ledger's
+ *   own reserved_credits echo when it is present, never only from the local
+ *   estimate;
+ * - a non-ambiguous result that cannot state its cost (cost_units null) is
+ *   treated as ambiguous, never charged zero; a definitive provider error
+ *   that reports a nonzero cost is charged, never refunded.
  *
  * Stop conditions:
  * - per-run maxCredits budget is enforced BEFORE each reserve (charged plus
  *   outstanding reservations plus the next estimate must fit);
  * - insufficient_credits from the ledger fails the run closed with zero
  *   further adapter calls;
- * - a candidate stops its waterfall at its first verified point.
+ * - a candidate stops its waterfall at its first verified point;
+ * - a candidate whose prior enrichment operation still needs reconciliation
+ *   (the plan's reconciliation keys) is parked before any reserve.
  *
  * Idempotency on re-run: already-verified candidates are skipped before any
  * reserve; a reserve that returns an operation already past 'reserved'
@@ -81,6 +113,10 @@ export type EnrichWaterfallDeps = {
   acceptedCandidateIds?: Set<string>
   // existing contact points for those candidates (skip-if-verified, parked skip)
   contactPoints: GtmContactPoint[]
+  // Prior contact_enrich shadow rows for those candidates. The waterfall
+  // parks a candidate whose earlier operation still needs reconciliation
+  // (the same rule the enrichment plan quotes by) before any reserve.
+  existingEnrichmentOperations?: EnrichmentOperationProjection[]
   // Canonical Noli Core organization UUID for pooled-credit accounting.
   noliOrgId: string
   // Noli Core user UUID used by the canonical provider ledger. The CRM user
@@ -96,7 +132,8 @@ export type EnrichWaterfallDeps = {
 export type EnrichWaterfallStop = 'completed' | 'budget_exhausted' | 'insufficient_credits'
 
 export type EnrichWaterfallSummary = {
-  // contact points written by the enrich phase this run
+  // contact points written by the enrich phase this run (including points
+  // rehydrated from a paid operation whose settle response was lost)
   enriched: number
   // points that reached each terminal verification state this run
   verified: number
@@ -117,7 +154,19 @@ const GEOGRAPHY = 'US'
 const ENRICH_SIGNAL = 'contact_discovery'
 const VERIFY_SIGNAL = 'email_verification'
 const VERIFY_ENTITY_UNIT = 'contacts'
-const TERMINAL_VERIFICATION_STATES = new Set<VerificationState>([
+// States that may be reused across duplicate addresses. provider_ambiguous
+// is deliberately NOT here: a parked row is a pending question about ONE
+// operation, and copying it onto every duplicate address would park rows
+// that never had an operation of their own.
+const REUSABLE_VERIFICATION_STATES = new Set<VerificationState>([
+  'verified',
+  'risky',
+  'catch_all',
+  'not_found',
+  'unknown',
+])
+const VERIFICATION_STATES = new Set<VerificationState>([
+  'found',
   'verified',
   'risky',
   'catch_all',
@@ -125,6 +174,12 @@ const TERMINAL_VERIFICATION_STATES = new Set<VerificationState>([
   'unknown',
   'provider_ambiguous',
 ])
+const UNRESOLVED_LEDGER_STATUSES = new Set(['provider_started', 'reconciliation_required'])
+const PAID_LEDGER_STATUSES = new Set(['charged', 'partially_charged'])
+
+// Enrichment providers whose own verification verdict is trusted enough to
+// skip a separate paid verifier for the same address.
+const TRUSTED_ENRICH_VERIFICATION_PROVIDERS = new Set(['leadmagic'])
 
 type ReusableVerification = {
   state: VerificationState
@@ -137,13 +192,15 @@ function normalizedAddress(point: GtmContactPoint): string | null {
   return normalized || null
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 function verificationProvenance(point: GtmContactPoint): Record<string, unknown> {
   const provenance = point.provenance
-  if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) return {}
-  const verification = (provenance as Record<string, unknown>).verification
-  return verification && typeof verification === 'object' && !Array.isArray(verification)
-    ? (verification as Record<string, unknown>)
-    : {}
+  if (!isRecord(provenance)) return {}
+  const verification = provenance.verification
+  return isRecord(verification) ? verification : {}
 }
 
 function entityUnitFor(candidate: GtmCandidate): string {
@@ -161,6 +218,24 @@ function customerUseAllowed(descriptor: AdapterDescriptor): boolean {
   )
 }
 
+// Maps a trusted enrichment provider's own status onto the frozen state set.
+// Anything unrecognised (or any untrusted provider) stays 'found' and goes
+// through the paid verifier as before.
+export function providerVerificationState(
+  provenance: Record<string, unknown> | null | undefined,
+): Exclude<VerificationState, 'found' | 'provider_ambiguous'> | null {
+  if (!isRecord(provenance)) return null
+  const provider = typeof provenance.provider === 'string' ? provenance.provider.toLowerCase() : ''
+  if (!TRUSTED_ENRICH_VERIFICATION_PROVIDERS.has(provider)) return null
+  const status = typeof provenance.provider_status === 'string'
+    ? provenance.provider_status.trim().toLowerCase()
+    : ''
+  if (status === 'valid' || status === 'verified' || status === 'deliverable') return 'verified'
+  if (status === 'valid_catch_all' || status === 'catch_all' || status === 'accept_all') return 'catch_all'
+  if (status === 'invalid' || status === 'undeliverable') return 'not_found'
+  return null
+}
+
 type Budget = {
   maxCredits: number
   charged: number
@@ -175,8 +250,16 @@ function fitsBudget(budget: Budget, estimate: number): boolean {
 type WrappedInvoke<T> =
   | { kind: 'budget_exhausted' }
   | { kind: 'insufficient_credits'; message: string }
-  // an earlier run already owns/settled/parked this exact operation - no call made
-  | { kind: 'already_settled'; ledgerStatus: string }
+  // an earlier run already owns/settled/parked this exact operation - no call
+  // made; the shadow (when it still exists) carries whatever data that run
+  // retained before settling
+  | {
+      kind: 'already_settled'
+      ledgerStatus: string
+      operationId: string
+      shadowId: string | null
+      retainedData: unknown
+    }
   | {
       kind: 'invoked'
       result: AdapterResult<T>
@@ -186,11 +269,24 @@ type WrappedInvoke<T> =
       chargedCredits: number
     }
 
+function retainedDataOf(shadow: GtmProviderOperation | null): unknown {
+  const observation = shadow?.receipt?.gtm_observation
+  if (!isRecord(observation)) return undefined
+  return 'retained_data' in observation ? observation.retained_data : undefined
+}
+
+function requestFingerprintOf(shadow: GtmProviderOperation | null): string | null {
+  const request = shadow?.receipt?.gtm_request
+  if (!isRecord(request)) return null
+  return typeof request.request_fingerprint === 'string' ? request.request_fingerprint : null
+}
+
 /*
  * The single SPEC-066 section 11.2 wrapper both phases share:
  * budget check -> reserve -> shadow row -> start -> provider call ->
- * settle | markAmbiguous -> shadow mirror. Exactly one ledger settlement
- * path per invocation; an ambiguous outcome parks the SAME operation.
+ * retain data + observation -> settle | markAmbiguous -> shadow mirror.
+ * Exactly one ledger settlement path per invocation; an ambiguous outcome
+ * parks the SAME operation.
  */
 async function invokeWithLedger<T>(
   deps: {
@@ -200,6 +296,7 @@ async function invokeWithLedger<T>(
     descriptor: AdapterDescriptor
     kind: 'enrich' | 'verify'
     idempotencyKey: string
+    requestFingerprint: string | null
     // CRM scope for the local shadow.
     orgId: string
     // Noli Core scope for the canonical ledger.
@@ -229,8 +326,9 @@ async function invokeWithLedger<T>(
 
   let operationId: string
   let reservedStatus: string
+  let reservedEcho: number | undefined
   try {
-    const reserved = await ledger.reserve({
+    const reserved: GtmReserveResultWithEcho = await ledger.reserve({
       orgId: deps.noliOrgId,
       userId: deps.noliUserId,
       kind: deps.kind === 'enrich' ? 'contact_enrich' : 'contact_verify',
@@ -250,6 +348,9 @@ async function invokeWithLedger<T>(
     })
     operationId = reserved.operationId
     reservedStatus = reserved.status
+    reservedEcho = Number.isSafeInteger(reserved.reservedCredits) && (reserved.reservedCredits as number) >= 0
+      ? reserved.reservedCredits
+      : undefined
   } catch (err) {
     if (err instanceof GtmCreditLedgerError && err.code === 'insufficient_credits') {
       return { kind: 'insufficient_credits', message: err.message }
@@ -261,13 +362,32 @@ async function invokeWithLedger<T>(
 
   // Idempotent re-run: the same (org, key) returned an operation an earlier
   // run already moved past 'reserved'. Nothing new was reserved; calling the
-  // provider again would risk double spend, so skip the invocation.
+  // provider again would risk double spend, so skip the invocation and hand
+  // back what that run retained.
   if (reservedStatus !== 'reserved') {
-    return { kind: 'already_settled', ledgerStatus: reservedStatus }
+    const priorShadow = await em.findOne(GtmProviderOperation, {
+      noliCoreOperationId: operationId,
+      organizationId: deps.orgId,
+      tenantId: deps.tenantId,
+    })
+    return {
+      kind: 'already_settled',
+      ledgerStatus: reservedStatus,
+      operationId,
+      shadowId: priorShadow?.id ?? null,
+      retainedData: retainedDataOf(priorShadow),
+    }
   }
   budget.outstanding += estimate
 
+  // The ledger's own echo is the honest ceiling: never authorise the provider
+  // or settle above what the canonical ledger actually escrowed, and never
+  // above what this run budgeted for.
+  const ceiling = reservedEcho !== undefined ? Math.min(estimate, reservedEcho) : estimate
+
   // Shadow row BEFORE provider contact (correlation only, never a balance).
+  // It carries the request fingerprint so the enrichment plan can tell an
+  // old request from a corrected one.
   let shadow = await em.findOne(GtmProviderOperation, {
     noliCoreOperationId: operationId,
     organizationId: deps.orgId,
@@ -287,6 +407,15 @@ async function invokeWithLedger<T>(
           provider: descriptor.adapter_id,
           localStatusMirror: 'reserved',
           requestedAt: now(),
+          receipt: {
+            gtm_request: {
+              schema_version: 'gtm-provider-request-v1',
+              idempotency_key: deps.idempotencyKey,
+              request_fingerprint: deps.requestFingerprint,
+              reserved_credits: reservedEcho ?? null,
+              estimated_credits: estimate,
+            },
+          },
         })
         tem.persist(row)
         await tem.flush()
@@ -302,15 +431,42 @@ async function invokeWithLedger<T>(
       if (!shadow) throw err
     }
   }
+  const gtmRequest = isRecord(shadow.receipt?.gtm_request) ? shadow.receipt.gtm_request : null
 
-  const started = await ledger.start(operationId)
+  let started
+  try {
+    started = await ledger.start(operationId)
+  } catch (err) {
+    // The start outcome is unknown. Try to give the escrow back: release is
+    // legal only from reserved, so if start actually landed the release is
+    // refused (illegal_transition) and the operation stays provider_started
+    // for reconciliation. Either way the original error propagates.
+    budget.outstanding -= estimate
+    try {
+      const released = await ledger.release(operationId)
+      shadow.localStatusMirror = released
+      await em.transactional(async (tem) => {
+        tem.persist(shadow as GtmProviderOperation)
+        await tem.flush()
+      })
+    } catch {
+      // keep the shadow at 'reserved'; reconciliation sees the mirror
+    }
+    throw err
+  }
   shadow.localStatusMirror = started.status
   await em.transactional(async (tem) => {
     tem.persist(shadow as GtmProviderOperation)
     await tem.flush()
   })
   if (!started.startedNow) {
-    return { kind: 'already_settled', ledgerStatus: started.status }
+    return {
+      kind: 'already_settled',
+      ledgerStatus: started.status,
+      operationId,
+      shadowId: shadow.id,
+      retainedData: retainedDataOf(shadow),
+    }
   }
 
   /*
@@ -320,7 +476,7 @@ async function invokeWithLedger<T>(
    * Our ledger escrows the credits, the provider refuses to bill past the
    * dollars, and neither number is an adapter-side default.
    */
-  const result = await deps.call(providerSpendCapUsd(estimate, markup))
+  const result = await deps.call(providerSpendCapUsd(ceiling, markup))
 
   const receipt = (result.receipt ?? null) as Record<string, unknown> | null
   const observedAt = now()
@@ -329,39 +485,63 @@ async function invokeWithLedger<T>(
   let settlementPending = false
   let settlementError: string | null = null
   let intendedAction: GtmSettleOutcome | 'mark_ambiguous'
+  let ambiguityReason: string | null = null
 
   if (result.status === 'ok' || result.status === 'partial') {
-    const actualUnits =
-      result.cost_units ?? (Array.isArray(result.data) ? result.data.length : result.data ? 1 : 0)
-    chargedCredits = Math.min(creditsForUnits(actualUnits, quoted, markup), estimate)
-    intendedAction = result.status === 'partial' ? 'partially_charged' : 'charged'
+    if (result.cost_units == null) {
+      // A result that cannot state what it cost is not a definitive outcome;
+      // charging zero (or guessing from the row count) would be a local
+      // inference of the provider's bill.
+      intendedAction = 'mark_ambiguous'
+      ambiguityReason = 'provider result omitted cost_units'
+    } else {
+      chargedCredits = Math.min(creditsForUnits(result.cost_units, quoted, markup), ceiling)
+      intendedAction = result.status === 'partial' ? 'partially_charged' : 'charged'
+    }
   } else if (result.status === 'no_result') {
-    // pay_on_found semantics: nothing found costs nothing; otherwise the
-    // lookup itself is billable only when the finalized provider receipt
-    // reports a nonzero unit amount.
-    if (descriptor.cost_model.pay_on_found || result.cost_units === 0) {
+    if (result.cost_units == null) {
+      intendedAction = 'mark_ambiguous'
+      ambiguityReason = 'provider no_result omitted cost_units'
+    } else if (descriptor.cost_model.pay_on_found || result.cost_units === 0) {
+      // pay_on_found semantics: nothing found costs nothing.
       intendedAction = 'refunded'
     } else {
-      chargedCredits = Math.min(creditsForUnits(result.cost_units ?? 1, quoted, markup), estimate)
+      // the lookup itself is billable when the finalized provider receipt
+      // reports a nonzero unit amount.
+      chargedCredits = Math.min(creditsForUnits(result.cost_units, quoted, markup), ceiling)
       intendedAction = 'charged'
     }
   } else if (result.status === 'ambiguous') {
     intendedAction = 'mark_ambiguous'
+  } else if (result.cost_units != null && result.cost_units > 0) {
+    // A definitive provider error that still reports a charge is charged:
+    // the provider billed it, so refunding would invent a local outcome.
+    chargedCredits = Math.min(creditsForUnits(result.cost_units, quoted, markup), ceiling)
+    intendedAction = 'charged'
   } else {
     intendedAction = 'refunded'
   }
 
+  // Retain the adapter's data in the same transaction as the pending
+  // observation, BEFORE settle: if the settle response is lost after the
+  // canonical ledger committed, the paid-for data is still here and the next
+  // run rehydrates it instead of paying the next adapter.
+  const retained = intendedAction !== 'mark_ambiguous' && result.data != null
+    ? { retained_data: result.data }
+    : {}
   const observedReceipt = {
     ...(receipt ?? {}),
+    ...(gtmRequest ? { gtm_request: gtmRequest } : {}),
     gtm_observation: {
-      schema_version: 'gtm-provider-outcome-v1',
+      schema_version: 'gtm-provider-outcome-v2',
       observed_at: observedAt.toISOString(),
       adapter_status: result.status,
       intended_ledger_action: intendedAction,
       intended_charged_credits: chargedCredits,
-      provider_error: result.error ?? null,
+      provider_error: result.error ?? ambiguityReason ?? null,
       output_count: Array.isArray(result.data) ? result.data.length : result.data ? 1 : 0,
       settlement_pending: true,
+      ...retained,
     },
   }
   await em.transactional(async (tem) => {
@@ -370,16 +550,25 @@ async function invokeWithLedger<T>(
     await tem.flush()
   })
 
+  const expectedStatus = intendedAction === 'mark_ambiguous' ? 'reconciliation_required' : intendedAction
   try {
     if (intendedAction === 'mark_ambiguous') {
       // Park the SAME operation; the reservation stays escrowed (outstanding)
       // until a delayed settle or operator reconciliation lands on it.
       ledgerStatus = await ledger.markAmbiguous(operationId, {
-        error: result.error ?? 'ambiguous provider outcome',
+        error: result.error ?? ambiguityReason ?? 'ambiguous provider outcome',
         receipt,
       })
     } else {
       ledgerStatus = await ledger.settle(operationId, intendedAction, chargedCredits, receipt)
+    }
+    if (ledgerStatus !== expectedStatus) {
+      // The canonical ledger answered with a different state than the one we
+      // asked for (a stale reservation re-settled, a concurrent reconciliation,
+      // a vocabulary drift). That is not "settled as intended"; park it.
+      settlementPending = true
+      settlementError = `canonical status ${ledgerStatus} does not match intended ${expectedStatus}`
+    } else if (intendedAction !== 'mark_ambiguous') {
       budget.outstanding -= estimate
       if (intendedAction === 'charged' || intendedAction === 'partially_charged') {
         budget.charged += chargedCredits
@@ -392,12 +581,13 @@ async function invokeWithLedger<T>(
       : 'unknown canonical ledger error'
   }
 
+  const treatAsAmbiguous = settlementPending || intendedAction === 'mark_ambiguous'
   await em.transactional(async (tem) => {
     shadow.localStatusMirror = ledgerStatus
     shadow.receipt = {
       ...observedReceipt,
-      ...(result.status === 'ambiguous'
-        ? { ambiguous_at: observedAt.toISOString(), detail: result.error ?? null }
+      ...(intendedAction === 'mark_ambiguous'
+        ? { ambiguous_at: observedAt.toISOString(), detail: result.error ?? ambiguityReason ?? null }
         : {}),
       gtm_observation: {
         ...observedReceipt.gtm_observation,
@@ -406,7 +596,7 @@ async function invokeWithLedger<T>(
         settlement_error: settlementError,
       },
     }
-    if (!settlementPending && result.status !== 'ambiguous') shadow.settledAt = now()
+    if (!treatAsAmbiguous) shadow.settledAt = now()
     tem.persist(shadow)
     await tem.flush()
   })
@@ -421,12 +611,109 @@ async function invokeWithLedger<T>(
           receipt,
           error: 'canonical ledger outcome unresolved after provider response',
         }
-      : result,
+      : intendedAction === 'mark_ambiguous' && result.status !== 'ambiguous'
+        ? {
+            status: 'ambiguous',
+            data: null,
+            cost_units: null,
+            receipt,
+            error: ambiguityReason ?? 'ambiguous provider outcome',
+          }
+        : result,
     operationId,
     shadowId: shadow.id,
     ledgerStatus,
     chargedCredits: settlementPending ? 0 : chargedCredits,
   }
+}
+
+function retainedContactPoints(value: unknown): ContactPoint[] | null {
+  if (!Array.isArray(value)) return null
+  return value.filter(
+    (point): point is ContactPoint =>
+      isRecord(point) && typeof point.channel === 'string' && typeof point.value === 'string',
+  )
+}
+
+function retainedVerificationState(value: unknown): VerificationState | null {
+  if (!isRecord(value)) return null
+  const state = value.verification_state
+  return typeof state === 'string' && VERIFICATION_STATES.has(state as VerificationState)
+    ? (state as VerificationState)
+    : null
+}
+
+/*
+ * Un-parks contact points that were parked on ONE verify operation once the
+ * operator has reconciled it on the canonical ledger. Called by the
+ * reconciliation path after the canonical status is final:
+ * - refunded / released: the provider never answered for money; the point
+ *   returns to 'found' so a later run can verify it;
+ * - charged / partially_charged: the provider was paid; the verdict is taken
+ *   from the data retained in the shadow receipt, and 'unknown' when that
+ *   run retained nothing (honest: paid, outcome unrecorded);
+ * - anything else: still unresolved, nothing changes.
+ */
+export type ParkedContactPointEm = ResearchEm & {
+  find<T extends object>(
+    entityClass: new () => T,
+    where: Record<string, unknown>,
+    options?: { limit?: number },
+  ): Promise<T[]>
+}
+
+export async function resolveParkedContactPoints(
+  em: ParkedContactPointEm,
+  ctx: { organizationId: string; tenantId: string },
+  input: { providerOperationShadowId: string; canonicalStatus: string; now?: () => Date },
+): Promise<{ resolved: number; state: VerificationState | null }> {
+  const now = input.now ?? (() => new Date())
+  const shadow = await em.findOne(GtmProviderOperation, {
+    id: input.providerOperationShadowId,
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+  })
+  if (!shadow || shadow.kind !== 'contact_verify' || !shadow.candidateId) {
+    return { resolved: 0, state: null }
+  }
+  let state: VerificationState | null = null
+  if (input.canonicalStatus === 'refunded' || input.canonicalStatus === 'released') {
+    state = 'found'
+  } else if (PAID_LEDGER_STATUSES.has(input.canonicalStatus)) {
+    const retained = retainedVerificationState(retainedDataOf(shadow))
+    state = retained && retained !== 'found' && retained !== 'provider_ambiguous' ? retained : 'unknown'
+  }
+  if (!state) return { resolved: 0, state: null }
+
+  const parked = (await em.find(GtmContactPoint, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    candidateId: shadow.candidateId,
+    verificationState: 'provider_ambiguous',
+    deletedAt: null,
+  }, { limit: 500 })).filter(
+    (point) => verificationProvenance(point).provider_operation_shadow_id === shadow.id,
+  )
+  if (parked.length === 0) return { resolved: 0, state }
+  await em.transactional(async (tem) => {
+    for (const point of parked) {
+      point.verificationState = state as string
+      if (state === 'verified') point.verifiedAt = now()
+      point.provenance = {
+        ...(point.provenance ?? {}),
+        verification: {
+          ...verificationProvenance(point),
+          state,
+          parked: false,
+          resolved_at: now().toISOString(),
+          resolved_from_canonical_status: input.canonicalStatus,
+        },
+      }
+      tem.persist(point)
+    }
+    await tem.flush()
+  })
+  return { resolved: parked.length, state }
 }
 
 export async function runEnrichmentWaterfall(
@@ -485,6 +772,7 @@ export async function runEnrichmentWaterfall(
     verification: verificationProvenance(point),
   })
   const rememberVerification = (point: GtmContactPoint, state: VerificationState) => {
+    if (!REUSABLE_VERIFICATION_STATES.has(state)) return
     const key = addressKey(point)
     if (!key) return
     const prior = verificationByAddress.get(key)
@@ -498,13 +786,21 @@ export async function runEnrichmentWaterfall(
     }
   }
   const rememberFreshVerification = (point: GtmContactPoint, state: VerificationState) => {
+    if (!REUSABLE_VERIFICATION_STATES.has(state)) return
     const key = addressKey(point)
     if (key) freshVerificationByAddress.set(key, reusableFromPoint(point, state))
   }
   for (const point of deps.contactPoints) {
     if (point.deletedAt || point.channel !== 'email') continue
-    const state = point.verificationState as VerificationState
-    if (TERMINAL_VERIFICATION_STATES.has(state)) rememberVerification(point, state)
+    rememberVerification(point, point.verificationState as VerificationState)
+  }
+  const countState = (state: VerificationState) => {
+    if (state === 'verified') summary.verified += 1
+    else if (state === 'risky') summary.risky += 1
+    else if (state === 'catch_all') summary.catch_all += 1
+    else if (state === 'not_found') summary.not_found += 1
+    else if (state === 'unknown') summary.unknown += 1
+    else if (state === 'provider_ambiguous') summary.ambiguous += 1
   }
 
   // Spec 4.1 step 6: enrichment runs over ACCEPTED candidates only.
@@ -514,6 +810,78 @@ export async function runEnrichmentWaterfall(
       && !candidate.deletedAt
       && candidate.entityKind === 'person',
   )
+  const operationIndex = indexEnrichmentOperations(
+    deps.existingEnrichmentOperations ?? [],
+    new Set(accepted.map((candidate) => candidate.id)),
+  )
+
+  /*
+   * Writes the points one enrich operation found (fresh, or rehydrated from
+   * the receipt of a paid operation whose settle response was lost). A
+   * trusted provider's own verification verdict is honoured so the paid
+   * verifier is not run again for an address the provider already verified.
+   * Returns true when one of the written points is verified.
+   */
+  const writeFoundPoints = async (
+    candidate: GtmCandidate,
+    found: ContactPoint[],
+    source: { shadowId: string; operationId: string; adapterId: string; providerRequestId: unknown; rehydrated: boolean },
+  ): Promise<boolean> => {
+    let anyVerified = false
+    const written: Array<{ row: GtmContactPoint; state: VerificationState }> = []
+    await em.transactional(async (tem) => {
+      for (const point of found) {
+        const providerState = providerVerificationState(point.provenance)
+        const state: VerificationState = providerState ?? 'found'
+        const row = tem.create(GtmContactPoint, {
+          id: crypto.randomUUID(),
+          organizationId: candidate.organizationId,
+          tenantId: candidate.tenantId,
+          candidateId: candidate.id,
+          channel: 'email',
+          value: point.value,
+          verificationState: state,
+          ...(state === 'verified' ? { verifiedAt: now() } : {}),
+          // shadow row id (gtm_provider_operations.id), per section 4
+          providerOperationId: source.shadowId,
+          provenance: {
+            ...(point.provenance ?? {}),
+            adapter_id: source.adapterId,
+            noli_core_operation_id: source.operationId,
+            provider_request_id: source.providerRequestId ?? null,
+            ...(source.rehydrated ? { rehydrated_from_receipt: true } : {}),
+            ...(providerState
+              ? {
+                  verification: {
+                    source: 'provider_status',
+                    adapter_id: source.adapterId,
+                    noli_core_operation_id: source.operationId,
+                    provider_operation_shadow_id: source.shadowId,
+                    provider_status: point.provenance?.provider_status ?? null,
+                    state: providerState,
+                    parked: false,
+                  },
+                }
+              : {}),
+          },
+        })
+        tem.persist(row)
+        const list = pointsByCandidate.get(candidate.id) ?? []
+        list.push(row)
+        pointsByCandidate.set(candidate.id, list)
+        written.push({ row, state })
+      }
+      await tem.flush()
+    })
+    for (const { row, state } of written) {
+      if (state === 'found') continue
+      rememberFreshVerification(row, state)
+      countState(state)
+      if (state === 'verified') anyVerified = true
+    }
+    summary.enriched += written.length
+    return anyVerified
+  }
 
   candidateLoop: for (const candidate of accepted) {
     const emailPoints = () =>
@@ -530,6 +898,12 @@ export async function runEnrichmentWaterfall(
     // Enrich phase: only when the candidate has no email contact point.
     // -----------------------------------------------------------------
     if (emailPoints().length === 0) {
+      // A generic-host domain (facebook.com, gmail.com) never reaches a paid
+      // finder and is dropped from the lookup identity; the name and company
+      // still travel.
+      const lookupIdentity = lookupIdentityForEnrichment(
+        candidate.identity as Record<string, unknown>,
+      )
       for (const adapter of deps.enrichAdapters) {
         const descriptor = adapter.descriptor
         if (!customerUseAllowed(descriptor)) continue
@@ -543,13 +917,29 @@ export async function runEnrichmentWaterfall(
             // request literal so an opportunity can never be coerced into a
             // contact-enrichment call if entity kinds expand again.
             entity_kind: 'person' as const,
-            identity: candidate.identity as unknown as CandidateIdentity,
+            identity: lookupIdentity as unknown as CandidateIdentity,
           },
         }
         if (adapter.supportsCandidate && !adapter.supportsCandidate(request.candidate)) continue
         // Fail closed before spend: an uncovered dimension never reserves.
         if (!capabilityCovers(descriptor, request).covered) continue
+        // Honour the plan: an earlier operation for this candidate + adapter
+        // that still needs reconciliation parks the candidate before any
+        // reserve, exactly as the quote said it would.
+        if (
+          enrichmentOperationDisposition(
+            { id: candidate.id, entityKind: candidate.entityKind, identity: lookupIdentity },
+            adapter,
+            operationIndex,
+          ) === 'reconciliation'
+        ) {
+          summary.ambiguous += 1
+          continue candidateLoop
+        }
         const adapterRequestFingerprint = adapter.operationFingerprint?.(request) ?? null
+        const requestFingerprint = adapter.operationFingerprint
+          ? adapterRequestFingerprint
+          : enrichmentRequestFingerprint(lookupIdentity)
 
         const invoked = await invokeWithLedger(
           {
@@ -559,8 +949,9 @@ export async function runEnrichmentWaterfall(
             descriptor,
             kind: 'enrich',
             idempotencyKey: `enrich:${candidate.id}:${descriptor.adapter_id}${
-              adapterRequestFingerprint ? `:${adapterRequestFingerprint}` : ''
+              requestFingerprint ? `:${requestFingerprint}` : ''
             }`,
+            requestFingerprint,
             orgId: candidate.organizationId,
             noliOrgId,
             tenantId: candidate.tenantId,
@@ -573,6 +964,7 @@ export async function runEnrichmentWaterfall(
               channel: 'email',
               entity_kind: candidate.entityKind,
               adapter_request_fingerprint: adapterRequestFingerprint,
+              request_fingerprint: requestFingerprint,
             },
             markup,
             now,
@@ -589,16 +981,43 @@ export async function runEnrichmentWaterfall(
           summary.stopped = 'insufficient_credits'
           break candidateLoop
         }
-        // Earlier run already consumed this operation and any points it found
-        // are already in the index; try the next adapter in the waterfall.
         if (invoked.kind === 'already_settled') {
-          if (
-            invoked.ledgerStatus === 'provider_started' ||
-            invoked.ledgerStatus === 'reconciliation_required'
-          ) {
+          if (UNRESOLVED_LEDGER_STATUSES.has(invoked.ledgerStatus)) {
             summary.ambiguous += 1
             continue candidateLoop
           }
+          if (PAID_LEDGER_STATUSES.has(invoked.ledgerStatus)) {
+            // The earlier run PAID for this lookup. Its data lives in the
+            // shadow receipt; rehydrate it rather than paying the next
+            // adapter for the same person. A paid operation with nothing
+            // retained (a legacy row, or a lost shadow) is parked, not
+            // silently re-bought.
+            const retained = retainedContactPoints(invoked.retainedData)
+            if (retained === null || !invoked.shadowId) {
+              summary.ambiguous += 1
+              continue candidateLoop
+            }
+            const found = retained.filter((point) => point.channel === 'email')
+            if (found.length === 0) continue // paid no_result: next adapter
+            const alreadyWritten = await em.findOne(GtmContactPoint, {
+              organizationId: candidate.organizationId,
+              tenantId: candidate.tenantId,
+              candidateId: candidate.id,
+              providerOperationId: invoked.shadowId,
+            })
+            if (alreadyWritten) break // points exist (index was stale); enrich phase done
+            const verified = await writeFoundPoints(candidate, found, {
+              shadowId: invoked.shadowId,
+              operationId: invoked.operationId,
+              adapterId: descriptor.adapter_id,
+              providerRequestId: null,
+              rehydrated: true,
+            })
+            if (verified) continue candidateLoop
+            break
+          }
+          // refunded / released: that adapter definitively found nothing;
+          // try the next adapter in the waterfall.
           continue
         }
 
@@ -613,35 +1032,15 @@ export async function runEnrichmentWaterfall(
             (point) => point.channel === 'email',
           )
           if (found.length > 0) {
-            await em.transactional(async (tem) => {
-              for (const point of found) {
-                const row = tem.create(GtmContactPoint, {
-                  id: crypto.randomUUID(),
-                  organizationId: candidate.organizationId,
-                  tenantId: candidate.tenantId,
-                  candidateId: candidate.id,
-                  channel: 'email',
-                  value: point.value,
-                  verificationState: 'found',
-                  // shadow row id (gtm_provider_operations.id), per section 4
-                  providerOperationId: invoked.shadowId,
-                  provenance: {
-                    ...(point.provenance ?? {}),
-                    adapter_id: descriptor.adapter_id,
-                    noli_core_operation_id: invoked.operationId,
-                    provider_request_id:
-                      (result.receipt as Record<string, unknown> | null)?.provider_request_id ??
-                      null,
-                  },
-                })
-                tem.persist(row)
-                const list = pointsByCandidate.get(candidate.id) ?? []
-                list.push(row)
-                pointsByCandidate.set(candidate.id, list)
-              }
-              await tem.flush()
+            const verified = await writeFoundPoints(candidate, found, {
+              shadowId: invoked.shadowId,
+              operationId: invoked.operationId,
+              adapterId: descriptor.adapter_id,
+              providerRequestId:
+                (result.receipt as Record<string, unknown> | null)?.provider_request_id ?? null,
+              rehydrated: false,
             })
-            summary.enriched += found.length
+            if (verified) continue candidateLoop // provider-verified: stop this candidate
             break // first adapter that yields points ends the enrich waterfall
           }
         }
@@ -676,16 +1075,28 @@ export async function runEnrichmentWaterfall(
           tem.persist(point)
           await tem.flush()
         })
-        if (reusable.state === 'verified') summary.verified += 1
-        else if (reusable.state === 'risky') summary.risky += 1
-        else if (reusable.state === 'catch_all') summary.catch_all += 1
-        else if (reusable.state === 'not_found') summary.not_found += 1
-        else if (reusable.state === 'unknown') summary.unknown += 1
-        else if (reusable.state === 'provider_ambiguous') summary.ambiguous += 1
+        countState(reusable.state)
         if (reusable.state === 'verified') continue candidateLoop
         continue
       }
 
+      const writeVerification = async (
+        state: VerificationState,
+        verification: Record<string, unknown>,
+      ) => {
+        await em.transactional(async (tem) => {
+          point.verificationState = state as string
+          if (state === 'verified') point.verifiedAt = now()
+          point.provenance = {
+            ...(point.provenance ?? {}),
+            verification,
+          }
+          tem.persist(point)
+          await tem.flush()
+        })
+      }
+
+      let finalState: VerificationState | null = null
       for (const adapter of deps.verifyAdapters) {
         const descriptor = adapter.descriptor
         if (!customerUseAllowed(descriptor)) continue
@@ -706,6 +1117,7 @@ export async function runEnrichmentWaterfall(
             descriptor,
             kind: 'verify',
             idempotencyKey: `verify:${point.id}:${descriptor.adapter_id}`,
+            requestFingerprint: null,
             orgId: point.organizationId,
             noliOrgId,
             tenantId: point.tenantId,
@@ -736,25 +1148,36 @@ export async function runEnrichmentWaterfall(
           break candidateLoop
         }
         if (invoked.kind === 'already_settled') {
-          if (
-            invoked.ledgerStatus === 'provider_started' ||
-            invoked.ledgerStatus === 'reconciliation_required'
-          ) {
-            await em.transactional(async (tem) => {
-              point.verificationState = 'provider_ambiguous'
-              point.provenance = {
-                ...(point.provenance ?? {}),
-                verification: {
-                  ...verificationProvenance(point),
-                  parked: true,
-                  canonical_status: invoked.ledgerStatus,
-                },
-              }
-              tem.persist(point)
-              await tem.flush()
+          if (UNRESOLVED_LEDGER_STATUSES.has(invoked.ledgerStatus)) {
+            await writeVerification('provider_ambiguous', {
+              ...verificationProvenance(point),
+              adapter_id: descriptor.adapter_id,
+              noli_core_operation_id: invoked.operationId,
+              provider_operation_shadow_id: invoked.shadowId,
+              parked: true,
+              canonical_status: invoked.ledgerStatus,
             })
             summary.ambiguous += 1
             continue candidateLoop
+          }
+          if (PAID_LEDGER_STATUSES.has(invoked.ledgerStatus)) {
+            // Paid verification whose settle response was lost: the verdict
+            // is in the retained receipt data.
+            const retained = retainedVerificationState(invoked.retainedData)
+            if (retained && retained !== 'found' && retained !== 'provider_ambiguous') {
+              await writeVerification(retained, {
+                adapter_id: descriptor.adapter_id,
+                noli_core_operation_id: invoked.operationId,
+                provider_operation_shadow_id: invoked.shadowId,
+                state: retained,
+                parked: false,
+                rehydrated_from_receipt: true,
+              })
+              rememberFreshVerification(point, retained)
+              finalState = retained
+              if (retained === 'unknown') continue
+              break
+            }
           }
           continue
         }
@@ -772,38 +1195,27 @@ export async function runEnrichmentWaterfall(
         // verify adapter in the waterfall
         if (state === null || state === 'found') continue
 
-        await em.transactional(async (tem) => {
-          point.verificationState = state as string
-          if (state === 'verified') point.verifiedAt = now()
-          point.provenance = {
-            ...(point.provenance ?? {}),
-            verification: {
-              adapter_id: descriptor.adapter_id,
-              noli_core_operation_id: invoked.operationId,
-              provider_operation_shadow_id: invoked.shadowId,
-              state,
-              parked: state === 'provider_ambiguous',
-              ...(result.data?.detail ? { detail: result.data.detail } : {}),
-            },
-          }
-          tem.persist(point)
-          await tem.flush()
+        await writeVerification(state, {
+          adapter_id: descriptor.adapter_id,
+          noli_core_operation_id: invoked.operationId,
+          provider_operation_shadow_id: invoked.shadowId,
+          state,
+          parked: state === 'provider_ambiguous',
+          ...(result.data?.detail ? { detail: result.data.detail } : {}),
         })
         // A fresh result is authoritative for the remaining duplicate rows in
         // this run even when conflicting historical rows disabled old-result
         // reuse. The old conflict remains intact for operator review.
         rememberFreshVerification(point, state)
-
-        if (state === 'verified') summary.verified += 1
-        else if (state === 'risky') summary.risky += 1
-        else if (state === 'catch_all') summary.catch_all += 1
-        else if (state === 'not_found') summary.not_found += 1
-        else if (state === 'unknown') summary.unknown += 1
-        else if (state === 'provider_ambiguous') summary.ambiguous += 1
-
-        if (state === 'verified') continue candidateLoop // stop at first verified point
+        finalState = state
+        // 'unknown' is the verifier declining to answer, not a verdict: the
+        // waterfall continues to the next verifier and keeps 'unknown' only
+        // when none answers.
+        if (state === 'unknown') continue
         break // definitive (or parked) outcome ends this point's verify waterfall
       }
+      if (finalState) countState(finalState)
+      if (finalState === 'verified') continue candidateLoop // stop at first verified point
     }
   }
 

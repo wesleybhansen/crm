@@ -10,7 +10,12 @@ import {
   GtmPlay,
   GtmVoiceVersion,
 } from '../data/entities'
-import { estimateModelTokens, type GtmAiMeter, type GtmDraftModel } from './ai/model'
+import {
+  estimateModelTokens,
+  sanitizeUntrustedPromptText,
+  type GtmAiMeter,
+  type GtmDraftModel,
+} from './ai/model'
 import { GtmAiMeteringError } from './ai/telemetry'
 import { computeGtmPolicy, policyInputFromPlay } from './policy'
 import { getLatestLockedVersion } from './versions'
@@ -81,7 +86,7 @@ function assertReplayScope(
 
 function text(value: unknown): string {
   return typeof value === 'string'
-    ? value.replace(/[{}<>]/g, '').replace(/\s+/g, ' ').trim()
+    ? sanitizeUntrustedPromptText(value.replace(/[{}<>]/g, '').replace(/\s+/g, ' ').trim(), 1_200)
     : ''
 }
 

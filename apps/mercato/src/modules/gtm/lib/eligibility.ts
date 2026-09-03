@@ -21,9 +21,11 @@ export type EligibilityResult = {
   eligibility_reason: string
 }
 
+// 'georgia' is deliberately absent: it is also a country and is only counted
+// with a US context (see GEORGIA_US_CONTEXT below).
 const US_STATE_NAMES = [
   'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado',
-  'connecticut', 'delaware', 'florida', 'georgia', 'hawaii', 'idaho',
+  'connecticut', 'delaware', 'florida', 'hawaii', 'idaho',
   'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana', 'maine',
   'maryland', 'massachusetts', 'michigan', 'minnesota', 'mississippi',
   'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire', 'new jersey',
@@ -42,7 +44,20 @@ const US_STATE_ABBREVS = new Set([
   'WI', 'WY', 'DC',
 ])
 
-const US_PATTERN = /\b(us|usa|u\.s\.a?\.?|united states|american?)\b/i
+/*
+ * Country markers only. Each alternative is anchored on both sides by a
+ * non-letter (or the string edge) so "Latin America", "South America",
+ * "Australia" and "Russia" can never satisfy it; the old `american?`
+ * alternative matched every "...America" and is gone. Bare 'U.S.' remains
+ * unrecognised to mirror the hub rule (the trailing dot defeats its boundary).
+ */
+const US_PATTERN = /(?:^|[^a-z])(?:us|usa|u\.s\.a\.?|u\.s|united states)(?=$|[^a-z.])/i
+
+// Georgia the US state versus Georgia the country: the state needs a US
+// context in the same string (', GA', 'Georgia, US', 'United States', or one
+// of its major cities); a country context wins outright.
+const GEORGIA_COUNTRY_CONTEXT = /\b(?:tbilisi|batumi|kutaisi|republic of georgia|caucasus|sakartvelo)\b|\bgeorgia\s*\(country\)/i
+const GEORGIA_US_CONTEXT = /\b(?:atlanta|savannah|augusta|macon|athens|alpharetta|marietta|roswell|sandy springs|columbus)\b|\bgeorgia\s*,?\s*(?:usa?|u\.s\.a?\.?|united states)\b/i
 
 // True only when the geography string names the US or a US subdivision.
 // 'not_applicable', empty, and non-US geographies are all false.
@@ -57,7 +72,11 @@ export function isUsGeography(geography: string): boolean {
   // Two-letter state abbreviations: uppercase tokens only, so ordinary
   // lowercase English words like "in" or "or" never count as states.
   const upperTokens = raw.split(/[^A-Za-z]+/).filter((token) => /^[A-Z]{2}$/.test(token))
-  return upperTokens.some((token) => US_STATE_ABBREVS.has(token))
+  if (upperTokens.some((token) => US_STATE_ABBREVS.has(token))) return true
+  if (lowered.includes(' georgia ') && !GEORGIA_COUNTRY_CONTEXT.test(raw)) {
+    return GEORGIA_US_CONTEXT.test(raw)
+  }
+  return false
 }
 
 export function computeExecutionEligibility(play: EligibilityInput): EligibilityResult {

@@ -1,7 +1,7 @@
-import crypto from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { NextResponse } from 'next/server'
+import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import { gtmInternalOpenApi } from '../../openapi'
 import { gtmAutoRefillBodySchema } from '../../../data/validators'
 import { gtmEnabled } from '../../../lib/flags'
@@ -43,14 +43,8 @@ function errorResponse(error: GtmAutoRefillError) {
 export async function POST(req: Request) {
   if (!gtmEnabled()) return opaqueNotFound()
 
-  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret
-    || authHeader.length !== expected.length
-    || !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-  ) {
+  // Byte-length guarded constant-time compare (lib/authorize.ts).
+  if (!internalServiceBearerAuthorized(req)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 

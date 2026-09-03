@@ -245,6 +245,37 @@ describe('Apify Facebook public-post opportunities', () => {
     }), context)).toBeNull()
   })
 
+  // Review 2026-09-02 (M10): suffix-matched hosts admitted platform
+  // open-redirectors (l.facebook.com/l.php?u=...) into customer-facing URLs.
+  it('accepts only exact Facebook hosts, strips the query, and rejects redirector paths', () => {
+    const context = {
+      query: 'Austin first time home buyer',
+      location: 'Austin, Texas',
+      expectedIntent: 'buyer_intent' as const,
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_FACEBOOK_OPPORTUNITY_CONFIG.actorId,
+    }
+    for (const url of [
+      'https://l.facebook.com/l.php?u=https%3A%2F%2Fevil.example',
+      'https://www.facebook.com/l.php?u=https%3A%2F%2Fevil.example',
+      'https://www.facebook.com/login/?next=https%3A%2F%2Fevil.example',
+      'https://evil.facebook.com.example/groups/x/posts/1/',
+      'https://user:pass@www.facebook.com/groups/austinhomebuyers/posts/facebook-post-1/',
+    ]) {
+      expect(normalizeFacebookOpportunity(facebookPost({ url }), context)).toBeNull()
+    }
+    const tracked = normalizeFacebookOpportunity(facebookPost({
+      url: 'https://m.facebook.com/groups/austinhomebuyers/posts/facebook-post-1/?ref=share&u=https%3A%2F%2Fevil.example',
+    }), context)
+    expect(tracked?.identity.urls).toEqual([
+      'https://m.facebook.com/groups/austinhomebuyers/posts/facebook-post-1/',
+    ])
+    expect(tracked?.identity.access_type).toBe('public')
+    expect(tracked?.evidence[0].detail).toEqual(expect.objectContaining({
+      published_at: '2026-08-29T16:00:00.000Z',
+    }))
+  })
+
   it('does not let the paid search query manufacture intent', async () => {
     const returned = facebookPost({
       description: 'A beautiful Austin, Texas kitchen inspiration board with blue cabinets.',

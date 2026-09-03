@@ -10,6 +10,7 @@ import {
   listProviderOperationsForReconciliation,
   reconcileProviderOperation as reconcileProviderOperationBase,
   repairResolvedResearchRunSummaries,
+  replayPendingSettlements,
   type GtmCanonicalOperatorReconciler,
   type GtmCanonicalOperatorReconciliationRequest,
   type GtmCanonicalOperatorReconciliationResult,
@@ -158,6 +159,123 @@ async function seedOperation(
   await em.flush()
   return operation
 }
+
+describe('parked output and pending settlement replay (C2 + M5)', () => {
+  test('refuses a charged decision when the provider returned output that was never retained', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger()
+    const canonicalReconciler = new FixtureCanonicalReconciler(ledger)
+    const operation = await seedOperation(em, ledger, 'provider_started', {
+      receipt: {
+        provider_request_id: 'provider-1',
+        gtm_observation: { adapter_status: 'ok', output_count: 25, settlement_pending: true },
+      },
+    })
+
+    await expect(reconcileProviderOperation({
+      em,
+      canonicalReconciler,
+      ctx,
+      operationId: operation.id,
+      idempotencyKey: 'charge-without-payload',
+      decision: { outcome: 'charged', chargedCredits: 5 },
+      evidence: evidence(),
+    })).rejects.toMatchObject({ code: 'invalid_decision' })
+    expect(ledger.getOperation(operation.noliCoreOperationId)?.status).toBe('provider_started')
+
+    // Refunding is still allowed: the customer is not billed for rows they
+    // cannot receive.
+    const refunded = await reconcileProviderOperation({
+      em,
+      canonicalReconciler,
+      ctx,
+      operationId: operation.id,
+      idempotencyKey: 'refund-without-payload',
+      decision: { outcome: 'refunded' },
+      evidence: evidence(),
+    })
+    expect(refunded.canonicalStatus).toBe('refunded')
+  })
+
+  test('replays a pending settlement with the same operation id and clears the flag', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger()
+    const pending = await seedOperation(em, ledger, 'provider_started', {
+      researchRunId: null,
+      receipt: {
+        provider_request_id: 'provider-1',
+        gtm_observation: {
+          adapter_status: 'ok',
+          intended_ledger_action: 'charged',
+          intended_charged_credits: 4,
+          output_count: 0,
+          settlement_pending: true,
+          canonical_status: 'provider_started',
+        },
+      },
+    })
+    const ambiguousPending = await seedOperation(em, ledger, 'provider_started', {
+      researchRunId: null,
+      receipt: {
+        gtm_observation: {
+          adapter_status: 'ambiguous',
+          intended_ledger_action: 'mark_ambiguous',
+          intended_charged_credits: 0,
+          provider_error: 'timeout',
+          settlement_pending: true,
+        },
+      },
+    })
+    const undecided = await seedOperation(em, ledger, 'provider_started', {
+      researchRunId: null,
+      receipt: { gtm_observation: { settlement_pending: true } },
+    })
+    const foreign = await seedOperation(em, ledger, 'provider_started', {
+      researchRunId: null,
+      tenantId: 'foreign-tenant',
+      receipt: { gtm_observation: { intended_ledger_action: 'charged', intended_charged_credits: 4, settlement_pending: true } },
+    })
+    const settle = jest.spyOn(ledger, 'settle')
+
+    const result = await replayPendingSettlements(em, ledger, ctx)
+
+    expect(result.scanned).toBe(3)
+    expect(result.settled).toEqual([
+      expect.objectContaining({ operationId: pending.id, status: 'charged' }),
+      expect.objectContaining({ operationId: ambiguousPending.id, status: 'reconciliation_required' }),
+    ])
+    expect(result.skipped).toEqual([expect.objectContaining({ operationId: undecided.id })])
+    expect(settle).toHaveBeenCalledWith(pending.noliCoreOperationId, 'charged', 4, { provider_request_id: 'provider-1' })
+    expect(ledger.getOperation(pending.noliCoreOperationId)).toMatchObject({ status: 'charged', chargedCredits: 4 })
+    expect(pending.localStatusMirror).toBe('charged')
+    expect(pending.settledAt).toBeInstanceOf(Date)
+    expect((pending.receipt as Record<string, any>).gtm_observation).toMatchObject({
+      settlement_pending: false,
+      canonical_status: 'charged',
+      settlement_error: null,
+    })
+    expect(ledger.getOperation(foreign.noliCoreOperationId)?.status).toBe('provider_started')
+
+    // Idempotent: nothing is pending any more.
+    expect(await replayPendingSettlements(em, ledger, ctx)).toMatchObject({ scanned: 1, settled: [] })
+  })
+
+  test('leaves a pending settlement parked when the canonical ledger fails again', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger()
+    const pending = await seedOperation(em, ledger, 'provider_started', {
+      researchRunId: null,
+      receipt: { gtm_observation: { intended_ledger_action: 'charged', intended_charged_credits: 4, settlement_pending: true } },
+    })
+    jest.spyOn(ledger, 'settle').mockRejectedValueOnce(new Error('still unreachable'))
+
+    const result = await replayPendingSettlements(em, ledger, ctx)
+
+    expect(result.failed).toEqual([expect.objectContaining({ operationId: pending.id, error: expect.stringContaining('still unreachable') })])
+    expect(pending.localStatusMirror).toBe('provider_started')
+    expect((pending.receipt as Record<string, any>).gtm_observation.settlement_pending).toBe(true)
+  })
+})
 
 describe('operator/provider reconciliation', () => {
   test('classifies and inventories reserved, started, ambiguous, settled, and unknown states tenant-safely', async () => {

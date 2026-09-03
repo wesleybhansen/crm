@@ -5,8 +5,9 @@ import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encry
 import { z } from 'zod'
 import { EmailConnection } from '../../email/data/schema'
 import type { ExecutionEm } from '../lib/execute/schedule'
-import { resolveMailboxAccessToken } from '../lib/execute/transport'
+import { createTokenPersister, resolveMailboxAccessToken } from '../lib/execute/transport'
 import { createTenantCursorCodec } from '../lib/inbound/codec'
+import { MailboxCursorError } from '../lib/inbound/cursor'
 import { ingestMailbox } from '../lib/inbound/ingest'
 import { createGmailMailboxReader } from '../lib/inbound/providers/gmail'
 import { createImapMailboxReader, createProductionImapPageSource } from '../lib/inbound/providers/imap'
@@ -33,6 +34,32 @@ const payloadSchema: z.ZodType<GtmMailboxIngestJob> = z.object({
 
 type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T
+}
+
+// A second job for the same mailbox (concurrency > 1, or a hub double
+// enqueue) finds the cursor leased. Waiting a few times and then skipping
+// is correct: the running job ingests the same pages, and the next enqueue
+// picks up whatever is left. Dying (no retry policy on the queue) is not.
+export const CURSOR_BUSY_RETRY_DELAYS_MS = [2_000, 5_000, 10_000]
+
+export async function withCursorBusyRetry<T>(
+  run: () => Promise<T>,
+  options: { delaysMs?: number[]; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<T | 'cursor_busy'> {
+  const delays = options.delaysMs ?? CURSOR_BUSY_RETRY_DELAYS_MS
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run()
+    } catch (error) {
+      const busy = error instanceof MailboxCursorError && error.code === 'cursor_busy'
+      if (!busy || attempt >= delays.length) {
+        if (busy) return 'cursor_busy'
+        throw error
+      }
+      await sleep(delays[attempt])
+    }
+  }
 }
 
 export default async function handle(
@@ -63,14 +90,16 @@ export default async function handle(
   if (!connection) return
 
   const provider = connection.provider.trim().toLowerCase()
+  // Refreshed OAuth tokens are persisted on the connection row (M4).
+  const persistToken = createTokenPersister(em, EmailConnection)
   let reader
   let cursorKind: 'gmail_history_id' | 'graph_delta_link' | 'imap_uid'
   if (provider === 'gmail') {
-    const token = await resolveMailboxAccessToken(connection, 'gmail', fetch, new Date())
+    const token = await resolveMailboxAccessToken(connection, 'gmail', fetch, new Date(), persistToken)
     reader = createGmailMailboxReader({ accessToken: token.accessToken })
     cursorKind = 'gmail_history_id'
   } else if (provider === 'microsoft' || provider === 'outlook') {
-    const token = await resolveMailboxAccessToken(connection, 'microsoft', fetch, new Date())
+    const token = await resolveMailboxAccessToken(connection, 'microsoft', fetch, new Date(), persistToken)
     reader = createOutlookMailboxReader({ accessToken: token.accessToken })
     cursorKind = 'graph_delta_link'
   } else if (provider === 'imap' || provider === 'smtp') {
@@ -80,7 +109,7 @@ export default async function handle(
     throw new Error(`unsupported mailbox ingestion provider: ${provider || 'empty'}`)
   }
 
-  await ingestMailbox(
+  await withCursorBusyRetry(() => ingestMailbox(
     em as unknown as ExecutionEm,
     {
       organizationId: payload.organizationId,
@@ -95,5 +124,5 @@ export default async function handle(
       reader,
       codec: createTenantCursorCodec(dek.key),
     },
-  )
+  ))
 }

@@ -46,15 +46,20 @@ describe('mailbox health policy', () => {
 
   it('recomputes bounded counts and keeps an indefinite safety pause latched', async () => {
     const em = new FakeEm()
+    const sent: GtmSendAttempt[] = []
     for (let i = 0; i < 20; i += 1) {
-      em.persist(em.create(GtmSendAttempt, {
+      sent.push(em.create(GtmSendAttempt, {
         organizationId: ORG,
         tenantId: TENANT,
         mailboxConnectionId: MAILBOX,
         idempotencyKey: `send:${i}`,
         acceptedAt: new Date(NOW.getTime() - 60_000),
       }))
+      em.persist(sent[i])
     }
+    // Reviewed behaviour (H1c / api-send-privacy M2): only events correlated
+    // to one of OUR send attempts and fully processed count. The fixture
+    // event therefore carries a send_attempt_id and 'processed'.
     em.persist(em.create(GtmInboundEvent, {
       organizationId: ORG,
       tenantId: TENANT,
@@ -63,6 +68,8 @@ describe('mailbox health policy', () => {
       providerEventId: 'complaint-1',
       dedupeKey: 'complaint-1',
       eventKind: 'complaint',
+      sendAttemptId: sent[0].id,
+      processingState: 'processed',
       occurredAt: new Date(NOW.getTime() - 30_000),
     }))
     await em.flush()
@@ -92,6 +99,58 @@ describe('mailbox health policy', () => {
     expect(latched.status).toBe('paused')
     expect(latched.pauseReason).toBe('complaint')
     expect(latched.pauseUntil).toBeNull()
+  })
+
+  it('ignores uncorrelated, unprocessed, and unauthenticated events (personal-mailbox bounces, forged headers)', async () => {
+    const em = new FakeEm()
+    const attempt = em.create(GtmSendAttempt, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      mailboxConnectionId: MAILBOX,
+      idempotencyKey: 'send:1',
+      acceptedAt: new Date(NOW.getTime() - 60_000),
+    })
+    em.persist(attempt)
+    const base = {
+      organizationId: ORG,
+      tenantId: TENANT,
+      mailboxConnectionId: MAILBOX,
+      provider: 'gmail',
+      occurredAt: new Date(NOW.getTime() - 30_000),
+    }
+    // The customer's own bounced mail in a personal inbox: no attempt link.
+    for (let i = 0; i < 3; i += 1) {
+      em.persist(em.create(GtmInboundEvent, {
+        ...base,
+        providerEventId: `personal-bounce-${i}`,
+        dedupeKey: `personal-bounce-${i}`,
+        eventKind: 'hard_bounce',
+        processingState: 'unmatched',
+      }))
+    }
+    // A forged Feedback-Type the disposition refused as unauthenticated.
+    em.persist(em.create(GtmInboundEvent, {
+      ...base,
+      providerEventId: 'forged-complaint',
+      dedupeKey: 'forged-complaint',
+      eventKind: 'complaint',
+      sendAttemptId: attempt.id,
+      correlationConfidence: 'unauthenticated',
+      processingState: 'processed',
+    }))
+    // A correlated complaint still mid-processing does not count yet either.
+    em.persist(em.create(GtmInboundEvent, {
+      ...base,
+      providerEventId: 'pending-complaint',
+      dedupeKey: 'pending-complaint',
+      eventKind: 'complaint',
+      sendAttemptId: attempt.id,
+      processingState: 'processing',
+    }))
+    await em.flush()
+
+    const row = await refreshMailboxHealth(em, { organizationId: ORG, tenantId: TENANT }, MAILBOX, { clock })
+    expect(row).toMatchObject({ status: 'healthy', hardBounceCount: 0, complaintCount: 0 })
   })
 
   it('defaults an unseen mailbox to allowed and blocks a scoped paused mailbox', async () => {

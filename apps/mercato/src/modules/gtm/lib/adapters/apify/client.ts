@@ -115,7 +115,14 @@ export const APIFY_STATUS_MAP: Record<ApifyOutcomeKind, AdapterResultStatus> = {
   no_result: 'no_result',
   auth_error: 'error',
   rate_limited: 'error',
-  server_error: 'error',
+  // A 5xx from run-sync-get-dataset-items arrives AFTER the POST was
+  // dispatched: the actor may already have run and billed (Apify's gateway
+  // returns 502/504 while streaming a dataset under load). Mapping it to
+  // 'error' settled the reservation 'refunded', so Noli paid the provider,
+  // the customer paid nothing, and a re-run billed again with no flag. It is
+  // the same unknown outcome the finalized-billing client treats as
+  // ambiguous, so it parks for reconciliation here too.
+  server_error: 'ambiguous',
   client_error: 'error',
   // 'invalid_schema' is only reachable BELOW the 2xx gate, which means the
   // actor ran and Apify billed us for it. Mapping it to 'error' would settle
@@ -1086,13 +1093,14 @@ export async function runActorSync(
       }`,
     }
   }
+  // Post-dispatch 5xx: outcome unknown, parked (see APIFY_STATUS_MAP note).
   if (httpStatus != null && httpStatus >= 500) {
     return {
       ...withBody,
       kind: 'server_error',
       status: APIFY_STATUS_MAP.server_error,
       items: [],
-      error: `provider_5xx: Apify returned HTTP ${httpStatus}`,
+      error: `provider_5xx: Apify returned HTTP ${httpStatus} after dispatch; run outcome is unknown`,
     }
   }
   // Everything left that is not 2xx is a definitive client-side rejection.

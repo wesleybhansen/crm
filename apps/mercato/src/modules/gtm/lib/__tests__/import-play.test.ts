@@ -136,6 +136,42 @@ describe('buildImportedPlayValues', () => {
     expect(second).not.toBe(first)
   })
 
+  it('stores only the strict market_type enum: a "consumer" label is not a market type', () => {
+    const labelled = buildImportedPlayValues(
+      { market_type: 'consumer', geography: 'United States', audience: 'Homeowners' } as never,
+      null,
+      HEX_HASH,
+    )
+    expect(labelled.marketType).toBeNull()
+    expect(labelled.leadMode).toBe('unknown')
+    expect(labelled.researchEligibility).toBe('blocked')
+    expect(labelled.outreachMode).toBe('blocked')
+    expect(labelled.executionEligibility).toBe('strategy_only')
+    expect(labelled.policyFlags).toEqual(['market_type_invalid'])
+
+    // The H13 scenario end to end through import: a b2b label on divorced
+    // homeowners must not import as an automated-email play.
+    const relabelled = buildImportedPlayValues(
+      { market_type: 'b2b', geography: 'Texas', audience: 'recently divorced homeowners' } as never,
+      null,
+      HEX_HASH,
+    )
+    expect(relabelled.marketType).toBe('b2b')
+    expect(relabelled.outreachMode).toBe('blocked')
+    expect(relabelled.researchEligibility).toBe('blocked')
+    expect(relabelled.policyFlags).toContain('sensitive_legal_or_financial_event')
+  })
+
+  it('feeds the likely buyer into the individual-audience screen', () => {
+    const values = buildImportedPlayValues(
+      { market_type: 'b2b', geography: 'Texas', audience: 'Pediatric clinics' } as never,
+      'Parents of patients',
+      HEX_HASH,
+    )
+    expect(values.outreachMode).toBe('manual_only')
+    expect(values.policyFlags).toContain('b2b_individual_audience')
+  })
+
   it('prefers an explicit source_hint over the hub source alias', () => {
     const values = buildImportedPlayValues(
       { source_hint: 'explicit hint', source: 'alias' } as never,

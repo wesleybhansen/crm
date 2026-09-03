@@ -14,6 +14,7 @@ import type {
 } from '../adapters/apify/company-employees'
 import { candidateDedupeKey, type ResearchEm } from '../research/execute'
 import type { GtmCreditLedger, GtmSettleOutcome } from '../credits/ledger'
+import type { GtmReserveResultWithEcho } from '../credits/noli-core-ledger'
 import {
   creditsForUnits,
   defaultMarkupMultiplier,
@@ -87,6 +88,37 @@ function observedAt(observation: DecisionMakerObservation, fallback: Date): Date
   return Number.isNaN(parsed.getTime()) ? fallback : parsed
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+const PAID_LEDGER_STATUSES = new Set(['charged', 'partially_charged'])
+const UNRESOLVED_LEDGER_STATUSES = new Set(['provider_started', 'reconciliation_required'])
+
+/*
+ * The provider's observations are retained in the shadow receipt BEFORE
+ * settle (see executeDecisionMakerPlan) so a crash or lost settle response
+ * after the canonical charge never loses paid profiles. This reads them back
+ * with a structural check; anything malformed is treated as "nothing
+ * retained" rather than materialised.
+ */
+export function retainedDecisionMakerObservations(
+  receipt: Record<string, unknown> | null | undefined,
+): DecisionMakerObservation[] | null {
+  const observation = receipt?.gtm_observation
+  if (!isRecord(observation) || !('retained_data' in observation)) return null
+  const data = observation.retained_data
+  if (!Array.isArray(data)) return null
+  return data.filter((row): row is DecisionMakerObservation =>
+    isRecord(row)
+    && typeof row.parent_company_url === 'string'
+    && typeof row.current_title === 'string'
+    && isRecord(row.candidate)
+    && isRecord(row.candidate.identity)
+    && Array.isArray(row.candidate.evidence),
+  )
+}
+
 export async function executeDecisionMakerPlan(args: {
   em: DecisionMakerEm
   ledger: GtmCreditLedger
@@ -114,7 +146,7 @@ export async function executeDecisionMakerPlan(args: {
   }
 
   const idempotencyKey = `decision-makers:${run.id}:${plan.plan_hash}`
-  const reserved = await ledger.reserve({
+  const reserved: GtmReserveResultWithEcho = await ledger.reserve({
     orgId: noliOrgId,
     userId: noliUserId,
     kind: 'source_search',
@@ -145,6 +177,14 @@ export async function executeDecisionMakerPlan(args: {
     },
   })
   const operationId = reserved.operationId
+  // The ledger's own reserved_credits echo, when present, bounds the provider
+  // spend cap and the settle amount; the local quote alone never does.
+  const reservedEcho = Number.isSafeInteger(reserved.reservedCredits) && (reserved.reservedCredits as number) >= 0
+    ? (reserved.reservedCredits as number)
+    : undefined
+  const ceiling = reservedEcho !== undefined
+    ? Math.min(plan.maximum_credits, reservedEcho)
+    : plan.maximum_credits
   let shadow = await em.findOne(GtmProviderOperation, {
     noliCoreOperationId: operationId,
     organizationId: run.organizationId,
@@ -180,26 +220,79 @@ export async function executeDecisionMakerPlan(args: {
   }
 
   if (reserved.status !== 'reserved') {
+    // Replay of a confirmed plan. When the earlier attempt PAID for the
+    // profiles but crashed (or lost the settle response) before writing them,
+    // the observations it retained in the shadow receipt are materialised
+    // now, idempotently; the customer never re-buys them and the idempotency
+    // key never blocks recovery.
+    const replay = emptyResult({
+      outcome: 'replayed',
+      operation_id: operationId,
+      ledger_status: reserved.status,
+      reconciliation_required: UNRESOLVED_LEDGER_STATUSES.has(reserved.status),
+      error: UNRESOLVED_LEDGER_STATUSES.has(reserved.status)
+        ? 'existing provider operation requires reconciliation'
+        : null,
+    })
+    if (PAID_LEDGER_STATUSES.has(reserved.status)) {
+      const retained = retainedDecisionMakerObservations(shadow.receipt)
+      if (retained) {
+        // The canonical ledger is settled; bring the shadow mirror with it
+        // if the earlier attempt died between settle and mirror.
+        if (shadow.localStatusMirror !== reserved.status || !shadow.settledAt) {
+          await em.transactional(async (tem) => {
+            shadow.localStatusMirror = reserved.status
+            shadow.settledAt = shadow.settledAt ?? now()
+            const observation = isRecord(shadow.receipt?.gtm_observation) ? shadow.receipt.gtm_observation : {}
+            shadow.receipt = {
+              ...(shadow.receipt ?? {}),
+              gtm_observation: {
+                ...observation,
+                settlement_pending: false,
+                canonical_status: reserved.status,
+                settlement_error: null,
+              },
+            }
+            tem.persist(shadow)
+            await tem.flush()
+          })
+        }
+        await materializeObservations({
+          em, run, plan, adapter, shadow, operationId, observations: retained, observed: now(), now, summary: replay,
+        })
+      }
+    }
+    // A replay reports the relations this operation holds in total (fresh
+    // plus previously written), so the caller sees the operation's yield.
     const relations = await em.find(GtmCandidateRelation, {
       organizationId: run.organizationId,
       tenantId: run.tenantId,
       providerOperationId: shadow.id,
       deletedAt: null,
     }, { limit: 100 })
-    return emptyResult({
-      outcome: 'replayed',
-      operation_id: operationId,
-      ledger_status: reserved.status,
-      reconciliation_required:
-        reserved.status === 'provider_started' || reserved.status === 'reconciliation_required',
-      relations_created: relations.length,
-      error: reserved.status === 'provider_started' || reserved.status === 'reconciliation_required'
-        ? 'existing provider operation requires reconciliation'
-        : null,
-    })
+    replay.relations_created = relations.length
+    return replay
   }
 
-  const started = await ledger.start(operationId)
+  let started
+  try {
+    started = await ledger.start(operationId)
+  } catch (error) {
+    // Unknown start outcome: try to hand the escrow back. release is legal
+    // only from reserved, so if start actually landed the release is refused
+    // and the operation stays provider_started for reconciliation.
+    try {
+      const released = await ledger.release(operationId)
+      await em.transactional(async (tem) => {
+        shadow.localStatusMirror = released
+        tem.persist(shadow)
+        await tem.flush()
+      })
+    } catch {
+      // shadow stays at its reserved mirror
+    }
+    throw error
+  }
   await em.transactional(async (tem) => {
     shadow.localStatusMirror = started.status
     tem.persist(shadow)
@@ -222,27 +315,39 @@ export async function executeDecisionMakerPlan(args: {
     companies: plan.companies,
     job_titles: plan.job_titles,
     max_profiles: plan.max_profiles,
-    max_charge_usd: providerSpendCapUsd(plan.maximum_credits, markup),
+    max_charge_usd: providerSpendCapUsd(ceiling, markup),
   })
   const receipt = result.receipt ?? null
   const observed = now()
   let chargedCredits = 0
   let intendedAction: GtmSettleOutcome | 'mark_ambiguous'
+  let ambiguityReason: string | null = null
   if (result.status === 'ok' || result.status === 'partial' || result.status === 'no_result') {
-    chargedCredits = Math.min(
-      creditsForUnits(
-        result.cost_units ?? 0,
-        plan.quoted_credits_per_unit,
-        markup,
-      ),
-      plan.maximum_credits,
-    )
-    intendedAction = result.status === 'partial' ? 'partially_charged' : 'charged'
+    if (result.cost_units == null) {
+      // A result that cannot state its cost is not definitive; charging zero
+      // would be a local guess at the provider's bill.
+      intendedAction = 'mark_ambiguous'
+      ambiguityReason = `provider ${result.status} omitted cost_units`
+    } else {
+      chargedCredits = Math.min(
+        creditsForUnits(result.cost_units, plan.quoted_credits_per_unit, markup),
+        ceiling,
+      )
+      intendedAction = result.status === 'partial' ? 'partially_charged' : 'charged'
+    }
   } else if (result.status === 'ambiguous') {
     intendedAction = 'mark_ambiguous'
+  } else if (result.cost_units != null && result.cost_units > 0) {
+    // A definitive provider error that still reports a charge is charged.
+    chargedCredits = Math.min(
+      creditsForUnits(result.cost_units, plan.quoted_credits_per_unit, markup),
+      ceiling,
+    )
+    intendedAction = 'charged'
   } else {
     intendedAction = 'refunded'
   }
+  const treatAsAmbiguous = intendedAction === 'mark_ambiguous'
 
   const observedReceipt = {
     ...(receipt ?? {}),
@@ -255,14 +360,18 @@ export async function executeDecisionMakerPlan(args: {
       max_profiles: plan.max_profiles,
     },
     gtm_observation: {
-      schema_version: 'gtm-provider-outcome-v1',
+      schema_version: 'gtm-provider-outcome-v2',
       observed_at: observed.toISOString(),
       adapter_status: result.status,
       intended_ledger_action: intendedAction,
       intended_charged_credits: chargedCredits,
-      provider_error: result.error ?? null,
+      provider_error: result.error ?? ambiguityReason ?? null,
       output_count: Array.isArray(result.data) ? result.data.length : 0,
       settlement_pending: true,
+      // Retained BEFORE settle, in the same transaction as the pending
+      // observation: a crash after the canonical charge must not lose what
+      // was paid for (the replay path above materialises it).
+      ...(!treatAsAmbiguous && Array.isArray(result.data) ? { retained_data: result.data } : {}),
     },
   }
   await em.transactional(async (tem) => {
@@ -272,14 +381,20 @@ export async function executeDecisionMakerPlan(args: {
   })
 
   let ledgerStatus = shadow.localStatusMirror ?? 'provider_started'
+  const expectedStatus = treatAsAmbiguous ? 'reconciliation_required' : intendedAction
   try {
     if (intendedAction === 'mark_ambiguous') {
       ledgerStatus = await ledger.markAmbiguous(operationId, {
-        error: result.error ?? 'ambiguous provider outcome',
+        error: result.error ?? ambiguityReason ?? 'ambiguous provider outcome',
         receipt,
       })
     } else {
       ledgerStatus = await ledger.settle(operationId, intendedAction, chargedCredits, receipt)
+    }
+    if (ledgerStatus !== expectedStatus) {
+      // Settled only when the canonical ledger echoes the intended outcome;
+      // any other state is parked for reconciliation, never treated as done.
+      throw new Error(`canonical status ${ledgerStatus} does not match intended ${expectedStatus}`)
     }
   } catch (error) {
     const settlementError = error instanceof Error
@@ -318,18 +433,18 @@ export async function executeDecisionMakerPlan(args: {
         settlement_error: null,
       },
     }
-    if (result.status !== 'ambiguous') shadow.settledAt = now()
+    if (!treatAsAmbiguous) shadow.settledAt = now()
     tem.persist(shadow)
     await tem.flush()
   })
 
-  if (result.status === 'ambiguous') {
+  if (treatAsAmbiguous) {
     return emptyResult({
       outcome: 'ambiguous',
       operation_id: operationId,
       ledger_status: ledgerStatus,
       reconciliation_required: true,
-      error: result.error ?? 'ambiguous provider outcome',
+      error: result.error ?? ambiguityReason ?? 'ambiguous provider outcome',
     })
   }
   if (result.status === 'error') {
@@ -349,16 +464,42 @@ export async function executeDecisionMakerPlan(args: {
     })
   }
 
-  const companyByUrl = new Map(
-    plan.companies.map((company) => [normalizedCompanyUrl(company.linkedin_url), company]),
-  )
   const summary = emptyResult({
     outcome: result.status,
     operation_id: operationId,
     ledger_status: ledgerStatus,
     charged_credits: chargedCredits,
   })
-  for (const observation of result.data ?? []) {
+  await materializeObservations({
+    em, run, plan, adapter, shadow, operationId, observations: result.data ?? [], observed, now, summary,
+  })
+  return summary
+}
+
+/*
+ * Writes people, contextual matches, relations, and evidence for one
+ * operation's observations. Idempotent: a person that already exists is
+ * reused (dedupe key), and a relation that already exists for this run and
+ * parent/child pair is counted as reused rather than rewritten, so the same
+ * retained observations can be materialised again after a crash.
+ */
+async function materializeObservations(args: {
+  em: DecisionMakerEm
+  run: GtmResearchRun
+  plan: DecisionMakerPlan
+  adapter: DecisionMakerAdapter
+  shadow: GtmProviderOperation
+  operationId: string
+  observations: DecisionMakerObservation[]
+  observed: Date
+  now: () => Date
+  summary: DecisionMakerExecutionResult
+}): Promise<void> {
+  const { em, run, plan, adapter, shadow, operationId, observed, now, summary } = args
+  const companyByUrl = new Map(
+    plan.companies.map((company) => [normalizedCompanyUrl(company.linkedin_url), company]),
+  )
+  for (const observation of args.observations) {
     const company = companyByUrl.get(normalizedCompanyUrl(observation.parent_company_url))
     if (!company) {
       summary.rows_dropped += 1
@@ -536,5 +677,4 @@ export async function executeDecisionMakerPlan(args: {
     summary.evidence_created += candidate.evidence.length
     summary[qualification.verdict] += 1
   }
-  return summary
 }

@@ -17,7 +17,7 @@ import {
   readStepKey,
 } from './schedule'
 import type { GtmSendTransport } from './transport'
-import { GtmSendTimeoutError } from './transport'
+import { isAmbiguousTransportError, isRetryableTransportError } from './transport'
 import { buildUnsubscribeUrl } from '../unsubscribe'
 import { messageContentHash, substituteUnsubscribeUrl } from '../campaign/render'
 import { readWorkspacePostalAddress } from '../workspace-settings'
@@ -64,7 +64,20 @@ import {
  *   4. outcome: resolve -> 'accepted' (+provider_message_id, receipt,
  *      sent_at); thrown Error -> 'failed' (a retry is a NEW attempt row,
  *      not built in this tranche); GtmSendTimeoutError -> 'ambiguous',
- *      parked forever for reconciliation, never auto-retried.
+ *      parked forever for reconciliation, never auto-retried;
+ *      GtmSendRetryableError (the provider provably refused the payload
+ *      before accepting it) -> back to 'approved' with a bounded backoff,
+ *      counted in transport_retry_count, 'failed' once the bound is hit.
+ *
+ * Time source: the tick passes the DB-resolved claim `now` (deps.now); this
+ * executor advances from that anchor by process elapsed time so window,
+ * capacity, health and lease decisions never mix DB and wall-clock time.
+ *
+ * ORM lifecycle rule: after the fenced nativeUpdate the managed `attempt`
+ * entity is NEVER mutated. A managed entity mutated after a nativeUpdate is
+ * flushed back over the row by the next transaction commit (MikroORM copies
+ * the identity map into the transaction fork and flushes it on commit), which
+ * reverted every accepted send but the last one to 'provider_started' (C1).
  */
 
 export type ExecuteOutcome =
@@ -74,7 +87,7 @@ export type ExecuteOutcome =
   | {
       outcome: 'rescheduled'
       attemptId: string
-      reason: 'outside_send_window' | 'daily_cap_reached'
+      reason: 'outside_send_window' | 'daily_cap_reached' | 'transport_retry'
       scheduledFor: Date
     }
   | {
@@ -85,11 +98,31 @@ export type ExecuteOutcome =
     }
   | { outcome: 'fenced'; attemptId: string }
   | { outcome: 'campaign_paused'; attemptId: string }
+  // The tick released the claim untouched because its lease was about to
+  // expire (M2); the row is due again immediately.
+  | { outcome: 'released'; attemptId: string; reason: 'lease_expiring' }
 
 export type ExecuteDeps = {
   transport: GtmSendTransport
   clock?: Clock
+  // DB-resolved time of the claim that produced this attempt (claim.ts).
+  now?: Date
+  leaseMinutes?: number
   beforeProviderStartTransaction?: () => void | Promise<void>
+}
+
+// Definitely-not-sent provider refusals are retried at most this many times
+// per attempt row, with exponential backoff (5, 10, 20 minutes).
+export const MAX_TRANSPORT_RETRIES = 3
+const TRANSPORT_RETRY_BASE_MS = 5 * 60 * 1000
+
+export function transportRetryBackoffMs(retryCount: number): number {
+  return TRANSPORT_RETRY_BASE_MS * 2 ** Math.max(0, Math.min(retryCount, MAX_TRANSPORT_RETRIES))
+}
+
+// Postgres LIKE/ILIKE pattern for an exact (case-insensitive) match.
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&')
 }
 
 function recordArray(value: unknown): Array<Record<string, unknown>> {
@@ -141,7 +174,14 @@ export async function executeClaimedAttempt(
       `Attempt ${attemptId} is not held under a claim (state '${attempt.state}')`,
     )
   }
-  const now = () => deps.clock?.now() ?? new Date()
+  // Anchor on the DB-resolved claim time when the tick provides it and let
+  // it advance with process elapsed time; an injected clock (tests) wins.
+  const anchor = deps.now ?? null
+  const anchoredAt = Date.now()
+  const now = () =>
+    deps.clock?.now()
+    ?? (anchor ? new Date(anchor.getTime() + (Date.now() - anchoredAt)) : new Date())
+  const leaseMs = (deps.leaseMinutes && deps.leaseMinutes > 0 ? deps.leaseMinutes : 10) * 60 * 1000
 
   // Every write presents the claim token + fence (rule 5).
   const fencedUpdateOn = async (
@@ -326,9 +366,12 @@ export async function executeClaimedAttempt(
   if (addressHash !== approvedRecipient.address_hash) return fail('recipient_changed')
   const suppressed = await findSuppression(em, ctx.organizationId, addressHash, now())
   if (suppressed) return fail('suppressed')
+  // Bounded lookup (M5): one address, case-insensitive, instead of loading
+  // every legacy unsubscribe row of the org on every send.
   const legacyRows = await em.find(EmailUnsubscribe, {
     organizationId: ctx.organizationId,
     tenantId: ctx.tenantId,
+    email: { $ilike: escapeLikePattern(address) },
   })
   if (legacyRows.some((row) => row.email.trim().toLowerCase() === address)) {
     return fail('legacy_unsubscribe')
@@ -563,19 +606,28 @@ export async function executeClaimedAttempt(
         : ({ outcome: 'fenced', attemptId } as const)
     }
 
-    const capacityRows = await tem.find(GtmSendAttempt, {
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      mailboxConnectionId,
-      state: { $in: [...CAPACITY_RESERVED_STATES] },
-      deletedAt: null,
-    })
+    // Repeat the suppression check INSIDE the locked transaction (L4): a
+    // suppression written by any path that does not cancel the claim (manual
+    // suppress, classifier) between the recheck above and provider_started
+    // must still win.
+    if (await findSuppression(tem, ctx.organizationId, addressHash, now())) {
+      const updated = await fencedUpdateOn(
+        tem,
+        { state: 'claimed' },
+        { state: 'failed', failureReason: 'suppressed', failedAt: now(), capacitySlotKey: null },
+      )
+      return updated === 1
+        ? ({ outcome: 'failed', attemptId, reason: 'suppressed' } as const)
+        : ({ outcome: 'fenced', attemptId } as const)
+    }
+
+    const capacityNow = now()
+    const capacityRows = await loadCapacityRows(tem, ctx, mailboxConnectionId, capacityNow)
     const reservations = buildCapacityReservations(
       capacityRows,
       capacitySettings.send_window.timezone,
       attemptId,
     )
-    const capacityNow = now()
     const withinWindow = isWithinBusinessWindow(capacityNow, capacitySettings.send_window)
     const candidateSlot = withinWindow
       ? capacityNow
@@ -609,18 +661,27 @@ export async function executeClaimedAttempt(
         : ({ outcome: 'fenced', attemptId } as const)
     }
 
+    // Re-lease under the fence (M2): the lease was set once at claim time and
+    // a serial tick can reach this row minutes later. A fresh lease from
+    // here keeps a slow-but-successful transport call from being parked
+    // ambiguous by a concurrent recoverStuckAttempts pass.
     const started = await fencedUpdateOn(
       tem,
       { state: 'claimed' },
-      { state: 'provider_started', rfcMessageId, capacitySlotKey },
+      {
+        state: 'provider_started',
+        rfcMessageId,
+        capacitySlotKey,
+        claimExpiresAt: new Date(now().getTime() + leaseMs),
+      },
     )
     return started === 1
       ? ({ outcome: 'started' } as const)
       : ({ outcome: 'fenced', attemptId } as const)
   })
   if (startDecision.outcome !== 'started') return startDecision
-  attempt.state = 'provider_started'
-  attempt.rfcMessageId = rfcMessageId
+  // The managed entity is deliberately left untouched here (see the header
+  // note); rfcMessageId is carried in the local below.
 
   // RFC 8058 one-click headers on every GTM send (section 8).
   const unsubscribeUrl = buildUnsubscribeUrl({
@@ -677,7 +738,7 @@ export async function executeClaimedAttempt(
     )
     return n === 1 ? { outcome: 'accepted', attemptId } : { outcome: 'fenced', attemptId }
   } catch (err) {
-    if (err instanceof GtmSendTimeoutError || (err as Error)?.name === 'GtmSendTimeoutError') {
+    if (isAmbiguousTransportError(err)) {
       // Rule 4: unknown outcome after provider contact -> ambiguous, parked,
       // never auto-retried.
       const reason = `transport_timeout: ${(err as Error).message}`
@@ -689,6 +750,38 @@ export async function executeClaimedAttempt(
         ? { outcome: 'ambiguous', attemptId, reason }
         : { outcome: 'fenced', attemptId }
     }
+    if (isRetryableTransportError(err)) {
+      // The provider provably refused the payload before accepting it (M1):
+      // nothing is with the provider, so the row goes back to 'approved'
+      // with backoff. Bounded: after MAX_TRANSPORT_RETRIES it fails closed
+      // with an explicit reason instead of retrying forever.
+      const retries = attempt.transportRetryCount ?? 0
+      if (retries < MAX_TRANSPORT_RETRIES) {
+        const scheduledFor = new Date(now().getTime() + transportRetryBackoffMs(retries))
+        const reason = `transport_retry: ${(err as Error).message}`
+        const n = await fencedUpdate(
+          { state: 'provider_started' },
+          {
+            state: 'approved',
+            claimToken: null,
+            claimExpiresAt: null,
+            scheduledFor,
+            transportRetryCount: retries + 1,
+            failureReason: reason,
+            failedAt: null,
+          },
+        )
+        return n === 1
+          ? { outcome: 'rescheduled', attemptId, reason: 'transport_retry', scheduledFor }
+          : { outcome: 'fenced', attemptId }
+      }
+      const reason = `transport_error: retries exhausted: ${(err as Error).message}`
+      const n = await fencedUpdate(
+        { state: 'provider_started' },
+        { state: 'failed', failureReason: reason, failedAt: now(), capacitySlotKey: null },
+      )
+      return n === 1 ? { outcome: 'failed', attemptId, reason } : { outcome: 'fenced', attemptId }
+    }
     const reason = `transport_error: ${(err as Error)?.message ?? 'unknown'}`
     const n = await fencedUpdate(
       { state: 'provider_started' },
@@ -698,7 +791,38 @@ export async function executeClaimedAttempt(
   }
 }
 
-async function findSuppression(
+// Capacity reservations only matter for the mailbox-local day being
+// scheduled and the days after it; rows that settled before yesterday can
+// never change today's count. Bounding the read (M5) keeps the FOR UPDATE
+// hold on the connection row short as accepted/delivered history grows.
+export const CAPACITY_LOOKBACK_MS = 2 * 24 * 60 * 60 * 1000
+
+export async function loadCapacityRows(
+  em: ExecutionEm,
+  ctx: Pick<GtmCtx, 'organizationId' | 'tenantId'>,
+  mailboxConnectionId: string,
+  now: Date,
+): Promise<GtmSendAttempt[]> {
+  const since = new Date(now.getTime() - CAPACITY_LOOKBACK_MS)
+  return em.find(GtmSendAttempt, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    mailboxConnectionId,
+    state: { $in: [...CAPACITY_RESERVED_STATES] },
+    deletedAt: null,
+    $or: [
+      { scheduledFor: { $gte: since } },
+      { sentAt: { $gte: since } },
+      { ambiguousAt: { $gte: since } },
+      { updatedAt: { $gte: since } },
+    ],
+  })
+}
+
+// Org + global suppression lookup for one address hash. The channel is part
+// of the where so the (organization_id, channel, address_hash) unique index
+// is usable (L3).
+export async function findSuppression(
   em: ExecutionEm,
   organizationId: string,
   addressHash: string,
@@ -707,11 +831,13 @@ async function findSuppression(
   const rows = [
     ...(await em.find(GtmSuppression, {
       organizationId,
+      channel: { $in: ['email', 'all'] },
       addressHash,
       deletedAt: null,
     })),
     ...(await em.find(GtmSuppression, {
       scope: 'global',
+      channel: { $in: ['email', 'all'] },
       addressHash,
       deletedAt: null,
     })),

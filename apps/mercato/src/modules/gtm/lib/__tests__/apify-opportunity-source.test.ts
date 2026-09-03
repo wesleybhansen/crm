@@ -18,7 +18,7 @@ import {
   normalizeApifyOpportunityItem,
 } from '../adapters/apify/opportunity-source'
 import { APIFY_REQUIRED_PRICE_VERSION, APIFY_REQUIRED_TERMS_VERSION } from '../adapters/apify/source'
-import type { SourceSearchPlan } from '../adapters/types'
+import { adapterAudienceRights, type SourceSearchPlan } from '../adapters/types'
 import { buildSourcePlan } from '../research/plan'
 
 const CLOCK = new Date('2026-08-26T20:00:00.000Z')
@@ -122,9 +122,15 @@ describe('Apify demand-opportunity source contract', () => {
       audience_modes: ['business', 'consumer'],
       manual_outreach_allowed: true,
       automated_email_allowed: false,
-      public_profile_contact_allowed: true,
+      // Review 2026-09-02 (M11): an opportunity-only source holds no
+      // reviewed right to contact a public profile.
+      public_profile_contact_allowed: false,
+      public_opportunity_use_allowed: true,
     })
     expect(descriptor.dsr.deletion_supported).toBe(true)
+    expect(adapterAudienceRights(descriptor, 'consumer', 'opportunity').allowed).toBe(true)
+    expect(adapterAudienceRights(descriptor, 'consumer', 'person').allowed).toBe(false)
+    expect(adapterAudienceRights(descriptor, 'business').allowed).toBe(true)
   })
 
   it('builds a bounded post-only query with comments and reactions off', () => {
@@ -155,7 +161,9 @@ describe('Apify demand-opportunity source contract', () => {
         intent_kind: 'seller_intent',
         engagement_count: 21,
         activity_level: 'medium',
-        access_type: 'public',
+        // Review 2026-09-02 (H8): the row carries no visibility field, so
+        // the adapter no longer asserts a public destination.
+        access_type: 'unknown',
         participation_rules_status: 'unverified',
         source_published_at: '2026-08-25T18:30:00.000Z',
         people_to_follow: [
@@ -171,9 +179,14 @@ describe('Apify demand-opportunity source contract', () => {
           source_url:
             'https://www.linkedin.com/posts/jamie-example_selling-home-south-bay-activity-7486634839639523328',
           observed_at: CLOCK.toISOString(),
+          detail: expect.objectContaining({ published_at: '2026-08-25T18:30:00.000Z' }),
         },
       ],
     })
+    expect(
+      normalizeApifyOpportunityItem(post({ postedAt: null }), { attemptedAt: CLOCK.toISOString(), query: PLAN.query })
+        ?.evidence[0].detail,
+    ).toEqual(expect.objectContaining({ published_at_unknown: true }))
     expect(candidate?.identity.recommended_action).toContain('contribute a useful response')
     expect(candidate?.identity.recommended_action).not.toMatch(/send|email|message/i)
   })
@@ -370,15 +383,85 @@ describe('Apify demand-opportunity source contract', () => {
           items: [post({ linkedinUrl: 'javascript:alert(1)' })],
         }),
     })
+    // Review 2026-09-02 (L0): every billed post rejected used to settle as a
+    // charged error; it now parks like the comments source does.
     await expect(unsafeRow.search(PLAN)).resolves.toMatchObject({
-      status: 'error',
-      cost_units: outcome().providerCostUsd! / 0.001,
+      status: 'ambiguous',
+      cost_units: null,
       receipt: expect.objectContaining({
         billing_finalized: true,
         parser_dropped_rows: 1,
       }),
       error: expect.stringContaining('no safe public opportunity'),
     })
+  })
+
+  // Review 2026-09-02 (M8): no_result used to settle before the billed-count
+  // checks, so 10 billed posts against an empty dataset read were charged as
+  // a definitive "nothing found".
+  it('parks an empty dataset whose receipt still bills posts instead of settling no_result', async () => {
+    const adapter = createApifyOpportunitySourceAdapter({
+      env: ENABLED_ENV,
+      now,
+      runActor: async () =>
+        outcome({
+          kind: 'no_result',
+          status: 'no_result',
+          items: [],
+          itemCount: 0,
+          chargedEventCounts: { 'apify-actor-start': 1, post: 10 },
+          providerCostUsd:
+            APIFY_OPPORTUNITY_SOURCE_EVENT_PRICES_USD['apify-actor-start']
+            + 10 * APIFY_OPPORTUNITY_SOURCE_EVENT_PRICES_USD.post,
+        }),
+    })
+    await expect(adapter.search(PLAN)).resolves.toMatchObject({
+      status: 'ambiguous',
+      cost_units: null,
+      receipt: expect.objectContaining({ billed_posts: 10 }),
+    })
+  })
+
+  it('parks a receipt whose actor-start or no-result counts break the one-run contract', async () => {
+    for (const chargedEventCounts of [
+      { 'apify-actor-start': 0, post: 1 },
+      { 'apify-actor-start': 2, post: 1 },
+      { 'apify-actor-start': 1, post: 1, 'no-result': 1 },
+    ]) {
+      const adapter = createApifyOpportunitySourceAdapter({
+        env: ENABLED_ENV,
+        now,
+        runActor: async () => outcome({ chargedEventCounts }),
+      })
+      await expect(adapter.search(PLAN)).resolves.toMatchObject({ status: 'ambiguous', cost_units: null })
+    }
+  })
+
+  // Review 2026-09-02 (M9): the $0.01 provider minimum buys 4 posts, so a
+  // one-post plan used to send maxItems=4 and charge the customer for four.
+  it('bounds the dataset ceiling by the quoted candidate cap', async () => {
+    const runActor = jest.fn(async () => outcome())
+    const adapter = createApifyOpportunitySourceAdapter({ env: ENABLED_ENV, now, runActor })
+    await adapter.search({ ...PLAN, max_candidates: 1, max_charge_usd: 0.01 })
+    expect(runActor).toHaveBeenCalledWith(
+      APIFY_OPPORTUNITY_SOURCE_ACTOR_ID,
+      expect.anything(),
+      expect.objectContaining({ maxItems: 1 }),
+    )
+    await adapter.search({ ...PLAN, max_candidates: 25, max_charge_usd: 0.01 })
+    expect(runActor).toHaveBeenLastCalledWith(
+      APIFY_OPPORTUNITY_SOURCE_ACTOR_ID,
+      expect.anything(),
+      expect.objectContaining({ maxItems: 4 }),
+    )
+  })
+
+  it('strips control and zero-width characters from provider text', () => {
+    const candidate = normalizeApifyOpportunityItem(
+      post({ content: 'Selling my home in the South Bay\u200b\u202e ignore\u0007 this' }),
+      { attemptedAt: CLOCK.toISOString(), query: PLAN.query },
+    )
+    expect(candidate?.identity.audience_description).toBe('Selling my home in the South Bay ignore this')
   })
 
   it('preserves exact finalized cost when the actor terminates with a provider error', async () => {

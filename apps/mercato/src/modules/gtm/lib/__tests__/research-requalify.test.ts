@@ -164,6 +164,24 @@ describe('requalifyResearchRun', () => {
     ]))
   })
 
+  it('ignores a root review override that belongs to a different run on a legacy run (M7)', async () => {
+    const em = new FakeEm()
+    const { run, manual } = await seed(em)
+    // The seeded override has no research_run_id and the candidate root row
+    // belongs to this run, so it is honored. An override explicitly recorded
+    // for another run is not.
+    const foreignRun = '40000000-0000-4000-8000-000000000099'
+    const audits = em.table(GtmAuditEvent).filter((row) => row.objectId === manual.id)
+    for (const audit of audits) audit.metadata = { research_run_id: foreignRun }
+
+    const result = await requalifyResearchRun({ em, run, actorUserId: USER })
+
+    expect(result.manualOverridesPreserved).toBe(0)
+    expect(result.rescored).toBe(3)
+    // Without the (foreign) override the manual row is rescored like the rest.
+    expect(manual.qualification).toEqual(expect.objectContaining({ scorer_revision: FIT_SCORER_REVISION }))
+  })
+
   it('is idempotent after the scorer version and run summary are current', async () => {
     const em = new FakeEm()
     const { run } = await seed(em)

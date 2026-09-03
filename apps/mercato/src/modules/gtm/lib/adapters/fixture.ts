@@ -175,12 +175,17 @@ function craftedResult<T>(
         error: 'rate_limit: provider throttled the request',
       }
     case 'provider_5xx':
+      // A 5xx arrives after the request was dispatched, so the provider may
+      // already have run and billed. The real Apify sync client parks this as
+      // ambiguous (client.ts APIFY_STATUS_MAP); the fixture models the same
+      // contract so a wrapper cannot be tested against a refund that would
+      // eat real spend.
       return {
-        status: 'error',
+        status: 'ambiguous',
         data: null,
         receipt: { ...baseReceipt(hash, 'http_500'), http_status: 500 },
-        cost_units: 0,
-        error: 'provider_5xx: upstream returned HTTP 500',
+        cost_units: null,
+        error: 'provider_5xx: upstream returned HTTP 500 after dispatch; outcome unknown',
       }
     case 'delayed_completion': {
       const operationRef = `fixt_op_${hash.slice(0, 12)}`

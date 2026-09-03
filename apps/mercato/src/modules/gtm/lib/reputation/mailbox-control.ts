@@ -81,6 +81,12 @@ export async function clearMailboxPause(
     health.status = 'warning'
     health.pauseReason = null
     health.pauseUntil = null
+    // A false positive means the evidence rows were wrong: exclude every
+    // event at or before this instant from the next refresh (M2), otherwise
+    // the same rows re-latch the pause immediately. Other clear reasons keep
+    // the evidence in the window on purpose (the sender fixed something; a
+    // fresh complaint should still pause).
+    if (input.reason === 'false_positive') health.rollingWindowStartedAt = now
     health.fence += 1
     health.updatedAt = now
     tem.persist(health)

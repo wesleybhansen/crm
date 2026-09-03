@@ -200,6 +200,64 @@ export type UnsubscribeResult = {
   attemptsCancelled: number
 }
 
+// Idempotent org-scoped suppression from a verified v2 token scope alone
+// (enrollment row absent). Same row shape applyUnsubscribe writes; the
+// audit is keyed on the address hash because there is no enrollment to
+// attach it to.
+async function writeScopedSuppression(
+  em: ExecutionEm,
+  scope: { organizationId: string; tenantId: string; addressHash: string; enrollmentId: string },
+): Promise<boolean> {
+  const insert = () =>
+    em.transactional(async (tem) => {
+      const existing = await tem.findOne(GtmSuppression, {
+        organizationId: scope.organizationId,
+        channel: 'email',
+        addressHash: scope.addressHash,
+        deletedAt: null,
+      })
+      if (existing) return false
+      tem.persist(
+        tem.create(GtmSuppression, {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          scope: 'org',
+          channel: 'email',
+          addressHash: scope.addressHash,
+          reason: 'unsubscribe',
+          source: { via: 'one_click', enrollment_id: scope.enrollmentId, enrollment_missing: true },
+        }),
+      )
+      tem.persist(
+        tem.create(GtmAuditEvent, {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          actor: 'system',
+          actorUserId: null,
+          action: 'gtm.enrollment.unsubscribed',
+          objectType: 'gtm_enrollment',
+          objectId: null,
+          requestId: null,
+          metadata: {
+            address_hash: scope.addressHash,
+            suppression_created: true,
+            attempts_cancelled: 0,
+            enrollment_missing: true,
+          },
+        }),
+      )
+      await tem.flush()
+      return true
+    })
+  try {
+    return await insert()
+  } catch (err) {
+    if (!(err instanceof UniqueConstraintViolationException)) throw err
+    // A concurrent unsubscribe won the insert: the row we wanted exists.
+    return false
+  }
+}
+
 // Public-endpoint path: identity comes from the verified token, org/tenant
 // scope from the enrollment row itself (there is no session to trust).
 export async function applyUnsubscribe(
@@ -215,6 +273,26 @@ export async function applyUnsubscribe(
     deletedAt: null,
   })
   if (!enrollment) {
+    // A v2 token carries the signed organization + tenant, so the compliance
+    // promise does not depend on the enrollment row living forever: retention
+    // may purge the enrollment, but the one-click link in an older mail must
+    // still suppress the address in that org. Legacy v1 tokens carry no scope
+    // and can only report "nothing to do".
+    if (input.organizationId && input.tenantId) {
+      const created = await writeScopedSuppression(em, {
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        addressHash: input.addressHash,
+        enrollmentId: input.enrollmentId,
+      })
+      return {
+        ok: true,
+        enrollmentFound: false,
+        suppressionCreated: created,
+        enrollmentStopped: false,
+        attemptsCancelled: 0,
+      }
+    }
     return {
       ok: false,
       enrollmentFound: false,

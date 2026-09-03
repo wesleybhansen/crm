@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core'
 import {
   GtmCampaignError,
   parseAssetRefs,
@@ -467,46 +467,78 @@ export async function approveCampaign(
     }
   }
 
-  const draft = await computeDraftState(em, ctx, campaign)
-
-  // Section 7 boundary 4: the approval freeze binds to the play's current
-  // computed eligibility. Direct calls with raw ids cannot bypass this.
-  if (draft.eligibility.execution_eligibility !== 'executable') {
-    throw new GtmCampaignError('play_not_executable', draft.eligibility.eligibility_reason)
-  }
-
-  // Concurrent-edit guard: the reviewer approves exactly what they saw.
-  if (input.expectedContentHash !== draft.contentHash) {
-    throw new GtmCampaignError(
-      'stale_draft',
-      'The draft changed since it was reviewed; reload the draft state and approve again',
-    )
-  }
-
-  if (draft.recipients.length === 0) {
-    throw new GtmCampaignError('no_recipients', 'No eligible recipients remain after exclusions')
-  }
-
-  if (!draft.postalAddress) {
-    throw new GtmCampaignError(
-      'postal_address_required',
-      'Set your business postal address in workspace settings before approving outreach (required by CAN-SPAM)',
-    )
-  }
-  const reviewRequired = draft.rendered.filter((row) => row.needsReview)
-  if (reviewRequired.length > 0) {
-    throw new GtmCampaignError(
-      'message_review_required',
-      `${reviewRequired.length} rendered email step artifacts are outside the approved quality envelope`,
-    )
-  }
-
-  const renderedByCandidateStep = new Map(
-    draft.rendered.map((row) => [`${row.candidateId}:${row.stepKey}`, row]),
-  )
   const now = new Date()
+  const campaignId = campaign.id
+  const observedStatus = campaign.status
+  const observedVersionId = campaign.currentVersionId ?? null
 
-  const version = await em.transactional(async (tem) => {
+  const approved = await em.transactional(async (tem) => {
+    // The campaign row is locked FOR UPDATE for the whole approve, and the
+    // draft is computed under that lock: a concurrent template edit,
+    // exclusion change, or second approve must wait and then either sees the
+    // frozen version (idempotent path above on retry) or fails stale_draft.
+    // Previously the draft was computed unlocked, so an edit racing the
+    // approval could freeze content the reviewer never saw, and two
+    // concurrent approves raced on the same version number.
+    const locked = await tem.findOne(
+      GtmCampaign,
+      {
+        id: campaignId,
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    )
+    if (!locked) throw new GtmCampaignError('campaign_not_found', 'Campaign not found')
+    if (
+      locked.status !== observedStatus
+      || (locked.currentVersionId ?? null) !== observedVersionId
+    ) {
+      throw new GtmCampaignError(
+        'stale_draft',
+        'The campaign changed while approval was pending; reload the draft state and approve again',
+      )
+    }
+    const draft = await computeDraftState(tem, ctx, locked)
+
+    // Section 7 boundary 4: the approval freeze binds to the play's current
+    // computed eligibility. Direct calls with raw ids cannot bypass this.
+    if (draft.eligibility.execution_eligibility !== 'executable') {
+      throw new GtmCampaignError('play_not_executable', draft.eligibility.eligibility_reason)
+    }
+
+    // Concurrent-edit guard: the reviewer approves exactly what they saw.
+    if (input.expectedContentHash !== draft.contentHash) {
+      throw new GtmCampaignError(
+        'stale_draft',
+        'The draft changed since it was reviewed; reload the draft state and approve again',
+      )
+    }
+
+    if (draft.recipients.length === 0) {
+      throw new GtmCampaignError('no_recipients', 'No eligible recipients remain after exclusions')
+    }
+
+    if (!draft.postalAddress) {
+      throw new GtmCampaignError(
+        'postal_address_required',
+        'Set your business postal address in workspace settings before approving outreach (required by CAN-SPAM)',
+      )
+    }
+    const reviewRequired = draft.rendered.filter((row) => row.needsReview)
+    if (reviewRequired.length > 0) {
+      throw new GtmCampaignError(
+        'message_review_required',
+        `${reviewRequired.length} rendered email step artifacts are outside the approved quality envelope`,
+      )
+    }
+
+    const renderedByCandidateStep = new Map(
+      draft.rendered.map((row) => [`${row.candidateId}:${row.stepKey}`, row]),
+    )
+    const campaign = locked
+
     // CAN-SPAM gate, checked INSIDE the approve transaction: the workspace
     // must carry the org's business postal address (the sender is the
     // customer's org, not Noli) or the footer of every frozen message would
@@ -765,10 +797,15 @@ export async function approveCampaign(
     })
     tem.persist(audit)
     await tem.flush()
-    return versionRow
+    return { versionRow, campaign }
   })
 
-  return { campaign, version, alreadyApproved: false, contentHash: version.contentHash }
+  return {
+    campaign: approved.campaign,
+    version: approved.versionRow,
+    alreadyApproved: false,
+    contentHash: approved.versionRow.contentHash,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -884,9 +921,31 @@ async function mutateDraft(
     invalidated = result.invalidated
   }
   await em.transactional(async (tem) => {
-    mutate(campaign)
-    tem.persist(campaign)
+    // Lock the row for the mutation itself: a concurrent approve that froze
+    // a version between the invalidation above and this write must not be
+    // silently edited underneath (its reviewed content would no longer
+    // match the draft).
+    const locked = await tem.findOne(
+      GtmCampaign,
+      {
+        id: campaign.id,
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    )
+    if (!locked) throw new GtmCampaignError('campaign_not_found', 'Campaign not found')
+    if (locked.currentVersionId) {
+      throw new GtmCampaignError(
+        'campaign_not_editable',
+        'A concurrent approval froze this campaign; invalidate the current version and retry',
+      )
+    }
+    mutate(locked)
+    tem.persist(locked)
     await tem.flush()
+    campaign = locked
   })
   return { campaign, invalidated }
 }

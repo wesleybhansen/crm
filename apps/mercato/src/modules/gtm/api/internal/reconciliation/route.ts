@@ -1,5 +1,5 @@
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
+import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { gtmInternalOpenApi } from '../../openapi'
@@ -29,21 +29,18 @@ const notFound = () => NextResponse.json({ ok: false, error: 'Not found' }, { st
 
 export async function POST(req: Request) {
   if (!gtmEnabled()) return notFound()
-  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authorization = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret ||
-    authorization.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authorization), Buffer.from(expected))
-  ) {
+  // Byte-length guarded constant-time compare (lib/authorize.ts).
+  if (!internalServiceBearerAuthorized(req)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
   const parsed = gtmReconciliationBodySchema.safeParse(await req.json().catch(() => ({})))
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
-  if (parsed.data.op === 'apply' && !isUuid(parsed.data.operationId)) return notFound()
+  if (
+    (parsed.data.op === 'apply' || parsed.data.op === 'replay-parked-output')
+    && !isUuid(parsed.data.operationId)
+  ) return notFound()
   if (
     parsed.data.op === 'repair-run-summaries'
     && parsed.data.runIds.some((runId) => !isUuid(runId))
@@ -134,6 +131,40 @@ export async function POST(req: Request) {
         repaired_run_ids: executed.result.repairedRunIds,
         unchanged_run_ids: executed.result.unchangedRunIds,
       })
+    }
+    const commandCtx = {
+      container,
+      auth,
+      organizationScope: null,
+      selectedOrganizationId: ctx.organizationId,
+      organizationIds: [ctx.organizationId],
+      request: req,
+    }
+    if (parsed.data.op === 'replay-settlements') {
+      const executed = await commandBus.execute<
+        { limit?: number },
+        import('../../../lib/reconciliation/operator').ReplayPendingSettlementsResult
+      >('gtm.reconciliation.replay-settlements', {
+        input: { limit: parsed.data.limit },
+        ctx: commandCtx,
+      })
+      return NextResponse.json({
+        ok: true,
+        scanned: executed.result.scanned,
+        settled: executed.result.settled,
+        failed: executed.result.failed,
+        skipped: executed.result.skipped,
+      })
+    }
+    if (parsed.data.op === 'replay-parked-output') {
+      const executed = await commandBus.execute<
+        { operationId: string },
+        import('../../../lib/reconciliation/operator').ReplayParkedOutputResult
+      >('gtm.reconciliation.replay-parked-output', {
+        input: { operationId: parsed.data.operationId },
+        ctx: commandCtx,
+      })
+      return NextResponse.json({ ok: true, replay: executed.result })
     }
     const executed = await commandBus.execute<
       ReconcileProviderOperationCommandInput,

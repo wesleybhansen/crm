@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { EmailMessage } from '../../../email/data/schema'
 import {
   GtmAuditEvent,
@@ -8,6 +9,7 @@ import {
   GtmCandidateMatch,
   GtmCandidateRelation,
   GtmChatMessage,
+  GtmChatThread,
   GtmContactPoint,
   GtmDeletionRequest,
   GtmDsrOperation,
@@ -19,6 +21,7 @@ import {
   GtmRenderedMessage,
   GtmReply,
   GtmSendAttempt,
+  GtmSuppression,
 } from '../../data/entities'
 import type { Clock, ExecutionEm } from '../execute/schedule'
 import {
@@ -43,6 +46,11 @@ export type DeletionResult = {
   manualDraftsAnonymized: number
   providerReceiptsRedacted: number
   dsrOperations: number
+  // gtm_suppressions.address_display cleared for the removed hash (any org)
+  suppressionDisplaysCleared: number
+  // chat messages + thread titles redacted because they carried the address
+  // or the removed person's name
+  chatRowsRedacted: number
 }
 
 function resultFromStoredRequest(request: GtmDeletionRequest): DeletionResult {
@@ -63,6 +71,8 @@ function resultFromStoredRequest(request: GtmDeletionRequest): DeletionResult {
     manualDraftsAnonymized: count('manual_drafts_anonymized'),
     providerReceiptsRedacted: count('provider_receipts_redacted'),
     dsrOperations: count('dsr_operations'),
+    suppressionDisplaysCleared: count('suppression_displays_cleared'),
+    chatRowsRedacted: count('chat_rows_redacted'),
   }
 }
 
@@ -139,6 +149,71 @@ function anonymizeEmailMessage(row: EmailMessage, now: Date): void {
   row.sentiment = null
   row.deletedAt = now
   row.updatedAt = now
+}
+
+// Splits a header-ish address field ("Name <a@x>, b@y") into lowercased bare
+// addresses so a removal matches exactly the removed mailbox, never a
+// substring of somebody else's.
+function addressesIn(value: string | null | undefined): string[] {
+  if (typeof value !== 'string' || !value) return []
+  return value
+    .split(/[,;\s<>"']+/)
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part.includes('@'))
+}
+
+function messageMentionsAddress(row: EmailMessage, normalizedAddress: string): boolean {
+  return [row.fromAddress, row.toAddress, row.cc, row.bcc].some((field) =>
+    addressesIn(field).includes(normalizedAddress),
+  )
+}
+
+function isGtmCursorMessage(row: EmailMessage): boolean {
+  const metadata = (row.metadata ?? null) as Record<string, unknown> | null
+  return metadata?.source === 'gtm_mailbox_cursor'
+}
+
+// Names shorter than this are too ambiguous to drive a chat redaction on
+// their own (the address is always matched regardless).
+const MIN_NAME_MATCH_LENGTH = 4
+
+function identityNames(candidates: Array<{ identity?: Record<string, unknown> | null }>): string[] {
+  const names = new Set<string>()
+  for (const candidate of candidates) {
+    const name = candidate.identity?.name
+    if (typeof name === 'string') {
+      const normalized = name.trim().toLowerCase()
+      if (normalized.length >= MIN_NAME_MATCH_LENGTH) names.add(normalized)
+    }
+  }
+  return [...names]
+}
+
+function textMentions(haystack: string, needles: string[]): boolean {
+  const lower = haystack.toLowerCase()
+  return needles.some((needle) => needle && lower.includes(needle))
+}
+
+// Clears the readable address from every suppression row that carries the
+// removed hash, in any org (classify.ts wrote addressDisplay on unsubscribe
+// rows). Every reader keys on the hash, so nothing functional is lost.
+async function clearSuppressionDisplays(
+  em: ExecutionEm,
+  addressHash: string,
+  now: Date,
+): Promise<number> {
+  const rows = await em.find(GtmSuppression, { addressHash })
+  const targets = rows.filter((row) => row.addressDisplay != null)
+  if (targets.length === 0) return 0
+  await em.transactional(async (tem) => {
+    for (const row of targets) {
+      row.addressDisplay = null
+      row.updatedAt = now
+      tem.persist(row)
+    }
+    await tem.flush()
+  })
+  return targets.length
 }
 
 function completeLocalEmailOperation(
@@ -272,7 +347,14 @@ async function ensureDsrOperation(
   em: ExecutionEm,
   request: GtmDeletionRequest,
   scope: { organizationId: string; tenantId: string },
-  input: { provider: string; kind: 'local_anonymize' | 'provider_delete'; status: string },
+  input: {
+    provider: string
+    kind: 'local_anonymize' | 'provider_delete'
+    status: string
+    // Ids an operator or worker needs to finish a blocked/unsupported op
+    // later (never names or addresses). Ignored on idempotent replay.
+    receipt?: Record<string, unknown> | null
+  },
   now: Date,
 ): Promise<GtmDsrOperation> {
   const existing = await em.findOne(GtmDsrOperation, {
@@ -296,7 +378,7 @@ async function ensureDsrOperation(
     receipt:
       input.status === 'completed'
         ? { completed_locally: true, completed_at: now.toISOString() }
-        : null,
+        : input.receipt ?? null,
     completedAt: input.status === 'completed' ? now : null,
   })
   em.persist(operation)
@@ -371,10 +453,13 @@ async function resumePartialEmailDeletion(
     // first pass. Recover only candidates stamped by this exact tenant DSR;
     // then walk their enrollment links. This deliberately avoids a broad
     // organization-level email sweep.
+    // Removed candidates are the only rows stamped with a removal request id,
+    // and they always carry reject_reason 'removed' (and are soft-deleted), so
+    // the indexed columns bound the scan instead of the whole candidate table.
     const scopedCandidates = await em.find(GtmCandidate, {
       organizationId: tenantRequest.organizationId,
       tenantId: tenantRequest.tenantId,
-      deletedAt: null,
+      rejectReason: 'removed',
     })
     const candidateIds = scopedCandidates
       .filter((candidate) => candidate.identity?.removal_request_id === tenantRequest.id)
@@ -520,15 +605,24 @@ export async function executeRemovalDeletion(
     manualDraftsAnonymized: 0,
     providerReceiptsRedacted: 0,
     dsrOperations: 0,
+    suppressionDisplaysCleared: 0,
+    chatRowsRedacted: 0,
   }
+  // The readable address on suppression rows is cleared on every pass,
+  // including exact replays: it must not survive a completed removal.
+  const suppressionDisplaysCleared = await clearSuppressionDisplays(em, input.addressHash, now)
   // A permanent suppression can outlive buggy or delayed provider imports.
   // An exact replay with no newly reachable rows returns its durable result,
   // while a later re-sourced row reopens only the local fan-out work.
   if (request.status === 'partial' && input.points.length === 0) {
-    return resumePartialEmailDeletion(em, request, now)
+    const resumed = await resumePartialEmailDeletion(em, request, now)
+    resumed.suppressionDisplaysCleared += suppressionDisplaysCleared
+    return resumed
   }
   if (request.status === 'completed' && input.points.length === 0) {
-    return resultFromStoredRequest(request)
+    const stored = resultFromStoredRequest(request)
+    stored.suppressionDisplaysCleared += suppressionDisplaysCleared
+    return stored
   }
   if (request.legalHold) {
     request.status = 'blocked_legal_hold'
@@ -550,7 +644,7 @@ export async function executeRemovalDeletion(
   request.updatedAt = now
   em.persist(request)
   await em.flush()
-  const counts = { ...empty }
+  const counts = { ...empty, suppressionDisplaysCleared }
   let hasBlockedDsr = false
 
   for (const points of groups.values()) {
@@ -605,24 +699,139 @@ export async function executeRemovalDeletion(
         }),
       ])
     // Capture graph dependencies before local anonymization clears them.
-    const hadPromotedContact = candidates.some((row) => Boolean(row.promotedContactId))
+    const promotedContactIds = [
+      ...new Set(
+        candidates
+          .map((row) => row.promotedContactId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    ]
+    const hadPromotedContact = promotedContactIds.length > 0
     const enrollmentIds = enrollments.map((row) => row.id)
     const versionIds = [...new Set(enrollments.map((row) => row.campaignVersionId))]
-    const [rendered, replies, attempts, inboundEvents, versions] = await Promise.all([
+    const [rendered, replies, attempts, linkedInboundEvents, versions] = await Promise.all([
       em.find(GtmRenderedMessage, { organizationId, tenantId, enrollmentId: { $in: enrollmentIds } }),
       em.find(GtmReply, { organizationId, tenantId, enrollmentId: { $in: enrollmentIds } }),
       em.find(GtmSendAttempt, { organizationId, tenantId, enrollmentId: { $in: enrollmentIds } }),
       em.find(GtmInboundEvent, { organizationId, tenantId, enrollmentId: { $in: enrollmentIds } }),
       em.find(GtmCampaignVersion, { organizationId, tenantId, id: { $in: versionIds } }),
     ])
-    const emailMessageIds = linkedEmailMessageIds(replies, inboundEvents)
-    const emailMessages = emailMessageIds.length
+    // Inbound events that were never correlated to an enrollment (alias
+    // reply, stripped In-Reply-To, bounce quoting the address) still carry
+    // the address hash; they are redacted with the linked ones.
+    const hashedInboundEvents = await em.find(GtmInboundEvent, {
+      organizationId,
+      tenantId,
+      addressHash: input.addressHash,
+    })
+    const inboundEventById = new Map<string, GtmInboundEvent>()
+    for (const row of [...linkedInboundEvents, ...hashedInboundEvents]) inboundEventById.set(row.id, row)
+    const inboundEvents = [...inboundEventById.values()]
+    const linkedMessageIds = linkedEmailMessageIds(replies, inboundEvents)
+    const linkedMessages = linkedMessageIds.length
       ? await em.find(EmailMessage, {
           organizationId,
           tenantId,
-          id: { $in: emailMessageIds },
+          id: { $in: linkedMessageIds },
         })
       : []
+    // Uncorrelated mail from the removed address that a GTM mailbox cursor
+    // persisted: matched case-insensitively in the database, then
+    // re-confirmed as an exact mailbox token in JS so a substring of another
+    // address can never widen the redaction. Personal-inbox rows (not
+    // ingested by GTM) are the customer's own correspondence and are left
+    // alone.
+    const pattern = `%${escapeLikePattern(input.normalizedAddress)}%`
+    const uncorrelatedMessages = (
+      await em.find(EmailMessage, {
+        organizationId,
+        tenantId,
+        $or: [
+          { fromAddress: { $ilike: pattern } },
+          { toAddress: { $ilike: pattern } },
+          { cc: { $ilike: pattern } },
+        ],
+      })
+    ).filter(
+      (row) =>
+        isGtmCursorMessage(row)
+        && !linkedMessageIds.includes(row.id)
+        && messageMentionsAddress(row, input.normalizedAddress),
+    )
+    const emailMessages = [...linkedMessages, ...uncorrelatedMessages]
+    const emailMessageIds = emailMessages.map((row) => row.id)
+    // Strategist chat: tool_ref only links turns the hub tagged with the
+    // candidate id, so every message and thread title in the org is also
+    // scanned for the address and the removed person's name. Content is an
+    // opaque JSON turn, so the scan is over its serialized form.
+    const names = identityNames(candidates)
+    const needles = [input.normalizedAddress, ...names]
+    const chatById = new Map<string, GtmChatMessage>(chatMessages.map((row) => [row.id, row]))
+    const [allChatMessages, allChatThreads] = await Promise.all([
+      em.find(GtmChatMessage, { organizationId, tenantId, deletedAt: null }),
+      em.find(GtmChatThread, { organizationId, tenantId, deletedAt: null }),
+    ])
+    for (const row of allChatMessages) {
+      if (chatById.has(row.id)) continue
+      let serialized = ''
+      try {
+        serialized = JSON.stringify(row.content ?? {})
+      } catch {
+        serialized = ''
+      }
+      if (textMentions(serialized, needles)) chatById.set(row.id, row)
+    }
+    const chatRows = [...chatById.values()]
+    const chatThreads = allChatThreads.filter((row) => textMentions(row.title ?? '', needles))
+    // DSR operations that need an operator or worker are recorded BEFORE the
+    // local anonymization nulls the pointers they depend on (promoted CRM
+    // contact ids, provider request ids), so the receipt is the durable link.
+    if (hadPromotedContact) {
+      await ensureDsrOperation(
+        em,
+        tenantRequest,
+        { organizationId, tenantId },
+        {
+          provider: 'crm_customers',
+          kind: 'local_anonymize',
+          status: 'blocked_authority',
+          receipt: {
+            promoted_contact_ids: promotedContactIds,
+            candidate_ids: candidateIds,
+            recorded_at: now.toISOString(),
+          },
+        },
+        now,
+      )
+      counts.dsrOperations += 1
+      hasBlockedDsr = true
+    }
+    for (const provider of new Set(providerOperations.map((row) => row.provider))) {
+      const status = providerDsrStatus(provider)
+      const providerOps = providerOperations.filter((row) => row.provider === provider)
+      await ensureDsrOperation(
+        em,
+        tenantRequest,
+        { organizationId, tenantId },
+        {
+          provider,
+          kind: 'provider_delete',
+          status,
+          receipt: {
+            provider_operation_ids: providerOps.slice(0, 50).map((row) => row.id),
+            noli_core_operation_ids: providerOps
+              .slice(0, 50)
+              .map((row) => row.noliCoreOperationId)
+              .filter((id): id is string => typeof id === 'string' && id.length > 0),
+            candidate_ids: candidateIds,
+            recorded_at: now.toISOString(),
+          },
+        },
+        now,
+      )
+      counts.dsrOperations += 1
+      if (status !== 'completed') hasBlockedDsr = true
+    }
 
     await em.transactional(async (tem) => {
       for (const candidate of candidates) {
@@ -636,6 +845,9 @@ export async function executeRemovalDeletion(
         candidate.qualification = null
         candidate.promotedContactId = null
         candidate.retentionExpiresAt = now
+        // Soft-deleted as well: listing, MCP tools, and review must not keep
+        // returning (or accepting) the anonymized husk.
+        candidate.deletedAt = now
         candidate.updatedAt = now
         tem.persist(candidate)
       }
@@ -712,8 +924,13 @@ export async function executeRemovalDeletion(
         anonymizeEmailMessage(row, now)
         tem.persist(row)
       }
-      for (const row of chatMessages) {
+      for (const row of chatRows) {
         row.content = { removed: true, removal_request_id: tenantRequest.id }
+        row.updatedAt = now
+        tem.persist(row)
+      }
+      for (const row of chatThreads) {
+        row.title = '[removed]'
         row.updatedAt = now
         tem.persist(row)
       }
@@ -758,6 +975,7 @@ export async function executeRemovalDeletion(
             email_messages: emailMessages.length,
             manual_outreach_drafts: manualDrafts.length,
             provider_receipts: providerOperations.length + attempts.length,
+            chat_rows: chatRows.length + chatThreads.length,
           },
         }),
       )
@@ -773,6 +991,7 @@ export async function executeRemovalDeletion(
     counts.emailMessagesAnonymized += emailMessages.length
     counts.manualDraftsAnonymized += manualDrafts.length
     counts.providerReceiptsRedacted += providerOperations.length + attempts.length
+    counts.chatRowsRedacted += chatRows.length + chatThreads.length
 
     await ensureDsrOperation(
       em,
@@ -782,17 +1001,6 @@ export async function executeRemovalDeletion(
       now,
     )
     counts.dsrOperations += 1
-    if (hadPromotedContact) {
-      await ensureDsrOperation(
-        em,
-        tenantRequest,
-        { organizationId, tenantId },
-        { provider: 'crm_customers', kind: 'local_anonymize', status: 'blocked_authority' },
-        now,
-      )
-      counts.dsrOperations += 1
-      hasBlockedDsr = true
-    }
     if (emailMessageIds.length > 0) {
       const operation = await ensureDsrOperation(
         em,
@@ -805,18 +1013,6 @@ export async function executeRemovalDeletion(
       em.persist(operation)
       await em.flush()
       counts.dsrOperations += 1
-    }
-    for (const provider of new Set(providerOperations.map((row) => row.provider))) {
-      const status = providerDsrStatus(provider)
-      await ensureDsrOperation(
-        em,
-        tenantRequest,
-        { organizationId, tenantId },
-        { provider, kind: 'provider_delete', status },
-        now,
-      )
-      counts.dsrOperations += 1
-      if (status !== 'completed') hasBlockedDsr = true
     }
     const tenantOps = await em.find(GtmDsrOperation, {
       deletionRequestId: tenantRequest.id,
@@ -839,6 +1035,7 @@ export async function executeRemovalDeletion(
       manual_drafts_anonymized: manualDrafts.length,
       provider_receipts_redacted: providerOperations.length + attempts.length,
       dsr_operations: tenantOps.length,
+      chat_rows_redacted: chatRows.length + chatThreads.length,
     }
     tenantRequest.updatedAt = now
     em.persist(tenantRequest)
@@ -858,9 +1055,235 @@ export async function executeRemovalDeletion(
     manual_drafts_anonymized: counts.manualDraftsAnonymized,
     provider_receipts_redacted: counts.providerReceiptsRedacted,
     dsr_operations: counts.dsrOperations,
+    suppression_displays_cleared: counts.suppressionDisplaysCleared,
+    chat_rows_redacted: counts.chatRowsRedacted,
   }
   request.updatedAt = now
   em.persist(request)
   await em.flush()
   return counts
+}
+
+/* ── Operator completion of the blocked CRM-contact operation (review H6) ── */
+
+const REMOVED_CONTACT_NAME = 'Removed contact'
+
+export type CrmContactDeletionResult = {
+  request: GtmDeletionRequest
+  operation: GtmDsrOperation
+  contactsAnonymized: number
+  alreadyCompleted: boolean
+}
+
+// Minimal structural slice of the customers-module rows this touches, so the
+// privacy path does not import the whole customers module surface. The real
+// entity classes are passed in by the caller (the internal privacy route).
+type CustomerContactRow = {
+  id: string
+  organizationId: string
+  tenantId: string
+  displayName: string
+  description?: string | null
+  primaryEmail?: string | null
+  primaryEmailHash?: string | null
+  primaryPhone?: string | null
+  primaryPhoneHash?: string | null
+  isActive?: boolean
+  updatedAt?: Date
+  deletedAt?: Date | null
+}
+
+type CustomerPersonRow = {
+  firstName?: string | null
+  lastName?: string | null
+  preferredName?: string | null
+  jobTitle?: string | null
+  department?: string | null
+  linkedInUrl?: string | null
+  twitterUrl?: string | null
+  updatedAt?: Date
+}
+
+export type CustomerContactEntities = {
+  contact: new () => CustomerContactRow
+  person: new () => CustomerPersonRow
+}
+
+/** Anonymizes the promoted CRM contact(s) recorded in a tenant request's
+ *  'crm_customers' DSR operation receipt and closes that operation. Mirrors the
+ *  platform GDPR route's contact scrubbing: name and description replaced,
+ *  email rewritten to a unique-safe deleted.invalid address, phone and hashes
+ *  cleared, the row deactivated and soft-deleted. Idempotent: a completed
+ *  operation is returned unchanged. */
+export async function completeCrmContactDeletion(
+  em: ExecutionEm,
+  ctx: { organizationId: string; tenantId: string; userId: string; requestId?: string | null },
+  entities: CustomerContactEntities,
+  input: { requestId: string },
+  deps: { clock?: Clock } = {},
+): Promise<CrmContactDeletionResult | null> {
+  const now = deps.clock?.now() ?? new Date()
+  const request = await em.findOne(GtmDeletionRequest, {
+    id: input.requestId,
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    deletedAt: null,
+  })
+  if (!request) return null
+  const operation = await em.findOne(GtmDsrOperation, {
+    deletionRequestId: request.id,
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    provider: 'crm_customers',
+    kind: 'local_anonymize',
+    deletedAt: null,
+  })
+  if (!operation) return null
+  if (operation.status === 'completed') {
+    return { request, operation, contactsAnonymized: 0, alreadyCompleted: true }
+  }
+  if (request.legalHold) return { request, operation, contactsAnonymized: 0, alreadyCompleted: false }
+
+  const receipt = (operation.receipt ?? {}) as Record<string, unknown>
+  const contactIds = Array.isArray(receipt.promoted_contact_ids)
+    ? receipt.promoted_contact_ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : []
+  const contacts = contactIds.length
+    ? await em.find(entities.contact, {
+        id: { $in: contactIds },
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+      })
+    : []
+  const people = contacts.length
+    ? await em.find(entities.person, {
+        entity: { $in: contacts.map((row) => row.id) },
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+      })
+    : []
+
+  await em.transactional(async (tem) => {
+    for (const contact of contacts) {
+      contact.displayName = REMOVED_CONTACT_NAME
+      contact.description = null
+      contact.primaryEmail = `removed+${contact.id}@deleted.invalid`
+      contact.primaryEmailHash = null
+      contact.primaryPhone = null
+      contact.primaryPhoneHash = null
+      contact.isActive = false
+      contact.deletedAt = now
+      contact.updatedAt = now
+      tem.persist(contact)
+    }
+    for (const person of people) {
+      person.firstName = null
+      person.lastName = null
+      person.preferredName = null
+      person.jobTitle = null
+      person.department = null
+      person.linkedInUrl = null
+      person.twitterUrl = null
+      person.updatedAt = now
+      tem.persist(person)
+    }
+    operation.status = 'completed'
+    operation.nextAttemptAt = null
+    operation.lastError = null
+    operation.receipt = {
+      ...receipt,
+      completed_locally: true,
+      completed_at: now.toISOString(),
+      contacts_anonymized: contacts.length,
+      person_profiles_anonymized: people.length,
+      completed_by_user_id: ctx.userId,
+    }
+    operation.completedAt = now
+    operation.updatedAt = now
+    tem.persist(operation)
+    tem.persist(
+      tem.create(GtmAuditEvent, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        actor: 'user_id',
+        actorUserId: ctx.userId,
+        action: 'gtm.privacy.crm_contact_anonymized',
+        objectType: 'gtm_deletion_request',
+        objectId: request.id,
+        requestId: ctx.requestId ?? null,
+        metadata: {
+          dsr_operation_id: operation.id,
+          contacts_anonymized: contacts.length,
+          person_profiles_anonymized: people.length,
+        },
+      }),
+    )
+    await tem.flush()
+  })
+
+  const tenantOps = await em.find(GtmDsrOperation, {
+    deletionRequestId: request.id,
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    deletedAt: null,
+  })
+  request.status = tenantOps.some((row) => row.status !== 'completed') ? 'partial' : 'completed'
+  request.completedAt = now
+  request.resultCounts = {
+    ...(request.resultCounts ?? {}),
+    crm_contacts_anonymized: contacts.length,
+    dsr_operations: tenantOps.length,
+  }
+  request.updatedAt = now
+  em.persist(request)
+  await em.flush()
+  return { request, operation, contactsAnonymized: contacts.length, alreadyCompleted: false }
+}
+
+/* ── Legal holds (review M11) ─────────────────────────────────────────────── */
+
+export async function setLegalHold(
+  em: ExecutionEm,
+  ctx: { organizationId: string; tenantId: string; userId: string; requestId?: string | null },
+  input: { requestId: string; hold: boolean; reason: string },
+  deps: { clock?: Clock } = {},
+): Promise<GtmDeletionRequest | null> {
+  const now = deps.clock?.now() ?? new Date()
+  const request = await em.findOne(GtmDeletionRequest, {
+    id: input.requestId,
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    deletedAt: null,
+  })
+  if (!request) return null
+  const changed = request.legalHold !== input.hold
+  await em.transactional(async (tem) => {
+    request.legalHold = input.hold
+    request.legalHoldReason = input.reason
+    if (input.hold && request.status !== 'completed') {
+      request.status = 'blocked_legal_hold'
+    } else if (!input.hold && request.status === 'blocked_legal_hold') {
+      // Lifting a hold reopens the request for the resumable removal path:
+      // never-processed requests go back to pending, processed ones to
+      // partial so the next replay finishes the remaining local work.
+      request.status = request.completedAt ? 'partial' : 'pending'
+    }
+    request.updatedAt = now
+    tem.persist(request)
+    tem.persist(
+      tem.create(GtmAuditEvent, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        actor: 'user_id',
+        actorUserId: ctx.userId,
+        action: input.hold ? 'gtm.privacy.legal_hold_set' : 'gtm.privacy.legal_hold_cleared',
+        objectType: 'gtm_deletion_request',
+        objectId: request.id,
+        requestId: ctx.requestId ?? null,
+        metadata: { reason: input.reason, changed, status: request.status },
+      }),
+    )
+    await tem.flush()
+  })
+  return request
 }

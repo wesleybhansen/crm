@@ -261,3 +261,48 @@ describe('unsubscribe token + one-click suppress-and-stop (SPEC-066 section 8)',
     expect(transport.calls).toHaveLength(0)
   })
 })
+
+/*
+ * Review M7: a v2 token carries the signed org + tenant, so the compliance
+ * promise must not depend on the enrollment row still existing.
+ */
+describe('applyUnsubscribe with a purged enrollment (review M7)', () => {
+  beforeAll(() => {
+    process.env.GTM_UNSUBSCRIBE_KEYRING = JSON.stringify({ test: 'test-versioned-unsubscribe-secret' })
+    process.env.GTM_UNSUBSCRIBE_ACTIVE_KEY_ID = 'test'
+  })
+
+  it('writes the org-scoped suppression from the v2 token scope alone, idempotently', async () => {
+    const em = new FakeEm()
+    const enrollmentId = 'abababab-1111-4111-8111-121212121212'
+    const addressHash = hashAddress('purged@fixture.example')
+    const token = signScopedUnsubscribeToken({ organizationId: ORG, tenantId: TENANT, enrollmentId, addressHash })!
+    const payload = verifyUnsubscribeToken(token)!
+    expect(payload.version).toBe('v2')
+
+    const first = await applyUnsubscribe(em, payload)
+    expect(first).toMatchObject({ ok: true, enrollmentFound: false, suppressionCreated: true })
+    const rows = await em.find(GtmSuppression, { organizationId: ORG, channel: 'email', addressHash })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ scope: 'org', tenantId: TENANT, reason: 'unsubscribe' })
+    expect(rows[0].addressDisplay ?? null).toBeNull()
+    expect(rows[0].source).toMatchObject({ via: 'one_click', enrollment_missing: true })
+    const audits = await em.find(GtmAuditEvent, { action: 'gtm.enrollment.unsubscribed' })
+    expect(audits).toHaveLength(1)
+    expect(audits[0].metadata).toMatchObject({ address_hash: addressHash, enrollment_missing: true })
+
+    const second = await applyUnsubscribe(em, payload)
+    expect(second).toMatchObject({ ok: true, enrollmentFound: false, suppressionCreated: false })
+    expect(await em.find(GtmSuppression, { organizationId: ORG, channel: 'email', addressHash })).toHaveLength(1)
+  })
+
+  it('still reports nothing to do for a legacy v1 token with no scope', async () => {
+    const em = new FakeEm()
+    const result = await applyUnsubscribe(em, {
+      enrollmentId: 'abababab-1111-4111-8111-121212121212',
+      addressHash: hashAddress('legacy@fixture.example'),
+    })
+    expect(result).toMatchObject({ ok: false, enrollmentFound: false, suppressionCreated: false })
+    expect(await em.find(GtmSuppression, {})).toHaveLength(0)
+  })
+})

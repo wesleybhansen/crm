@@ -16,6 +16,7 @@ import type { CampaignEm, GtmCtx } from '../campaign/build'
 import { parseSettings } from '../campaign/build'
 import { buildSourcePlan, type ResearchLimitsInput, type SourcePlanSuccess } from '../research/plan'
 import {
+  AUTO_REFILL_CAMPAIGN_STATUSES,
   autoRefillScheduleCron,
   buildAutoRefillPolicyHash,
   GtmAutoRefillError,
@@ -140,8 +141,15 @@ export async function activateAutoRefillPolicy(
       deletedAt: null,
     }, { lockMode: LockMode.PESSIMISTIC_WRITE })
     if (!campaign) throw new GtmAutoRefillError('campaign_not_found', 'Campaign not found')
-    if (!campaign.currentVersionId || !['approved', 'launching', 'active', 'paused'].includes(campaign.status)) {
-      throw new GtmAutoRefillError('campaign_not_approved', 'Approve the campaign before activating auto-refill')
+    // A paused campaign must not spend (review 2026-09-02, M13): auto-refill
+    // is only activatable while the campaign itself is live.
+    if (!campaign.currentVersionId || !AUTO_REFILL_CAMPAIGN_STATUSES.includes(campaign.status)) {
+      throw new GtmAutoRefillError(
+        'campaign_not_approved',
+        campaign.status === 'paused'
+          ? 'Resume the campaign before activating auto-refill'
+          : 'Approve the campaign before activating auto-refill',
+      )
     }
     const version = await tem.findOne(GtmCampaignVersion, {
       id: campaign.currentVersionId,
@@ -199,7 +207,11 @@ export async function activateAutoRefillPolicy(
       deletedAt: null,
     }, { lockMode: LockMode.PESSIMISTIC_WRITE })
     const policyId = policy?.id ?? crypto.randomUUID()
-    const scheduledJobId = `gtm-auto-refill-${policyId}`
+    // The scheduler's job id column is a uuid (packages/scheduler entities),
+    // so the id IS the policy id (review 2026-09-02, H4). The old
+    // `gtm-auto-refill-<uuid>` prefix was rejected by Postgres and left every
+    // policy stuck at pending_schedule behind a scheduler_unavailable 503.
+    const scheduledJobId = policyId
     const policyMaterial = {
       policyId,
       organizationId: ctx.organizationId,

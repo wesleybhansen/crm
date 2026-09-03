@@ -20,6 +20,7 @@ import {
 } from '../research/execute'
 import type { AutoRefillEm } from './policy'
 import {
+  AUTO_REFILL_CAMPAIGN_STATUSES,
   AUTO_REFILL_CYCLE_SCHEMA_VERSION,
   buildAutoRefillPolicyHash,
   localDateInTimeZone,
@@ -91,13 +92,21 @@ async function existingCycle(
   })
 }
 
+/*
+ * Blocks the policy and records a blocked cycle for the day. Returns null when
+ * the policy read at the start of this delivery is no longer the active
+ * policy (status, fence, or hash changed underneath us): a late delivery that
+ * raced a re-activation must not overwrite the fresh policy or burn its day
+ * with a blocked cycle (review 2026-09-02, M14), so the caller treats null as
+ * a stale delivery and does nothing.
+ */
 async function blockCycle(
   em: AutoRefillEm,
   policy: GtmAutoRefillPolicy,
   localDate: string,
   failureCode: string,
   now: Date,
-): Promise<GtmAutoRefillCycle> {
+): Promise<GtmAutoRefillCycle | null> {
   const found = await existingCycle(em, policy, localDate)
   if (found) return found
   try {
@@ -106,9 +115,12 @@ async function blockCycle(
         id: policy.id,
         organizationId: policy.organizationId,
         tenantId: policy.tenantId,
+        status: 'active',
+        policyHash: policy.policyHash,
+        fence: policy.fence,
         deletedAt: null,
       }, { lockMode: LockMode.PESSIMISTIC_WRITE })
-      if (!locked) throw new Error('auto-refill policy disappeared')
+      if (!locked) return null
       const prior = await tem.findOne(GtmAutoRefillCycle, {
         policyId: locked.id,
         organizationId: locked.organizationId,
@@ -363,6 +375,7 @@ export async function processAutoRefillCycle(
   ) {
     const localDate = localDateInTimeZone(now, policy.timezone)
     const cycle = await blockCycle(em, policy, localDate, 'identity_changed', now)
+    if (!cycle) return { outcome: 'inactive', cycle: null, researchRun: null }
     return { outcome: 'blocked', cycle, researchRun: null }
   }
   const localDate = localDateInTimeZone(now, policy.timezone)
@@ -400,6 +413,15 @@ export async function processAutoRefillCycle(
       deletedAt: null,
     }),
   ])
+  // A paused campaign blocks the cycle with its own reason (review
+  // 2026-09-02, M13): the customer paused Friday and must not find weekday
+  // provider spend on Monday. Nothing else about the approval changed, so
+  // the reason says exactly what to do (resume, then re-activate).
+  if (campaign && campaign.status === 'paused') {
+    const cycle = await blockCycle(em, policy, localDate, 'campaign_paused', now)
+    if (!cycle) return { outcome: 'inactive', cycle: null, researchRun: null }
+    return { outcome: 'blocked', cycle, researchRun: null }
+  }
   if (
     !campaign
     || !version
@@ -407,12 +429,13 @@ export async function processAutoRefillCycle(
     || campaign.workspaceId !== policy.workspaceId
     || campaign.playId !== policy.playId
     || campaign.currentVersionId !== policy.campaignVersionId
-    || !['approved', 'launching', 'active', 'paused'].includes(campaign.status)
+    || !AUTO_REFILL_CAMPAIGN_STATUSES.includes(campaign.status)
     || version.invalidatedAt != null
     || version.contentHash !== policy.campaignContentHash
     || !approvalEnvelopeMatches(version.snapshot, version.contentHash)
   ) {
     const cycle = await blockCycle(em, policy, localDate, 'campaign_version_changed', now)
+    if (!cycle) return { outcome: 'inactive', cycle: null, researchRun: null }
     return { outcome: 'blocked', cycle, researchRun: null }
   }
   const approved = parseApprovedAutoRefillConfig(version.snapshot)
@@ -445,6 +468,7 @@ export async function processAutoRefillCycle(
     || approved.timezone !== policy.timezone
   ) {
     const cycle = await blockCycle(em, policy, localDate, 'policy_changed', now)
+    if (!cycle) return { outcome: 'inactive', cycle: null, researchRun: null }
     return { outcome: 'blocked', cycle, researchRun: null }
   }
   const plan = buildSourcePlan(play, Object.values(deps.adapters), {
@@ -458,6 +482,7 @@ export async function processAutoRefillCycle(
     || !plan.adapterPlan.some((batch) => batch.estimatedCredits <= plan.limits.maxCredits)
   ) {
     const cycle = await blockCycle(em, policy, localDate, 'plan_changed', now)
+    if (!cycle) return { outcome: 'inactive', cycle: null, researchRun: null }
     return { outcome: 'blocked', cycle, researchRun: null }
   }
 

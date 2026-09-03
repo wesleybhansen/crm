@@ -1,5 +1,5 @@
 import { computeExecutionEligibility, isUsGeography } from '../eligibility'
-import { computeGtmPolicy, consumerPolicyFlags } from '../policy'
+import { computeGtmPolicy, consumerPolicyFlags, describesIndividualAudience, normalizeMarketType } from '../policy'
 
 describe('isUsGeography', () => {
   it('accepts explicit US country markers', () => {
@@ -34,6 +34,39 @@ describe('isUsGeography', () => {
     expect(isUsGeography('Toronto, Canada')).toBe(false)
     expect(isUsGeography('United Kingdom')).toBe(false)
     expect(isUsGeography('Sydney, Australia')).toBe(false)
+  })
+
+  it('does not treat other Americas or countries containing "us" as the United States', () => {
+    for (const geography of [
+      'Latin America',
+      'South America',
+      'Central America',
+      'North America (Canada and Mexico)',
+      'Americas',
+      'Australia',
+      'Austria',
+      'Russia',
+      'Belarus',
+      'Cyprus',
+      'American Samoa and Guam',
+    ]) {
+      expect(isUsGeography(geography)).toBe(false)
+    }
+    expect(isUsGeography('Austin, US')).toBe(true)
+    expect(isUsGeography('(USA)')).toBe(true)
+    expect(isUsGeography('USA-based')).toBe(true)
+  })
+
+  it('disambiguates Georgia: the US state needs a US context, the country never counts', () => {
+    expect(isUsGeography('Georgia')).toBe(false)
+    expect(isUsGeography('Tbilisi, Georgia')).toBe(false)
+    expect(isUsGeography('Republic of Georgia')).toBe(false)
+    expect(isUsGeography('Georgia (country)')).toBe(false)
+    expect(isUsGeography('Atlanta, Georgia')).toBe(true)
+    expect(isUsGeography('Savannah, GA')).toBe(true)
+    expect(isUsGeography('Georgia, US')).toBe(true)
+    expect(isUsGeography('Georgia, United States')).toBe(true)
+    expect(isUsGeography('Georgia and Alabama')).toBe(true)
   })
 })
 
@@ -164,6 +197,80 @@ describe('computeGtmPolicy', () => {
       research_eligibility: 'provider_runnable',
       outreach_mode: 'automated_email',
     }))
+  })
+
+  it('accepts only the strict market_type enum; hub labels such as consumer are invalid, not consumer', () => {
+    expect(normalizeMarketType('b2b')).toBe('b2b')
+    expect(normalizeMarketType('b2c')).toBe('b2c')
+    expect(normalizeMarketType('mixed')).toBe('mixed')
+    for (const value of ['consumer', 'B2B', 'business', ' b2b', 'b2b ', 'housing_consumer', '', null, undefined, 3]) {
+      expect(normalizeMarketType(value)).toBeNull()
+    }
+    const invalid = computeGtmPolicy({ market_type: 'consumer', geography: 'US', audience: 'Homeowners' })
+    expect(invalid).toEqual(expect.objectContaining({
+      lead_mode: 'unknown',
+      research_eligibility: 'blocked',
+      outreach_mode: 'blocked',
+      execution_eligibility: 'strategy_only',
+      policy_flags: ['market_type_invalid'],
+    }))
+    expect(invalid.research_eligibility_reason).toContain('consumer')
+    expect(computeGtmPolicy({ market_type: null, geography: 'US' }).policy_flags).toEqual(['market_type_unknown'])
+  })
+
+  it('runs the sensitive screen for business audiences too and blocks when they describe individuals', () => {
+    // The exact H13 scenario: a b2b label on an audience of individuals
+    // selected by a sensitive life event.
+    const divorced = computeGtmPolicy({
+      market_type: 'b2b',
+      geography: 'Texas',
+      audience: 'recently divorced homeowners',
+    })
+    expect(divorced).toEqual(expect.objectContaining({
+      lead_mode: 'business',
+      research_eligibility: 'blocked',
+      outreach_mode: 'blocked',
+    }))
+    expect(divorced.policy_flags).toContain('sensitive_legal_or_financial_event')
+
+    // A profession named by a sensitive term is not targeting individuals,
+    // but automated email is still withheld on the hit.
+    const attorneys = computeGtmPolicy({
+      market_type: 'b2b',
+      geography: 'Texas',
+      audience: 'Bankruptcy attorneys at small firms',
+    })
+    expect(attorneys).toEqual(expect.objectContaining({
+      research_eligibility: 'provider_runnable',
+      outreach_mode: 'manual_only',
+      policy_flags: ['sensitive_legal_or_financial_event'],
+    }))
+  })
+
+  it('refuses automated email for a business-labelled audience that describes individuals', () => {
+    for (const audience of [
+      'Homeowners in Austin who listed in the last 30 days',
+      'First-time home buyers',
+      'Parents of toddlers in Denver',
+      'Patients recovering from knee surgery',
+      'Graduate students near campus',
+      'Renters in Phoenix apartments',
+      'Consumers who bought a Peloton',
+      'Individuals searching for a tax preparer',
+      'People who recently moved to Nashville',
+      'Retirees relocating to Florida',
+    ]) {
+      const result = computeGtmPolicy({ market_type: 'b2b', geography: 'US', audience })
+      expect(result.outreach_mode).not.toBe('automated_email')
+      expect(result.research_eligibility).not.toBe('provider_runnable')
+      expect(result.policy_flags).toContain('b2b_individual_audience')
+    }
+    expect(describesIndividualAudience({ audience: 'Independent dental practices' })).toBe(false)
+    expect(describesIndividualAudience({ audience: 'Senior living operators' })).toBe(false)
+    expect(describesIndividualAudience({ audience: 'Dental practices', likely_buyer: 'Practice owner' })).toBe(false)
+    expect(describesIndividualAudience({ audience: 'Dental practices', likely_buyer: 'Parents of patients' })).toBe(true)
+    expect(computeGtmPolicy({ market_type: 'b2b', geography: 'US', audience: 'Independent dental practices' }).outreach_mode)
+      .toBe('automated_email')
   })
 
   it('returns finite safe policy codes instead of source text', () => {

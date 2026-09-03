@@ -16,7 +16,7 @@ import {
   APIFY_REQUIRED_PRICE_VERSION,
   APIFY_REQUIRED_TERMS_VERSION,
 } from '../adapters/apify/source'
-import { FixtureLedger, type GtmCreditLedger } from '../credits/ledger'
+import { FixtureLedger, GtmCreditLedgerError, type GtmCreditLedger } from '../credits/ledger'
 import { executeDecisionMakerPlan } from '../decision-makers/execute'
 import { buildDecisionMakerPlan } from '../decision-makers/plan'
 import { FakeEm } from './support/fake-em'
@@ -189,7 +189,8 @@ describe('decision-maker execution', () => {
       title: 'Practice Owner',
     }))
     expect(em.table(GtmCandidateMatch).filter((row) => row.candidateId === people[0].id)).toEqual([
-      expect.objectContaining({ fitStatus: 'accepted', qualificationVersion: 'decision-maker-v1' }),
+      // v2: head-of-title match plus negation/seniority guards (see qualify.ts)
+      expect.objectContaining({ fitStatus: 'accepted', qualificationVersion: 'decision-maker-v2' }),
     ])
     expect(em.table(GtmCandidateRelation)).toEqual([
       expect.objectContaining({
@@ -310,5 +311,170 @@ describe('decision-maker execution', () => {
         settlement_error: expect.stringContaining('synthetic noli-core outage'),
       }),
     }))
+  })
+
+  it('retains paid observations before settle and materialises them on replay when the settle response was lost', async () => {
+    const { em, run, runActor, adapter, plan } = await fixture()
+    const base = new FixtureLedger({ poolBalance: 100_000 })
+    // The canonical ledger COMMITS the charge, then the response is lost.
+    const ledger: GtmCreditLedger = {
+      reserve: (input) => base.reserve(input),
+      start: (operationId) => base.start(operationId),
+      settle: async (operationId, outcome, credits, receipt) => {
+        await base.settle(operationId, outcome, credits, receipt)
+        throw new Error('synthetic gateway timeout after commit')
+      },
+      markAmbiguous: (operationId, detail) => base.markAmbiguous(operationId, detail),
+      release: (operationId) => base.release(operationId),
+    }
+    const args = { em, ledger, adapter, run, plan, noliOrgId: NOLI_ORG, noliUserId: NOLI_USER, now }
+    const first = await executeDecisionMakerPlan(args)
+    expect(first).toEqual(expect.objectContaining({ outcome: 'ambiguous', reconciliation_required: true, people_created: 0 }))
+    expect(base.listOperations()[0].status).toBe('charged')
+    const shadow = em.table(GtmProviderOperation)[0]
+    expect(shadow.localStatusMirror).toBe('provider_started')
+    // The paid profiles are already in the receipt, written BEFORE settle.
+    expect((shadow.receipt?.gtm_observation as Record<string, unknown>).retained_data).toEqual([
+      expect.objectContaining({ current_title: 'Practice Owner' }),
+    ])
+    expect(em.table(GtmCandidateRelation)).toHaveLength(0)
+
+    // Replay: reserve returns 'charged'; the retained data is materialised
+    // idempotently with NO second provider call and NO second charge.
+    const replay = await executeDecisionMakerPlan({ ...args, ledger: base })
+    expect(replay).toEqual(expect.objectContaining({
+      outcome: 'replayed',
+      ledger_status: 'charged',
+      people_created: 1,
+      matches_created: 1,
+      relations_created: 1,
+      accepted: 1,
+      reconciliation_required: false,
+    }))
+    expect(runActor).toHaveBeenCalledTimes(1)
+    expect(base.listOperations()).toHaveLength(1)
+    expect(em.table(GtmCandidateRelation)).toHaveLength(1)
+    expect(shadow.localStatusMirror).toBe('charged')
+    expect(shadow.settledAt).toBeInstanceOf(Date)
+
+    // A third replay rewrites nothing.
+    const again = await executeDecisionMakerPlan({ ...args, ledger: base })
+    expect(again).toEqual(expect.objectContaining({ outcome: 'replayed', people_created: 0, people_reused: 1, relations_created: 1 }))
+    expect(em.table(GtmCandidateRelation)).toHaveLength(1)
+    expect(em.table(GtmCandidate).filter((candidate) => candidate.entityKind === 'person')).toHaveLength(1)
+  })
+
+  it('fails closed on insufficient credits before any provider call', async () => {
+    const { em, run, runActor, adapter, plan } = await fixture()
+    const ledger = new FixtureLedger({ poolBalance: 1 })
+    const err = await executeDecisionMakerPlan({
+      em, ledger, adapter, run, plan, noliOrgId: NOLI_ORG, noliUserId: NOLI_USER, now,
+    }).catch((e) => e)
+    expect(err).toBeInstanceOf(GtmCreditLedgerError)
+    expect((err as GtmCreditLedgerError).code).toBe('insufficient_credits')
+    expect(runActor).not.toHaveBeenCalled()
+    expect(em.table(GtmProviderOperation)).toHaveLength(0)
+  })
+
+  it('parks an ok result that cannot state its cost instead of charging zero', async () => {
+    const { em, run, plan } = await fixture()
+    const base = createApifyCompanyEmployeesAdapter({ env: ENABLED_ENV, now, runActor: async () => actorOutcome() })
+    const adapter = {
+      ...base,
+      resolve: async () => ({ status: 'ok' as const, data: [], receipt: { provider_request_id: 'r' }, cost_units: null }),
+    }
+    const ledger = new FixtureLedger({ poolBalance: 100_000 })
+    const result = await executeDecisionMakerPlan({
+      em, ledger, adapter, run, plan, noliOrgId: NOLI_ORG, noliUserId: NOLI_USER, now,
+    })
+    expect(result).toEqual(expect.objectContaining({ outcome: 'ambiguous', reconciliation_required: true, charged_credits: 0 }))
+    expect(ledger.listOperations()[0].status).toBe('reconciliation_required')
+    expect(em.table(GtmProviderOperation)[0].settledAt).toBeUndefined()
+  })
+
+  it('charges a definitive provider error that reports a nonzero cost instead of refunding it', async () => {
+    const { em, run, plan } = await fixture()
+    const base = createApifyCompanyEmployeesAdapter({ env: ENABLED_ENV, now, runActor: async () => actorOutcome() })
+    const adapter = {
+      ...base,
+      resolve: async () => ({ status: 'error' as const, data: null, receipt: null, cost_units: 1, error: 'actor failed after start' }),
+    }
+    const ledger = new FixtureLedger({ poolBalance: 100_000 })
+    const result = await executeDecisionMakerPlan({
+      em, ledger, adapter, run, plan, noliOrgId: NOLI_ORG, noliUserId: NOLI_USER, now,
+    })
+    expect(result.outcome).toBe('error')
+    expect(ledger.listOperations()[0]).toEqual(expect.objectContaining({ status: 'charged' }))
+    expect(ledger.listOperations()[0].chargedCredits).toBeGreaterThan(0)
+  })
+
+  it('parks the operation when the canonical settle echoes a different status than intended', async () => {
+    const { em, run, adapter, plan } = await fixture()
+    const base = new FixtureLedger({ poolBalance: 100_000 })
+    const ledger: GtmCreditLedger = {
+      reserve: (input) => base.reserve(input),
+      start: (operationId) => base.start(operationId),
+      settle: async (operationId, _outcome, _credits, receipt) => base.settle(operationId, 'refunded', 0, receipt),
+      markAmbiguous: (operationId, detail) => base.markAmbiguous(operationId, detail),
+      release: (operationId) => base.release(operationId),
+    }
+    const result = await executeDecisionMakerPlan({
+      em, ledger, adapter, run, plan, noliOrgId: NOLI_ORG, noliUserId: NOLI_USER, now,
+    })
+    expect(result).toEqual(expect.objectContaining({ outcome: 'ambiguous', reconciliation_required: true, people_created: 0 }))
+    expect(em.table(GtmProviderOperation)[0].receipt).toEqual(expect.objectContaining({
+      gtm_observation: expect.objectContaining({
+        settlement_pending: true,
+        settlement_error: expect.stringContaining('does not match intended charged'),
+      }),
+    }))
+    expect(em.table(GtmCandidateRelation)).toHaveLength(0)
+  })
+
+  it('caps the provider spend and settle amount by the reservation echo when the ledger reserved less', async () => {
+    const { em, run, plan } = await fixture()
+    const base = new FixtureLedger({ poolBalance: 100_000 })
+    const maxCharge: number[] = []
+    const inner = createApifyCompanyEmployeesAdapter({
+      env: ENABLED_ENV, now, runActor: async () => actorOutcome({ items: [employeeItem()], itemCount: 1 }),
+    })
+    const adapter = {
+      ...inner,
+      resolve: async (request: Parameters<typeof inner.resolve>[0]) => {
+        maxCharge.push(request.max_charge_usd ?? -1)
+        return inner.resolve(request)
+      },
+    }
+    const ledger: GtmCreditLedger = {
+      reserve: async (input) => ({ ...(await base.reserve(input)), reservedCredits: 5_000 }),
+      start: (operationId) => base.start(operationId),
+      settle: (operationId, outcome, credits, receipt) => base.settle(operationId, outcome, credits, receipt),
+      markAmbiguous: (operationId, detail) => base.markAmbiguous(operationId, detail),
+      release: (operationId) => base.release(operationId),
+    }
+    const result = await executeDecisionMakerPlan({
+      em, ledger, adapter, run, plan, noliOrgId: NOLI_ORG, noliUserId: NOLI_USER, now,
+    })
+    expect(result.charged_credits).toBe(5_000)
+    expect(maxCharge).toEqual([0.01])
+  })
+
+  it('releases the reservation when start fails in transport and rethrows', async () => {
+    const { em, run, runActor, adapter, plan } = await fixture()
+    const base = new FixtureLedger({ poolBalance: 100_000 })
+    const ledger: GtmCreditLedger = {
+      reserve: (input) => base.reserve(input),
+      start: async () => { throw new Error('start transport failure') },
+      settle: (operationId, outcome, credits, receipt) => base.settle(operationId, outcome, credits, receipt),
+      markAmbiguous: (operationId, detail) => base.markAmbiguous(operationId, detail),
+      release: (operationId) => base.release(operationId),
+    }
+    await expect(executeDecisionMakerPlan({
+      em, ledger, adapter, run, plan, noliOrgId: NOLI_ORG, noliUserId: NOLI_USER, now,
+    })).rejects.toThrow('start transport failure')
+    expect(runActor).not.toHaveBeenCalled()
+    expect(base.listOperations()[0].status).toBe('released')
+    expect(em.table(GtmProviderOperation)[0].localStatusMirror).toBe('released')
+    expect(base.availableCredits()).toBe(100_000)
   })
 })

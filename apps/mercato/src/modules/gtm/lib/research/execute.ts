@@ -1,9 +1,15 @@
 import crypto from 'crypto'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
-import type { Candidate, SourceAdapter } from '../adapters/types'
+import type { AdapterDescriptor, AdapterEvidencePolicy, Candidate, SourceAdapter } from '../adapters/types'
 import { GtmCreditLedgerError, type GtmCreditLedger, type GtmSettleOutcome } from '../credits/ledger'
 import { creditsForUnits, defaultMarkupMultiplier, providerSpendCapUsd } from '../credits/markup'
-import { descriptorHash, type SourcePlanBatch, type SourcePlanDependentHydration } from './plan'
+import {
+  DEFAULT_TARGET_ACCEPTED,
+  canonicalEntityKind,
+  descriptorHash,
+  type SourcePlanBatch,
+  type SourcePlanDependentHydration,
+} from './plan'
 import { FIT_SCORER_REVISION, ruleBasedFitScorer, type FitScorer } from './qualify'
 import { assessEvidence } from './evidence-quality'
 import {
@@ -32,6 +38,7 @@ import {
   selectRedditHydrationTargets,
 } from './reddit-url-hydration'
 import {
+  GtmAuditEvent,
   GtmCandidate,
   GtmCandidateMatch,
   GtmEvidence,
@@ -210,14 +217,14 @@ const CANDIDATE_RETENTION_DAYS = 90
 // Person identities prefer a canonical public LinkedIn profile URL when one
 // is present. Names plus cities are not unique enough for decision-maker
 // resolution; companies retain the stable name + domain/city contract.
+// The adapter-owned name|title engagement fingerprint is only the PRIMARY key
+// when no profile URL exists: keyed by fingerprint, two different "John Smith
+// | Realtor" commenters collapsed into one row and a profile-URL removal
+// request could not find the person (see candidateIdentityHashes).
 export function candidateDedupeKey(candidate: Pick<Candidate, 'entity_kind' | 'identity'>): string {
   const identity = (candidate.identity ?? {}) as Record<string, unknown>
   const name = normalizePart(identity.name)
-  const linkedinEngagementFingerprint =
-    typeof identity.linkedin_engagement_fingerprint === 'string'
-    && /^[0-9a-f]{64}$/.test(identity.linkedin_engagement_fingerprint)
-      ? identity.linkedin_engagement_fingerprint
-      : ''
+  const linkedinEngagementFingerprint = engagementFingerprint(identity)
   const opportunityUrl =
     candidate.entity_kind === 'opportunity'
       ? canonicalOpportunityUrl([
@@ -240,20 +247,121 @@ export function candidateDedupeKey(candidate: Pick<Candidate, 'entity_kind' | 'i
   const domainOrCity =
     normalizePart(identity.domain) || normalizePart(identity.city) || normalizePart(identity.location)
   const opportunityKind = normalizePart(identity.opportunity_kind)
-  const material = linkedinEngagementFingerprint && candidate.entity_kind === 'person'
-    ? `${candidate.entity_kind}|linkedin-engagement|${linkedinEngagementFingerprint}`
-    : opportunityUrl
+  const material = opportunityUrl
     ? `${candidate.entity_kind}|url|${opportunityUrl}`
     : profileUrl
       ? `${candidate.entity_kind}|linkedin|${profileUrl}`
-      : candidate.entity_kind === 'opportunity'
-        ? `${candidate.entity_kind}|${opportunityKind}|${name}|${domainOrCity}`
-        : `${candidate.entity_kind}|${name}|${domainOrCity}`
+      : linkedinEngagementFingerprint && candidate.entity_kind === 'person'
+        ? `${candidate.entity_kind}|linkedin-engagement|${linkedinEngagementFingerprint}`
+        : candidate.entity_kind === 'opportunity'
+          ? `${candidate.entity_kind}|${opportunityKind}|${name}|${domainOrCity}`
+          : `${candidate.entity_kind}|${name}|${domainOrCity}`
   return crypto.createHash('sha256').update(material).digest('hex')
+}
+
+function engagementFingerprint(identity: Record<string, unknown>): string {
+  return typeof identity.linkedin_engagement_fingerprint === 'string'
+    && /^[0-9a-f]{64}$/.test(identity.linkedin_engagement_fingerprint)
+    ? identity.linkedin_engagement_fingerprint
+    : ''
+}
+
+function sha256(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex')
+}
+
+/**
+ * Every hash under which this row's person could have been suppressed or
+ * removed: the primary dedupe key, the canonical profile-URL key, the
+ * name|title engagement-fingerprint key, the name|domain-or-city key, and a
+ * lowercased email hash when the identity carries one. Suppression and
+ * removal must agree on this set; a removal that only knew one of these
+ * hashes used to be silently re-sourced on the next run.
+ */
+export function candidateIdentityHashes(candidate: Pick<Candidate, 'entity_kind' | 'identity'>): Set<string> {
+  const hashes = new Set<string>([candidateDedupeKey(candidate)])
+  if (candidate.entity_kind !== 'person') return hashes
+  const identity = (candidate.identity ?? {}) as Record<string, unknown>
+  const profileUrl = canonicalLinkedInProfileUrl([
+    identity.linkedin_url,
+    identity.linkedinUrl,
+    identity.profile_url,
+    identity.profileUrl,
+    ...(Array.isArray(identity.urls) ? identity.urls : []),
+  ])
+  if (profileUrl) hashes.add(sha256(`person|linkedin|${profileUrl}`))
+  const fingerprint = engagementFingerprint(identity)
+  if (fingerprint) hashes.add(sha256(`person|linkedin-engagement|${fingerprint}`))
+  const name = normalizePart(identity.name)
+  const domainOrCity =
+    normalizePart(identity.domain) || normalizePart(identity.city) || normalizePart(identity.location)
+  if (name) hashes.add(sha256(`person|${name}|${domainOrCity}`))
+  if (typeof identity.email === 'string' && identity.email.includes('@')) {
+    hashes.add(sha256(identity.email.trim().toLowerCase()))
+  }
+  return hashes
+}
+
+export function candidateEmailHash(candidate: Pick<Candidate, 'identity'>): string | null {
+  const email = (candidate.identity as Record<string, unknown> | undefined)?.email
+  return typeof email === 'string' && email.includes('@') ? sha256(email.trim().toLowerCase()) : null
 }
 
 function canonicalOpportunityUrl(value: unknown): string {
   return canonicalizeOpportunityUrl(value) ?? ''
+}
+
+async function releaseOrphanedReservation(
+  ledger: GtmCreditLedger,
+  operationId: string,
+  cause: unknown,
+): Promise<void> {
+  try {
+    await ledger.release(operationId)
+  } catch (releaseError) {
+    console.error(
+      '[gtm.research.execute] could not release reservation after shadow write failure',
+      { operationId, cause: cause instanceof Error ? cause.message : String(cause) },
+      releaseError,
+    )
+  }
+}
+
+const DESTINATION_VALIDATION_IDENTITY_KEYS = [
+  'access_type',
+  'destination_validation_status',
+  'destination_validated_at',
+  'destination_http_status',
+] as const
+
+// A second row for a destination already validated in this execution
+// inherits that validation instead of spending another fetch.
+function applyPriorDestinationValidation(
+  candidate: Candidate,
+  prior: OpportunityDestinationValidationResult,
+): Candidate {
+  if (prior.outcome === 'skipped_social' || prior.outcome === 'unknown') return candidate
+  const priorIdentity = prior.candidate.identity as Record<string, unknown>
+  const patch: Record<string, unknown> = {}
+  for (const key of DESTINATION_VALIDATION_IDENTITY_KEYS) {
+    if (priorIdentity[key] != null) patch[key] = priorIdentity[key]
+  }
+  if (!candidate.identity.location && priorIdentity.location) patch.location = priorIdentity.location
+  if (
+    candidate.identity.participation_rules_status !== 'observed'
+    && priorIdentity.participation_rules_status === 'observed'
+  ) {
+    patch.participation_rules = priorIdentity.participation_rules
+    patch.participation_rules_status = 'observed'
+  }
+  const validatorEvidence = prior.candidate.evidence.filter(
+    (row) => row.detail?.validator === OPPORTUNITY_DESTINATION_VALIDATION_VERSION,
+  )
+  return {
+    ...candidate,
+    identity: { ...candidate.identity, ...patch },
+    evidence: [...candidate.evidence, ...validatorEvidence],
+  }
 }
 
 export function consumerProfileDedupeKey(value: unknown): string | null {
@@ -328,18 +436,457 @@ function parseLimits(run: GtmResearchRun): {
   const limits = (run.limits ?? {}) as Record<string, unknown>
   const legacyMaxCandidates = Number(limits.maxCandidates)
   const maxRawCandidates = Number(limits.maxRawCandidates ?? limits.maxCandidates)
-  const targetAccepted = Number(limits.targetAccepted ?? limits.maxCandidates)
+  const targetAccepted = Number(limits.targetAccepted)
   const maxCredits = Number(limits.maxCredits)
+  // A pre-v14 run only has maxCandidates, which was a raw ceiling. Using it
+  // verbatim as the accepted target (100) meant the adaptive stop never fired
+  // and every lane was spent. Legacy runs stop at the plan default instead.
+  const legacyTarget =
+    Number.isFinite(legacyMaxCandidates) && legacyMaxCandidates > 0
+      ? Math.min(Math.floor(legacyMaxCandidates), DEFAULT_TARGET_ACCEPTED)
+      : 0
   return {
     targetAccepted:
       Number.isFinite(targetAccepted) && targetAccepted > 0
         ? Math.floor(targetAccepted)
-        : Number.isFinite(legacyMaxCandidates) && legacyMaxCandidates > 0
-          ? Math.floor(legacyMaxCandidates)
-          : 0,
+        : legacyTarget,
     maxRawCandidates: Number.isFinite(maxRawCandidates) && maxRawCandidates > 0 ? Math.floor(maxRawCandidates) : 0,
     maxCredits: Number.isFinite(maxCredits) && maxCredits > 0 ? Math.floor(maxCredits) : 0,
   }
+}
+
+/*
+ * C2: the provider's rows are retained in the shadow receipt BEFORE the
+ * canonical settle call. When settle fails (Noli Core unreachable) the paid
+ * rows used to be dropped and the run could never be re-executed, while the
+ * operator could still reconcile the operation as charged. The retained
+ * payload lets replayParkedProviderOutput materialize candidates once the
+ * ledger settles; a charged reconciliation is refused when output existed
+ * but nothing was retained.
+ */
+export const RETAINED_OUTPUT_RECEIPT_KEY = 'gtm_retained_output'
+export const RETAINED_OUTPUT_SCHEMA_VERSION = 'gtm-retained-provider-output-v1'
+const RETAINED_OUTPUT_MAX_ROWS = 100
+const RETAINED_OUTPUT_MAX_BYTES = 512 * 1024
+
+export type RetainedProviderOutput = {
+  schema_version: typeof RETAINED_OUTPUT_SCHEMA_VERSION
+  adapter_id: string
+  entity_kind: 'person' | 'company' | 'opportunity'
+  query: string
+  provider_request_id: string | null
+  evidence_policy: AdapterEvidencePolicy
+  license: AdapterDescriptor['constraints']['license']
+  rows: Candidate[]
+  row_count: number
+  retained_count: number
+  truncated: boolean
+  materialized_at: string | null
+}
+
+export function retainProviderOutput(args: {
+  rows: Candidate[]
+  adapterId: string
+  entityKind: RetainedProviderOutput['entity_kind']
+  query: string
+  providerRequestId: string | null
+  descriptor: AdapterDescriptor
+}): RetainedProviderOutput | null {
+  if (args.rows.length === 0) return null
+  const rows: Candidate[] = []
+  let bytes = 0
+  for (const row of args.rows.slice(0, RETAINED_OUTPUT_MAX_ROWS)) {
+    const size = Buffer.byteLength(JSON.stringify(row), 'utf8')
+    if (bytes + size > RETAINED_OUTPUT_MAX_BYTES) break
+    bytes += size
+    rows.push(row)
+  }
+  return {
+    schema_version: RETAINED_OUTPUT_SCHEMA_VERSION,
+    adapter_id: args.adapterId,
+    entity_kind: args.entityKind,
+    query: args.query,
+    provider_request_id: args.providerRequestId,
+    evidence_policy: args.descriptor.evidence_policy,
+    license: args.descriptor.constraints.license,
+    rows,
+    row_count: args.rows.length,
+    retained_count: rows.length,
+    truncated: rows.length < args.rows.length,
+    materialized_at: null,
+  }
+}
+
+export function readRetainedProviderOutput(
+  receipt: Record<string, unknown> | null | undefined,
+): RetainedProviderOutput | null {
+  const raw = receipt?.[RETAINED_OUTPUT_RECEIPT_KEY]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const value = raw as Record<string, unknown>
+  if (
+    value.schema_version !== RETAINED_OUTPUT_SCHEMA_VERSION
+    || typeof value.adapter_id !== 'string'
+    || !Array.isArray(value.rows)
+    || !value.evidence_policy
+    || !value.license
+  ) return null
+  return value as unknown as RetainedProviderOutput
+}
+
+export type MaterializeProviderRowsInput = {
+  em: ResearchEm
+  run: GtmResearchRun
+  play: ExecuteResearchRunDeps['play']
+  scorer: FitScorer
+  now: () => Date
+  qualificationReferenceTime: Date
+  rows: Candidate[]
+  plannedEntityKind: 'person' | 'company' | 'opportunity'
+  adapterId: string
+  // canonical Noli Core operation id (evidence provenance)
+  operationId: string
+  // CRM shadow row id (gtm_candidate_matches.provider_operation_id)
+  shadowId: string
+  evidencePolicy: AdapterEvidencePolicy
+  license: AdapterDescriptor['constraints']['license']
+  query: string
+  providerRequestId: string | null
+  // Mutated: conversations already materialized in this execution.
+  seenOpportunityConversations: Candidate[]
+}
+
+export type MaterializeProviderRowsResult = {
+  inserted: number
+  matchesCreated: number
+  reused: number
+  duplicates: number
+  suppressed: number
+  accepted: number
+  review: number
+  rejected: number
+  evidenceRows: number
+  evidenceQualified: number
+  byReason: Record<string, number>
+  failure: string | null
+}
+
+/**
+ * Candidates + evidence + deterministic qualification for one batch of
+ * provider rows. Shared by the execution wrapper and the parked-output
+ * replay so a settle failure never changes how rows are materialized.
+ */
+export async function materializeProviderRows(
+  input: MaterializeProviderRowsInput,
+): Promise<MaterializeProviderRowsResult> {
+  const {
+    em,
+    run,
+    play,
+    scorer,
+    now,
+    qualificationReferenceTime,
+    plannedEntityKind,
+    operationId,
+    query,
+    seenOpportunityConversations,
+  } = input
+  const leadMode = runLeadMode(run, play)
+  const out: MaterializeProviderRowsResult = {
+    inserted: 0,
+    matchesCreated: 0,
+    reused: 0,
+    duplicates: 0,
+    suppressed: 0,
+    accepted: 0,
+    review: 0,
+    rejected: 0,
+    evidenceRows: 0,
+    evidenceQualified: 0,
+    byReason: {},
+    failure: null,
+  }
+  for (const candidate of input.rows) {
+    if (candidate.entity_kind !== plannedEntityKind) {
+      out.failure ??= `provider returned ${candidate.entity_kind} for frozen ${plannedEntityKind} plan`
+      continue
+    }
+    const evidenceAssessment = assessEvidence(candidate.evidence ?? [], input.evidencePolicy, now())
+    if (
+      candidate.entity_kind === 'opportunity'
+      && evidenceAssessment.validEvidence.length > 0
+      && seenOpportunityConversations.some((seen) =>
+        areRepeatedOpportunityConversations(seen, candidate),
+      )
+    ) {
+      out.duplicates += 1
+      continue
+    }
+    if (candidate.entity_kind === 'opportunity' && evidenceAssessment.validEvidence.length > 0) {
+      seenOpportunityConversations.push(candidate)
+    }
+    const fit = scorer.score(
+      candidate,
+      {
+        ...play,
+        referenceTime: qualificationReferenceTime,
+      },
+      evidenceAssessment.validEvidence,
+    )
+    const dedupeKey = candidateDedupeKey(candidate)
+    // Check every hash the person could have been suppressed under, not only
+    // the primary dedupe key (profile-URL removals target engagers keyed by
+    // fingerprint and vice versa).
+    const identityHashes = [...candidateIdentityHashes(candidate)]
+    const emailHash = candidateEmailHash(candidate)
+    const globallySuppressed = await em.findOne(GtmSuppression, {
+      scope: 'global',
+      channel: 'public_profile',
+      addressHash: { $in: identityHashes },
+      deletedAt: null,
+    }) ?? (emailHash
+      ? await em.findOne(GtmSuppression, {
+          scope: 'global',
+          channel: 'email',
+          addressHash: emailHash,
+          deletedAt: null,
+        })
+      : null)
+    if (globallySuppressed) {
+      out.suppressed += 1
+      continue
+    }
+    const qualification = {
+      scorer_revision: FIT_SCORER_REVISION,
+      reason: fit.reason,
+      breakdown: fit.breakdown,
+      unknowns: fit.unknowns,
+      contradictions: fit.contradictions,
+      profile: fit.profile ?? null,
+      criteria: fit.criteria ?? [],
+      evidence_issues: evidenceAssessment.issues,
+    }
+
+    const persistMatch = async (
+      row: GtmCandidate,
+      insertCandidate: boolean,
+    ): Promise<{
+      matchCreated: boolean
+      candidateInserted: boolean
+      evidenceRows: number
+    }> =>
+      em.transactional(async (tem) => {
+        const priorMatch = await tem.findOne(GtmCandidateMatch, {
+          organizationId: run.organizationId,
+          tenantId: run.tenantId,
+          researchRunId: run.id,
+          candidateId: row.id,
+          deletedAt: null,
+        })
+        if (priorMatch) {
+          return {
+            matchCreated: false,
+            candidateInserted: false,
+            evidenceRows: 0,
+          }
+        }
+        if (insertCandidate) {
+          tem.persist(row)
+        } else if (row.entityKind === 'opportunity' && candidate.entity_kind === 'opportunity') {
+          // Opportunity identities are a current snapshot of one canonical
+          // public destination. Reusing the dedupe row must not strand an
+          // older parser classification, publication timestamp, or access
+          // state while the run-level qualification is computed from a
+          // newer provider observation.
+          row.identity = stampSourceKind(candidate.identity as Record<string, unknown>, leadMode)
+          // A human verdict on the root row (reviewCandidate) outlives any
+          // later run that re-sources the same destination: the rule-based
+          // verdict lands on this run's match row only.
+          const humanOverride = await tem.findOne(GtmAuditEvent, {
+            organizationId: run.organizationId,
+            tenantId: run.tenantId,
+            action: 'gtm.candidate.review_override',
+            objectType: 'gtm_candidate',
+            objectId: row.id,
+          })
+          if (!humanOverride) {
+            row.fitStatus = fit.verdict
+            row.fitScore = String(fit.fitScore)
+            row.rejectReason = fit.verdict === 'accepted' ? null : fit.reason
+            row.qualification = qualification
+            row.qualificationVersion = fit.version
+          }
+          row.qualityStatus = evidenceAssessment.status
+          row.qualityScore = String(evidenceAssessment.score)
+          row.retentionExpiresAt = new Date(
+            now().getTime() + CANDIDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+          )
+          tem.persist(row)
+        }
+        const match = tem.create(GtmCandidateMatch, {
+          organizationId: run.organizationId,
+          tenantId: run.tenantId,
+          workspaceId: run.workspaceId,
+          playId: run.playId,
+          researchRunId: run.id,
+          candidateId: row.id,
+          providerOperationId: input.shadowId,
+          fitStatus: fit.verdict,
+          fitScore: String(fit.fitScore),
+          rejectReason: fit.verdict === 'accepted' ? null : fit.reason,
+          qualityStatus: evidenceAssessment.status,
+          qualityScore: String(evidenceAssessment.score),
+          qualification,
+          qualificationVersion: fit.version,
+        })
+        tem.persist(match)
+        let evidenceRows = 0
+        for (const assessed of evidenceAssessment.rows) {
+          const evidence = assessed.evidence
+          const evidenceDetail = evidence.detail ?? {}
+          const evidenceProvider =
+            typeof evidenceDetail.gtm_provider_adapter_id === 'string'
+              ? evidenceDetail.gtm_provider_adapter_id
+              : input.adapterId
+          const evidenceOperationId =
+            typeof evidenceDetail.gtm_provider_operation_id === 'string'
+              ? evidenceDetail.gtm_provider_operation_id
+              : operationId
+          const evidenceProviderRequestId =
+            typeof evidenceDetail.gtm_provider_request_id === 'string'
+              ? evidenceDetail.gtm_provider_request_id
+              : input.providerRequestId
+          const evidenceRow = tem.create(GtmEvidence, {
+            organizationId: run.organizationId,
+            tenantId: run.tenantId,
+            candidateId: row.id,
+            researchRunId: run.id,
+            claim: evidence.claim,
+            sourceUrl: evidence.source_url ?? null,
+            providerRef: {
+              provider: evidenceProvider,
+              operation_id: evidenceOperationId,
+              provider_request_id: evidenceProviderRequestId,
+              query,
+              ...(evidence.detail ? { detail: evidence.detail } : {}),
+            },
+            observedAt: evidence.observed_at ? new Date(evidence.observed_at) : null,
+            retrievedAt: now(),
+            confidence: String(evidence.confidence),
+            license: input.license,
+            qualityStatus: assessed.status,
+            qualityIssues: assessed.issues,
+            evidenceType: 'provider_observation',
+          })
+          tem.persist(evidenceRow)
+          evidenceRows += 1
+        }
+        await tem.flush()
+        return {
+          matchCreated: true,
+          candidateInserted: insertCandidate,
+          evidenceRows,
+        }
+      })
+
+    try {
+      let existing = await em.findOne(GtmCandidate, {
+        organizationId: run.organizationId,
+        tenantId: run.tenantId,
+        workspaceId: run.workspaceId,
+        dedupeKey,
+        deletedAt: null,
+      })
+      let persisted: {
+        matchCreated: boolean
+        candidateInserted: boolean
+        evidenceRows: number
+      }
+      if (existing) {
+        persisted = await persistMatch(existing, false)
+      } else {
+        const row = em.create(GtmCandidate, {
+          // app-side id so evidence rows can reference the candidate before
+          // the transaction flushes (the column default is DB-generated)
+          id: crypto.randomUUID(),
+          organizationId: run.organizationId,
+          tenantId: run.tenantId,
+          researchRunId: run.id,
+          workspaceId: run.workspaceId,
+          entityKind: candidate.entity_kind,
+          identity: stampSourceKind(candidate.identity as Record<string, unknown>, leadMode),
+          dedupeKey,
+          fitStatus: fit.verdict,
+          fitScore: String(fit.fitScore),
+          rejectReason: fit.verdict === 'accepted' ? null : fit.reason,
+          qualityStatus: evidenceAssessment.status,
+          qualityScore: String(evidenceAssessment.score),
+          qualification,
+          qualificationVersion: fit.version,
+          retentionExpiresAt: new Date(now().getTime() + CANDIDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000),
+        })
+        try {
+          persisted = await persistMatch(row, true)
+        } catch (err) {
+          if (!(err instanceof UniqueConstraintViolationException)) throw err
+          // Another transaction won the workspace identity race. Reuse its
+          // row, but still preserve this run's independent qualification.
+          existing = await em.findOne(GtmCandidate, {
+            organizationId: run.organizationId,
+            tenantId: run.tenantId,
+            workspaceId: run.workspaceId,
+            dedupeKey,
+            deletedAt: null,
+          })
+          if (!existing) throw err
+          persisted = await persistMatch(existing, false)
+        }
+      }
+      if (!persisted.matchCreated) {
+        out.duplicates += 1
+        continue
+      }
+      out.matchesCreated += 1
+      if (persisted.candidateInserted) out.inserted += 1
+      else out.reused += 1
+      out.evidenceRows += persisted.evidenceRows
+      if (evidenceAssessment.validEvidence.length > 0) out.evidenceQualified += 1
+      if (fit.verdict === 'accepted') out.accepted += 1
+      else if (fit.verdict === 'review') out.review += 1
+      else out.rejected += 1
+      out.byReason[fit.reason] = (out.byReason[fit.reason] ?? 0) + 1
+    } catch (err) {
+      // Race-safe dedupe: a concurrent (or same-run) duplicate loses the
+      // unique (org, workspace, dedupe_key) race and is counted, not fatal.
+      if (err instanceof UniqueConstraintViolationException) {
+        out.duplicates += 1
+        continue
+      }
+      throw err
+    }
+  }
+  return out
+}
+
+/*
+ * Consumer-sourced rows carry their origin on the identity so campaign
+ * exclusions can refuse them even if a play's market type were ever edited
+ * (api-send-privacy L15). Business rows are stamped too so the absence of a
+ * stamp never reads as "business".
+ */
+function stampSourceKind(identity: Record<string, unknown>, leadMode: string | null | undefined): Record<string, unknown> {
+  const sourceKind = leadMode === 'consumer' ? 'consumer' : 'business'
+  const provenance = identity.provenance && typeof identity.provenance === 'object' && !Array.isArray(identity.provenance)
+    ? { ...(identity.provenance as Record<string, unknown>) }
+    : {}
+  return { ...identity, provenance: { ...provenance, source_kind: sourceKind } }
+}
+
+function runLeadMode(run: GtmResearchRun, play: unknown): string | null {
+  const plan = run.providerPlan as { policy?: { lead_mode?: unknown } } | null | undefined
+  const frozen = plan?.policy?.lead_mode
+  if (frozen === 'consumer' || frozen === 'business') return frozen
+  const fromPlay = (play as { leadMode?: unknown } | null | undefined)?.leadMode
+  return typeof fromPlay === 'string' ? fromPlay : null
 }
 
 export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<ResearchRunExecutionResult> {
@@ -393,6 +940,18 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
   let reconciliationRequired = false
   let failureReason: string | null = null
   const seenOpportunityConversations: Candidate[] = []
+  // Distinct destinations validated in this execution. Duplicate URLs reuse
+  // the first result instead of consuming the validation cap.
+  const validatedDestinations = new Map<string, OpportunityDestinationValidationResult>()
+  // Opportunity plays count review rows toward the accepted target. Social
+  // sources never observe venue rules, so most public conversations top out
+  // at review ("review-ready" is the customer-facing state for them); spending
+  // every remaining lane cannot convert those rows to accepted, it only buys
+  // more of the same. Person/company plays keep the strict accepted count.
+  const opportunityPlay =
+    canonicalEntityKind(play.entityUnit ?? '') === 'opportunity'
+    || adapterPlan.some((batch) => batch.capability?.entity_kind === 'opportunity')
+  const qualifiedTowardTarget = () => (opportunityPlay ? accepted + review : accepted)
 
   const runDependentHydration = async (
     dependent: SourcePlanDependentHydration,
@@ -624,7 +1183,10 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
           return row
         })
       } catch (error) {
-        if (!(error instanceof UniqueConstraintViolationException)) throw error
+        if (!(error instanceof UniqueConstraintViolationException)) {
+          await releaseOrphanedReservation(ledger, operationId, error)
+          throw error
+        }
         shadow = await em.findOne(GtmProviderOperation, {
           noliCoreOperationId: operationId,
           organizationId: run.organizationId,
@@ -672,7 +1234,13 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     let settlementPending = false
     let settlementError: string | null = null
     let intendedAction: GtmSettleOutcome | 'mark_ambiguous'
-    if (result.status === 'ok' || result.status === 'partial') {
+    if (
+      (result.status === 'ok' || result.status === 'partial' || result.status === 'no_result')
+      && result.cost_units == null
+    ) {
+      // A completed call with no final cost is an unknown charge, never zero.
+      intendedAction = 'mark_ambiguous'
+    } else if (result.status === 'ok' || result.status === 'partial') {
       chargedCredits = Math.min(
         creditsForUnits(result.cost_units ?? 0, dependent.quotedCreditsPerUnit, markup),
         batchEstimatedCredits,
@@ -695,8 +1263,17 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     } else {
       intendedAction = 'refunded'
     }
+    const hydrationRetained = retainProviderOutput({
+      rows: Array.isArray(result.data) ? result.data : [],
+      adapterId: dependent.adapter_id,
+      entityKind: dependent.capability.entity_kind,
+      query: exactQuery,
+      providerRequestId: typeof receipt?.provider_request_id === 'string' ? receipt.provider_request_id : null,
+      descriptor: adapter.descriptor,
+    })
     const observedReceipt = {
       ...(receipt ?? {}),
+      ...(hydrationRetained ? { [RETAINED_OUTPUT_RECEIPT_KEY]: hydrationRetained } : {}),
       dependent_hydration: {
         selector_version: dependent.selector.version,
         parent_provider_operation_id: parentOperationId,
@@ -741,10 +1318,16 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       settlementError =
         error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : 'unknown canonical ledger error'
     }
+    const hydrationHeld = settlementPending || intendedAction === 'mark_ambiguous'
     await em.transactional(async (tem) => {
       shadow.localStatusMirror = ledgerStatus
       shadow.receipt = {
         ...observedReceipt,
+        // Hydrated rows are folded into the parent's candidates immediately;
+        // they only need to stay retained while their billing is unresolved.
+        ...(hydrationRetained && !hydrationHeld
+          ? { [RETAINED_OUTPUT_RECEIPT_KEY]: { ...hydrationRetained, rows: [], materialized_at: now().toISOString() } }
+          : {}),
         gtm_observation: {
           ...observedReceipt.gtm_observation,
           settlement_pending: settlementPending,
@@ -752,13 +1335,13 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
           settlement_error: settlementError,
         },
       }
-      if (!settlementPending && result.status !== 'ambiguous') shadow.settledAt = now()
+      if (!settlementPending && intendedAction !== 'mark_ambiguous') shadow.settledAt = now()
       tem.persist(shadow)
       await tem.flush()
     })
 
     const hydrated =
-      !settlementPending && (result.status === 'ok' || result.status === 'partial') && Array.isArray(result.data)
+      !hydrationHeld && (result.status === 'ok' || result.status === 'partial') && Array.isArray(result.data)
         ? result.data.map((candidate) => ({
             ...candidate,
             evidence: candidate.evidence.map((evidence) => ({
@@ -777,7 +1360,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       batch: empty({
         idempotencyKey,
         operationId,
-        outcome: settlementPending ? 'ambiguous' : result.status,
+        outcome: hydrationHeld ? 'ambiguous' : result.status,
         ledgerStatus,
         chargedCredits,
         hydrationRequestedUrls: targets.length,
@@ -785,6 +1368,8 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
         failureReason:
           settlementPending
             ? 'canonical ledger outcome unresolved after hydration response'
+            : intendedAction === 'mark_ambiguous' && result.status !== 'ambiguous'
+              ? 'hydration provider reported no final cost for a completed call'
             : result.status === 'error' || result.status === 'ambiguous'
               ? result.error ?? 'hydration provider error'
               : null,
@@ -827,7 +1412,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
 
     // Adaptive stop: later source lanes are shortfall refills, not mandatory
     // spend. Once enough qualified leads exist, no more provider is contacted.
-    if (limits.targetAccepted > 0 && accepted >= limits.targetAccepted) {
+    if (limits.targetAccepted > 0 && qualifiedTowardTarget() >= limits.targetAccepted) {
       batches.push({ ...base, outcome: 'skipped_target_accepted' })
       continue
     }
@@ -861,6 +1446,24 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     const adapter = adapters[planned.adapter_id]
     if (!adapter) {
       const reason = `unknown adapter ${planned.adapter_id}`
+      failureReason ??= reason
+      batches.push({ ...base, outcome: 'error', failureReason: reason })
+      continue
+    }
+    // The frozen quote must still describe the live adapter before any money
+    // is reserved (the dependent hydration path already checked this; the
+    // main batches did not). A plan without a descriptor hash predates the
+    // quote contract and is only reachable through the route's plan-hash
+    // check, so it is left to that gate.
+    if (
+      typeof planned.descriptorHash === 'string'
+      && (
+        descriptorHash(adapter.descriptor) !== planned.descriptorHash
+        || adapter.descriptor.cost_model.price_version !== planned.priceVersion
+        || adapter.descriptor.constraints.license.terms_version !== planned.termsVersion
+      )
+    ) {
+      const reason = 'descriptor changed after quote confirmation'
       failureReason ??= reason
       batches.push({ ...base, outcome: 'error', failureReason: reason })
       continue
@@ -955,7 +1558,14 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
           return row
         })
       } catch (err) {
-        if (!(err instanceof UniqueConstraintViolationException)) throw err
+        if (!(err instanceof UniqueConstraintViolationException)) {
+          // The reservation exists in Noli Core but no CRM shadow names it, so
+          // the operator inventory could never find it. Release is legal
+          // from reserved (no provider contact yet); a failed release is
+          // logged and the original error still propagates.
+          await releaseOrphanedReservation(ledger, operationId, err)
+          throw err
+        }
         shadow = await em.findOne(GtmProviderOperation, {
           noliCoreOperationId: operationId,
           organizationId: run.organizationId,
@@ -1019,10 +1629,18 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     let settlementError: string | null = null
     let intendedAction: GtmSettleOutcome | 'mark_ambiguous'
 
-    if (result.status === 'ok' || result.status === 'partial') {
-      const actualUnits = result.cost_units ?? (Array.isArray(result.data) ? result.data.length : 0)
+    if (
+      (result.status === 'ok' || result.status === 'partial' || result.status === 'no_result')
+      && result.cost_units == null
+    ) {
+      // A completed call whose final cost is unknown is an unknown charge.
+      // Falling back to the row count (or to zero) invented a settlement the
+      // provider never reported; park it for reconciliation instead.
+      intendedAction = 'mark_ambiguous'
+      batchFailure = 'provider reported no final cost for a completed call'
+    } else if (result.status === 'ok' || result.status === 'partial') {
       chargedCredits = Math.min(
-        creditsForUnits(actualUnits, planned.quotedCreditsPerUnit, markup),
+        creditsForUnits(result.cost_units ?? 0, planned.quotedCreditsPerUnit, markup),
         batchEstimatedCredits,
       )
       intendedAction = result.status === 'partial' ? 'partially_charged' : 'charged'
@@ -1031,7 +1649,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
         intendedAction = 'refunded'
       } else {
         chargedCredits = Math.min(
-          creditsForUnits(result.cost_units ?? 1, planned.quotedCreditsPerUnit, markup),
+          creditsForUnits(result.cost_units ?? 0, planned.quotedCreditsPerUnit, markup),
           batchEstimatedCredits,
         )
         intendedAction = 'charged'
@@ -1048,8 +1666,24 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       intendedAction = 'refunded'
     }
 
+    const plannedEntityKind =
+      planned.capability.entity_kind
+      ?? canonicalEntityKind(planned.capability.entity_unit)
+      ?? 'person'
+    // Retain the provider's rows BEFORE settlement so a canonical-ledger
+    // failure can never discard paid output (C2). The rows are dropped from
+    // the receipt again once they have been materialized as candidates.
+    const retainedOutput = retainProviderOutput({
+      rows: Array.isArray(result.data) ? result.data : [],
+      adapterId: planned.adapter_id,
+      entityKind: plannedEntityKind,
+      query,
+      providerRequestId: typeof receipt?.provider_request_id === 'string' ? receipt.provider_request_id : null,
+      descriptor: adapter.descriptor,
+    })
     const observedReceipt = {
       ...(receipt ?? {}),
+      ...(retainedOutput ? { [RETAINED_OUTPUT_RECEIPT_KEY]: retainedOutput } : {}),
       gtm_observation: {
         schema_version: 'gtm-provider-outcome-v1',
         observed_at: observedAt.toISOString(),
@@ -1058,6 +1692,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
         intended_charged_credits: chargedCredits,
         provider_error: result.error ?? null,
         output_count: Array.isArray(result.data) ? result.data.length : result.data ? 1 : 0,
+        output_retained: retainedOutput != null,
         settlement_pending: true,
       },
     }
@@ -1072,12 +1707,12 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
         // Unknown provider outcome: park the SAME operation, never retry, and
         // never infer a charge locally. The reservation stays escrowed.
         ledgerStatus = await ledger.markAmbiguous(operationId, {
-          error: result.error ?? 'ambiguous provider outcome',
+          error: result.error ?? batchFailure ?? 'ambiguous provider outcome',
           receipt,
         })
         reconciliationRequired = true
         unresolvedAdapters.add(planned.adapter_id)
-        batchFailure = result.error ?? 'ambiguous provider outcome'
+        batchFailure = result.error ?? batchFailure ?? 'ambiguous provider outcome'
       } else {
         ledgerStatus = await ledger.settle(operationId, intendedAction, chargedCredits, receipt)
         outstandingReserved -= batchEstimatedCredits
@@ -1133,34 +1768,29 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
           settlement_error: settlementError,
         },
       }
-      if (!settlementPending && result.status !== 'ambiguous') shadow.settledAt = now()
+      if (!settlementPending && intendedAction !== 'mark_ambiguous') shadow.settledAt = now()
       tem.persist(shadow)
       await tem.flush()
     })
 
     // 6. Candidates + evidence + deterministic qualification.
-    let batchInserted = 0
-    let batchMatchesCreated = 0
-    let batchReused = 0
-    let batchDuplicates = 0
-    let batchSuppressed = 0
-    let batchAccepted = 0
-    let batchReview = 0
-    let batchRejected = 0
     let batchDestinationValidationsAttempted = 0
     let batchDestinationValidationsVerified = 0
     let batchDestinationValidationsUnavailable = 0
     let batchDestinationValidationsBlocked = 0
     let batchDestinationValidationsUnknown = 0
     let batchDestinationValidationsSkippedSocial = 0
+    let batchDuplicates = 0
     // Do not release provider output while its canonical billing transition is
-    // unresolved. The reserved credits remain escrowed and the receipt is
-    // available to the operator; a later explicit reconciliation decides it.
-    let providerRows = settlementPending ? [] : Array.isArray(result.data) ? result.data : []
+    // unresolved. The reserved credits remain escrowed, the rows stay retained
+    // in the receipt, and a later explicit reconciliation (plus the parked
+    // output replay) decides it.
+    const outputHeld = settlementPending || intendedAction === 'mark_ambiguous'
+    let providerRows = outputHeld ? [] : Array.isArray(result.data) ? result.data : []
     let dependentHydrationBatch: BatchOutcome | null = null
     if (
       planned.dependentHydration
-      && !settlementPending
+      && !outputHeld
       && (result.status === 'ok' || result.status === 'partial')
     ) {
       const hydrated = await runDependentHydration(
@@ -1172,9 +1802,6 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       providerRows = hydrated.candidates
       dependentHydrationBatch = hydrated.batch
     }
-    const plannedEntityKind =
-      planned.capability.entity_kind ??
-      (planned.capability.entity_unit.toLowerCase().startsWith('compan') ? 'company' : 'person')
     const initiallyRankedProviderRows =
       plannedEntityKind === 'opportunity'
         ? rankOpportunityCandidates(providerRows, { ...play, providerQuery: planned.providerQuery ?? play.providerQuery }, qualificationReferenceTime)
@@ -1187,11 +1814,36 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
         : initiallyRankedProviderRows.length
     const boundedProviderRows = initiallyRankedProviderRows.slice(0, remainingRaw)
     const validatedProviderRows: Candidate[] = []
+    // Dedupe by canonical destination BEFORE validation so the same thread
+    // returned under fifteen tracking variants spends one validation, not
+    // fifteen, and unique rows still get checked under the cap.
+    const seenDestinations = new Set<string>()
     for (const candidate of boundedProviderRows) {
-      if (
-        candidate.entity_kind !== 'opportunity'
-        || destinationValidation.attempted >= destinationValidation.cap
-      ) {
+      if (candidate.entity_kind !== 'opportunity') {
+        validatedProviderRows.push(candidate)
+        continue
+      }
+      const identity = candidate.identity as Record<string, unknown>
+      const canonical = canonicalOpportunityUrl([
+        identity.url,
+        identity.source_url,
+        identity.destination_url,
+        ...(Array.isArray(identity.urls) ? identity.urls : []),
+      ])
+      if (canonical) {
+        if (seenDestinations.has(canonical)) {
+          batchDuplicates += 1
+          duplicatesSkipped += 1
+          continue
+        }
+        seenDestinations.add(canonical)
+        const prior = validatedDestinations.get(canonical)
+        if (prior) {
+          validatedProviderRows.push(applyPriorDestinationValidation(candidate, prior))
+          continue
+        }
+      }
+      if (destinationValidation.attempted >= destinationValidation.cap) {
         validatedProviderRows.push(candidate)
         continue
       }
@@ -1200,6 +1852,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
       try {
         const validated = await destinationValidator(candidate, { now })
         validatedProviderRows.push(validated.candidate)
+        if (canonical) validatedDestinations.set(canonical, validated)
         if (validated.outcome === 'verified') {
           destinationValidation.verified += 1
           batchDestinationValidationsVerified += 1
@@ -1230,275 +1883,70 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
         )
       : validatedProviderRows
     rawCandidatesFound += found.length
-    for (const candidate of found) {
-      if (candidate.entity_kind !== plannedEntityKind) {
-        batchFailure ??= `provider returned ${candidate.entity_kind} for frozen ${plannedEntityKind} plan`
-        failureReason ??= batchFailure
-        continue
-      }
-      const evidenceAssessment = assessEvidence(candidate.evidence ?? [], adapter.descriptor.evidence_policy, now())
-      if (
-        candidate.entity_kind === 'opportunity'
-        && evidenceAssessment.validEvidence.length > 0
-        && seenOpportunityConversations.some((seen) =>
-          areRepeatedOpportunityConversations(seen, candidate),
-        )
-      ) {
-        batchDuplicates += 1
-        duplicatesSkipped += 1
-        continue
-      }
-      if (candidate.entity_kind === 'opportunity' && evidenceAssessment.validEvidence.length > 0) {
-        seenOpportunityConversations.push(candidate)
-      }
-      const fit = scorer.score(
-        candidate,
-        {
-          ...play,
-          referenceTime: qualificationReferenceTime,
-        },
-        evidenceAssessment.validEvidence,
-      )
-      const dedupeKey = candidateDedupeKey(candidate)
-      const globallySuppressed = await em.findOne(GtmSuppression, {
-        scope: 'global',
-        channel: 'public_profile',
-        addressHash: dedupeKey,
-        deletedAt: null,
+    const materialized = await materializeProviderRows({
+      em,
+      run,
+      play,
+      scorer,
+      now,
+      qualificationReferenceTime,
+      rows: found,
+      plannedEntityKind,
+      adapterId: planned.adapter_id,
+      operationId,
+      shadowId: shadow.id,
+      evidencePolicy: adapter.descriptor.evidence_policy,
+      license: adapter.descriptor.constraints.license,
+      query,
+      providerRequestId: typeof receipt?.provider_request_id === 'string' ? receipt.provider_request_id : null,
+      seenOpportunityConversations,
+    })
+    if (materialized.failure) {
+      batchFailure ??= materialized.failure
+      failureReason ??= materialized.failure
+    }
+    batchDuplicates += materialized.duplicates
+    duplicatesSkipped += materialized.duplicates
+    suppressedSkipped += materialized.suppressed
+    candidateMatchesCreated += materialized.matchesCreated
+    candidatesInserted += materialized.inserted
+    candidatesReused += materialized.reused
+    evidenceInserted += materialized.evidenceRows
+    evidenceQualified += materialized.evidenceQualified
+    accepted += materialized.accepted
+    review += materialized.review
+    rejected += materialized.rejected
+    for (const [reason, count] of Object.entries(materialized.byReason)) {
+      fitByReason[reason] = (fitByReason[reason] ?? 0) + count
+    }
+    if (retainedOutput && !outputHeld) {
+      // Rows are now durable candidates; keep the receipt small and mark the
+      // payload consumed so a replay is a no-op.
+      await em.transactional(async (tem) => {
+        shadow.receipt = {
+          ...(shadow.receipt ?? {}),
+          [RETAINED_OUTPUT_RECEIPT_KEY]: { ...retainedOutput, rows: [], materialized_at: now().toISOString() },
+        }
+        tem.persist(shadow)
+        await tem.flush()
       })
-      if (globallySuppressed) {
-        batchSuppressed += 1
-        suppressedSkipped += 1
-        continue
-      }
-      const qualification = {
-        scorer_revision: FIT_SCORER_REVISION,
-        reason: fit.reason,
-        breakdown: fit.breakdown,
-        unknowns: fit.unknowns,
-        contradictions: fit.contradictions,
-        profile: fit.profile ?? null,
-        criteria: fit.criteria ?? [],
-        evidence_issues: evidenceAssessment.issues,
-      }
-
-      const persistMatch = async (
-        row: GtmCandidate,
-        insertCandidate: boolean,
-      ): Promise<{
-        matchCreated: boolean
-        candidateInserted: boolean
-        evidenceRows: number
-      }> =>
-        em.transactional(async (tem) => {
-          const priorMatch = await tem.findOne(GtmCandidateMatch, {
-            organizationId: run.organizationId,
-            tenantId: run.tenantId,
-            researchRunId: run.id,
-            candidateId: row.id,
-            deletedAt: null,
-          })
-          if (priorMatch) {
-            return {
-              matchCreated: false,
-              candidateInserted: false,
-              evidenceRows: 0,
-            }
-          }
-          if (insertCandidate) {
-            tem.persist(row)
-          } else if (row.entityKind === 'opportunity' && candidate.entity_kind === 'opportunity') {
-            // Opportunity identities are a current snapshot of one canonical
-            // public destination. Reusing the dedupe row must not strand an
-            // older parser classification, publication timestamp, or access
-            // state while the run-level qualification is computed from a
-            // newer provider observation.
-            row.identity = { ...(candidate.identity as Record<string, unknown>) }
-            row.fitStatus = fit.verdict
-            row.fitScore = String(fit.fitScore)
-            row.rejectReason = fit.verdict === 'accepted' ? null : fit.reason
-            row.qualityStatus = evidenceAssessment.status
-            row.qualityScore = String(evidenceAssessment.score)
-            row.qualification = qualification
-            row.qualificationVersion = fit.version
-            row.retentionExpiresAt = new Date(
-              now().getTime() + CANDIDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
-            )
-            tem.persist(row)
-          }
-          const match = tem.create(GtmCandidateMatch, {
-            organizationId: run.organizationId,
-            tenantId: run.tenantId,
-            workspaceId: run.workspaceId,
-            playId: run.playId,
-            researchRunId: run.id,
-            candidateId: row.id,
-            providerOperationId: shadow.id,
-            fitStatus: fit.verdict,
-            fitScore: String(fit.fitScore),
-            rejectReason: fit.verdict === 'accepted' ? null : fit.reason,
-            qualityStatus: evidenceAssessment.status,
-            qualityScore: String(evidenceAssessment.score),
-            qualification,
-            qualificationVersion: fit.version,
-          })
-          tem.persist(match)
-          let evidenceRows = 0
-          for (const assessed of evidenceAssessment.rows) {
-            const evidence = assessed.evidence
-            const evidenceDetail = evidence.detail ?? {}
-            const evidenceProvider =
-              typeof evidenceDetail.gtm_provider_adapter_id === 'string'
-                ? evidenceDetail.gtm_provider_adapter_id
-                : planned.adapter_id
-            const evidenceOperationId =
-              typeof evidenceDetail.gtm_provider_operation_id === 'string'
-                ? evidenceDetail.gtm_provider_operation_id
-                : operationId
-            const evidenceProviderRequestId =
-              typeof evidenceDetail.gtm_provider_request_id === 'string'
-                ? evidenceDetail.gtm_provider_request_id
-                : receipt?.provider_request_id ?? null
-            const evidenceRow = tem.create(GtmEvidence, {
-              organizationId: run.organizationId,
-              tenantId: run.tenantId,
-              candidateId: row.id,
-              researchRunId: run.id,
-              claim: evidence.claim,
-              sourceUrl: evidence.source_url ?? null,
-              providerRef: {
-                provider: evidenceProvider,
-                operation_id: evidenceOperationId,
-                provider_request_id: evidenceProviderRequestId,
-                query,
-                ...(evidence.detail ? { detail: evidence.detail } : {}),
-              },
-              observedAt: evidence.observed_at ? new Date(evidence.observed_at) : null,
-              retrievedAt: now(),
-              confidence: String(evidence.confidence),
-              license: adapter.descriptor.constraints.license,
-              qualityStatus: assessed.status,
-              qualityIssues: assessed.issues,
-              evidenceType: 'provider_observation',
-            })
-            tem.persist(evidenceRow)
-            evidenceRows += 1
-          }
-          await tem.flush()
-          return {
-            matchCreated: true,
-            candidateInserted: insertCandidate,
-            evidenceRows,
-          }
-        })
-
-      try {
-        let existing = await em.findOne(GtmCandidate, {
-          organizationId: run.organizationId,
-          tenantId: run.tenantId,
-          workspaceId: run.workspaceId,
-          dedupeKey,
-          deletedAt: null,
-        })
-        let persisted: {
-          matchCreated: boolean
-          candidateInserted: boolean
-          evidenceRows: number
-        }
-        if (existing) {
-          persisted = await persistMatch(existing, false)
-        } else {
-          const row = em.create(GtmCandidate, {
-            // app-side id so evidence rows can reference the candidate before
-            // the transaction flushes (the column default is DB-generated)
-            id: crypto.randomUUID(),
-            organizationId: run.organizationId,
-            tenantId: run.tenantId,
-            researchRunId: run.id,
-            workspaceId: run.workspaceId,
-            entityKind: candidate.entity_kind,
-            identity: candidate.identity as Record<string, unknown>,
-            dedupeKey,
-            fitStatus: fit.verdict,
-            fitScore: String(fit.fitScore),
-            rejectReason: fit.verdict === 'accepted' ? null : fit.reason,
-            qualityStatus: evidenceAssessment.status,
-            qualityScore: String(evidenceAssessment.score),
-            qualification,
-            qualificationVersion: fit.version,
-            retentionExpiresAt: new Date(now().getTime() + CANDIDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000),
-          })
-          try {
-            persisted = await persistMatch(row, true)
-          } catch (err) {
-            if (!(err instanceof UniqueConstraintViolationException)) throw err
-            // Another transaction won the workspace identity race. Reuse its
-            // row, but still preserve this run's independent qualification.
-            existing = await em.findOne(GtmCandidate, {
-              organizationId: run.organizationId,
-              tenantId: run.tenantId,
-              workspaceId: run.workspaceId,
-              dedupeKey,
-              deletedAt: null,
-            })
-            if (!existing) throw err
-            persisted = await persistMatch(existing, false)
-          }
-        }
-        if (!persisted.matchCreated) {
-          batchDuplicates += 1
-          duplicatesSkipped += 1
-          continue
-        }
-        batchMatchesCreated += 1
-        candidateMatchesCreated += 1
-        if (persisted.candidateInserted) {
-          batchInserted += 1
-          candidatesInserted += 1
-        } else {
-          batchReused += 1
-          candidatesReused += 1
-        }
-        evidenceInserted += persisted.evidenceRows
-        if (evidenceAssessment.validEvidence.length > 0) evidenceQualified += 1
-        if (fit.verdict === 'accepted') {
-          accepted += 1
-          batchAccepted += 1
-        } else if (fit.verdict === 'review') {
-          review += 1
-          batchReview += 1
-        } else {
-          rejected += 1
-          batchRejected += 1
-        }
-        fitByReason[fit.reason] = (fitByReason[fit.reason] ?? 0) + 1
-      } catch (err) {
-        // Race-safe dedupe: a concurrent (or same-run) duplicate loses the
-        // unique (org, workspace, dedupe_key) race and is counted, not fatal.
-        if (err instanceof UniqueConstraintViolationException) {
-          batchDuplicates += 1
-          duplicatesSkipped += 1
-          continue
-        }
-        throw err
-      }
     }
 
     batches.push({
       ...base,
       operationId,
-      outcome: settlementPending ? 'ambiguous' : result.status,
+      outcome: outputHeld ? 'ambiguous' : result.status,
       ledgerStatus,
       chargedCredits,
-      candidatesInserted: batchInserted,
-      candidateMatchesCreated: batchMatchesCreated,
-      candidatesReused: batchReused,
+      candidatesInserted: materialized.inserted,
+      candidateMatchesCreated: materialized.matchesCreated,
+      candidatesReused: materialized.reused,
       duplicatesSkipped: batchDuplicates,
-      suppressedSkipped: batchSuppressed,
+      suppressedSkipped: materialized.suppressed,
       rawCandidatesFound: found.length,
-      accepted: batchAccepted,
-      review: batchReview,
-      rejected: batchRejected,
+      accepted: materialized.accepted,
+      review: materialized.review,
+      rejected: materialized.rejected,
       destinationValidationsAttempted: batchDestinationValidationsAttempted,
       destinationValidationsVerified: batchDestinationValidationsVerified,
       destinationValidationsUnavailable: batchDestinationValidationsUnavailable,
@@ -1521,7 +1969,7 @@ export async function executeResearchRun(deps: ExecuteResearchRunDeps): Promise<
     failureReason = batches.find((batch) => batch.outcome === 'error')?.failureReason ?? null
   }
   const status: 'completed' | 'failed' = failureReason ? 'failed' : 'completed'
-  const targetMet = limits.targetAccepted > 0 && accepted >= limits.targetAccepted
+  const targetMet = limits.targetAccepted > 0 && qualifiedTowardTarget() >= limits.targetAccepted
   const skippedForCredits = batches.some((batch) => batch.outcome === 'skipped_max_credits')
   const stopReason: ResearchFunnel['stopReason'] = failureReason
     ? 'failed'

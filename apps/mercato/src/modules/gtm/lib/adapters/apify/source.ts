@@ -616,18 +616,23 @@ export function createApifySourceAdapter(deps: ApifySourceDeps = {}): SourceAdap
           cost_units: 0,
         }
       }
+      // The actor invoices every RETURNED item, not every usable candidate
+      // (review 2026-09-02, M1). Charging capped.length under-billed by the
+      // rows the normalizer dropped or the cap discarded, and Noli absorbed
+      // the difference with nothing on the receipt to reconcile against. The
+      // charge is the invoiced quantity; 'partial' says fewer usable rows were
+      // delivered than were paid for, mirroring company-source.ts.
+      const billedItems = outcome.itemCount
       return {
-        status: 'ok',
+        status: capped.length < billedItems ? 'partial' : 'ok',
         data: capped,
         receipt: providerReceipt({
           returned_count: capped.length,
           dropped_items: normalized.dropped,
           truncated: normalized.candidates.length > capped.length,
+          undelivered_billed_results: Math.max(0, billedItems - capped.length),
         }),
-        // Charged on usable candidates delivered, not on raw items fetched.
-        // item_count stays on the receipt so provider spend can be reconciled
-        // against what we billed.
-        cost_units: capped.length,
+        cost_units: billedItems,
       }
     },
   }

@@ -2,9 +2,22 @@ import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 
 const connectionString = process.env.GTM_TEST_DATABASE_URL
-const describePostgres = connectionString ? describe : describe.skip
+// Locally a missing connection string skips this suite. Under CI it is a hard
+// failure: the gtm-regression job provisions Postgres and sets the URL, and a
+// silently skipped suite let these contracts go unverified (review M14).
+const runningInCi = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true'
 
-describePostgres('GTM real PostgreSQL concurrency contracts', () => {
+if (!connectionString && runningInCi) {
+  describe('GTM real PostgreSQL concurrency contracts (CI guard)', () => {
+    it('requires GTM_TEST_DATABASE_URL in CI', () => {
+      throw new Error('GTM_TEST_DATABASE_URL is not set in CI; the concurrency contracts did not run')
+    })
+  })
+}
+
+const describeContracts = connectionString ? describe : describe.skip
+
+describeContracts('GTM real PostgreSQL concurrency contracts', () => {
   const pool = new Pool({ connectionString, max: 12 })
   const organizationId = randomUUID()
   const tenantId = randomUUID()

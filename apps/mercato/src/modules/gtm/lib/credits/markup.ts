@@ -86,6 +86,14 @@ export const PROVIDER_MIN_CHARGE_USD = 0.01
  *
  * Floored at PROVIDER_MIN_CHARGE_USD: a tiny reservation would otherwise
  * produce a sub-minimum cap and turn every run into a hard 400.
+ *
+ * KNOWN, BOUNDED GAP (review 2026-09-02, L3): when the reservation is worth
+ * less than $0.01 raw, the cap sent to the provider exceeds the escrow by at
+ * most ($0.01 - raw reservation). Every finalized-billing adapter rejects a
+ * receipt over its maxChargeUsd and per-result actors are bounded by
+ * maxItems, so the exposure is under one cent per run of pure Noli loss and
+ * never a customer overcharge. A test documents the floor; closing the gap
+ * means reserving max(quote, creditsFromUsd(0.01) x markup) in the wrappers.
  */
 export function providerSpendCapUsd(
   reservedCredits: number,
@@ -100,10 +108,19 @@ export function providerSpendCapUsd(
   return Math.max(PROVIDER_MIN_CHARGE_USD, usdFromCredits(reservedCredits / markupMultiplier))
 }
 
+/*
+ * The platform markup must be at least 1x. A multiplier below 1 prices every
+ * quote under provider cost and, because providerSpendCapUsd divides the
+ * markup back out, authorizes the provider to bill MORE than the customer
+ * reserved (review 2026-09-02, L5). Anything unparseable or under 1 falls
+ * back to the default rather than silently underpricing.
+ */
+export const MIN_CREDIT_MARKUP = 1
+
 export function defaultMarkupMultiplier(): number {
   const raw = process.env.GTM_CREDIT_MARKUP ?? String(DEFAULT_CREDIT_MARKUP)
   const parsed = Number(raw)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CREDIT_MARKUP
+  return Number.isFinite(parsed) && parsed >= MIN_CREDIT_MARKUP ? parsed : DEFAULT_CREDIT_MARKUP
 }
 
 /*

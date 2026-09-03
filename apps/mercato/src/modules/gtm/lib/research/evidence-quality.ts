@@ -27,6 +27,20 @@ function httpUrl(value: string | null): boolean {
   }
 }
 
+/**
+ * Platform publication time for one evidence row. observed_at is when Noli
+ * retrieved the row, which every live adapter stamps with "now"; only the
+ * source's own timestamp can prove that content is recent.
+ */
+export function evidencePublishedAt(row: Pick<CandidateEvidence, 'detail'>): Date | null {
+  const detail = row.detail ?? {}
+  if (detail.published_at_unknown === true) return null
+  const raw = detail.published_at ?? detail.source_published_at
+  if (typeof raw !== 'string' && !(raw instanceof Date)) return null
+  const parsed = new Date(raw)
+  return Number.isFinite(parsed.getTime()) ? parsed : null
+}
+
 function rowStatus(score: number, invalid: boolean): EvidenceQualityStatus {
   if (invalid) return 'invalid'
   if (score >= 85) return 'strong'
@@ -77,10 +91,21 @@ export function assessEvidence(
         invalid = true
       }
       if (policy.max_age_days != null) {
-        const ageDays = (now.getTime() - observed.getTime()) / 86_400_000
+        // Age the content by its platform publication time when the adapter
+        // reported one. Retrieval time can only prove staleness (content
+        // cannot be newer than the moment it was fetched); it can never prove
+        // freshness, so a row without a publication time is flagged instead
+        // of being presented as current.
+        const published = evidencePublishedAt(row)
+        const ageDays = ((published ?? observed).getTime() > now.getTime()
+          ? 0
+          : (now.getTime() - (published ?? observed).getTime()) / 86_400_000)
         if (ageDays > policy.max_age_days) {
           issues.push('stale_evidence')
           score -= 35
+        } else if (!published) {
+          issues.push('publication_time_unknown')
+          score -= 10
         }
       }
     }

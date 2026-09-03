@@ -3,8 +3,10 @@ import type { CampaignEm, GtmCtx } from './build'
 import {
   GtmCampaign,
   GtmCandidate,
+  GtmCandidateMatch,
   GtmContactPoint,
   GtmEnrollment,
+  GtmPlay,
   GtmSuppression,
 } from '../../data/entities'
 import { EmailUnsubscribe } from '../../../email/data/schema'
@@ -30,6 +32,13 @@ import { EmailUnsubscribe } from '../../../email/data/schema'
  *      live campaign of the org is excluded with reason 'duplicate' unless
  *      the campaign explicitly overrides (settings.duplicate_override).
  *
+ * Before any of those, consumer records are excluded outright (reason
+ * 'consumer_manual_only', review L15): a candidate whose provenance says it
+ * was consumer-sourced, or that was matched under a play with lead_mode
+ * 'consumer' / outreach_mode 'manual_only', can never become an automated
+ * email recipient, even if a play's market_type is later edited. This is
+ * candidate-level defence in depth behind the play-level eligibility gate.
+ *
  * Enforcement points per section 8: build (draft-state renders the excluded
  * list), approval (approve.ts recomputes through this same function so a
  * suppression added between render and approve drops the recipient), and
@@ -54,12 +63,14 @@ export type ExclusionReason =
   // Public prospect-removal request (privacy policy 3.8). Always written at
   // scope 'global', so it excludes the address in every org.
   | 'removal_request'
+  // Consumer-sourced record: manual outreach only, never automated email.
+  | 'consumer_manual_only'
 
 export type ExclusionEntry = {
   candidateId: string
   excluded: boolean
   reason: ExclusionReason | null
-  // 'gtm_suppression' | 'legacy' | 'duplicate' | null
+  // 'gtm_suppression' | 'legacy' | 'duplicate' | 'consumer_policy' | null
   source: string | null
   address: string | null
   addressHash: string | null
@@ -95,6 +106,10 @@ export async function computeExclusions(
 ): Promise<ComputeExclusionsResult> {
   const now = new Date()
   const { candidateIds } = input
+
+  // 0. Consumer records (review L15): candidate provenance or a consumer /
+  //    manual-only play behind any of the candidate's matches.
+  const consumerCandidateIds = await consumerCandidateIdsFor(em, ctx, candidateIds)
 
   // Verified contact point per candidate for the requested channel.
   const points = candidateIds.length
@@ -186,6 +201,17 @@ export async function computeExclusions(
 
   const entries: ExclusionEntry[] = candidateIds.map((candidateId) => {
     const address = addressByCandidate.get(candidateId) ?? null
+    if (consumerCandidateIds.has(candidateId)) {
+      return {
+        candidateId,
+        excluded: true,
+        reason: 'consumer_manual_only' as const,
+        source: 'consumer_policy',
+        address,
+        addressHash: address ? hashAddress(address) : null,
+        contactPointId: pointByCandidate.get(candidateId)?.id ?? null,
+      }
+    }
     if (!address) {
       return {
         candidateId,
@@ -257,4 +283,62 @@ export async function computeExclusions(
     byCandidate,
     summary: { total: entries.length, excluded, byReason },
   }
+}
+
+function readSourceKind(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const direct = record.source_kind
+  if (typeof direct === 'string') return direct
+  const nested = record.provenance
+  if (nested && typeof nested === 'object') {
+    const kind = (nested as Record<string, unknown>).source_kind
+    if (typeof kind === 'string') return kind
+  }
+  return null
+}
+
+function candidateIsConsumerSourced(candidate: GtmCandidate): boolean {
+  return readSourceKind(candidate.identity) === 'consumer'
+}
+
+function playIsConsumer(play: GtmPlay): boolean {
+  return play.leadMode === 'consumer' || play.outreachMode === 'manual_only'
+}
+
+// Candidate ids that must never receive automated email: consumer-sourced by
+// provenance, or matched under a consumer / manual-only play.
+async function consumerCandidateIdsFor(
+  em: CampaignEm,
+  ctx: GtmCtx,
+  candidateIds: string[],
+): Promise<Set<string>> {
+  const out = new Set<string>()
+  if (candidateIds.length === 0) return out
+  const candidates = await em.find(GtmCandidate, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    id: { $in: candidateIds },
+  })
+  for (const candidate of candidates) {
+    if (candidateIsConsumerSourced(candidate)) out.add(candidate.id)
+  }
+  const matches = await em.find(GtmCandidateMatch, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    candidateId: { $in: candidateIds },
+    deletedAt: null,
+  })
+  const playIds = [...new Set(matches.map((match) => match.playId))]
+  if (playIds.length === 0) return out
+  const plays = await em.find(GtmPlay, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    id: { $in: playIds },
+  })
+  const consumerPlayIds = new Set(plays.filter(playIsConsumer).map((play) => play.id))
+  for (const match of matches) {
+    if (consumerPlayIds.has(match.playId)) out.add(match.candidateId)
+  }
+  return out
 }

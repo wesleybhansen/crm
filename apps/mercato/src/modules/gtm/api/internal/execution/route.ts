@@ -1,5 +1,5 @@
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
+import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('Launch or tick gated GTM execution')
@@ -68,14 +68,8 @@ export async function POST(req: Request) {
     return opaqueNotFound()
   }
 
-  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret ||
-    authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-  ) {
+  // Byte-length guarded constant-time compare (lib/authorize.ts).
+  if (!internalServiceBearerAuthorized(req)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -216,14 +210,16 @@ export async function POST(req: Request) {
         })
       }
       const { executeClaimedAttempt } = await import('../../../lib/execute/send')
-      const { mailboxTransport } = await import('../../../lib/execute/transport')
+      const { createPersistingMailboxTransport } = await import('../../../lib/execute/transport')
+      const { EmailConnection } = await import('../../../../email/data/schema')
+      const { executeClaimedBatch } = await import('../../../workers/execution-tick')
       const claimResult = await claimDueAttempts(em, ctx, { limit: body.limit })
-      const outcomes = []
-      for (const claimed of claimResult.claimed) {
-        outcomes.push(
-          await executeClaimedAttempt(em, ctx, claimed.attempt, { transport: mailboxTransport }),
-        )
-      }
+      // Same batch discipline as the queue worker: one EntityManager fork per
+      // attempt (C1), DB-anchored time (L3), lease-margin release (M2).
+      const outcomes = await executeClaimedBatch(em, ctx, claimResult, {
+        executeClaimedAttempt,
+        transport: createPersistingMailboxTransport(em, EmailConnection),
+      })
       return NextResponse.json({
         ok: true,
         dry_run: false,

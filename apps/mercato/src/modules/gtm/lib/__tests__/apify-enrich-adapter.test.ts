@@ -3,11 +3,9 @@ import { enrichAdapterList } from '../adapters/registry'
 import { fixtureEnrichAdapter } from '../adapters/fixture'
 import {
   APIFY_MIN_CHARGE_USD,
-  runActorSync,
   type ApifyFetchInit,
   type ApifyFetchLike,
   type ApifyFetchResponse,
-  type ApifyRunOutcome,
 } from '../adapters/apify/client'
 import {
   APIFY_ENRICH_ACTOR,
@@ -25,9 +23,9 @@ import {
 } from '../adapters/apify/source'
 import {
   APIFY_ENRICH_ADAPTER_ID,
+  APIFY_ENRICH_EVENT_PRICES_USD,
   APIFY_ENRICH_PROVISIONAL_LICENSE,
   APIFY_ENRICH_RECEIPT_FIELDS,
-  type ApifyEnrichRunActorFn,
   apifyEnrichEnabled,
   createApifyEnrichAdapter,
   resolveEnrichMaxChargeUsd,
@@ -73,22 +71,101 @@ const baseRequest: EnrichRequest = {
 
 type FakeCall = { url: string; init: ApifyFetchInit }
 
+/*
+ * One spec drives the REAL finalized-billing client (review 2026-09-02, T2):
+ * the old harness wrapped `runActorSync` and stitched a synthetic receipt on
+ * top, so every HTTP-status case here asserted the sync client's mapping
+ * while production used `runActorWithFinalizedBilling`. Now `status`/`body`
+ * describe the actor-start POST; a 2xx JSON-array body becomes the dataset,
+ * and the run receipt is derived from it (one profile event, with_email when
+ * the first row carries an email) so the client's price/cardinality checks
+ * are exercised on every success path. `detailStatus` and `datasetStatus`
+ * fail the follow-up GETs for the post-start ambiguity cases.
+ */
 type FakeSpec =
-  | { status: number; body: string; headers?: Record<string, string> }
+  | {
+      status: number
+      body: string
+      headers?: Record<string, string>
+      detailStatus?: number
+      datasetStatus?: number
+      throwOnDetail?: Error
+    }
   | { throws: Error }
+
+const RUN_ID = 'apify-run-enrich-1'
+const DATASET_ID = 'apify-dataset-enrich-1'
+
+function runRecordFor(items: unknown[]) {
+  const first = items[0]
+  const emails =
+    first && typeof first === 'object' && !Array.isArray(first)
+      ? (first as Record<string, unknown>).emails
+      : null
+  const emailEvent = Array.isArray(emails) && emails.length > 0
+  const counts = {
+    profile: items.length > 0 && !emailEvent ? 1 : 0,
+    profile_with_email: items.length > 0 && emailEvent ? 1 : 0,
+  }
+  const usageTotalUsd =
+    counts.profile * APIFY_ENRICH_EVENT_PRICES_USD.profile
+    + counts.profile_with_email * APIFY_ENRICH_EVENT_PRICES_USD.profile_with_email
+  return {
+    id: RUN_ID,
+    status: 'SUCCEEDED',
+    defaultDatasetId: DATASET_ID,
+    chargedEventCounts: counts,
+    usageTotalUsd,
+    pricingInfo: {
+      pricingModel: 'PAY_PER_EVENT',
+      pricingPerEvent: {
+        actorChargeEvents: {
+          profile: { eventPriceUsd: APIFY_ENRICH_EVENT_PRICES_USD.profile },
+          profile_with_email: { eventPriceUsd: APIFY_ENRICH_EVENT_PRICES_USD.profile_with_email },
+        },
+      },
+    },
+  }
+}
 
 function makeFetch(spec: FakeSpec): { fetchImpl: ApifyFetchLike; calls: FakeCall[] } {
   const calls: FakeCall[] = []
+  let step = 0
   const fetchImpl: ApifyFetchLike = async (url, init) => {
     calls.push({ url, init })
     if ('throws' in spec) throw spec.throws
     const headers = spec.headers ?? {}
-    const response: ApifyFetchResponse = {
-      status: spec.status,
+    const respond = (status: number, body: string): ApifyFetchResponse => ({
+      status,
       headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
-      text: async () => spec.body,
+      text: async () => body,
+    })
+    const current = step
+    step += 1
+    if (current === 0) {
+      // actor start: anything that is not a 2xx JSON array is handed to the
+      // client verbatim so it classifies the start exactly as in production
+      if (spec.status < 200 || spec.status >= 300) return respond(spec.status, spec.body)
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(spec.body)
+      } catch {
+        return respond(spec.status, spec.body)
+      }
+      if (!Array.isArray(parsed)) return respond(spec.status, spec.body)
+      return respond(
+        spec.status,
+        JSON.stringify({ data: { id: RUN_ID, status: 'SUCCEEDED', defaultDatasetId: DATASET_ID } }),
+      )
     }
-    return response
+    const items = JSON.parse(spec.body) as unknown[]
+    if (current === 1) {
+      if (spec.throwOnDetail) throw spec.throwOnDetail
+      if (spec.detailStatus != null) return respond(spec.detailStatus, 'run receipt unavailable')
+      return respond(200, JSON.stringify({ data: runRecordFor(items) }))
+    }
+    if (spec.datasetStatus != null) return respond(spec.datasetStatus, 'dataset unavailable')
+    return respond(200, spec.body)
   }
   return { fetchImpl, calls }
 }
@@ -97,35 +174,6 @@ function abortError(): Error {
   const err = new Error('The operation was aborted')
   err.name = 'AbortError'
   return err
-}
-
-function finalizedFakeRunner(fetchImpl: ApifyFetchLike): ApifyEnrichRunActorFn {
-  return async (actorId, input, options): Promise<ApifyRunOutcome> => {
-    const outcome = await runActorSync(actorId, input, { ...options, fetchImpl })
-    if (outcome.status !== 'ok' && outcome.status !== 'no_result') return outcome
-    const first = outcome.items[0]
-    const emails =
-      first && typeof first === 'object' && !Array.isArray(first)
-        ? (first as Record<string, unknown>).emails
-        : null
-    const emailEvent = Array.isArray(emails) && emails.length > 0
-    const providerCostUsd = outcome.status === 'no_result'
-      ? 0
-      : emailEvent
-        ? APIFY_MEASURED_USD.profile_with_email
-        : APIFY_MEASURED_USD.profile_without_email
-    return {
-      ...outcome,
-      runId: 'synthetic-finalized-run',
-      billingFinalized: true,
-      chargedEventCounts: {
-        profile: outcome.status === 'ok' && !emailEvent ? 1 : 0,
-        profile_with_email: outcome.status === 'ok' && emailEvent ? 1 : 0,
-      },
-      providerCostUsd,
-      pricingModel: 'PAY_PER_EVENT',
-    }
-  }
 }
 
 /*
@@ -177,7 +225,9 @@ function adapterWith(spec: FakeSpec, env: Record<string, string | undefined> = E
   const adapter = createApifyEnrichAdapter({
     env,
     now,
-    runActor: finalizedFakeRunner(fetchImpl),
+    fetchImpl,
+    finalizationDelayMs: 0,
+    sleep: async () => undefined,
   })
   return { adapter, calls }
 }
@@ -399,7 +449,8 @@ describe('apify enrich capability fail-closed', () => {
     const { adapter, calls } = adapterWith({ status: 201, body: '[]' })
     const result = await adapter.enrich({ ...baseRequest, geography: 'US-CA' })
     expect(result.status).toBe('no_result')
-    expect(calls).toHaveLength(1)
+    // start, run receipt, dataset: the real finalized flow
+    expect(calls).toHaveLength(3)
   })
 
   it('the capability check runs BEFORE the env gate, so a disabled adapter still fails closed', async () => {
@@ -479,7 +530,7 @@ describe('apify enrich status mapping', () => {
     expectReceiptContract(result)
     expect(result.receipt).toMatchObject({
       actor_id: APIFY_ENRICH_ACTOR.defaultActorId,
-      run_id: 'synthetic-finalized-run',
+      run_id: RUN_ID,
       item_count: 1,
       http_status: 201,
       emails_found: 1,
@@ -503,7 +554,10 @@ describe('apify enrich status mapping', () => {
       const { adapter } = adapterWith({ status, body: '{"error":"nope"}' })
       const result = await adapter.enrich(baseRequest)
       expect(result.status).toBe('error')
-      expect(result.error).toContain('auth_error')
+      // the finalized client reports the kind on the receipt; its message
+      // names the HTTP status rather than the sync client's label
+      expect(result.receipt).toMatchObject({ provider_status: 'auth_error', http_status: status })
+      expect(result.error).toContain(`HTTP ${status}`)
       expect(result.cost_units).toBe(0)
       expectReceiptContract(result)
     }
@@ -517,20 +571,44 @@ describe('apify enrich status mapping', () => {
     })
     const result = await adapter.enrich(baseRequest)
     expect(result.status).toBe('error')
-    expect(result.error).toContain('rate_limit')
+    expect(result.error).toContain('HTTP 429')
     expect(result.cost_units).toBe(0)
     expect(result.receipt).toMatchObject({ retry_after_seconds: 30, provider_status: 'rate_limited' })
   })
 
-  it('500 -> error, zero units', async () => {
-    const { adapter } = adapterWith({ status: 500, body: 'upstream exploded' })
+  // Review 2026-09-02 (T2/H1): the old harness asserted "500 -> error, zero
+  // units" against the sync client. The finalized client treats a 5xx or 408
+  // on actor start as dispatched-with-unknown-outcome, and parks it.
+  it.each([500, 502, 504, 408])('HTTP %s on actor start -> ambiguous with unknown cost, never a refund', async (status) => {
+    const { adapter, calls } = adapterWith({ status, body: 'upstream exploded' })
     const result = await adapter.enrich(baseRequest)
-    expect(result.status).toBe('error')
-    expect(result.error).toContain('provider_5xx')
-    expect(result.cost_units).toBe(0)
+    expect(result.status).toBe('ambiguous')
+    expect(result.data).toBeNull()
+    expect(result.cost_units).toBeNull()
+    expect(result.error).toContain(`HTTP ${status}`)
+    expect(result.receipt).toMatchObject({ http_status: status, billing_finalized: false })
+    // one attempt only: the run may have started and billed
+    expect(calls).toHaveLength(1)
+    expectReceiptContract(result)
   })
 
-  it('timeout / abort -> ambiguous with UNKNOWN cost, never a silent retry', async () => {
+  it('a 5xx, transport failure, or timeout on the run receipt or dataset GET is ambiguous after a durable start', async () => {
+    for (const spec of [
+      { status: 201, body: JSON.stringify([profileItem()]), detailStatus: 503 },
+      { status: 201, body: JSON.stringify([profileItem()]), datasetStatus: 502 },
+      { status: 201, body: JSON.stringify([profileItem()]), throwOnDetail: abortError() },
+      { status: 201, body: JSON.stringify([profileItem()]), throwOnDetail: new Error('socket hang up') },
+    ]) {
+      const { adapter } = adapterWith(spec)
+      const result = await adapter.enrich(baseRequest)
+      expect(result.status).toBe('ambiguous')
+      expect(result.cost_units).toBeNull()
+      // the durable run id is retained so an operator can reconcile it
+      expect(result.receipt).toMatchObject({ run_id: RUN_ID })
+    }
+  })
+
+  it('timeout / abort on actor start -> ambiguous with UNKNOWN cost, never a silent retry', async () => {
     const { adapter, calls } = adapterWith({ throws: abortError() })
     const result = await adapter.enrich(baseRequest)
     expect(result.status).toBe('ambiguous')
@@ -538,7 +616,10 @@ describe('apify enrich status mapping', () => {
     // null, not 0 and not 1: ambiguity does not let us infer an event charge
     // when we do not know whether the run started
     expect(result.cost_units).toBeNull()
-    expect(result.error).toContain('timeout')
+    // the finalized client keeps the abort kind on the receipt; the message
+    // says the start outcome is unknown, which is the point
+    expect(result.receipt).toMatchObject({ provider_status: 'timeout' })
+    expect(result.error).toContain('outcome is unknown')
     expect(calls).toHaveLength(1)
     expectReceiptContract(result)
   })
@@ -552,10 +633,9 @@ describe('apify enrich status mapping', () => {
     expect(result.cost_units).toBeNull()
   })
 
-  // Reachable only on a 2xx, so the actor ran and Apify billed - and this
-  // adapter is pay-per-ATTEMPT, so the charge lands even with no emails found.
-  // 'error' would refund the reservation and swallow real spend.
-  it('malformed JSON and a non-array 2xx body -> ambiguous (invalid_schema), parked not refunded', async () => {
+  // Reachable only on a 2xx, so the actor may have started and Apify may
+  // have billed. 'error' would refund the reservation and swallow real spend.
+  it('malformed JSON and a 2xx start body without a run identity -> ambiguous (invalid_schema), parked not refunded', async () => {
     for (const body of ['[{"emails": ', '{"data":[]}']) {
       const { adapter } = adapterWith({ status: 201, body })
       const result = await adapter.enrich(baseRequest)
@@ -608,7 +688,9 @@ describe('apify enrich adaptive event settlement', () => {
     const adapter = createApifyEnrichAdapter({
       env: ENABLED_ENV,
       now,
-      runActor: finalizedFakeRunner(fetchImpl),
+      fetchImpl,
+      finalizationDelayMs: 0,
+      sleep: async () => undefined,
     })
     const candidate = em.create(GtmCandidate, {
       organizationId: 'org-1',
@@ -794,9 +876,12 @@ describe('apify enrich actor input (verified schema)', () => {
     expect(Object.keys(body).sort()).toEqual(['profileScraperMode', 'queries'])
     expect(body.queries).toEqual([PROFILE_URL])
     expect(body.profileScraperMode).toBe('Profile details + email search ($10 per 1k)')
-    // the actor id is addressed with '~' in the API path
-    expect(calls[0].url).toContain('/acts/harvestapi~linkedin-profile-scraper/run-sync-get-dataset-items')
+    // the actor id is addressed with '~' in the API path; production uses the
+    // durable /runs endpoint (finalized billing), not run-sync-get-dataset-items
+    expect(calls[0].url).toContain('/acts/harvestapi~linkedin-profile-scraper/runs?')
     expect(calls[0].url).toContain('build=0.0.131')
+    expect(calls[1].url).toContain(`/actor-runs/${RUN_ID}`)
+    expect(calls[2].url).toContain(`/datasets/${DATASET_ID}/items`)
     expect(result.receipt).toMatchObject({ actor_build: '0.0.131' })
   })
 
@@ -889,7 +974,9 @@ describe('apify enrich mandatory spend cap', () => {
     const adapter = createApifyEnrichAdapter({
       env: ENABLED_ENV,
       now,
-      runActor: finalizedFakeRunner(fetchImpl),
+      fetchImpl,
+      finalizationDelayMs: 0,
+      sleep: async () => undefined,
     })
     const candidate = em.create(GtmCandidate, {
       organizationId: 'org-1',

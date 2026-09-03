@@ -1,5 +1,5 @@
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
+import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('List scoped GTM candidates and evidence')
@@ -48,6 +48,22 @@ function opaqueNotFound() {
   return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 }
 
+// Channels a manual-only play may display. Email (and anything else) is
+// only shown when the resolving play is an automated_email play.
+const MANUAL_ONLY_CHANNELS = new Set(['linkedin', 'x', 'public_profile'])
+
+function playAllowsEmailDisplay(play: { outreachMode?: string | null } | null | undefined): boolean {
+  return play?.outreachMode === 'automated_email'
+}
+
+function contactPointsForPlay<T extends { channel: string }>(
+  points: T[],
+  play: { outreachMode?: string | null } | null | undefined,
+): T[] {
+  if (playAllowsEmailDisplay(play)) return points
+  return points.filter((point) => MANUAL_ONLY_CHANNELS.has(point.channel))
+}
+
 function shapeCandidate(candidate: GtmCandidate, match?: GtmCandidateMatch | null) {
   return {
     id: candidate.id,
@@ -83,20 +99,21 @@ export async function POST(req: Request) {
   }
 
   // 1. Shared-secret auth (length-guarded constant-time compare)
-  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret ||
-    authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-  ) {
+  // Byte-length guarded constant-time compare (lib/authorize.ts).
+  if (!internalServiceBearerAuthorized(req)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
-  // 2. Body
-  const raw = await req.json().catch(() => ({}))
-  const parsed = gtmCandidatesBodySchema.safeParse(raw)
+  // 2. Body. idempotency_key is server-injected from the Idempotency-Key
+  //    header (as the schema comment promises): a body-supplied copy is
+  //    overwritten so a hub retry with a regenerated body key cannot produce
+  //    two audited exports of the same lead set.
+  const raw = (await req.json().catch(() => ({}))) as Record<string, unknown>
+  const headerKey = (req.headers.get('idempotency-key') ?? '').trim()
+  const parsed = gtmCandidatesBodySchema.safeParse({
+    ...(raw && typeof raw === 'object' ? raw : {}),
+    idempotency_key: headerKey || undefined,
+  })
   if (!parsed.success) {
     const first = parsed.error.issues[0]
     const where = first?.path?.length ? `${first.path.join('.')}: ` : ''
@@ -222,16 +239,23 @@ export async function POST(req: Request) {
           })
       if (body.matchId && !match) return opaqueNotFound()
 
-      const { GtmEvidence, GtmContactPoint } = await import('../../../data/entities')
+      const { GtmEvidence, GtmContactPoint, GtmPlay } = await import('../../../data/entities')
       const scope = { organizationId, tenantId, candidateId: candidate.id, deletedAt: null }
-      const [evidence, contactPoints] = await Promise.all([
+      const [evidence, allContactPoints, resolvingPlay] = await Promise.all([
         em.find(
           GtmEvidence,
           match ? { ...scope, researchRunId: match.researchRunId } : scope,
           { orderBy: { observedAt: 'desc' }, limit: LIST_CAP },
         ),
         em.find(GtmContactPoint, scope, { orderBy: { createdAt: 'desc' }, limit: LIST_CAP }),
+        match
+          ? em.findOne(GtmPlay, { id: match.playId, organizationId, tenantId, deletedAt: null })
+          : Promise.resolve(null),
       ])
+      // Research M17: the candidate row is shared across plays, but a
+      // manual-only (consumer) play must never display an email address the
+      // consumer policy says Noli does not produce for it.
+      const contactPoints = contactPointsForPlay(allContactPoints, resolvingPlay)
 
       return NextResponse.json({
         ok: true,
@@ -497,15 +521,28 @@ export async function POST(req: Request) {
       },
     )
 
+    // Research M17: resolve each row's play once so a manual-only play never
+    // reports a verified email for a shared candidate row.
+    const { GtmPlay } = await import('../../../data/entities')
+    const playIds = [...new Set(rows.flatMap((row) => (row.match ? [row.match.playId] : [])))]
+    const plays = playIds.length
+      ? await em.find(GtmPlay, { organizationId, tenantId, id: { $in: playIds } })
+      : []
+    const playById = new Map(plays.map((play) => [play.id, play]))
+
     return NextResponse.json({
       ok: true,
       candidates: rows.map(({ candidate, match }) => {
         const extra = rollup.get(candidate.id)
+        const resolvingPlay = match ? playById.get(match.playId) ?? null : null
+        // No resolving play (workspace-wide view) keeps the raw rollup; a
+        // resolving play that is not automated_email masks the email facts.
+        const emailVisible = match ? playAllowsEmailDisplay(resolvingPlay) : true
         return {
           ...shapeCandidate(candidate, match),
-          has_verified_email: extra?.hasVerifiedEmail ?? false,
-          email_verification_state: extra?.emailVerificationState ?? null,
-          email_contact_count: extra?.emailContactCount ?? 0,
+          has_verified_email: emailVisible ? extra?.hasVerifiedEmail ?? false : false,
+          email_verification_state: emailVisible ? extra?.emailVerificationState ?? null : null,
+          email_contact_count: emailVisible ? extra?.emailContactCount ?? 0 : 0,
           evidence_count: extra?.evidenceCount ?? 0,
           // Provenance (privacy policy 3.2): where this record came from and
           // when it was observed. Derived from the evidence rows already

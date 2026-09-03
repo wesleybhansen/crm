@@ -37,6 +37,18 @@ import { GtmSendAttempt } from '../../data/entities'
 
 export const DEFAULT_LEASE_MINUTES = 10
 
+// ExecutionEm (schedule.ts) declares find(entity, where) only; MikroORM and
+// the FakeEm both accept the standard options bag, which the claim needs so
+// the candidate read stays bounded (M5). Widening ExecutionEm itself is the
+// schedule.ts owner's call; this local view keeps the bound without it.
+type BoundedFindEm = {
+  find<T extends object>(
+    entityClass: new () => T,
+    where: Record<string, unknown>,
+    options?: { orderBy?: Record<string, 'asc' | 'desc'>; limit?: number },
+  ): Promise<T[]>
+}
+
 export async function resolveNow(em: ExecutionEm, clock?: Clock): Promise<Date> {
   if (clock) return clock.now()
   const anyEm = em as unknown as {
@@ -75,16 +87,20 @@ export async function claimDueAttempts(
   const leaseMinutes = input.leaseMinutes && input.leaseMinutes > 0 ? input.leaseMinutes : DEFAULT_LEASE_MINUTES
   const now = await resolveNow(em, input.clock)
 
-  // Candidate set: due 'approved' rows plus lease-expired 'claimed' rows.
+  // Candidate set: due 'approved' rows plus lease-expired 'claimed' rows,
+  // oldest first, bounded to a small multiple of the limit (some candidates
+  // lose the CAS to a concurrent claimer). Only campaign rows: one-off inbox
+  // replies (kind 'reply') are driven by replies/send.ts, never by the tick.
   const candidates = (
-    await em.find(GtmSendAttempt, {
+    await (em as unknown as BoundedFindEm).find(GtmSendAttempt, {
       organizationId: ctx.organizationId,
       tenantId: ctx.tenantId,
+      kind: 'campaign',
       state: { $in: ['approved', 'claimed'] },
       scheduledFor: { $lte: now },
       deletedAt: null,
       $or: [{ claimExpiresAt: null }, { claimExpiresAt: { $lt: now } }],
-    })
+    }, { orderBy: { scheduledFor: 'asc' }, limit: limit * 2 })
   ).sort((a, b) => (a.scheduledFor?.getTime() ?? 0) - (b.scheduledFor?.getTime() ?? 0))
 
   const claimed: ClaimedAttempt[] = []

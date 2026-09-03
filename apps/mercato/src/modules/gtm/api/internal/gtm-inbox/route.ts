@@ -1,5 +1,5 @@
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
+import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('Manage the scoped GTM reply inbox')
@@ -9,8 +9,11 @@ import { gtmEnabled } from '../../../lib/flags'
 import { gtmInboxBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
 import { GtmExecutionError, type ExecutionEm } from '../../../lib/execute/schedule'
+import type { ListEm } from '../../../lib/listing'
+import { canonicalHash } from '../../../lib/campaign/approve'
 import type { GtmReply } from '../../../data/entities'
-import { EmailMessage } from '../../../../email/data/schema'
+import { EmailConnection, EmailMessage } from '../../../../email/data/schema'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 /*
  * Internal GTM inbox (SPEC-066 sections 5, 6, 8, 9, 14; inbox completeness).
@@ -38,7 +41,9 @@ import { EmailMessage } from '../../../../email/data/schema'
  *                         a durable one-off GtmSendAttempt through the full send
  *                         machine (lib/replies/send.ts). Honors the
  *                         GTM_EXECUTION_ENABLED double-lock (dry-run when off)
- *                         and is fully idempotent.
+ *                         and is fully idempotent. Requires expected_draft_hash
+ *                         to equal the stored draft_content_hash (409 otherwise)
+ *                         so a draft rewritten after review can never ship.
  *
  * Auth/identity mirrors internal/campaigns: shared-secret bearer, noliUserId
  * re-resolved server-side, every query self-scoped by org + tenant.
@@ -50,6 +55,19 @@ export const metadata = {
 
 function opaqueNotFound() {
   return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+}
+
+const LIST_CAP = 100
+
+// sha256 over exactly the draft content that approve-draft would send
+// (subject + body), independent of drafting metadata such as timestamps.
+export function draftContentHash(reply: Pick<GtmReply, 'draftResponse'>): string | null {
+  const draft = (reply.draftResponse ?? null) as Record<string, unknown> | null
+  if (!draft || typeof draft.body !== 'string' || !draft.body.trim()) return null
+  return canonicalHash({
+    subject: typeof draft.subject === 'string' ? draft.subject : null,
+    body: draft.body,
+  })
 }
 
 function replyShape(reply: GtmReply) {
@@ -67,6 +85,8 @@ function replyShape(reply: GtmReply) {
     classification_source: reply.classificationSource ?? null,
     draft_status: reply.draftStatus,
     draft_response: reply.draftResponse ?? null,
+    // Echoed back by approve-draft as expected_draft_hash.
+    draft_content_hash: draftContentHash(reply),
     created_at: reply.createdAt ?? null,
   }
 }
@@ -76,14 +96,8 @@ export async function POST(req: Request) {
     return opaqueNotFound()
   }
 
-  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret ||
-    authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-  ) {
+  // Byte-length guarded constant-time compare (lib/authorize.ts).
+  if (!internalServiceBearerAuthorized(req)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -129,19 +143,46 @@ export async function POST(req: Request) {
     if (body.op === 'list') {
       const filter = body.filter ?? 'all'
       const query = (body.query ?? '').trim().toLowerCase()
-      let replies = (
-        await em.find(entities.GtmReply, {
-          organizationId: ctx.organizationId,
-          tenantId: ctx.tenantId,
-          deletedAt: null,
-        })
-      )
-        .filter((reply) => {
-          if (filter === 'unread') return reply.classification == null
-          if (filter === 'interested') return reply.classification === 'interested'
-          return true
-        })
-        .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+      const listEm = em as unknown as ListEm
+      // Filter, search, order, and cap are all pushed into the database: the
+      // previous in-memory version loaded every reply in the org on each poll.
+      const where: Record<string, unknown> = {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+      }
+      if (filter === 'unread') where.classification = null
+      if (filter === 'interested') where.classification = 'interested'
+      if (query) {
+        // Counterparty match (from / subject / body) resolves to a bounded set
+        // of linked inbound message ids, org+tenant scoped; the reply side
+        // matches its own enum fields. Pattern escaped for ILIKE.
+        const pattern = `%${escapeLikePattern(query)}%`
+        const matchedEmails = await listEm.find(
+          EmailMessage,
+          {
+            organizationId: ctx.organizationId,
+            tenantId: ctx.tenantId,
+            deletedAt: null,
+            $or: [
+              { fromAddress: { $ilike: pattern } },
+              { subject: { $ilike: pattern } },
+              { bodyText: { $ilike: pattern } },
+            ],
+          },
+          { orderBy: { createdAt: 'desc' }, limit: 500 },
+        )
+        where.$or = [
+          { emailMessageId: { $in: matchedEmails.map((row) => row.id) } },
+          { channel: { $ilike: pattern } },
+          { classification: { $ilike: pattern } },
+          { draftStatus: { $ilike: pattern } },
+        ]
+      }
+      const replies = await listEm.find(entities.GtmReply, where, {
+        orderBy: { createdAt: 'desc' },
+        limit: LIST_CAP,
+      })
       const enrollmentIds = [...new Set(replies.map((reply) => reply.enrollmentId))]
       const enrollments = enrollmentIds.length
         ? await em.find(entities.GtmEnrollment, {
@@ -169,15 +210,11 @@ export async function POST(req: Request) {
       const emailFor = (reply: GtmReply) =>
         reply.emailMessageId ? emailById.get(reply.emailMessageId) ?? null : null
 
-      const { replyMatchesQuery, inboundSummary } = await import('../../../lib/replies/search')
-      if (query) {
-        replies = replies.filter((reply) =>
-          replyMatchesQuery(reply, enrollmentById.get(reply.enrollmentId), emailFor(reply), query),
-        )
-      }
+      const { inboundSummary } = await import('../../../lib/replies/search')
 
       return NextResponse.json({
         ok: true,
+        cap: LIST_CAP,
         replies: replies.map((reply) => {
           const enrollment = enrollmentById.get(reply.enrollmentId)
           return {
@@ -311,14 +348,15 @@ export async function POST(req: Request) {
         em,
         ctx,
         surface: 'reply_draft',
-        operationKey: body.idempotency_key
-          ? `gtm:reply-draft:${ctx.organizationId}:${body.replyId}:${body.idempotency_key}`
-          : `gtm:reply-draft:${ctx.organizationId}:${body.replyId}:${crypto.randomUUID()}`,
+        // idempotency_key is required by the validator; no random fallback
+        // (a relaxed schema must never turn a retry into a second metered
+        // AI call).
+        operationKey: `gtm:reply-draft:${ctx.organizationId}:${body.replyId}:${body.idempotency_key}`,
         canonicalMeter,
       })
       const result = await draftReplyWithAi(em, ctx, { model, meter }, {
         replyId: body.replyId,
-        idempotencyKey: body.idempotency_key ?? null,
+        idempotencyKey: body.idempotency_key,
       })
       return NextResponse.json({
         ok: true,
@@ -331,12 +369,39 @@ export async function POST(req: Request) {
     // approve-draft: approve AND send the reply as a durable one-off attempt
     // through the full send machine (dry-run when execution is disabled).
     if (!isUuid(body.replyId)) return opaqueNotFound()
+    const stored = await em.findOne(entities.GtmReply, {
+      id: body.replyId,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      deletedAt: null,
+    })
+    if (!stored) return opaqueNotFound()
+    // The reviewer approves exactly the draft they saw: a stale or missing
+    // hash is a conflict, never a send.
+    const currentHash = draftContentHash(stored)
+    if (!currentHash || currentHash !== body.expected_draft_hash) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'The draft changed since it was reviewed; reload the reply and approve again',
+          code: 'stale_draft',
+        },
+        { status: 409 },
+      )
+    }
     const executionEnabled = process.env.GTM_EXECUTION_ENABLED === 'true'
     const { approveAndSendReply } = await import('../../../lib/replies/send')
     let transport
     if (executionEnabled) {
-      const { smtpTransport } = await import('../../../lib/execute/transport')
-      transport = smtpTransport
+      // The mailbox transport routes gmail/microsoft connections through OAuth
+      // exactly like the campaign tick (execution/route.ts). The SMTP-only
+      // transport threw for every OAuth mailbox, and because the reply
+      // idempotency key is fixed, that failure was permanent.
+      const { createPersistingMailboxTransport } = await import('../../../lib/execute/transport')
+      transport = createPersistingMailboxTransport(
+        em as unknown as Parameters<typeof createPersistingMailboxTransport>[0],
+        EmailConnection,
+      )
     }
     const result = await approveAndSendReply(em, ctx, { replyId: body.replyId }, { executionEnabled, transport })
     return NextResponse.json({

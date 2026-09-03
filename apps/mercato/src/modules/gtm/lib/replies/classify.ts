@@ -11,6 +11,7 @@ import {
 } from '../../data/entities'
 import { EmailMessage } from '../../../email/data/schema'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { inboundOwnText } from './text'
 
 /*
  * Reply classification + response drafting (SPEC-066 section 9, Tranche 6).
@@ -22,7 +23,14 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
  * call, would be metered - not built in this tranche).
  *
  * `unsubscribe` classification ALSO writes gtm_suppressions in the SAME
- * transaction as the classification update (section 9).
+ * transaction as the classification update (section 9), but ONLY for a human
+ * decision (source 'user_override'). A model classification never writes a
+ * permanent org-wide suppression on its own (review api-send-privacy H1):
+ * the keyword classifier runs over the prospect's OWN text (quoted history
+ * and our own "Unsubscribe:" footer stripped, see text.ts), yet a false
+ * positive there would otherwise silently exclude the hottest lead forever.
+ * The suppression address is always the enrollment's verified contact point,
+ * never the inbound From header, which any sender can forge (H1b).
  *
  * Drafting: draftResponse stores draft_response + draft_status 'drafted';
  * approveDraft flips to 'approved' with an audit event. There is NO send
@@ -146,22 +154,14 @@ async function loadReply(em: ExecutionEm, ctx: GtmCtx, replyId: string): Promise
   return reply
 }
 
-// Resolve the counterparty address for a reply: the inbound message's from
-// address when the reply is an email, else the enrollment's verified email
-// contact point.
+// Resolve the counterparty address for a reply: ALWAYS the enrollment's
+// verified email contact point. The inbound From header is sender-controlled
+// and must never choose which address gets suppressed (H1b).
 async function resolveReplyAddress(
   em: ExecutionEm,
   ctx: GtmCtx,
   reply: GtmReply,
 ): Promise<string | null> {
-  if (reply.emailMessageId) {
-    const message = await em.findOne(EmailMessage, {
-      id: reply.emailMessageId,
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-    })
-    if (message?.fromAddress) return message.fromAddress.trim().toLowerCase()
-  }
   const enrollment = await em.findOne(GtmEnrollment, {
     id: reply.enrollmentId,
     organizationId: ctx.organizationId,
@@ -203,7 +203,9 @@ export async function classifyReply(
         organizationId: ctx.organizationId,
         tenantId: ctx.tenantId,
       })
-      text = message?.bodyText || message?.bodyHtml || ''
+      // Only the prospect's own words: quoted history (which carries our
+      // own unsubscribe footer) must never drive the classification (H1).
+      text = message ? inboundOwnText(message) : ''
     }
     classification = (deps.classifier ?? keywordClassifier).classify(text)
   }
@@ -215,9 +217,10 @@ export async function classifyReply(
       reply.classification = resolved
       reply.classificationSource = source
       tem.persist(reply)
-      if (resolved === 'unsubscribe') {
+      if (resolved === 'unsubscribe' && source === 'user_override') {
         // Section 9: an unsubscribe classification writes the suppression in
-        // the SAME transaction as the classification update.
+        // the SAME transaction as the classification update. Human decision
+        // only: a model verdict surfaces in the inbox for confirmation.
         const address = await resolveReplyAddress(tem, ctx, reply)
         if (address) {
           const addressHash = hashAddress(address)
@@ -235,7 +238,9 @@ export async function classifyReply(
                 scope: 'org',
                 channel: 'email',
                 addressHash,
-                addressDisplay: address,
+                // Never store the readable address: every reader uses the
+                // hash, and a later removal request must leave nothing behind.
+                addressDisplay: null,
                 reason: 'unsubscribe',
                 source: { via: 'reply_classification', reply_id: reply.id },
               }),

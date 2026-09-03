@@ -49,13 +49,16 @@ export async function POST(req: Request) {
   if (!gtmEnabled()) return opaqueNotFound()
 
   // 1. Shared-secret auth (length-guarded constant-time compare).
+  // Both sides are compared as BYTES: a multibyte header of the same UTF-16
+  // length would otherwise make timingSafeEqual throw (an unauthenticated
+  // 500) instead of denying.
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
+  const authHeader = Buffer.from((req.headers.get('authorization') || '').trim(), 'utf8')
+  const expected = Buffer.from(secret ? `Bearer ${secret}` : '', 'utf8')
   if (
     !secret ||
     authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+    !crypto.timingSafeEqual(authHeader, expected)
   ) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
@@ -207,21 +210,29 @@ export async function POST(req: Request) {
         },
       })
     }
+    // The idempotency key is what makes a retry a no-op instead of a second
+    // metered model call; without one the request fails closed rather than
+    // minting a fresh random key per attempt.
+    const idempotencyKey = typeof body.idempotency_key === 'string' ? body.idempotency_key.trim() : ''
+    if (!idempotencyKey) {
+      return NextResponse.json(
+        { ok: false, error: 'idempotency_key is required for voice-derive', code: 'idempotency_key_required' },
+        { status: 400 },
+      )
+    }
     const { createGtmTelemetryMeter } = await import('../../../lib/ai/telemetry')
     const meter = createGtmTelemetryMeter({
       em,
       ctx,
       surface: 'voice_derive',
-      operationKey: body.idempotency_key
-        ? `gtm:voice-derive:${ctx.organizationId}:${body.workspaceId}:${body.idempotency_key}`
-        : `gtm:voice-derive:${ctx.organizationId}:${body.workspaceId}:${crypto.randomUUID()}`,
+      operationKey: `gtm:voice-derive:${ctx.organizationId}:${body.workspaceId}:${idempotencyKey}`,
       canonicalMeter,
     })
 
     const version = await deriveVoiceDraft(em, ctx, { model, meter }, {
       workspaceId: body.workspaceId,
       sources: { website, samples },
-      idempotencyKey: body.idempotency_key ?? null,
+      idempotencyKey,
     })
     return NextResponse.json({ ok: true, version: versionShape('voice', version) })
   } catch (err) {

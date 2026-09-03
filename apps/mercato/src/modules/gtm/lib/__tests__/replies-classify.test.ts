@@ -93,9 +93,47 @@ describe('classifyReply / drafts (SPEC-066 section 9)', () => {
     expect(reply.classificationSource).toBe('model')
   })
 
-  it('an unsubscribe classification writes the suppression in the same transaction', async () => {
+  it('classifies from the prospect\'s OWN text: the quoted footer\'s "Unsubscribe:" never poisons a hot lead (H1)', async () => {
+    const { em, fixture, reply } = await socialReplyFixture()
+    const message = await seedInboundMessage(em, {
+      from: fixture.addressFor(fixture.enrollments[0]),
+      bodyText: [
+        'Interested, let\'s talk Thursday.',
+        '',
+        'On Tue, 21 Jul 2026 at 10:00, Sender <sender@fixture.example> wrote:',
+        '> Quick question about your listings.',
+        '>',
+        '> Unsubscribe: https://crm.fixture.example/api/gtm/unsubscribe?token=abc',
+      ].join('\n'),
+      createdAt: new Date(LAUNCH_ISO),
+    })
+    reply.emailMessageId = message.id
+    const result = await classifyReply(em, ctx, { replyId: reply.id })
+    expect(result.classification).toBe('interested')
+    expect(result.suppressed).toBe(false)
+    expect(await em.find(GtmSuppression, { organizationId: ORG })).toHaveLength(0)
+
+    // Outlook-style quoting and a bare signature separator are cut too.
+    message.bodyText = 'Please unsubscribe me.\n\n-----Original Message-----\nFrom: Sender\nSent: Tuesday\n\nsounds great, tell me more'
+    const own = await classifyReply(em, ctx, { replyId: reply.id })
+    expect(own.classification).toBe('unsubscribe')
+    // ...but a MODEL unsubscribe never writes the permanent suppression.
+    expect(own.suppressed).toBe(false)
+    expect(await em.find(GtmSuppression, { organizationId: ORG })).toHaveLength(0)
+    expect(reply.classificationSource).toBe('model')
+  })
+
+  it('a human unsubscribe decision writes the suppression in the same transaction (hash only, verified address)', async () => {
     const { em, fixture, reply } = await socialReplyFixture()
     const address = fixture.addressFor(fixture.enrollments[0])
+    // The inbound From is forged; the suppression must follow the
+    // enrollment's verified contact point, never the header (H1b).
+    const forged = await seedInboundMessage(em, {
+      from: 'victim@prospect.example',
+      bodyText: 'unsubscribe',
+      createdAt: new Date(LAUNCH_ISO),
+    })
+    reply.emailMessageId = forged.id
     const result = await classifyReply(em, ctx, {
       replyId: reply.id,
       classification: 'unsubscribe',
@@ -108,6 +146,8 @@ describe('classifyReply / drafts (SPEC-066 section 9)', () => {
     })
     expect(suppression).not.toBeNull()
     expect(suppression!.reason).toBe('unsubscribe')
+    expect(suppression!.addressDisplay).toBeNull()
+    expect(await em.findOne(GtmSuppression, { addressHash: hashAddress('victim@prospect.example') })).toBeNull()
 
     // Re-classifying unsubscribe again is idempotent on the suppression.
     const repeat = await classifyReply(em, ctx, {

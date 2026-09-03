@@ -1239,7 +1239,7 @@ export class GtmRenderedMessage {
 @Unique({ name: 'gtm_send_attempts_org_idempotency_unique', properties: ['organizationId', 'idempotencyKey'] })
 @Unique({ name: 'gtm_send_attempts_org_capacity_slot_unique', properties: ['organizationId', 'capacitySlotKey'] })
 export class GtmSendAttempt {
-  [OptionalProps]?: 'id' | 'state' | 'fence' | 'attemptNo' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'id' | 'state' | 'fence' | 'attemptNo' | 'kind' | 'transportRetryCount' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1294,6 +1294,18 @@ export class GtmSendAttempt {
 
   @Property({ name: 'idempotency_key', type: 'text' })
   idempotencyKey!: string
+
+  // campaign | reply. One-off inbox replies share the durable state machine
+  // but must never be counted as campaign steps by analytics or claimed by
+  // the campaign tick (Migration20260902210000_gtm).
+  @Property({ type: 'text', default: 'campaign' })
+  kind: string = 'campaign'
+
+  // Bounded transport retries for definitively-not-sent provider rejections
+  // (HTTP 429/503 before acceptance, SMTP connect failures). Never bumped for
+  // an ambiguous outcome (Migration20260902210000_gtm).
+  @Property({ name: 'transport_retry_count', type: 'integer', default: 0 })
+  transportRetryCount: number = 0
 
   @Property({ name: 'provider_message_id', type: 'text', nullable: true })
   providerMessageId?: string | null

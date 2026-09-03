@@ -152,7 +152,9 @@ describe('NoliCoreRpcLedger', () => {
 
     const result = await ledger.reserve(reserveInput)
 
-    expect(result).toEqual({ operationId: OP, status: 'reserved' })
+    // The reservation echo travels with the result so callers cap provider
+    // spend and settle amounts by what the ledger actually escrowed.
+    expect(result).toEqual({ operationId: OP, status: 'reserved', reservedCredits: 4 })
     expect(rpc).toHaveBeenCalledTimes(1)
     expect(rpc).toHaveBeenCalledWith('provider_op_reserve', {
       p_org: ORG,
@@ -214,7 +216,65 @@ describe('NoliCoreRpcLedger', () => {
       .fn()
       .mockResolvedValue(ok([{ operation_id: OP, status: 'reserved', reserved_credits: 4 }]))
     const ledger = new NoliCoreRpcLedger(client(rpc))
+    expect(await ledger.reserve(reserveInput)).toEqual({ operationId: OP, status: 'reserved', reservedCredits: 4 })
+  })
+
+  it('omits reservedCredits when the echo is absent or not a non-negative integer', async () => {
+    const rpc = jest.fn()
+      .mockResolvedValueOnce(ok({ operation_id: OP, status: 'reserved' }))
+      .mockResolvedValueOnce(ok({ operation_id: OP, status: 'reserved', reserved_credits: -1 }))
+      .mockResolvedValueOnce(ok({ operation_id: OP, status: 'reserved', reserved_credits: '7' }))
+    const ledger = new NoliCoreRpcLedger(client(rpc))
     expect(await ledger.reserve(reserveInput)).toEqual({ operationId: OP, status: 'reserved' })
+    expect(await ledger.reserve(reserveInput)).toEqual({ operationId: OP, status: 'reserved' })
+    expect(await ledger.reserve(reserveInput)).toEqual({ operationId: OP, status: 'reserved', reservedCredits: 7 })
+  })
+
+  it('FAILS CLOSED on a status outside the ledger vocabulary', async () => {
+    const rpc = jest.fn()
+      .mockResolvedValueOnce(ok({ operation_id: OP, status: 'reserved_v2', reserved_credits: 4 }))
+      .mockResolvedValueOnce(ok({ operation_id: OP, status: 'settled', charged_credits: 3 }))
+      .mockResolvedValueOnce(ok({ operation_id: OP, status: 'CHARGED', charged_credits: 3 }))
+    const ledger = new NoliCoreRpcLedger(client(rpc))
+    await expect(ledger.reserve(reserveInput)).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+    await expect(ledger.settle(OP, 'charged', 3, null)).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+    await expect(ledger.settle(OP, 'charged', 3, null)).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+  })
+
+  it('FAILS CLOSED on a multi-row or empty array response instead of taking data[0]', async () => {
+    const rpc = jest.fn()
+      .mockResolvedValueOnce(ok([
+        { operation_id: OP, status: 'reserved', reserved_credits: 4 },
+        { operation_id: '99999999-9999-4999-8999-999999999998', status: 'reserved', reserved_credits: 4 },
+      ]))
+      .mockResolvedValueOnce(ok([]))
+    const ledger = new NoliCoreRpcLedger(client(rpc))
+    await expect(ledger.reserve(reserveInput)).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+    await expect(ledger.reserve(reserveInput)).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+  })
+
+  it('rejects a non-UUID operation id before any RPC and a mismatched operation_id echo', async () => {
+    const rpc = jest.fn().mockResolvedValue(ok({ operation_id: OP, status: 'provider_started', started_now: true }))
+    const ledger = new NoliCoreRpcLedger(client(rpc))
+    await expect(ledger.start('not-a-uuid')).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+    await expect(ledger.settle("1; drop table", 'charged', 1, null)).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+    await expect(ledger.markAmbiguous('', null)).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+    await expect(ledger.release('99999999')).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+    expect(rpc).not.toHaveBeenCalled()
+
+    rpc.mockResolvedValueOnce(ok({ operation_id: '99999999-9999-4999-8999-999999999998', status: 'charged' }))
+    await expect(ledger.settle(OP, 'charged', 1, null)).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+    rpc.mockResolvedValueOnce(ok({ operation_id: 'nope', status: 'reserved' }))
+    await expect(ledger.reserve(reserveInput)).rejects.toBeInstanceOf(NoliCoreLedgerTransportError)
+  })
+
+  it('times out a hung RPC as a transport failure (park / fail closed), never hangs the caller', async () => {
+    const rpc = jest.fn(() => new Promise(() => {}))
+    const ledger = new NoliCoreRpcLedger(client(rpc), { timeoutMs: 20 })
+    const err = await ledger.settle(OP, 'charged', 3, null).catch((e) => e)
+    expect(err).toBeInstanceOf(NoliCoreLedgerTransportError)
+    expect((err as NoliCoreLedgerTransportError).operation).toBe('settle')
+    expect(String((err as Error).message)).toContain('timed out')
   })
 
   it('maps the insufficient_credits SQL exception onto the typed ledger error', async () => {
@@ -336,6 +396,31 @@ describe('getLedger selection', () => {
     delete process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY
 
     expect(getLedger()).toBeInstanceOf(FixtureLedger)
+  })
+
+  it('treats an unset or unrecognised NODE_ENV as production for the fixture gate', () => {
+    for (const nodeEnv of [undefined, '', 'staging', 'preview', 'prod']) {
+      if (nodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = nodeEnv
+      process.env.GTM_LEDGER = 'fixture'
+      delete process.env.OM_TEST_MODE
+      delete process.env.GTM_FIXTURE_ADAPTERS_ENABLED
+      delete process.env.NOLI_CORE_SUPABASE_URL
+      expect(() => getLedger()).toThrow(NoliCoreLedgerConfigurationError)
+    }
+  })
+
+  it('refuses fixture credits in the harness when a canonical noli-core URL is configured', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.GTM_LEDGER = 'fixture'
+    process.env.OM_TEST_MODE = '1'
+    process.env.GTM_FIXTURE_ADAPTERS_ENABLED = 'true'
+    process.env.NOLI_CORE_SUPABASE_URL = 'https://example.supabase.co'
+    delete process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY
+    expect(() => getLedger()).toThrow(NoliCoreLedgerConfigurationError)
+
+    delete process.env.NODE_ENV
+    expect(() => getLedger()).toThrow(NoliCoreLedgerConfigurationError)
   })
 
   it('allows an explicit fixture ledger in local development', () => {

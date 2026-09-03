@@ -3,7 +3,12 @@ import type { Clock, ExecutionEm } from '../execute/schedule'
 import { GtmExecutionError } from '../execute/schedule'
 import { getLatestLockedVersion } from '../versions'
 import { countMessageWords, sanitizeMergeValue } from '../campaign/render'
-import { estimateModelTokens, type GtmAiMeter, type GtmDraftModel } from '../ai/model'
+import {
+  estimateModelTokens,
+  sanitizeUntrustedPromptText,
+  type GtmAiMeter,
+  type GtmDraftModel,
+} from '../ai/model'
 import {
   GtmAuditEvent,
   GtmCampaign,
@@ -14,6 +19,7 @@ import {
   GtmVoiceVersion,
 } from '../../data/entities'
 import { EmailMessage } from '../../../email/data/schema'
+import { escapeEnvelope, inboundOwnText } from './text'
 
 /*
  * AI-suggested reply drafting (SPEC-066 sections 4.3, 9; inbox completeness).
@@ -24,11 +30,15 @@ import { EmailMessage } from '../../../email/data/schema'
  * as campaign drafting (lib/ai/model.ts).
  *
  * INJECTION SAFETY (mirrors ai-draft.ts + render.ts): the inbound reply text is
- * untrusted DATA. Every field is sanitized (brace-stripped, whitespace
- * collapsed) via sanitizeMergeValue and embedded inside an explicit
- * <inbound_reply>...</inbound_reply> envelope the system prompt names as
- * untrusted; the generated output is brace-neutralized so it can never carry a
- * merge token downstream.
+ * untrusted DATA. HTML is reduced to text and quoted history is stripped
+ * first (text.ts), so only the prospect's own words reach the model; every
+ * field is then sanitized (brace-stripped, whitespace collapsed) via
+ * sanitizeMergeValue, a literal </inbound_reply> inside the body is escaped
+ * so it cannot close the envelope, and the result is embedded inside an
+ * explicit <inbound_reply>...</inbound_reply> envelope the system prompt
+ * names as untrusted; the generated output is brace-neutralized so it can
+ * never carry a merge token downstream. Delivery-system events surfaced in
+ * the inbox (bounces, unauthenticated complaints) never get an AI draft.
  *
  * METERING: exactly one awaited metering/telemetry call per model invocation,
  * including provider and invalid-output failures.
@@ -100,7 +110,8 @@ async function loadReply(em: ExecutionEm, ctx: GtmCtx, replyId: string): Promise
   return reply
 }
 
-// The prospect's inbound text (untrusted), from the linked email or the note.
+// The prospect's inbound text (untrusted), from the linked email or the note:
+// HTML stripped to text and quoted history removed before it reaches a prompt.
 async function resolveInboundText(em: ExecutionEm, ctx: GtmCtx, reply: GtmReply): Promise<string> {
   if (reply.emailMessageId) {
     const message = await em.findOne(EmailMessage, {
@@ -108,7 +119,7 @@ async function resolveInboundText(em: ExecutionEm, ctx: GtmCtx, reply: GtmReply)
       organizationId: ctx.organizationId,
       tenantId: ctx.tenantId,
     })
-    if (message) return message.bodyText || message.bodyHtml || ''
+    if (message) return inboundOwnText(message)
   }
   const note = (reply.draftResponse as Record<string, unknown> | null)?.note
   return typeof note === 'string' ? note : ''
@@ -144,7 +155,12 @@ function buildPrompt(args: {
   outbound: { subject: string; body: string } | null
 }): string {
   const voice = JSON.stringify(args.voice.content ?? {})
-  const inbound = sanitizeMergeValue(args.inboundText)
+  // Prompt-envelope layer (lib/ai/model.ts): angle brackets and line breaks
+  // gone and length-bounded, then the envelope closer escaped as a second
+  // guard should that helper ever loosen.
+  const inbound = escapeEnvelope(
+    sanitizeUntrustedPromptText(sanitizeMergeValue(args.inboundText), 6_000),
+  )
   const outboundLines = args.outbound
     ? [
         `subject: ${sanitizeMergeValue(args.outbound.subject)}`,
@@ -240,6 +256,11 @@ export async function draftReplyWithAi(
   // must never receive a generic sales CTA merely because AI or voice context
   // is unavailable. Leave the draft untouched for explicit human handling.
   if (reply.classification && NO_AUTOMATIC_DRAFT_CLASSIFICATIONS.has(reply.classification)) {
+    return { provenance: 'abstain', reason: 'classification_requires_review', reply }
+  }
+  // Non-human rows surfaced in the inbox (bounces, unauthenticated or
+  // unattributed system events) are for review, never for a sales reply.
+  if (reply.eventKind && reply.eventKind !== 'human_reply' && reply.eventKind !== 'social_reply') {
     return { provenance: 'abstain', reason: 'classification_requires_review', reply }
   }
 

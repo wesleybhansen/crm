@@ -1,5 +1,11 @@
 import { GtmAiTelemetry } from '../../data/entities'
-import { GtmAiMeteringError, createGtmTelemetryMeter, recordGtmAiTelemetry } from '../ai/telemetry'
+import {
+  CANONICAL_METERING_FAILED,
+  GtmAiMeteringError,
+  createGtmTelemetryMeter,
+  recordGtmAiTelemetry,
+  settleGtmAiTelemetry,
+} from '../ai/telemetry'
 import { FakeEm } from './support/fake-em'
 
 const ORG = '00000000-0000-4000-8000-000000000001'
@@ -126,12 +132,60 @@ describe('GTM AI telemetry', () => {
 
     expect(canonicalMeter).toHaveBeenCalledTimes(1)
     expect(em.table(GtmAiTelemetry)).toHaveLength(1)
+    // Reviewed behaviour was wrong: the receipt used to say 'succeeded'
+    // although no canonical usage row exists. It now records the canonical
+    // failure so the operator dashboard cannot report a success that was
+    // never metered.
     expect(em.table(GtmAiTelemetry)[0]).toMatchObject({
       operationKey: 'gtm:test:canonical-meter-failure:call:1',
-      status: 'succeeded',
+      status: 'failed',
+      failureCode: CANONICAL_METERING_FAILED,
       tokensIn: 100,
       tokensOut: 20,
     })
+  })
+
+  it('writes the receipt as pending BEFORE canonical metering and settles it to the reported status after', async () => {
+    const em = new FakeEm()
+    const statusesSeenByCanonical: string[] = []
+    const canonicalMeter = jest.fn(async () => {
+      const rows = em.table(GtmAiTelemetry)
+      statusesSeenByCanonical.push(rows[rows.length - 1]?.status ?? 'missing')
+    })
+    const meter = createGtmTelemetryMeter({
+      em,
+      ctx: { organizationId: ORG, tenantId: TENANT, userId: USER, requestId: 'request-pending' },
+      operationKey: 'gtm:test:pending-flow',
+      surface: 'message_draft',
+      canonicalMeter,
+    })
+    await meter({ model: 'm', tokensIn: 10, tokensOut: 2, feature: 'gtm-message-draft', status: 'succeeded' })
+    await meter({
+      model: 'm', tokensIn: 0, tokensOut: 0, tokenUsageKnown: false, feature: 'gtm-message-draft',
+      status: 'failed', failureCode: 'model_provider_failure',
+    })
+    expect(statusesSeenByCanonical).toEqual(['pending', 'pending'])
+    expect(em.table(GtmAiTelemetry).map((row) => [row.status, row.failureCode])).toEqual([
+      ['succeeded', null],
+      ['failed', 'model_provider_failure'],
+    ])
+  })
+
+  it('a retry after a canonical outage settles the same failed receipt to succeeded, never downgrades a success', async () => {
+    const em = new FakeEm()
+    const ctx = { organizationId: ORG, tenantId: TENANT }
+    await recordGtmAiTelemetry(em, ctx, {
+      operationKey: 'k', surface: 's', model: 'm', status: 'pending', tokensIn: 1, tokensOut: 1,
+    })
+    await settleGtmAiTelemetry(em, ctx, { operationKey: 'k', status: 'failed', failureCode: CANONICAL_METERING_FAILED })
+    expect(em.table(GtmAiTelemetry)[0]).toMatchObject({ status: 'failed', failureCode: CANONICAL_METERING_FAILED })
+    await settleGtmAiTelemetry(em, ctx, { operationKey: 'k', status: 'succeeded', failureCode: null })
+    expect(em.table(GtmAiTelemetry)[0]).toMatchObject({ status: 'succeeded', failureCode: null })
+    // The canonical row already exists; a later transport failure on a replay
+    // must not turn the receipt back into a failure.
+    await settleGtmAiTelemetry(em, ctx, { operationKey: 'k', status: 'failed', failureCode: CANONICAL_METERING_FAILED })
+    expect(em.table(GtmAiTelemetry)[0]).toMatchObject({ status: 'succeeded', failureCode: null })
+    expect(await settleGtmAiTelemetry(em, ctx, { operationKey: 'missing', status: 'succeeded' })).toBeNull()
   })
 
   it('records failure and retry metadata for every reported model invocation without changing token truth', async () => {

@@ -11,8 +11,9 @@ import {
   APIFY_DEFAULT_TIMEOUT_MS,
   APIFY_MIN_CHARGE_USD,
   normalizeMaxChargeUsd,
-  runActorSync,
+  runActorWithFinalizedBilling,
   type ApifyFetchLike,
+  type ApifyFinalizedBillingContract,
   type ApifyRunOutcome,
 } from './client'
 import {
@@ -35,11 +36,30 @@ export const APIFY_EMAIL_VERIFY_REQUIRED_PRICE_VERSION =
 export const APIFY_EMAIL_VERIFY_START_USD = 0.001
 export const APIFY_EMAIL_VERIFY_RESULT_USD = 0.0027
 export const APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD = APIFY_MIN_CHARGE_USD
+// Expected settlement units for the two receipt shapes the actor can produce.
+// These are documentation and test anchors only: the adapter settles from the
+// finalized run receipt (chargedEventCounts x frozen prices), never from an
+// assumed event shape (review 2026-09-02, M6).
 export const APIFY_EMAIL_VERIFY_START_ONLY_UNITS =
   APIFY_EMAIL_VERIFY_START_USD / APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD
 export const APIFY_EMAIL_VERIFY_BILLED_UNITS =
   (APIFY_EMAIL_VERIFY_START_USD + APIFY_EMAIL_VERIFY_RESULT_USD) /
   APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD
+/*
+ * Frozen PAY_PER_EVENT contract, verified against the live actor pricing on
+ * 2026-08-29 (`Software Strategy/private/verify-apify-starter-bronze-contract-
+ * 2026-08-29.mjs`): the actor charges its own `start` event ($0.001) once per
+ * run and `email-verified` ($0.0027) per emitted row. The finalized client
+ * refuses to settle when the provider's per-event prices differ from these.
+ */
+export const APIFY_EMAIL_VERIFY_EVENT_PRICES_USD = {
+  start: APIFY_EMAIL_VERIFY_START_USD,
+  'email-verified': APIFY_EMAIL_VERIFY_RESULT_USD,
+} as const
+export const APIFY_EMAIL_VERIFY_BILLING_CONTRACT: ApifyFinalizedBillingContract = {
+  pricingModel: 'PAY_PER_EVENT',
+  eventPricesUsd: APIFY_EMAIL_VERIFY_EVENT_PRICES_USD,
+}
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+\.[^\s@]+$/
 const RECEIPT_FIELDS = [
@@ -50,6 +70,9 @@ const RECEIPT_FIELDS = [
   'build_number',
   'confidence_score',
   'verification_method',
+  'billing_finalized',
+  'charged_event_counts',
+  'provider_cost_usd',
 ] as const
 
 export type ApifyEmailVerifierRunActorFn = (
@@ -70,6 +93,8 @@ export type ApifyEmailVerifierDeps = {
   fetchImpl?: ApifyFetchLike
   runActor?: ApifyEmailVerifierRunActorFn
   now?: () => Date
+  finalizationDelayMs?: number
+  sleep?: (delayMs: number) => Promise<void>
 }
 
 type ParsedVerification = {
@@ -249,6 +274,9 @@ function receipt(
     build_number: APIFY_EMAIL_VERIFY_BUILD,
     confidence_score: confidenceScore,
     verification_method: verificationMethod,
+    billing_finalized: outcome?.billingFinalized ?? false,
+    charged_event_counts: outcome?.chargedEventCounts ?? null,
+    provider_cost_usd: outcome?.providerCostUsd ?? null,
     ...remainingExtras,
   }
 }
@@ -272,10 +300,13 @@ export function createApifyEmailVerifierAdapter(
   const env = deps.env ?? processEnv()
   const now = deps.now ?? (() => new Date())
   const descriptor = apifyEmailVerifierDescriptor(env)
+  // Finalized billing only (review 2026-09-02, M6/M7): the sync endpoint
+  // returns no run receipt, so the old path inferred the start/row charges
+  // from the item count. Settlement now comes from the signed run receipt.
   const runActor: ApifyEmailVerifierRunActorFn =
     deps.runActor ??
     ((actorId, input, options) =>
-      runActorSync(actorId, input, {
+      runActorWithFinalizedBilling(actorId, input, {
         token: options.token,
         build: options.build,
         timeoutMs: options.timeoutMs,
@@ -283,6 +314,9 @@ export function createApifyEmailVerifierAdapter(
         maxChargeUsd: options.maxChargeUsd,
         now: options.now,
         fetchImpl: deps.fetchImpl,
+        billingContract: APIFY_EMAIL_VERIFY_BILLING_CONTRACT,
+        finalizationDelayMs: deps.finalizationDelayMs,
+        sleep: deps.sleep,
       }))
 
   return {
@@ -334,7 +368,10 @@ export function createApifyEmailVerifierAdapter(
         },
       )
 
-      if (outcome.status === 'ambiguous' || outcome.kind === 'server_error') {
+      // The client already parks post-dispatch 5xx, timeouts, transport
+      // failures and unfinalized receipts as ambiguous; no per-adapter
+      // workaround is needed any more.
+      if (outcome.status === 'ambiguous') {
         return {
           status: 'ambiguous',
           data: null,
@@ -348,24 +385,73 @@ export function createApifyEmailVerifierAdapter(
           status: 'error',
           data: null,
           receipt: receipt(outcome, outcome.kind, { max_charge_usd: maxChargeUsd }),
-          cost_units: 0,
+          // A finalized receipt on a terminal error is real spend; a rejected
+          // start is not. Never guess between the two.
+          cost_units:
+            outcome.billingFinalized && outcome.providerCostUsd != null
+              ? outcome.providerCostUsd / APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD
+              : 0,
           error: outcome.error ?? 'provider error',
         }
       }
-      if (outcome.status === 'no_result') {
+      if (!outcome.billingFinalized || outcome.providerCostUsd == null) {
         return {
-          status: 'ok',
-          data: {
-            channel: 'email',
-            value: email,
-            verification_state: 'unknown',
-            detail: { verification_method: 'none', confidence_score: 0 },
-          },
+          status: 'ambiguous',
+          data: null,
+          receipt: receipt(outcome, 'billing_unfinalized', { max_charge_usd: maxChargeUsd }),
+          cost_units: null,
+          error: 'provider_billing_unknown: email verification receipt was not finalized',
+        }
+      }
+      const counts = outcome.chargedEventCounts ?? {}
+      const unexpectedEvent = Object.entries(counts).find(
+        ([event, count]) => count > 0 && !(event in APIFY_EMAIL_VERIFY_EVENT_PRICES_USD),
+      )
+      if (unexpectedEvent) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: receipt(outcome, 'unexpected_charge_event', {
+            max_charge_usd: maxChargeUsd,
+            unexpected_charge_event: unexpectedEvent[0],
+          }),
+          cost_units: null,
+          error: 'provider_billing_unknown: an unapproved email verification event was charged',
+        }
+      }
+      const startEvents = counts.start ?? 0
+      const rowEvents = counts['email-verified'] ?? 0
+      if (startEvents !== 1 || rowEvents > 1) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: receipt(outcome, 'billing_cardinality_mismatch', {
+            max_charge_usd: maxChargeUsd,
+            billed_starts: startEvents,
+            billed_rows: rowEvents,
+          }),
+          cost_units: null,
+          error: 'provider_billing_unknown: email verification event counts did not match one bounded run',
+        }
+      }
+      // Units are fractions of the quoted $0.01 run cap, settled from the
+      // provider's finalized cost (the client already proved it equals the
+      // frozen event prices times the charged counts).
+      const costUnits = outcome.providerCostUsd / APIFY_EMAIL_VERIFY_PROVIDER_CAP_USD
+      const billingEvent = rowEvents > 0 ? 'start+email-verified' : 'start'
+      if (outcome.status === 'no_result') {
+        // The provider ran and answered with nothing. That is not a completed
+        // verification (review 2026-09-02, M7): the contact point keeps its
+        // retry/ambiguity semantics instead of being marked "checked, unknown".
+        // The receipt-backed charge still lands (pay_on_found is false).
+        return {
+          status: 'no_result',
+          data: null,
           receipt: receipt(outcome, 'empty_result', {
             max_charge_usd: maxChargeUsd,
-            billing_event: 'start',
+            billing_event: billingEvent,
           }),
-          cost_units: APIFY_EMAIL_VERIFY_START_ONLY_UNITS,
+          cost_units: costUnits,
         }
       }
       if (outcome.items.length !== 1) {
@@ -411,13 +497,13 @@ export function createApifyEmailVerifierAdapter(
         receipt: receipt(outcome, state, {
           max_charge_usd: maxChargeUsd,
           // The provider calls this event `email-verified`, but the live R25
-          // golden charged it for a schema-valid row with confidence 5. Bill
-          // every emitted row so our settlement follows observed spend, not
-          // the event label or its currently inaccurate threshold metadata.
-          billing_event: 'start+email-verified',
+          // golden charged it for a schema-valid row with confidence 5. The
+          // settlement therefore follows the finalized receipt's counts, not
+          // the event label or the row's confidence.
+          billing_event: billingEvent,
           ...detail,
         }),
-        cost_units: APIFY_EMAIL_VERIFY_BILLED_UNITS,
+        cost_units: costUnits,
       }
     },
   }

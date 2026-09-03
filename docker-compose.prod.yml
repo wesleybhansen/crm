@@ -42,6 +42,10 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runner
+    # Named so `compose build` refreshes the exact image every worker service
+    # below runs; without the name the workers kept running a hand-tagged
+    # image and drifted from the app's entities/migrations (review M3).
+    image: open-mercato-app
     container_name: launchos-app
     restart: unless-stopped
     env_file: .env.production
@@ -50,6 +54,9 @@ services:
       PORT: 3000
       HOSTNAME: 0.0.0.0
       ATTACHMENTS_PARTITION_LANDING_PAGE_IMAGES_ROOT: /app/apps/mercato/storage/attachments/landingPageImages
+      # All GTM queues (mailbox ingest, execution tick, auto-refill) and the
+      # scheduler go through Redis; the dedicated worker services below are
+      # their only consumers. Non-GTM queues keep the app's default strategy.
       GTM_MAILBOX_QUEUE_STRATEGY: async
       QUEUE_REDIS_URL: redis://redis:6379
       DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
@@ -80,6 +87,82 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
     working_dir: /app/apps/mercato
     command: ["node", "/app/packages/cli/bin/mercato", "queue", "worker", "gtm-mailbox-ingest", "--concurrency=1"]
+    depends_on:
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - launchos-network
+
+  # GTM send execution: consumes gtm-execution-tick jobs (claim + fenced send).
+  # Serial by design: one process, concurrency 1, so the per-org claim lease
+  # discipline in workers/execution-tick.ts is the only concurrency control.
+  # Gated by GTM_ENGINEER_ENABLED + GTM_EXECUTION_ENABLED in .env.production;
+  # with either off the worker consumes and no-ops (review H5).
+  gtm-execution-worker:
+    image: open-mercato-app
+    container_name: launchos-gtm-execution-worker
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      QUEUE_STRATEGY: async
+      QUEUE_REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
+    working_dir: /app/apps/mercato
+    command: ["node", "/app/packages/cli/bin/mercato", "queue", "worker", "gtm-execution-tick", "--concurrency=1"]
+    depends_on:
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - launchos-network
+
+  # GTM auto-refill: consumes gtm-auto-refill jobs the scheduler emits daily.
+  gtm-auto-refill-worker:
+    image: open-mercato-app
+    container_name: launchos-gtm-auto-refill-worker
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      QUEUE_STRATEGY: async
+      QUEUE_REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
+    working_dir: /app/apps/mercato
+    command: ["node", "/app/packages/cli/bin/mercato", "queue", "worker", "gtm-auto-refill", "--concurrency=1"]
+    depends_on:
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - launchos-network
+
+  # Scheduler consumer: executes BullMQ repeatable schedules
+  # (queue 'scheduler-execution') and enqueues their target jobs, e.g. the
+  # daily gtm-auto-refill cycle registered at policy activation. Without this
+  # service an activated auto-refill policy reports 'active' and never runs.
+  scheduler-worker:
+    image: open-mercato-app
+    container_name: launchos-scheduler-worker
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      QUEUE_STRATEGY: async
+      QUEUE_REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-crm_prod_2026}@postgres:5432/${POSTGRES_DB:-crm}
+    working_dir: /app/apps/mercato
+    command: ["node", "/app/packages/cli/bin/mercato", "queue", "worker", "scheduler-execution", "--concurrency=1"]
     depends_on:
       app:
         condition: service_started

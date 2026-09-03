@@ -1,3 +1,5 @@
+import crypto from 'crypto'
+
 export type GtmFeature = 'gtm.view' | 'gtm.edit' | 'gtm.approve' | 'gtm.launch'
 
 export type GtmFeatureContext = {
@@ -28,6 +30,7 @@ const HANDOFF_READ_OPS = new Set(['assets-list', 'asset-status'])
 const RESEARCH_READ_OPS = new Set(['list', 'plan', 'status'])
 const STRATEGY_READ_OPS = new Set(['icp-list', 'icp-get', 'voice-list', 'voice-get'])
 const TASK_READ_OPS = new Set(['list', 'timeline'])
+const PRIVACY_READ_OPS = new Set(['status', 'list-partial'])
 
 export function campaignFeatureForOp(op: string): GtmFeature {
   if (op === 'approve') return 'gtm.approve'
@@ -115,4 +118,26 @@ export async function hasGtmFeature(
 
 export function socialConnectionFeatureForOp(op: string): GtmFeature {
   return op === 'list' ? 'gtm.view' : 'gtm.edit'
+}
+
+// Privacy operator ops: reads are viewer-level; anything that changes a
+// deletion request (legal holds, closing a blocked DSR op) is an approver
+// decision with an audit trail.
+export function privacyFeatureForOp(op: string): GtmFeature {
+  return PRIVACY_READ_OPS.has(op) ? 'gtm.view' : 'gtm.approve'
+}
+
+/** Constant-time shared-secret bearer check for the internal GTM routes.
+ * Both sides are converted to byte Buffers BEFORE the length guard: the
+ * previous inline pattern compared UTF-16 string lengths and then handed
+ * UTF-8 Buffers to timingSafeEqual, so a multibyte header of matching string
+ * length threw RangeError (an unhandled 500) instead of returning 401.
+ * Fails closed when the secret is unset. */
+export function internalServiceBearerAuthorized(req: Request): boolean {
+  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
+  if (!secret) return false
+  const provided = Buffer.from((req.headers.get('authorization') || '').trim(), 'utf8')
+  const expected = Buffer.from(`Bearer ${secret}`, 'utf8')
+  if (provided.length !== expected.length) return false
+  return crypto.timingSafeEqual(provided, expected)
 }
