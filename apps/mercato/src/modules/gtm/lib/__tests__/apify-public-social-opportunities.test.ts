@@ -516,11 +516,20 @@ describe('Apify public social demand opportunities', () => {
         GTM_APIFY_X_OPPORTUNITY_ENABLED: 'true',
       }),
     ).toBe(true)
+    // Review 2026-09-02 (L0): the Reddit search lane used to register on the
+    // global Apify gate alone; it now has its own capability switch too.
     expect(
       publicSocialOpportunityEnabled(
         APIFY_REDDIT_OPPORTUNITY_CONFIG,
         envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
       ),
+    ).toBe(false)
+    expect(APIFY_REDDIT_OPPORTUNITY_CONFIG.enabledEnv).toBe('GTM_APIFY_REDDIT_OPPORTUNITY_ENABLED')
+    expect(
+      publicSocialOpportunityEnabled(APIFY_REDDIT_OPPORTUNITY_CONFIG, {
+        ...envFor(APIFY_REDDIT_OPPORTUNITY_CONFIG),
+        GTM_APIFY_REDDIT_OPPORTUNITY_ENABLED: 'true',
+      }),
     ).toBe(true)
   })
 
@@ -604,6 +613,74 @@ describe('Apify public social demand opportunities', () => {
         },
       ],
     })
+  })
+
+  // Review 2026-09-02 (H8): access_type used to be hard-coded 'public' for
+  // every social row. Only the provider's own visibility field promotes it.
+  it('asserts a public Reddit destination only on a positive visibility signal', () => {
+    const context = {
+      query: 'moving to the south bay',
+      location: 'South Bay, California',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    }
+    expect(normalizeRedditOpportunity(redditPost(), context)?.identity.access_type).toBe('public')
+    expect(
+      normalizeRedditOpportunity(redditPost({ subredditInfo: { subscribersCount: 10 } }), context)?.identity.access_type,
+    ).toBe('unknown')
+    expect(
+      normalizeRedditOpportunity(redditPost({ subredditInfo: { isPrivate: false } }), context)?.identity.access_type,
+    ).toBe('public')
+    expect(normalizeRedditOpportunity(redditPost({ subredditInfo: { type: 'RESTRICTED' } }), context)).toBeNull()
+    expect(normalizeRedditOpportunity(redditPost({ subredditInfo: { type: 'PRIVATE' } }), context)).toBeNull()
+    expect(normalizeRedditOpportunity(redditPost({ subredditInfo: { isPrivate: true } }), context)).toBeNull()
+  })
+
+  // Review 2026-09-02 (L0): old./np./new. Reddit hosts were rejected here
+  // while the thread canonicalizer accepted them, so paid rows were dropped;
+  // a bare year parsed as epoch seconds and landed in 1970.
+  it('canonicalizes Reddit host aliases and refuses a bare year as a publication time', () => {
+    const context = {
+      query: 'moving to the south bay',
+      location: 'South Bay, California',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    }
+    for (const host of ['old.reddit.com', 'np.reddit.com', 'new.reddit.com', 'reddit.com']) {
+      const candidate = normalizeRedditOpportunity(redditPost({
+        url: `https://${host}/r/SouthBayLA/comments/example/moving_to_the_south_bay/`,
+        permalink: null,
+      }), context)
+      expect(candidate?.identity.urls).toEqual([
+        'https://www.reddit.com/r/SouthBayLA/comments/example/moving_to_the_south_bay/',
+      ])
+    }
+    expect(normalizeRedditOpportunity(redditPost({
+      url: 'https://reddit.example.com/r/SouthBayLA/comments/example/x/',
+      permalink: null,
+    }), context)).toBeNull()
+    const bareYear = normalizeRedditOpportunity(redditPost({ createdAt: '2026' }), context)
+    expect(bareYear?.identity.source_published_at).toBeNull()
+    expect(bareYear?.evidence[0].detail).toEqual(expect.objectContaining({ published_at_unknown: true }))
+    const epochSeconds = normalizeRedditOpportunity(
+      redditPost({ createdAt: Date.parse('2026-08-25T17:00:00.000Z') / 1_000 }),
+      context,
+    )
+    expect(epochSeconds?.identity.source_published_at).toBe('2026-08-25T17:00:00.000Z')
+    expect(epochSeconds?.evidence[0].detail).toEqual(expect.objectContaining({ published_at: '2026-08-25T17:00:00.000Z' }))
+  })
+
+  it('strips control and zero-width characters from provider text', () => {
+    const context = {
+      query: 'moving to the south bay',
+      location: 'South Bay, California',
+      attemptedAt: CLOCK.toISOString(),
+      actorId: APIFY_REDDIT_OPPORTUNITY_CONFIG.actorId,
+    }
+    const candidate = normalizeRedditOpportunity(redditPost({
+      body: 'Which neighborhoods\u200b\u202e should a first-time\u0007 buyer compare?',
+    }), context)
+    expect(candidate?.identity.audience_description).toContain('Which neighborhoods should a first-time buyer compare?')
   })
 
   it('normalizes a public Reddit comment as returned-content intent with parent-thread context', () => {
@@ -1910,6 +1987,51 @@ describe('Apify public social demand opportunities', () => {
         parser_dropped_rows: 1,
       },
       error: expect.stringContaining('no safe public opportunity'),
+    })
+  })
+
+  // Review 2026-09-02 (M8): no_result settled before the billed-count checks,
+  // so 10 billed results against an empty dataset read were charged as a
+  // definitive "nothing found".
+  it('parks an empty dataset whose receipt still bills results instead of settling no_result', async () => {
+    const config = APIFY_REDDIT_OPPORTUNITY_CONFIG
+    const billed = outcome(config, redditPost(), {
+      kind: 'no_result',
+      status: 'no_result',
+      items: [],
+      itemCount: 0,
+      chargedEventCounts: {
+        'apify-actor-start': 1,
+        'result-scraped': 10,
+        'apify-default-dataset-item': 10,
+      },
+      providerCostUsd: config.eventPricesUsd['apify-actor-start']
+        + 10 * config.eventPricesUsd['result-scraped']
+        + 10 * config.eventPricesUsd['apify-default-dataset-item'],
+    })
+    const result = await createApifyRedditOpportunityAdapter({
+      env: envFor(config),
+      now,
+      runActor: async () => billed,
+    }).search(plan)
+    expect(result).toMatchObject({ status: 'ambiguous', cost_units: null })
+
+    const clean = outcome(config, redditPost(), {
+      kind: 'no_result',
+      status: 'no_result',
+      items: [],
+      itemCount: 0,
+      chargedEventCounts: { 'apify-actor-start': 1, 'result-scraped': 0, 'apify-default-dataset-item': 0 },
+      providerCostUsd: config.eventPricesUsd['apify-actor-start'],
+    })
+    await expect(createApifyRedditOpportunityAdapter({
+      env: envFor(config),
+      now,
+      runActor: async () => clean,
+    }).search(plan)).resolves.toMatchObject({
+      status: 'no_result',
+      cost_units: config.eventPricesUsd['apify-actor-start'] / 0.001,
+      receipt: expect.objectContaining({ billed_results: 0 }),
     })
   })
 

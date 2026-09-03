@@ -110,6 +110,9 @@ export async function reviewCandidate(input: ReviewCandidateInput): Promise<Revi
       objectId: candidate.id,
       requestId: input.requestId ?? null,
       metadata: {
+        // Lets requalify attribute a root-level override to the run that
+        // inserted the row instead of any run that later reused it.
+        research_run_id: candidate.researchRunId,
         verdict,
         reason: candidate.rejectReason,
         previous_fit_status: previousFitStatus,

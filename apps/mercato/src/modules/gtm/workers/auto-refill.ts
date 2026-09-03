@@ -31,7 +31,7 @@ type HandlerContext = JobContext & {
 async function blockPolicy(
   em: AutoRefillEm,
   policy: GtmAutoRefillPolicy,
-  failureCode: 'identity_changed' | 'dependencies_unavailable',
+  failureCode: 'identity_changed' | 'dependencies_unavailable' | 'cycle_unresolved',
 ): Promise<void> {
   await em.transactional(async (tem) => {
     const current = await tem.findOne(GtmAutoRefillPolicy, {
@@ -79,6 +79,21 @@ export default async function handle(
   const payload = payloadSchema.parse(job.payload)
   const rootEm = ctx.resolve<EntityManager>('em')
   const em = rootEm.fork() as unknown as AutoRefillEm
+
+  // Stale-cycle sweep at worker start (review 2026-09-02, H5): a cycle left
+  // 'running' by a dead worker is parked for reconciliation before this
+  // delivery can claim another day. Scoped to the job's tenant; best effort,
+  // because a sweep failure must not hide the cycle failure that follows.
+  try {
+    const { sweepStaleAutoRefillCycles } = await import('../lib/auto-refill/sweep')
+    await sweepStaleAutoRefillCycles(em, {
+      organizationId: payload.organizationId,
+      tenantId: payload.tenantId,
+    })
+  } catch {
+    // reported by the cycle path if the database is really unavailable
+  }
+
   const policy = await em.findOne(GtmAutoRefillPolicy, {
     id: payload.policyId,
     organizationId: payload.organizationId,
@@ -145,7 +160,7 @@ export default async function handle(
       adapters: sourceAdapterRegistry(),
       ledger: getLedger(),
     })
-  } catch {
+  } catch (error) {
     // Registry/ledger construction happens before a cycle claim and before a
     // provider operation. Fail closed and require an explicit owner repair.
     const fresh = await em.findOne(GtmAutoRefillPolicy, {
@@ -162,7 +177,43 @@ export default async function handle(
       await blockPolicy(em, fresh, 'dependencies_unavailable')
       return
     }
-    // A claimed cycle owns its own receipt-first failure and reconciliation
-    // path. Never convert it into an automatic queue retry here.
+    // The cycle WAS claimed and its own failure path still threw (review
+    // 2026-09-02, H5 / workers M7). Swallowing this left the cycle, the
+    // research run, and every escrowed reservation at 'running' with no
+    // operator signal and the policy firing again tomorrow. Record it, block
+    // the policy, and rethrow so the queue records a failed job. The queue
+    // strategy sets no retry attempts, so this is a signal, not a re-run.
+    if (fresh) {
+      try {
+        await blockPolicy(em, fresh, 'cycle_unresolved')
+      } catch {
+        // the rethrow below is the durable signal when even this write fails
+      }
+    }
+    try {
+      await em.transactional(async (tem) => {
+        tem.persist(tem.create(GtmAuditEvent, {
+          organizationId: policy.organizationId,
+          tenantId: policy.tenantId,
+          actor: 'system',
+          actorUserId: null,
+          action: 'gtm.auto_refill.cycle_unresolved',
+          objectType: 'gtm_auto_refill_policy',
+          objectId: policy.id,
+          requestId: null,
+          metadata: {
+            campaign_id: policy.campaignId,
+            policy_hash: policy.policyHash,
+            failure_code: 'cycle_unresolved',
+            job_id: job.id,
+            error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+          },
+        }))
+        await tem.flush()
+      })
+    } catch {
+      // same: the rethrow is the signal of last resort
+    }
+    throw error
   }
 }

@@ -1,7 +1,12 @@
 import { createGmailMailboxReader } from '../inbound/providers/gmail'
-import { createImapMailboxReader, imapIncrementalSearch } from '../inbound/providers/imap'
+import { createImapMailboxReader, imapIncrementalSearch, selectIncrementalUids } from '../inbound/providers/imap'
 import { createOutlookMailboxReader } from '../inbound/providers/outlook'
-import { MailboxProviderCursorExpiredError } from '../inbound/providers/types'
+import {
+  headerAddress,
+  MailboxProviderCursorExpiredError,
+  normalizeHeaderMap,
+  parseDeliveryStatus,
+} from '../inbound/providers/types'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -115,6 +120,87 @@ describe('cursor mailbox provider readers', () => {
       nextCursor: JSON.stringify({ folder: 'INBOX', uidValidity: '42', lastUid: 918 }),
       hasMore: false,
     })
+  })
+
+  it('drops the highest-UID echo an N:* search always returns (RFC 3501 quirk)', () => {
+    // After UID 918 was the last ingested, `919:*` still returns 918 (or,
+    // once 918 is expunged, the previous message 900): neither may be
+    // re-imported.
+    expect(selectIncrementalUids([918, 921, 919, 920], 918, 100)).toEqual([919, 920, 921])
+    expect(selectIncrementalUids([900], 918, 100)).toEqual([])
+    expect(selectIncrementalUids([919, 920, 921], 918, 2)).toEqual([919, 920])
+  })
+
+  it('stores exactly one From mailbox and rejects smuggled address lists', () => {
+    expect(headerAddress('Person <person@example.com>')).toBe('person@example.com')
+    expect(headerAddress('PERSON@Example.com')).toBe('person@example.com')
+    // api-send-privacy M5: a bracketed list must not become a comma-joined
+    // recipient that dodges suppression and mails an extra address.
+    expect(headerAddress('<prospect@x.com, victim@z.com>')).toBe('')
+    expect(headerAddress('a@x.com, b@y.com')).toBe('')
+    expect(headerAddress('<a@x.com> <b@y.com>')).toBe('')
+    expect(headerAddress('not an address')).toBe('')
+  })
+
+  it('persists only the allow-listed headers, keeping Authentication-Results', () => {
+    const many = Array.from({ length: 500 }, (_, i) => ({ name: `x-junk-${i}`, value: 'x'.repeat(100) }))
+    const headers = normalizeHeaderMap([
+      { name: 'From', value: 'Person <person@example.com>' },
+      { name: 'Authentication-Results', value: 'mx.google.com; dkim=pass header.i=@example.com' },
+      { name: 'ARC-Authentication-Results', value: 'i=1; mx.google.com; spf=pass smtp.mailfrom=example.com' },
+      { name: 'In-Reply-To', value: '<sent@noli.test>' },
+      { name: 'X-Mailer', value: 'Evil 1.0' },
+      ...many,
+    ])
+    expect(Object.keys(headers).sort()).toEqual([
+      'arc-authentication-results',
+      'authentication-results',
+      'from',
+      'in-reply-to',
+    ])
+  })
+
+  it('parses the delivery-status part of a Gmail bounce into action/status', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        historyId: '105',
+        history: [{ id: '105', messagesAdded: [{ message: { id: 'dsn-1', threadId: 't-9' } }] }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        id: 'dsn-1',
+        threadId: 't-9',
+        internalDate: '1786996800000',
+        payload: {
+          mimeType: 'multipart/report',
+          headers: [
+            { name: 'From', value: 'Mail Delivery Subsystem <mailer-daemon@googlemail.com>' },
+            { name: 'Subject', value: 'Delivery Status Notification (Delay)' },
+            { name: 'In-Reply-To', value: '<sent@noli.test>' },
+          ],
+          parts: [
+            { mimeType: 'text/plain', body: { data: Buffer.from('Delayed').toString('base64url') } },
+            {
+              mimeType: 'message/delivery-status',
+              body: {
+                data: Buffer.from(
+                  'Reporting-MTA: dns; googlemail.com\r\n\r\nFinal-Recipient: rfc822; someone@example.com\r\nAction: delayed\r\nStatus: 4.4.1\r\n',
+                ).toString('base64url'),
+              },
+            },
+          ],
+        },
+      }))
+    const reader = createGmailMailboxReader({ accessToken: 'token', fetch: fetchMock })
+    const page = await reader.readPage(JSON.stringify({ startHistoryId: '100' }))
+    expect(page.messages[0]).toMatchObject({
+      fromAddress: 'mailer-daemon@googlemail.com',
+      dsn: { action: 'delayed', status: '4.4.1' },
+    })
+    expect(parseDeliveryStatus('Action: failed\nStatus: 5.1.1 (bad destination)')).toEqual({
+      action: 'failed',
+      status: '5.1.1',
+    })
+    expect(parseDeliveryStatus('nothing here')).toBeNull()
   })
 
   it('can constrain an owned-mailbox rehearsal to one exact reply header', () => {

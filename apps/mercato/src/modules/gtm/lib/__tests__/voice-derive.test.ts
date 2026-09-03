@@ -2,7 +2,9 @@ import { FakeEm } from './support/fake-em'
 import { FakeModel, jsonModel, makeMeterSpy, throwingModel } from './support/fake-model'
 import { ctx, seedWorkspace, WORKSPACE } from './support/campaign-fixtures'
 import { deriveVoiceDraft, VOICE_DERIVE_FEATURE } from '../voice-derive'
+import * as versions from '../versions'
 import { createVersion, setVersionLock } from '../versions'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { GtmDraftError } from '../campaign/ai-draft'
 import { GtmVoiceVersion } from '../../data/entities'
 
@@ -153,5 +155,71 @@ describe('deriveVoiceDraft (metered AI voice profile)', () => {
       tokensIn: 0,
       tokensOut: 0,
     })
+  })
+
+  it('returns the concurrent winner instead of throwing after the charge when the version slot collides', async () => {
+    const em = new FakeEm()
+    await seedWorkspace(em)
+    const model = profileModel()
+    const { meter, calls } = makeMeterSpy()
+    const realCreate = versions.createVersion
+    // Simulate a same-key request that raced ahead: it committed version 1
+    // with the key between this request's key check and its createVersion.
+    const spy = jest.spyOn(versions, 'createVersion').mockImplementationOnce(async (emArg, ctxArg, kind, input) => {
+      await realCreate(emArg, ctxArg, kind, { ...input, derivedFrom: { idempotency_key: 'race-key', method: 'ai_derive' } })
+      throw new UniqueConstraintViolationException(new Error('duplicate key value violates unique constraint'))
+    })
+    try {
+      const version = await deriveVoiceDraft(em, ctx, { model, meter }, {
+        workspaceId: WORKSPACE,
+        sources: { website: null, samples: ['A sample.'] },
+        idempotencyKey: 'race-key',
+      })
+      expect(version.version).toBe(1)
+      expect((version.derivedFrom as Record<string, unknown>).idempotency_key).toBe('race-key')
+      expect(em.table(GtmVoiceVersion)).toHaveLength(1)
+      expect(model.calls).toHaveLength(1)
+      expect(calls).toHaveLength(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('retries the version number once when an unrelated concurrent write took it, then rethrows if it keeps colliding', async () => {
+    const em = new FakeEm()
+    await seedWorkspace(em)
+    const model = profileModel()
+    const realCreate = versions.createVersion
+    const spy = jest.spyOn(versions, 'createVersion')
+      .mockImplementationOnce(async (emArg, ctxArg, kind, input) => {
+        // an unrelated (different key) version landed first
+        await realCreate(emArg, ctxArg, kind, { ...input, derivedFrom: { idempotency_key: 'other-key' } })
+        throw new UniqueConstraintViolationException(new Error('duplicate key'))
+      })
+    try {
+      const version = await deriveVoiceDraft(em, ctx, { model, meter: makeMeterSpy().meter }, {
+        workspaceId: WORKSPACE,
+        sources: { website: null, samples: ['A sample.'] },
+        idempotencyKey: 'mine',
+      })
+      expect(version.version).toBe(2)
+      expect((version.derivedFrom as Record<string, unknown>).idempotency_key).toBe('mine')
+    } finally {
+      spy.mockRestore()
+    }
+
+    const alwaysCollides = jest.spyOn(versions, 'createVersion').mockImplementation(async () => {
+      throw new UniqueConstraintViolationException(new Error('duplicate key'))
+    })
+    try {
+      await expect(deriveVoiceDraft(em, ctx, { model, meter: makeMeterSpy().meter }, {
+        workspaceId: WORKSPACE,
+        sources: { website: null, samples: ['A sample.'] },
+        idempotencyKey: 'never-lands',
+      })).rejects.toBeInstanceOf(UniqueConstraintViolationException)
+      expect(alwaysCollides).toHaveBeenCalledTimes(3)
+    } finally {
+      alwaysCollides.mockRestore()
+    }
   })
 })

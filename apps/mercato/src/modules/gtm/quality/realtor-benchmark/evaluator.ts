@@ -12,7 +12,9 @@ export const REALTOR_BENCHMARK_THRESHOLDS = {
   minimumLabeledRows: 100,
   maximumLabeledRows: 200,
   minimumRowsPerPlay: 10,
-  precisionAt10: 0.8,
+  precisionOverAccepted: 0.8,
+  recallOverHumanRelevant: 0.5,
+  rankedPrecisionAt10: 0.8,
   geographyCorrectness: 0.95,
   intentCorrectness: 0.9,
   liveAccessibleDestinations: 0.95,
@@ -83,7 +85,15 @@ export function evaluateRealtorBenchmark(
       .sort((left, right) => left.rank - right.rank)
       .slice(0, 10),
   )
-  const precisionAt10 = ratio(top10.filter((label) => label.relevantToPlay).length, top10.length)
+  const rankedPrecisionAt10 = ratio(top10.filter((label) => label.relevantToPlay).length, top10.length)
+  // The qualifier's decision is the thing under test. A rejected row a human
+  // likes is a miss for the system, not a hit; an accepted row a human
+  // rejects is a false positive whatever its rank.
+  const acceptedRows = labels.filter((label) => label.systemDisposition === 'accepted')
+  const acceptedRelevant = acceptedRows.filter((label) => label.relevantToPlay).length
+  const humanRelevant = labels.filter((label) => label.relevantToPlay).length
+  const precisionOverAccepted = ratio(acceptedRelevant, acceptedRows.length)
+  const recallOverHumanRelevant = ratio(acceptedRelevant, humanRelevant)
   const geographyCorrectness = ratio(labels.filter((label) => label.geographyCorrect).length, labels.length)
   const intentCorrectness = ratio(labels.filter((label) => label.intentCorrect).length, labels.length)
   const liveAccessibleDestinations = ratio(
@@ -96,7 +106,12 @@ export function evaluateRealtorBenchmark(
     (label) => label.sensitiveTargeting || label.unsupportedClaim,
   ).length
   const metrics = {
-    precisionAt10: atLeast(precisionAt10, REALTOR_BENCHMARK_THRESHOLDS.precisionAt10),
+    precisionOverAccepted: atLeast(precisionOverAccepted, REALTOR_BENCHMARK_THRESHOLDS.precisionOverAccepted),
+    recallOverHumanRelevant: atLeast(
+      recallOverHumanRelevant,
+      REALTOR_BENCHMARK_THRESHOLDS.recallOverHumanRelevant,
+    ),
+    rankedPrecisionAt10: atLeast(rankedPrecisionAt10, REALTOR_BENCHMARK_THRESHOLDS.rankedPrecisionAt10),
     geographyCorrectness: atLeast(
       geographyCorrectness,
       REALTOR_BENCHMARK_THRESHOLDS.geographyCorrectness,
@@ -117,20 +132,34 @@ export function evaluateRealtorBenchmark(
     ),
   }
 
+  // The ranked metric is informational: a packet can pass it with every row
+  // rejected by the system, so it must never decide the release.
+  const gatingMetrics = Object.entries(metrics)
+    .filter(([key]) => key !== 'rankedPrecisionAt10')
+    .map(([, metric]) => metric)
   return {
     benchmarkVersion: REALTOR_BENCHMARK_VERSION,
-    passed: coverage.valid && Object.values(metrics).every((metric) => metric.passed),
+    passed:
+      coverage.valid
+      && acceptedRows.length > 0
+      && metrics.precisionOverAccepted.passed
+      && gatingMetrics.every((metric) => metric.passed),
     coverage,
     metrics,
     byPlay: plays.map((play) => {
       const rows = [...(labelsByPlay.get(play.id) ?? [])].sort((left, right) => left.rank - right.rank)
       const first10 = rows.slice(0, 10)
       const relevantAt10 = first10.filter((label) => label.relevantToPlay).length
+      const playAccepted = rows.filter((label) => label.systemDisposition === 'accepted')
+      const playAcceptedRelevant = playAccepted.filter((label) => label.relevantToPlay).length
       return {
         playId: play.id,
         labeledRows: rows.length,
+        acceptedRows: playAccepted.length,
+        acceptedRelevant: playAcceptedRelevant,
+        precisionOverAccepted: ratio(playAcceptedRelevant, playAccepted.length),
         relevantAt10,
-        precisionAt10: ratio(relevantAt10, first10.length),
+        rankedPrecisionAt10: ratio(relevantAt10, first10.length),
       }
     }),
   }

@@ -12,8 +12,11 @@ const optionalText = z
 // Typed play payload per GTM-SPEC-01 section 3.5. The hub's play type names
 // the sourcing hint `source`; SPEC-066 stores it as `source_hint` (the CRM
 // `source` column means imported | authored), so both spellings are accepted.
+// market_type is a strict enum (review research H13): a free-text label was
+// a trusted caller input that selected automated email and skipped the
+// consumer policy screen.
 export const importedPlaySchema = z.object({
-  market_type: optionalText,
+  market_type: z.enum(['b2b', 'b2c', 'mixed']).optional().nullable(),
   audience: optionalText,
   signal: optionalText,
   signal_kind: optionalText,
@@ -639,10 +642,15 @@ export const gtmInboxBodySchema = z.discriminatedUnion('op', [
     // returns the stored draft instead of making a second metered AI call.
     idempotency_key: idString,
   }),
+  // approve-draft approves AND sends in one call, so the caller must echo the
+  // sha256 of the draft it reviewed (draft_content_hash on the reply shape).
+  // A draft rewritten between review and approval (including by the AI
+  // drafter) fails 409 instead of shipping unseen content.
   z.object({
     op: z.literal('approve-draft'),
     noliUserId: idString,
     replyId: idString,
+    expected_draft_hash: z.string().regex(/^[a-f0-9]{64}$/),
   }),
 ])
 
@@ -653,6 +661,33 @@ export const gtmPrivacyBodySchema = z.discriminatedUnion('op', [
     op: z.literal('status'),
     noliUserId: idString,
     requestId: idString,
+  }),
+  // Operator view of deletion requests that are still partial and approaching
+  // (or past) their due date, so blocked DSR work is visible before the
+  // statutory window closes.
+  z.object({
+    op: z.literal('list-partial'),
+    noliUserId: idString,
+    within_days: z.number().int().min(0).max(365).optional(),
+  }),
+  // Closes the 'crm_customers' DSR operation by anonymizing the promoted CRM
+  // contact(s) recorded in the operation receipt.
+  z.object({
+    op: z.literal('complete-crm-contact-deletion'),
+    noliUserId: idString,
+    requestId: idString,
+  }),
+  z.object({
+    op: z.literal('set-legal-hold'),
+    noliUserId: idString,
+    requestId: idString,
+    reason: z.string().trim().min(1).max(2000),
+  }),
+  z.object({
+    op: z.literal('clear-legal-hold'),
+    noliUserId: idString,
+    requestId: idString,
+    reason: z.string().trim().min(1).max(2000),
   }),
 ])
 
@@ -685,6 +720,19 @@ export const gtmReconciliationBodySchema = z.discriminatedUnion('op', [
     op: z.literal('repair-run-summaries'),
     noliUserId: idString,
     runIds: z.array(idString).min(1).max(50),
+  }).strict(),
+  // Bounded, idempotent replay of settlements whose Noli Core call was lost
+  // after the provider was paid (adapters-money M5) and of provider rows that
+  // were retained in a receipt while settlement was pending (research C2).
+  z.object({
+    op: z.literal('replay-settlements'),
+    noliUserId: idString,
+    limit: z.number().int().min(1).max(50).optional(),
+  }).strict(),
+  z.object({
+    op: z.literal('replay-parked-output'),
+    noliUserId: idString,
+    operationId: idString,
   }).strict(),
   z.object({
     op: z.literal('apply'),
@@ -737,13 +785,46 @@ export const gtmTasksBodySchema = z.discriminatedUnion('op', [
 
 export type GtmTasksBody = z.infer<typeof gtmTasksBodySchema>
 
+// Asset URLs freeze into the immutable approval snapshot and the KB mirror,
+// so only absolute https URLs are accepted (never javascript:/data: or a
+// relative path a renderer could resolve unexpectedly).
+const httpsUrl = z
+  .string()
+  .trim()
+  .max(2000)
+  .url()
+  .refine((value) => value.toLowerCase().startsWith('https://'), {
+    message: 'must be an https URL',
+  })
+
 const assetRefSchema = z.object({
   id: idString,
   kind: z.string().trim().min(1).max(100),
   title: z.string().trim().min(1).max(500),
-  publishedUrl: z.string().trim().min(1).max(2000),
-  frozen_url: z.string().trim().max(2000).optional().nullable(),
+  publishedUrl: httpsUrl,
+  frozen_url: httpsUrl.optional().nullable(),
 })
+
+// Only play-level fields ever leave the CRM in an asset request (AMS handoff
+// contract item 6: never prospect PII). An explicit strict shape replaces the
+// previous open record so an unknown key cannot smuggle candidate data.
+const playContextText = z.string().trim().max(4000).optional().nullable()
+const assetPlayContextSchema = z
+  .object({
+    play_id: idString.optional().nullable(),
+    market_type: z.enum(['b2b', 'b2c', 'mixed']).optional().nullable(),
+    audience: playContextText,
+    signal: playContextText,
+    signal_kind: playContextText,
+    geography: playContextText,
+    recency_window: playContextText,
+    why_now: playContextText,
+    recommended_angle: playContextText,
+    entity_unit: playContextText,
+    likely_buyer: playContextText,
+    supported_channels: z.array(z.string().trim().min(1).max(200)).max(50).optional().nullable(),
+  })
+  .strict()
 
 export const gtmHandoffBodySchema = z.discriminatedUnion('op', [
   z.object({
@@ -756,7 +837,7 @@ export const gtmHandoffBodySchema = z.discriminatedUnion('op', [
     kind: z.string().trim().min(1).max(100),
     brief: z.string().trim().min(1).max(4000),
     platform: z.string().trim().max(100).optional().nullable(),
-    play_context: z.record(z.string(), z.unknown()),
+    play_context: assetPlayContextSchema,
   }),
   z.object({
     op: z.literal('asset-status'),
@@ -904,3 +985,28 @@ export const gtmChatBodySchema = z.discriminatedUnion('op', [
 ])
 
 export type GtmChatBody = z.infer<typeof gtmChatBodySchema>
+
+// ---------------------------------------------------------------------------
+// Official social-platform connections (Threads keyword search)
+// ---------------------------------------------------------------------------
+
+export const gtmSocialConnectionsBodySchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('list'),
+    noliUserId: idString,
+  }),
+  z.object({
+    op: z.literal('threads-connect-start'),
+    noliUserId: idString,
+    // Absolute https URL on an owned Noli browser domain the callback may
+    // return the user to. Validated again server-side before use.
+    return_to: z.string().trim().url().max(2000),
+  }),
+  z.object({
+    op: z.literal('disconnect'),
+    noliUserId: idString,
+    connectionId: idString,
+  }),
+])
+
+export type GtmSocialConnectionsBody = z.infer<typeof gtmSocialConnectionsBodySchema>

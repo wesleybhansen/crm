@@ -108,7 +108,29 @@ jobs:
 
   gtm-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    # A real Postgres so the GTM concurrency contracts (mailbox lease,
+    # cursor+disposition atomicity, health idempotency, canonical policy,
+    # capacity-slot uniqueness) run in CI instead of being skipped; the test
+    # file fails, not skips, when GTM_TEST_DATABASE_URL is missing under CI.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gtm
+          POSTGRES_PASSWORD: gtm
+          POSTGRES_DB: gtm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gtm"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://gtm:gtm@localhost:5432/gtm_test
+      GTM_TEST_DATABASE_URL: postgres://gtm:gtm@localhost:5432/gtm_test
+      GTM_REQUIRE_POSTGRES_CONTRACTS: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -123,6 +145,18 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --immutable
+
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Prepare generated modules
+        run: yarn generate
+
+      - name: Rebuild packages with generated files
+        run: yarn build:packages
+
+      - name: Apply database migrations to the test Postgres
+        run: yarn db:migrate
 
       - name: Run GTM deterministic and artifact-quality regressions
         run: yarn test:gtm-regression

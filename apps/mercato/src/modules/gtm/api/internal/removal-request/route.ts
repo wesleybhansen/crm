@@ -5,7 +5,7 @@ import { gtmInternalOpenApi } from '../../openapi'
 export const openApi = gtmInternalOpenApi('Apply a scoped GTM removal request')
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ExecutionEm } from '../../../lib/execute/schedule'
-import { normalizeRemovalEmail } from '../../../lib/removal-request'
+import { normalizeRemovalEmail, normalizeRemovalSource } from '../../../lib/removal-request'
 import { normalizeConsumerProfileUrl } from '../../../lib/research/execute'
 
 /*
@@ -42,14 +42,18 @@ export const metadata = {
 }
 
 export async function POST(req: Request) {
-  // Shared-secret auth (length-guarded constant-time compare).
+  // Shared-secret auth (byte-length-guarded constant-time compare). Both
+  // Buffers are built first: comparing UTF-16 string lengths let a multibyte
+  // header of equal string length reach timingSafeEqual with a different byte
+  // length, which throws and 500s instead of denying.
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
   const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
+  const provided = Buffer.from(authHeader, 'utf8')
+  const expected = Buffer.from(secret ? `Bearer ${secret}` : '', 'utf8')
   if (
     !secret ||
-    authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+    provided.length !== expected.length ||
+    !crypto.timingSafeEqual(provided, expected)
   ) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
@@ -68,7 +72,8 @@ export async function POST(req: Request) {
     const { applyRemovalRequest, applyProfileRemovalRequest } = await import('../../../lib/removal-request')
     const shared = {
       reason: typeof raw.reason === 'string' ? raw.reason : null,
-      source: typeof raw.source === 'string' ? raw.source : null,
+      // Allowlisted; anything else is recorded as the public form.
+      source: normalizeRemovalSource(raw.source),
     }
     const results = []
     if (email) results.push(await applyRemovalRequest(em, { email, ...shared }))

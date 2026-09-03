@@ -2,6 +2,7 @@ import './commands/campaign'
 import './commands/reconciliation'
 import './commands/mailbox'
 import './commands/auto-refill'
+import './commands/social'
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {

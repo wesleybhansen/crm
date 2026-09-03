@@ -1,5 +1,5 @@
 import { FakeEm } from './support/fake-em'
-import { GtmMailboxCursor } from '../../data/entities'
+import { GtmAuditEvent, GtmMailboxCursor } from '../../data/entities'
 import {
   MailboxCursorError,
   acquireMailboxCursor,
@@ -182,9 +182,34 @@ describe('durable mailbox cursor', () => {
         { clock: at('2026-08-17T12:00:03Z') },
       ),
     ).resolves.toBe(true)
+    // H3: the expired anchor is discarded in the same fenced write so the
+    // next job re-baselines from the provider, and the gap is audited.
     expect(em.table(GtmMailboxCursor)[0]).toMatchObject({
       status: 'resync_required',
       lastError: 'gmail_history_expired',
+      cursorHash: null,
+      sealedCursor: null,
+      leaseToken: null,
     })
+    const audits = em.table(GtmAuditEvent).filter((row) => row.action === 'gtm.mailbox.cursor_resync')
+    expect(audits).toHaveLength(1)
+    expect(audits[0].metadata).toMatchObject({
+      reason: 'gmail_history_expired',
+      mailbox_connection_id: context.mailboxConnectionId,
+      gap_detected_at: '2026-08-17T12:00:03.000Z',
+    })
+    await expect(readMailboxCursor(em, context, codec)).resolves.toMatchObject({ cursorValue: null })
+
+    // Recovery: a fresh lease is granted and a re-baselined cursor advances
+    // from null exactly like a first connection.
+    const recovered = await acquireMailboxCursor(em, context, { clock: at('2026-08-17T12:00:04Z') })
+    await advanceMailboxCursor(
+      em,
+      context,
+      { cursorId: recovered.cursor.id, leaseToken: recovered.leaseToken, fence: recovered.fence, expectedCursorHash: null },
+      { cursorValue: 'history-303' },
+      { codec, clock: at('2026-08-17T12:00:05Z') },
+    )
+    expect(em.table(GtmMailboxCursor)[0]).toMatchObject({ status: 'idle', cursorHash: hashCursor('history-303') })
   })
 })

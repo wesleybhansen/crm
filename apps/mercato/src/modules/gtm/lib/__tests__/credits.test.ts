@@ -9,6 +9,7 @@ import {
   PROVIDER_MIN_CHARGE_USD,
   creditsForUnits,
   creditsFromUsd,
+  MIN_CREDIT_MARKUP,
   defaultMarkupMultiplier,
   providerSpendCapUsd,
   usdFromCredits,
@@ -59,6 +60,18 @@ describe('creditsForUnits markup', () => {
     expect(defaultMarkupMultiplier()).toBe(2)
     delete process.env.GTM_CREDIT_MARKUP
     expect(defaultMarkupMultiplier()).toBe(2)
+  })
+
+  // Review 2026-09-02 (L5): a sub-1 markup priced quotes under provider cost
+  // and let providerSpendCapUsd authorize more than the reservation.
+  it('refuses a markup below 1x and falls back to the default', () => {
+    for (const value of ['0.5', '0.99', '0', '-2']) {
+      process.env.GTM_CREDIT_MARKUP = value
+      expect(defaultMarkupMultiplier()).toBe(2)
+    }
+    process.env.GTM_CREDIT_MARKUP = '1'
+    expect(defaultMarkupMultiplier()).toBe(1)
+    expect(MIN_CREDIT_MARKUP).toBe(1)
   })
 
   it('rejects invalid inputs instead of silently pricing them', () => {
@@ -134,6 +147,20 @@ describe('providerSpendCapUsd', () => {
     expect(() => providerSpendCapUsd(-1, 2)).toThrow(TypeError)
     expect(() => providerSpendCapUsd(100, 0)).toThrow(TypeError)
     expect(() => providerSpendCapUsd(100, Number.NaN)).toThrow(TypeError)
+  })
+
+  // Review 2026-09-02 (L3): documents the bounded gap between a sub-cent
+  // reservation and the $0.01 floor actually sent to the provider.
+  it('documents that the $0.01 floor can exceed a sub-cent reservation by under one cent', () => {
+    // 3 comments x 500 credits x 2 markup = 3,000 credits = $0.006 raw
+    const reserved = creditsForUnits(3, 500, 2)
+    expect(usdFromCredits(reserved / 2)).toBeCloseTo(0.006, 10)
+    const cap = providerSpendCapUsd(reserved, 2)
+    expect(cap).toBe(PROVIDER_MIN_CHARGE_USD)
+    expect(cap - usdFromCredits(reserved / 2)).toBeLessThan(PROVIDER_MIN_CHARGE_USD)
+    // once the raw reservation covers the floor, the cap tracks it exactly
+    expect(providerSpendCapUsd(creditsForUnits(5, 500, 2), 2)).toBe(0.01)
+    expect(providerSpendCapUsd(creditsForUnits(6, 500, 2), 2)).toBe(0.012)
   })
 
   it('defaults the markup to the configured platform multiplier', () => {

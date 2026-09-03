@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
-import { GtmMailboxCursor } from '../../data/entities'
+import { GtmAuditEvent, GtmMailboxCursor } from '../../data/entities'
 import type { Clock } from '../execute/schedule'
 
 export type CursorContext = {
@@ -222,14 +222,30 @@ export async function failMailboxCursor(
   return updated === 1
 }
 
+/**
+ * The provider no longer honours the stored cursor (Gmail history expired,
+ * Graph delta gone, IMAP UIDVALIDITY changed). Recovery is automatic (H3):
+ * the sealed cursor and its hash are nulled in the SAME fenced update that
+ * records the resync, so the next job re-baselines from the provider
+ * exactly like a first connection (readMailboxCursor returns null,
+ * readPage(null) fetches a fresh anchor). Nothing in between the expired
+ * anchor and the new baseline is ever fetched; that gap is durable in an
+ * audit event so an operator can see what the mailbox may have missed.
+ */
 export async function requireMailboxResync(
   em: CursorEm,
-  context: Pick<CursorContext, 'organizationId' | 'tenantId'>,
+  context: Pick<CursorContext, 'organizationId' | 'tenantId'> & Partial<CursorContext>,
   lease: { cursorId: string; leaseToken: string; fence: number },
   reason: 'gmail_history_expired' | 'graph_delta_expired' | 'imap_uidvalidity_changed',
   deps: { clock?: Clock } = {},
 ): Promise<boolean> {
   const now = deps.clock?.now() ?? new Date()
+  const before = await em.findOne(GtmMailboxCursor, {
+    id: lease.cursorId,
+    organizationId: context.organizationId,
+    tenantId: context.tenantId,
+    deletedAt: null,
+  })
   const updated = await em.nativeUpdate(
     GtmMailboxCursor,
     {
@@ -245,11 +261,39 @@ export async function requireMailboxResync(
       leaseToken: null,
       leaseExpiresAt: null,
       status: 'resync_required',
+      cursorHash: null,
+      sealedCursor: null,
       lastError: reason,
       updatedAt: now,
     },
   )
-  return updated === 1
+  if (updated !== 1) return false
+  em.persist(
+    em.create(GtmAuditEvent, {
+      organizationId: context.organizationId,
+      tenantId: context.tenantId,
+      actor: 'system',
+      actorUserId: null,
+      action: 'gtm.mailbox.cursor_resync',
+      objectType: 'gtm_mailbox_cursor',
+      objectId: lease.cursorId,
+      requestId: null,
+      metadata: {
+        reason,
+        mailbox_connection_id: context.mailboxConnectionId ?? before?.mailboxConnectionId ?? null,
+        provider: context.provider ?? before?.provider ?? null,
+        cursor_kind: context.cursorKind ?? before?.cursorKind ?? null,
+        // The gap: nothing between the last successfully ingested message
+        // and the new baseline will be fetched.
+        gap_started_at: before?.lastOccurredAt?.toISOString() ?? null,
+        gap_last_message_id: before?.lastMessageId ?? null,
+        gap_detected_at: now.toISOString(),
+        last_success_at: before?.lastSuccessAt?.toISOString() ?? null,
+      },
+    }),
+  )
+  await em.flush()
+  return true
 }
 
 /**

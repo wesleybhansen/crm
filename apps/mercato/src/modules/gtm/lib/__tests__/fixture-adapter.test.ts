@@ -117,11 +117,23 @@ describe('fixture source adapter crafted cases', () => {
     expectReceiptContract(result)
   })
 
-  it('classifies invalid_schema, rate_limit, and provider_5xx as errors with zero cost', async () => {
+  // Review 2026-09-02 (H1/T1): provider_5xx used to be asserted as a
+  // definitive error with zero cost. A 5xx after dispatch may have billed,
+  // so it is now modelled as ambiguous, matching the Apify sync client.
+  it('classifies a post-dispatch provider_5xx as ambiguous with unknown cost', async () => {
+    const result = await fixtureSourceAdapter.search({ ...basePlan, query: 'fixture-5xx' })
+    expect(result.status).toBe('ambiguous')
+    expect(result.data).toBeNull()
+    expect(result.cost_units).toBeNull()
+    expect(result.error).toContain('provider_5xx')
+    expect(result.receipt).toMatchObject({ http_status: 500 })
+    expectReceiptContract(result)
+  })
+
+  it('classifies invalid_schema and rate_limit as errors with zero cost', async () => {
     const cases: Array<[string, string]> = [
       ['fixture-invalid-schema', 'invalid_schema'],
       ['fixture-rate-limit', 'rate_limit'],
-      ['fixture-5xx', 'provider_5xx'],
     ]
     for (const [trigger, label] of cases) {
       const result = await fixtureSourceAdapter.search({ ...basePlan, query: trigger })

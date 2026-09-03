@@ -39,13 +39,16 @@ export async function POST(req: Request) {
   }
 
   // 1. Shared-secret auth (length-guarded constant-time compare)
+  // Both sides are compared as BYTES: a multibyte header of the same UTF-16
+  // length would otherwise make timingSafeEqual throw (an unauthenticated
+  // 500) instead of denying.
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
+  const authHeader = Buffer.from((req.headers.get('authorization') || '').trim(), 'utf8')
+  const expected = Buffer.from(secret ? `Bearer ${secret}` : '', 'utf8')
   if (
     !secret ||
     authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+    !crypto.timingSafeEqual(authHeader, expected)
   ) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }

@@ -17,11 +17,17 @@ const COMPONENT_KEYS = [
   'durable_summary',
 ] as const
 
+// 'pending' is the local receipt written BEFORE the canonical Noli Core
+// metering call; it is settled to succeeded/failed once that call returns.
+export type GtmAiTelemetryStatus = 'pending' | 'succeeded' | 'failed'
+
+export const CANONICAL_METERING_FAILED = 'canonical_metering_failed'
+
 export type GtmAiTelemetryInput = {
   operationKey: string
   surface: string
   model: string | null
-  status: 'succeeded' | 'failed'
+  status: GtmAiTelemetryStatus
   tokensIn: number
   tokensOut: number
   tokenUsageKnown?: boolean
@@ -122,6 +128,39 @@ export async function recordGtmAiTelemetry(
   }
 }
 
+/*
+ * Settles a pending local receipt after canonical metering returned. A row
+ * that already reads 'succeeded' (a replayed call whose canonical write landed
+ * earlier) is never downgraded by a later transport failure: the canonical
+ * usage row exists, so the local receipt stays truthful.
+ */
+export async function settleGtmAiTelemetry(
+  em: CampaignEm,
+  ctx: Pick<GtmCtx, 'organizationId' | 'tenantId'>,
+  input: {
+    operationKey: string
+    status: 'succeeded' | 'failed'
+    failureCode?: string | null
+  },
+): Promise<GtmAiTelemetry | null> {
+  const operationKey = input.operationKey.trim().slice(0, 500)
+  const row = await em.findOne(GtmAiTelemetry, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    operationKey,
+    deletedAt: null,
+  })
+  if (!row) return null
+  if (row.status === 'succeeded' && input.status === 'failed') return row
+  row.status = input.status
+  if (input.failureCode !== undefined) {
+    row.failureCode = input.failureCode?.trim().slice(0, 200) || null
+  }
+  em.persist(row)
+  await em.flush()
+  return row
+}
+
 export function createGtmTelemetryMeter(input: {
   em: CampaignEm
   ctx: GtmCtx
@@ -133,16 +172,20 @@ export function createGtmTelemetryMeter(input: {
   return async (usage) => {
     invocation += 1
     const operationKey = `${input.operationKey}:call:${invocation}`
-    // Preserve a local, content-free receipt before crossing the Noli Core
-    // boundary. If canonical metering is temporarily unavailable the call is
-    // not returned as successful, while the exact invocation remains observable
-    // for operator reconciliation.
+    // Preserve a local, content-free receipt BEFORE crossing the Noli Core
+    // boundary, in status 'pending': the row must never claim 'succeeded'
+    // until the canonical usage write has actually landed, otherwise an
+    // outage produces a dashboard full of successes with no usage behind
+    // them. If canonical metering is unavailable the call is not returned as
+    // successful, while the exact invocation remains observable for operator
+    // reconciliation.
+    let recorded = false
     try {
       await recordGtmAiTelemetry(input.em, input.ctx, {
         operationKey,
         surface: input.surface,
         model: usage.model,
-        status: usage.status ?? 'succeeded',
+        status: 'pending',
         tokensIn: usage.tokensIn,
         tokensOut: usage.tokensOut,
         tokenUsageKnown: usage.tokenUsageKnown,
@@ -152,6 +195,7 @@ export function createGtmTelemetryMeter(input: {
         failureCode: usage.failureCode ?? null,
         requestId: input.ctx.requestId ?? null,
       })
+      recorded = true
     } catch (error) {
       // Canonical metering can still succeed even if observational telemetry
       // is degraded. Never skip the customer credit write because this table
@@ -161,9 +205,30 @@ export function createGtmTelemetryMeter(input: {
     try {
       await input.canonicalMeter(usage, operationKey)
     } catch (error) {
+      if (recorded) {
+        try {
+          await settleGtmAiTelemetry(input.em, input.ctx, {
+            operationKey,
+            status: 'failed',
+            failureCode: CANONICAL_METERING_FAILED,
+          })
+        } catch (settleError) {
+          console.error('[gtm.ai.telemetry]', settleError)
+        }
+      }
       throw new GtmAiMeteringError(
         error instanceof Error ? error.message : 'GTM AI usage could not be recorded',
       )
+    }
+    if (recorded) {
+      try {
+        await settleGtmAiTelemetry(input.em, input.ctx, {
+          operationKey,
+          status: usage.status ?? 'succeeded',
+        })
+      } catch (error) {
+        console.error('[gtm.ai.telemetry]', error)
+      }
     }
   }
 }

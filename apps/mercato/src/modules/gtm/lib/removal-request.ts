@@ -11,7 +11,11 @@ import {
   GtmSuppression,
 } from '../data/entities'
 import { executeRemovalDeletion } from './privacy/deletion'
-import { consumerProfileDedupeKey, normalizeConsumerProfileUrl } from './research/execute'
+import {
+  candidateIdentityHashes,
+  consumerProfileDedupeKey,
+  normalizeConsumerProfileUrl,
+} from './research/execute'
 export {
   GLOBAL_SUPPRESSION_ORG_ID,
   GLOBAL_SUPPRESSION_TENANT_ID,
@@ -77,6 +81,18 @@ const NON_TERMINAL_CANCELABLE = ['planned', 'rendered', 'reviewed', 'approved', 
 
 const MAX_EMAIL_CHARS = 200
 
+// Where a removal request may come from. Caller-controlled free text used to
+// flow straight into gtm_suppressions.source and audit metadata.
+export const REMOVAL_REQUEST_SOURCES = ['public_form', 'hub_form', 'support', 'email_reply', 'operator'] as const
+export type RemovalRequestSource = (typeof REMOVAL_REQUEST_SOURCES)[number]
+
+export function normalizeRemovalSource(raw: unknown): RemovalRequestSource {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  return (REMOVAL_REQUEST_SOURCES as readonly string[]).includes(value)
+    ? (value as RemovalRequestSource)
+    : 'public_form'
+}
+
 export type RemovalRequestInput = {
   email: string
   // Free-text, optional, supplied by the requester. Never stored: it could
@@ -125,7 +141,7 @@ export async function applyRemovalRequest(
   const address = normalizeRemovalEmail(input.email)
   if (!address) throw new Error('invalid_email')
   const addressHash = hashAddress(address)
-  const source = typeof input.source === 'string' && input.source.trim() ? input.source.trim() : 'public_form'
+  const source = normalizeRemovalSource(input.source)
 
   const suppressionCreated = await writeGlobalSuppression(em, { addressHash, source, channel: 'email', now })
 
@@ -197,18 +213,14 @@ export async function applyProfileRemovalRequest(
   const normalizedProfile = normalizeConsumerProfileUrl(input.profileUrl)
   const addressHash = consumerProfileDedupeKey(input.profileUrl)
   if (!normalizedProfile || !addressHash) throw new Error('invalid_profile_url')
-  const source = typeof input.source === 'string' && input.source.trim() ? input.source.trim() : 'public_form'
+  const source = normalizeRemovalSource(input.source)
   const suppressionCreated = await writeGlobalSuppression(em, {
     addressHash,
     source,
     channel: 'public_profile',
     now,
   })
-  const candidates = await em.find(GtmCandidate, {
-    entityKind: 'person',
-    dedupeKey: addressHash,
-    deletedAt: null,
-  })
+  const candidates = await findPersonCandidatesByProfile(em, addressHash)
   const points = candidates.map((candidate) => ({
     id: candidate.id,
     organizationId: candidate.organizationId,
@@ -241,6 +253,29 @@ export async function applyProfileRemovalRequest(
       + deletion.manualDraftsAnonymized,
     dsrOperations: deletion.dsrOperations,
   }
+}
+
+/*
+ * Every person row that carries this profile, not only rows whose dedupe key
+ * is the profile hash. LinkedIn engagers were keyed by a name|title
+ * fingerprint and people without a URL by name|city, so a URL-keyed lookup
+ * found nothing and the person was re-sourced on the next run. The match is
+ * computed from the same identity hash set the sourcing suppression check
+ * uses (profile URL hash, engagement fingerprint, name fingerprint), so the
+ * two sides can never disagree. The person scan is platform-wide by design
+ * (see the module comment) and bounded by candidate retention.
+ */
+async function findPersonCandidatesByProfile(
+  em: ExecutionEm,
+  profileHash: string,
+): Promise<GtmCandidate[]> {
+  const persons = await em.find(GtmCandidate, { entityKind: 'person', deletedAt: null })
+  return persons.filter((candidate) => {
+    if (candidate.dedupeKey === profileHash) return true
+    const identity = candidate.identity
+    if (!identity || typeof identity !== 'object' || identity.removed === true) return false
+    return candidateIdentityHashes({ entity_kind: 'person', identity: identity as never }).has(profileHash)
+  })
 }
 
 /* ── Global suppression (idempotent) ───────────────────────────────────── */

@@ -443,12 +443,72 @@ export function allocateCapacitySlotKey(
 export type MaterializeResult = {
   created: GtmSendAttempt[]
   existing: GtmSendAttempt[]
+  // Not-yet-started rows of a superseded version re-bound to this version
+  // (review M1): same idempotency key, fence + 1, new step/rendered/schedule.
+  repointed: GtmSendAttempt[]
+}
+
+// States in which a row bound to a superseded version has provably not
+// reached the provider and can be re-bound to the relaunched version.
+const REPOINTABLE_STATES = new Set(['planned', 'rendered', 'reviewed', 'approved', 'paused'])
+
+// Pre-dispatch rejections caused ONLY by the invalidate -> re-approve window
+// (send.ts fails these before provider contact). A later attempt_no for the
+// same logical step is safe; every other failure reason (stopped, bounce,
+// suppression, ...) is a deliberate outcome and is never re-minted.
+const SUPERSEDED_FAILURE_REASONS = new Set([
+  'version_superseded',
+  'campaign_not_active',
+  'version_invalidated',
+  'enrollment_version_mismatch',
+])
+
+const MAX_ATTEMPT_NO = 20
+
+type SlotResolution =
+  | { kind: 'existing'; attempt: GtmSendAttempt }
+  | { kind: 'repoint'; attempt: GtmSendAttempt; idempotencyKey: string }
+  | { kind: 'mint'; idempotencyKey: string; attemptNo: number }
+
+// Walks attempt_no 1.. for one (enrollment, step key) and decides whether the
+// logical step is already covered by this version, can be re-bound, needs a
+// fresh attempt_no, or is settled and must be left alone.
+async function resolveAttemptSlot(
+  em: ExecutionEm,
+  ctx: GtmCtx,
+  versionId: string,
+  enrollmentId: string,
+  stepKey: string,
+): Promise<SlotResolution> {
+  for (let attemptNo = 1; attemptNo <= MAX_ATTEMPT_NO; attemptNo += 1) {
+    const idempotencyKey = buildSendIdempotencyKey(enrollmentId, stepKey, attemptNo)
+    const already = await em.findOne(GtmSendAttempt, {
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      idempotencyKey,
+    })
+    if (!already) return { kind: 'mint', idempotencyKey, attemptNo }
+    if (already.campaignVersionId === versionId) return { kind: 'existing', attempt: already }
+    if (REPOINTABLE_STATES.has(already.state)) {
+      return { kind: 'repoint', attempt: already, idempotencyKey }
+    }
+    if (already.state === 'failed' && SUPERSEDED_FAILURE_REASONS.has(already.failureReason ?? '')) {
+      continue
+    }
+    // Contacted, settled, or deliberately stopped: the step is done.
+    return { kind: 'existing', attempt: already }
+  }
+  throw new GtmExecutionError('invalid_state', 'Too many attempts exist for one logical step')
 }
 
 // Creates the 'approved' send-attempt rows for every (active enrollment x
 // automated email step) of the version. Idempotent per row via the
-// (organization_id, idempotency_key) unique index; rows that already exist
-// are returned unchanged. Runs inside the caller's transaction (launch).
+// (organization_id, idempotency_key) unique index; rows already bound to
+// this version are returned unchanged. Rows bound to a SUPERSEDED version
+// that never reached the provider are re-pointed at this version (review
+// M1: invalidate -> re-approve -> relaunch used to strand every unsent step,
+// because the stable key already existed and the executor then failed each
+// one 'version_superseded'). Runs inside the caller's transaction (launch).
 export async function materializeSendAttempts(
   em: ExecutionEm,
   ctx: GtmCtx,
@@ -541,43 +601,38 @@ export async function materializeSendAttempts(
 
   const created: GtmSendAttempt[] = []
   const existing: GtmSendAttempt[] = []
-  const reservedAttempts = await em.find(GtmSendAttempt, {
-    organizationId: ctx.organizationId,
-    tenantId: ctx.tenantId,
-    mailboxConnectionId: settings.sender_mailbox_id,
-    state: { $in: [...CAPACITY_RESERVED_STATES] },
-    deletedAt: null,
-  })
-  const reservations = buildCapacityReservations(
-    reservedAttempts,
-    settings.send_window.timezone,
-  )
+  const repointed: GtmSendAttempt[] = []
   const intents: Array<{
     enrollment: GtmEnrollment
     step: GtmStep
     rendered: GtmRenderedMessage
     idempotencyKey: string
+    attemptNo: number
     earliest: Date
+    repoint: GtmSendAttempt | null
   }> = []
   for (const enrollment of enrollments) {
     for (const step of emailSteps) {
       const rendered = renderedByEnrollmentStep.get(`${enrollment.id}:${step.id}`)
       if (!rendered) continue
-      const idempotencyKey = buildSendIdempotencyKey(enrollment.id, readStepKey(step), 1)
-      const already = await em.findOne(GtmSendAttempt, {
-        organizationId: ctx.organizationId,
-        tenantId: ctx.tenantId,
-        idempotencyKey,
-      })
-      if (already) {
-        existing.push(already)
+      const slot = await resolveAttemptSlot(
+        em,
+        ctx,
+        campaignVersion.id,
+        enrollment.id,
+        readStepKey(step),
+      )
+      if (slot.kind === 'existing') {
+        existing.push(slot.attempt)
         continue
       }
       intents.push({
         enrollment,
         step,
         rendered,
-        idempotencyKey,
+        idempotencyKey: slot.idempotencyKey,
+        attemptNo: slot.kind === 'mint' ? slot.attemptNo : slot.attempt.attemptNo,
+        repoint: slot.kind === 'repoint' ? slot.attempt : null,
         earliest: computeScheduledFor(
           launchAt,
           step.delayDays,
@@ -588,6 +643,22 @@ export async function materializeSendAttempts(
       })
     }
   }
+  // Rows being re-pointed give up their old capacity slot before the new
+  // schedule is allocated, otherwise they would reserve capacity twice.
+  const repointIds = new Set(intents.flatMap((intent) => (intent.repoint ? [intent.repoint.id] : [])))
+  const reservedAttempts = (
+    await em.find(GtmSendAttempt, {
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      mailboxConnectionId: settings.sender_mailbox_id,
+      state: { $in: [...CAPACITY_RESERVED_STATES] },
+      deletedAt: null,
+    })
+  ).filter((attempt) => !repointIds.has(attempt.id))
+  const reservations = buildCapacityReservations(
+    reservedAttempts,
+    settings.send_window.timezone,
+  )
   intents.sort((left, right) =>
     left.earliest.getTime() - right.earliest.getTime()
     || left.idempotencyKey.localeCompare(right.idempotencyKey),
@@ -600,6 +671,57 @@ export async function materializeSendAttempts(
       settings,
       reservedAttempts,
     )
+    if (intent.repoint) {
+      const row = intent.repoint
+      const observedFence = row.fence
+      const observedState = row.state
+      const observedVersionId = row.campaignVersionId
+      // Fenced CAS: a concurrent claim, stop, or pause changes state or
+      // fence and wins; the row is then reported as existing, untouched.
+      const updated = await em.nativeUpdate(
+        GtmSendAttempt,
+        {
+          id: row.id,
+          organizationId: ctx.organizationId,
+          tenantId: ctx.tenantId,
+          state: observedState,
+          fence: observedFence,
+          campaignVersionId: observedVersionId,
+        },
+        {
+          campaignVersionId: campaignVersion.id,
+          stepId: intent.step.id,
+          renderedMessageId: intent.rendered.id,
+          mailboxConnectionId: settings.sender_mailbox_id,
+          state: 'approved',
+          claimToken: null,
+          claimExpiresAt: null,
+          fence: observedFence + 1,
+          scheduledFor,
+          capacitySlotKey,
+          updatedAt: launchAt,
+        },
+      )
+      if (updated !== 1) {
+        existing.push(row)
+        continue
+      }
+      // Reflect the durable update on the in-memory row for the caller
+      // (values, not increments: the fake em updates the same object).
+      row.campaignVersionId = campaignVersion.id
+      row.stepId = intent.step.id
+      row.renderedMessageId = intent.rendered.id
+      row.mailboxConnectionId = settings.sender_mailbox_id
+      row.state = 'approved'
+      row.claimToken = null
+      row.claimExpiresAt = null
+      row.fence = observedFence + 1
+      row.scheduledFor = scheduledFor
+      row.capacitySlotKey = capacitySlotKey
+      repointed.push(row)
+      reservedAttempts.push(row)
+      continue
+    }
     const attempt = em.create(GtmSendAttempt, {
       id: crypto.randomUUID(),
       organizationId: ctx.organizationId,
@@ -613,7 +735,7 @@ export async function materializeSendAttempts(
       claimToken: null,
       claimExpiresAt: null,
       fence: 0,
-      attemptNo: 1,
+      attemptNo: intent.attemptNo,
       idempotencyKey: intent.idempotencyKey,
       rfcMessageId: null,
       scheduledFor,
@@ -623,7 +745,7 @@ export async function materializeSendAttempts(
     created.push(attempt)
     reservedAttempts.push(attempt)
   }
-  return { created, existing }
+  return { created, existing, repointed }
 }
 
 // ---------------------------------------------------------------------------
@@ -742,13 +864,14 @@ export async function launchCampaign(
           campaign_version_id: version.id,
           attempts_created: result.created.length,
           attempts_existing: result.existing.length,
+          attempts_repointed: result.repointed.length,
         },
       })
       tem.persist(audit)
       await tem.flush()
       return {
         campaign: lockedCampaign,
-        attempts: [...result.existing, ...result.created],
+        attempts: [...result.existing, ...result.repointed, ...result.created],
       }
     })
     return {

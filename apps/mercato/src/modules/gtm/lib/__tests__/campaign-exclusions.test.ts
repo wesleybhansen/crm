@@ -246,3 +246,65 @@ describe('computeExclusions (SPEC-066 section 8 at build time)', () => {
     expect(result.byCandidate.get(target.id)).toMatchObject({ excluded: false })
   })
 })
+
+/*
+ * Review L15: consumer records can never become automated-email recipients,
+ * whatever the play's market_type says later.
+ */
+describe('computeExclusions: consumer_manual_only (review L15)', () => {
+  const { GtmCandidateMatch, GtmPlay } = jest.requireActual('../../data/entities')
+
+  it('excludes provenance-flagged consumer candidates and anyone matched under a consumer play', async () => {
+    const em = new FakeEm()
+    const businessPlay = await seedPlay(em)
+    const run = await seedRun(em, businessPlay)
+    const business = await seedCandidate(em, run, { email: 'biz@fixture.example' })
+    const flagged = await seedCandidate(em, run, { email: 'flagged@fixture.example' })
+    flagged.identity = { ...flagged.identity, provenance: { source_kind: 'consumer' } }
+    em.persist(flagged)
+    const viaPlay = await seedCandidate(em, run, { email: 'via-play@fixture.example' })
+    const consumerPlay = em.create(GtmPlay, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      workspaceId: WORKSPACE,
+      source: 'imported',
+      // market_type was later edited to b2b; lead_mode still says consumer.
+      marketType: 'b2b',
+      audience: 'Recently moved households',
+      executionEligibility: 'executable',
+      leadMode: 'consumer',
+      outreachMode: 'manual_only',
+    })
+    em.persist(consumerPlay)
+    em.persist(
+      em.create(GtmCandidateMatch, {
+        organizationId: ORG,
+        tenantId: TENANT,
+        workspaceId: WORKSPACE,
+        playId: consumerPlay.id,
+        researchRunId: run.id,
+        candidateId: viaPlay.id,
+        fitStatus: 'accepted',
+        fitScore: '90',
+      }),
+    )
+    await em.flush()
+
+    const result = await computeExclusions(em, ctx, {
+      workspaceId: WORKSPACE,
+      candidateIds: [business.id, flagged.id, viaPlay.id],
+      channel: 'email',
+    })
+    expect(result.byCandidate.get(business.id)).toMatchObject({ excluded: false })
+    expect(result.byCandidate.get(flagged.id)).toMatchObject({
+      excluded: true,
+      reason: 'consumer_manual_only',
+      source: 'consumer_policy',
+    })
+    expect(result.byCandidate.get(viaPlay.id)).toMatchObject({
+      excluded: true,
+      reason: 'consumer_manual_only',
+    })
+    expect(result.summary.byReason.consumer_manual_only).toBe(2)
+  })
+})

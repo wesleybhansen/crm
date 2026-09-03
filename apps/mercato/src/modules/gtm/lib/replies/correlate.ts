@@ -22,9 +22,10 @@ import { EmailConnection, EmailMessage } from '../../../email/data/schema'
  * Reply correlation + THE atomic stop (SPEC-066 sections 9, 3.3, Tranche 6).
  *
  * Provider ingestion persists fenced mailbox cursors separately; this
- * compatibility processor consumes durable inbound email rows within an
- * explicitly bounded lookback. Every provider event is first deduplicated in
- * gtm_inbound_events before any delivery, suppression, or stop side effect:
+ * processor consumes durable inbound email rows, either the exact ids of one
+ * ingested page (the normal path) or a bounded per-mailbox sweep (recovery).
+ * Every provider event is first deduplicated in gtm_inbound_events before any
+ * delivery, suppression, or stop side effect:
  *
  *   1. Header match: candidate Message-IDs parsed from
  *      metadata.headers['in-reply-to'] / ['references'] (when the ingest
@@ -38,7 +39,33 @@ import { EmailConnection, EmailMessage } from '../../../email/data/schema'
  *   2. Fallback match: same mailbox (email_messages.account_id equals the
  *      attempt's mailbox_connection_id) + counterparty from_address equal to
  *      a LIVE enrollment's verified contact address; the reply is linked to
- *      that enrollment's most recent provider-contacted attempt.
+ *      that enrollment's most recent provider-contacted attempt. When the
+ *      address is live in MORE than one enrollment (duplicate_override
+ *      campaigns) every candidate enrollment is stopped and the reply is
+ *      attached to the most recent attempt, surfaced as unattributed
+ *      (api-send-privacy M3): over-stopping is the safe direction.
+ *
+ * TRUST MODEL (review H1 / api-send-privacy M2, M4). Everything in an inbound
+ * message is sender-controlled: From, In-Reply-To, Feedback-Type, subject.
+ * Only the rfc_message_id reference is a secret the sender had to have
+ * received from us, and only the provider's Authentication-Results header
+ * says whether the From domain is genuine. So:
+ *   - a human reply stops the enrollment (safe direction) whatever the
+ *     evidence, but the suppression address is ALWAYS the enrollment's
+ *     verified contact point, never the inbound From;
+ *   - a COMPLAINT is honoured only when it references one of our
+ *     rfc_message_ids AND the From domain passes DKIM/SPF/DMARC;
+ *   - an explicit UNSUBSCRIBE event needs the authentication pass;
+ *   - a BOUNCE needs a reference to our message and either a parsed DSN
+ *     status or a failure subject from mailer-daemon/postmaster; a DSN
+ *     status 4.x.x or a "(Delay)" notification is a SOFT bounce (H2);
+ *   - subject-only heuristics (undeliverable, out of office, auto reply) are
+ *     never applied to a message from the enrollment's own verified address:
+ *     such a message is a human reply and surfaces in the inbox (M4);
+ *   - anything destructive that fails those gates is recorded with
+ *     correlation_confidence 'unauthenticated', still stops the enrollment,
+ *     and surfaces in the inbox as an event row for a human to confirm; it
+ *     never writes a suppression and never counts toward mailbox health.
  *
  * THE ATOMIC STOP (section 9), in ONE transaction: enrollment 'stopped'
  * (stop_reason 'email_reply' / 'social_reply'), every remaining pre-claim
@@ -61,6 +88,11 @@ import { EmailConnection, EmailMessage } from '../../../email/data/schema'
  * re-recording a social reply for the same (enrollment, step) returns the
  * existing row.
  *
+ * FAILURE ISOLATION (review H4): one message whose disposition throws marks
+ * ITS inbound event 'failed' (re-claimable) and the loop continues; an event
+ * that keeps failing is quarantined after MAX_EVENT_ATTEMPTS claims so it
+ * can never poison a mailbox, an org, or a page forever.
+ *
  * User-recorded social replies (recordSocialReply) take the IDENTICAL
  * transaction path - the non-negotiable that both reply kinds stop all
  * remaining mixed-channel steps atomically.
@@ -76,6 +108,29 @@ const PROVIDER_CONTACTED_STATES = [
   'replied',
   'ambiguous',
 ]
+
+// An inbound event whose disposition failed this many times is quarantined
+// (left 'failed', never re-claimed by the sweep) instead of re-running on
+// every page and every sweep forever.
+export const MAX_EVENT_ATTEMPTS = 5
+
+// Auto-responder deferrals per enrollment before the enrollment is stopped
+// (workers L2): a permanent auto-responder must not keep an enrollment alive
+// and re-allocating capacity indefinitely.
+export const MAX_AUTOMATED_RESPONSE_DEFERRALS = 3
+
+// Sweep bound when no exact message ids are given.
+const DEFAULT_SWEEP_LIMIT = 500
+
+// ExecutionEm declares find(entity, where) only; both MikroORM and the FakeEm
+// take the standard options bag, which the sweep needs to stay bounded.
+type BoundedFindEm = {
+  find<T extends object>(
+    entityClass: new () => T,
+    where: Record<string, unknown>,
+    options?: { orderBy?: Record<string, 'asc' | 'desc'>; limit?: number },
+  ): Promise<T[]>
+}
 
 function normalizeMessageId(value: string): string {
   return value.replace(/[<>]/g, '').trim()
@@ -110,12 +165,49 @@ export type AtomicStopInput = {
   stepId?: string | null
   emailMessageId?: string | null
   inboundEventId?: string | null
-  eventKind?: 'human_reply' | 'social_reply'
-  correlationConfidence?: 'exact_header' | 'provider_message_id' | 'mailbox_counterparty' | 'user_recorded'
+  eventKind?: string
+  correlationConfidence?:
+    | 'exact_header'
+    | 'provider_message_id'
+    | 'mailbox_counterparty'
+    | 'user_recorded'
+    | 'ambiguous'
+    | 'unauthenticated'
+  // Additional live enrollments for the same counterparty (ambiguous
+  // fallback match): stopped in the SAME transaction, no reply row of their
+  // own.
+  alsoStop?: GtmEnrollment[]
   note?: string | null
   actorUserId?: string | null
   requestId?: string | null
   now: Date
+}
+
+async function cancelPendingAttempts(
+  tem: ExecutionEm,
+  enrollment: GtmEnrollment,
+  now: Date,
+  excludeAttemptId?: string | null,
+): Promise<void> {
+  await tem.nativeUpdate(
+    GtmSendAttempt,
+    {
+      organizationId: enrollment.organizationId,
+      tenantId: enrollment.tenantId,
+      enrollmentId: enrollment.id,
+      ...(excludeAttemptId ? { id: { $ne: excludeAttemptId } } : {}),
+      state: { $in: NON_TERMINAL_CANCELABLE },
+    },
+    {
+      state: 'failed',
+      failureReason: 'stopped',
+      claimToken: null,
+      claimExpiresAt: null,
+      capacitySlotKey: null,
+      failedAt: now,
+      updatedAt: now,
+    },
+  )
 }
 
 // ONE transaction: stop, cancel, then insert the reply (section 9).
@@ -135,24 +227,17 @@ export async function atomicStopWithReply(
     // 'claimed' (see the header note): nulling claim_token fences the in-flight
     // executor out. 'provider_started' and later settle through their own
     // fenced writes.
-    await tem.nativeUpdate(
-      GtmSendAttempt,
-      {
-        organizationId: enrollment.organizationId,
-        tenantId: enrollment.tenantId,
-        enrollmentId: enrollment.id,
-        state: { $in: NON_TERMINAL_CANCELABLE },
-      },
-      {
-        state: 'failed',
-        failureReason: 'stopped',
-        claimToken: null,
-        claimExpiresAt: null,
-        capacitySlotKey: null,
-        failedAt: now,
-        updatedAt: now,
-      },
-    )
+    await cancelPendingAttempts(tem, enrollment, now)
+    for (const other of input.alsoStop ?? []) {
+      if (other.id === enrollment.id) continue
+      if (other.status === 'active') {
+        other.status = 'stopped'
+        other.stopReason = input.stopReason
+        other.stoppedAt = now
+        tem.persist(other)
+      }
+      await cancelPendingAttempts(tem, other, now)
+    }
     const reply = tem.create(GtmReply, {
       organizationId: enrollment.organizationId,
       tenantId: enrollment.tenantId,
@@ -191,6 +276,9 @@ export async function atomicStopWithReply(
           inbound_event_id: input.inboundEventId ?? null,
           event_kind: input.eventKind ?? null,
           correlation_confidence: input.correlationConfidence ?? null,
+          also_stopped_enrollment_ids: (input.alsoStop ?? [])
+            .filter((row) => row.id !== enrollment.id)
+            .map((row) => row.id),
           step_id: input.stepId ?? null,
         },
       }),
@@ -216,6 +304,8 @@ export type CorrelateResult = {
   systemEvents: number
   unmatched: number
   failed: number
+  // Events left 'failed' after MAX_EVENT_ATTEMPTS; never retried automatically.
+  quarantined: number
 }
 
 export type InboundEventKind =
@@ -240,6 +330,8 @@ const EVENT_KINDS = new Set<InboundEventKind>([
   'unsubscribe',
   'unknown',
 ])
+
+const DESTRUCTIVE_KINDS = new Set<InboundEventKind>(['hard_bounce', 'complaint', 'unsubscribe'])
 
 function messageMetadata(message: EmailMessage): Record<string, unknown> {
   return (message.metadata ?? {}) as Record<string, unknown>
@@ -278,53 +370,139 @@ function messageHeaders(message: EmailMessage): Record<string, string> {
   )
 }
 
+function fromDomain(address: string): string {
+  const at = address.lastIndexOf('@')
+  return at >= 0 ? address.slice(at + 1).trim().toLowerCase() : ''
+}
+
+// Relaxed alignment (DMARC style): equal, or one is a subdomain of the other.
+function domainsAligned(a: string, b: string): boolean {
+  if (!a || !b) return false
+  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`)
+}
+
+export type AuthenticationVerdict = 'pass' | 'fail' | 'none'
+
+/**
+ * Did the receiving provider verify the From domain? Parsed from the
+ * Authentication-Results / ARC-Authentication-Results headers Gmail, Graph
+ * and most IMAP hosts stamp on delivery (RFC 8601). 'pass' needs dmarc=pass,
+ * or dkim=pass with header.d/header.i aligned to the From domain, or
+ * spf=pass with smtp.mailfrom aligned. 'none' means no such header was
+ * stored, which is treated exactly like 'fail' for destructive dispositions.
+ */
+export function authenticationVerdict(message: EmailMessage): AuthenticationVerdict {
+  const headers = messageHeaders(message)
+  const values = [headers['authentication-results'], headers['arc-authentication-results']]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  if (values.length === 0) return 'none'
+  const domain = fromDomain((message.fromAddress ?? '').toLowerCase())
+  if (!domain) return 'fail'
+  for (const value of values) {
+    for (const clause of value.toLowerCase().split(';')) {
+      if (/\bdmarc=pass\b/.test(clause)) return 'pass'
+      if (/\bdkim=pass\b/.test(clause)) {
+        const signer = clause.match(/header\.(?:d|i)=@?([a-z0-9.-]+)/)?.[1]
+        if (signer && domainsAligned(signer, domain)) return 'pass'
+      }
+      if (/\bspf=pass\b/.test(clause)) {
+        const envelope = clause.match(/smtp\.mailfrom=(?:[^\s;@]+@)?([a-z0-9.-]+)/)?.[1]
+        if (envelope && domainsAligned(envelope, domain)) return 'pass'
+      }
+    }
+  }
+  return 'fail'
+}
+
+const DAEMON_FROM = /(^|[<@])(mailer-daemon|postmaster|mail-daemon|noreply\+bounces?)[@>.]/
+const FAILURE_SUBJECT =
+  /\b(undeliverable|undelivered|delivery (status notification|failure|has failed)|mail delivery failed|returned mail|failure notice|could not be delivered)\b/
+const DELAY_SUBJECT = /\b(delay|delayed|deferred|temporar(y|ily)|not yet been delivered|could not be delivered yet)\b/
+
+type DsnInfo = { action: string | null; status: string | null }
+
+function dsnInfo(message: EmailMessage): DsnInfo | null {
+  const raw = messageMetadata(message).dsn
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const record = raw as Record<string, unknown>
+  const action = typeof record.action === 'string' ? record.action.trim().toLowerCase() : null
+  const status = typeof record.status === 'string' ? record.status.trim() : null
+  if (!action && !status) return null
+  return { action, status }
+}
+
+export type DetectOptions = {
+  // The enrollment's verified contact address when the message has been
+  // correlated to one (lowercased). Subject-only heuristics are skipped for
+  // a message from that address (M4).
+  counterpartyAddress?: string | null
+  // Whether the message references one of our rfc_message_ids. Sender-set
+  // complaint headers only count when it does (H1c).
+  referencesOurMessage?: boolean
+}
+
 /** Classify delivery-system dispositions before any stop side effect. */
-export function detectInboundEventKind(message: EmailMessage): InboundEventKind {
+export function detectInboundEventKind(
+  message: EmailMessage,
+  options: DetectOptions = {},
+): InboundEventKind {
   const metadata = messageMetadata(message)
   const explicit = metadata.event_kind
   if (typeof explicit === 'string' && EVENT_KINDS.has(explicit as InboundEventKind)) {
     return explicit as InboundEventKind
   }
   const headers = messageHeaders(message)
-  const from = (message.fromAddress ?? '').toLowerCase()
+  const from = (message.fromAddress ?? '').trim().toLowerCase()
   const subject = (message.subject ?? '').toLowerCase()
   const autoSubmitted = (headers['auto-submitted'] ?? '').toLowerCase()
+  const fromDaemon = DAEMON_FROM.test(from)
+  const counterparty = options.counterpartyAddress?.trim().toLowerCase() ?? null
+  const fromCounterparty = Boolean(counterparty) && from === counterparty
+  const dsn = dsnInfo(message)
+
+  // Complaint (ARF) headers are sender-controlled: only a report that
+  // references one of our messages and does not come from the prospect's
+  // own address is a complaint; anything else is a human's mail.
   if (
-    headers['feedback-type'] ||
-    headers['x-complaint-type'] ||
-    metadata.complaint === true
+    (headers['feedback-type'] || headers['x-complaint-type'] || metadata.complaint === true)
+    && options.referencesOurMessage !== false
+    && !fromCounterparty
   ) {
     return 'complaint'
   }
-  if (
-    metadata.soft_bounce === true ||
-    metadata.bounce_type === 'soft'
-  ) {
+  if (metadata.soft_bounce === true || metadata.bounce_type === 'soft') {
     return 'soft_bounce'
   }
-  if (
-    metadata.bounce === true ||
-    /(^|[<@])(mailer-daemon|postmaster)[@>]/.test(from) ||
-    /\b(undeliverable|delivery (status notification|failure)|mail delivery failed|returned mail)\b/.test(
-      subject,
-    )
-  ) {
-    return 'hard_bounce'
+  // A parsed delivery-status report is the authoritative bounce evidence:
+  // 4.x.x / delayed is transient, 5.x.x / failed is permanent (H2).
+  if (dsn) {
+    if (dsn.action === 'delayed' || dsn.action === 'relayed' || dsn.status?.startsWith('4')) {
+      return 'soft_bounce'
+    }
+    if (dsn.action === 'failed' || dsn.status?.startsWith('5')) return 'hard_bounce'
+    if (dsn.action === 'delivered' || dsn.status?.startsWith('2')) return 'delivered'
   }
-  if (
-    headers['x-autoreply'] ||
-    headers['x-autorespond'] ||
-    /\b(out of (the )?office|away from (the )?office|on (annual )?leave|vacation reply)\b/.test(
-      subject,
-    )
-  ) {
-    return 'out_of_office'
+  if (metadata.bounce === true) return 'hard_bounce'
+  // Subject heuristics for bounces apply only to the delivery system itself.
+  if (fromDaemon) {
+    if (DELAY_SUBJECT.test(subject)) return 'soft_bounce'
+    if (FAILURE_SUBJECT.test(subject)) return 'hard_bounce'
+    return 'unknown'
   }
-  if (
-    (autoSubmitted && autoSubmitted !== 'no') ||
-    /\b(auto(matic)? reply|auto.?response)\b/.test(subject)
-  ) {
-    return 'auto_reply'
+  // Auto-responder header signals are honoured from any sender; the subject
+  // regexes only when the mail did not come from the verified prospect
+  // address (a human writing "On leave, call next week" is a reply).
+  if (headers['x-autoreply'] || headers['x-autorespond']) return 'out_of_office'
+  if (autoSubmitted && autoSubmitted !== 'no') {
+    return /\b(out of (the )?office|away from (the )?office|on (annual )?leave|vacation)\b/.test(subject)
+      ? 'out_of_office'
+      : 'auto_reply'
+  }
+  if (!fromCounterparty) {
+    if (/\b(out of (the )?office|away from (the )?office|on (annual )?leave|vacation reply)\b/.test(subject)) {
+      return 'out_of_office'
+    }
+    if (/\b(auto(matic)? reply|auto.?response)\b/.test(subject)) return 'auto_reply'
   }
   return 'human_reply'
 }
@@ -377,6 +555,7 @@ async function persistInboundEvent(
   ctx: GtmCtx,
   message: EmailMessage,
   kind: InboundEventKind,
+  authentication: AuthenticationVerdict,
   now: Date,
 ): Promise<GtmInboundEvent> {
   const identity = providerEventId(message)
@@ -402,7 +581,9 @@ async function persistInboundEvent(
     evidenceRedacted: {
       source: 'email_message',
       has_reply_reference: parseReplyCandidateIds(message).length > 0,
-      header_names: Object.keys(messageHeaders(message)).sort(),
+      header_names: Object.keys(messageHeaders(message)).sort().slice(0, 64),
+      authentication,
+      dsn: dsnInfo(message),
     },
     occurredAt: message.createdAt ?? now,
     processingState: 'pending',
@@ -455,7 +636,13 @@ async function claimInboundEvent(
       updatedAt: now,
     },
   )
-  return claimed === 1 ? { token, fence: nextFence } : null
+  if (claimed !== 1) return null
+  // Mirror the CAS on the managed entity so the finishing write below sees
+  // the fence it must present (nativeUpdate never touches the identity map).
+  event.processingState = 'processing'
+  event.processingClaimToken = token
+  event.processingFence = nextFence
+  return { token, fence: nextFence }
 }
 
 async function finishInboundEvent(
@@ -483,12 +670,18 @@ async function finishInboundEvent(
       updatedAt: input.now,
     },
   )
+  event.processingState = input.state
+  event.processingClaimToken = null
+  event.processingClaimExpiresAt = null
 }
 
 type AttemptCorrelation = {
   attempt: GtmSendAttempt | null
   method: 'header' | 'provider_message_id' | 'fallback' | null
   confidence: 'exact_header' | 'provider_message_id' | 'mailbox_counterparty' | 'ambiguous' | 'none'
+  // Ambiguous fallback only: every live enrollment the counterparty address
+  // belongs to (the attempt above belongs to the first of them).
+  alternates: GtmEnrollment[]
 }
 
 async function correlateAttempt(
@@ -497,7 +690,7 @@ async function correlateAttempt(
   message: EmailMessage,
 ): Promise<AttemptCorrelation> {
   if (!message.accountId) {
-    return { attempt: null, method: null, confidence: 'none' }
+    return { attempt: null, method: null, confidence: 'none', alternates: [] }
   }
   const mailboxMatches = (attempt: GtmSendAttempt) =>
     attempt.mailboxConnectionId === message.accountId
@@ -514,10 +707,10 @@ async function correlateAttempt(
       })
     ).filter(mailboxMatches)
     if (matches.length === 1) {
-      return { attempt: matches[0], method: 'header', confidence: 'exact_header' }
+      return { attempt: matches[0], method: 'header', confidence: 'exact_header', alternates: [] }
     }
     if (matches.length > 1) {
-      return { attempt: null, method: 'header', confidence: 'ambiguous' }
+      return { attempt: null, method: 'header', confidence: 'ambiguous', alternates: [] }
     }
   }
 
@@ -536,27 +729,26 @@ async function correlateAttempt(
         attempt: matches[0],
         method: 'provider_message_id',
         confidence: 'provider_message_id',
+        alternates: [],
       }
     }
     if (matches.length > 1) {
-      return { attempt: null, method: 'provider_message_id', confidence: 'ambiguous' }
+      return { attempt: null, method: 'provider_message_id', confidence: 'ambiguous', alternates: [] }
     }
   }
 
   if (message.accountId && message.fromAddress) {
     const fallback = await fallbackMatch(em, ctx, message)
-    if (fallback.ambiguous) {
-      return { attempt: null, method: 'fallback', confidence: 'ambiguous' }
-    }
     if (fallback.attempt) {
       return {
         attempt: fallback.attempt,
         method: 'fallback',
-        confidence: 'mailbox_counterparty',
+        confidence: fallback.ambiguous ? 'ambiguous' : 'mailbox_counterparty',
+        alternates: fallback.ambiguous ? fallback.enrollments : [],
       }
     }
   }
-  return { attempt: null, method: null, confidence: 'none' }
+  return { attempt: null, method: null, confidence: 'none', alternates: [] }
 }
 
 async function resolveAttemptAddress(
@@ -579,6 +771,22 @@ async function resolveAttemptAddress(
     deletedAt: null,
   })
   return points[0]?.value?.trim().toLowerCase() ?? null
+}
+
+async function countAutomatedDeferrals(
+  em: ExecutionEm,
+  enrollment: GtmEnrollment,
+  excludeEventId: string,
+): Promise<number> {
+  const events = await em.find(GtmInboundEvent, {
+    organizationId: enrollment.organizationId,
+    tenantId: enrollment.tenantId,
+    enrollmentId: enrollment.id,
+    eventKind: { $in: ['out_of_office', 'auto_reply'] },
+    processingState: 'processed',
+    deletedAt: null,
+  })
+  return events.filter((event) => event.id !== excludeEventId).length
 }
 
 async function deferAutomatedResponse(
@@ -609,6 +817,40 @@ async function deferAutomatedResponse(
   await em.flush()
 }
 
+// Stop an enrollment for a non-reply reason with no suppression and no
+// reply row (auto-responder cap).
+async function stopEnrollmentQuietly(
+  em: ExecutionEm,
+  enrollment: GtmEnrollment,
+  reason: string,
+  event: GtmInboundEvent,
+  now: Date,
+): Promise<void> {
+  await em.transactional(async (tem) => {
+    if (enrollment.status === 'active') {
+      enrollment.status = 'stopped'
+      enrollment.stopReason = reason
+      enrollment.stoppedAt = now
+      tem.persist(enrollment)
+    }
+    await cancelPendingAttempts(tem, enrollment, now)
+    tem.persist(
+      tem.create(GtmAuditEvent, {
+        organizationId: enrollment.organizationId,
+        tenantId: enrollment.tenantId,
+        actor: 'system',
+        actorUserId: null,
+        action: `gtm.enrollment.${reason}`,
+        objectType: 'gtm_inbound_event',
+        objectId: event.id,
+        requestId: null,
+        metadata: { enrollment_id: enrollment.id },
+      }),
+    )
+    await tem.flush()
+  })
+}
+
 async function stopForSystemEvent(
   em: ExecutionEm,
   enrollment: GtmEnrollment,
@@ -617,6 +859,8 @@ async function stopForSystemEvent(
   kind: 'hard_bounce' | 'complaint' | 'unsubscribe',
   now: Date,
 ): Promise<void> {
+  // The suppression address is the enrollment's verified contact point,
+  // never the inbound From header (H1b).
   const address = await resolveAttemptAddress(em, attempt)
   await em.transactional(async (tem) => {
     if (enrollment.status === 'active') {
@@ -625,25 +869,7 @@ async function stopForSystemEvent(
       enrollment.stoppedAt = now
       tem.persist(enrollment)
     }
-    await tem.nativeUpdate(
-      GtmSendAttempt,
-      {
-        organizationId: enrollment.organizationId,
-        tenantId: enrollment.tenantId,
-        enrollmentId: enrollment.id,
-        id: { $ne: attempt.id },
-        state: { $in: NON_TERMINAL_CANCELABLE },
-      },
-      {
-        state: 'failed',
-        failureReason: 'stopped',
-        claimToken: null,
-        claimExpiresAt: null,
-        capacitySlotKey: null,
-        failedAt: now,
-        updatedAt: now,
-      },
-    )
+    await cancelPendingAttempts(tem, enrollment, now, attempt.id)
     const targetState = kind === 'complaint' ? 'complained' : kind === 'hard_bounce' ? 'bounced' : 'replied'
     await tem.nativeUpdate(
       GtmSendAttempt,
@@ -706,40 +932,169 @@ async function stopForSystemEvent(
   })
 }
 
-export async function correlateReplies(
+// Surface a correlated delivery-system event in the inbox WITHOUT the atomic
+// stop semantics (the stop, when warranted, already happened). One row per
+// inbound message; idempotent on the unique (org, tenant, email_message_id).
+async function surfaceSystemEvent(
   em: ExecutionEm,
   ctx: GtmCtx,
-  input: { sinceMinutes?: number; clock?: Clock; classifier?: ReplyClassifier } = {},
-): Promise<CorrelateResult> {
-  const now = input.clock?.now() ?? new Date()
+  input: {
+    enrollment: GtmEnrollment
+    attempt: GtmSendAttempt
+    message: EmailMessage
+    event: GtmInboundEvent
+    eventKind: string
+    correlationConfidence: string
+  },
+): Promise<GtmReply> {
+  const existing = await em.findOne(GtmReply, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    emailMessageId: input.message.id,
+  })
+  if (existing) return existing
+  return em.transactional(async (tem) => {
+    const reply = tem.create(GtmReply, {
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      enrollmentId: input.enrollment.id,
+      sendAttemptId: input.attempt.id,
+      stepId: null,
+      channel: 'email',
+      direction: 'inbound',
+      emailMessageId: input.message.id,
+      inboundEventId: input.event.id,
+      eventKind: input.eventKind,
+      correlationConfidence: input.correlationConfidence,
+      classification: null,
+      classificationSource: null,
+      draftResponse: null,
+      draftStatus: 'none',
+    })
+    tem.persist(reply)
+    await tem.flush()
+    return reply
+  })
+}
+
+/*
+ * Destructive dispositions need evidence the sender could not forge:
+ *   complaint    -> references our rfc_message_id AND authenticated From
+ *   unsubscribe  -> authenticated From (explicit provider/list event)
+ *   hard_bounce  -> references our message (header or provider id); the
+ *                   From is the delivery system, so DKIM is not required
+ */
+function destructiveAllowed(
+  kind: InboundEventKind,
+  correlation: AttemptCorrelation,
+  authentication: AuthenticationVerdict,
+): boolean {
+  if (kind === 'complaint') return correlation.method === 'header' && authentication === 'pass'
+  if (kind === 'unsubscribe') return authentication === 'pass'
+  if (kind === 'hard_bounce') {
+    return correlation.method === 'header' || correlation.method === 'provider_message_id'
+  }
+  return true
+}
+
+export type CorrelateInput = {
+  sinceMinutes?: number
+  clock?: Clock
+  classifier?: ReplyClassifier
+  // Exact inbound rows to process (one ingested page). When given, no time
+  // window scan happens at all.
+  messageIds?: string[]
+  // Bound a window scan to one mailbox (the ingesting one).
+  mailboxConnectionId?: string | null
+  limit?: number
+}
+
+async function loadMessages(
+  em: ExecutionEm,
+  ctx: GtmCtx,
+  input: CorrelateInput,
+  now: Date,
+): Promise<EmailMessage[]> {
+  if (input.messageIds) {
+    if (input.messageIds.length === 0) return []
+    return em.find(EmailMessage, {
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      id: { $in: input.messageIds },
+      direction: 'inbound',
+      deletedAt: null,
+    })
+  }
   const sinceMinutes = input.sinceMinutes && input.sinceMinutes > 0 ? input.sinceMinutes : 24 * 60
   const since = new Date(now.getTime() - sinceMinutes * 60 * 1000)
-
-  const messages = await em.find(EmailMessage, {
+  const limit = input.limit && input.limit > 0 ? Math.min(input.limit, 2000) : DEFAULT_SWEEP_LIMIT
+  const rows = await (em as unknown as BoundedFindEm).find(EmailMessage, {
     organizationId: ctx.organizationId,
     tenantId: ctx.tenantId,
     direction: 'inbound',
     deletedAt: null,
     createdAt: { $gte: since },
-  })
+    ...(input.mailboxConnectionId ? { accountId: input.mailboxConnectionId } : {}),
+  }, { orderBy: { createdAt: 'desc' }, limit })
+  // Process oldest first so a thread's events land in order.
+  return [...rows].sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
+}
+
+export async function correlateReplies(
+  em: ExecutionEm,
+  ctx: GtmCtx,
+  input: CorrelateInput = {},
+): Promise<CorrelateResult> {
+  const now = input.clock?.now() ?? new Date()
+  const messages = await loadMessages(em, ctx, input, now)
 
   const matched: CorrelatedReply[] = []
   let systemEvents = 0
   let unmatched = 0
   let failed = 0
+  let quarantined = 0
   for (const message of messages) {
     if (await isMailboxOriginatedMessage(em, ctx, message)) {
       continue
     }
-    const kind = detectInboundEventKind(message)
-    const event = await persistInboundEvent(em, ctx, message, kind, now)
+    // Correlate first: the disposition depends on WHO the message is from
+    // relative to the enrollment and on whether it references our message.
+    let correlation: AttemptCorrelation
+    let enrollment: GtmEnrollment | null = null
+    let counterpartyAddress: string | null = null
+    try {
+      correlation = await correlateAttempt(em, ctx, message)
+      if (correlation.attempt) {
+        enrollment = await em.findOne(GtmEnrollment, {
+          id: correlation.attempt.enrollmentId,
+          organizationId: ctx.organizationId,
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+        })
+        counterpartyAddress = enrollment ? await resolveAttemptAddress(em, correlation.attempt) : null
+      }
+    } catch (error) {
+      // Correlation reads only; a failure here is recorded on the event once
+      // it exists below, so fall through with no match.
+      correlation = { attempt: null, method: null, confidence: 'none', alternates: [] }
+      void error
+    }
+    const authentication = authenticationVerdict(message)
+    const kind = detectInboundEventKind(message, {
+      counterpartyAddress,
+      referencesOurMessage: correlation.method === 'header',
+    })
+    const event = await persistInboundEvent(em, ctx, message, kind, authentication, now)
+    if (event.processingState === 'failed' && event.processingFence >= MAX_EVENT_ATTEMPTS) {
+      quarantined += 1
+      continue
+    }
     const claim = await claimInboundEvent(em, event, now)
     if (!claim) continue
     try {
-      const correlation = await correlateAttempt(em, ctx, message)
       event.correlationMethod = correlation.method
       event.correlationConfidence = correlation.confidence
-      if (!correlation.attempt) {
+      if (!correlation.attempt || !enrollment) {
         em.persist(event)
         await em.flush()
         await finishInboundEvent(em, event, claim, { state: 'unmatched', now })
@@ -747,23 +1102,23 @@ export async function correlateReplies(
         continue
       }
       const attempt = correlation.attempt
-      const enrollment = await em.findOne(GtmEnrollment, {
-        id: attempt.enrollmentId,
-        organizationId: ctx.organizationId,
-        tenantId: ctx.tenantId,
-        deletedAt: null,
-      })
-      if (!enrollment) {
-        await finishInboundEvent(em, event, claim, { state: 'unmatched', now })
-        unmatched += 1
-        continue
-      }
       event.sendAttemptId = attempt.id
       event.enrollmentId = enrollment.id
-      const address = await resolveAttemptAddress(em, attempt)
-      event.addressHash = address ? hashAddress(address) : null
+      event.addressHash = counterpartyAddress ? hashAddress(counterpartyAddress) : null
+      const allowed = !DESTRUCTIVE_KINDS.has(kind) || destructiveAllowed(kind, correlation, authentication)
+      if (!allowed) event.correlationConfidence = 'unauthenticated'
       em.persist(event)
       await em.flush()
+
+      const replyConfidence: NonNullable<AtomicStopInput['correlationConfidence']> =
+        !allowed
+          ? 'unauthenticated'
+          : correlation.confidence === 'ambiguous'
+            ? 'ambiguous'
+            : correlation.confidence === 'none'
+              ? 'mailbox_counterparty'
+              : correlation.confidence
+      let healthRefresh = false
 
       if (kind === 'delivered') {
         await em.nativeUpdate(
@@ -777,17 +1132,68 @@ export async function correlateReplies(
           { state: 'delivered', deliveredAt: now, updatedAt: now },
         )
         systemEvents += 1
+        healthRefresh = true
       } else if (kind === 'hard_bounce' || kind === 'complaint' || kind === 'unsubscribe') {
-        await stopForSystemEvent(em, enrollment, attempt, event, kind, now)
+        if (allowed) {
+          await stopForSystemEvent(em, enrollment, attempt, event, kind, now)
+          await surfaceSystemEvent(em, ctx, {
+            enrollment,
+            attempt,
+            message,
+            event,
+            eventKind: kind,
+            correlationConfidence: replyConfidence,
+          })
+          healthRefresh = true
+        } else {
+          // Unverifiable destructive claim: stop the enrollment (safe
+          // direction), surface for a human, write NO suppression, count
+          // NOTHING toward mailbox health.
+          const existing = await em.findOne(GtmReply, {
+            organizationId: ctx.organizationId,
+            tenantId: ctx.tenantId,
+            emailMessageId: message.id,
+          })
+          if (!existing) {
+            await atomicStopWithReply(em, {
+              enrollment,
+              stopReason: 'email_reply',
+              channel: 'email',
+              sendAttemptId: attempt.id,
+              emailMessageId: message.id,
+              inboundEventId: event.id,
+              eventKind: `unauthenticated_${kind}`,
+              correlationConfidence: 'unauthenticated',
+              alsoStop: correlation.alternates,
+              requestId: ctx.requestId ?? null,
+              now,
+            })
+          }
+        }
         systemEvents += 1
       } else if (kind === 'out_of_office' || kind === 'auto_reply') {
-        await deferAutomatedResponse(em, enrollment, now, 7)
+        const priorDeferrals = await countAutomatedDeferrals(em, enrollment, event.id)
+        if (priorDeferrals >= MAX_AUTOMATED_RESPONSE_DEFERRALS) {
+          await stopEnrollmentQuietly(em, enrollment, 'auto_responder', event, now)
+        } else {
+          await deferAutomatedResponse(em, enrollment, now, 7)
+        }
         systemEvents += 1
       } else if (kind === 'soft_bounce') {
         // One transient failure does not permanently suppress; apply a
-        // bounded one-day deferral and retain the event for threshold policy.
+        // bounded one-day deferral, surface it, and retain the event for
+        // the threshold policy.
         await deferAutomatedResponse(em, enrollment, now, 1)
+        await surfaceSystemEvent(em, ctx, {
+          enrollment,
+          attempt,
+          message,
+          event,
+          eventKind: 'soft_bounce',
+          correlationConfidence: replyConfidence,
+        })
         systemEvents += 1
+        healthRefresh = true
       } else if (kind === 'unknown') {
         await finishInboundEvent(em, event, claim, { state: 'unmatched', now })
         unmatched += 1
@@ -807,10 +1213,8 @@ export async function correlateReplies(
             emailMessageId: message.id,
             inboundEventId: event.id,
             eventKind: 'human_reply',
-            correlationConfidence:
-              correlation.confidence === 'ambiguous' || correlation.confidence === 'none'
-                ? 'mailbox_counterparty'
-                : correlation.confidence,
+            correlationConfidence: replyConfidence,
+            alsoStop: correlation.alternates,
             requestId: ctx.requestId ?? null,
             now,
           })
@@ -841,16 +1245,12 @@ export async function correlateReplies(
           eventKind: kind,
         })
       }
-      if (
-        message.accountId
-        && (kind === 'delivered'
-          || kind === 'soft_bounce'
-          || kind === 'hard_bounce'
-          || kind === 'complaint')
-      ) {
+      // Mark processed BEFORE the health refresh so the refresh (which only
+      // counts processed, attempt-linked events) sees this one.
+      await finishInboundEvent(em, event, claim, { state: 'processed', now })
+      if (healthRefresh && message.accountId) {
         await refreshMailboxHealth(em, ctx, message.accountId, { clock: input.clock })
       }
-      await finishInboundEvent(em, event, claim, { state: 'processed', now })
     } catch (error) {
       failed += 1
       await finishInboundEvent(em, event, claim, {
@@ -861,16 +1261,16 @@ export async function correlateReplies(
     }
   }
 
-  return { scanned: messages.length, matched, systemEvents, unmatched, failed }
+  return { scanned: messages.length, matched, systemEvents, unmatched, failed, quarantined }
 }
 
 async function fallbackMatch(
   em: ExecutionEm,
   ctx: GtmCtx,
   message: EmailMessage,
-): Promise<{ attempt: GtmSendAttempt | null; ambiguous: boolean }> {
+): Promise<{ attempt: GtmSendAttempt | null; ambiguous: boolean; enrollments: GtmEnrollment[] }> {
   const address = message.fromAddress.trim().toLowerCase()
-  if (!address) return { attempt: null, ambiguous: false }
+  if (!address) return { attempt: null, ambiguous: false, enrollments: [] }
   const points = (
     await em.find(GtmContactPoint, {
       organizationId: ctx.organizationId,
@@ -880,7 +1280,7 @@ async function fallbackMatch(
       deletedAt: null,
     })
   ).filter((point) => point.value.trim().toLowerCase() === address)
-  if (points.length === 0) return { attempt: null, ambiguous: false }
+  if (points.length === 0) return { attempt: null, ambiguous: false, enrollments: [] }
   const candidateIds = [...new Set(points.map((point) => point.candidateId))]
   const enrollments = (
     await em.find(GtmEnrollment, {
@@ -890,7 +1290,7 @@ async function fallbackMatch(
       deletedAt: null,
     })
   ).filter((row) => row.status === 'active')
-  if (enrollments.length === 0) return { attempt: null, ambiguous: false }
+  if (enrollments.length === 0) return { attempt: null, ambiguous: false, enrollments: [] }
   const enrollmentIds = enrollments.map((row) => row.id)
   const attempts = (
     await em.find(GtmSendAttempt, {
@@ -901,16 +1301,19 @@ async function fallbackMatch(
       deletedAt: null,
     })
   ).filter((row) => row.mailboxConnectionId === message.accountId)
-  if (attempts.length === 0) return { attempt: null, ambiguous: false }
-  if (new Set(attempts.map((row) => row.enrollmentId)).size !== 1) {
-    return { attempt: null, ambiguous: true }
-  }
+  if (attempts.length === 0) return { attempt: null, ambiguous: false, enrollments: [] }
   attempts.sort(
     (a, b) =>
       (b.sentAt?.getTime() ?? b.updatedAt?.getTime() ?? 0) -
       (a.sentAt?.getTime() ?? a.updatedAt?.getTime() ?? 0),
   )
-  return { attempt: attempts[0], ambiguous: false }
+  const contacted = new Set(attempts.map((row) => row.enrollmentId))
+  const liveContacted = enrollments.filter((row) => contacted.has(row.id))
+  return {
+    attempt: attempts[0],
+    ambiguous: liveContacted.length > 1,
+    enrollments: liveContacted,
+  }
 }
 
 // -----------------------------------------------------------------------

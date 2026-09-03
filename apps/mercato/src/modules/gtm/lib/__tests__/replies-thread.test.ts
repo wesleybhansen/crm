@@ -75,6 +75,24 @@ describe('buildThread (full correlated conversation)', () => {
     expect((out.at as Date).getTime()).toBeLessThan((inb.at as Date).getTime())
   })
 
+  it('returns inbound HTML with active content and event handlers stripped (L10)', async () => {
+    const { em, reply, inbound } = await prepare()
+    inbound.bodyHtml = [
+      '<div onclick="steal()">Hi <b>there</b></div>',
+      '<script>alert(1)</script>',
+      '<style>body{display:none}</style>',
+      '<a href="javascript:alert(2)">click</a>',
+      '<a href="https://example.com/ok">fine</a>',
+      '<img src="x" onerror="alert(3)">',
+      '<iframe src="https://evil.example"></iframe>',
+    ].join('')
+    const thread = await buildThread(em, ctx, { replyId: reply.id })
+    const html = thread.messages.find((m) => m.kind === 'inbound')!.body_html ?? ''
+    expect(html).toContain('Hi <b>there</b>')
+    expect(html).toContain('href="https://example.com/ok"')
+    expect(html).not.toMatch(/<script|<style|<iframe|onclick|onerror|javascript:/i)
+  })
+
   it('scopes to the reply enrollment and 404s a foreign org', async () => {
     const { em, reply } = await prepare()
     const foreignCtx = { organizationId: OTHER_ORG, tenantId: TENANT, userId: USER, requestId: null }

@@ -14,13 +14,14 @@ import {
   apifyLinkedInEngagerApproved,
   apifyLinkedInEngagerDescriptor,
   apifyLinkedInEngagerEnabled,
+  apifyLinkedInReactorDescriptor,
   apifyLinkedInReactorEnabled,
   buildApifyLinkedInEngagerInput,
   createApifyLinkedInEngagerAdapter,
   createApifyLinkedInReactorAdapter,
 } from '../adapters/apify/engager-source'
 import { APIFY_REQUIRED_PRICE_VERSION, APIFY_REQUIRED_TERMS_VERSION } from '../adapters/apify/source'
-import type { SourceSearchPlan } from '../adapters/types'
+import { adapterAudienceRights, type SourceSearchPlan } from '../adapters/types'
 import { buildSourcePlan } from '../research/plan'
 
 const CLOCK = new Date('2026-09-01T18:00:00.000Z')
@@ -135,7 +136,9 @@ describe('Apify LinkedIn commenter-lead contract', () => {
     ).toBe(false)
   })
 
-  it('is a business-and-consumer people source with manual public-profile rights', () => {
+  // Review 2026-09-02 (H3): consumer rights were previously asserted on the
+  // strength of a paper deletion_supported flag with no deletion path.
+  it('is a business-only people source until a real deletion path exists', () => {
     const descriptor = apifyLinkedInEngagerDescriptor(ENABLED_ENV)
     expect(descriptor.adapter_id).toBe(APIFY_LINKEDIN_ENGAGER_ADAPTER_ID)
     expect(descriptor.capabilities).toEqual([
@@ -147,11 +150,17 @@ describe('Apify LinkedIn commenter-lead contract', () => {
       },
     ])
     expect(descriptor.constraints.license).toMatchObject({
-      audience_modes: ['business', 'consumer'],
-      public_profile_contact_allowed: true,
+      audience_modes: ['business'],
+      public_profile_contact_allowed: false,
       automated_email_allowed: false,
       retention_days: 30,
     })
+    expect(descriptor.dsr.deletion_supported).toBe(false)
+    expect(adapterAudienceRights(descriptor, 'business').allowed).toBe(true)
+    expect(adapterAudienceRights(descriptor, 'consumer', 'person')).toEqual(
+      expect.objectContaining({ allowed: false }),
+    )
+    expect(adapterAudienceRights(apifyLinkedInReactorDescriptor(ENABLED_ENV), 'consumer', 'person').allowed).toBe(false)
   })
 
   it('scrapes bounded comments but leaves lower-intent reactions off', () => {
@@ -315,16 +324,16 @@ describe('Apify LinkedIn commenter-lead contract', () => {
     })
   })
 
-  it.each(['b2b', 'b2c'] as const)('plans a governed %s commenter-lead run', (marketType) => {
+  it('plans a governed b2b commenter-lead run', () => {
     const adapter = createApifyLinkedInEngagerAdapter({ env: ENABLED_ENV, now })
     const plan = buildSourcePlan(
       {
-        marketType,
+        marketType: 'b2b',
         geography: 'Austin, TX',
         signal: 'Public LinkedIn comments demonstrating real-estate demand',
         signalKind: 'social_engagement',
         entityUnit: 'people',
-        audience: 'Homeowners considering a move',
+        audience: 'Independent real estate brokerages and property management companies',
         sourceHint: 'public LinkedIn posts',
         providerQuery: PLAN.provider_query,
       },
@@ -340,8 +349,37 @@ describe('Apify LinkedIn commenter-lead contract', () => {
         }),
       ],
     })
-    if (plan.ok) {
-      expect(plan.policy.outreach_mode).toBe(marketType === 'b2b' ? 'automated_email' : 'manual_only')
+    if (plan.ok) expect(plan.policy.outreach_mode).toBe('automated_email')
+  })
+
+  // Review 2026-09-02 (H3): a b2c commenter-lead run used to plan on the
+  // strength of a paper deletion_supported flag. Consumer people sourcing
+  // stays closed until a real per-subject deletion path exists.
+  it('refuses a b2c commenter-lead run because consumer rights are not backed by a deletion path', () => {
+    const adapter = createApifyLinkedInEngagerAdapter({ env: ENABLED_ENV, now })
+    const plan = buildSourcePlan(
+      {
+        marketType: 'b2c',
+        geography: 'Austin, TX',
+        signal: 'Public LinkedIn comments demonstrating real-estate demand',
+        signalKind: 'social_engagement',
+        entityUnit: 'people',
+        audience: 'Homeowners considering a move',
+        sourceHint: 'public LinkedIn posts',
+        providerQuery: PLAN.provider_query,
+      },
+      [adapter],
+      { targetAccepted: 2, maxRawCandidates: 5 },
+    )
+    expect(plan.ok).toBe(false)
+    if (!plan.ok) {
+      expect(plan.unsupportedDimensions).toContainEqual(
+        expect.objectContaining({
+          adapter_id: APIFY_LINKEDIN_ENGAGER_ADAPTER_ID,
+          dimension: 'license',
+          reason: expect.stringContaining('consumer'),
+        }),
+      )
     }
   })
 

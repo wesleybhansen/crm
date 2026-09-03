@@ -1,5 +1,5 @@
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
+import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { GtmAiMeteringError } from '../../../lib/ai/telemetry'
 import { gtmInternalOpenApi } from '../../openapi'
@@ -22,14 +22,8 @@ function opaqueNotFound() {
 export async function POST(req: Request) {
   if (!gtmEnabled()) return opaqueNotFound()
 
-  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret
-    || authHeader.length !== expected.length
-    || !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-  ) {
+  // Byte-length guarded constant-time compare (lib/authorize.ts).
+  if (!internalServiceBearerAuthorized(req)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 

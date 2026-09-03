@@ -361,6 +361,14 @@ export type CapabilityCoverage = {
 
 export type AdapterAudienceUse = 'business' | 'consumer'
 
+// Same shape as registry.fixtureAdaptersEnabled without the flag check: a
+// test build always allows test_only descriptors, development allows them,
+// anything else (production, unset, unknown) requires the OM_TEST_MODE harness.
+export function testOnlyLicensesPermitted(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.NODE_ENV === 'test' || env.NODE_ENV === 'development') return true
+  return env.OM_TEST_MODE === '1'
+}
+
 export type AdapterAudienceRights = {
   allowed: boolean
   reason?: string
@@ -379,6 +387,12 @@ export function adapterAudienceRights(
   const license = descriptor.constraints.license
   if (license.status !== 'approved' && license.status !== 'test_only') {
     return { allowed: false, reason: `provider license is ${license.status}` }
+  }
+  // 'test_only' is reserved for deterministic local fixtures. It can only
+  // serve a plan where fixtures may register at all (review 2026-09-02, L2/H14);
+  // the registry gate is mirrored here rather than imported to avoid a cycle.
+  if (license.status === 'test_only' && !testOnlyLicensesPermitted()) {
+    return { allowed: false, reason: 'provider license is test_only and this environment does not run fixtures' }
   }
   if (!license.terms_version || !license.export || !license.customer_display) {
     return { allowed: false, reason: 'provider customer display or export rights are incomplete' }

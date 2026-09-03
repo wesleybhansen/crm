@@ -51,7 +51,7 @@ import {
 const APIFY_MILLIDOLLAR_USD = 0.001
 const MAX_RESULTS = 25
 const MAX_DATASET_BODY_BYTES = 2_000_000
-const SENSITIVE_TARGETING =
+export const SENSITIVE_TARGETING =
   /\b(?:bereav(?:ed|ement)|widow(?:ed|er)?|probate|divorc(?:e|ed|ing)|foreclos(?:e|ed|ure)|bankrupt(?:cy)?|tax delinquen(?:t|cy)|mortgage payoff|disab(?:led|ility)|medical|health condition|pregnan(?:t|cy)|family status|retire(?:d|ment)|elderly|senior citizen)\b/i
 
 type SocialEnv = Record<string, string | undefined>
@@ -443,6 +443,9 @@ type PublicSocialDeps = {
 export const APIFY_REDDIT_OPPORTUNITY_CONFIG: PublicSocialOpportunityConfig = {
   adapterId: 'apify-reddit-demand-opportunities',
   platform: 'Reddit',
+  // Every other public social config has its own capability switch; this
+  // one registered on the global Apify gate alone (review 2026-09-02, L0).
+  enabledEnv: 'GTM_APIFY_REDDIT_OPPORTUNITY_ENABLED',
   actorId: 'clearpath/reddit-search-scraper',
   actorBuild: '0.0.76',
   actorEnv: 'GTM_APIFY_ACTOR_REDDIT_SEARCH',
@@ -1560,7 +1563,9 @@ export function publicSocialOpportunityDescriptor(
         audience_modes: ['business', 'consumer'],
         manual_outreach_allowed: approved,
         automated_email_allowed: false,
-        public_profile_contact_allowed: approved,
+        // Opportunity-only sources never return a person, so they hold no
+        // reviewed right to contact a public profile (review 2026-09-02, M11).
+        public_profile_contact_allowed: false,
         public_opportunity_use_allowed: approved,
       },
       rate_limits: { requests_per_minute: 20, concurrent: 1 },
@@ -1590,10 +1595,22 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
+// Control characters and zero-width/bidi marks are stripped before bounding:
+// audience_description reaches the customer's own agent through MCP, and an
+// invisible instruction is still an instruction (review 2026-09-02, L0).
+const INVISIBLE_TEXT = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2064\uFEFF]/g
+
 function text(value: unknown, max = 500): string | null {
   if (typeof value !== 'string') return null
-  const normalized = value.trim().replace(/\s+/g, ' ')
+  const normalized = value.replace(INVISIBLE_TEXT, '').trim().replace(/\s+/g, ' ')
   return normalized ? Array.from(normalized).slice(0, max).join('') : null
+}
+
+// Platform publication time for evidence.detail, distinct from observed_at
+// (retrieval time). A missing timestamp is flagged explicitly so the
+// qualifier never treats retrieval time as freshness (review 2026-09-02, H7).
+function publicationDetail(publishedAt: string | null): Record<string, unknown> {
+  return publishedAt ? { published_at: publishedAt } : { published_at_unknown: true }
 }
 
 function nonNegativeInteger(value: unknown): number {
@@ -1932,21 +1949,42 @@ function activityLevel(count: number): NonNullable<CandidateIdentity['activity_l
   return 'unknown'
 }
 
+/*
+ * Exact host allow-list per platform (review 2026-09-02, M10). Suffix matching
+ * (`*.facebook.com`) admitted platform open-redirectors such as
+ * `l.facebook.com/l.php?u=https://evil.example`, which then reached the
+ * customer's agent as the destination to visit. Reddit's old/new/np/m hosts
+ * are accepted and canonicalized onto www.reddit.com so paid rows are not
+ * dropped for a host alias the thread canonicalizer already accepts.
+ */
+const PLATFORM_HOSTS: Record<SocialPlatform, readonly string[]> = {
+  Reddit: ['reddit.com', 'www.reddit.com', 'old.reddit.com', 'new.reddit.com', 'np.reddit.com', 'm.reddit.com'],
+  X: ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com'],
+  Threads: ['threads.com', 'www.threads.com', 'threads.net', 'www.threads.net'],
+  Meetup: ['meetup.com', 'www.meetup.com'],
+  Eventbrite: ['eventbrite.com', 'www.eventbrite.com'],
+  Instagram: ['instagram.com', 'www.instagram.com'],
+  TikTok: ['tiktok.com', 'www.tiktok.com', 'vm.tiktok.com'],
+  Facebook: ['facebook.com', 'www.facebook.com', 'm.facebook.com'],
+}
+// Tracking parameters are never part of a destination on these platforms;
+// keeping the query would also keep any redirect target smuggled into it.
+const QUERY_STRIPPED_PLATFORMS: ReadonlySet<SocialPlatform> = new Set(['Facebook', 'Meetup', 'Eventbrite', 'TikTok'])
+// Known platform redirector / login / interstitial paths.
+const REDIRECTOR_PATH = /^\/(?:l\.php|login|redirect|link|out|away|share\.php|dialog|plugins|logout|checkpoint)(?:\/|$)/i
+
 function safePlatformUrl(value: unknown, platform: SocialPlatform): string | null {
   const raw = text(value, 2_000)
   if (!raw) return null
   try {
     const url = new URL(raw.startsWith('/') && platform === 'Reddit' ? `https://www.reddit.com${raw}` : raw)
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
-    const host = url.hostname.toLowerCase().replace(/^www\./, '')
-    if (platform === 'Reddit' && host !== 'reddit.com') return null
-    if (platform === 'X' && host !== 'x.com' && host !== 'twitter.com') return null
-    if (platform === 'Threads' && host !== 'threads.com' && host !== 'threads.net') return null
-    if (platform === 'Meetup' && host !== 'meetup.com' && !host.endsWith('.meetup.com')) return null
-    if (platform === 'Eventbrite' && host !== 'eventbrite.com' && !host.endsWith('.eventbrite.com')) return null
-    if (platform === 'Instagram' && host !== 'instagram.com') return null
-    if (platform === 'TikTok' && host !== 'tiktok.com' && !host.endsWith('.tiktok.com')) return null
-    if (platform === 'Facebook' && host !== 'facebook.com' && !host.endsWith('.facebook.com')) return null
+    if (url.username || url.password) return null
+    const host = url.hostname.toLowerCase()
+    if (!PLATFORM_HOSTS[platform].includes(host)) return null
+    if (REDIRECTOR_PATH.test(url.pathname)) return null
+    if (platform === 'Reddit') url.hostname = 'www.reddit.com'
+    if (QUERY_STRIPPED_PLATFORMS.has(platform)) url.search = ''
     url.protocol = 'https:'
     url.hash = ''
     return url.toString()
@@ -2186,6 +2224,7 @@ export function normalizeMeetupOpportunity(value: unknown, context: NormalizeCon
           topic_names: topics,
           event_start_at: eventStart,
           source_published_at: publishedAt,
+          ...publicationDetail(publishedAt),
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,
@@ -2306,6 +2345,8 @@ export function normalizeEventbriteOpportunity(value: unknown, context: Normaliz
           row.end_time ?? row.endTime,
         ),
         ticket_availability: availability ?? null,
+        // Eventbrite rows carry an event start but no publication time.
+        published_at_unknown: true,
         categories,
         subcategories,
         formats,
@@ -2320,12 +2361,20 @@ export function normalizeEventbriteOpportunity(value: unknown, context: Normaliz
   }
 }
 
+// Smallest numeric value accepted as an epoch (seconds): 2001-09-09. A bare
+// year such as "2026" used to parse as epoch seconds and land in 1970, then
+// fail closed as stale downstream (review 2026-09-02, L0).
+const MIN_EPOCH_SECONDS = 1_000_000_000
+
 function sourcePublishedAt(value: unknown): string | null {
   if (value == null || (typeof value === 'string' && !value.trim())) return null
   const numeric = Number(value)
-  const date = Number.isFinite(numeric)
-    ? new Date(numeric > 10_000_000_000 ? numeric : numeric * 1_000)
-    : new Date(String(value ?? ''))
+  if (Number.isFinite(numeric)) {
+    if (numeric < MIN_EPOCH_SECONDS) return null
+    const date = new Date(numeric > 10_000_000_000 ? numeric : numeric * 1_000)
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null
+  }
+  const date = new Date(String(value ?? ''))
   return Number.isFinite(date.getTime()) ? date.toISOString() : null
 }
 
@@ -2339,6 +2388,9 @@ function commonIdentity(args: {
   engagement: number
   people?: CandidateIdentity['people_to_follow']
   demonstratedIntent?: ReturnType<typeof classifyOpportunityIntent>
+  // Only a positive signal from the row may assert a public destination;
+  // the default routes the opportunity to review (review 2026-09-02, H8).
+  accessType?: NonNullable<CandidateIdentity['access_type']>
 }): CandidateIdentity {
   const demonstratedIntent = args.demonstratedIntent ?? classifyOpportunityIntent(args.content)
   const demonstratedLocation = demonstratedOpportunityLocation(args.locationEvidence, args.requestedLocation)
@@ -2350,7 +2402,7 @@ function commonIdentity(args: {
     audience_description: args.content,
     activity_level: activityLevel(args.engagement),
     engagement_count: args.engagement,
-    access_type: 'public',
+    access_type: args.accessType ?? 'unknown',
     location: demonstratedLocation,
     provider_location: args.requestedLocation,
     urls: [args.sourceUrl],
@@ -2438,6 +2490,12 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
   )
   const subredditInfo = record(row.subredditInfo)
   if (subredditInfo?.isNsfw === true || subredditInfo?.isQuarantined === true) return null
+  // A restricted or private subreddit is not a public destination. Only the
+  // provider's own visibility field may promote the row to 'public'.
+  const subredditVisibility = text(subredditInfo?.type ?? row.subredditType ?? row.subreddit_type, 40)?.toLowerCase()
+  if (subredditVisibility === 'private' || subredditVisibility === 'restricted' || subredditInfo?.isPrivate === true) return null
+  const redditAccessType: NonNullable<CandidateIdentity['access_type']> =
+    subredditVisibility === 'public' || subredditInfo?.isPrivate === false ? 'public' : 'unknown'
   const engagement = Math.min(
     10_000_000,
     nonNegativeInteger(row.score)
@@ -2471,6 +2529,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
     locationEvidence: `${semanticContent}\n${subreddit ?? ''}`,
     engagement,
     demonstratedIntent,
+    accessType: redditAccessType,
     people:
       author && author !== '[deleted]'
         ? [
@@ -2530,6 +2589,7 @@ export function normalizeRedditOpportunity(value: unknown, context: NormalizeCon
           requested_location: context.location,
           requested_intent: context.expectedIntent ?? null,
           source_published_at: publishedAt,
+          ...publicationDetail(publishedAt),
           publication_time_evidence: publishedAt ? 'pinned_actor_source_timestamp' : 'missing',
           visible_engagement: engagement,
           demonstrated_intent_signals: [
@@ -2567,6 +2627,8 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
   const identity = commonIdentity({
     name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
     platform: 'X',
+    // rows returned by the platform's public search surface are public posts
+    accessType: 'public',
     content,
     sourceUrl,
     requestedLocation: context.location,
@@ -2613,6 +2675,7 @@ export function normalizeXOpportunity(value: unknown, context: NormalizeContext)
           requested_location: context.location,
           requested_intent: context.expectedIntent ?? null,
           source_published_at: publishedAt,
+          ...publicationDetail(publishedAt),
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,
@@ -2656,6 +2719,8 @@ export function normalizeThreadsOpportunity(value: unknown, context: NormalizeCo
   const identity = commonIdentity({
     name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
     platform: 'Threads',
+    // rows returned by the platform's public search surface are public posts
+    accessType: 'public',
     content,
     sourceUrl,
     requestedLocation: context.location,
@@ -2702,6 +2767,7 @@ export function normalizeThreadsOpportunity(value: unknown, context: NormalizeCo
           requested_location: context.location,
           requested_intent: context.expectedIntent ?? null,
           source_published_at: publishedAt,
+          ...publicationDetail(publishedAt),
           visible_engagement: engagement,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,
@@ -2750,6 +2816,8 @@ export function normalizeInstagramOpportunity(value: unknown, context: Normalize
   const identity = commonIdentity({
     name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
     platform: 'Instagram',
+    // rows returned by the platform's public search surface are public posts
+    accessType: 'public',
     content,
     sourceUrl,
     requestedLocation: context.location,
@@ -2796,6 +2864,7 @@ export function normalizeInstagramOpportunity(value: unknown, context: Normalize
         requested_intent: context.expectedIntent ?? null,
         returned_location: returnedLocation || null,
         source_published_at: publishedAt,
+        ...publicationDetail(publishedAt),
         visible_engagement: engagement,
         demonstrated_intent_signals: [
           ...demonstratedIntent.buyerSignals,
@@ -2852,6 +2921,8 @@ export function normalizeTikTokOpportunity(value: unknown, context: NormalizeCon
   const identity = commonIdentity({
     name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
     platform: 'TikTok',
+    // rows returned by the platform's public search surface are public posts
+    accessType: 'public',
     content,
     sourceUrl,
     requestedLocation: context.location,
@@ -2896,6 +2967,7 @@ export function normalizeTikTokOpportunity(value: unknown, context: NormalizeCon
         requested_intent: context.expectedIntent ?? null,
         returned_location: returnedLocation || null,
         source_published_at: publishedAt,
+        ...publicationDetail(publishedAt),
         visible_engagement: engagement,
         demonstrated_intent_signals: [
           ...demonstratedIntent.buyerSignals,
@@ -2937,6 +3009,8 @@ export function normalizeFacebookOpportunity(value: unknown, context: NormalizeC
   const identity = commonIdentity({
     name: content.length > 110 ? `${content.slice(0, 107).trimEnd()}...` : content,
     platform: 'Facebook',
+    // rows returned by the platform's public search surface are public posts
+    accessType: 'public',
     content,
     sourceUrl,
     requestedLocation: context.location,
@@ -2977,6 +3051,7 @@ export function normalizeFacebookOpportunity(value: unknown, context: NormalizeC
         requested_location: context.location,
         requested_intent: context.expectedIntent ?? null,
         source_published_at: publishedAt,
+        ...publicationDetail(publishedAt),
         demonstrated_intent_signals: [
           ...demonstratedIntent.buyerSignals,
           ...demonstratedIntent.sellerSignals,
@@ -3257,14 +3332,6 @@ export function createPublicSocialOpportunityAdapter(
           error: 'provider_billing_unknown: run-start charge did not match the approved contract',
         }
       }
-      if (outcome.status === 'no_result') {
-        return {
-          status: 'no_result',
-          data: null,
-          receipt: providerReceipt(),
-          cost_units: costUnits,
-        }
-      }
       const diagnosticRows = config.isNoResultDiagnostic
         ? outcome.items.filter((item) => config.isNoResultDiagnostic?.(item))
         : []
@@ -3351,6 +3418,27 @@ export function createPublicSocialOpportunityAdapter(
               error: 'invalid_schema: partitioned billed result count did not match the bounded dataset',
             }
           }
+        }
+      }
+      // no_result settles only AFTER the cardinality checks above (review
+      // 2026-09-02, M8): a receipt that bills primary results against an empty
+      // dataset read is a customer paying for undelivered rows, not a
+      // definitive "nothing found". The primary count must be exactly zero.
+      if (outcome.status === 'no_result') {
+        if (billedPrimaryResults !== 0) {
+          return {
+            status: 'ambiguous',
+            data: null,
+            receipt: providerReceipt({ billed_results: billedPrimaryResults }),
+            cost_units: null,
+            error: 'invalid_schema: billed result count did not match the empty dataset',
+          }
+        }
+        return {
+          status: 'no_result',
+          data: null,
+          receipt: providerReceipt({ billed_results: 0 }),
+          cost_units: costUnits,
         }
       }
       if (
@@ -3455,6 +3543,14 @@ export function createPublicSocialOpportunityAdapter(
             : { keyword_filtered_rows: returnedContentFiltered }),
           truncated,
           billed_results: counts[config.primaryResultEvent] ?? 0,
+          // Rows the provider billed that the customer does not receive
+          // (dropped, filtered, capped, or, on the at-most-quoted-cap lane,
+          // simply never delivered). Visible so reconciliation can see the
+          // gap (review 2026-09-02, M12).
+          undelivered_billed_results: Math.max(
+            0,
+            (counts[config.primaryResultEvent] ?? 0) - delivered.length,
+          ),
         }),
         cost_units: costUnits,
       }

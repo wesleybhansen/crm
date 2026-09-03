@@ -15,10 +15,19 @@ export const realtorBenchmarkPlaySchema = z.object({
 
 export type RealtorBenchmarkPlay = z.infer<typeof realtorBenchmarkPlaySchema>
 
+const uuidSchema = z.string().uuid()
+
 export const realtorBenchmarkLabelSchema = z.object({
   benchmarkVersion: z.literal(REALTOR_BENCHMARK_VERSION),
   playId: z.string(),
   rank: z.number().int().min(1).max(200),
+  // Every evidence row must bind to a real paid run: the research run, the
+  // run-level match whose fit_status is the disposition below, and the
+  // provider operation that returned the row. Packets without these cannot be
+  // reproduced and fail closed at import.
+  researchRunId: uuidSchema,
+  candidateMatchId: uuidSchema,
+  providerOperationId: uuidSchema,
   source: z.enum(['apify-linkedin', 'apify-reddit', 'apify-x', 'dataforseo', 'other']),
   destinationHash: z.string().regex(/^[a-f0-9]{64}$/),
   destinationKind: z.enum(['community', 'forum', 'group', 'thread', 'post', 'event', 'creator_audience']),
@@ -54,6 +63,8 @@ export type RealtorBenchmarkMetric = {
 
 export type RealtorBenchmarkEvaluation = {
   benchmarkVersion: typeof REALTOR_BENCHMARK_VERSION
+  // passed is gated on precisionOverAccepted (what the qualifier ACCEPTED and
+  // a human agreed with), never on the ranked list alone.
   passed: boolean
   coverage: {
     playCount: number
@@ -65,7 +76,15 @@ export type RealtorBenchmarkEvaluation = {
     valid: boolean
   }
   metrics: {
-    precisionAt10: RealtorBenchmarkMetric
+    // Precision over rows the system accepted: accepted AND human-relevant
+    // over accepted. This is the release gate.
+    precisionOverAccepted: RealtorBenchmarkMetric
+    // Recall over human-relevant rows: accepted AND human-relevant over
+    // human-relevant.
+    recallOverHumanRelevant: RealtorBenchmarkMetric
+    // Legacy ranked metric: relevance of the exported top-10 by rank,
+    // regardless of what the system decided. Reported, not a gate.
+    rankedPrecisionAt10: RealtorBenchmarkMetric
     geographyCorrectness: RealtorBenchmarkMetric
     intentCorrectness: RealtorBenchmarkMetric
     liveAccessibleDestinations: RealtorBenchmarkMetric
@@ -76,7 +95,10 @@ export type RealtorBenchmarkEvaluation = {
   byPlay: Array<{
     playId: string
     labeledRows: number
+    acceptedRows: number
+    acceptedRelevant: number
+    precisionOverAccepted: number
     relevantAt10: number
-    precisionAt10: number
+    rankedPrecisionAt10: number
   }>
 }

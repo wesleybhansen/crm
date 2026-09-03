@@ -52,6 +52,12 @@ import {
 } from './apify/company-employees'
 import { apifyEmailVerifierEnabled, createApifyEmailVerifierAdapter } from './apify/email-verifier'
 import { apifyWebsiteEmailEnabled, createApifyWebsiteEmailAdapter } from './apify/website-email'
+import { createXaiXSearchOpportunityAdapter, xaiXSearchEnabled } from './xai/x-search-opportunity-source'
+import {
+  createThreadsKeywordSearchAdapter,
+  threadsKeywordSearchEnabled,
+} from './threads/keyword-search-opportunity-source'
+import type { ThreadsConnectionAccess } from './threads/connection'
 
 /*
  * Adapter registries (SPEC-066 Tranches 3/4).
@@ -80,11 +86,26 @@ import { apifyWebsiteEmailEnabled, createApifyWebsiteEmailAdapter } from './apif
 export function fixtureAdaptersEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.NODE_ENV === 'test') return true
   if (env.GTM_FIXTURE_ADAPTERS_ENABLED !== 'true') return false
-  if (env.NODE_ENV === 'production') return env.OM_TEST_MODE === '1'
-  return true
+  // Only an explicit 'development' build gets fixtures on the flag alone. An
+  // unset or unrecognized NODE_ENV (ad-hoc worker, misconfigured container) is
+  // treated like production and needs the ephemeral OM_TEST_MODE harness too
+  // (review 2026-09-02, L1/H14): synthetic customer data must never be one
+  // missing env var away.
+  if (env.NODE_ENV === 'development') return true
+  return env.OM_TEST_MODE === '1'
 }
 
-export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
+/*
+ * Per-request adapter context. Official platform sources that act on a
+ * customer's own OAuth grant (Threads) register only when the caller has
+ * resolved that grant for the exact organization/tenant being served; a
+ * missing context means those sources are simply absent from the plan.
+ */
+export type SourceAdapterContext = {
+  threadsConnection?: ThreadsConnectionAccess | null
+}
+
+export function sourceAdapterRegistry(context: SourceAdapterContext = {}): Record<string, SourceAdapter> {
   const registry: Record<string, SourceAdapter> = {}
   if (fixtureAdaptersEnabled()) {
     registry[fixtureSourceAdapter.descriptor.adapter_id] = fixtureSourceAdapter
@@ -174,11 +195,23 @@ export function sourceAdapterRegistry(): Record<string, SourceAdapter> {
     const eventOpportunities = createDataForSeoEventsOpportunityAdapter()
     registry[eventOpportunities.descriptor.adapter_id] = eventOpportunities
   }
+  // Official xAI X Search discovery (plus optional official X API record
+  // hydration). Deployment-gated only; no customer grant is involved.
+  if (xaiXSearchEnabled()) {
+    const xSearch = createXaiXSearchOpportunityAdapter()
+    registry[xSearch.descriptor.adapter_id] = xSearch
+  }
+  // Official Threads keyword search runs on the customer's own connected
+  // account, so it needs both the deployment gate and a resolved connection.
+  if (threadsKeywordSearchEnabled() && context.threadsConnection) {
+    const threads = createThreadsKeywordSearchAdapter({ connection: context.threadsConnection })
+    registry[threads.descriptor.adapter_id] = threads
+  }
   return registry
 }
 
-export function sourceAdapterList(): SourceAdapter[] {
-  return Object.values(sourceAdapterRegistry())
+export function sourceAdapterList(context: SourceAdapterContext = {}): SourceAdapter[] {
+  return Object.values(sourceAdapterRegistry(context))
 }
 
 /*

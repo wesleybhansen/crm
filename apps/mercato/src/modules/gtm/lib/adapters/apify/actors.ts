@@ -562,12 +562,51 @@ function pickMeaningful(item: unknown, paths: string[][]): string | null {
   return null
 }
 
-function pickUrl(item: unknown, paths: string[][]): string | null {
+/*
+ * Profile URLs are host-checked at normalization (review 2026-09-02, L6):
+ * `extractProfileUrl` re-checks the host before enrichment spend, but a
+ * provider row could still put `https://attacker.example/in/jane` in the
+ * candidate's displayed profile link. Only the platform's own hosts survive.
+ */
+function pickUrl(item: unknown, paths: string[][], allowedHosts: readonly string[]): string | null {
   const raw = pick(item, paths)
   if (!raw) return null
-  // Only http(s) urls are stored; anything else is dropped rather than kept
-  // as an unverified string.
-  return /^https?:\/\//i.test(raw) ? raw : null
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null
+  if (parsed.username || parsed.password) return null
+  const host = parsed.hostname.toLowerCase()
+  const allowed = allowedHosts.some((entry) => host === entry || host.endsWith(`.${entry}`))
+  return allowed ? parsed.toString() : null
+}
+
+/*
+ * Platform publication time of the engagement itself, when the actor
+ * reports one (verified fields: createdAtTimestamp epoch ms, createdAt).
+ * Kept separate from observed_at (which downstream reads) so the qualifier
+ * can tell "posted three weeks ago" from "retrieved today"
+ * (review 2026-09-02, research H7).
+ */
+function itemPublishedAt(item: unknown): string | null {
+  const epoch = at(item, ['createdAtTimestamp'])
+  if (typeof epoch === 'number' && Number.isFinite(epoch) && epoch > 0) {
+    const fromEpoch = new Date(epoch)
+    if (!Number.isNaN(fromEpoch.getTime())) return fromEpoch.toISOString()
+  }
+  const raw = str(at(item, ['createdAt']))
+  if (raw) {
+    const parsed = new Date(raw)
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
+  }
+  return null
+}
+
+function publicationDetail(publishedAt: string | null): Record<string, unknown> {
+  return publishedAt ? { published_at: publishedAt } : { published_at_unknown: true }
 }
 
 function joinName(item: unknown, firstPaths: string[][], lastPaths: string[][]): string | null {
@@ -636,12 +675,14 @@ function buildIdentity(parts: {
   company: string | null
   profileUrl: string | null
   linkedinEngagementFingerprint?: string | null
+  sourcePublishedAt?: string | null
 }): CandidateIdentity {
   const identity: CandidateIdentity = { name: parts.name }
   // omitted, never invented
   if (parts.title) identity.title = parts.title
   if (parts.company) identity.company = parts.company
   if (parts.profileUrl) identity.urls = [parts.profileUrl]
+  if (parts.sourcePublishedAt) identity.source_published_at = parts.sourcePublishedAt
   if (parts.linkedinEngagementFingerprint) {
     identity.linkedin_engagement_fingerprint = parts.linkedinEngagementFingerprint
   }
@@ -829,6 +870,8 @@ function linkedinCandidate(
   if (opts.postContent) detail.post_content = opts.postContent.slice(0, MAX_COMMENTARY_CHARS)
   const createdAt = str(at(item, ['createdAt']))
   if (createdAt) detail.created_at = createdAt
+  const publishedAt = itemPublishedAt(item)
+  Object.assign(detail, publicationDetail(publishedAt))
   // The actor's echo of the post we asked for. Recorded for reconciliation
   // only; source_url below stays OUR host-checked plan URL.
   const queryPost = str(at(item, ['query', 'post']))
@@ -841,10 +884,11 @@ function linkedinCandidate(
       // "--" and friends are treated as absent, not as a real title
       title,
       company: opts.allowCompany ? pick(item, LINKEDIN_COMPANY_PATHS) : null,
-      profileUrl: pickUrl(item, LINKEDIN_PROFILE_URL_PATHS),
+      profileUrl: pickUrl(item, LINKEDIN_PROFILE_URL_PATHS, APIFY_ACTORS.linkedin_post_comments.allowedHosts),
       linkedinEngagementFingerprint: opts.stableEngagementFingerprint
         ? linkedinEngagementFingerprint(name, title)
         : null,
+      sourcePublishedAt: publishedAt,
     }),
     evidence: [
       {
@@ -1017,13 +1061,15 @@ export function normalizeItems(
     } else {
       const name = pick(item, X_NAME_PATHS)
       if (name) {
+        const publishedAt = itemPublishedAt(item)
         candidate = {
           entity_kind: 'person',
           identity: buildIdentity({
             name,
             title: null,
             company: null,
-            profileUrl: pickUrl(item, X_PROFILE_URL_PATHS),
+            profileUrl: pickUrl(item, X_PROFILE_URL_PATHS, APIFY_ACTORS.x_post_engagers.allowedHosts),
+            sourcePublishedAt: publishedAt,
           }),
           evidence: [
             {
@@ -1031,6 +1077,7 @@ export function normalizeItems(
               source_url: ctx.postUrl ?? null,
               observed_at: ctx.observedAt,
               confidence: APIFY_EVIDENCE_CONFIDENCE,
+              detail: publicationDetail(publishedAt),
             },
           ],
         }

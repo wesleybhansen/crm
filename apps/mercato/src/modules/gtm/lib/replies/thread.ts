@@ -9,6 +9,7 @@ import {
   GtmSendAttempt,
 } from '../../data/entities'
 import { EmailConnection, EmailMessage } from '../../../email/data/schema'
+import { sanitizeInboundHtml } from './text'
 
 /*
  * Full correlated conversation for one reply (SPEC-066 section 9, inbox
@@ -243,7 +244,9 @@ export async function buildThread(
       from: message.fromAddress ?? null,
       to: message.toAddress ?? null,
       body_text: message.bodyText ?? null,
-      body_html: message.bodyHtml ?? null,
+      // Inbound HTML is sender-controlled: active content, event handlers
+      // and javascript: URLs are stripped before it leaves the server (L10).
+      body_html: sanitizeInboundHtml(message.bodyHtml),
       at: message.createdAt ?? null,
       state: null,
       rfc_message_id: message.threadId ?? null,

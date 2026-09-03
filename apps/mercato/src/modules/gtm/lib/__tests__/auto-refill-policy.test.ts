@@ -158,8 +158,16 @@ describe('R38 auto-refill policy', () => {
     expect(result.policy.representedNoliUserId).toBe(NOLI_USER)
     expect(result.policy.noliOrganizationId).toBe(NOLI_ORG)
     expect(result.policy.policyHash).toMatch(/^[a-f0-9]{64}$/)
+    // Review 2026-09-02 (H4): scheduled_jobs.id is a uuid column, so the
+    // schedule id must be the policy id itself. The old
+    // `gtm-auto-refill-<uuid>` value was rejected by Postgres and every
+    // activation died as scheduler_unavailable.
+    expect(result.policy.scheduledJobId).toBe(result.policy.id)
+    expect(result.policy.scheduledJobId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    )
     expect(jobs.register).toHaveBeenCalledWith(expect.objectContaining({
-      id: `gtm-auto-refill-${result.policy.id}`,
+      id: result.policy.id,
       scopeType: 'organization',
       organizationId: ORG,
       tenantId: TENANT,
@@ -181,6 +189,27 @@ describe('R38 auto-refill policy', () => {
       'gtm.auto_refill.activation_requested',
       'gtm.auto_refill.activated',
     ]))
+  })
+
+  // Review 2026-09-02 (M13): a paused campaign used to be an allowed
+  // activation status, so auto-refill kept spending through a pause.
+  it('refuses to activate auto-refill on a paused campaign', async () => {
+    const em = new FakeEm()
+    const seeded = await seedApprovedCampaign(em)
+    seeded.campaign.status = 'paused'
+    const jobs = scheduler()
+    await expect(activateAutoRefillPolicy(em, ctx, {
+      campaignId: CAMPAIGN,
+      expectedContentHash: seeded.version.contentHash,
+      expectedPlanHash: seeded.plan.planHash,
+      representedNoliUserId: NOLI_USER,
+      noliOrganizationId: NOLI_ORG,
+    }, { adapters: [fixtureSourceAdapter], scheduler: jobs })).rejects.toMatchObject({
+      code: 'campaign_not_approved',
+      message: expect.stringContaining('Resume'),
+    })
+    expect(jobs.register).not.toHaveBeenCalled()
+    expect(em.table(GtmAutoRefillPolicy)).toHaveLength(0)
   })
 
   it('fails stale content or provider-plan drift before scheduler registration', async () => {

@@ -16,6 +16,35 @@ export const DATAFORSEO_LIVE_TIMEOUT_MS = 120_000
 export const DATAFORSEO_REQUIRED_TERMS_VERSION = 'dataforseo-tos-2026-06-12'
 export const DATAFORSEO_REQUIRED_PRICE_VERSION = 'google-maps-live-advanced-2026-08-21'
 export const DATAFORSEO_REQUIRED_RETENTION_DAYS = 30
+// DataForSEO task status for a live task that ran and billed but matched
+// nothing ("No Search Results"). It is a charged no_result, never a refund.
+export const DATAFORSEO_MAPS_NO_SEARCH_RESULTS_CODE = 40102
+/*
+ * Hosts that can never be a business's own website domain (review 2026-09-02,
+ * research H12). A Maps listing whose "website" is a Facebook page or a
+ * free-mail address would otherwise become identity.domain and flow into
+ * paid email lookups for the wrong company.
+ */
+export const DATAFORSEO_MAPS_DOMAIN_DENY_LIST = [
+  'facebook.com',
+  'instagram.com',
+  'linkedin.com',
+  'x.com',
+  'twitter.com',
+  'business.site',
+  'wixsite.com',
+  'squarespace.com',
+  'linktr.ee',
+  'yelp.com',
+  'google.com',
+  'gmail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'wordpress.com',
+  'godaddysites.com',
+  'weebly.com',
+] as const
 const PRICE_MULTIPLYING_QUERY_OPERATOR =
   /(^|[^a-z0-9_-])(?:allinanchor|allintext|allintitle|allinurl|cache|define|definition|filetype|id|inanchor|info|intext|intitle|inurl|link|site|-site):/i
 const RECEIPT_FIELDS = [
@@ -169,6 +198,35 @@ export function canonicalDataForSeoUsLocation(value: string): string | null {
   return `${parts.join(',')},United States`
 }
 
+const CLAIM_TEXT_LIMIT = 120
+
+// Provider strings that reach the evidence claim are bounded and quoted so a
+// crafted listing title cannot read as an instruction to the drafting model
+// (review 2026-09-02, H9/M3). The raw values stay in evidence.detail.
+function claimText(value: string | null): string | null {
+  if (!value) return null
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (!compact) return null
+  const bounded = Array.from(compact).slice(0, CLAIM_TEXT_LIMIT).join('')
+  return `"${bounded.replace(/"/g, "'")}"`
+}
+
+export function listingDomain(value: unknown): string | null {
+  const raw = stringValue(value)?.toLowerCase().replace(/^www\./, '') ?? null
+  if (!raw) return null
+  let host = raw
+  try {
+    host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return null
+  }
+  if (!host || !host.includes('.')) return null
+  const denied = DATAFORSEO_MAPS_DOMAIN_DENY_LIST.some(
+    (entry) => host === entry || host.endsWith(`.${entry}`),
+  )
+  return denied ? null : host
+}
+
 function taskFrom(payload: unknown): Record<string, unknown> {
   const root = objectValue(payload)
   return Array.isArray(root.tasks) ? objectValue(root.tasks[0]) : {}
@@ -300,6 +358,25 @@ export function createDataForSeoMapsAdapter(deps: {
           task_status_message: stringValue(task.status_message)?.slice(0, 240) ?? null,
           root_cost_usd: root.cost ?? null,
         })
+        // Cost is read BEFORE any status branch (review 2026-09-02, H2):
+        // DataForSEO bills a live task that returns an application error or
+        // "No Search Results", and settling those as cost 0 refunded the
+        // customer while the provider invoiced us.
+        const rootCost = finiteNumber(root.cost)
+        const taskCost = finiteNumber(task.cost)
+        const authoritativeCost = taskCost != null
+          ? Math.max(0, taskCost)
+          : rootCost != null
+            ? Math.max(0, rootCost)
+            : null
+        const actualUnits = authoritativeCost != null ? authoritativeCost / usdPerBlock(env) : null
+        if (actualUnits != null && actualUnits > blocks + 1e-9) {
+          return {
+            status: 'ambiguous', data: null, cost_units: null,
+            receipt: providerReceipt('billing_over_reservation'),
+            error: 'provider_billing_mismatch: DataForSEO cost exceeded the reserved ceiling',
+          }
+        }
         if (!response.ok || rootStatus !== 20000 || taskStatus !== 20000) {
           const failureCode = taskStatus && taskStatus !== 20000
             ? taskStatus
@@ -308,32 +385,36 @@ export function createDataForSeoMapsAdapter(deps: {
               : !response.ok
                 ? response.status
                 : 'missing_task_status'
+          if (actualUnits == null) {
+            return {
+              status: 'ambiguous', data: null, cost_units: null,
+              receipt: providerReceipt(`provider_error_${failureCode}_billing_unknown`),
+              error: `provider_billing_unknown: DataForSEO returned root ${rootStatus || 'unknown'} and task ${taskStatus || 'unknown'} without a final cost`,
+            }
+          }
+          if (
+            response.ok
+            && rootStatus === 20000
+            && taskStatus === DATAFORSEO_MAPS_NO_SEARCH_RESULTS_CODE
+          ) {
+            return {
+              status: 'no_result', data: null, cost_units: actualUnits,
+              receipt: providerReceipt('no_result'),
+            }
+          }
+          // A definitive application error that the provider still charged
+          // for settles as a charged error; the wrapper charges cost_units.
           return {
-            status: 'error', data: null, cost_units: 0,
+            status: 'error', data: null, cost_units: actualUnits,
             receipt: providerReceipt(`provider_error_${failureCode}`),
             error: `provider_application_error: DataForSEO returned root ${rootStatus || 'unknown'} and task ${taskStatus || 'unknown'}`,
           }
         }
-        const rootCost = finiteNumber(root.cost)
-        const taskCost = finiteNumber(task.cost)
-        const authoritativeCost = taskCost != null
-          ? Math.max(0, taskCost)
-          : rootCost != null
-            ? Math.max(0, rootCost)
-            : null
-        if (authoritativeCost == null) {
+        if (actualUnits == null) {
           return {
             status: 'ambiguous', data: null, cost_units: null,
             receipt: providerReceipt('missing_billing_receipt'),
             error: 'provider_billing_unknown: DataForSEO omitted task and root cost',
-          }
-        }
-        const actualUnits = authoritativeCost / usdPerBlock(env)
-        if (actualUnits > blocks + 1e-9) {
-          return {
-            status: 'ambiguous', data: null, cost_units: null,
-            receipt: providerReceipt('billing_over_reservation'),
-            error: 'provider_billing_mismatch: DataForSEO cost exceeded the reserved ceiling',
           }
         }
         const observedAt = stringValue(objectValue(Array.isArray(task.result) ? task.result[0] : {}).datetime) ?? now().toISOString()
@@ -344,11 +425,19 @@ export function createDataForSeoMapsAdapter(deps: {
           const addressInfo = objectValue(item.address_info)
           const coordinates = objectValue(item.gps_coordinates)
           if (!name || !sourceUrl) return null
+          const category = stringValue(item.category)
+          const address = stringValue(item.address)
+          const claimParts = [
+            `${claimText(name)} is listed on Google Maps`,
+            category ? `as ${claimText(category)}` : null,
+            address ? `at ${claimText(address)}` : null,
+          ].filter(Boolean)
           return {
             entity_kind: 'company',
             identity: {
               name,
-              domain: stringValue(item.domain),
+              // Social, hosting and free-mail hosts are never a company domain
+              domain: listingDomain(item.domain),
               urls: [sourceUrl],
               location: stringValue(item.address),
               industry: stringValue(item.category),
@@ -365,16 +454,26 @@ export function createDataForSeoMapsAdapter(deps: {
               longitude: finiteNumber(coordinates.longitude),
             },
             evidence: [{
-              claim: `${name} appeared in the Google Maps results for “${keyword}” in ${location}.`,
+              // Provider-only claim (review 2026-09-02, H9): the customer's
+              // own search keyword never appears in the claim, otherwise a
+              // keyword criterion could match on the query text instead of
+              // on what the provider observed. The keyword lives in detail.
+              claim: `${claimParts.join(' ')}.`,
               source_url: sourceUrl,
               observed_at: observedAt,
               confidence: 0.9,
               detail: {
                 provider: 'dataforseo',
                 place_id: item.place_id ?? null,
-                category: item.category ?? null,
+                category: category,
+                address,
+                listed_domain: stringValue(item.domain),
+                search_query: keyword,
                 provider_location: location,
                 country_code: addressInfo.country_code ?? null,
+                // Maps listings carry no publication time; the qualifier must
+                // not treat retrieval time as freshness.
+                published_at_unknown: true,
               },
             }],
           }

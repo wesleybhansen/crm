@@ -1239,7 +1239,7 @@ export class GtmRenderedMessage {
 @Unique({ name: 'gtm_send_attempts_org_idempotency_unique', properties: ['organizationId', 'idempotencyKey'] })
 @Unique({ name: 'gtm_send_attempts_org_capacity_slot_unique', properties: ['organizationId', 'capacitySlotKey'] })
 export class GtmSendAttempt {
-  [OptionalProps]?: 'id' | 'state' | 'fence' | 'attemptNo' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'id' | 'state' | 'fence' | 'attemptNo' | 'kind' | 'transportRetryCount' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1294,6 +1294,18 @@ export class GtmSendAttempt {
 
   @Property({ name: 'idempotency_key', type: 'text' })
   idempotencyKey!: string
+
+  // campaign | reply. One-off inbox replies share the durable state machine
+  // but must never be counted as campaign steps by analytics or claimed by
+  // the campaign tick (Migration20260902210000_gtm).
+  @Property({ type: 'text', default: 'campaign' })
+  kind: string = 'campaign'
+
+  // Bounded transport retries for definitively-not-sent provider rejections
+  // (HTTP 429/503 before acceptance, SMTP connect failures). Never bumped for
+  // an ambiguous outcome (Migration20260902210000_gtm).
+  @Property({ name: 'transport_retry_count', type: 'integer', default: 0 })
+  transportRetryCount: number = 0
 
   @Property({ name: 'provider_message_id', type: 'text', nullable: true })
   providerMessageId?: string | null
@@ -2199,6 +2211,91 @@ export class GtmAuditEvent {
   // redacted
   @Property({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
+
+/*
+ * Per-customer OAuth connections to official social platforms (Threads
+ * today). The long-lived token is sealed with the tenant DEK before it is
+ * stored (lib/adapters/threads/connection.ts); this row never holds a
+ * plaintext token. The rolling query window mirrors Meta's per-user
+ * keyword-search allowance so a run refuses before it can exhaust the
+ * customer's own account.
+ */
+@Entity({ tableName: 'gtm_social_connections' })
+@Index({ name: 'gtm_social_connections_org_tenant_provider_idx', properties: ['organizationId', 'tenantId', 'provider'] })
+@Unique({
+  name: 'gtm_social_connections_org_provider_user_unique',
+  properties: ['organizationId', 'tenantId', 'provider', 'providerUserId'],
+})
+export class GtmSocialConnection {
+  [OptionalProps]?: 'id' | 'status' | 'queriesInWindow' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  // Mercato user who completed the OAuth grant.
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  // 'threads'
+  @Property({ type: 'text' })
+  provider!: string
+
+  @Property({ name: 'provider_user_id', type: 'text' })
+  providerUserId!: string
+
+  @Property({ type: 'text', nullable: true })
+  username?: string | null
+
+  @Property({ name: 'display_name', type: 'text', nullable: true })
+  displayName?: string | null
+
+  // AES-GCM ciphertext under the tenant DEK; never plaintext.
+  @Property({ name: 'access_token_sealed', type: 'text' })
+  accessTokenSealed!: string
+
+  @Property({ name: 'token_issued_at', type: 'timestamptz' })
+  tokenIssuedAt!: Date
+
+  @Property({ name: 'token_expires_at', type: 'timestamptz', nullable: true })
+  tokenExpiresAt?: Date | null
+
+  @Property({ name: 'last_refreshed_at', type: 'timestamptz', nullable: true })
+  lastRefreshedAt?: Date | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  scopes?: string[] | null
+
+  // active | reauth_required | disconnected
+  @Property({ type: 'text', default: 'active' })
+  status: string = 'active'
+
+  @Property({ name: 'status_reason', type: 'text', nullable: true })
+  statusReason?: string | null
+
+  @Property({ name: 'query_window_started_at', type: 'timestamptz', nullable: true })
+  queryWindowStartedAt?: Date | null
+
+  @Property({ name: 'queries_in_window', type: 'integer', default: 0 })
+  queriesInWindow: number = 0
+
+  @Property({ name: 'last_used_at', type: 'timestamptz', nullable: true })
+  lastUsedAt?: Date | null
 
   @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
   createdAt: Date = new Date()

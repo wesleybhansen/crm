@@ -2,6 +2,9 @@ import { classifyOpportunityIntent } from './opportunity-quality'
 import type { PlanPlayInput } from './plan'
 
 export const DATAFORSEO_OPPORTUNITY_FRESHNESS_SEARCH_PARAM = '&tbs=qdr:m'
+export const XAI_X_SEARCH_LANE_ADAPTER_ID = 'xai-x-search-demand-opportunities'
+export const THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID = 'threads-keyword-search-demand-opportunities'
+export const OFFICIAL_SOCIAL_QUERY_LANE_VERSION = 'opportunity-query-v96'
 export const DATAFORSEO_EVENTS_OPPORTUNITY_DATE_RANGE = 'next_month'
 
 export type OpportunityIntentLane =
@@ -471,6 +474,47 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
     }
     return byIntent[intent]
   }
+  if (adapterId === XAI_X_SEARCH_LANE_ADAPTER_ID) {
+    // xAI X Search is an agentic natural-language search, so each lane is a
+    // precise first-person intent description bound to the market. The
+    // returned post must still prove market, intent, and recency itself.
+    const market = marketName(geography)
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: [
+        `people in ${market} who say they are looking to buy a home or are house hunting right now`,
+        `first-time home buyers in ${market} asking for advice or sharing their search`,
+        `people moving to ${market} and searching for a house to buy`,
+      ],
+      seller_intent: [
+        `homeowners in ${market} who say they are selling or thinking about selling their house`,
+        `${market} homeowners asking what their home is worth before listing it`,
+        `people in ${market} who need to sell a house before a move`,
+      ],
+      mixed_intent: [
+        `${market} homeowners planning to sell their home and buy another one`,
+        `people in ${market} deciding whether to sell before buying their next house`,
+        `families in ${market} moving up or downsizing to a different home`,
+      ],
+      local_audience: [
+        `${market} homeowners talking about neighborhood life, HOA meetings, or community events`,
+        `${market} residents sharing local housing workshops, home buyer classes, or neighborhood meetups`,
+        `people in ${market} asking neighbors for recommendations about their neighborhood`,
+      ],
+    }
+    return byIntent[intent]
+  }
+  if (adapterId === THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID) {
+    // The official keyword search matches every term as a keyword, so each
+    // lane is one short market-bound phrase. Evidence gating is unchanged.
+    const market = marketName(geography)
+    const byIntent: Record<OpportunityIntentLane, string[]> = {
+      buyer_intent: [`${market} house hunting`, `${market} first time home buyer`, `moving to ${market} buying a house`],
+      seller_intent: [`selling my house ${market}`, `${market} home value listing`, `sell my home ${market}`],
+      mixed_intent: [`${market} sell and buy home`, `${market} moving house`, `${market} upsizing home`],
+      local_audience: [`${market} homeowners`, `${market} neighborhood`, `${market} housing workshop`],
+    }
+    return byIntent[intent]
+  }
   if (adapterId === 'apify-instagram-demand-opportunities') {
     const marketToken = marketName(geography).replace(/[^a-z0-9]/gi, '')
     const byIntent: Record<OpportunityIntentLane, string[]> = {
@@ -575,6 +619,8 @@ function realtorSeeds(intent: OpportunityIntentLane, adapterId: string, geograph
 }
 
 function sourceMaxQueryLength(adapterId: string): number {
+  if (adapterId === XAI_X_SEARCH_LANE_ADAPTER_ID) return 240
+  if (adapterId === THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID) return 100
   if (adapterId === 'apify-x-demand-opportunities') return 100
   if (adapterId === 'apify-threads-demand-opportunities') return 100
   if (adapterId === 'apify-instagram-demand-opportunities') return 100
@@ -652,6 +698,9 @@ function sourceSeed(
     return seed.toLowerCase().includes(market.toLowerCase()) ? seed : `${market} ${seed}`
   }
   if (adapterId === 'apify-threads-demand-opportunities') return seed
+  if (adapterId === XAI_X_SEARCH_LANE_ADAPTER_ID || adapterId === THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID) {
+    return seed.toLowerCase().includes(market.toLowerCase()) ? seed : `${market} ${seed}`
+  }
   if (adapterId === 'apify-instagram-demand-opportunities') return seed
   if (adapterId === 'apify-tiktok-demand-opportunities') return seed
   if (adapterId === 'apify-facebook-demand-opportunities') return seed
@@ -711,6 +760,8 @@ export function buildOpportunityQueryLanes(
       ? 1
       : adapterId === 'apify-x-demand-opportunities'
         || adapterId === 'apify-threads-demand-opportunities'
+        || adapterId === XAI_X_SEARCH_LANE_ADAPTER_ID
+        || adapterId === THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID
         || adapterId === 'apify-instagram-demand-opportunities'
         || adapterId === 'apify-tiktok-demand-opportunities'
         || adapterId === 'apify-facebook-demand-opportunities'
@@ -747,7 +798,10 @@ export function buildOpportunityQueryLanes(
       providerQuery: {
         ...providerQuery,
         query_lane_version:
-          adapterId === 'apify-eventbrite-demand-opportunities'
+          adapterId === XAI_X_SEARCH_LANE_ADAPTER_ID
+            || adapterId === THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID
+            ? OFFICIAL_SOCIAL_QUERY_LANE_VERSION
+          : adapterId === 'apify-eventbrite-demand-opportunities'
             ? 'opportunity-query-v94'
           : adapterId === 'apify-meetup-demand-opportunities'
             ? 'opportunity-query-v95'
@@ -814,6 +868,35 @@ export function buildOpportunityQueryLanes(
               eventbrite_max_pages: 3,
               eventbrite_returned_content_filter_version: 'realtor-public-event-v2',
               eventbrite_filter_required_intent: intent,
+            }
+          : {}),
+        ...(adapterId === XAI_X_SEARCH_LANE_ADAPTER_ID
+          ? {
+              xai_x_search_contract_version: 'official-x-search-v1',
+              social_public_post_contract_version: 'official-public-posts-v1',
+              social_window_days: 30,
+              ...(realtor
+                ? {
+                    social_returned_content_filter_version: 'realtor-public-post-v2',
+                    social_filter_required_intent: intent,
+                    social_filter_require_location: true,
+                  }
+                : {}),
+            }
+          : {}),
+        ...(adapterId === THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID
+          ? {
+              threads_keyword_search_contract_version: 'official-keyword-search-v1',
+              threads_search_type: 'RECENT',
+              social_public_post_contract_version: 'official-public-posts-v1',
+              social_window_days: 30,
+              ...(realtor
+                ? {
+                    social_returned_content_filter_version: 'realtor-public-post-v2',
+                    social_filter_required_intent: intent,
+                    social_filter_require_location: true,
+                  }
+                : {}),
             }
           : {}),
         ...(adapterId === 'apify-instagram-demand-opportunities'

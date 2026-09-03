@@ -163,7 +163,9 @@ export function apifyOpportunitySourceDescriptor(env: OpportunitySourceEnv = pro
         audience_modes: ['business', 'consumer'],
         manual_outreach_allowed: approved,
         automated_email_allowed: false,
-        public_profile_contact_allowed: approved,
+        // Opportunity-only source: it never returns a person, so it holds no
+        // reviewed right to contact a public profile (review 2026-09-02, M11).
+        public_profile_contact_allowed: false,
         public_opportunity_use_allowed: approved,
       },
       rate_limits: { requests_per_minute: 30, concurrent: 1 },
@@ -196,9 +198,14 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
+// Control characters and zero-width/bidi marks are stripped before bounding:
+// audience_description reaches the customer's own agent through MCP, and an
+// invisible instruction is still an instruction (review 2026-09-02, L0).
+const INVISIBLE_TEXT = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2064\uFEFF]/g
+
 function text(value: unknown, max = 500): string | null {
   if (typeof value !== 'string') return null
-  const normalized = value.trim().replace(/\s+/g, ' ')
+  const normalized = value.replace(INVISIBLE_TEXT, '').trim().replace(/\s+/g, ' ')
   return normalized ? normalized.slice(0, max) : null
 }
 
@@ -293,7 +300,10 @@ export function normalizeApifyOpportunityItem(
     audience_description: content ?? 'A public LinkedIn discussion matching the approved audience query.',
     activity_level: activityLevel(interactions),
     engagement_count: interactions,
-    access_type: 'public',
+    // The post-search actor carries no visibility field, so the row cannot
+    // prove the destination is open to everyone. 'unknown' routes it to
+    // review instead of asserting a public destination (review 2026-09-02, H8).
+    access_type: 'unknown',
     source_published_at: publishedAt,
     location: demonstratedLocation,
     provider_location: context.requestedLocation ?? null,
@@ -341,6 +351,10 @@ export function normalizeApifyOpportunityItem(
           query: context.query.slice(0, 200),
           requested_location: context.requestedLocation ?? null,
           source_published_at: publishedAt,
+          // Platform publication time, distinct from observed_at (retrieval).
+          // Absent timestamps are flagged so the qualifier never treats
+          // retrieval time as freshness (review 2026-09-02, H7).
+          ...(publishedAt ? { published_at: publishedAt } : { published_at_unknown: true }),
           visible_interactions: interactions,
           demonstrated_intent_signals: [
             ...demonstratedIntent.buyerSignals,
@@ -554,7 +568,11 @@ export function createApifyOpportunitySourceAdapter(deps: ApifyOpportunitySource
         token,
         build: APIFY_OPPORTUNITY_SOURCE_ACTOR_BUILD,
         timeoutMs: timeoutMs(env),
-        maxItems: datasetCeilingFor(maxChargeUsd),
+        // The $0.01 provider minimum can buy more posts than the customer's
+        // quoted cap; the dataset ceiling is the smaller of the two so the
+        // customer is never charged for posts the cap then discards
+        // (review 2026-09-02, M9).
+        maxItems: Math.min(maxCandidates, datasetCeilingFor(maxChargeUsd)),
         maxChargeUsd,
         datasetFields: [...APIFY_OPPORTUNITY_SOURCE_DATASET_FIELDS],
         maxDatasetBodyBytes: APIFY_OPPORTUNITY_SOURCE_DATASET_BYTES,
@@ -616,21 +634,47 @@ export function createApifyOpportunitySourceAdapter(deps: ApifyOpportunitySource
         }
       }
       const costUnits = outcome.providerCostUsd / APIFY_MILLIDOLLAR_USD
+      // Cardinality checks run BEFORE any settlement, including no_result
+      // (review 2026-09-02, M8/L0): a receipt that bills 10 posts against an
+      // empty dataset read is not a definitive "nothing found", it is a
+      // customer paying for undelivered results. Exactly one actor start is
+      // charged per run; a no-result event never coexists with billed posts.
+      const billedStarts = counts['apify-actor-start'] ?? 0
+      if (billedStarts !== 1) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt({ billed_run_starts: billedStarts }),
+          cost_units: null,
+          error: 'provider_billing_unknown: run-start charge did not match the approved contract',
+        }
+      }
+      const billedPosts = counts.post ?? 0
+      const billedNoResult = counts['no-result'] ?? 0
+      if (billedPosts !== outcome.itemCount) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt({ billed_posts: billedPosts }),
+          cost_units: null,
+          error: 'invalid_schema: billed post count did not match the bounded dataset',
+        }
+      }
+      if (billedNoResult > 1 || (billedNoResult > 0 && billedPosts > 0)) {
+        return {
+          status: 'ambiguous',
+          data: null,
+          receipt: providerReceipt({ billed_posts: billedPosts, billed_no_result: billedNoResult }),
+          cost_units: null,
+          error: 'provider_billing_unknown: no-result charge did not match the bounded dataset',
+        }
+      }
       if (outcome.status === 'no_result') {
         return {
           status: 'no_result',
           data: null,
-          receipt: providerReceipt(),
+          receipt: providerReceipt({ billed_posts: 0, billed_no_result: billedNoResult }),
           cost_units: costUnits,
-        }
-      }
-      if ((counts.post ?? 0) !== outcome.itemCount) {
-        return {
-          status: 'ambiguous',
-          data: null,
-          receipt: providerReceipt({ billed_posts: counts.post ?? 0 }),
-          cost_units: null,
-          error: 'invalid_schema: billed post count did not match the bounded dataset',
         }
       }
       const candidates = outcome.items
@@ -643,12 +687,15 @@ export function createApifyOpportunitySourceAdapter(deps: ApifyOpportunitySource
         )
         .filter((candidate): candidate is Candidate => candidate != null)
       if (candidates.length === 0) {
+        // Every billed post was unusable. Park it like source.ts does: real
+        // spend with no result is a reconciliation decision, not a silent
+        // charge the customer never sees a row for (review 2026-09-02, L0).
         return {
-          status: 'error',
+          status: 'ambiguous',
           data: null,
-          receipt: providerReceipt({ parser_dropped_rows: outcome.itemCount }),
-          cost_units: costUnits,
-          error: 'invalid_schema: provider posts contained no safe public opportunity',
+          receipt: providerReceipt({ parser_dropped_rows: outcome.itemCount, billed_posts: billedPosts }),
+          cost_units: null,
+          error: 'no_usable_result: provider posts contained no safe public opportunity',
         }
       }
       const delivered = candidates.slice(0, maxCandidates)

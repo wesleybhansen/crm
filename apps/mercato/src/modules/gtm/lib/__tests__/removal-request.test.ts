@@ -7,8 +7,9 @@ import {
   applyRemovalRequest,
   applyProfileRemovalRequest,
   normalizeRemovalEmail,
+  normalizeRemovalSource,
 } from '../removal-request'
-import { consumerProfileDedupeKey, normalizeConsumerProfileUrl } from '../research/execute'
+import { candidateDedupeKey, consumerProfileDedupeKey, normalizeConsumerProfileUrl } from '../research/execute'
 import { computeExclusions, hashAddress } from '../campaign/exclusions'
 import { EmailMessage } from '../../../email/data/schema'
 import {
@@ -158,6 +159,48 @@ describe('prospect removal request', () => {
     })
     expect(suppression).not.toBeNull()
     expect(suppression?.addressDisplay).toBeNull()
+  })
+
+  it('removes an engager keyed by a name|title fingerprint through the profile URL it carries (C3 / H4)', async () => {
+    const em = new FakeEm()
+    const profileUrl = 'https://www.linkedin.com/in/jane-doe-realtor/'
+    const profileHash = consumerProfileDedupeKey(profileUrl) as string
+    const fingerprint = 'c'.repeat(64)
+    const run = await seedRun(em, await seedPlay(em))
+    // Legacy row: keyed by sha256(person|linkedin-engagement|fingerprint),
+    // profile URL only inside identity.urls.
+    const engager = await seedCandidate(em, run, { email: null })
+    engager.entityKind = 'person'
+    engager.identity = {
+      name: 'Jane Doe',
+      title: 'Realtor',
+      urls: [profileUrl],
+      linkedin_engagement_fingerprint: fingerprint,
+    }
+    engager.dedupeKey = candidateDedupeKey({
+      entity_kind: 'person',
+      identity: { name: 'Jane Doe', linkedin_engagement_fingerprint: fingerprint },
+    })
+    // Unrelated person stays untouched.
+    const other = await seedCandidate(em, run, { email: null })
+    other.entityKind = 'person'
+    other.identity = { name: 'Someone Else', urls: ['https://www.linkedin.com/in/someone-else'] }
+
+    const result = await applyProfileRemovalRequest(em, { profileUrl })
+
+    expect(result.recordsAnonymized).toBeGreaterThan(0)
+    expect(engager.identity).toMatchObject({ removed: true })
+    expect(other.identity).toMatchObject({ name: 'Someone Else' })
+    expect(await em.findOne(GtmSuppression, { scope: 'global', channel: 'public_profile', addressHash: profileHash })).not.toBeNull()
+  })
+
+  it('records only an allowlisted removal source (L13)', async () => {
+    const em = new FakeEm()
+    await applyRemovalRequest(em, { email: ADDRESS, source: 'javascript:alert(1)' })
+    const suppression = await em.findOne(GtmSuppression, { scope: 'global', channel: 'email', addressHash: hashAddress(ADDRESS) })
+    expect(suppression?.source).toEqual({ via: 'removal_request', channel: 'public_form' })
+    expect(normalizeRemovalSource('support')).toBe('support')
+    expect(normalizeRemovalSource('anything else')).toBe('public_form')
   })
 
   it('the global row excludes the address in an unrelated org', async () => {
@@ -536,7 +579,13 @@ describe('prospect removal request', () => {
       idempotencyKey: `${tenantRequest.id}:${ORG}:crm_email:local_anonymize`,
       status: 'blocked_authority',
     })
+    // Shape of a row the first removal pass leaves behind: the identity
+    // stamp plus the reject fields executeRemovalDeletion always writes (the
+    // resume path now narrows its scan on reject_reason instead of loading
+    // every candidate in the org).
     candidate.identity = { removed: true, removal_request_id: tenantRequest.id }
+    candidate.fitStatus = 'rejected'
+    candidate.rejectReason = 'removed'
     point.value = `removed:${addressHash}`
     point.deletedAt = clock.now()
     em.persist(candidate)

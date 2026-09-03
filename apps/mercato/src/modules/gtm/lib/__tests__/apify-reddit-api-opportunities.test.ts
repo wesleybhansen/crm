@@ -372,6 +372,9 @@ describe('Apify practicaltools Reddit API opportunities', () => {
         item_count: 6,
         charged_event_counts: { item_returned: 10 },
         provider_cost_usd: 0.03,
+        // Review 2026-09-02 (M12): the lane charges for undelivered units by
+        // design; the receipt now says so for reconciliation.
+        undelivered_billed_results: 9,
       }),
     })
   })

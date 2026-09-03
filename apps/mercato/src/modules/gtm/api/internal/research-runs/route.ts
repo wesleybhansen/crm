@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('Plan and execute gated GTM research')
@@ -43,6 +44,9 @@ import type { GtmCreditLedger } from '../../../lib/credits/ledger'
  * - 'status'  returns the run plus candidate/operation counts
  * - 'requalify' deterministically rescores stored output from the frozen run
  *               snapshot, with no provider or billing call
+ * - 'sweep-stale-runs' (gtm.launch) marks runs stuck in 'running' past a
+ *               threshold as failed and parks their provider_started
+ *               operations for reconciliation (lib/research/stale-runs.ts)
  *
  * Fail-closed: flag-off 404; a strategy_only play can never be priced,
  * created, or executed (section 7 ladder boundary 1, recomputed in
@@ -57,6 +61,15 @@ export const metadata = {
   path: '/internal/gtm/research-runs',
   POST: { requireAuth: false },
 }
+
+// Local schema for the stale-run sweep op. It is validated here rather than in
+// data/validators.ts so this route owns its own operational op; fold it into
+// gtmResearchRunsBodySchema when that file is next touched.
+const staleSweepBodySchema = z.object({
+  op: z.literal('sweep-stale-runs'),
+  noliUserId: z.string().min(1),
+  olderThanMinutes: z.number().int().min(5).max(24 * 60).optional(),
+})
 
 function opaqueNotFound() {
   return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
@@ -98,21 +111,27 @@ export async function POST(req: Request) {
     return opaqueNotFound()
   }
 
-  // 1. Shared-secret auth (length-guarded constant-time compare)
+  // 1. Shared-secret auth (byte-length-guarded constant-time compare). Both
+  //    Buffers are built first: a UTF-16 length check let a multibyte header
+  //    of equal string length reach timingSafeEqual with a different byte
+  //    length, which throws a 500 instead of denying.
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
   const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
+  const provided = Buffer.from(authHeader, 'utf8')
+  const expected = Buffer.from(secret ? `Bearer ${secret}` : '', 'utf8')
   if (
     !secret ||
-    authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+    provided.length !== expected.length ||
+    !crypto.timingSafeEqual(provided, expected)
   ) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
   // 2. Body
   const raw = await req.json().catch(() => ({}))
-  const parsed = gtmResearchRunsBodySchema.safeParse(raw)
+  const parsed = (raw as { op?: unknown })?.op === 'sweep-stale-runs'
+    ? staleSweepBodySchema.safeParse(raw)
+    : gtmResearchRunsBodySchema.safeParse(raw)
   if (!parsed.success) {
     const first = parsed.error.issues[0]
     const where = first?.path?.length ? `${first.path.join('.')}: ` : ''
@@ -151,7 +170,10 @@ export async function POST(req: Request) {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const { hasGtmFeature, researchFeatureForOp } = await import('../../../lib/authorize')
-    if (!(await hasGtmFeature(container, { organizationId, tenantId, userId }, researchFeatureForOp(body.op)))) {
+    // The stale sweep fails runs and parks operations, so it needs the same
+    // launch feature as execute.
+    const requiredFeature = body.op === 'sweep-stale-runs' ? 'gtm.launch' : researchFeatureForOp(body.op)
+    if (!(await hasGtmFeature(container, { organizationId, tenantId, userId }, requiredFeature))) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
     }
     const em = container.resolve('em') as EntityManager
@@ -165,7 +187,22 @@ export async function POST(req: Request) {
       GtmAuditEvent,
     } = entities
     const { sourceAdapterList, sourceAdapterRegistry } = await import('../../../lib/adapters/registry')
+    // Customer-grant-backed sources (Threads) are resolved once per request
+    // for the exact org/tenant being served; absent grants simply mean those
+    // sources are not in the plan.
+    const { resolveSourceAdapterContext } = await import('../../../lib/adapters/context')
+    const adapterContext = await resolveSourceAdapterContext(container, em, { organizationId, tenantId })
     const requestId = req.headers.get('x-request-id')
+
+    if (body.op === 'sweep-stale-runs') {
+      const { failStaleResearchRuns } = await import('../../../lib/research/stale-runs')
+      const sweep = await failStaleResearchRuns(
+        em as unknown as import('../../../lib/research/stale-runs').StaleRunEm,
+        { organizationId, tenantId },
+        { olderThanMinutes: body.olderThanMinutes, actorUserId: userId, requestId },
+      )
+      return NextResponse.json({ ok: true, sweep })
+    }
 
     if (body.op === 'list') {
       // Opaque 404 for malformed filters, same as a missing row.
@@ -248,7 +285,7 @@ export async function POST(req: Request) {
       }
       const plan = buildSourcePlan(
         play,
-        sourceAdapterList(),
+        sourceAdapterList(adapterContext),
         body.limits ?? null,
         undefined,
         opportunityRouting,
@@ -455,7 +492,29 @@ export async function POST(req: Request) {
           { status: 503 },
         )
       }
-      const adapters = sourceAdapterRegistry()
+      const adapters = sourceAdapterRegistry(adapterContext)
+      // Every adapter the frozen plan names must still be enabled BEFORE the
+      // priced->running claim. Discovering a disabled adapter after the claim
+      // leaves a failed run that cannot be re-executed without a new quote.
+      const frozenAdapterPlan = Array.isArray(frozenProviderPlan.adapterPlan)
+        ? (frozenProviderPlan.adapterPlan as Array<{ adapter_id?: unknown; dependentHydration?: { adapter_id?: unknown } | null }>)
+        : []
+      const missingAdapters = [...new Set(
+        frozenAdapterPlan
+          .flatMap((batch) => [batch?.adapter_id, batch?.dependentHydration?.adapter_id])
+          .filter((id): id is string => typeof id === 'string' && !(id in adapters)),
+      )]
+      if (missingAdapters.length > 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'A provider in the confirmed plan is no longer enabled; create a new run from a refreshed plan',
+            code: 'plan_changed',
+            missing_adapters: missingAdapters,
+          },
+          { status: 409 },
+        )
+      }
 
       const play = await em.findOne(GtmPlay, {
         id: run.playId,

@@ -3,6 +3,7 @@ import {
   FIT_ACCEPT_THRESHOLD,
   FIT_REVIEW_THRESHOLD,
   FIT_REASONS,
+  PUBLIC_REPLY_PARTICIPATION_NOTE,
   ruleBasedFitScorer,
   summarizeFitResults,
   type FitResult,
@@ -16,6 +17,9 @@ const strongEvidence: CandidateEvidence[] = [
     source_url: 'https://jobs.example-dynamics.example/rev-ops-lead',
     observed_at: '2026-07-20T09:00:00.000Z',
     confidence: 0.9,
+    // Platform publication time. Recency is aged against this, never against
+    // observed_at (retrieval time), which every live adapter stamps "now".
+    detail: { published_at: '2026-07-20T09:00:00.000Z' },
   },
 ]
 
@@ -34,11 +38,62 @@ describe('ruleBasedFitScorer', () => {
     expect(a).toEqual(b)
   })
 
-  it('accepts a well-evidenced in-scope company', () => {
+  it('routes a company with no location to review for a sub-country play (H3)', () => {
+    // This test used to enshrine a bug: {name, domain} against a
+    // "California, US" play was ACCEPTED on field presence alone
+    // (15 + 25 + 10 + 7 + 22.5 = 79.5). The play geography is now a hard
+    // location criterion whenever it names something below country level,
+    // so a row that proves nothing about California cannot accept.
     const result = ruleBasedFitScorer.score(company, play, strongEvidence)
+    expect(result.verdict).toBe('review')
+    expect(result.reason).toBe(FIT_REASONS.criterionUnknown)
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      // The country segment is dropped: the state is the boundary under test.
+      expect.objectContaining({ id: 'geography.location', status: 'unknown', expected: ['California'] }),
+    ]))
+  })
+
+  it('accepts a well-evidenced in-scope company once its location proves the play geography', () => {
+    const located = { ...company, identity: { ...company.identity, location: 'San Jose, California' } }
+    const result = ruleBasedFitScorer.score(located, play, strongEvidence)
     expect(result.verdict).toBe('accepted')
     expect(result.fitScore).toBeGreaterThanOrEqual(FIT_ACCEPT_THRESHOLD)
     expect(result.reason).toBe(FIT_REASONS.accepted)
+  })
+
+  it('rejects a company whose location contradicts the play geography even without provider locations (H3)', () => {
+    const seattle = { ...company, identity: { ...company.identity, location: 'Seattle, WA' } }
+    const result = ruleBasedFitScorer.score(seattle, play, strongEvidence)
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.criterionMismatch)
+    expect(result.contradictions).toContain('geography.location')
+  })
+
+  it('caps a row with zero evaluated criteria below the accept threshold (H3)', () => {
+    // A country-level play with no provider criteria evaluates nothing; field
+    // presence must not add up to an accept.
+    const result = ruleBasedFitScorer.score(
+      { ...company, identity: { ...company.identity, location: 'Austin, TX', industry: 'Software' } },
+      { entityUnit: 'companies', geography: 'US' },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('review')
+    expect(result.fitScore).toBeLessThan(FIT_ACCEPT_THRESHOLD)
+    expect(result.criteria).toEqual([])
+  })
+
+  it('awards adapter confidence at most five points (H4)', () => {
+    const located = { ...company, identity: { ...company.identity, location: 'San Jose, California' } }
+    const high = ruleBasedFitScorer.score(located, play, strongEvidence)
+    const low = ruleBasedFitScorer.score(
+      located,
+      play,
+      strongEvidence.map((row) => ({ ...row, confidence: 0.5 })),
+    )
+    expect(high.breakdown.evidence).toBeLessThanOrEqual(5)
+    expect(high.breakdown.evidence - low.breakdown.evidence).toBeCloseTo(2, 5)
+    expect(high.verdict).toBe('accepted')
+    expect(low.verdict).toBe('accepted')
   })
 
   it('rejects an entity kind that does not match the play entity unit', () => {
@@ -119,17 +174,25 @@ describe('ruleBasedFitScorer', () => {
       strongEvidence,
     )
 
-    expect(result.verdict).toBe('review')
+    // C1b product decision: a fresh, public, first-person buyer post is
+    // actionable under public-reply norms even though the subreddit rules
+    // were not observed. Before this, no social-sourced post could ever be
+    // accepted. The adapter's rule reminder is still not treated as observed
+    // rules: the criterion records the fixed public-reply note instead.
+    expect(result.verdict).toBe('accepted')
     expect(result.criteria).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: 'opportunity.actionability',
-          status: 'unknown',
-          observed: expect.arrayContaining(['rules_status:unverified']),
+          status: 'pass',
+          observed: expect.arrayContaining([
+            'rules_status:unverified',
+            `participation_note:${PUBLIC_REPLY_PARTICIPATION_NOTE}`,
+          ]),
         }),
       ]),
     )
-    expect(result.unknowns).toContain('opportunity.actionability')
+    expect(result.unknowns).not.toContain('opportunity.actionability')
   })
 
   it('recognizes a direct seller request while keeping unverified thread rules in review', () => {
@@ -175,18 +238,20 @@ describe('ruleBasedFitScorer', () => {
       }],
     )
 
-    expect(result.verdict).toBe('review')
+    // C1b: first-person seller request on a fresh public thread is accepted
+    // under public-reply norms (rules unverified is no longer a review gate
+    // for posts and threads).
+    expect(result.verdict).toBe('accepted')
     expect(result.criteria).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
         expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
-        expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
+        expect.objectContaining({ id: 'opportunity.actionability', status: 'pass' }),
       ]),
     )
-    expect(result.unknowns).toContain('opportunity.actionability')
   })
 
-  it('keeps the observed Tampa house-hunting lender request in review until thread rules are verified', () => {
+  it('accepts the observed Tampa house-hunting lender request on a fresh public thread (C1b)', () => {
     const sourceUrl = 'https://www.reddit.com/r/tampa/comments/example/house_hunting_lender'
     const content = [
       'Husband and I are looking to start house hunting.',
@@ -228,13 +293,91 @@ describe('ruleBasedFitScorer', () => {
       }],
     )
 
-    expect(result.verdict).toBe('review')
+    // C1b: "Husband and I are looking to start house hunting" is a
+    // first-person buyer signal on a fresh public thread: accepted.
+    expect(result.verdict).toBe('accepted')
     expect(result.criteria).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
       expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
+      expect.objectContaining({ id: 'opportunity.actionability', status: 'pass' }),
+    ]))
+  })
+
+  it('keeps a public post in review when its publication time is unknown (C1b requires a fresh timestamp)', () => {
+    const sourceUrl = 'https://www.reddit.com/r/tampa/comments/example/undated_lender'
+    const content = 'Husband and I are looking to start house hunting. We would love your suggestions for a local mortgage lender.'
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Local mortgage lender suggestions?',
+          opportunity_kind: 'thread',
+          platform: 'Reddit',
+          intent_kind: 'buyer_intent',
+          audience_description: content,
+          location: 'Tampa, Florida',
+          access_type: 'public',
+          urls: [sourceUrl],
+          participation_rules: 'Review the current subreddit and thread rules before participating.',
+          participation_rules_status: 'unverified',
+          recommended_action: 'Read the public thread and contribute one useful response manually.',
+          message_angle: 'Answer the lender-selection question before mentioning professional help.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Tampa, Florida',
+        audience: 'Tampa home buyers beginning a property search',
+        signal: 'A current public buyer request demonstrates intent',
+        referenceTime: '2026-08-31T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      [{ claim: content, source_url: sourceUrl, observed_at: '2026-08-31T12:00:00.000Z', confidence: 0.85 }],
+    )
+    expect(result.verdict).toBe('review')
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'signal.freshness', status: 'unknown' }),
       expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
     ]))
-    expect(result.unknowns).toContain('opportunity.actionability')
+  })
+
+  it('keeps a public post in review when the content is not first-person intent (C1b)', () => {
+    const sourceUrl = 'https://www.reddit.com/r/tampa/comments/example/market_news'
+    const content = 'Tampa home buyers are facing higher rates this fall, according to a local report on the housing market.'
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'opportunity',
+        identity: {
+          name: 'Tampa buyers face higher rates',
+          opportunity_kind: 'post',
+          platform: 'Reddit',
+          audience_description: content,
+          location: 'Tampa, Florida',
+          access_type: 'public',
+          source_published_at: '2026-08-29T12:00:00.000Z',
+          urls: [sourceUrl],
+          participation_rules: 'Review the current subreddit and thread rules before participating.',
+          participation_rules_status: 'unverified',
+          recommended_action: 'Read the public thread and contribute one useful response manually.',
+          message_angle: 'Answer the buyer question before mentioning professional help.',
+        },
+      },
+      {
+        entityUnit: 'opportunities',
+        geography: 'Tampa, Florida',
+        audience: 'Tampa home buyers beginning a property search',
+        signal: 'A current public buyer request demonstrates intent',
+        referenceTime: '2026-08-31T12:00:00.000Z',
+        recencyWindow: '30 days',
+        providerQuery: { opportunity_intent_lane: 'buyer_intent' },
+      },
+      [{ claim: content, source_url: sourceUrl, observed_at: '2026-08-31T12:00:00.000Z', confidence: 0.85 }],
+    )
+    expect(result.verdict).not.toBe('accepted')
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
+    ]))
   })
 
   it('keeps a current public event in review until its participation terms are observed', () => {
@@ -1240,13 +1383,15 @@ describe('ruleBasedFitScorer', () => {
         strongEvidence,
       )
 
-      expect(result.verdict).toBe('review')
-      expect(result.reason).toBe(FIT_REASONS.review)
+      // C1b: fresh, public, first-person seller declarations are accepted
+      // under public-reply norms; rules unverified no longer holds a thread.
+      expect(result.verdict).toBe('accepted')
+      expect(result.reason).toBe(FIT_REASONS.accepted)
       expect(result.criteria).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ id: 'opportunity.audience', status: 'pass' }),
           expect.objectContaining({ id: 'opportunity.intent', status: 'pass' }),
-          expect.objectContaining({ id: 'opportunity.actionability', status: 'unknown' }),
+          expect.objectContaining({ id: 'opportunity.actionability', status: 'pass' }),
         ]),
       )
     }
@@ -1681,7 +1826,10 @@ describe('ruleBasedFitScorer', () => {
 
   it('routes weak-but-not-contradictory evidence to human review', () => {
     const weak = strongEvidence.map((row) => ({ ...row, confidence: 0.2 }))
-    const result = ruleBasedFitScorer.score(company, play, weak)
+    // Location satisfies the derived play geography so the only review
+    // reason left is the weak confidence.
+    const located = { ...company, identity: { ...company.identity, location: 'San Jose, California' } }
+    const result = ruleBasedFitScorer.score(located, play, weak)
     expect(result.verdict).toBe('review')
     expect(result.reason).toBe(FIT_REASONS.weakEvidence)
   })
@@ -2385,8 +2533,47 @@ describe('LinkedIn engagement topic evidence', () => {
     source_url: 'https://www.linkedin.com/posts/example-ai-real-estate',
     observed_at: '2026-09-01T00:00:00.000Z',
     confidence: 0.9,
-    detail: { post_content: postContent, commentary: 'Useful perspective.' },
+    // published_at is the post's platform time; without it recency is unknown.
+    detail: { post_content: postContent, commentary: 'Useful perspective.', published_at: '2026-08-30T00:00:00.000Z' },
   }]
+
+  it('routes an engager to review when the post has no platform publication time (H7)', () => {
+    const undated = evidence('Practical AI in real estate workflows for agents.').map((row) => ({
+      ...row,
+      detail: { post_content: row.detail.post_content, commentary: row.detail.commentary },
+    }))
+    const result = ruleBasedFitScorer.score(candidate, play, undated)
+    expect(result.verdict).toBe('review')
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'signal.recency',
+        status: 'unknown',
+        observed: expect.arrayContaining(['publication time unknown']),
+      }),
+    ]))
+  })
+
+  it('ignores provenance keys in evidence detail for keyword criteria (H9/L7)', () => {
+    const result = ruleBasedFitScorer.score(
+      { entity_kind: 'company', identity: { name: 'Example Supply', domain: 'supply.example', location: 'Austin, TX' } },
+      {
+        entityUnit: 'companies',
+        geography: 'United States',
+        providerQuery: { company_keywords: ['apify'], locations: ['Austin, TX'] },
+      },
+      [{
+        claim: 'Example Supply appeared in public search results.',
+        source_url: 'https://maps.example/supply',
+        observed_at: '2026-09-01T00:00:00.000Z',
+        confidence: 0.9,
+        detail: { gtm_provider_adapter_id: 'apify-company-source', search_query: 'apify dental', provider_request_id: 'apify-run-1' },
+      }],
+    )
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'account.keywords', status: 'unknown' }),
+    ]))
+    expect(result.verdict).toBe('review')
+  })
 
   it('accepts only when returned post content proves the frozen topic', () => {
     const result = ruleBasedFitScorer.score(candidate, play, evidence('Practical AI in real estate workflows for agents.'))

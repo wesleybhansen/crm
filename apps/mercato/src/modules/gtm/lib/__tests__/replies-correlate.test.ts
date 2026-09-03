@@ -1,5 +1,6 @@
 import { FakeEm } from './support/fake-em'
 import { ctx, ORG } from './support/campaign-fixtures'
+import { hashAddress } from '../campaign/exclusions'
 import {
   FakeTransport,
   LAUNCH_ISO,
@@ -10,9 +11,11 @@ import {
   seedLaunchedCampaign,
   type LaunchedFixture,
 } from './support/execution-fixtures'
+import crypto from 'crypto'
 import { claimDueAttempts } from '../execute/claim'
 import { executeClaimedAttempt } from '../execute/send'
 import { correlateReplies, recordSocialReply } from '../replies/correlate'
+import { classifyReply } from '../replies/classify'
 import {
   GtmEnrollment,
   GtmReply,
@@ -250,7 +253,7 @@ describe('correlateReplies + atomic stop (SPEC-066 sections 9, 3.3)', () => {
     expect(s.enrollment.status).toBe('active')
   })
 
-  it('an unsubscribe reply classifies as unsubscribe AND writes the suppression', async () => {
+  it('an unsubscribe reply classifies as unsubscribe, stops, and waits for a human before suppressing', async () => {
     const s = await sent()
     await seedInboundMessage(s.em, {
       from: s.address,
@@ -261,10 +264,97 @@ describe('correlateReplies + atomic stop (SPEC-066 sections 9, 3.3)', () => {
     const result = await correlateReplies(s.em, ctx, { clock: s.clock })
     expect(result.matched).toHaveLength(1)
     expect(result.matched[0].reply.classification).toBe('unsubscribe')
-    const suppressions = (await s.em.find(GtmSuppression, { organizationId: ORG })).filter(
-      (row) => row.reason === 'unsubscribe',
-    )
-    expect(suppressions).toHaveLength(1)
+    expect(s.enrollment.status).toBe('stopped')
+    // Reviewed behaviour (api-send-privacy H1): a model verdict never writes
+    // the permanent org-wide suppression on its own; it surfaces in the
+    // inbox for confirmation. The human decision writes it.
+    const unsubscribed = (rows: GtmSuppression[]) => rows.filter((row) => row.reason === 'unsubscribe')
+    expect(unsubscribed(await s.em.find(GtmSuppression, { organizationId: ORG }))).toHaveLength(0)
+    await classifyReply(s.em, ctx, { replyId: result.matched[0].reply.id, classification: 'unsubscribe' })
+    expect(unsubscribed(await s.em.find(GtmSuppression, { organizationId: ORG }))).toHaveLength(1)
+  })
+
+  it('a forged From with someone else\'s reply reference can only affect the referenced enrollment, never the named victim', async () => {
+    const s = await sent()
+    // Recipient R (who knows R's own Message-ID) claims to be victim@.
+    await seedInboundMessage(s.em, {
+      from: 'victim@prospect.example',
+      headers: { 'in-reply-to': `<${s.rfcBare}>` },
+      bodyText: 'unsubscribe',
+      createdAt: s.clock.now(),
+    })
+    const result = await correlateReplies(s.em, ctx, { clock: s.clock })
+    expect(result.matched).toHaveLength(1)
+    const reply = result.matched[0].reply
+    // Confirming the unsubscribe suppresses the ENROLLMENT's verified
+    // address (R), never the forged header address.
+    await classifyReply(s.em, ctx, { replyId: reply.id, classification: 'unsubscribe' })
+    const rows = await s.em.find(GtmSuppression, { organizationId: ORG })
+    expect(rows.map((row) => row.addressHash)).toEqual([hashAddress(s.address)])
+    expect(rows.map((row) => row.addressHash)).not.toContain(hashAddress('victim@prospect.example'))
+  })
+
+  it('ambiguous fallback (same address live in two campaigns) stops BOTH and surfaces the reply as unattributed (M3)', async () => {
+    const s = await sent()
+    // A second live enrollment for the same candidate in another campaign,
+    // already contacted from the same mailbox but earlier.
+    const other = s.em.create(GtmEnrollment, {
+      organizationId: ORG,
+      tenantId: s.enrollment.tenantId,
+      campaignId: crypto.randomUUID(),
+      campaignVersionId: crypto.randomUUID(),
+      candidateId: s.enrollment.candidateId,
+      status: 'active',
+    })
+    s.em.persist(other)
+    const otherPending = s.em.create(GtmSendAttempt, {
+      organizationId: ORG,
+      tenantId: s.enrollment.tenantId,
+      enrollmentId: other.id,
+      stepId: crypto.randomUUID(),
+      renderedMessageId: crypto.randomUUID(),
+      campaignVersionId: other.campaignVersionId,
+      mailboxConnectionId: MAILBOX,
+      state: 'approved',
+      idempotencyKey: 'send:other:2:1',
+      scheduledFor: new Date('2026-07-27T15:00:00.000Z'),
+    })
+    s.em.persist(otherPending)
+    s.em.persist(s.em.create(GtmSendAttempt, {
+      organizationId: ORG,
+      tenantId: s.enrollment.tenantId,
+      enrollmentId: other.id,
+      stepId: crypto.randomUUID(),
+      renderedMessageId: crypto.randomUUID(),
+      campaignVersionId: other.campaignVersionId,
+      mailboxConnectionId: MAILBOX,
+      state: 'accepted',
+      idempotencyKey: 'send:other:1:1',
+      rfcMessageId: '<other@fixture.example>',
+      sentAt: new Date('2026-07-20T16:00:00.000Z'),
+    }))
+    await s.em.flush()
+
+    // Fresh compose (no reply headers) from the shared address.
+    await seedInboundMessage(s.em, {
+      from: s.address,
+      accountId: MAILBOX,
+      threadId: 'their-own-message-id',
+      bodyText: 'Interested, which of you should I talk to?',
+      createdAt: s.clock.now(),
+    })
+    const result = await correlateReplies(s.em, ctx, { clock: s.clock })
+    expect(result.matched).toHaveLength(1)
+    expect(result.matched[0].matchedBy).toBe('fallback')
+    // Attached to the most recent attempt, flagged for a human.
+    expect(result.matched[0].attemptId).toBe(s.sentAttempt.id)
+    expect(result.matched[0].reply.correlationConfidence).toBe('ambiguous')
+    // Over-stopping is the safe direction: both enrollments stop, and the
+    // other campaign's pending send is cancelled before it can go out.
+    expect(s.enrollment.status).toBe('stopped')
+    expect(other.status).toBe('stopped')
+    expect(otherPending.state).toBe('failed')
+    expect(otherPending.failureReason).toBe('stopped')
   })
 
   it('a reply for an already-stopped enrollment records the reply without rewriting the stop', async () => {

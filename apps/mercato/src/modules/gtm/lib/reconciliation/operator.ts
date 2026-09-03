@@ -7,7 +7,15 @@ import {
   GtmResearchRun,
 } from '../../data/entities'
 import type { CampaignEm, GtmCtx } from '../campaign/build'
-import type { GtmLedgerStatus, GtmSettleOutcome } from '../credits/ledger'
+import type { GtmCreditLedger, GtmLedgerStatus, GtmSettleOutcome } from '../credits/ledger'
+import {
+  RETAINED_OUTPUT_RECEIPT_KEY,
+  materializeProviderRows,
+  readRetainedProviderOutput,
+  type ResearchEm,
+} from '../research/execute'
+import { ruleBasedFitScorer, type FitScorer } from '../research/qualify'
+import { resolveParkedContactPoints } from '../enrich/waterfall'
 
 /*
  * Human reconciliation for provider-credit operations.
@@ -308,6 +316,7 @@ export async function reconcileProviderOperation(
   const evidenceHash = hashEvidence(evidence)
 
   const operation = await findScopedOperation(input.em, input.ctx, input.operationId)
+  assertChargeableOutputRetained(operation, decision)
   const replay = await resolveExistingRecord(
     input.em,
     input.ctx,
@@ -437,6 +446,18 @@ export async function reconcileProviderOperation(
     current.settledAt = new Date(decidedAt.getTime())
     current.receipt = buildCanonicalReceipt(current.receipt, stored)
     tem.persist(current)
+    // Contact points parked as provider_ambiguous by a verification operation
+    // resolve with the canonical decision (enrich M12). Best effort: a failure
+    // here must not undo the reconciliation itself.
+    try {
+      await resolveParkedContactPoints(
+        tem as unknown as Parameters<typeof resolveParkedContactPoints>[0],
+        { organizationId: input.ctx.organizationId, tenantId: input.ctx.tenantId },
+        { providerOperationShadowId: current.id, canonicalStatus },
+      )
+    } catch (error) {
+      console.error('[gtm.reconciliation] parked contact points not resolved', error)
+    }
 
     currentAction.resultingStatus = canonicalStatus
     currentAction.status = 'completed'
@@ -500,6 +521,356 @@ const TERMINAL_PROVIDER_STATUSES = new Set([
   'refunded',
   'released',
 ])
+
+/*
+ * A charged decision on an operation whose receipt says the provider
+ * returned rows, while no payload was retained, would bill the customer for
+ * output they can never receive (C2). Such an operation must be refunded or
+ * released instead. Operations recorded before payload retention existed
+ * carry output_count without output_retained and fail this check too; that
+ * is deliberate.
+ */
+function assertChargeableOutputRetained(
+  operation: GtmProviderOperation,
+  decision: NormalizedDecision,
+): void {
+  if (decision.outcome !== 'charged' && decision.outcome !== 'partially_charged') return
+  const receipt = isPlainRecord(operation.receipt) ? operation.receipt : null
+  const observation = isPlainRecord(receipt?.gtm_observation) ? receipt.gtm_observation : null
+  const outputCount = exactCredits(observation?.output_count) ?? 0
+  if (outputCount === 0) return
+  const retained = readRetainedProviderOutput(receipt)
+  const materialized = retained?.materialized_at != null
+  if (retained && (retained.rows.length > 0 || materialized)) return
+  throw new GtmProviderReconciliationError(
+    'invalid_decision',
+    'provider output was reported but never retained; charging would bill for rows the customer cannot receive',
+  )
+}
+
+export type ReplayPendingSettlementsResult = {
+  scanned: number
+  settled: Array<{ operationId: string; noliCoreOperationId: string; status: GtmLedgerStatus }>
+  failed: Array<{ operationId: string; noliCoreOperationId: string; error: string }>
+  skipped: Array<{ operationId: string; reason: string }>
+}
+
+const MAX_SETTLEMENT_REPLAYS = 50
+
+function stripGtmReceiptKeys(receipt: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!isPlainRecord(receipt)) return null
+  const { gtm_observation: _observation, [RETAINED_OUTPUT_RECEIPT_KEY]: _retained, ...provider } = receipt
+  return provider
+}
+
+/**
+ * Replays settlements that were decided at execution time but never reached
+ * Noli Core (settle threw). The intended action and credits were persisted in
+ * the receipt BEFORE the settle attempt, so this re-issues exactly that
+ * decision on the SAME operation id; the ledger's exactly-once settle makes a
+ * repeat harmless. Bounded, tenant-scoped, and never a provider call. An
+ * operation whose receipt lacks a decision is skipped for the operator.
+ */
+export async function replayPendingSettlements(
+  em: CampaignEm,
+  ledger: GtmCreditLedger,
+  scope: { organizationId: string; tenantId: string },
+  options: { now?: () => Date; limit?: number } = {},
+): Promise<ReplayPendingSettlementsResult> {
+  const now = options.now ?? (() => new Date())
+  const limit = Math.max(1, Math.min(MAX_SETTLEMENT_REPLAYS, Math.floor(options.limit ?? MAX_SETTLEMENT_REPLAYS)))
+  const candidates = await em.find(
+    GtmProviderOperation,
+    {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      localStatusMirror: 'provider_started',
+      deletedAt: null,
+    },
+    { orderBy: { requestedAt: 'asc' }, limit: MAX_SETTLEMENT_REPLAYS * 4 },
+  )
+  const result: ReplayPendingSettlementsResult = { scanned: 0, settled: [], failed: [], skipped: [] }
+  for (const operation of candidates) {
+    if (result.settled.length + result.failed.length >= limit) break
+    const receipt = isPlainRecord(operation.receipt) ? operation.receipt : null
+    const observation = isPlainRecord(receipt?.gtm_observation) ? receipt.gtm_observation : null
+    if (observation?.settlement_pending !== true) continue
+    result.scanned += 1
+    const action = observation.intended_ledger_action
+    const credits = exactCredits(observation.intended_charged_credits)
+    const providerReceipt = stripGtmReceiptKeys(receipt)
+    let status: GtmLedgerStatus
+    try {
+      if (action === 'mark_ambiguous') {
+        status = await ledger.markAmbiguous(operation.noliCoreOperationId, {
+          error: typeof observation.provider_error === 'string' ? observation.provider_error : 'ambiguous provider outcome',
+          receipt: providerReceipt,
+        })
+      } else if (
+        (action === 'charged' || action === 'partially_charged' || action === 'refunded')
+        && credits != null
+      ) {
+        status = await ledger.settle(operation.noliCoreOperationId, action, credits, providerReceipt)
+      } else {
+        result.skipped.push({ operationId: operation.id, reason: 'receipt carries no replayable intended decision' })
+        continue
+      }
+    } catch (error) {
+      const message = error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : 'unknown canonical ledger error'
+      await em.transactional(async (tem) => {
+        operation.receipt = {
+          ...(receipt ?? {}),
+          gtm_observation: {
+            ...observation,
+            settlement_error: message,
+            settlement_replay_attempted_at: now().toISOString(),
+          },
+        }
+        tem.persist(operation)
+        await tem.flush()
+      })
+      result.failed.push({ operationId: operation.id, noliCoreOperationId: operation.noliCoreOperationId, error: message })
+      continue
+    }
+    await em.transactional(async (tem) => {
+      operation.localStatusMirror = status
+      operation.receipt = {
+        ...(receipt ?? {}),
+        gtm_observation: {
+          ...observation,
+          settlement_pending: false,
+          canonical_status: status,
+          settlement_error: null,
+          settlement_replayed_at: now().toISOString(),
+        },
+      }
+      if (SETTLED_STATUSES.has(status)) operation.settledAt = now()
+      tem.persist(operation)
+      await tem.flush()
+    })
+    result.settled.push({ operationId: operation.id, noliCoreOperationId: operation.noliCoreOperationId, status })
+    if (operation.researchRunId) {
+      await repairResearchRunReconciliationSummary(
+        em,
+        { organizationId: scope.organizationId, tenantId: scope.tenantId, userId: 'system' },
+        operation.researchRunId,
+        true,
+      )
+    }
+  }
+  return result
+}
+
+export type ReplayParkedOutputResult = {
+  operationId: string
+  noliCoreOperationId: string
+  researchRunId: string
+  idempotent: boolean
+  rowsReplayed: number
+  candidatesInserted: number
+  candidateMatchesCreated: number
+  candidatesReused: number
+  duplicatesSkipped: number
+  suppressedSkipped: number
+  accepted: number
+  review: number
+  rejected: number
+}
+
+function frozenRunPlay(run: GtmResearchRun): {
+  id?: string
+  signal?: string | null
+  entityUnit?: string | null
+  geography?: string | null
+  audience?: string | null
+  providerQuery?: Record<string, unknown> | null
+  recencyWindow?: string | null
+} | null {
+  const snapshot = run.inputSnapshot
+  const raw = isPlainRecord(snapshot) ? snapshot.play : null
+  if (!isPlainRecord(raw)) return null
+  return {
+    id: typeof raw.id === 'string' ? raw.id : run.playId,
+    signal: typeof raw.signal === 'string' ? raw.signal : null,
+    entityUnit: typeof raw.entity_unit === 'string' ? raw.entity_unit : null,
+    geography: typeof raw.geography === 'string' ? raw.geography : null,
+    audience: typeof raw.audience === 'string' ? raw.audience : null,
+    providerQuery: isPlainRecord(raw.provider_query) ? raw.provider_query : null,
+    recencyWindow: typeof raw.recency_window === 'string' ? raw.recency_window : null,
+  }
+}
+
+/**
+ * Reconciliation action `replay_parked_output`: materializes the provider
+ * rows retained in the shadow receipt once the operation has been settled as
+ * charged or partially charged (either by the settlement replay or by an
+ * explicit operator decision). Refunded/released operations delivered no
+ * paid output and are refused. Idempotent: a replayed payload is emptied and
+ * stamped, and a second call reports idempotent with zero rows.
+ */
+export async function replayParkedProviderOutput(input: {
+  em: CampaignEm
+  ctx: GtmCtx
+  operationId: string
+  scorer?: FitScorer
+  now?: () => Date
+}): Promise<ReplayParkedOutputResult> {
+  const now = input.now ?? (() => new Date())
+  const operation = await findScopedOperation(input.em, input.ctx, input.operationId)
+  if (operation.localStatusMirror !== 'charged' && operation.localStatusMirror !== 'partially_charged') {
+    throw new GtmProviderReconciliationError(
+      'illegal_state',
+      'parked output can only be replayed after the operation settles as charged or partially charged',
+    )
+  }
+  const retained = readRetainedProviderOutput(operation.receipt)
+  if (!retained) {
+    throw new GtmProviderReconciliationError('illegal_state', 'provider operation retained no output payload')
+  }
+  if (!operation.researchRunId) {
+    throw new GtmProviderReconciliationError('illegal_state', 'provider operation is not attached to a research run')
+  }
+  const base = {
+    operationId: operation.id,
+    noliCoreOperationId: operation.noliCoreOperationId,
+    researchRunId: operation.researchRunId,
+  }
+  if (retained.materialized_at != null || retained.rows.length === 0) {
+    return {
+      ...base,
+      idempotent: true,
+      rowsReplayed: 0,
+      candidatesInserted: 0,
+      candidateMatchesCreated: 0,
+      candidatesReused: 0,
+      duplicatesSkipped: 0,
+      suppressedSkipped: 0,
+      accepted: 0,
+      review: 0,
+      rejected: 0,
+    }
+  }
+  const run = await input.em.findOne(GtmResearchRun, {
+    id: operation.researchRunId,
+    organizationId: input.ctx.organizationId,
+    tenantId: input.ctx.tenantId,
+    deletedAt: null,
+  })
+  if (!run) throw new GtmProviderReconciliationError('operation_not_found', 'research run was not found')
+  const play = frozenRunPlay(run)
+  if (!play) throw new GtmProviderReconciliationError('illegal_state', 'research run has no frozen play snapshot')
+
+  const materialized = await materializeProviderRows({
+    em: input.em as unknown as ResearchEm,
+    run,
+    play,
+    scorer: input.scorer ?? ruleBasedFitScorer,
+    now,
+    // Same clock rule as requalify: the run claim, never the wall clock.
+    qualificationReferenceTime: run.startedAt ?? run.createdAt,
+    rows: retained.rows,
+    plannedEntityKind: retained.entity_kind,
+    adapterId: retained.adapter_id,
+    operationId: operation.noliCoreOperationId,
+    shadowId: operation.id,
+    evidencePolicy: retained.evidence_policy,
+    license: retained.license,
+    query: retained.query,
+    providerRequestId: retained.provider_request_id,
+    seenOpportunityConversations: [],
+  })
+
+  await input.em.transactional(async (tem) => {
+    const receipt = isPlainRecord(operation.receipt) ? operation.receipt : {}
+    operation.receipt = {
+      ...receipt,
+      [RETAINED_OUTPUT_RECEIPT_KEY]: {
+        ...retained,
+        rows: [],
+        materialized_at: now().toISOString(),
+        replayed_by: input.ctx.userId,
+      },
+    }
+    tem.persist(operation)
+    const providerPlan = isPlainRecord(run.providerPlan) ? run.providerPlan : {}
+    const execution = isPlainRecord(providerPlan.execution) ? providerPlan.execution : {}
+    const funnel = isPlainRecord(execution.funnel) ? execution.funnel : {}
+    const bump = (value: unknown, delta: number) => (exactCredits(value) ?? 0) + delta
+    run.providerPlan = {
+      ...providerPlan,
+      execution: {
+        ...execution,
+        candidates_inserted: bump(execution.candidates_inserted, materialized.inserted),
+        candidate_matches_created: bump(execution.candidate_matches_created, materialized.matchesCreated),
+        candidates_reused: bump(execution.candidates_reused, materialized.reused),
+        duplicates_skipped: bump(execution.duplicates_skipped, materialized.duplicates),
+        suppressed_skipped: bump(execution.suppressed_skipped, materialized.suppressed),
+        evidence_inserted: bump(execution.evidence_inserted, materialized.evidenceRows),
+        funnel: {
+          ...funnel,
+          accepted: bump(funnel.accepted, materialized.accepted),
+          review: bump(funnel.review, materialized.review),
+          rejected: bump(funnel.rejected, materialized.rejected),
+          unique_candidates_inserted: bump(funnel.unique_candidates_inserted, materialized.inserted),
+          candidate_matches_created: bump(funnel.candidate_matches_created, materialized.matchesCreated),
+        },
+        replayed_output: [
+          ...(Array.isArray(execution.replayed_output) ? execution.replayed_output : []),
+          {
+            operation_id: operation.noliCoreOperationId,
+            replayed_at: now().toISOString(),
+            rows: retained.rows.length,
+            candidates_inserted: materialized.inserted,
+            candidate_matches_created: materialized.matchesCreated,
+            accepted: materialized.accepted,
+            review: materialized.review,
+            rejected: materialized.rejected,
+          },
+        ],
+      },
+    }
+    tem.persist(run)
+    tem.persist(
+      tem.create(GtmAuditEvent, {
+        organizationId: input.ctx.organizationId,
+        tenantId: input.ctx.tenantId,
+        actor: 'user_id',
+        actorUserId: input.ctx.userId,
+        action: 'gtm.provider_operation.output_replayed',
+        objectType: AUDIT_OBJECT_TYPE,
+        objectId: operation.id,
+        requestId: input.ctx.requestId ?? null,
+        metadata: {
+          noli_core_operation_id: operation.noliCoreOperationId,
+          research_run_id: run.id,
+          rows: retained.rows.length,
+          candidates_inserted: materialized.inserted,
+          candidate_matches_created: materialized.matchesCreated,
+          duplicates_skipped: materialized.duplicates,
+          suppressed_skipped: materialized.suppressed,
+          accepted: materialized.accepted,
+          review: materialized.review,
+          rejected: materialized.rejected,
+        },
+      }),
+    )
+    await tem.flush()
+  })
+
+  return {
+    ...base,
+    idempotent: false,
+    rowsReplayed: retained.rows.length,
+    candidatesInserted: materialized.inserted,
+    candidateMatchesCreated: materialized.matchesCreated,
+    candidatesReused: materialized.reused,
+    duplicatesSkipped: materialized.duplicates,
+    suppressedSkipped: materialized.suppressed,
+    accepted: materialized.accepted,
+    review: materialized.review,
+    rejected: materialized.rejected,
+  }
+}
 
 function exactCredits(value: unknown): number | null {
   if (typeof value === 'bigint') {

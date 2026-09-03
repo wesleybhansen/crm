@@ -123,7 +123,7 @@ async function seed(em: FakeEm, adapter: SourceAdapter) {
     ...Object.fromEntries(Object.entries(material).filter(([key]) => key !== 'policyId')),
     status: 'active',
     policyHash: buildAutoRefillPolicyHash(material),
-    scheduledJobId: `gtm-auto-refill-${policyId}`,
+    scheduledJobId: policyId,
     fence: 1,
   })
   for (const row of [play, version, campaign, policy]) em.persist(row)
@@ -184,6 +184,89 @@ describe('R38 auto-refill cycle', () => {
     expect((await processAutoRefillCycle(em, input, deps)).outcome).toBe('already_processed')
     expect(adapter.search).toHaveBeenCalledTimes(1)
     expect(em.table(GtmAutoRefillCycle)).toHaveLength(1)
+  })
+
+  // Review 2026-09-02 (M13): 'paused' was an allowed campaign status here,
+  // so a customer who paused on Friday still paid for weekday refills.
+  it('blocks the cycle with a clear reason while the campaign is paused', async () => {
+    const em = new FakeEm()
+    const adapter = spyAdapter()
+    const seeded = await seed(em, adapter)
+    seeded.campaign.status = 'paused'
+    const result = await processAutoRefillCycle(em, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      policyId: seeded.policy.id,
+      noliOrganizationId: NOLI_ORG,
+      representedNoliUserId: NOLI_USER,
+    }, {
+      adapters: { [adapter.descriptor.adapter_id]: adapter },
+      ledger: new FixtureLedger({ poolBalance: 1_000_000 }),
+      now: () => new Date('2026-08-24T15:00:00.000Z'),
+    })
+    expect(result.outcome).toBe('blocked')
+    expect(adapter.search).not.toHaveBeenCalled()
+    expect(em.table(GtmResearchRun)).toHaveLength(0)
+    expect(em.table(GtmAutoRefillPolicy)[0]).toEqual(expect.objectContaining({
+      status: 'blocked',
+      blockedReason: 'campaign_paused',
+    }))
+    expect(em.table(GtmAutoRefillCycle)[0]).toEqual(expect.objectContaining({
+      status: 'blocked',
+      failureCode: 'campaign_paused',
+    }))
+  })
+
+  // Review 2026-09-02 (M14): blockCycle locked the policy without checking
+  // status/fence/hash, so a late delivery that raced a re-activation blocked
+  // the fresh policy and burned its day with a blocked cycle.
+  it('does not block a policy that was re-activated under a stale delivery', async () => {
+    const em = new FakeEm()
+    const adapter = spyAdapter()
+    const seeded = await seed(em, adapter)
+    const changed: SpyAdapter = {
+      ...adapter,
+      descriptor: {
+        ...adapter.descriptor,
+        cost_model: { ...adapter.descriptor.cost_model, price_version: 'changed' },
+      },
+      search: jest.fn(),
+    }
+    const originalFindOne = em.findOne.bind(em)
+    let raced = false
+    // Simulate a concurrent re-activation between the policy read and the
+    // blocking transaction: the delivery holds a snapshot of the policy while
+    // the stored row's fence moves on (hash and status unchanged).
+    em.findOne = (async (Ctor: new () => object, where: Record<string, unknown>) => {
+      const row = await originalFindOne(Ctor, where)
+      if (!raced && row && Ctor === GtmAutoRefillPolicy) {
+        raced = true
+        const snapshot = Object.assign(new GtmAutoRefillPolicy(), row)
+        seeded.policy.fence += 1
+        return snapshot
+      }
+      return row
+    }) as FakeEm['findOne']
+    const result = await processAutoRefillCycle(em, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      policyId: seeded.policy.id,
+      noliOrganizationId: NOLI_ORG,
+      representedNoliUserId: NOLI_USER,
+    }, {
+      adapters: { [changed.descriptor.adapter_id]: changed },
+      ledger: new FixtureLedger({ poolBalance: 1_000_000 }),
+      now: () => new Date('2026-08-24T15:00:00.000Z'),
+    })
+    expect(raced).toBe(true)
+    expect(result.outcome).toBe('inactive')
+    expect(changed.search).not.toHaveBeenCalled()
+    expect(em.table(GtmAutoRefillCycle)).toHaveLength(0)
+    expect(em.table(GtmAutoRefillPolicy)[0]).toEqual(expect.objectContaining({
+      status: 'active',
+      fence: 2,
+    }))
+    expect(em.table(GtmAutoRefillPolicy)[0].blockedReason).toBeFalsy()
   })
 
   it('blocks plan drift before a provider operation', async () => {

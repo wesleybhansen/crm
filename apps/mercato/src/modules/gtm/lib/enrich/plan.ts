@@ -1,7 +1,7 @@
 import type { EnrichAdapter, VerifyAdapter } from '../adapters/types'
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
 import { descriptorHash, immutableHash } from '../research/plan'
-import { normalizeCompanyWebsite } from './company-domain'
+import { companyDomainFingerprint, normalizeCompanyWebsite } from './company-domain'
 
 type CandidateRow = {
   id: string
@@ -21,6 +21,84 @@ export type EnrichmentOperationProjection = {
   kind: string
   provider: string
   localStatusMirror?: string | null
+  receipt?: Record<string, unknown> | null
+}
+
+export type EnrichmentOperationDisposition = 'available' | 'consumed' | 'reconciliation'
+
+// The request fingerprint a shadow row was created with (waterfall stamps it
+// under receipt.gtm_request at reservation time). Legacy rows carry none.
+export function shadowRequestFingerprint(
+  operation: Pick<EnrichmentOperationProjection, 'receipt'>,
+): string | null {
+  const request = operation.receipt?.gtm_request
+  if (!request || typeof request !== 'object' || Array.isArray(request)) return null
+  const value = (request as Record<string, unknown>).request_fingerprint
+  return typeof value === 'string' && value ? value : null
+}
+
+// Idempotency key suffix for adapters without their own operationFingerprint:
+// the candidate's company domain, so a corrected domain is a new request.
+export function enrichmentRequestFingerprint(identity: Record<string, unknown> | null | undefined): string | null {
+  const fingerprint = companyDomainFingerprint(identity?.domain)
+  return fingerprint ? `d:${fingerprint}` : null
+}
+
+export type EnrichmentOperationIndex = Map<string, Set<string>>
+
+// candidate + provider + request fingerprint -> observed shadow states.
+export function indexEnrichmentOperations(
+  existingOperations: EnrichmentOperationProjection[],
+  candidateIds: Set<string>,
+): EnrichmentOperationIndex {
+  const operationStates: EnrichmentOperationIndex = new Map()
+  for (const operation of existingOperations) {
+    if (
+      !operation.candidateId
+      || operation.kind !== 'contact_enrich'
+      || !candidateIds.has(operation.candidateId)
+    ) continue
+    const key = `${operation.candidateId}:${operation.provider}:${shadowRequestFingerprint(operation) ?? ''}`
+    const states = operationStates.get(key) ?? new Set<string>()
+    states.add(operation.localStatusMirror?.trim() || 'unknown')
+    operationStates.set(key, states)
+  }
+  return operationStates
+}
+
+/*
+ * For adapters whose execution key is candidate + adapter + domain
+ * fingerprint, a local provider-operation shadow is sufficient to prove that
+ * the canonical reserve will not start another provider call. Not applied to
+ * adapters with their own request fingerprints: the shadow does not retain
+ * enough identity to tell an old request from a newly corrected input.
+ */
+export function enrichmentOperationDisposition(
+  candidate: CandidateRow,
+  adapter: EnrichAdapter,
+  operationStates: EnrichmentOperationIndex,
+): EnrichmentOperationDisposition {
+  if (adapter.operationFingerprint) return 'available'
+  const fingerprint = enrichmentRequestFingerprint(candidate.identity) ?? ''
+  const states = operationStates.get(`${candidate.id}:${adapter.descriptor.adapter_id}:${fingerprint}`)
+  if (!states || states.size === 0 || [...states].every((state) => state === 'reserved')) {
+    return 'available'
+  }
+  if (
+    states.has('provider_started')
+    || states.has('reconciliation_required')
+    || states.has('estimated')
+    || states.has('unknown')
+  ) return 'reconciliation'
+  if ([...states].some((state) =>
+    state === 'charged'
+    || state === 'partially_charged'
+    || state === 'refunded'
+    || state === 'released',
+  )) return 'consumed'
+  // A shadow vocabulary outside the canonical contract cannot safely prove
+  // either retry eligibility or completion.
+  return 'reconciliation'
 }
 
 const TERMINAL_VERIFICATION_STATES = new Set([
@@ -106,49 +184,9 @@ export function buildEnrichmentPlan(
     (candidate) => !(emailByCandidate.get(candidate.id)?.length),
   )
 
-  // For adapters whose execution key is exactly candidate + adapter, a local
-  // provider-operation shadow is sufficient to prove that the canonical
-  // reserve will not start another provider call. Do not apply this inference
-  // to adapters with request fingerprints: the shadow does not retain enough
-  // identity to tell an old request from a newly corrected input.
-  const operationStates = new Map<string, Set<string>>()
-  for (const operation of existingOperations) {
-    if (
-      !operation.candidateId
-      || operation.kind !== 'contact_enrich'
-      || !reachableCandidateIds.has(operation.candidateId)
-    ) continue
-    const key = `${operation.candidateId}:${operation.provider}`
-    const states = operationStates.get(key) ?? new Set<string>()
-    states.add(operation.localStatusMirror?.trim() || 'unknown')
-    operationStates.set(key, states)
-  }
-  type OperationDisposition = 'available' | 'consumed' | 'reconciliation'
-  const dispositionFor = (
-    candidate: CandidateRow,
-    adapter: EnrichAdapter,
-  ): OperationDisposition => {
-    if (adapter.operationFingerprint) return 'available'
-    const states = operationStates.get(`${candidate.id}:${adapter.descriptor.adapter_id}`)
-    if (!states || states.size === 0 || [...states].every((state) => state === 'reserved')) {
-      return 'available'
-    }
-    if (
-      states.has('provider_started')
-      || states.has('reconciliation_required')
-      || states.has('estimated')
-      || states.has('unknown')
-    ) return 'reconciliation'
-    if ([...states].some((state) =>
-      state === 'charged'
-      || state === 'partially_charged'
-      || state === 'refunded'
-      || state === 'released',
-    )) return 'consumed'
-    // A shadow vocabulary outside the canonical contract cannot safely prove
-    // either retry eligibility or completion.
-    return 'reconciliation'
-  }
+  const operationStates = indexEnrichmentOperations(existingOperations, reachableCandidateIds)
+  const dispositionFor = (candidate: CandidateRow, adapter: EnrichAdapter) =>
+    enrichmentOperationDisposition(candidate, adapter, operationStates)
   const eligibleByAdapter = new Map<string, CandidateRow[]>()
   const consumedKeys = new Set<string>()
   const reconciliationKeys = new Set<string>()

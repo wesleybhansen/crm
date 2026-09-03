@@ -11,7 +11,8 @@ import {
   type LaunchedFixture,
 } from './support/execution-fixtures'
 import { claimDueAttempts } from '../execute/claim'
-import { executeClaimedAttempt } from '../execute/send'
+import { executeClaimedAttempt, MAX_TRANSPORT_RETRIES } from '../execute/send'
+import { GtmSendRetryableError } from '../execute/transport'
 import { hashAddress } from '../campaign/exclusions'
 import { messageContentHash, UNSUBSCRIBE_URL_TOKEN } from '../campaign/render'
 import {
@@ -24,6 +25,7 @@ import {
   GtmWorkspace,
 } from '../../data/entities'
 import type { Clock } from '../execute/schedule'
+import type { GtmSendTransport } from '../execute/transport'
 import { EmailUnsubscribe } from '../../../email/data/schema'
 import { transitionCampaignLifecycle } from '../execute/lifecycle'
 
@@ -170,6 +172,57 @@ describe('executeClaimedAttempt (SPEC-066 section 6 rules 2-5, section 8)', () =
     expect(claimed.failedAt).toBeInstanceOf(Date)
     // rfc id survives: the provider may have logged the message id.
     expect(claimed.rfcMessageId).toBeTruthy()
+  })
+
+  it('re-leases the claim at provider_started so a slow transport is not parked by a recover pass (M2)', async () => {
+    const { em, clock, claimed, transport } = await prepare()
+    const leaseAtClaim = claimed.claimExpiresAt!.getTime()
+    // The tick reached this row late: 9 minutes into a 10-minute lease.
+    clock.set('2026-07-22T16:39:00.000Z')
+    let leaseAtProviderStart: number | null = null
+    transport.onSend = () => {
+      leaseAtProviderStart = claimed.claimExpiresAt?.getTime() ?? null
+    }
+    const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport, clock })
+    expect(outcome.outcome).toBe('accepted')
+    expect(leaseAtProviderStart).toBe(new Date('2026-07-22T16:49:00.000Z').getTime())
+    expect(leaseAtProviderStart!).toBeGreaterThan(leaseAtClaim)
+  })
+
+  it('a provider refusal BEFORE acceptance reschedules with backoff instead of parking ambiguous (M1)', async () => {
+    const { em, clock, claimed } = await prepare()
+    const refusing: GtmSendTransport = {
+      async send() {
+        throw new GtmSendRetryableError('gmail refused before acceptance (HTTP 429)')
+      },
+    }
+    const outcome = await executeClaimedAttempt(em, ctx, claimed, { transport: refusing, clock })
+    expect(outcome).toMatchObject({ outcome: 'rescheduled', reason: 'transport_retry' })
+    expect(claimed.state).toBe('approved')
+    expect(claimed.claimToken).toBeNull()
+    expect(claimed.transportRetryCount).toBe(1)
+    expect(claimed.failureReason).toContain('transport_retry')
+    // 5 minutes of backoff on the first retry; the capacity slot is kept.
+    expect(claimed.scheduledFor!.toISOString()).toBe('2026-07-22T16:35:00.000Z')
+    expect(claimed.capacitySlotKey).toBeTruthy()
+
+    // Due again after the backoff, claimable, and the retry counter bounds it.
+    clock.set('2026-07-22T16:36:00.000Z')
+    for (let round = 1; round < MAX_TRANSPORT_RETRIES; round += 1) {
+      const again = await claimDueAttempts(em, ctx, { clock })
+      expect(again.claimed.map((c) => c.attempt.id)).toContain(claimed.id)
+      const next = await executeClaimedAttempt(em, ctx, again.claimed[0].attempt, { transport: refusing, clock })
+      expect(next).toMatchObject({ outcome: 'rescheduled', reason: 'transport_retry' })
+      expect(claimed.transportRetryCount).toBe(round + 1)
+      clock.set(new Date(claimed.scheduledFor!.getTime() + 60_000).toISOString())
+    }
+    const last = await claimDueAttempts(em, ctx, { clock })
+    expect(last.claimed).toHaveLength(1)
+    const exhausted = await executeClaimedAttempt(em, ctx, last.claimed[0].attempt, { transport: refusing, clock })
+    expect(exhausted).toMatchObject({ outcome: 'failed' })
+    expect(claimed.state).toBe('failed')
+    expect(claimed.failureReason).toContain('retries exhausted')
+    expect(claimed.transportRetryCount).toBe(MAX_TRANSPORT_RETRIES)
   })
 
   it('a transport timeout maps to ambiguous and is never auto-retried', async () => {

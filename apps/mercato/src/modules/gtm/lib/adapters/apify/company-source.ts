@@ -239,6 +239,21 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+const CLAIM_TEXT_LIMIT = 120
+
+/*
+ * Provider strings that reach the evidence claim are bounded and quoted so a
+ * crafted company name cannot read as an instruction to the drafting model,
+ * which sees the claim verbatim (review 2026-09-02, M3/H9). The raw values
+ * stay in evidence.detail, which never reaches a prompt.
+ */
+function claimText(value: string | null): string | null {
+  if (!value) return null
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (!compact) return null
+  return `"${Array.from(compact).slice(0, CLAIM_TEXT_LIMIT).join('').replace(/"/g, "'")}"`
+}
+
 function finiteNumber(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
@@ -372,18 +387,19 @@ export function normalizeApifyCompanyItem(
     employee_range: range,
     company_description: text(row.description),
   }
+  // Fixed vocabulary; every provider string is bounded and quoted.
   const observed = [
-    industries.length > 0 ? `industries ${industries.join(', ')}` : null,
+    industries.length > 0 ? `industry ${claimText(industries.slice(0, 3).join(', '))}` : null,
     count != null ? `${count} employees` : range ? `${range} employees` : null,
-    location.location,
+    location.location ? `location ${claimText(location.location)}` : null,
   ].filter(Boolean).join(', ')
   return {
     entity_kind: 'company',
     identity,
     evidence: [{
       claim: observed
-        ? `${name} is currently listed on LinkedIn with ${observed}.`
-        : `${name} has a current public LinkedIn company page.`,
+        ? `${claimText(name)} is currently listed on LinkedIn with ${observed}.`
+        : `${claimText(name)} has a current public LinkedIn company page.`,
       source_url: linkedinUrl,
       observed_at: observedAt,
       confidence: 0.9,
@@ -397,6 +413,10 @@ export function normalizeApifyCompanyItem(
         employee_range: range,
         industries,
         location: location.location,
+        company_name: name,
+        // A company page has no publication time; never read retrieval time
+        // as freshness (review 2026-09-02, H7).
+        published_at_unknown: true,
       },
     }],
   }

@@ -1,4 +1,5 @@
 import type { Candidate, CandidateEvidence, CandidateIdentity } from '../adapters/types'
+import { canonicalRedditThreadUrl } from './reddit-url-hydration'
 
 export type DemonstratedOpportunityIntent = NonNullable<CandidateIdentity['intent_kind']> | null
 
@@ -329,7 +330,12 @@ const US_STATE_ABBREVIATIONS: Record<string, (typeof US_STATE_NAMES)[number] | '
   va: 'virginia', wa: 'washington', wv: 'west virginia', wi: 'wisconsin', wy: 'wyoming',
 }
 
-const TRACKING_PARAMETER = /^(?:utm_.+|fbclid|gclid|dclid|msclkid|mc_[ce]id|trk|trackingId|ref_src)$/i
+// Tracking, sort, and share parameters never identify a different public
+// destination. Leaving them in place let one thread surface as several
+// candidates (and several accepted rows) through trivial URL variants.
+const TRACKING_PARAMETER =
+  /^(?:utm_.+|fbclid|gclid|dclid|msclkid|mc_[ce]id|trk|trackingId|ref_src|ref|sort|context|rdt|share_id|igsh|igshid|si)$/i
+const REDDIT_CANONICAL_HOSTS = new Set(['reddit.com', 'old.reddit.com', 'new.reddit.com', 'np.reddit.com', 'redd.it'])
 const NON_LOCAL_REDDIT_COMMUNITIES = new Set([
   'realestate',
   'realestateinvesting',
@@ -777,6 +783,11 @@ export function assessRealtorOpportunitySuitability(
   return { relevant, demonstratedIntent: intent, reasons: [...new Set(reasons)] }
 }
 
+/** True when the bounded public page text says the destination is over or gone. */
+export function inactiveDestinationText(content: string): boolean {
+  return INACTIVE_DESTINATION.test(content)
+}
+
 export function canonicalOpportunityUrl(values: unknown): string | null {
   if (!Array.isArray(values)) return null
   for (const entry of values) {
@@ -786,7 +797,20 @@ export function canonicalOpportunityUrl(values: unknown): string | null {
       if (url.protocol !== 'https:') continue
       let host = url.hostname.toLowerCase().replace(/^www\./, '')
       if (host === 'twitter.com' || host === 'mobile.twitter.com') host = 'x.com'
-      if (host === 'old.reddit.com' || host === 'new.reddit.com') host = 'reddit.com'
+      if (REDDIT_CANONICAL_HOSTS.has(host)) {
+        // Reddit thread permalinks come back as /r/<sub>/comments/<id>/<slug>,
+        // /comments/<id>, comment permalinks, and share links. The hydration
+        // canonicalizer already collapses every one of those onto the post id;
+        // reuse it so dedupe and the benchmark's duplicate metric see one
+        // destination. Reddit paths are case-insensitive, so the slug case is
+        // folded too.
+        const thread = canonicalRedditThreadUrl(entry)
+        if (thread) {
+          return thread.replace(/^https:\/\/www\.reddit\.com/, 'https://reddit.com').replace(/\/$/, '').toLowerCase()
+        }
+        host = 'reddit.com'
+        url.pathname = url.pathname.toLowerCase()
+      }
       url.hostname = host
       url.port = ''
       url.hash = ''

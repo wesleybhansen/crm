@@ -4,7 +4,7 @@ import {
   type ImportAudiencePlayBody,
   type ImportedPlayInput,
 } from '../data/validators'
-import { computeGtmPolicy } from './policy'
+import { computeGtmPolicy, normalizeMarketType } from './policy'
 import { classifySignalKind, isSignalKind, type SignalKind } from './signal-taxonomy'
 
 /*
@@ -38,7 +38,7 @@ export type ImportedPlayValues = {
   source: 'imported'
   importedReportTokenHash: string
   importedPlayKey: string
-  marketType: string | null
+  marketType: 'b2b' | 'b2c' | 'mixed' | null
   audience: string | null
   signal: string | null
   signalKind: SignalKind | null
@@ -103,10 +103,16 @@ export function buildImportedPlayValues(
   now: () => Date = () => new Date(),
 ): ImportedPlayValues {
   const sourceHint = play.source_hint ?? play.source ?? null
+  // Only the strict enum is stored; a hub label such as 'consumer' is not a
+  // market type and must not survive import as one (policy treats it as
+  // unknown, and so must every later reader of the stored play).
+  const marketType = normalizeMarketType(play.market_type)
   const policy = computeGtmPolicy({
+    // the raw label goes to policy so an invalid one is flagged as invalid
     market_type: play.market_type ?? null,
     geography: play.geography ?? null,
     audience: play.audience ?? null,
+    likely_buyer: likelyBuyer,
     signal: play.signal ?? null,
     source_hint: sourceHint,
     why_now: play.why_now ?? null,
@@ -118,7 +124,7 @@ export function buildImportedPlayValues(
     source: 'imported',
     importedReportTokenHash: normalizeReportTokenHash(reportTokenHash),
     importedPlayKey: computeImportedPlayKey(play, likelyBuyer),
-    marketType: play.market_type ?? null,
+    marketType,
     audience: play.audience ?? null,
     signal: play.signal ?? null,
     signalKind: isSignalKind(play.signal_kind)

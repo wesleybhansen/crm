@@ -1,5 +1,5 @@
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
+import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { gtmInternalOpenApi } from '../../openapi'
 import { gtmEnabled } from '../../../lib/flags'
@@ -11,6 +11,19 @@ import { isUuid } from '../../../lib/play-shape'
 
 export const openApi = gtmInternalOpenApi('Read redacted GTM removal and DSR status')
 
+/*
+ * Ops (body.op):
+ * - 'status'                         redacted status of one deletion request
+ * - 'list-partial'                   partial requests whose due_at is within
+ *                                    within_days (default 7) or already past
+ * - 'complete-crm-contact-deletion'  anonymize the promoted CRM contact(s)
+ *                                    recorded in the 'crm_customers' DSR op
+ *                                    receipt and close that op (gtm.approve)
+ * - 'set-legal-hold' / 'clear-legal-hold'  audited hold on a request; the
+ *                                    retention sweep and anonymization both
+ *                                    honour it (gtm.approve)
+ */
+
 export const metadata = {
   path: '/internal/gtm/privacy',
   POST: { requireAuth: false },
@@ -20,21 +33,16 @@ const notFound = () => NextResponse.json({ ok: false, error: 'Not found' }, { st
 
 export async function POST(req: Request) {
   if (!gtmEnabled()) return notFound()
-  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authorization = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret ||
-    authorization.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authorization), Buffer.from(expected))
-  ) {
+  // Byte-length guarded constant-time compare (lib/authorize.ts).
+  if (!internalServiceBearerAuthorized(req)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
   const parsed = gtmPrivacyBodySchema.safeParse(await req.json().catch(() => ({})))
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
-  if (!isUuid(parsed.data.requestId)) return notFound()
+  const body = parsed.data
+  if (body.op !== 'list-partial' && !isUuid(body.requestId)) return notFound()
 
   try {
     const { findNoliUserById } = await import('@open-mercato/shared/lib/noli/core-client')
@@ -47,16 +55,88 @@ export async function POST(req: Request) {
       userId: auth.userId as string,
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId as string,
+      requestId: req.headers.get('x-request-id') || null,
     }
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
-    const { hasGtmFeature } = await import('../../../lib/authorize')
-    if (!(await hasGtmFeature(container, ctx, 'gtm.view'))) {
+    const { hasGtmFeature, privacyFeatureForOp } = await import('../../../lib/authorize')
+    if (!(await hasGtmFeature(container, ctx, privacyFeatureForOp(body.op)))) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
     }
     const em = container.resolve('em') as EntityManager as unknown as ExecutionEm
+
+    if (body.op === 'list-partial') {
+      const withinDays = body.within_days ?? 7
+      const horizon = new Date(Date.now() + withinDays * 24 * 60 * 60 * 1000)
+      const rows = await em.find(GtmDeletionRequest, {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        status: { $in: ['partial', 'blocked_legal_hold', 'processing', 'pending'] },
+        dueAt: { $lte: horizon },
+        deletedAt: null,
+      })
+      return NextResponse.json({
+        ok: true,
+        within_days: withinDays,
+        requests: rows
+          .sort((a, b) => (a.dueAt?.getTime() ?? 0) - (b.dueAt?.getTime() ?? 0))
+          .slice(0, 100)
+          .map((row) => ({
+            id: row.id,
+            status: row.status,
+            scope: row.scope,
+            legal_hold: row.legalHold,
+            requested_at: row.requestedAt,
+            due_at: row.dueAt ?? null,
+            overdue: row.dueAt ? row.dueAt.getTime() < Date.now() : false,
+          })),
+        cap: 100,
+      })
+    }
+
+    if (body.op === 'complete-crm-contact-deletion') {
+      const { completeCrmContactDeletion } = await import('../../../lib/privacy/deletion')
+      const { CustomerEntity, CustomerPersonProfile } = await import(
+        '@open-mercato/core/modules/customers/data/entities'
+      )
+      const result = await completeCrmContactDeletion(
+        em,
+        ctx,
+        { contact: CustomerEntity as never, person: CustomerPersonProfile as never },
+        { requestId: body.requestId },
+      )
+      if (!result) return notFound()
+      if (result.request.legalHold && !result.alreadyCompleted) {
+        return NextResponse.json(
+          { ok: false, error: 'Request is under legal hold', code: 'legal_hold' },
+          { status: 422 },
+        )
+      }
+      return NextResponse.json({
+        ok: true,
+        request: { id: result.request.id, status: result.request.status },
+        operation: { id: result.operation.id, status: result.operation.status },
+        contacts_anonymized: result.contactsAnonymized,
+        already_completed: result.alreadyCompleted,
+      })
+    }
+
+    if (body.op === 'set-legal-hold' || body.op === 'clear-legal-hold') {
+      const { setLegalHold } = await import('../../../lib/privacy/deletion')
+      const updated = await setLegalHold(em, ctx, {
+        requestId: body.requestId,
+        hold: body.op === 'set-legal-hold',
+        reason: body.reason,
+      })
+      if (!updated) return notFound()
+      return NextResponse.json({
+        ok: true,
+        request: { id: updated.id, status: updated.status, legal_hold: updated.legalHold },
+      })
+    }
+
     let request = await em.findOne(GtmDeletionRequest, {
-      id: parsed.data.requestId,
+      id: body.requestId,
       organizationId: ctx.organizationId,
       tenantId: ctx.tenantId,
       deletedAt: null,
@@ -66,7 +146,7 @@ export async function POST(req: Request) {
       // to its trusted caller. Resolve it to this operator's tenant without
       // exposing whether any other tenant was affected.
       const intake = await em.findOne(GtmDeletionRequest, {
-        id: parsed.data.requestId,
+        id: body.requestId,
         organizationId: GLOBAL_SUPPRESSION_ORG_ID,
         deletedAt: null,
       })

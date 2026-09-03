@@ -309,7 +309,25 @@ export async function requalifyResearchRun(input: {
       }),
     ])
     : [[], []]
-  const manuallyReviewed = new Set(manualAudits.map((row) => row.objectId))
+  // Legacy (match-less) runs read root-level candidate audits, and a shared
+  // candidate may have been reviewed while a different run was on screen.
+  // Keep only overrides attributable to this run: an explicit
+  // metadata.research_run_id, or (for audits written before that key
+  // existed) a candidate whose root row belongs to this run.
+  const candidateRunById = new Map(
+    (matches.length > 0 ? matchedCandidates : legacyCandidates).map((row) => [row.id, row.researchRunId]),
+  )
+  const manuallyReviewed = new Set(
+    manualAudits
+      .filter((row) => {
+        if (matches.length > 0) return true
+        const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+        const auditRunId = (metadata as Record<string, unknown>).research_run_id
+        if (typeof auditRunId === 'string') return auditRunId === run.id
+        return row.objectId != null && candidateRunById.get(row.objectId) === run.id
+      })
+      .map((row) => row.objectId),
+  )
   const evidenceByCandidate = new Map<string, GtmEvidence[]>()
   for (const row of evidenceRows) {
     const list = evidenceByCandidate.get(row.candidateId) ?? []

@@ -60,13 +60,16 @@ export async function POST(req: Request) {
   }
 
   // 1. Shared-secret auth (length-guarded constant-time compare)
+  // Both sides are compared as BYTES: a multibyte header of the same UTF-16
+  // length would otherwise make timingSafeEqual throw (an unauthenticated
+  // 500) instead of denying.
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
+  const authHeader = Buffer.from((req.headers.get('authorization') || '').trim(), 'utf8')
+  const expected = Buffer.from(secret ? `Bearer ${secret}` : '', 'utf8')
   if (
     !secret ||
     authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+    !crypto.timingSafeEqual(authHeader, expected)
   ) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
@@ -96,7 +99,7 @@ export async function POST(req: Request) {
     if (!noliUser?.clerk_user_id) {
       return NextResponse.json({ ok: false, error: 'Noli user not found' }, { status: 404 })
     }
-    const noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
+    let noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
     if (!noliOrgId) {
       return NextResponse.json(
         { ok: false, error: 'Noli organization is not available' },
@@ -122,6 +125,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
     }
     const em = container.resolve('em') as EntityManager
+    // Billing organisation: the Mercato org carries the noli-core org it was
+    // provisioned from. When that link exists it is the billing org, and the
+    // represented user must actually be a member of it; the "earliest
+    // membership" helper alone can drift for multi-org Noli users.
+    const { Organization } = await import('@open-mercato/core/modules/directory/data/entities')
+    const mercatoOrg = await em.findOne(Organization, { id: organizationId, deletedAt: null })
+    const linkedNoliOrgId = mercatoOrg?.noliOrgId ?? null
+    if (linkedNoliOrgId) {
+      if (linkedNoliOrgId !== noliOrgId) {
+        const { hasNoliOrgMembership } = await import('@open-mercato/shared/lib/noli/core-client')
+        if (!(await hasNoliOrgMembership(noliUser.id, linkedNoliOrgId))) {
+          return NextResponse.json(
+            { ok: false, error: 'User is not a member of the billing organization' },
+            { status: 403 },
+          )
+        }
+        noliOrgId = linkedNoliOrgId
+      }
+    }
+    // TODO(billing-org): an Organization without a noli_org_id link falls back
+    // to the user's earliest noli-core membership; backfill the link for every
+    // provisioned org so this fallback can be removed.
     const entities = await import('../../../data/entities')
     const {
       GtmPlay,
@@ -367,6 +392,9 @@ export async function POST(req: Request) {
       candidates: enrichmentCandidates,
       acceptedCandidateIds: matches.length > 0 ? acceptedCandidateIds : undefined,
       contactPoints,
+      // The same prior operations the plan quoted by: a candidate whose
+      // earlier lookup still needs reconciliation is parked, not re-bought.
+      existingEnrichmentOperations: existingEnrichmentOperations,
       noliOrgId,
       // Canonical provider metering is keyed to the represented Noli user.
       noliUserId: body.noliUserId,

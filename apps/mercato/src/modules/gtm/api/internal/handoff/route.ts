@@ -1,5 +1,5 @@
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
+import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import { gtmInternalOpenApi } from '../../openapi'
 
 export const openApi = gtmInternalOpenApi('Coordinate bounded GTM asset and KB handoffs')
@@ -51,14 +51,8 @@ export async function POST(req: Request) {
     return opaqueNotFound()
   }
 
-  const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
-  if (
-    !secret ||
-    authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-  ) {
+  // Byte-length guarded constant-time compare (lib/authorize.ts).
+  if (!internalServiceBearerAuthorized(req)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -163,9 +157,42 @@ export async function POST(req: Request) {
 
       if (body.op === 'attach-asset') {
         if (!isUuid(body.campaignId)) return opaqueNotFound()
+        let assetRef = body.assetRef
+        // When AMS is reachable the reference is resolved through it: the id
+        // must exist in the org's attachable assets and the frozen URL comes
+        // from AMS, not from the caller. The validator already limits the
+        // caller-supplied URLs to https; this closes the "attach an id AMS
+        // never issued" path. Without AMS configured the validated body is
+        // the only source and is used as-is.
+        if (amsLib.isAmsHandoffConfigured()) {
+          const client = amsLib.createAmsAssetClient()
+          const key = await client.mintKey(body.noliUserId)
+          const assets = await client.listAssets(key)
+          const resolved = assets.find((asset) => asset.id === body.assetRef.id)
+          if (!resolved) {
+            return NextResponse.json(
+              { ok: false, error: 'Asset is not attachable from AMS', code: 'asset_not_found' },
+              { status: 422 },
+            )
+          }
+          const resolvedUrl = resolved.publishedUrl ?? null
+          if (resolvedUrl && !/^https:\/\//i.test(resolvedUrl)) {
+            return NextResponse.json(
+              { ok: false, error: 'AMS returned a non-https asset URL', code: 'asset_url_invalid' },
+              { status: 422 },
+            )
+          }
+          assetRef = {
+            ...body.assetRef,
+            kind: resolved.kind || body.assetRef.kind,
+            title: resolved.title || body.assetRef.title,
+            publishedUrl: resolvedUrl ?? body.assetRef.publishedUrl,
+            frozen_url: resolvedUrl ?? body.assetRef.frozen_url ?? body.assetRef.publishedUrl,
+          }
+        }
         const result = await amsLib.attachAssetRef(em, ctx, {
           campaignId: body.campaignId,
-          assetRef: body.assetRef,
+          assetRef,
         })
         return NextResponse.json({
           ok: true,

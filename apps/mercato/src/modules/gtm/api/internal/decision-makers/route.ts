@@ -40,13 +40,16 @@ function linkedInCompanyUrl(identity: Record<string, unknown>): string | null {
 export async function POST(req: Request) {
   if (!gtmEnabled()) return opaqueNotFound()
 
+  // Both sides are compared as BYTES: a multibyte header of the same UTF-16
+  // length would otherwise make timingSafeEqual throw (an unauthenticated
+  // 500) instead of denying.
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  const expected = secret ? `Bearer ${secret}` : ''
+  const authHeader = Buffer.from((req.headers.get('authorization') || '').trim(), 'utf8')
+  const expected = Buffer.from(secret ? `Bearer ${secret}` : '', 'utf8')
   if (
-    !secret
-    || authHeader.length !== expected.length
-    || !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+    !secret ||
+    authHeader.length !== expected.length ||
+    !crypto.timingSafeEqual(authHeader, expected)
   ) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
@@ -117,6 +120,23 @@ export async function POST(req: Request) {
       deletedAt: null,
     })
     if (!play) return opaqueNotFound()
+    if (body.op !== 'status') {
+      // Same policy gate as the enrichment route: decision-maker resolution
+      // feeds email enrichment, so a play that may not automate email may
+      // not spend on resolving people to email either.
+      const { computeGtmPolicy, policyInputFromPlay } = await import('../../../lib/policy')
+      const policy = computeGtmPolicy(policyInputFromPlay(play))
+      if (policy.outreach_mode !== 'automated_email') {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'Decision-maker resolution is unavailable for manual-only outreach',
+            code: 'manual_outreach_only',
+          },
+          { status: 422 },
+        )
+      }
+    }
 
     const acceptedMatches = await em.find(GtmCandidateMatch, {
       organizationId,
@@ -297,13 +317,35 @@ export async function POST(req: Request) {
       )
     }
 
-    const noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
+    let noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
     if (!noliOrgId) {
       return NextResponse.json(
         { ok: false, error: 'Noli organization is not available' },
         { status: 503 },
       )
     }
+    // Billing organisation: the Mercato org carries the noli-core org it was
+    // provisioned from. When that link exists it is the billing org, and the
+    // represented user must actually be a member of it; the "earliest
+    // membership" helper alone can drift for multi-org Noli users.
+    const { Organization } = await import('@open-mercato/core/modules/directory/data/entities')
+    const mercatoOrg = await em.findOne(Organization, { id: organizationId, deletedAt: null })
+    const linkedNoliOrgId = mercatoOrg?.noliOrgId ?? null
+    if (linkedNoliOrgId) {
+      if (linkedNoliOrgId !== noliOrgId) {
+        const { hasNoliOrgMembership } = await import('@open-mercato/shared/lib/noli/core-client')
+        if (!(await hasNoliOrgMembership(noliUser.id, linkedNoliOrgId))) {
+          return NextResponse.json(
+            { ok: false, error: 'User is not a member of the billing organization' },
+            { status: 403 },
+          )
+        }
+        noliOrgId = linkedNoliOrgId
+      }
+    }
+    // TODO(billing-org): an Organization without a noli_org_id link falls back
+    // to the user's earliest noli-core membership; backfill the link for every
+    // provisioned org so this fallback can be removed.
 
     const { executeDecisionMakerPlan } = await import('../../../lib/decision-makers/execute')
     const { getLedger } = await import('../../../lib/credits/noli-core-ledger')

@@ -352,6 +352,9 @@ function normalizeEventWithDiagnostics(
           displayed_dates: displayedDates,
           event_start_at: eventStartAt,
           event_end_at: eventEndAt,
+          // Google Events rows carry a start time, not a publication time
+          // (review 2026-09-02, H7).
+          published_at_unknown: true,
           rank_group: finiteNumber(item.rank_group),
           rank_absolute: finiteNumber(item.rank_absolute),
           demonstrated_intent_signals: [

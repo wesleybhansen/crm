@@ -18,17 +18,19 @@ import crypto from 'crypto'
  * released for reservations abandoned before provider contact.
  *
  * The CRM never owns or mutates balances, never infers a charge locally, and
- * never creates a replacement operation after an ambiguous result. Everything
- * in this tranche runs against the in-memory FixtureLedger below.
+ * never creates a replacement operation after an ambiguous result.
  *
- * TRANCHE 4 STUB - NoliCoreRpcLedger: the REAL implementation of
- * GtmCreditLedger calls the noli-core SECURITY DEFINER RPCs
- * (provider_op_reserve / provider_op_start / provider_op_settle /
- * provider_op_mark_ambiguous / provider_op_release) through the existing
- * noli-core service-role client. It is deliberately NOT written in Tranche 3;
- * when Tranche 4 lands it will live alongside this file (for example
- * lib/credits/noli-core-ledger.ts) and be swapped in behind the same
- * interface. Do not add any noli-core network call in this file.
+ * Two implementations exist behind this interface:
+ * - FixtureLedger (below): in-memory, used by every unit test and by the
+ *   explicit ephemeral OM_TEST_MODE harness. Never in normal production.
+ * - NoliCoreRpcLedger (lib/credits/noli-core-ledger.ts): the REAL ledger,
+ *   calling the noli-core SECURITY DEFINER RPCs through the service-role
+ *   client. `getLedger()` there selects between the two and fails closed
+ *   without noli-core credentials. Production paths (research execute, the
+ *   enrichment waterfall, decision makers, the auto-refill worker) use it.
+ *
+ * Do not add any noli-core network call in this file; it stays pure so the
+ * fixture can model the contract exactly.
  */
 
 export type GtmLedgerStatus =
@@ -66,6 +68,10 @@ export type GtmReserveInput = {
 export type GtmReserveResult = {
   operationId: string
   status: GtmLedgerStatus
+  // Echo of the credits the ledger actually escrowed. Wrappers derive the
+  // provider spend cap from this when present rather than from the local
+  // estimate (enrich M13).
+  reservedCredits?: number
 }
 
 export type GtmStartResult = {
@@ -228,7 +234,7 @@ export class FixtureLedger implements GtmCreditLedger {
       ambiguousDetail: null,
     }
     this.opsById.set(operationId, op)
-    return { operationId, status: op.status }
+    return { operationId, status: op.status, reservedCredits: op.reservedCredits }
   }
 
   async start(operationId: string): Promise<GtmStartResult> {

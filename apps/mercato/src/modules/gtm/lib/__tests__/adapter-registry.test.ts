@@ -85,6 +85,23 @@ describe('adapter registry environment boundaries', () => {
     ])
   })
 
+  // Review 2026-09-02 (L1/H14): an unset or unknown NODE_ENV used to unlock
+  // fixtures on the flag alone. Only an explicit development build does now.
+  it('treats an unset or unknown NODE_ENV like production for the fixture gate', () => {
+    process.env.GTM_FIXTURE_ADAPTERS_ENABLED = 'true'
+    delete process.env.OM_TEST_MODE
+    for (const nodeEnv of [undefined, 'staging', 'preview']) {
+      if (nodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = nodeEnv
+      expect(fixtureAdaptersEnabled()).toBe(false)
+    }
+    process.env.NODE_ENV = 'development'
+    expect(fixtureAdaptersEnabled()).toBe(true)
+    delete process.env.NODE_ENV
+    process.env.OM_TEST_MODE = '1'
+    expect(fixtureAdaptersEnabled()).toBe(true)
+  })
+
   it('never registers fixture adapters in normal production, even when requested', () => {
     process.env.NODE_ENV = 'production'
     process.env.GTM_FIXTURE_ADAPTERS_ENABLED = 'true'

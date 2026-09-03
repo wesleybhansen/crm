@@ -191,10 +191,15 @@ function descriptorFor(
         customer_display: approved,
         outreach_allowed: approved,
         retention_days: 30,
-        audience_modes: ['business', 'consumer'],
+        // Business only (review 2026-09-02, H3). Consumer audience rights
+        // require a per-subject provider deletion path; none exists for a
+        // marketplace actor run (privacy/deletion.ts reports every Apify
+        // provider as not_supported), so the consumer flags below stay off
+        // until SPEC-069 rights are backed by an implementation.
+        audience_modes: ['business'],
         manual_outreach_allowed: approved,
         automated_email_allowed: false,
-        public_profile_contact_allowed: approved,
+        public_profile_contact_allowed: false,
         public_opportunity_use_allowed: false,
       },
       rate_limits: { requests_per_minute: 30, concurrent: 1 },
@@ -216,7 +221,11 @@ function descriptorFor(
       timeout_is_ambiguous: true,
       receipt_fields: ['actor_id', 'run_id', 'item_count', 'charged_event_counts'],
     },
-    dsr: { deletion_supported: true },
+    // No per-subject deletion endpoint exists on a marketplace actor run, and
+    // no code implemented one when this read `true`: the flag alone unlocked
+    // the consumer audience gate in adapterAudienceRights (review 2026-09-02,
+    // H3). Set to what the DSR executor can actually do.
+    dsr: { deletion_supported: false },
   }
 }
 

@@ -13,9 +13,12 @@ export function requireProcessAuth(req: Request, secret: string | undefined): Ne
   if (!secret) {
     return NextResponse.json({ ok: false, error: 'Not configured' }, { status: 500 })
   }
-  const got = req.headers.get('authorization') ?? ''
-  const expected = `Bearer ${secret}`
-  if (got.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))) {
+  // Compare byte Buffers, not JS string lengths: a multibyte header whose
+  // UTF-16 length matched used to reach timingSafeEqual with mismatched byte
+  // lengths and throw (500) instead of denying (401).
+  const got = Buffer.from(req.headers.get('authorization') ?? '', 'utf8')
+  const expected = Buffer.from(`Bearer ${secret}`, 'utf8')
+  if (got.length !== expected.length || !crypto.timingSafeEqual(got, expected)) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
   return null

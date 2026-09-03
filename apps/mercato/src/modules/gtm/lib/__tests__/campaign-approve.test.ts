@@ -609,3 +609,84 @@ describe('draft-state determinism', () => {
     expect(draft.consideredCandidateIds).toEqual([acceptedForPlay.id])
   })
 })
+
+/*
+ * Review L9: approval and draft mutation lock the campaign row for their
+ * whole critical section (FakeEm ignores lock modes, so the lock request is
+ * observed through the em, and the guard is exercised directly).
+ */
+describe('approve + template edit lock the campaign row (review L9)', () => {
+  const { LockMode } = jest.requireActual('@mikro-orm/core')
+  const { GtmCampaign: CampaignEntity } = jest.requireActual('../../data/entities')
+
+  function observeLocks(em: FakeEm): Array<unknown> {
+    const seen: unknown[] = []
+    const original = em.findOne.bind(em)
+    ;(em as unknown as { findOne: typeof em.findOne }).findOne = async (Ctor, where, options) => {
+      if (Ctor === CampaignEntity) seen.push(options?.lockMode ?? null)
+      return original(Ctor, where, options)
+    }
+    return seen
+  }
+
+  it('approveCampaign takes PESSIMISTIC_WRITE on the campaign before computing the frozen draft', async () => {
+    const em = new FakeEm()
+    const play = await seedPlay(em)
+    const run = await seedRun(em, play)
+    await seedCandidate(em, run)
+    const { campaign } = await createCampaign(em, ctx, {
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      name: 'Lock test',
+      settings: { mailbox_connection_id: MAILBOX },
+    })
+    await seedMailbox(em)
+    const draft = await computeDraftState(em, ctx, campaign)
+    const seen = observeLocks(em)
+    const approved = await approveCampaign(em, ctx, {
+      campaignId: campaign.id,
+      expectedContentHash: draft.contentHash,
+    })
+    expect(approved.alreadyApproved).toBe(false)
+    expect(seen).toContain(LockMode.PESSIMISTIC_WRITE)
+  })
+
+  it('updateCampaignTemplate refuses to edit under a version frozen by a concurrent approve', async () => {
+    const em = new FakeEm()
+    const play = await seedPlay(em)
+    const run = await seedRun(em, play)
+    await seedCandidate(em, run)
+    const { campaign } = await createCampaign(em, ctx, {
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      name: 'Lock test',
+      settings: { mailbox_connection_id: MAILBOX },
+    })
+    await seedMailbox(em)
+    const draft = await computeDraftState(em, ctx, campaign)
+    await approveCampaign(em, ctx, { campaignId: campaign.id, expectedContentHash: draft.contentHash })
+    // Simulate the concurrent approve landing between invalidation and the
+    // locked write: the invalidation runs, then the row is frozen again.
+    const original = em.transactional.bind(em)
+    let calls = 0
+    ;(em as unknown as { transactional: typeof em.transactional }).transactional = async (cb) => {
+      calls += 1
+      // First transactional call is the invalidation; re-freeze right after.
+      const result = await original(cb)
+      if (calls === 1) {
+        campaign.status = 'approved'
+        campaign.currentVersionId = '56565656-5656-4565-8565-565656565656'
+      }
+      return result
+    }
+    await expect(
+      updateCampaignTemplate(em, ctx, campaign.id, { subject: 'New subject line', body: draft.template.body }),
+    ).rejects.toMatchObject({ code: 'campaign_not_editable' })
+    const seen = observeLocks(em)
+    campaign.status = 'draft'
+    campaign.currentVersionId = null
+    ;(em as unknown as { transactional: typeof em.transactional }).transactional = original
+    await updateCampaignTemplate(em, ctx, campaign.id, { subject: 'New subject line', body: draft.template.body })
+    expect(seen).toContain(LockMode.PESSIMISTIC_WRITE)
+  })
+})

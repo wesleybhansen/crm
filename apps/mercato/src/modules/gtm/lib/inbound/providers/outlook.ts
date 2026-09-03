@@ -88,6 +88,9 @@ export function createOutlookMailboxReader(input: {
           bodyText: isHtml ? boundedText(message.bodyPreview) || null : body || null,
           receivedAt: message.receivedDateTime ? new Date(message.receivedDateTime) : new Date(),
           headers,
+          // Graph's message resource carries no MIME parts; a DSN from
+          // Exchange is recognised by subject/From in correlate.ts.
+          dsn: null,
         }
       })
       const next = page['@odata.nextLink'] ?? page['@odata.deltaLink']

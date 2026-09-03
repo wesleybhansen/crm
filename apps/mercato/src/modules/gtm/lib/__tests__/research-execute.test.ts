@@ -3,8 +3,31 @@ import { FixtureLedger } from '../credits/ledger'
 import { PROVIDER_MIN_CHARGE_USD, creditsForUnits, creditsFromUsd, providerSpendCapUsd } from '../credits/markup'
 import { fixtureSourceAdapter, fixtureSourceDescriptor } from '../adapters/fixture'
 import type { SourceAdapter, SourceSearchPlan } from '../adapters/types'
-import { candidateDedupeKey, executeResearchRun, type ExecuteResearchRunDeps } from '../research/execute'
-import { GtmCandidate, GtmCandidateMatch, GtmEvidence, GtmProviderOperation, GtmResearchRun } from '../../data/entities'
+import {
+  RETAINED_OUTPUT_RECEIPT_KEY,
+  candidateDedupeKey,
+  candidateIdentityHashes,
+  executeResearchRun,
+  type ExecuteResearchRunDeps,
+} from '../research/execute'
+import { descriptorHash } from '../research/plan'
+import { replayParkedProviderOutput, replayPendingSettlements } from '../reconciliation/operator'
+import {
+  OPPORTUNITY_DESTINATION_VALIDATION_MAX_BODY_BYTES,
+  OPPORTUNITY_DESTINATION_VALIDATION_MAX_REDIRECTS,
+  OPPORTUNITY_DESTINATION_VALIDATION_TIMEOUT_MS,
+  OPPORTUNITY_DESTINATION_VALIDATION_VERSION,
+} from '../research/opportunity-destination-contract'
+import type { FitResult, FitScorer } from '../research/qualify'
+import {
+  GtmAuditEvent,
+  GtmCandidate,
+  GtmCandidateMatch,
+  GtmEvidence,
+  GtmProviderOperation,
+  GtmResearchRun,
+  GtmSuppression,
+} from '../../data/entities'
 
 const ORG = '11111111-1111-4111-8111-111111111111'
 const TENANT = '22222222-2222-4222-8222-222222222222'
@@ -18,7 +41,12 @@ const play = {
   signal: 'hiring_activity',
   entityUnit: 'companies',
   geography: 'US',
+  // H3: a row with zero evaluated criteria can no longer reach accept on
+  // field presence alone, so the fixture companies are accepted through an
+  // evidence-backed keyword criterion each of their claims satisfies.
+  providerQuery: { company_keywords: ['revenue operations', 'seed round', 'office lease'] },
 }
+const ctx = { organizationId: ORG, tenantId: TENANT, userId: USER }
 
 type SpyAdapter = SourceAdapter & { search: jest.Mock }
 
@@ -710,6 +738,16 @@ describe('executeResearchRun', () => {
     const em = new FakeEm()
     const ledger = new FixtureLedger({ poolBalance: 100 })
     const adapter = spyAdapter()
+    // The fixture's provider_5xx trigger now models the real client (a 5xx
+    // after dispatch is ambiguous), so a definitive pre-dispatch error is
+    // mocked here to keep this refund path covered.
+    adapter.search.mockResolvedValue({
+      status: 'error',
+      data: null,
+      cost_units: 0,
+      receipt: { provider_request_id: 'fixture-5xx', http_status: 400 },
+      error: 'provider_5xx: request rejected before dispatch',
+    })
     const run = makeRun(em, {
       adapterPlan: [plannedBatch('fixture-source', 5)],
       query: 'fixture-5xx hiring',
@@ -759,6 +797,389 @@ describe('executeResearchRun', () => {
       status: 'charged',
       chargedCredits: 4,
     })
+  })
+})
+
+describe('money and output safety (adversarial review fixes)', () => {
+  const opportunityPlan = (adapterId: string, units: number) => ({
+    ...plannedBatch(adapterId, units),
+    capability: {
+      signal_kind: 'demand_surface',
+      entity_unit: 'opportunities',
+      entity_kind: 'opportunity' as const,
+      geography: 'Austin, Texas',
+    },
+  })
+  const opportunityRow = (name: string, url: string) => ({
+    entity_kind: 'opportunity' as const,
+    identity: {
+      name,
+      opportunity_kind: 'thread' as const,
+      platform: 'Reddit',
+      audience_description: `${name}: I am buying my first home in Austin and need advice.`,
+      access_type: 'public' as const,
+      source_published_at: '2026-08-28T10:00:00.000Z',
+      urls: [url],
+      participation_rules_status: 'unverified' as const,
+      recommended_action: 'Read the public thread and contribute one useful response manually.',
+      message_angle: 'Answer the buyer question before mentioning professional help.',
+    },
+    evidence: [{
+      claim: name,
+      source_url: url,
+      observed_at: '2026-08-29T12:00:00.000Z',
+      confidence: 0.85,
+      detail: { published_at: '2026-08-28T10:00:00.000Z' },
+    }],
+  })
+  const fixedScorer = (verdict: FitResult['verdict']): FitScorer => ({
+    score: () => ({
+      fitScore: verdict === 'accepted' ? 90 : verdict === 'review' ? 60 : 10,
+      verdict,
+      reason: verdict === 'accepted' ? 'meets_fit_rules' : verdict === 'review' ? 'insufficient_decisive_fit_data' : 'below_fit_threshold',
+      version: 'fit-v7',
+      breakdown: { identity: 0, account: 0, persona: 0, geography: 0, evidence: 0 },
+      unknowns: [],
+      contradictions: [],
+    }),
+  })
+
+  it('retains provider rows before settlement and replays them once the operation settles (C2 + M5)', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const adapter = spyAdapter()
+    const run = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 5)],
+      query: 'companies hiring revenue operations leads',
+      maxCandidates: 5,
+      maxCredits: 10,
+    })
+    run.inputSnapshot = {
+      play: { entity_unit: 'companies', geography: 'US', provider_query: play.providerQuery },
+    }
+    jest.spyOn(ledger, 'settle').mockRejectedValueOnce(new Error('canonical ledger unavailable'))
+
+    const result = await executeResearchRun(deps(em, ledger, run, [adapter]))
+    expect(result.candidatesInserted).toBe(0)
+    const shadow = em.table(GtmProviderOperation)[0]
+    const receipt = shadow.receipt as Record<string, any>
+    expect(receipt.gtm_observation.output_retained).toBe(true)
+    expect(receipt[RETAINED_OUTPUT_RECEIPT_KEY]).toMatchObject({
+      adapter_id: 'fixture-source',
+      entity_kind: 'company',
+      row_count: 3,
+      retained_count: 3,
+      truncated: false,
+      materialized_at: null,
+    })
+    expect(receipt[RETAINED_OUTPUT_RECEIPT_KEY].rows).toHaveLength(3)
+
+    // Output cannot be replayed while the operation is still unsettled.
+    await expect(replayParkedProviderOutput({ em, ctx, operationId: shadow.id }))
+      .rejects.toMatchObject({ code: 'illegal_state' })
+
+    // The pending settlement replays the SAME decision on the SAME id.
+    const replayed = await replayPendingSettlements(em, ledger, ctx)
+    expect(replayed.settled).toEqual([
+      expect.objectContaining({ operationId: shadow.id, status: 'charged' }),
+    ])
+    expect(ledger.getOperation(shadow.noliCoreOperationId)).toMatchObject({ status: 'charged', chargedCredits: 6 })
+    expect(shadow.localStatusMirror).toBe('charged')
+    expect((shadow.receipt as Record<string, any>).gtm_observation.settlement_pending).toBe(false)
+    expect(shadow.settledAt).toBeInstanceOf(Date)
+    expect(await replayPendingSettlements(em, ledger, ctx)).toMatchObject({ scanned: 0, settled: [] })
+
+    // Now the retained rows become the customer's candidates.
+    const output = await replayParkedProviderOutput({ em, ctx, operationId: shadow.id })
+    expect(output).toMatchObject({ idempotent: false, rowsReplayed: 3, candidatesInserted: 3, candidateMatchesCreated: 3 })
+    expect(em.table(GtmCandidate)).toHaveLength(3)
+    expect(em.table(GtmCandidateMatch).every((row) => row.providerOperationId === shadow.id)).toBe(true)
+    expect(em.table(GtmEvidence)).toHaveLength(3)
+    expect((shadow.receipt as Record<string, any>)[RETAINED_OUTPUT_RECEIPT_KEY]).toMatchObject({
+      rows: [],
+      materialized_at: expect.any(String),
+    })
+    expect(em.table(GtmAuditEvent).some((row) => row.action === 'gtm.provider_operation.output_replayed')).toBe(true)
+    expect((run.providerPlan as Record<string, any>).execution.candidates_inserted).toBe(3)
+
+    // Idempotent: a second replay materializes nothing.
+    expect(await replayParkedProviderOutput({ em, ctx, operationId: shadow.id }))
+      .toMatchObject({ idempotent: true, rowsReplayed: 0, candidatesInserted: 0 })
+    expect(em.table(GtmCandidate)).toHaveLength(3)
+  })
+
+  it('drops the retained payload from the receipt once rows are materialized in the same run', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const run = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 5)],
+      query: 'companies hiring revenue operations leads',
+      maxCandidates: 5,
+      maxCredits: 10,
+    })
+    await executeResearchRun(deps(em, ledger, run, [spyAdapter()]))
+    const receipt = em.table(GtmProviderOperation)[0].receipt as Record<string, any>
+    expect(receipt[RETAINED_OUTPUT_RECEIPT_KEY]).toMatchObject({ rows: [], row_count: 3, materialized_at: expect.any(String) })
+  })
+
+  it('parks a completed call whose final cost is unknown as ambiguous instead of charging zero (T8)', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const adapter = spyAdapter()
+    adapter.search.mockResolvedValue({
+      status: 'ok',
+      cost_units: null,
+      receipt: { provider_request_id: 'no-cost-1' },
+      data: [{
+        entity_kind: 'company',
+        identity: { name: 'Costless Co', domain: 'costless.example' },
+        evidence: [{ claim: 'seed round', source_url: 'https://source.example/r', observed_at: '2026-08-01T12:00:00.000Z', confidence: 0.9 }],
+      }],
+    })
+    const run = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 5)],
+      query: 'companies',
+      maxCandidates: 5,
+      maxCredits: 10,
+    })
+
+    const result = await executeResearchRun(deps(em, ledger, run, [adapter]))
+
+    expect(result.reconciliationRequired).toBe(true)
+    expect(result.reconciledCredits).toBe(0)
+    expect(result.candidatesInserted).toBe(0)
+    expect(result.batches[0]).toMatchObject({
+      outcome: 'ambiguous',
+      ledgerStatus: 'reconciliation_required',
+      failureReason: 'provider reported no final cost for a completed call',
+    })
+    expect(ledger.listOperations()[0].status).toBe('reconciliation_required')
+    const receipt = em.table(GtmProviderOperation)[0].receipt as Record<string, any>
+    expect(receipt.gtm_observation.intended_ledger_action).toBe('mark_ambiguous')
+    // The paid row is retained for replay after the operator decides.
+    expect(receipt[RETAINED_OUTPUT_RECEIPT_KEY].rows).toHaveLength(1)
+  })
+
+  it('fails a batch whose live descriptor no longer matches the frozen quote BEFORE reserving (M2)', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const adapter = spyAdapter()
+    const run = makeRun(em, {
+      adapterPlan: [{
+        ...plannedBatch('fixture-source', 5),
+        descriptorHash: descriptorHash(adapter.descriptor),
+        priceVersion: 'stale-price-version',
+        termsVersion: adapter.descriptor.constraints.license.terms_version,
+      }],
+      query: 'companies hiring revenue operations leads',
+      maxCandidates: 5,
+      maxCredits: 10,
+    })
+
+    const result = await executeResearchRun(deps(em, ledger, run, [adapter]))
+
+    expect(adapter.search).not.toHaveBeenCalled()
+    expect(ledger.listOperations()).toHaveLength(0)
+    expect(result.status).toBe('failed')
+    expect(result.batches[0]).toMatchObject({ outcome: 'error', failureReason: 'descriptor changed after quote confirmation' })
+
+    // An exact match still executes.
+    const current = makeRun(em, {
+      adapterPlan: [{
+        ...plannedBatch('fixture-source', 5),
+        descriptorHash: descriptorHash(adapter.descriptor),
+        priceVersion: adapter.descriptor.cost_model.price_version,
+        termsVersion: adapter.descriptor.constraints.license.terms_version,
+      }],
+      query: 'companies hiring revenue operations leads',
+      maxCandidates: 5,
+      maxCredits: 10,
+    })
+    expect((await executeResearchRun(deps(em, ledger, current, [adapter]))).status).toBe('completed')
+  })
+
+  it('releases the canonical reservation when the shadow row cannot be written (M4)', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const adapter = spyAdapter()
+    const release = jest.spyOn(ledger, 'release')
+    // The first flush after reserve is the shadow insert.
+    jest.spyOn(em, 'flush').mockRejectedValueOnce(new Error('database unavailable'))
+    const run = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 5)],
+      query: 'companies hiring revenue operations leads',
+      maxCandidates: 5,
+      maxCredits: 10,
+    })
+
+    await expect(executeResearchRun(deps(em, ledger, run, [adapter]))).rejects.toThrow('database unavailable')
+
+    expect(adapter.search).not.toHaveBeenCalled()
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(ledger.listOperations()[0].status).toBe('released')
+    expect(ledger.availableCredits()).toBe(100)
+  })
+
+  it('skips a person suppressed under any of its identity hashes, not only the primary key (C3)', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const adapter = spyAdapter()
+    const fingerprint = 'b'.repeat(64)
+    const person = {
+      entity_kind: 'person' as const,
+      identity: {
+        name: 'Jane Doe',
+        title: 'Realtor',
+        urls: ['https://www.linkedin.com/in/jane-doe'],
+        linkedin_engagement_fingerprint: fingerprint,
+      },
+      evidence: [{ claim: 'Commented on a public post', source_url: 'https://www.linkedin.com/posts/x', observed_at: '2026-08-01T12:00:00.000Z', confidence: 0.9 }],
+    }
+    adapter.search.mockResolvedValue({ status: 'ok', cost_units: 1, receipt: { provider_request_id: 'p-1' }, data: [person] })
+    // Legacy suppression written under the fingerprint key (the old primary).
+    const legacyHash = candidateDedupeKey({ entity_kind: 'person', identity: { name: 'Jane Doe', linkedin_engagement_fingerprint: fingerprint } })
+    em.persist(em.create(GtmSuppression, {
+      organizationId: '00000000-0000-0000-0000-000000000000',
+      tenantId: '00000000-0000-0000-0000-000000000000',
+      scope: 'global',
+      channel: 'public_profile',
+      addressHash: legacyHash,
+      reason: 'removal_request',
+    }))
+    await em.flush()
+    const run = makeRun(em, {
+      adapterPlan: [{ ...plannedBatch('fixture-source', 1), capability: { signal_kind: 'hiring_activity', entity_unit: 'people', entity_kind: 'person' as const, geography: 'US' } }],
+      query: 'people',
+      maxCandidates: 1,
+      maxCredits: 10,
+    })
+
+    const result = await executeResearchRun({ ...deps(em, ledger, run, [adapter]), play: { ...play, entityUnit: 'people' } })
+
+    expect(legacyHash).not.toBe(candidateDedupeKey(person))
+    expect(result.suppressedSkipped).toBe(1)
+    expect(em.table(GtmCandidate)).toHaveLength(0)
+  })
+
+  it('keeps a human root verdict when a later run re-sources the same opportunity (H5)', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 200 })
+    const adapter = spyAdapter()
+    const url = 'https://www.reddit.com/r/Austin/comments/1abc23/first_home/'
+    adapter.search.mockResolvedValue({ status: 'ok', cost_units: 1, receipt: { provider_request_id: 'op-1' }, data: [opportunityRow('First home in Austin', url)] })
+    const opportunityPlay = { ...play, entityUnit: 'opportunities', geography: 'Austin, Texas', providerQuery: null }
+    const first = makeRun(em, { adapterPlan: [opportunityPlan('fixture-source', 1)], query: 'austin buyers', maxCandidates: 1, maxCredits: 10 })
+    await executeResearchRun({ ...deps(em, ledger, first, [adapter]), play: opportunityPlay, scorer: fixedScorer('accepted'), destinationValidationEnabled: false })
+    const row = em.table(GtmCandidate)[0]
+    expect(row.fitStatus).toBe('accepted')
+
+    // Human rejects the root row.
+    row.fitStatus = 'rejected'
+    row.rejectReason = 'manual_review_rejected'
+    em.persist(em.create(GtmAuditEvent, {
+      organizationId: ORG,
+      tenantId: TENANT,
+      actor: 'user_id',
+      actorUserId: USER,
+      action: 'gtm.candidate.review_override',
+      objectType: 'gtm_candidate',
+      objectId: row.id,
+      metadata: { verdict: 'rejected', research_run_id: first.id },
+    }))
+    await em.flush()
+
+    const second = makeRun(em, { adapterPlan: [opportunityPlan('fixture-source', 1)], query: 'austin buyers again', maxCandidates: 1, maxCredits: 10 })
+    const result = await executeResearchRun({ ...deps(em, ledger, second, [adapter]), play: opportunityPlay, scorer: fixedScorer('accepted'), destinationValidationEnabled: false })
+
+    expect(result.candidatesReused).toBe(1)
+    expect(row.fitStatus).toBe('rejected')
+    expect(row.rejectReason).toBe('manual_review_rejected')
+    // The new run still records its own independent qualification.
+    expect(em.table(GtmCandidateMatch).find((match) => match.researchRunId === second.id)?.fitStatus).toBe('accepted')
+  })
+
+  it('validates each distinct destination once and counts review rows toward an opportunity target (M4 + C1b)', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 200 })
+    const adapterA = spyAdapter('fixture-source')
+    const adapterB = spyAdapter('fixture-source-b')
+    const thread = 'https://www.reddit.com/r/Austin/comments/1abc23/first_home/'
+    adapterA.search.mockResolvedValue({
+      status: 'ok',
+      cost_units: 3,
+      receipt: { provider_request_id: 'op-1' },
+      data: [
+        opportunityRow('First home in Austin', thread),
+        opportunityRow('First home in Austin (sorted)', `${thread}?sort=top`),
+        opportunityRow('Neighborhood meetings', 'https://windsorpark.example/meetings'),
+      ],
+    })
+    const validator = jest.fn(async (candidate) => ({ candidate, outcome: 'unknown' as const }))
+    const run = makeRun(em, {
+      adapterPlan: [opportunityPlan('fixture-source', 3), opportunityPlan('fixture-source-b', 3)],
+      query: 'austin buyers',
+      maxCandidates: 6,
+      maxCredits: 100,
+    })
+    run.limits = { targetAccepted: 2, maxRawCandidates: 6, maxCredits: 100 }
+    ;(run.providerPlan as Record<string, unknown>).destinationValidation = {
+      version: OPPORTUNITY_DESTINATION_VALIDATION_VERSION,
+      enabled: true,
+      maxAttempts: 5,
+      maxRedirects: OPPORTUNITY_DESTINATION_VALIDATION_MAX_REDIRECTS,
+      timeoutMs: OPPORTUNITY_DESTINATION_VALIDATION_TIMEOUT_MS,
+      maxBodyBytes: OPPORTUNITY_DESTINATION_VALIDATION_MAX_BODY_BYTES,
+      socialNetworkPolicy: 'provider_evidence_only',
+    }
+
+    const result = await executeResearchRun({
+      ...deps(em, ledger, run, [adapterA, adapterB]),
+      play: { ...play, entityUnit: 'opportunities', geography: 'Austin, Texas', providerQuery: null },
+      scorer: fixedScorer('review'),
+      destinationValidator: validator,
+    })
+
+    // Two distinct destinations, one validation each; the ?sort=top variant
+    // is a duplicate and never consumes the cap.
+    expect(validator).toHaveBeenCalledTimes(2)
+    expect(result.destinationValidation.attempted).toBe(2)
+    expect(result.batches[0].duplicatesSkipped).toBe(1)
+    expect(result.funnel).toEqual(expect.objectContaining({ accepted: 0, review: 2, targetMet: true, stopReason: 'target_accepted' }))
+    expect(result.batches[1].outcome).toBe('skipped_target_accepted')
+    expect(adapterB.search).not.toHaveBeenCalled()
+  })
+
+  it('keeps the strict accepted target for person and company plays (C1b scope)', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 200 })
+    const adapterA = spyAdapter('fixture-source')
+    const adapterB = spyAdapter('fixture-source-b')
+    const run = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 3), plannedBatch('fixture-source-b', 3)],
+      query: 'companies hiring revenue operations leads',
+      maxCandidates: 6,
+      maxCredits: 100,
+    })
+    run.limits = { targetAccepted: 3, maxRawCandidates: 6, maxCredits: 100 }
+    const result = await executeResearchRun({ ...deps(em, ledger, run, [adapterA, adapterB]), scorer: fixedScorer('review') })
+    // Both fixtures return the same three companies; the second batch is
+    // still contacted because review rows do not satisfy a company target.
+    expect(result.funnel.review).toBe(3)
+    expect(result.funnel.targetMet).toBe(false)
+    expect(adapterB.search).toHaveBeenCalledTimes(1)
+  })
+
+  it('caps a legacy maxCandidates-only target at the plan default (L3)', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 100 })
+    const run = makeRun(em, {
+      adapterPlan: [plannedBatch('fixture-source', 3)],
+      query: 'companies hiring revenue operations leads',
+      maxCandidates: 100,
+      maxCredits: 100,
+    })
+    const result = await executeResearchRun(deps(em, ledger, run, [spyAdapter()]))
+    expect(result.funnel.targetAccepted).toBe(25)
   })
 })
 
@@ -832,28 +1253,47 @@ describe('candidateDedupeKey', () => {
     expect(first).toBe(providerAlias)
   })
 
-  it('prefers the adapter-owned engagement fingerprint across incompatible LinkedIn URL forms', () => {
+  it('prefers the canonical profile URL over the engagement fingerprint and exposes every identity hash (C3)', () => {
+    // This test used to assert the opposite: keyed by sha256(name|title),
+    // two different "Dana Reyes | Broker/Owner" people merged into one row
+    // and a profile-URL removal could not find either. The URL is the
+    // primary key whenever present; the fingerprint is a secondary hash.
     const fingerprint = 'a'.repeat(64)
-    const commenter = candidateDedupeKey({
-      entity_kind: 'person',
+    const commenter = {
+      entity_kind: 'person' as const,
       identity: {
         name: 'Dana Reyes',
         title: 'Broker/Owner, Results Realtors',
         urls: ['https://www.linkedin.com/in/dana-reyes'],
         linkedin_engagement_fingerprint: fingerprint,
       },
-    })
-    const reactor = candidateDedupeKey({
-      entity_kind: 'person',
+    }
+    const reactor = {
+      entity_kind: 'person' as const,
       identity: {
         name: 'Dana Reyes',
         title: 'Broker/Owner, Results Realtors',
         urls: ['https://www.linkedin.com/in/ACoAAExample'],
         linkedin_engagement_fingerprint: fingerprint,
       },
-    })
-
-    expect(commenter).toBe(reactor)
+    }
+    const fingerprintOnly = {
+      entity_kind: 'person' as const,
+      identity: { name: 'Dana Reyes', title: 'Broker/Owner, Results Realtors', linkedin_engagement_fingerprint: fingerprint },
+    }
+    expect(candidateDedupeKey(commenter)).not.toBe(candidateDedupeKey(reactor))
+    expect(candidateDedupeKey(commenter)).toBe(candidateDedupeKey({
+      entity_kind: 'person',
+      identity: { name: 'D. Reyes', urls: ['https://linkedin.com/in/Dana-Reyes/'] },
+    }))
+    expect(candidateDedupeKey(fingerprintOnly)).toBe(candidateDedupeKey({
+      entity_kind: 'person',
+      identity: { name: 'Dana Reyes', linkedin_engagement_fingerprint: fingerprint },
+    }))
+    // Every hash a suppression or removal could have been written under.
+    const hashes = candidateIdentityHashes(commenter)
+    expect(hashes.has(candidateDedupeKey(commenter))).toBe(true)
+    expect(hashes.has(candidateDedupeKey(fingerprintOnly))).toBe(true)
   })
 
   it('uses the canonical public destination for opportunity identity', () => {
