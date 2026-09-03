@@ -206,6 +206,8 @@ describe('official xAI X Search opportunity source', () => {
     const prompt = buildXSearchPrompt(genericPlan, 'q', 5)
     expect(prompt).toContain('Never invent')
     expect(prompt).toContain('Austin, Texas')
+    expect(prompt).toContain('Latest mode')
+    expect(prompt).toContain('moving to Austin')
   })
 
   it('returns a cited post as a discovery row priced from the returned usage', async () => {
@@ -250,7 +252,7 @@ describe('official xAI X Search opportunity source', () => {
     })
     const body = JSON.parse(String(calls[0]!.init.body))
     expect(body.tools).toEqual([{ type: 'x_search', from_date: '2026-08-03', to_date: '2026-09-02' }])
-    expect(body.max_turns).toBe(2)
+    expect(body.max_turns).toBe(3)
     expect(body.store).toBe(false)
     expect(calls[0]!.init.headers).toMatchObject({ Authorization: 'Bearer synthetic-xai-key' })
   })
