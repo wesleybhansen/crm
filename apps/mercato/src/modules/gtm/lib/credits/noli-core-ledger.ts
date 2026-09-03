@@ -446,10 +446,12 @@ export function getLedger(): GtmCreditLedger {
   if (nodeEnv === 'test') return getProcessFixtureLedger()
 
   if (forced === 'fixture') {
+    // The ephemeral integration harness points NOLI_CORE_SUPABASE_URL at its
+    // own noli-core fixture for identity lookups while forcing the fixture
+    // ledger, so the URL's presence cannot be part of this gate.
     const ephemeralHarness =
       process.env.OM_TEST_MODE === '1'
       && process.env.GTM_FIXTURE_ADAPTERS_ENABLED === 'true'
-      && !process.env.NOLI_CORE_SUPABASE_URL
     if (nodeEnv !== 'development' && !ephemeralHarness) {
       throw new NoliCoreLedgerConfigurationError(
         'GTM_LEDGER=fixture is forbidden outside development and the ephemeral test harness',

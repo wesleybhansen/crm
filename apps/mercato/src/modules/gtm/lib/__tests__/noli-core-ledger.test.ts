@@ -410,16 +410,18 @@ describe('getLedger selection', () => {
     }
   })
 
-  it('refuses fixture credits in the harness when a canonical noli-core URL is configured', () => {
+  it('allows fixture credits in the ephemeral harness even with a fixture noli-core URL configured', () => {
+    // The harness points NOLI_CORE_SUPABASE_URL at its own noli-core fixture
+    // for identity lookups; that must not disable the fixture ledger.
     process.env.NODE_ENV = 'production'
     process.env.GTM_LEDGER = 'fixture'
     process.env.OM_TEST_MODE = '1'
     process.env.GTM_FIXTURE_ADAPTERS_ENABLED = 'true'
     process.env.NOLI_CORE_SUPABASE_URL = 'https://example.supabase.co'
-    delete process.env.NOLI_CORE_SUPABASE_SERVICE_ROLE_KEY
-    expect(() => getLedger()).toThrow(NoliCoreLedgerConfigurationError)
+    expect(getLedger()).not.toBeInstanceOf(NoliCoreRpcLedger)
 
-    delete process.env.NODE_ENV
+    // Without the explicit test mode the same configuration is refused.
+    delete process.env.OM_TEST_MODE
     expect(() => getLedger()).toThrow(NoliCoreLedgerConfigurationError)
   })
 
