@@ -81,7 +81,7 @@ export const XAI_X_SEARCH_USD_PER_CALL = 0.005
 export const X_API_USD_PER_POST_READ = 0.005
 export const XAI_MILLIDOLLAR_USD = 0.001
 export const XAI_DEFAULT_MODEL = 'grok-4.3'
-export const XAI_MAX_TURNS = 2
+export const XAI_MAX_TURNS = 3
 export const XAI_MAX_OUTPUT_TOKENS = 2_000
 export const XAI_MAX_RESULTS = 10
 export const XAI_DEFAULT_TIMEOUT_MS = 90_000
@@ -406,25 +406,53 @@ export function extractModelPosts(text: string): ModelPostClaim[] {
 // Prompt
 // ---------------------------------------------------------------------------
 
-const INTENT_DESCRIPTIONS: Record<string, string> = {
-  buyer_intent: 'personally say they are looking to buy a home, are house hunting, or are moving there and searching for a house',
-  seller_intent: 'personally say they are selling their house, thinking about selling, or asking what their home is worth',
-  mixed_intent: 'personally say they are selling one home and buying another, or planning a move that involves both',
-  local_audience: 'are local homeowners or residents talking about neighborhood life, community events, HOA matters, or housing workshops',
+const INTENT_GUIDANCE: Record<string, { goal: string; phrases: string }> = {
+  buyer_intent: {
+    goal: 'the author appears to be personally buying, searching for, or about to move into a home in or around the area',
+    phrases: '"house hunting", "looking at houses", "looking to buy a house", "put in an offer", "under contract", "got pre-approved", "first house", "closing on our house", "moving to <market>"',
+  },
+  seller_intent: {
+    goal: 'the author appears to be personally selling, listing, or deciding whether to sell their home in or around the area',
+    phrases: '"selling my house", "selling our home", "listing our house", "thinking about selling", "what is my house worth", "need to sell before we move", "moving out of <market>"',
+  },
+  mixed_intent: {
+    goal: 'the author appears to be personally selling one home and buying another, or planning a move that involves both, in or around the area',
+    phrases: '"sell before we buy", "sell and buy", "upsizing", "downsizing", "moving up", "next house", "moving to <market>"',
+  },
+  local_audience: {
+    goal: 'the author is a local homeowner or resident talking about neighborhood life, community events, HOA matters, or housing workshops in the area',
+    phrases: '"our neighborhood", "HOA", "homeowners meeting", "homebuyer workshop", "first-time buyer class", "neighbors in <market>"',
+  },
 }
 
+const GENERIC_GUIDANCE = {
+  goal: 'the author personally expresses the need or interest described in the search topic',
+  phrases: 'quoted first-person phrases people would actually write about the topic',
+}
+
+/*
+ * The model decides how to search, so the prompt teaches it what worked in
+ * the owner calibration (2026-09-03): several searches, latest first, replies
+ * included, first-person phrase variants bound to the market, personal
+ * accounts over businesses, and recall over precision because fit-v7 and a
+ * human review make the final call downstream. The restrictive first version
+ * of this prompt returned zero posts on lanes where the search itself had
+ * surfaced real buyers.
+ */
 export function buildXSearchPrompt(plan: SourceSearchPlan, query: string, maxResults: number): string {
   const location = locationText(plan)
   const intent = requestedOpportunityIntent(plan)
-  const intentText = intent ? INTENT_DESCRIPTIONS[intent] : 'personally express the need or interest described in the search topic'
+  const guidance = (intent && INTENT_GUIDANCE[intent]) || GENERIC_GUIDANCE
+  const market = location ? location.split(',')[0]?.trim() || location : 'the area'
+  const phrases = guidance.phrases.replace(/<market>/g, market)
   return [
-    'You are a research assistant retrieving recent public X posts. Use the X search tool.',
+    `You are a research assistant finding recent public X posts by ordinary people. Use the X search tool several times (you have up to ${XAI_MAX_TURNS} turns): search in Latest mode, include replies, and try distinct first-person phrasings such as ${phrases}${location ? ` combined with ${market} or its nearby suburbs` : ''}. Prefer posts from personal accounts over businesses.`,
     `Search topic: ${query}`,
-    location ? `Geography: ${location}. Keep only posts whose text or context shows the author is in or moving to this area.` : '',
-    `Keep only posts where the author, speaking for themselves, ${intentText}.`,
-    'Exclude posts by real estate agents, brokers, lenders, listing feeds, advertisers, news accounts, bots, and anything that mentions bereavement, divorce, foreclosure, bankruptcy, medical or financial hardship, or other sensitive personal circumstances.',
-    `Return ONLY a JSON object of the form {"posts":[{"url":"https://x.com/<handle>/status/<id>","handle":"<handle>","text":"<verbatim post text, max 500 chars>","why":"<one sentence>"}]} with at most ${maxResults} posts.`,
-    'Only include posts you actually retrieved with the X search tool. Never invent, paraphrase, or guess URLs. If nothing qualifies return {"posts":[]}.',
+    location ? `Geography: ${location}.` : '',
+    `Goal: posts where ${guidance.goal} within the last ${windowDays(plan)} days. Include a post when it is plausibly relevant; do not require certainty, a downstream human review makes the final call. Exclude agents, brokers, lenders, listing feeds, advertisers, news accounts, market commentary, and bots.`,
+    'Skip posts about bereavement, divorce, foreclosure, bankruptcy, medical or financial hardship, or other sensitive personal circumstances.',
+    `Return ONLY a JSON object of the form {"posts":[{"url":"https://x.com/<handle>/status/<id>","handle":"<handle>","text":"<verbatim post text, max 500 chars>","first_person":true,"location_evidence":"<the words that place the author in the area>","why":"<one sentence>"}]} with up to ${maxResults} posts, most relevant first.`,
+    'Only include posts you actually retrieved with the X search tool. Never invent, paraphrase, or guess URLs. If nothing at all is relevant return {"posts":[]}.',
   ].filter(Boolean).join('\n')
 }
 
