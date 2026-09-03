@@ -145,6 +145,11 @@ type CriterionDefinition = QualificationProfile['criteria'][number] & {
   employeeRange?: boolean
   exclusion?: boolean
   recencyDays?: number
+  // Listing and profile observations (a Maps listing, a company search hit,
+  // a fixture row) are current by construction: the provider returned them
+  // as they stand right now, so retrieval time is an honest age. Content
+  // (posts, comments, reactions) is not, and needs a platform timestamp.
+  retrievalIsCurrent?: boolean
 }
 
 function result(
@@ -1267,6 +1272,7 @@ function compileDefinitions(play: FitPlayInput, candidateKind: Candidate['entity
       expected: [`within ${maxAge} days`],
       fields: [],
       recencyDays: maxAge,
+      retrievalIsCurrent: candidateKind !== 'opportunity',
     })
   }
   return definitions
@@ -1375,12 +1381,29 @@ function evaluateCriterion(
       newestObserved == null || referenceTime == null
         ? null
         : Math.max(0, (referenceTime.getTime() - newestObserved) / 86_400_000)
+    // Evidence that is content (an engagement, a post, a comment) with no
+    // platform timestamp can never read as fresh. A listing observed now can.
+    const undatedContentEvidence = evidence.some((row) => {
+      const detail = (row.detail ?? {}) as Record<string, unknown>
+      const contentMarker =
+        detail.engagement_kind != null
+        || detail.provider_post_id != null
+        || detail.post_url != null
+        || detail.source_post_url != null
+        || detail.post_content != null
+        || detail.commentary != null
+        || detail.comment_text != null
+        || detail.reaction_type != null
+      return contentMarker && evidencePublishedAt(row) == null
+    })
     const status: CriterionStatus =
       publishedAgeDays != null
         ? publishedAgeDays <= definition.recencyDays ? 'pass' : 'fail'
         : retrievalAgeDays != null && retrievalAgeDays > definition.recencyDays
           ? 'fail'
-          : 'unknown'
+          : retrievalAgeDays != null && definition.retrievalIsCurrent && !undatedContentEvidence
+            ? 'pass'
+            : 'unknown'
     return {
       id: definition.id,
       dimension: definition.dimension,
