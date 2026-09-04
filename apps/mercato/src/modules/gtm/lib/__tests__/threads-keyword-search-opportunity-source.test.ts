@@ -6,6 +6,7 @@ import {
   createThreadsKeywordSearchAdapter,
   normalizeThreadsKeywordSearchItem,
   safeThreadsUrl,
+  threadsConnectionEnabled,
   threadsKeywordSearchEnabled,
 } from '../adapters/threads/keyword-search-opportunity-source'
 import type { ThreadsConnectionAccess } from '../adapters/threads/connection'
@@ -113,6 +114,14 @@ describe('official Threads keyword-search opportunity source', () => {
     expect(threadsKeywordSearchEnabled({ ...approvedEnv, GTM_THREADS_KEYWORD_SEARCH_APP_REVIEW_APPROVED: 'false' })).toBe(false)
     expect(threadsKeywordSearchEnabled({ ...approvedEnv, GTM_THREADS_TERMS_VERSION: 'stale' })).toBe(false)
     expect(threadsKeywordSearchEnabled({ ...approvedEnv, GTM_THREADS_KEYWORD_SEARCH_PRICE_VERSION: 'stale' })).toBe(false)
+  })
+
+  it('lets customers connect an account before App Review while search stays gated on approval', () => {
+    const preApproval = { ...approvedEnv, GTM_THREADS_KEYWORD_SEARCH_APP_REVIEW_APPROVED: 'false' }
+    expect(threadsConnectionEnabled(preApproval)).toBe(true)
+    expect(threadsKeywordSearchEnabled(preApproval)).toBe(false)
+    expect(threadsConnectionEnabled({ ...preApproval, GTM_THREADS_APP_SECRET: '' })).toBe(false)
+    expect(threadsConnectionEnabled({ ...preApproval, GTM_THREADS_CUSTOMER_USE_APPROVED: 'false' })).toBe(false)
   })
 
   it('quotes one zero-dollar call unit per lane and declares consumer manual-only rights', () => {

@@ -12,7 +12,7 @@ import {
   sealThreadsToken,
   threadsAppConfig,
 } from '../../lib/adapters/threads/connection'
-import { threadsKeywordSearchEnabled } from '../../lib/adapters/threads/keyword-search-opportunity-source'
+import { threadsConnectionEnabled } from '../../lib/adapters/threads/keyword-search-opportunity-source'
 import {
   isThreadsOAuthState,
   returnWithOutcome,
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
   const back = (outcome: 'connected' | 'error', detail?: string) =>
     NextResponse.redirect(returnWithOutcome(returnTo, outcome, detail))
 
-  if (!gtmEnabled() || !threadsKeywordSearchEnabled()) return back('error', 'threads_disabled')
+  if (!gtmEnabled() || !threadsConnectionEnabled()) return back('error', 'threads_disabled')
   const app = threadsAppConfig()
   if (!app) return back('error', 'not_configured')
 

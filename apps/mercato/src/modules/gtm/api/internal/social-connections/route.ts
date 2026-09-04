@@ -12,7 +12,10 @@ import {
   threadsAppConfig,
   threadsAuthorizeUrl,
 } from '../../../lib/adapters/threads/connection'
-import { threadsKeywordSearchEnabled } from '../../../lib/adapters/threads/keyword-search-opportunity-source'
+import {
+  threadsConnectionEnabled,
+  threadsKeywordSearchEnabled,
+} from '../../../lib/adapters/threads/keyword-search-opportunity-source'
 import { threadsCallbackUrl, validatedReturnTo, THREADS_OAUTH_STATE_KIND } from '../../../lib/social/threads-oauth'
 
 export const openApi = gtmInternalOpenApi('Manage official social-platform connections for GTM sources')
@@ -95,7 +98,8 @@ export async function POST(req: Request) {
       )
       return NextResponse.json({
         ok: true,
-        threads_available: threadsKeywordSearchEnabled(),
+        threads_available: threadsConnectionEnabled(),
+        threads_search_approved: threadsKeywordSearchEnabled(),
         connections: rows.map((row) => ({
           id: row.id,
           provider: row.provider,
@@ -113,9 +117,9 @@ export async function POST(req: Request) {
     }
 
     if (body.op === 'threads-connect-start') {
-      if (!threadsKeywordSearchEnabled()) {
+      if (!threadsConnectionEnabled()) {
         return NextResponse.json(
-          { ok: false, error: 'Threads keyword search is not enabled for this deployment', code: 'threads_disabled' },
+          { ok: false, error: 'Threads connections are not enabled for this deployment', code: 'threads_disabled' },
           { status: 422 },
         )
       }

@@ -95,8 +95,24 @@ export function threadsKeywordSearchApproved(env: ThreadsEnv = process.env): boo
   )
 }
 
-/** Deployment gate only; a connected customer account is a separate runtime
- *  requirement enforced by the registry. */
+/** Customers may CONNECT a Threads account as soon as the Meta app exists and
+ *  the commercial gates are set. Meta's App Review only gates SEARCHING on
+ *  customers' behalf (below); before approval the connect flow is exactly
+ *  what a tester needs to exercise for the review recording. */
+export function threadsConnectionEnabled(env: ThreadsEnv = process.env): boolean {
+  return (
+    envValue(env, THREADS_ENABLED_ENV) === 'true'
+    && Boolean(envValue(env, 'GTM_THREADS_APP_ID'))
+    && Boolean(envValue(env, 'GTM_THREADS_APP_SECRET'))
+    && envValue(env, THREADS_CUSTOMER_USE_ENV) === 'true'
+    && envValue(env, THREADS_TERMS_VERSION_ENV) === THREADS_REQUIRED_TERMS_VERSION
+    && envValue(env, THREADS_PRICE_VERSION_ENV) === THREADS_REQUIRED_PRICE_VERSION
+  )
+}
+
+/** Deployment gate for the SEARCH source (includes App Review approval); a
+ *  connected customer account is a separate runtime requirement enforced by
+ *  the registry. */
 export function threadsKeywordSearchEnabled(env: ThreadsEnv = process.env): boolean {
   return (
     envValue(env, THREADS_ENABLED_ENV) === 'true'
