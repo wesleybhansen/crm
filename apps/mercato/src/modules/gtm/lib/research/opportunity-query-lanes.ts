@@ -185,6 +185,19 @@ export function opportunitySourceRouting(
     }
   }
 
+  // Production record to 2026-09-05: 251 billed LinkedIn post rows across every
+  // opportunity play, 0 accepted (153 audience mismatch, 60 realtor false
+  // positive, 24 behind the login wall). Posts open only to logged-in members,
+  // so they cannot clear the public-destination check that consumer plays
+  // require. Business plays reach LinkedIn through the company and engagement
+  // adapters; opportunity plays stop paying for this one.
+  if (adapterId === 'apify-linkedin-demand-opportunities') {
+    return {
+      eligible: false,
+      reason: 'LinkedIn posts open only behind a login, so they cannot clear the public-destination check; 251 billed rows have produced no accepted opportunity',
+    }
+  }
+
   // Visual public-post sources run for any consumer play. Non-realtor plays use
   // the generic returned-content filter; the adapter still demands location
   // evidence, so a play needs a real place to search.
@@ -762,6 +775,11 @@ function sourceSeed(
   }
   if (adapterId === 'apify-threads-demand-opportunities') return seed
   if (adapterId === XAI_X_SEARCH_LANE_ADAPTER_ID || adapterId === THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID) {
+    // A market name sharpens a city-level search. For a nationwide play it
+    // produced "United States how to validate business idea", which nobody has
+    // ever posted; the 2026-09-05 benchmark returned zero X posts on exactly
+    // that. Country-level geographies search the seed alone.
+    if (!hasCityLevelGeography(geography)) return seed
     return seed.toLowerCase().includes(market.toLowerCase()) ? seed : `${market} ${seed}`
   }
   if (adapterId === 'apify-instagram-demand-opportunities') return seed

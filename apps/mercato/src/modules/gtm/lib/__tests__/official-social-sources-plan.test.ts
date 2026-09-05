@@ -113,6 +113,19 @@ describe('official X and Threads sources: registry, lanes, routing, and plan', (
     expect(opportunitySourceRouting(realtorPlay, THREADS_KEYWORD_SEARCH_ADAPTER_ID)).toEqual({ eligible: true, reason: null })
   })
 
+  it('names the lanes it had no raw capacity for instead of dropping them silently', () => {
+    const xai = createXaiXSearchOpportunityAdapter({ env: xaiEnv })
+    const threads = createThreadsKeywordSearchAdapter({ env: threadsEnv, connection })
+    const plan = buildSourcePlan(realtorPlay, [xai, threads], { targetAccepted: 5, maxRawCandidates: 1 })
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    const capacity = plan.unsupportedDimensions.filter((entry) => entry.dimension === 'capacity')
+    expect(capacity.length).toBeGreaterThan(0)
+    expect(capacity[0]!.reason).toMatch(/raise maxRawCandidates above 1/)
+    // Still one entry per adapter, never one per lane.
+    expect(new Set(capacity.map((entry) => entry.adapter_id)).size).toBe(capacity.length)
+  })
+
   it('prices both sources into a frozen plan with the Threads lane at the credit floor', () => {
     const xai = createXaiXSearchOpportunityAdapter({ env: xaiEnv })
     const threads = createThreadsKeywordSearchAdapter({ env: threadsEnv, connection })

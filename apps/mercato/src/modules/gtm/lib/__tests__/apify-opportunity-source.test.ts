@@ -291,16 +291,28 @@ describe('Apify demand-opportunity source contract', () => {
       { targetAccepted: 5, maxRawCandidates: 5 },
       2,
     )
-    expect(plan.ok).toBe(true)
-    if (plan.ok) {
-      expect(plan.entityKind).toBe('opportunity')
-      expect(plan.adapterPlan).toHaveLength(1)
-      expect(plan.adapterPlan.reduce((sum, batch) => sum + batch.maxCandidates, 0)).toBe(5)
-      expect(plan.adapterPlan.every((batch) => batch.adapter_id === APIFY_OPPORTUNITY_SOURCE_ADAPTER_ID)).toBe(true)
-      expect(plan.adapterPlan.every((batch) => batch.billableUnit === 'apify_millidollar')).toBe(true)
-      expect(plan.adapterPlan[0].providerUnits).toBeCloseTo(10.05, 10)
-      expect(plan.adapterPlan.map((batch) => batch.queryLaneId)).toEqual(['seller_intent:1'])
+    // Since 2026-09-05 opportunity plays no longer route LinkedIn post search:
+    // 251 billed rows produced no accepted opportunity, because posts open only
+    // behind a login and cannot clear the public-destination check. A plan whose
+    // only source is this adapter therefore fails closed, and says why.
+    expect(plan.ok).toBe(false)
+    if (!plan.ok) {
+      expect(plan.code).toBe('empty_adapter_plan')
+      const linkedin = plan.unsupportedDimensions.find((entry) => entry.adapter_id === APIFY_OPPORTUNITY_SOURCE_ADAPTER_ID)
+      expect(linkedin?.dimension).toBe('source_quality')
+      expect(linkedin?.reason).toMatch(/behind a login/)
     }
+    // The adapter's own metering contract is unchanged and still directly quotable.
+    const quote = adapter.quote({
+      signal_kind: 'social_engagement',
+      entity_unit: 'opportunities',
+      geography: 'US',
+      query: 'selling a home South Bay',
+      provider_query: { search_query: 'selling a home South Bay' },
+      max_candidates: 5,
+    })
+    expect(quote.max_candidates).toBe(5)
+    expect(quote.provider_units).toBeCloseTo(10.05, 10)
   })
 
   it('runs the immutable actor build, settles actual events, and returns bounded opportunities', async () => {

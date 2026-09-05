@@ -177,6 +177,21 @@ describe('non-realtor lanes', () => {
     expect(realtorXai[0]!.providerQuery.generic_filter_keywords).toBeUndefined()
   })
 
+  it('does not glue a country name onto official social searches for nationwide plays', () => {
+    const nationwide = buildOpportunityQueryLanes(nationwideFounderPlay, 'xai-x-search-demand-opportunities')
+    expect(nationwide.length).toBeGreaterThan(0)
+    for (const lane of nationwide) expect(lane.query.toLowerCase()).not.toContain('united states')
+    const city = buildOpportunityQueryLanes(founderPlay, 'xai-x-search-demand-opportunities')
+    expect(city[0]!.query.toLowerCase()).toContain('austin')
+  })
+
+  it('stops planning LinkedIn post search for opportunity plays', () => {
+    const routing = opportunitySourceRouting(founderPlay, 'apify-linkedin-demand-opportunities')
+    expect(routing.eligible).toBe(false)
+    expect(routing.reason).toMatch(/behind a login/)
+    expect(opportunitySourceRouting(realtorPlay, 'apify-linkedin-demand-opportunities').eligible).toBe(false)
+  })
+
   it('draws keywords from the play, not from a vertical', () => {
     const keywords = playFilterKeywords(founderPlay)
     expect(keywords).toContain('side business')

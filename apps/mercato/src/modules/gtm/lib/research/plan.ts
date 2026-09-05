@@ -612,10 +612,25 @@ export function buildSourcePlan(
   })()
 
   let remaining = maxRawCandidates
+  /* Lanes past the raw ceiling used to vanish without a trace: neither planned
+   * nor listed as unsupported, so a source that simply ranked too expensive
+   * looked exactly like one that was never registered. Record the skip once per
+   * adapter so a plan can be read without reasoning backwards from absence. */
+  const capacitySkipped = new Set<string>()
   for (const [index, plannedSource] of plannedSources.entries()) {
     const { adapter } = plannedSource
     const descriptor = adapter.descriptor
-    if (remaining <= 0) continue
+    if (remaining <= 0) {
+      if (!capacitySkipped.has(descriptor.adapter_id)) {
+        capacitySkipped.add(descriptor.adapter_id)
+        unsupportedDimensions.push({
+          adapter_id: descriptor.adapter_id,
+          dimension: 'capacity',
+          reason: `no raw-candidate capacity left for this lane (ranked ${index + 1} of ${plannedSources.length} by quoted cost per expected candidate; raise maxRawCandidates above ${maxRawCandidates} to include it)`,
+        })
+      }
+      continue
+    }
     // Divide the raw ceiling across every covering source. Execution calls
     // them in order and stops as soon as the accepted target is met, so the
     // quote is a maximum while later lanes are adaptive shortfall refills.
