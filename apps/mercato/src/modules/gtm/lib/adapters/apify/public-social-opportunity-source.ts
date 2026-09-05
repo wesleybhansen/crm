@@ -36,6 +36,7 @@ import {
   assessRealtorOpportunitySuitability,
   type DemonstratedOpportunityIntent,
   sensitiveConsumerOpportunityReasons,
+  assessGenericOpportunitySuitability,
 } from '../../research/opportunity-quality'
 import {
   APIFY_REDDIT_URL_HYDRATION_ADAPTER_ID,
@@ -119,23 +120,44 @@ function isSemanticRedditFilterVersion(value: unknown): value is SemanticRedditF
     || value === 'semantic-intent-location-v4'
 }
 
-type MeetupReturnedContentFilterVersion = 'realtor-housing-event-v1'
+/* Generic (non-realtor) returned-content contracts. The realtor versions call the
+ * housing-specific assessor; these call the vertical-agnostic one, which uses
+ * the play's own keywords as the relevance test. Same shape, same fail-closed
+ * behaviour on an unknown version. */
+const GENERIC_EVENT_FILTER_VERSION = 'generic-public-event-v1'
+const GENERIC_POST_FILTER_VERSION = 'generic-public-post-v1'
+const GENERIC_THREAD_FILTER_VERSION = 'generic-thread-v1'
+
+function genericFilterKeywords(plan: SourceSearchPlan): string[] {
+  const values = plan.provider_query?.generic_filter_keywords
+  return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string').slice(0, 12) : []
+}
+
+/* A nationwide play cannot be held to a returned-location match: "United States"
+ * almost never appears in a post. City-level requests keep the strict check. */
+function isCountryLevelLocation(value: string | null): boolean {
+  if (!value) return true
+  return /^\s*(?:united states(?: of america)?|usa?|u\.s\.a?\.?|nationwide|national)\s*$/i.test(value)
+    || value.split(',').map((part) => part.trim()).filter(Boolean).length < 2
+}
+
+type MeetupReturnedContentFilterVersion = 'realtor-housing-event-v1' | typeof GENERIC_EVENT_FILTER_VERSION
 
 function isMeetupReturnedContentFilterVersion(
   value: unknown,
 ): value is MeetupReturnedContentFilterVersion {
-  return value === 'realtor-housing-event-v1'
+  return value === 'realtor-housing-event-v1' || value === GENERIC_EVENT_FILTER_VERSION
 }
 
-type EventbriteReturnedContentFilterVersion = 'realtor-public-event-v2'
+type EventbriteReturnedContentFilterVersion = 'realtor-public-event-v2' | typeof GENERIC_EVENT_FILTER_VERSION
 
 function isEventbriteReturnedContentFilterVersion(
   value: unknown,
 ): value is EventbriteReturnedContentFilterVersion {
-  return value === 'realtor-public-event-v2'
+  return value === 'realtor-public-event-v2' || value === GENERIC_EVENT_FILTER_VERSION
 }
 
-type SocialReturnedContentFilterVersion = 'realtor-public-post-v2'
+type SocialReturnedContentFilterVersion = 'realtor-public-post-v2' | typeof GENERIC_POST_FILTER_VERSION
 type RequiredOpportunityIntent = Exclude<DemonstratedOpportunityIntent, null>
 
 function isRequiredOpportunityIntent(value: unknown): value is RequiredOpportunityIntent {
@@ -148,7 +170,7 @@ function isRequiredOpportunityIntent(value: unknown): value is RequiredOpportuni
 function isSocialReturnedContentFilterVersion(
   value: unknown,
 ): value is SocialReturnedContentFilterVersion {
-  return value === 'realtor-public-post-v2'
+  return value === 'realtor-public-post-v2' || value === GENERIC_POST_FILTER_VERSION
 }
 
 function validateSocialReturnedContentFilter(plan: SourceSearchPlan): void {
@@ -195,7 +217,7 @@ function redditFilterKeywords(plan: SourceSearchPlan): string[] {
 function validateRedditReturnedContentFilter(plan: SourceSearchPlan): void {
   const version = plan.provider_query?.reddit_returned_content_filter_version
   if (version == null) return
-  if (!isSemanticRedditFilterVersion(version)) {
+  if (!isSemanticRedditFilterVersion(version) && version !== GENERIC_THREAD_FILTER_VERSION) {
     throw new TypeError('unsupported Reddit returned-content filter version')
   }
   const intent = plan.provider_query?.reddit_filter_required_intent
@@ -209,6 +231,25 @@ function validateRedditReturnedContentFilter(plan: SourceSearchPlan): void {
 
 function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSearchPlan): boolean {
   const filterVersion = plan.provider_query?.reddit_returned_content_filter_version
+  if (filterVersion === GENERIC_THREAD_FILTER_VERSION) {
+    const content = [candidate.identity.name, candidate.identity.audience_description]
+      .filter((value): value is string => typeof value === 'string')
+      .join(' ')
+    const expected = plan.provider_query?.reddit_filter_required_intent
+    if (!isRequiredOpportunityIntent(expected)) return false
+    if (plan.provider_query?.reddit_filter_require_location === true) {
+      const requestedLocation = locationText(plan)
+      if (!isCountryLevelLocation(requestedLocation)) {
+        const located = Boolean(
+          requestedLocation
+          && (candidate.identity.location === requestedLocation
+            || demonstratedOpportunityLocation(content, requestedLocation)),
+        )
+        if (!located) return false
+      }
+    }
+    return assessGenericOpportunitySuitability(content, expected, genericFilterKeywords(plan), 'thread').relevant
+  }
   if (isSemanticRedditFilterVersion(filterVersion)) {
     const content = [candidate.identity.name, candidate.identity.audience_description]
       .filter((value): value is string => typeof value === 'string')
@@ -260,12 +301,14 @@ function returnedContentMatchesRedditFilter(candidate: Candidate, plan: SourceSe
 }
 
 function returnedContentMatchesMeetupFilter(candidate: Candidate, plan: SourceSearchPlan): boolean {
-  if (!isMeetupReturnedContentFilterVersion(
-    plan.provider_query?.meetup_returned_content_filter_version,
-  )) return false
+  const version = plan.provider_query?.meetup_returned_content_filter_version
+  if (!isMeetupReturnedContentFilterVersion(version)) return false
   const content = [candidate.identity.name, candidate.identity.audience_description]
     .filter((value): value is string => typeof value === 'string')
     .join(' ')
+  if (version === GENERIC_EVENT_FILTER_VERSION) {
+    return assessGenericOpportunitySuitability(content, 'local_audience', genericFilterKeywords(plan), 'event').relevant
+  }
   const sourceUrl = candidate.identity.urls?.find((value) => typeof value === 'string') ?? null
   return assessRealtorOpportunitySuitability(
     content,
@@ -293,7 +336,8 @@ function assessReturnedContentEventbriteFilter(
   const returnedStructuredLocation = [candidate.identity.city, candidate.identity.region]
     .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
     .join(', ')
-  const locationMatches = Boolean(
+  const genericEvent = plan.provider_query?.eventbrite_returned_content_filter_version === GENERIC_EVENT_FILTER_VERSION
+  const locationMatches = (genericEvent && isCountryLevelLocation(requestedLocation)) || Boolean(
     requestedLocation
     && (
       candidate.identity.location === requestedLocation
@@ -302,6 +346,10 @@ function assessReturnedContentEventbriteFilter(
     ),
   )
   if (!locationMatches) return { matches: false, reasons: ['missing_returned_location_evidence'] }
+  if (plan.provider_query?.eventbrite_returned_content_filter_version === GENERIC_EVENT_FILTER_VERSION) {
+    const generic = assessGenericOpportunitySuitability(content, expected, genericFilterKeywords(plan), 'event')
+    return { matches: generic.relevant, reasons: generic.relevant ? [] : generic.reasons }
+  }
   const sourceUrl = candidate.identity.urls?.find((value) => typeof value === 'string') ?? null
   const suitability = assessRealtorOpportunitySuitability(
     content,
@@ -345,7 +393,14 @@ function assessReturnedContentSocialFilter(
       || demonstratedOpportunityLocation(content, requestedLocation)
     ),
   )
-  if (!locationMatches) return { matches: false, reasons: ['missing_returned_location_evidence'] }
+  const genericPost = plan.provider_query?.social_returned_content_filter_version === GENERIC_POST_FILTER_VERSION
+  if (!locationMatches && !(genericPost && isCountryLevelLocation(requestedLocation))) {
+    return { matches: false, reasons: ['missing_returned_location_evidence'] }
+  }
+  if (genericPost) {
+    const generic = assessGenericOpportunitySuitability(content, expected, genericFilterKeywords(plan), 'post')
+    return { matches: generic.relevant, reasons: generic.relevant ? [] : generic.reasons }
+  }
   const sourceUrl = candidate.identity.urls?.find((value) => typeof value === 'string') ?? null
   const suitability = assessRealtorOpportunitySuitability(
     content,

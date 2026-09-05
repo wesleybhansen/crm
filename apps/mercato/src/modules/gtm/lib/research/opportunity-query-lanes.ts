@@ -58,6 +58,54 @@ const REALTOR_NEGATIVE_TERMS = [
 const REALTOR_PLAY =
   /\b(?:realtor|real estate|homeowners?|home ?buyers?|home ?sellers?|buy(?:ing)? a home|sell(?:ing)? a home|homeownership|housing)\b/i
 
+/* ── Generic (non-realtor) consumer plays ─────────────────────────────────
+ * The realtor lanes carry frozen phrase banks, subreddits and housing filters
+ * that were benchmarked on homebuyer audiences. A non-realtor consumer play
+ * gets none of that. What it does get: its OWN words as the relevance filter,
+ * any subreddit it names as the Reddit scope, and the generic returned-content
+ * filter versions the adapters now accept. Sources whose query syntax is a
+ * residential phrase bank (fresh Reddit, posted-after Reddit, the calibrated
+ * Reddit API lane) stay realtor-only; there is no honest generic phrasing for
+ * them yet. */
+
+export const GENERIC_EVENT_FILTER_VERSION = 'generic-public-event-v1'
+export const GENERIC_POST_FILTER_VERSION = 'generic-public-post-v1'
+export const GENERIC_THREAD_FILTER_VERSION = 'generic-thread-v1'
+const GENERIC_STOP_WORDS = new Set([
+  'about', 'after', 'also', 'and', 'are', 'asking', 'being', 'business', 'customers', 'for', 'from',
+  'have', 'into', 'more', 'people', 'public', 'publicly', 'recent', 'recently', 'that', 'the', 'their',
+  'them', 'they', 'this', 'those', 'through', 'with', 'your', 'you', 'united', 'states', 'who', 'what',
+  'when', 'where', 'which', 'looking', 'seeking', 'discussing', 'sharing', 'asked',
+])
+
+export function playFilterKeywords(play: PlanPlayInput): string[] {
+  const query = play.providerQuery ?? {}
+  const supplied = [...values(query.audience_keywords), ...values(query.source_search_keywords)]
+    .map((value) => value.toLowerCase().trim())
+    .filter(Boolean)
+  const authored = [play.audience, play.signal]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length >= 5 && !GENERIC_STOP_WORDS.has(word))
+  return unique([...supplied, ...authored]).slice(0, 12)
+}
+
+export function playNamedSubreddits(play: PlanPlayInput): string[] {
+  const query = play.providerQuery ?? {}
+  const text = [play.audience, play.signal, play.sourceHint, ...values(query.source_search_keywords), ...values(query.audience_keywords)]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+  const found = [...text.matchAll(/(?:^|[^a-z0-9])r\/([a-z0-9_]{2,50})/gi)].map((match) => match[1])
+  return unique(found)
+}
+
+export function hasCityLevelGeography(geography: string | null | undefined): boolean {
+  return sourceLocation((geography ?? '').trim()).split(',').map((value) => value.trim()).filter(Boolean).length >= 2
+}
+
 function values(value: unknown): string[] {
   if (typeof value === 'string' && value.trim()) return [value.trim()]
   if (!Array.isArray(value)) return []
@@ -137,15 +185,19 @@ export function opportunitySourceRouting(
     }
   }
 
+  // Visual public-post sources run for any consumer play. Non-realtor plays use
+  // the generic returned-content filter; the adapter still demands location
+  // evidence, so a play needs a real place to search.
   if (
     (adapterId === 'apify-instagram-demand-opportunities'
       || adapterId === 'apify-tiktok-demand-opportunities'
       || adapterId === 'apify-facebook-demand-opportunities')
     && !realtor
+    && !hasCityLevelGeography(play.geography)
   ) {
     return {
       eligible: false,
-      reason: 'the initial public-post contract is limited to realtor buyer, seller, mixed, and local-audience plays',
+      reason: 'public-post sourcing needs a city-level geography to match returned locations against',
     }
   }
 
@@ -157,14 +209,25 @@ export function opportunitySourceRouting(
   }
 
   if (
-    (adapterId === 'apify-reddit-thread-demand-opportunities'
-      || adapterId === 'apify-reddit-fresh-demand-opportunities'
+    (adapterId === 'apify-reddit-fresh-demand-opportunities'
       || adapterId === 'apify-reddit-posted-after-demand-opportunities')
     && (!realtor || intent === 'local_audience')
   ) {
     return {
       eligible: false,
-      reason: 'the governed Reddit post contracts are limited to realtor buyer, seller, and mixed-intent plays',
+      reason: 'the fresh and posted-after Reddit contracts use residential phrase banks and are limited to realtor buyer, seller, and mixed-intent plays',
+    }
+  }
+  if (adapterId === 'apify-reddit-thread-demand-opportunities' && intent === 'local_audience') {
+    return {
+      eligible: false,
+      reason: 'Reddit thread sourcing is limited to buyer, seller, and mixed-intent lanes',
+    }
+  }
+  if (adapterId === 'apify-reddit-thread-demand-opportunities' && !realtor && playNamedSubreddits(play).length === 0) {
+    return {
+      eligible: false,
+      reason: 'Reddit thread sourcing for a non-realtor play needs the play to name the public subreddit to search',
     }
   }
 
@@ -189,20 +252,20 @@ export function opportunitySourceRouting(
     }
   }
 
+  if (adapterId === 'apify-meetup-demand-opportunities' && intent !== 'local_audience') {
+    return {
+      eligible: false,
+      reason: 'Meetup is limited to public local-audience events',
+    }
+  }
   if (
-    adapterId === 'apify-meetup-demand-opportunities'
-    && (intent !== 'local_audience' || !realtor)
+    (adapterId === 'apify-meetup-demand-opportunities' || adapterId === 'apify-eventbrite-demand-opportunities')
+    && !realtor
+    && !hasCityLevelGeography(play.geography)
   ) {
     return {
       eligible: false,
-      reason: 'Meetup is limited to realtor public local-audience events under the frozen housing-event filter contract',
-    }
-  }
-
-  if (adapterId === 'apify-eventbrite-demand-opportunities' && !realtor) {
-    return {
-      eligible: false,
-      reason: 'the initial Eventbrite contract is limited to realtor buyer, seller, mixed, and local-audience public events',
+      reason: 'public event sourcing needs a city and state to search around',
     }
   }
 
@@ -782,7 +845,9 @@ export function buildOpportunityQueryLanes(
           : 3
   const laneCap = Math.max(1, Math.min(maxLanes, sourceLaneCap))
   const selectedSeeds = seeds.slice(0, laneCap)
-  const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : []
+  const negativeTerms = realtor ? REALTOR_NEGATIVE_TERMS : values(providerQuery.negative_terms).slice(0, 5)
+  const genericKeywords = realtor ? [] : playFilterKeywords(play)
+  const genericSubreddits = realtor ? [] : playNamedSubreddits(play)
   return selectedSeeds.map((seed, index) => {
     const id = `${intent}:${index + 1}`
     const query = queryFor({ adapterId, geography, seed })
@@ -856,7 +921,8 @@ export function buildOpportunityQueryLanes(
               meetup_window_days: 30,
               meetup_min_rsvp_count: 1,
               meetup_sort: 'RELEVANCE',
-              meetup_returned_content_filter_version: 'realtor-housing-event-v1',
+              meetup_returned_content_filter_version: realtor ? 'realtor-housing-event-v1' : GENERIC_EVENT_FILTER_VERSION,
+              ...(realtor ? {} : { generic_filter_keywords: genericKeywords }),
             }
           : {}),
         ...(adapterId === 'apify-eventbrite-demand-opportunities'
@@ -866,8 +932,9 @@ export function buildOpportunityQueryLanes(
               eventbrite_window_days: 30,
               eventbrite_fetch_details: true,
               eventbrite_max_pages: 3,
-              eventbrite_returned_content_filter_version: 'realtor-public-event-v2',
+              eventbrite_returned_content_filter_version: realtor ? 'realtor-public-event-v2' : GENERIC_EVENT_FILTER_VERSION,
               eventbrite_filter_required_intent: intent,
+              ...(realtor ? {} : { generic_filter_keywords: genericKeywords }),
             }
           : {}),
         ...(adapterId === XAI_X_SEARCH_LANE_ADAPTER_ID
@@ -904,10 +971,11 @@ export function buildOpportunityQueryLanes(
           || adapterId === 'apify-facebook-demand-opportunities'
           ? {
               social_public_post_contract_version: 'public-posts-v1',
-              social_returned_content_filter_version: 'realtor-public-post-v2',
+              social_returned_content_filter_version: realtor ? 'realtor-public-post-v2' : GENERIC_POST_FILTER_VERSION,
               social_filter_required_intent: intent,
               social_filter_require_location: true,
               social_window_days: 30,
+              ...(realtor ? {} : { generic_filter_keywords: genericKeywords }),
               ...(adapterId === 'apify-facebook-demand-opportunities'
                 ? {
                     facebook_search_contract_version: 'public-search-posts-v1',
@@ -919,13 +987,15 @@ export function buildOpportunityQueryLanes(
         ...(adapterId === 'apify-reddit-thread-demand-opportunities'
           ? {
               reddit_thread_contract_version: 'public-post-comments-v2',
-              reddit_returned_content_filter_version: 'semantic-intent-location-v3',
+              reddit_returned_content_filter_version: realtor ? 'semantic-intent-location-v3' : GENERIC_THREAD_FILTER_VERSION,
               reddit_filter_required_intent: intent,
               reddit_filter_require_location: false,
-              reddit_subreddits:
-                index === 1
+              reddit_subreddits: realtor
+                ? index === 1
                   ? realtorMarketSubreddits(geography).slice(1, 2)
-                  : realtorMarketSubreddits(geography).slice(0, 1),
+                  : realtorMarketSubreddits(geography).slice(0, 1)
+                : genericSubreddits.slice(index % Math.max(1, genericSubreddits.length), index % Math.max(1, genericSubreddits.length) + 1),
+              ...(realtor ? {} : { generic_filter_keywords: genericKeywords }),
               reddit_auto_discover: false,
               reddit_global_search: false,
             }

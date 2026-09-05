@@ -173,13 +173,24 @@ describe('Apify Eventbrite public event opportunities', () => {
     )).toBe(true)
   })
 
-  it('does not route generic non-realtor events through the initial contract', () => {
-    expect(opportunitySourceRouting({
+  it('routes non-realtor events on the generic contract when the play has a city to search', () => {
+    // Since 2026-09-05. The realtor filter contract stays realtor-only; a generic
+    // consumer play gets the generic public-event filter keyed on its own words.
+    const liveMusic = {
       audience: 'Austin live-music fans',
       signal: 'People gathering at current public concerts',
       geography: 'Austin, Texas',
       providerQuery: { opportunity_intent_lane: 'local_audience' },
-    }, APIFY_EVENTBRITE_OPPORTUNITY_CONFIG.adapterId).eligible).toBe(false)
+    }
+    expect(opportunitySourceRouting(liveMusic, APIFY_EVENTBRITE_OPPORTUNITY_CONFIG.adapterId).eligible).toBe(true)
+    const lane = buildOpportunityQueryLanes(liveMusic, APIFY_EVENTBRITE_OPPORTUNITY_CONFIG.adapterId)[0]!
+    expect(lane.providerQuery.eventbrite_returned_content_filter_version).toBe('generic-public-event-v1')
+    expect(Array.isArray(lane.providerQuery.generic_filter_keywords)).toBe(true)
+    // Eventbrite needs a city and state; a nationwide play cannot use it.
+    expect(opportunitySourceRouting(
+      { ...liveMusic, geography: 'United States' },
+      APIFY_EVENTBRITE_OPPORTUNITY_CONFIG.adapterId,
+    ).eligible).toBe(false)
   })
 
   it('caps the quote and actor input at ten and reconciles the finalized event receipt', async () => {

@@ -177,14 +177,23 @@ describe('Apify Meetup public event opportunities', () => {
       && lane.providerQuery.meetup_sort === 'RELEVANCE'
       && lane.providerQuery.meetup_returned_content_filter_version === 'realtor-housing-event-v1'
     )).toBe(true)
+    // Since 2026-09-05 a non-realtor local-audience play with a city-level
+    // geography is routed too, on the generic public-event filter contract.
+    // A nationwide one is not: Meetup needs a city and state to search around.
+    const liveMusic = {
+      audience: 'Austin residents looking for local live music',
+      signal: 'People gathering at current public concerts',
+      geography: 'Austin, Texas',
+      providerQuery: { opportunity_intent_lane: 'local_audience' },
+    }
+    expect(opportunitySourceRouting(liveMusic, APIFY_MEETUP_OPPORTUNITY_CONFIG.adapterId).eligible).toBe(true)
+    expect(
+      buildOpportunityQueryLanes(liveMusic, APIFY_MEETUP_OPPORTUNITY_CONFIG.adapterId)[0]!.providerQuery
+        .meetup_returned_content_filter_version,
+    ).toBe('generic-public-event-v1')
     expect(
       opportunitySourceRouting(
-        {
-          audience: 'Austin residents looking for local live music',
-          signal: 'People gathering at current public concerts',
-          geography: 'Austin, Texas',
-          providerQuery: { opportunity_intent_lane: 'local_audience' },
-        },
+        { ...liveMusic, geography: 'United States' },
         APIFY_MEETUP_OPPORTUNITY_CONFIG.adapterId,
       ).eligible,
     ).toBe(false)
@@ -374,6 +383,41 @@ describe('Apify Meetup public event opportunities', () => {
         returned_content_filter_version: 'realtor-housing-event-v1',
         returned_content_filtered_rows: 1,
       }),
+    })
+  })
+
+  it('accepts the generic public-event filter and keeps only events that match the play\'s own words', async () => {
+    const rows = [
+      meetupEvent({ title: 'Founder pitch night: validate your side business idea', description: 'Meet other first-time founders in Austin.', searchKeyword: 'founder meetup', groupName: 'Austin Founders' }),
+      meetupEvent({ id: 'event-999', eventUrl: 'https://www.meetup.com/austin-foodies/events/999/', title: 'Downtown taco crawl', description: 'Tacos with friends.', searchKeyword: 'founder meetup', groupName: 'Austin Foodies' }),
+    ]
+    const runActor = jest.fn(async () => outcome(rows[0]!, {
+      items: rows,
+      itemCount: rows.length,
+      chargedEventCounts: { 'event-scraped': rows.length },
+    }))
+    const result = await createApifyMeetupOpportunityAdapter({ env: approvedEnv(), now, runActor })
+      .search({
+        ...plan,
+        query: 'founder meetup',
+        provider_query: {
+          ...plan.provider_query,
+          search_query: 'founder meetup',
+          source_search_keywords: ['founder meetup'],
+          meetup_returned_content_filter_version: 'generic-public-event-v1',
+          generic_filter_keywords: ['side business', 'first-time founder', 'validate your idea'],
+        },
+      })
+
+    expect(runActor).toHaveBeenCalledTimes(1)
+    // One billed row was filtered on returned content, which the adapter reports as partial.
+    expect(result.status).toBe('partial')
+    const names = (result.data ?? []).map((candidate) => candidate.identity.name)
+    expect(names).toEqual(['Founder pitch night: validate your side business idea'])
+    expect(result.receipt).toMatchObject({
+      returned_content_filter_version: 'generic-public-event-v1',
+      returned_content_filtered_rows: 1,
+      returned_content_filter_reasons: { returned_content_semantic_mismatch: 1 },
     })
   })
 

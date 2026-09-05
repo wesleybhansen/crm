@@ -139,7 +139,7 @@ describe('Apify Facebook public-post opportunities', () => {
     })).toBe(false)
   })
 
-  it('routes only realtor plays and emits three frozen source-specific lanes', () => {
+  it('routes realtor plays on the realtor contract and generic city plays on the generic one', () => {
     const realtorPlay = {
       audience: 'Austin first-time home buyers',
       signal: 'People publicly asking for help buying a home',
@@ -167,13 +167,21 @@ describe('Apify Facebook public-post opportunities', () => {
       && lane.providerQuery.social_filter_require_location === true
       && lane.providerQuery.social_window_days === 30
     )).toBe(true)
+    // Since 2026-09-05 a non-realtor play with a city to search is routed too, on
+    // the generic public-post filter; a nationwide one is not.
+    const diners = {
+      audience: 'Austin restaurant diners',
+      signal: 'People discussing dinner plans',
+      geography: 'Austin, Texas',
+      providerQuery: { opportunity_intent_lane: 'local_audience' },
+    }
+    expect(opportunitySourceRouting(diners, APIFY_FACEBOOK_OPPORTUNITY_CONFIG.adapterId).eligible).toBe(true)
+    expect(
+      buildOpportunityQueryLanes(diners, APIFY_FACEBOOK_OPPORTUNITY_CONFIG.adapterId)[0]!.providerQuery
+        .social_returned_content_filter_version,
+    ).toBe('generic-public-post-v1')
     expect(opportunitySourceRouting(
-      {
-        audience: 'Austin restaurant diners',
-        signal: 'People discussing dinner plans',
-        geography: 'Austin, Texas',
-        providerQuery: { opportunity_intent_lane: 'local_audience' },
-      },
+      { ...diners, geography: 'United States' },
       APIFY_FACEBOOK_OPPORTUNITY_CONFIG.adapterId,
     ).eligible).toBe(false)
   })

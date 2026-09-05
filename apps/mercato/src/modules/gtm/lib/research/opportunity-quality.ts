@@ -1229,3 +1229,71 @@ export function rankOpportunityCandidates<T extends Pick<Candidate, 'entity_kind
     )
     .map((row) => row.candidate)
 }
+
+/* ── Generic consumer suitability ─────────────────────────────────────────
+ *
+ * The realtor assessor above is housing-specific by design: it knows what a
+ * homebuyer question looks like. Every other consumer vertical was locked out of
+ * the events, visual-social and Reddit-thread sources because those adapters
+ * accepted only the realtor filter contracts. This is the vertical-agnostic
+ * counterpart. It is deliberately conservative: a returned item must mention
+ * something the PLAY itself named (its own audience keywords and search
+ * phrases), must not read as promotion, and must show the intent the lane asked
+ * for, where a public question in a thread or post counts as buyer intent.
+ * It never invents a vertical; the play's own words are the relevance test. */
+
+export type GenericOpportunitySuitability = { relevant: boolean; reasons: string[] }
+
+const GENERIC_PROMOTIONAL_NOISE =
+  /\b(?:sponsored|promo code|discount code|use code|coupon|affiliate link|giveaway|we(?:'| a)re hiring|now hiring|job opening|apply now|limited time offer|flash sale)\b/i
+const GENERIC_PARTICIPATION_VENUE = new Set(['community', 'forum', 'group', 'event'])
+const GENERIC_QUESTION_SURFACE = new Set(['thread', 'post', 'forum', 'community'])
+
+export function normalizeGenericFilterKeyword(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return normalized.length >= 3 ? normalized : null
+}
+
+export function assessGenericOpportunitySuitability(
+  content: string,
+  expectedIntent: DemonstratedOpportunityIntent,
+  keywords: readonly string[],
+  opportunityKind: string | null = null,
+): GenericOpportunitySuitability {
+  const reasons: string[] = []
+  const material = ` ${content.toLowerCase().replace(/[^a-z0-9 ?]+/g, ' ').replace(/\s+/g, ' ').trim()} `
+  const normalizedKeywords = keywords
+    .map(normalizeGenericFilterKeyword)
+    .filter((value): value is string => value !== null)
+  if (normalizedKeywords.length > 0) {
+    // A whole keyword phrase, or every word of a multi-word phrase, must appear.
+    const hit = normalizedKeywords.some((keyword) => {
+      if (material.includes(` ${keyword} `)) return true
+      const words = keyword.split(' ').filter((word) => word.length >= 4)
+      return words.length >= 2 && words.every((word) => material.includes(` ${word} `))
+    })
+    if (!hit) reasons.push('missing_play_keyword')
+  }
+  if (GENERIC_PROMOTIONAL_NOISE.test(content)) reasons.push('promotional_noise')
+
+  const classified = classifyOpportunityIntent(content).kind
+  const kind = opportunityKind ?? ''
+  const isQuestion = GENERIC_QUESTION_SURFACE.has(kind) && content.includes('?')
+  let laneMatches = true
+  if (expectedIntent === 'local_audience') {
+    laneMatches =
+      GENERIC_PARTICIPATION_VENUE.has(kind)
+      || EDUCATIONAL_EVENT.test(content)
+      || PARTICIPATION_SURFACE.test(content)
+      || classified != null
+  } else if (expectedIntent === 'buyer_intent' || expectedIntent === 'seller_intent' || expectedIntent === 'mixed_intent') {
+    laneMatches =
+      classified === expectedIntent
+      || classified === 'mixed_intent'
+      || (expectedIntent === 'mixed_intent' && (classified === 'buyer_intent' || classified === 'seller_intent'))
+      || (expectedIntent === 'buyer_intent' && isQuestion)
+  }
+  if (!laneMatches) reasons.push('intent_lane_mismatch')
+  return { relevant: reasons.length === 0, reasons }
+}
