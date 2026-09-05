@@ -519,6 +519,23 @@ Browse the full documentation at [docs.openmercato.com](https://docs.openmercato
 - [CLI Reference](https://docs.openmercato.com/cli/overview)
 - [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
 
+## GTM Engineer tests
+
+The GTM module (`apps/mercato/src/modules/gtm/`) has its own regression suite,
+132 files and about 1,460 tests. Run just that suite with:
+
+```bash
+yarn test:gtm-regression
+```
+
+CI runs it in a dedicated job against a real Postgres so the concurrency
+contracts execute rather than skip; locally, without `GTM_TEST_DATABASE_URL`,
+those contracts skip and everything else runs. Note that CI also runs
+`yarn db:migrate` against its throwaway database, which proves the migrations
+work but says nothing about whether they have been applied to production.
+Production migrations are applied by hand (see `ai-context/deploy.md`); the
+applied set is the `mikro_orm_migrations_gtm` table on the box.
+
 ## Spec Driven Development
 
 Open Mercato follows a **spec-first development approach**. Before implementing new features or making significant changes, we document the design in the `.ai/specs/` folder.
