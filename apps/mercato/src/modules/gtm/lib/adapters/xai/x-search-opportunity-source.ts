@@ -430,6 +430,37 @@ const GENERIC_GUIDANCE = {
   phrases: 'quoted first-person phrases people would actually write about the topic',
 }
 
+/* The INTENT_GUIDANCE table above is the realtor calibration: "house hunting",
+ * "selling my house", "HOA". It used to apply to ANY play that named an intent
+ * lane, so a founder-audience play with buyer_intent sent the agent looking for
+ * home buyers, and the run of 2026-09-05 came back with house-hunting posts for
+ * an incubator. The realtor table is now used only when the lane carries the
+ * realtor returned-content contract. Every other play gets guidance built from
+ * its own keywords, which the lanes now pass through. */
+const GENERIC_LANE_GOAL: Record<string, string> = {
+  buyer_intent: 'the author personally wants, is looking for, or is asking how to get what the search topic describes',
+  seller_intent: 'the author is personally trying to sell, offload, or find a buyer for what the search topic describes',
+  mixed_intent: 'the author is personally in the middle of the situation the search topic describes and asking about it',
+  local_audience: 'the author is taking part in, asking about, or organising a public group, event, or community around the search topic',
+}
+
+function isRealtorLane(plan: SourceSearchPlan): boolean {
+  return plan.provider_query?.social_returned_content_filter_version === 'realtor-public-post-v2'
+}
+
+function genericGuidance(plan: SourceSearchPlan, intent: string | null): { goal: string; phrases: string } {
+  const keywords = Array.isArray(plan.provider_query?.generic_filter_keywords)
+    ? (plan.provider_query!.generic_filter_keywords as unknown[])
+        .filter((value): value is string => typeof value === 'string' && value.trim().length >= 3)
+        .slice(0, 6)
+    : []
+  const phrases = keywords.length > 0
+    ? keywords.map((keyword) => `"${keyword.trim()}"`).join(', ')
+    : GENERIC_GUIDANCE.phrases
+  const goal = (intent && GENERIC_LANE_GOAL[intent]) || GENERIC_GUIDANCE.goal
+  return { goal, phrases }
+}
+
 /*
  * The model decides how to search, so the prompt teaches it what worked in
  * the owner calibration (2026-09-03): several searches, latest first, replies
@@ -442,7 +473,9 @@ const GENERIC_GUIDANCE = {
 export function buildXSearchPrompt(plan: SourceSearchPlan, query: string, maxResults: number): string {
   const location = locationText(plan)
   const intent = requestedOpportunityIntent(plan)
-  const guidance = (intent && INTENT_GUIDANCE[intent]) || GENERIC_GUIDANCE
+  const guidance = isRealtorLane(plan) && intent && INTENT_GUIDANCE[intent]
+    ? INTENT_GUIDANCE[intent]
+    : genericGuidance(plan, intent)
   const market = location ? location.split(',')[0]?.trim() || location : 'the area'
   const phrases = guidance.phrases.replace(/<market>/g, market)
   return [

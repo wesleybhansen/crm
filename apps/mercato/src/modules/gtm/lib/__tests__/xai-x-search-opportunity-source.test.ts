@@ -203,11 +203,27 @@ describe('official xAI X Search opportunity source', () => {
     expect(parsed.citedIds.size).toBe(1)
     const claims = extractModelPosts(parsed.text)
     expect(claims).toHaveLength(2)
+    // The realtor phrase bank belongs only to lanes that carry the realtor
+    // returned-content contract. A generic lane must never be told to look for
+    // home buyers: on 2026-09-05 a founder-audience play came back with
+    // house-hunting posts for exactly that reason.
+    const realtorPrompt = buildXSearchPrompt(realtorPlan, 'q', 5)
+    expect(realtorPrompt).toContain('Never invent')
+    expect(realtorPrompt).toContain('Austin, Texas')
+    expect(realtorPrompt).toContain('Latest mode')
+    expect(realtorPrompt).toContain('moving to Austin')
     const prompt = buildXSearchPrompt(genericPlan, 'q', 5)
     expect(prompt).toContain('Never invent')
     expect(prompt).toContain('Austin, Texas')
-    expect(prompt).toContain('Latest mode')
-    expect(prompt).toContain('moving to Austin')
+    expect(prompt).not.toContain('house hunting')
+    expect(prompt).not.toContain('moving to Austin')
+    expect(prompt).toContain('is asking how to get what the search topic describes')
+    const keyworded = buildXSearchPrompt({
+      ...genericPlan,
+      provider_query: { ...genericPlan.provider_query, generic_filter_keywords: ['side business', 'validate my idea', 'first customers'] },
+    }, 'q', 5)
+    expect(keyworded).toContain('"side business", "validate my idea", "first customers"')
+    expect(keyworded).not.toContain('house')
   })
 
   it('returns a cited post as a discovery row priced from the returned usage', async () => {

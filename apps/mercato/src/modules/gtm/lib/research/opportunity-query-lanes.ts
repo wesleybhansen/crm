@@ -948,7 +948,7 @@ export function buildOpportunityQueryLanes(
                     social_filter_required_intent: intent,
                     social_filter_require_location: true,
                   }
-                : {}),
+                : { generic_filter_keywords: genericKeywords }),
             }
           : {}),
         ...(adapterId === THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID
@@ -963,7 +963,7 @@ export function buildOpportunityQueryLanes(
                     social_filter_required_intent: intent,
                     social_filter_require_location: true,
                   }
-                : {}),
+                : { generic_filter_keywords: genericKeywords }),
             }
           : {}),
         ...(adapterId === 'apify-instagram-demand-opportunities'

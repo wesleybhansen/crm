@@ -165,6 +165,18 @@ describe('non-realtor lanes', () => {
     expect(thread[1]!.providerQuery.reddit_subreddits).toEqual(['Entrepreneur'])
   })
 
+  it('hands the play\'s keywords to the official social lanes and keeps the realtor contract off them', () => {
+    const xai = buildOpportunityQueryLanes(founderPlay, 'xai-x-search-demand-opportunities')
+    expect(xai.length).toBeGreaterThan(0)
+    expect(xai[0]!.providerQuery.generic_filter_keywords).toEqual(playFilterKeywords(founderPlay))
+    expect(xai[0]!.providerQuery.social_returned_content_filter_version).toBeUndefined()
+    const threads = buildOpportunityQueryLanes(founderPlay, 'threads-keyword-search-demand-opportunities')
+    expect(threads[0]!.providerQuery.generic_filter_keywords).toEqual(playFilterKeywords(founderPlay))
+    const realtorXai = buildOpportunityQueryLanes(realtorPlay, 'xai-x-search-demand-opportunities')
+    expect(realtorXai[0]!.providerQuery.social_returned_content_filter_version).toBe('realtor-public-post-v2')
+    expect(realtorXai[0]!.providerQuery.generic_filter_keywords).toBeUndefined()
+  })
+
   it('draws keywords from the play, not from a vertical', () => {
     const keywords = playFilterKeywords(founderPlay)
     expect(keywords).toContain('side business')
