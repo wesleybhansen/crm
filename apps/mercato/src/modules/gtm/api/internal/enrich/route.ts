@@ -265,7 +265,28 @@ export async function POST(req: Request) {
             { ...candidateWhere, fitStatus: 'accepted' },
             { orderBy: { fitScore: 'desc', createdAt: 'asc' }, limit: CANDIDATE_CAP },
           )
-    const candidateIds = candidates.map((candidate) => candidate.id)
+    // Optional narrowing to an explicit selection ("find emails for just these
+    // five"). It can only SUBTRACT from the accepted set above, never add to it,
+    // so the play scope, the fit verdicts and the outreach policy still govern.
+    // The plan hash covers the resulting candidate list, so a run must re-plan
+    // whenever the selection changes.
+    const requestedCandidateIds = Array.isArray(body.candidateIds)
+      ? [...new Set(
+          (body.candidateIds as unknown[])
+            .filter((value): value is string => typeof value === 'string' && isUuid(value)),
+        )].slice(0, 500)
+      : null
+    if (requestedCandidateIds && requestedCandidateIds.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: 'No valid candidate ids were selected', code: 'candidate_selection_empty' },
+        { status: 422 },
+      )
+    }
+    const selectionSet = requestedCandidateIds ? new Set(requestedCandidateIds) : null
+    const scopedCandidates = selectionSet
+      ? candidates.filter((candidate) => selectionSet.has(candidate.id))
+      : candidates
+    const candidateIds = scopedCandidates.map((candidate) => candidate.id)
     const contactPoints = candidateIds.length
       ? await em.find(GtmContactPoint, {
           organizationId,
@@ -291,7 +312,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         counts: {
-          acceptedCandidates: candidates.length,
+          acceptedCandidates: scopedCandidates.length,
           contactPoints: contactPoints.length,
           byVerificationState: distribution,
         },
@@ -301,7 +322,7 @@ export async function POST(req: Request) {
     const { enrichAdapterList, verifyAdapterList } = await import('../../../lib/adapters/registry')
     const enrichAdapters = enrichAdapterList()
     const verifyAdapters = verifyAdapterList()
-    let enrichmentCandidates = candidates
+    let enrichmentCandidates = scopedCandidates
     const { APIFY_WEBSITE_EMAIL_ADAPTER_ID } = await import(
       '../../../lib/adapters/apify/website-email'
     )
@@ -335,7 +356,7 @@ export async function POST(req: Request) {
         '../../../lib/enrich/company-domain'
       )
       enrichmentCandidates = inheritUnambiguousCompanyDomains(
-        candidates,
+        scopedCandidates,
         completeRelations,
         parentCandidates,
       )

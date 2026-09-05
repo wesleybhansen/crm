@@ -151,6 +151,8 @@ export const gtmEnrichBodySchema = z.discriminatedUnion('op', [
     runId: idString.optional(),
     workspaceId: idString.optional(),
     playId: idString.optional(),
+    // Optional narrowing to ticked rows. Can only subtract from the accepted set.
+    candidateIds: z.array(idString).max(500).optional(),
   }),
   z.object({
     op: z.literal('run'),
@@ -158,6 +160,7 @@ export const gtmEnrichBodySchema = z.discriminatedUnion('op', [
     runId: idString.optional(),
     workspaceId: idString.optional(),
     playId: idString.optional(),
+    candidateIds: z.array(idString).max(500).optional(),
     maxCredits: z.number().int().min(1).optional(),
     expectedPlanHash: z.string().regex(/^[a-f0-9]{64}$/),
   }),
@@ -167,6 +170,7 @@ export const gtmEnrichBodySchema = z.discriminatedUnion('op', [
     runId: idString.optional(),
     workspaceId: idString.optional(),
     playId: idString.optional(),
+    candidateIds: z.array(idString).max(500).optional(),
   }),
 ])
 
