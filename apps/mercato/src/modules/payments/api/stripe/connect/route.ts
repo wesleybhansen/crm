@@ -139,12 +139,19 @@ export async function POST(req: Request) {
       },
     )
 
-    // Store the payment link on the invoice (don't change status — that happens when user sends email)
-    if (invoiceId) {
-      await knex('invoices').where('id', invoiceId).update({
-        stripe_payment_link: session.url,
-        updated_at: new Date(),
-      })
+    // Store the payment link on the invoice (don't change status — that happens when user sends email).
+    // Only for a checkout that was validated as this org's invoice above: an
+    // invoiceId riding along on a product checkout must never touch an
+    // invoice, and never one outside the caller's organization, or another
+    // tenant's customer ends up paying into this tenant's Stripe account.
+    if (type === 'invoice' && invoiceId) {
+      await knex('invoices')
+        .where('id', invoiceId)
+        .where('organization_id', auth.orgId)
+        .update({
+          stripe_payment_link: session.url,
+          updated_at: new Date(),
+        })
     }
 
     return NextResponse.json({ ok: true, url: session.url, sessionId: session.id })

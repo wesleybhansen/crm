@@ -19,6 +19,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 import { qrSvg } from '@/modules/customers/lib/kiosk-qr'
+import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
@@ -205,7 +206,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     if (!event) return NextResponse.json({ ok: false, error: 'Sign-in link not found' }, { status: 404 })
 
     // Rate limit per IP + token (public, unauthenticated write surface).
-    const ip = (req.headers.get('x-forwarded-for') ?? 'unknown').split(',')[0].trim()
+    // nginx APPENDS the real client to X-Forwarded-For, so entry [0] is whatever
+    // the client sent. Trust exactly one proxy hop, like the dispatcher's limiter.
+    const ip = getClientIp(req, 1) ?? 'unknown'
     if (rateLimited(`${ip}:${token}`)) {
       return NextResponse.json({ ok: false, error: 'Too many sign-ins from this device. Please wait a moment.' }, { status: 429 })
     }

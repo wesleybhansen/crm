@@ -9,7 +9,9 @@ import { join } from 'node:path'
  * coming back.
  */
 const ROOTS = [join(__dirname, '../../../../'), join(__dirname, '../../../../../../../packages/core/src')]
-const PATTERN = /knex\((?:'|")customer_(?:entities|people|companies)(?:'|")\)\s*\.insert\(/
+// Three shapes write PII around the encrypting ORM path: the knex builder, a
+// transaction/builder variable, and raw SQL. All three are forbidden.
+const PATTERN = /(?:(?:knex|trx|\bem\.getKnex\(\))\s*\(\s*(?:'|")customer_(?:entities|people|companies)(?:'|")\s*\)\s*\.insert\(|INSERT\s+INTO\s+customer_(?:entities|people|companies)\b)/i
 
 function walk(dir: string, out: string[]): void {
   for (const name of readdirSync(dir)) {

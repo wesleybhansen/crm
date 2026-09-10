@@ -14,6 +14,8 @@ import { fetchImapInbox, fetchImapSent } from '@/modules/email/lib/imap-service'
 import { upsertInboxConversation } from '@/lib/inbox-conversation'
 import { parseSignature, enrichContactFromSignature } from '@/modules/email/lib/signature-enrichment'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createPersonContact } from '@/modules/customers/lib/contact-write'
+import { findOrMergeContact } from '@/modules/customers/lib/dedup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 
@@ -165,39 +167,36 @@ async function logTimelineRaw(params: {
 // ---------- Contact lookup / creation ----------
 
 async function findOrCreateContact(
-  orgId: string, tenantId: string, email: string, senderName: string, settings: any
+  em: EntityManager, orgId: string, tenantId: string, email: string, senderName: string, settings: any
 ): Promise<{ contactId: string; created: boolean }> {
-  const existing = await queryOne(
-    `SELECT id FROM customer_entities WHERE organization_id = $1 AND primary_email = $2 AND deleted_at IS NULL LIMIT 1`,
-    [orgId, email.toLowerCase()]
-  )
-
-  if (existing) return { contactId: existing.id, created: false }
+  // Contacts are looked up by email hash and written through the ORM so the
+  // tenant-data encryption subscriber runs. The raw SQL this replaced wrote a
+  // plaintext name and email for every inbox sender, outside the encryption
+  // programme and outside the GDPR delete path.
+  const normalized = email.trim().toLowerCase()
+  const found = await findOrMergeContact(em.getKnex(), orgId, tenantId, normalized, senderName, undefined, em)
+  if (found.existing?.id) return { contactId: found.existing.id, created: false }
 
   if (!settings.auto_create_contacts) {
     return { contactId: '', created: false }
   }
 
-  const entityId = crypto.randomUUID()
-  const personId = crypto.randomUUID()
-
   const nameParts = senderName.trim().split(/\s+/)
-  const firstName = nameParts[0] || email.split('@')[0]
+  const firstName = nameParts[0] || normalized.split('@')[0]
   const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : ''
-  const displayName = senderName.trim() || email.split('@')[0]
+  const displayName = senderName.trim() || normalized.split('@')[0]
 
-  await query(
-    `INSERT INTO customer_entities (id, tenant_id, organization_id, kind, display_name, primary_email, source, status, lifecycle_stage, is_active, created_at, updated_at)
-     VALUES ($1, $2, $3, 'person', $4, $5, 'email_inbox', 'active', 'prospect', true, now(), now())`,
-    [entityId, tenantId, orgId, displayName, email.toLowerCase()]
-  )
-
-  await query(
-    `INSERT INTO customer_people (id, tenant_id, organization_id, entity_id, first_name, last_name, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, now(), now())`,
-    [personId, tenantId, orgId, entityId, firstName, lastName]
-  )
-
+  const entityId = await createPersonContact(em, {
+    organizationId: orgId,
+    tenantId,
+    displayName,
+    primaryEmail: normalized,
+    source: 'email_inbox',
+    status: 'active',
+    lifecycleStage: 'prospect',
+    firstName,
+    lastName,
+  })
   return { contactId: entityId, created: true }
 }
 
@@ -421,7 +420,8 @@ async function runSync(
   tenantId: string, orgId: string, userId: string
 ): Promise<{ emailsProcessed: number; contactsCreated: number; errors: string[] }> {
   const container = await createRequestContainer()
-  const knex = (container.resolve('em') as EntityManager).getKnex()
+  const em = container.resolve('em') as EntityManager
+  const knex = em.getKnex()
 
   const settings = await queryOne(
     `SELECT * FROM email_intelligence_settings WHERE organization_id = $1 AND user_id = $2`,
@@ -566,7 +566,7 @@ async function runSync(
 
       // Find or create contact
       const { contactId, created } = await findOrCreateContact(
-        orgId, tenantId, email.fromEmail, email.fromName, settings
+        em, orgId, tenantId, email.fromEmail, email.fromName, settings
       )
 
       if (created) contactsCreated++

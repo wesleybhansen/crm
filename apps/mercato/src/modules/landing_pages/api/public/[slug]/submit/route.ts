@@ -10,6 +10,7 @@ import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
 import { executeAutomationRules } from '@/modules/sequences/lib/automation-execute'
 import { attributeReferral } from '@/modules/customers/api/affiliates/attribute'
 import { bumpDailyStats, readAbArmFromRequest } from '../../../../services/public-serving'
+import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 
 export const metadata = {
   POST: { requireAuth: false, rateLimit: { points: 10, duration: 60, blockDuration: 300, keyPrefix: 'landing-public-submit' } },
@@ -51,7 +52,9 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     if (!page) return NextResponse.json({ ok: false, error: 'Page not found' }, { status: 404 })
 
     // Rate limit per IP + slug (public, unauthenticated spam-relay surface).
-    const ip = (req.headers.get('x-forwarded-for') ?? 'unknown').split(',')[0].trim()
+    // nginx APPENDS the real client to X-Forwarded-For, so entry [0] is whatever
+    // the client sent. Trust exactly one proxy hop, like the dispatcher's limiter.
+    const ip = getClientIp(req, 1) ?? 'unknown'
     if (rateLimited(`${ip}:${params.slug}`)) {
       return NextResponse.json({ ok: false, error: 'Too many submissions. Please try again shortly.' }, { status: 429 })
     }

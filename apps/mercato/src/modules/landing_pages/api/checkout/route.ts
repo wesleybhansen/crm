@@ -2,6 +2,10 @@ export const metadata = { OPTIONS: { requireAuth: true }, POST: { requireAuth: t
 export const openApi = { summary: 'checkout', methods: {} }
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { createPersonContact } from '@/modules/customers/lib/contact-write'
+import { findOrMergeContact } from '@/modules/customers/lib/dedup'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -118,28 +122,29 @@ export async function POST(req: Request) {
       { stripeAccount: stripeConn.stripe_account_id }
     )
 
-    // Create/update contact if email provided
+    // Create/update contact if email provided. Through the ORM helper so the
+    // row is encrypted and deduplicated by email hash, never raw SQL.
     if (email) {
-      const now = new Date()
-      const existing = await queryOne(
-        'SELECT id FROM customer_entities WHERE primary_email = $1 AND organization_id = $2 AND deleted_at IS NULL',
-        [email, product.organization_id]
-      )
-      if (!existing) {
-        const contactId = require('crypto').randomUUID()
-        await query(
-          `INSERT INTO customer_entities (id, tenant_id, organization_id, kind, display_name, primary_email, source, source_details, status, lifecycle_stage, created_at, updated_at)
-           VALUES ($1, $2, $3, 'person', $4, $5, 'landing_page', $6, 'active', 'Customer', $7, $7)`,
-          [contactId, product.tenant_id, product.organization_id, name || email, email, JSON.stringify({ landingPageSlug, productId }), now]
-        )
-        if (name) {
-          const parts = name.split(' ')
-          await query(
-            `INSERT INTO customer_people (id, tenant_id, organization_id, entity_id, first_name, last_name, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
-            [require('crypto').randomUUID(), product.tenant_id, product.organization_id, contactId, parts[0], parts.slice(1).join(' ') || '', now]
-          ).catch(() => {})
-        }
+      const container = await createRequestContainer()
+      const em = container.resolve('em') as EntityManager
+      const normalized = String(email).trim().toLowerCase()
+      const found = await findOrMergeContact(em.getKnex(), product.organization_id, product.tenant_id, normalized, name || undefined, undefined, em)
+      if (!found.existing?.id) {
+        const parts = name ? String(name).trim().split(/\s+/) : []
+        await createPersonContact(em, {
+          organizationId: product.organization_id,
+          tenantId: product.tenant_id,
+          displayName: name || normalized,
+          primaryEmail: normalized,
+          source: 'landing_page',
+          status: 'active',
+          lifecycleStage: 'Customer',
+          firstName: parts[0] ?? null,
+          lastName: parts.length > 1 ? parts.slice(1).join(' ') : null,
+          sourceDetails: { landingPageSlug, productId },
+        }).catch((err: unknown) => {
+          console.error('[landing_pages.checkout] contact create failed', err)
+        })
       }
     }
 
