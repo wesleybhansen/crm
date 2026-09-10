@@ -65,13 +65,20 @@ export async function POST(req: Request) {
     }
 
     // Exclude unsubscribed
+    // The suppression list must never be silently empty: a failed read here
+    // used to fall through to an empty Set and mail every contact who had
+    // unsubscribed. Abort the send instead; the claim is released below.
     let unsubEmails = new Set<string>()
     try {
       const unsubscribed = await knex('email_unsubscribes')
         .where('organization_id', auth.orgId)
         .select('email')
       unsubEmails = new Set(unsubscribed.map((u: any) => u.email?.toLowerCase()).filter(Boolean))
-    } catch {}
+    } catch (err) {
+      console.error('[campaign] unsubscribe list unavailable; refusing to send', err)
+      await knex('email_campaigns').where('id', blastId).update({ status: 'draft' }).catch(() => {})
+      return NextResponse.json({ ok: false, error: 'Could not load the unsubscribe list, so nothing was sent. Try again in a minute.' }, { status: 503 })
+    }
 
     const contacts = await query.select('id', 'primary_email', 'display_name')
 
@@ -108,7 +115,11 @@ export async function POST(req: Request) {
           .select('contact_id')
         const optedOutIds = new Set(optedOutPrefs.map((p: any) => p.contact_id))
         recipients = recipients.filter((c: any) => !optedOutIds.has(c.id))
-      } catch {}
+      } catch (err) {
+        console.error('[campaign] category opt-out list unavailable; refusing to send', err)
+        await knex('email_campaigns').where('id', blastId).update({ status: 'draft' }).catch(() => {})
+        return NextResponse.json({ ok: false, error: 'Could not load category opt-outs, so nothing was sent. Try again in a minute.' }, { status: 503 })
+      }
     }
 
     if (recipients.length === 0) {
@@ -136,6 +147,7 @@ export async function POST(req: Request) {
     // Send emails
     const baseUrl = process.env.APP_URL || 'http://localhost:3000'
     let sentCount = 0
+    let failedCount = 0
 
     for (const contact of recipients) {
       const trackingId = require('crypto').randomUUID()
@@ -216,21 +228,36 @@ export async function POST(req: Request) {
             } catch {}
           }
         } else {
+          failedCount++
           console.error(`[campaign] Failed to send to ${toEmail}:`, result.error)
+          await knex('email_campaign_recipients')
+            .where('campaign_id', blastId).where('contact_id', contact.id)
+            .update({ status: 'failed' })
+            .catch(() => {})
         }
       } catch (err) {
+        failedCount++
         console.error(`[campaign] Failed to send to ${toEmail}:`, err)
+        await knex('email_campaign_recipients')
+          .where('campaign_id', blastId).where('contact_id', contact.id)
+          .update({ status: 'failed' })
+          .catch(() => {})
       }
     }
 
-    // Mark campaign as sent
+    // A campaign that reached nobody is not "sent". Record what happened so
+    // the customer sees it, rather than a green status over zero deliveries.
+    const delivered = sentCount > 0
     await knex('email_campaigns').where('id', blastId).update({
-      status: 'sent',
-      sent_at: new Date(),
-      stats: JSON.stringify({ total: recipients.length, sent: sentCount, delivered: 0, opened: 0, clicked: 0 }),
+      status: delivered ? 'sent' : 'failed',
+      sent_at: delivered ? new Date() : null,
+      stats: JSON.stringify({ total: recipients.length, sent: sentCount, failed: failedCount, delivered: 0, opened: 0, clicked: 0 }),
     })
 
-    return NextResponse.json({ ok: true, data: { sent: sentCount, total: recipients.length } })
+    if (!delivered) {
+      return NextResponse.json({ ok: false, error: `None of the ${recipients.length} emails could be sent. Check the sending connection and try again.`, data: { sent: 0, failed: failedCount, total: recipients.length } }, { status: 502 })
+    }
+    return NextResponse.json({ ok: true, data: { sent: sentCount, failed: failedCount, total: recipients.length } })
   } catch (error) {
     console.error('[campaigns.send]', error)
     const message = error instanceof Error ? error.message : 'Failed to send blast'

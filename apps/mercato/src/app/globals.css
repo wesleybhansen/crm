@@ -452,3 +452,15 @@ body {
     var(--background);
   background-attachment: fixed;
 }
+
+/* iOS Safari zooms the viewport when a focused control renders under 16px.
+ * Every form in the app did (2026-09-10 review), so the zoom happened on
+ * every field, pushing the submit button off-screen. Phones only; desktop
+ * keeps the compact type. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
