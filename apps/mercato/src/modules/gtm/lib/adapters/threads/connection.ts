@@ -123,8 +123,9 @@ export async function exchangeThreadsCode(
   // callback then refused every connection as an identity mismatch). Read the
   // digits from the raw body before parsing.
   const rawBody = await response.text().catch(() => '')
-  let body: { access_token?: unknown; user_id?: unknown } | null = null
-  try { body = JSON.parse(rawBody) as typeof body } catch { body = null }
+  const body = ((): { access_token?: unknown; user_id?: unknown } | null => {
+    try { return JSON.parse(rawBody) as { access_token?: unknown; user_id?: unknown } } catch { return null }
+  })()
   const rawUserId = /"user_id"\s*:\s*"?(\d{1,60})"?/.exec(rawBody)?.[1] ?? null
   const accessToken = text(body?.access_token, 4_000)
   const userId = rawUserId ?? (body?.user_id != null ? text(String(body.user_id), 60) : null)
