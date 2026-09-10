@@ -100,6 +100,8 @@ async function gatherDigestData(knex: ReturnType<EntityManager['getKnex']>, orgI
       .select('ce.display_name', 'ces.score')
       .orderBy('ces.score', 'desc')
       .limit(5)
+    // Same raw-knex trap as the lists above: decrypt before the model sees it.
+    await decryptRowFields(null, CONTACT_ENTITY_KEY, coldContacts, ['display_name'], tenantId, orgId)
   } catch {}
 
   const wonValue = dealsWon.reduce((sum, d) => sum + Number(d.value_amount || 0), 0)
