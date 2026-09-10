@@ -38,17 +38,36 @@ function logDebug(event: string, payload: Record<string, unknown>) {
   }
 }
 
+/* The version slot carries a short id of the key that produced the envelope:
+ * `v1.<8 hex>`. Envelopes written before this stamp are plain `v1`. Without
+ * the id, a wrong key (Vault sealed, secret rotated) decrypts to "auth tag
+ * mismatch", which every caller treated as "leave the ciphertext in place",
+ * so a key swap showed up as garbled names in the UI instead of an error. */
+export function keyIdForDek(dekBase64: string): string {
+  return crypto.createHash('sha256').update(Buffer.from(dekBase64, 'base64')).digest('hex').slice(0, 8)
+}
+
+export function isV1Version(version: string | undefined): boolean {
+  return version === 'v1' || (typeof version === 'string' && version.startsWith('v1.'))
+}
+
+export function keyIdFromVersion(version: string | undefined): string | null {
+  if (typeof version !== 'string' || !version.startsWith('v1.')) return null
+  return version.slice(3) || null
+}
+
 export function encryptWithAesGcm(value: string, dekBase64: string): EncryptionPayload {
   const dek = Buffer.from(dekBase64, 'base64')
   const iv = crypto.randomBytes(12)
   const cipher = crypto.createCipheriv('aes-256-gcm', dek, iv)
   const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
   const tag = cipher.getAuthTag()
+  const version = `v1.${keyIdForDek(dekBase64)}`
   const payload = [
     iv.toString('base64'),
     ciphertext.toString('base64'),
     tag.toString('base64'),
-    'v1',
+    version,
   ].join(':')
   logDebug('encrypt', { length: ciphertext.length })
   return { value: payload, raw: payload, version: 'v1' }
@@ -65,7 +84,13 @@ export function decryptWithAesGcm(payload: string, dekBase64: string): string | 
   const parts = payload.split(':')
   if (parts.length !== 4) return null
   const [ivB64, ciphertextB64, tagB64, version] = parts
-  if (version !== 'v1') return null
+  if (!isV1Version(version)) return null
+  const stampedKeyId = keyIdFromVersion(version)
+  if (stampedKeyId && stampedKeyId !== keyIdForDek(dekBase64)) {
+    // A different key wrote this envelope. Say so; do not try and fail quietly.
+    console.error('[encryption] decrypt_key_mismatch', { stampedKeyId, currentKeyId: keyIdForDek(dekBase64) })
+    return null
+  }
   const dek = Buffer.from(dekBase64, 'base64')
   const iv = Buffer.from(ivB64, 'base64')
   const ciphertext = Buffer.from(ciphertextB64, 'base64')
@@ -93,7 +118,7 @@ export function hashForLookup(value: string): string {
  */
 export function decryptWithAesGcmStrict(payload: string, dekBase64: string): string {
   const parts = payload.split(':')
-  if (parts.length !== 4 || parts[3] !== 'v1') {
+  if (parts.length !== 4 || !isV1Version(parts[3])) {
     throw new TenantDataEncryptionError(
       TenantDataEncryptionErrorCode.AUTH_FAILED,
       'Value is not an encrypted payload (format mismatch)',

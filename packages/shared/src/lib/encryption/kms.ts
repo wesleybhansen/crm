@@ -304,11 +304,40 @@ function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
   console.warn(border)
 }
 
+let loggedDerivedPrimary = false
+
+/* TENANT_DATA_KMS=derived makes the derived-key service the ONLY key source.
+ * Why: with Vault as primary and derived as fallback, a sealed Vault (which is
+ * what a restart produces until someone unseals it) silently switched every
+ * tenant to a different key, and the swap surfaced only as garbled names. The
+ * unseal shares live on the same host as Vault, so Vault was not buying key
+ * separation either. Derived-primary has one key source, one failure mode
+ * (the secret is missing, which refuses to start encrypting), and the key id
+ * stamped into each envelope makes any future swap a detected error. */
+function derivedIsPrimary(): boolean {
+  return normalizeEnv(process.env.TENANT_DATA_KMS).toLowerCase() === 'derived'
+}
+
 export function createKmsService(): KmsService {
   if (!isTenantDataEncryptionEnabled()) return new NoopKmsService()
-  const primary = new HashicorpVaultKmsService()
 
   const derived = resolveDerivedKeySecret()
+  if (derivedIsPrimary()) {
+    if (!derived) {
+      console.error('🚨 [encryption][kms] TENANT_DATA_KMS=derived but no TENANT_DATA_ENCRYPTION_KEY is set; tenant data encryption is DISABLED (noop KMS)')
+      return new NoopKmsService()
+    }
+    if (!loggedDerivedPrimary) {
+      loggedDerivedPrimary = true
+      const weak = derived.envName === 'AUTH_SECRET' || derived.envName === 'NEXTAUTH_SECRET' || derived.source === 'dev-default'
+      const line = `[encryption][kms] derived-key KMS is primary (source: ${derived.envName})`
+      if (weak) console.error(`🚨 ${line}; the data key must not be the session secret. Set TENANT_DATA_ENCRYPTION_KEY.`)
+      else console.info(`🔐 ${line}`)
+    }
+    return new DerivedKmsService(derived.secret)
+  }
+
+  const primary = new HashicorpVaultKmsService()
   const fallback = derived ? new DerivedKmsService(derived.secret) : null
   const notifyFallback = derived
     ? () => {

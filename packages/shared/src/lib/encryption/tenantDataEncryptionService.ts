@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
-import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from './aes'
+import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup, isV1Version, keyIdFromVersion } from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
@@ -59,7 +59,7 @@ function findKey(obj: Record<string, unknown>, key: string): string | null {
 function isEncryptedPayload(value: unknown): boolean {
   if (typeof value !== 'string') return false
   const parts = value.split(':')
-  return parts.length === 4 && parts[3] === 'v1'
+  return parts.length === 4 && isV1Version(parts[3])
 }
 
 export class TenantDataEncryptionService {
@@ -241,7 +241,7 @@ export class TenantDataEncryptionService {
       if (first === null) return null
       // Handle accidental double-encryption: if the first pass still looks like a v1 payload, try once more.
       const parts = first.split(':')
-      if (parts.length === 4 && parts[3] === 'v1') {
+      if (parts.length === 4 && isV1Version(parts[3])) {
         const second = decryptWithAesGcm(first, dek.key)
         return second ?? first
       }
@@ -253,7 +253,16 @@ export class TenantDataEncryptionService {
       const value = clone[key]
       if (typeof value !== 'string') continue
       const decrypted = maybeDecrypt(value)
-      if (decrypted === null) continue
+      if (decrypted === null) {
+        // An envelope we could not open is an operational fault (wrong key,
+        // corrupt row), not a legacy plaintext. Leaving the ciphertext in
+        // place is unavoidable here, but it must be loud: this line is the
+        // only signal that a key swap has happened.
+        if (isEncryptedPayload(value)) {
+          console.error('[encryption] decrypt_failed', { field: rule.field, tenantId: dek.tenantId, stampedKeyId: keyIdFromVersion(value.split(':')[3]) })
+        }
+        continue
+      }
       try {
         clone[key] = JSON.parse(decrypted)
       } catch {

@@ -57,8 +57,10 @@ export async function decryptRowFields<T extends Record<string, any>>(
         const value = (decrypted as Record<string, unknown>)?.[field]
         if (typeof value === 'string') (row as Record<string, unknown>)[field] = value
       }
-    } catch {
-      /* leave this row's stored values alone */
+    } catch (err) {
+      // Leave this row's stored values alone, but never silently: a decrypt
+      // failure on a raw-read path is how a key swap hides for weeks.
+      console.error('[encryption] decrypt_rows_failed', { entityKey, tenantId, error: (err as Error)?.message || String(err) })
     }
   }
   return rows
