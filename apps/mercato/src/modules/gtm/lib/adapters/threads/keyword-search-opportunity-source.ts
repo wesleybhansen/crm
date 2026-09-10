@@ -5,7 +5,7 @@
  * - GET https://graph.threads.net/v1.0/keyword_search
  *   q, search_type=TOP|RECENT, search_mode=KEYWORD, media_type, since, until,
  *   limit (default 25, max 100), fields=id,text,media_type,permalink,
- *   timestamp,username,has_replies,is_quote_post,is_reply
+ *   timestamp,username,is_quote_post (has_replies/is_reply make Meta 500, see below)
  * - Requires the connected customer's user token with `threads_basic` and
  *   `threads_keyword_search`. Without Meta App Review approval the same call
  *   silently searches only the connected user's own posts, so this adapter
@@ -59,7 +59,12 @@ export const THREADS_KEYWORD_SEARCH_CONTRACT_VERSION = 'official-keyword-search-
 export const THREADS_MAX_RESULTS = 25
 export const THREADS_RETENTION_DAYS = 30
 export const THREADS_DEFAULT_TIMEOUT_MS = 30_000
-export const THREADS_SEARCH_FIELDS = 'id,text,media_type,permalink,timestamp,username,has_replies,is_quote_post,is_reply'
+// has_replies and is_reply are deliberately NOT requested: verified 2026-09-10
+// against the live endpoint, keyword_search answers 500 "An unknown error
+// occurred" whenever the result set is non-empty and either field is in the
+// list (an empty result returns 200, which hid this for weeks). The mapping
+// below treats both as false when absent.
+export const THREADS_SEARCH_FIELDS = 'id,text,media_type,permalink,timestamp,username,is_quote_post'
 
 const RECEIPT_FIELDS = [
   'provider_request_id',
