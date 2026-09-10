@@ -324,8 +324,11 @@ export function createKmsService(): KmsService {
   const derived = resolveDerivedKeySecret()
   if (derivedIsPrimary()) {
     if (!derived) {
-      console.error('🚨 [encryption][kms] TENANT_DATA_KMS=derived but no TENANT_DATA_ENCRYPTION_KEY is set; tenant data encryption is DISABLED (noop KMS)')
-      return new NoopKmsService()
+      // Fail closed. Encryption is on (isTenantDataEncryptionEnabled) and the
+      // operator chose the derived KMS, so a missing secret must not quietly
+      // turn every PII write into plaintext. Throwing here stops the process
+      // at boot, which is the loud failure this deserves.
+      throw new Error('TENANT_DATA_KMS=derived but no TENANT_DATA_ENCRYPTION_KEY (or _FALLBACK_KEY) is set; refusing to run with tenant data encryption silently disabled')
     }
     if (!loggedDerivedPrimary) {
       loggedDerivedPrimary = true

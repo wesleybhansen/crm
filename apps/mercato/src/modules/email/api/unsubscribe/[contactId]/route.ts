@@ -16,12 +16,23 @@ export async function GET(req: Request, { params }: { params: { contactId: strin
     // enough to open someone's preference center and opt them out.
     const presented = new URL(req.url).searchParams.get('t') ?? ''
     const verified = verifyEmailToken(presented)
-    if (!verified || verified.contactId !== params.contactId) {
-      return new NextResponse('Not found', { status: 404 })
+    let contact: { id: string; organization_id: string } | undefined
+    if (verified && verified.contactId === params.contactId) {
+      contact = await knex('customer_entities')
+        .where({ id: params.contactId, organization_id: verified.orgId })
+        .first()
+    } else if (!presented) {
+      // Mail delivered before 2026-09-08 carries a bare contact id and no
+      // token, and the body link is the only opt-out path (no List-Unsubscribe
+      // header). Refusing it 404s a lawful unsubscribe. Honour a token-less
+      // link only for contacts that existed before signing was introduced;
+      // an unsubscribe is the one action an outsider gains nothing by forging.
+      contact = await knex('customer_entities')
+        .where({ id: params.contactId })
+        .where('created_at', '<', new Date('2026-09-08T00:00:00Z'))
+        .first()
+      if (contact) console.warn('[unsubscribe] legacy token-less link honoured', { contactId: params.contactId })
     }
-    const contact = await knex('customer_entities')
-      .where({ id: params.contactId, organization_id: verified.orgId })
-      .first()
     if (!contact) return new NextResponse('Not found', { status: 404 })
 
     const token = signEmailToken(params.contactId, contact.organization_id)
