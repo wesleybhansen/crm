@@ -121,6 +121,20 @@ describe('Threads OAuth connection helpers', () => {
     await expect(refreshThreadsToken('dead', rejecting)).rejects.toMatchObject({ code: 'token_invalid' })
   })
 
+  it('keeps every digit of a 17-digit user_id returned as a JSON number', async () => {
+    const fetchImpl = (async () =>
+      new Response('{"access_token":"short","user_id":17841412345678901}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as unknown as typeof fetch
+    const result = await exchangeThreadsCode(
+      { appId: 'app', appSecret: 'secret' } as never,
+      { code: 'code', redirectUri: 'https://crm.example/cb' },
+      fetchImpl,
+    )
+    expect(result.userId).toBe('17841412345678901')
+  })
+
   it('seals tokens under the tenant DEK and never stores them in the clear', () => {
     const dek = generateDek()
     const sealed = sealThreadsToken('THAA-long-lived-token', dek)

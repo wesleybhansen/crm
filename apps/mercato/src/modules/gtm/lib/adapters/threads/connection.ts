@@ -117,9 +117,17 @@ export async function exchangeThreadsCode(
   } catch (error) {
     throw new ThreadsOAuthError('transport', error instanceof Error ? error.message : String(error))
   }
-  const body = await readJson(response) as { access_token?: unknown; user_id?: unknown } | null
+  // Meta returns user_id as a bare JSON number. Threads ids are 17 digits,
+  // beyond Number's 53-bit precision, so JSON.parse silently rounds the last
+  // digits and the id no longer matches the string id /me returns (the
+  // callback then refused every connection as an identity mismatch). Read the
+  // digits from the raw body before parsing.
+  const rawBody = await response.text().catch(() => '')
+  let body: { access_token?: unknown; user_id?: unknown } | null = null
+  try { body = JSON.parse(rawBody) as typeof body } catch { body = null }
+  const rawUserId = /"user_id"\s*:\s*"?(\d{1,60})"?/.exec(rawBody)?.[1] ?? null
   const accessToken = text(body?.access_token, 4_000)
-  const userId = body?.user_id != null ? text(String(body.user_id), 60) : null
+  const userId = rawUserId ?? (body?.user_id != null ? text(String(body.user_id), 60) : null)
   if (!response.ok || !accessToken || !userId) {
     throw new ThreadsOAuthError('code_exchange_failed', `Threads code exchange failed (${response.status})`, response.status)
   }
