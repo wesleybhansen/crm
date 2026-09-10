@@ -216,15 +216,30 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
   }
 
+  // Every customer shares one tenant, so a tenant-wide listing enumerated the
+  // other customers' organisations (and handed out the ids the switcher cap
+  // refuses). Non-super-admins list only what their scope allows.
+  let allowedOrgIds: string[] | null = null
+  if (!isSuperAdmin) {
+    try {
+      const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+      allowedOrgIds = Array.isArray(scope.allowedIds) ? scope.allowedIds : []
+    } catch {
+      allowedOrgIds = []
+    }
+  }
+  const scopedFilter = (): FilterQuery<Organization> =>
+    allowedOrgIds ? { tenant: tenantId, deletedAt: null, id: { $in: allowedOrgIds } } : { tenant: tenantId, deletedAt: null }
+
   if (query.view === 'options') {
     if (!tenantId) {
       return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
     }
-    const where: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
+    const where: FilterQuery<Organization> = scopedFilter()
     if (status === 'active') where.isActive = true
     if (status === 'inactive') where.isActive = false
     if (status === 'all' && !includeInactive) where.isActive = true
-    if (ids) where.id = { $in: ids }
+    if (ids) where.id = { $in: allowedOrgIds ? ids.filter((id) => allowedOrgIds!.includes(id)) : ids }
     const orgs = await em.find(Organization, where, { orderBy: { name: 'ASC' } })
     const items = orgs.map((org) => ({
       id: stringId(org.id),
@@ -254,7 +269,7 @@ export async function GET(req: Request) {
     if (!tenantId) {
       return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
     }
-    const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
+    const orgListFilter: FilterQuery<Organization> = scopedFilter()
     const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
     const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
     const nodeMap = new Map<string, { node: ComputedOrganizationNode; children: TreeNode[] }>()
@@ -436,7 +451,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
   }
 
-  const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
+  const orgListFilter: FilterQuery<Organization> = scopedFilter()
   const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
   const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
 
