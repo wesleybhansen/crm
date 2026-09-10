@@ -27,6 +27,7 @@ import {
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { assertActorManagesOrganization } from '@open-mercato/core/modules/auth/lib/organizationAuthority'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
@@ -166,6 +167,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       { tenantId: null, organizationId: parsed.organizationId },
     )
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+    await assertActorManagesOrganization(ctx, String(organization.id))
 
     const emailHash = computeEmailHash(parsed.email)
     const duplicate = await em.findOne(User, { $or: [{ email: parsed.email }, { emailHash }], deletedAt: null } as any)
@@ -341,6 +343,12 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
+    const target = await em.findOne(User, { id: parsed.id, deletedAt: null } as FilterQuery<User>)
+    if (!target) throw new CrudHttpError(404, { error: 'User not found' })
+    await assertActorManagesOrganization(ctx, target.organizationId ? String(target.organizationId) : null)
+    if (parsed.organizationId !== undefined && parsed.organizationId !== target.organizationId) {
+      await assertActorManagesOrganization(ctx, parsed.organizationId ?? null)
+    }
     const rolesBefore = Array.isArray(parsed.roles)
       ? await loadUserRoleNames(em, parsed.id)
       : null
@@ -575,6 +583,10 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async execute(input, ctx) {
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
+
+    const target = await em.findOne(User, { id, deletedAt: null } as FilterQuery<User>)
+    if (!target) throw new CrudHttpError(404, { error: 'User not found' })
+    await assertActorManagesOrganization(ctx, target.organizationId ? String(target.organizationId) : null)
 
     await em.nativeDelete(UserAcl, { user: id })
     await em.nativeDelete(UserRole, { user: id })

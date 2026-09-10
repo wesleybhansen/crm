@@ -1,4 +1,5 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { requireSuperAdmin } from '@open-mercato/core/modules/auth/lib/organizationAuthority'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import {
   parseWithCustomFields,
@@ -200,6 +201,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
+    await requireSuperAdmin(ctx, 'change a role shared across the tenant')
     if (parsed.name !== undefined) {
       const current = await em.findOne(Role, { id: parsed.id, deletedAt: null })
       if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
@@ -355,6 +357,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const em = (ctx.container.resolve('em') as EntityManager)
     const role = await em.findOne(Role, { id, deletedAt: null })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
+    await requireSuperAdmin(ctx, 'delete a role shared across the tenant')
     const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
     if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
 

@@ -141,7 +141,9 @@ export async function POST(req: Request) {
         contact_id: contact.id,
         email: contact.primary_email,
         status: 'pending',
-      }).catch(() => {})
+        tenant_id: tenantId,
+        organization_id: auth.orgId,
+      })
     }
 
     // Send emails

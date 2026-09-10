@@ -1,4 +1,5 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { isV1Version } from '@open-mercato/shared/lib/encryption/aes'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { CustomEntity, CustomFieldDef, EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
@@ -459,7 +460,9 @@ const rotateEncryptionKey: ModuleCli = {
     const isEncryptedPayload = (value: unknown): boolean => {
       if (typeof value !== 'string') return false
       const parts = value.split(':')
-      return parts.length === 4 && parts[3] === 'v1'
+      // Envelopes carry `v1` or `v1.<keyId>`; a private `=== 'v1'` test here
+      // made the rotation re-encrypt (and re-hash) already-encrypted rows.
+      return parts.length === 4 && isV1Version(parts[3])
     }
 
     const metaByEntityId = buildEntityMetaRegistry(em)

@@ -11,6 +11,7 @@ const execute = jest.fn()
 const find = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/aes', () => ({
+  isV1Version: (version: string | undefined) => version === 'v1' || (typeof version === 'string' && version.startsWith('v1.')),
   decryptWithAesGcm: jest.fn(),
 }))
 

@@ -198,8 +198,8 @@ export async function POST(req: Request) {
               if (Array.isArray(targetIds) && targetIds.length > 0 && !targetIds.includes(bookingPageId)) continue
             } catch {}
           }
-          await knex.raw('INSERT INTO email_list_members (id, list_id, contact_id, added_at) VALUES (?, ?, ?, ?) ON CONFLICT (list_id, contact_id) DO NOTHING',
-            [require('crypto').randomUUID(), list.id, bookingContactId, new Date()])
+          await knex.raw('INSERT INTO email_list_members (id, list_id, contact_id, added_at, tenant_id, organization_id) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (list_id, contact_id) DO NOTHING',
+            [require('crypto').randomUUID(), list.id, bookingContactId, new Date(), list.tenant_id, list.organization_id])
           const [{ count }] = await knex('email_list_members').where('list_id', list.id).count()
           await knex('email_lists').where('id', list.id).update({ member_count: Number(count), updated_at: new Date() })
         }

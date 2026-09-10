@@ -122,13 +122,24 @@ export async function resolveOrganizationScope({
     : effectiveSuperAdmin
       ? null
       : aclOrganizations
-  const accessibleList = effectiveSuperAdmin
+  const aclAccessibleList = effectiveSuperAdmin
     ? null
     : rawAccessible && rawAccessible.some((value) => typeof value === 'string' && isAllOrganizationsSelection(value))
       ? null
       : rawAccessible?.filter((value): value is string => typeof value === 'string' && !isAllOrganizationsSelection(value)) ?? null
 
   const accountOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
+  // Every Noli customer shares one tenant and every member holds the seeded
+  // `admin` role, whose ACL carries no organisation list ("all organisations
+  // in the tenant"). Left alone, that let any customer select any other
+  // customer's organisation from the switcher or the om_selected_org cookie
+  // and read or write their whole CRM. A signed-in, non-super-admin account is
+  // therefore never wider than its own organisation (plus descendants),
+  // whatever the role ACL says. API keys keep the key-row cap above; super
+  // admins keep the whole tenant.
+  const accessibleList = !effectiveSuperAdmin && !isApiKeyActor
+    ? (accountOrgId ? [accountOrgId] : [])
+    : aclAccessibleList
   const fallbackOrgId = accountOrgId ?? null
   let fallbackSet: Set<string> | null = null
   const loadFallbackSet = async (): Promise<Set<string> | null> => {

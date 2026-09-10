@@ -153,8 +153,8 @@ export async function POST(req: Request) {
           })
           courseList = { id: listId }
         }
-        await knex.raw('INSERT INTO email_list_members (id, list_id, contact_id, added_at) VALUES (?, ?, ?, ?) ON CONFLICT (list_id, contact_id) DO NOTHING',
-          [require('crypto').randomUUID(), courseList.id, contactId, new Date()])
+        await knex.raw('INSERT INTO email_list_members (id, list_id, contact_id, added_at, tenant_id, organization_id) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (list_id, contact_id) DO NOTHING',
+          [require('crypto').randomUUID(), courseList.id, contactId, new Date(), course.tenant_id, course.organization_id])
         const [{ count }] = await knex('email_list_members').where('list_id', courseList.id).count()
         await knex('email_lists').where('id', courseList.id).update({ member_count: Number(count), updated_at: new Date() })
       } catch {}

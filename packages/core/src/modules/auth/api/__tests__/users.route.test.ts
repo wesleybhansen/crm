@@ -13,6 +13,9 @@ const mockEm = {
   findAndCount: jest.fn(),
 }
 
+// The scope cap: a signed-in, non-superadmin account sees only its own organisation.
+const mockScope = jest.fn(() => ({ selectedId: organizationId, filterIds: [organizationId], allowedIds: [organizationId], tenantId }))
+
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
@@ -20,6 +23,10 @@ const mockContainer = {
     return null
   }),
 }
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn(async () => mockScope()),
+}))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
@@ -208,6 +215,41 @@ describe('GET /api/auth/users', () => {
     expect(where.id?.$in).toHaveLength(2)
     expect(body.total).toBe(2)
     expect(body.items).toHaveLength(2)
+  })
+
+  test('refuses to list another organization\'s users for a non-superadmin', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId,
+      orgId: organizationId,
+      roles: ['admin'],
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: false })
+
+    const response = await GET(
+      makeRequest(`/api/auth/users?organizationId=${secondaryOrganizationId}&page=1&pageSize=10`),
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({ items: [], total: 0, totalPages: 1, isSuperAdmin: false })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('scopes a non-superadmin listing to their own organization', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId,
+      orgId: organizationId,
+      roles: ['admin'],
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: false })
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    await GET(makeRequest('/api/auth/users?page=1&pageSize=10'))
+
+    const where = mockEm.findAndCount.mock.calls[0][1] as Record<string, unknown>
+    expect(where.organizationId).toEqual({ $in: [organizationId] })
   })
 
   test('allows superadmin to query by organization without forcing tenant filter', async () => {

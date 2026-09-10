@@ -1,4 +1,5 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { assertActorManagesOrganization, requireSuperAdmin } from '@open-mercato/core/modules/auth/lib/organizationAuthority'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
@@ -278,6 +279,10 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const tenantId = requireTenantScope(authTenantId, parsed.tenantId ?? null)
 
     const parentId = parsed.parentId ?? null
+    // A customer may add sub-organisations under their own; only a super
+    // admin creates a new top-level organisation in the shared tenant.
+    if (parentId) await assertActorManagesOrganization(ctx, parentId)
+    else await requireSuperAdmin(ctx, 'create a top-level organization')
     if (parentId) {
       await ensureParentExists(em, tenantId, parentId)
     }
@@ -433,10 +438,12 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
     const authTenantId = ctx.auth?.tenantId ?? null
     const tenantId = requireTenantScope(authTenantId, parsed.tenantId ?? resolveTenantIdFromEntity(existing))
+    await assertActorManagesOrganization(ctx, String(existing.id))
 
     const parentId = parsed.parentId ?? null
     if (parentId) {
       if (parentId === parsed.id) throw new CrudHttpError(400, { error: 'Organization cannot be its own parent' })
+      if (parentId !== (existing.parentId ?? null)) await assertActorManagesOrganization(ctx, parentId)
       if (Array.isArray(existing.descendantIds) && existing.descendantIds.includes(parentId)) {
         throw new CrudHttpError(400, { error: 'Cannot assign descendant as parent' })
       }
@@ -641,6 +648,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
 
     const authTenantId = ctx.auth?.tenantId ?? null
     const tenantId = requireTenantScope(authTenantId, resolveTenantIdFromEntity(existing))
+    await assertActorManagesOrganization(ctx, String(existing.id))
 
     const parentId = existing.parentId ?? null
     const childSnapshotsBefore = await loadChildParentSnapshots(

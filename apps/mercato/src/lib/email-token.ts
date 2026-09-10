@@ -20,25 +20,33 @@ function hmac(payload: string, key: string): string {
   return crypto.createHmac('sha256', key).update(payload).digest('base64url')
 }
 
-function decodeBody(body: string): { contactId: string; orgId: string } | null {
+/* `full` is the token every outbound email carries (preference center with
+ * the address shown and re-subscribe allowed). `unsubscribe` is minted for a
+ * token-less legacy link: it may only opt the contact out, never show the
+ * address or opt them back in, so a guessed contact id gains nothing. */
+export type EmailTokenScope = 'full' | 'unsubscribe'
+export type EmailTokenClaims = { contactId: string; orgId: string; scope: EmailTokenScope }
+
+function decodeBody(body: string): EmailTokenClaims | null {
   try {
     const decoded = Buffer.from(body, 'base64url').toString('utf-8')
-    const [contactId, orgId] = decoded.split(':')
+    const [contactId, orgId, scopeRaw] = decoded.split(':')
     if (!contactId || !orgId) return null
-    return { contactId, orgId }
+    const scope: EmailTokenScope = scopeRaw === 'unsubscribe' ? 'unsubscribe' : 'full'
+    return { contactId, orgId, scope }
   } catch {
     return null
   }
 }
 
-export function signEmailToken(contactId: string, orgId: string): string {
-  const body = Buffer.from(`${contactId}:${orgId}`).toString('base64url')
+export function signEmailToken(contactId: string, orgId: string, scope: EmailTokenScope = 'full'): string {
+  const body = Buffer.from(scope === 'full' ? `${contactId}:${orgId}` : `${contactId}:${orgId}:${scope}`).toString('base64url')
   const key = signingKey()
   if (!key) return body // no secret in this env: degrade to legacy (still functional)
   return `${body}.${hmac(body, key)}`
 }
 
-export function verifyEmailToken(token: string): { contactId: string; orgId: string } | null {
+export function verifyEmailToken(token: string): EmailTokenClaims | null {
   if (!token) return null
   const key = signingKey()
   const dot = token.lastIndexOf('.')

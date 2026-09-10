@@ -87,16 +87,25 @@ function normalizeEnv(value: string | undefined): string {
 type DerivedSecret = { secret: string; source: 'explicit' | 'dev-default'; envName: string }
 
 function resolveDerivedKeySecret(): DerivedSecret | null {
-  const candidates: Array<{ value: string | null; envName: string }> = [
+  const dedicated: Array<{ value: string | null; envName: string }> = [
     { value: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY' },
     { value: process.env.TENANT_DATA_ENCRYPTION_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_KEY' },
-    { value: process.env.AUTH_SECRET ?? null, envName: 'AUTH_SECRET' },
-    { value: process.env.NEXTAUTH_SECRET ?? null, envName: 'NEXTAUTH_SECRET' },
   ]
+  // When the derived KMS is the primary (TENANT_DATA_KMS=derived) the data key
+  // must come from a dedicated encryption secret. Deriving it from the session
+  // secret would silently re-key every row the day AUTH_SECRET rotates.
+  const candidates = derivedIsPrimary()
+    ? dedicated
+    : [
+        ...dedicated,
+        { value: process.env.AUTH_SECRET ?? null, envName: 'AUTH_SECRET' },
+        { value: process.env.NEXTAUTH_SECRET ?? null, envName: 'NEXTAUTH_SECRET' },
+      ]
   for (const raw of candidates) {
     const normalized = normalizeEnv(raw.value ?? undefined)
     if (normalized) return { secret: normalized, source: 'explicit', envName: raw.envName }
   }
+  if (derivedIsPrimary()) return null
   if (process.env.NODE_ENV !== 'production') {
     return { secret: 'om-dev-tenant-encryption', source: 'dev-default', envName: 'DEV_DEFAULT' }
   }

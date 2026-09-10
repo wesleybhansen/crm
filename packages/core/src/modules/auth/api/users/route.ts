@@ -15,6 +15,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 const querySchema = z.object({
@@ -153,7 +154,23 @@ export async function GET(req: Request) {
     }
     where.tenantId = auth.tenantId
   }
-  if (organizationId) where.organizationId = organizationId
+  if (!isSuperAdmin) {
+    // One shared tenant: a customer's admin sees only their own organisation's
+    // accounts, never the other customers' staff.
+    let allowedOrgIds: string[] = []
+    try {
+      const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+      allowedOrgIds = Array.isArray(scope.allowedIds) ? scope.allowedIds : []
+    } catch {
+      allowedOrgIds = []
+    }
+    if (!allowedOrgIds.length || (organizationId && !allowedOrgIds.includes(organizationId))) {
+      return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+    }
+    where.organizationId = organizationId ? organizationId : { $in: allowedOrgIds }
+  } else if (organizationId) {
+    where.organizationId = organizationId
+  }
   if (search) where.email = { $ilike: `%${escapeLikePattern(search)}%` } as any
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {

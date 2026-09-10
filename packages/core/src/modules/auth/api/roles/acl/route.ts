@@ -107,6 +107,12 @@ export async function PUT(req: Request) {
   const em = container.resolve('em') as EntityManager
   const isSuperAdmin = await resolveIsSuperAdmin({ auth, container })
   const rbacService = container.resolve('rbacService') as RbacService
+  // Roles are tenant-wide and every Noli customer shares the tenant, so a
+  // customer editing the `admin` ACL would change (or lock out) every other
+  // customer. Only a super admin may change role permissions.
+  if (!isSuperAdmin) {
+    return NextResponse.json({ error: 'Only a super administrator can change role permissions' }, { status: 403 })
+  }
   const role = await em.findOne(Role, { id: parsed.data.roleId })
   if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 

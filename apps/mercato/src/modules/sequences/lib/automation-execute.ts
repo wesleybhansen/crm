@@ -351,8 +351,8 @@ async function executeAction(
     case 'add_to_list': {
       if (!context.contactId || !actionConfig.listId) return { success: false, detail: 'contactId and listId required' }
       try {
-        await knex.raw('INSERT INTO email_list_members (id, list_id, contact_id, added_at) VALUES (?, ?, ?, ?) ON CONFLICT (list_id, contact_id) DO NOTHING',
-          [require('crypto').randomUUID(), actionConfig.listId, context.contactId, new Date()])
+        await knex.raw('INSERT INTO email_list_members (id, list_id, contact_id, added_at, tenant_id, organization_id) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (list_id, contact_id) DO NOTHING',
+          [require('crypto').randomUUID(), actionConfig.listId, context.contactId, new Date(), tenantId, orgId])
         const [{ count }] = await knex('email_list_members').where('list_id', actionConfig.listId).count()
         await knex('email_lists').where('id', actionConfig.listId).update({ member_count: Number(count), updated_at: new Date() })
         return { success: true, detail: `Contact added to list` }

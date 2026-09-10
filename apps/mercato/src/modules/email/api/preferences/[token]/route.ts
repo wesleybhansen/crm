@@ -3,6 +3,14 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { verifyEmailToken } from '@/lib/email-token'
+
+// Unsubscribe-only links (legacy, token-less) never reveal the address.
+function maskEmail(value: unknown): string {
+  const email = typeof value === 'string' ? value : ''
+  const at = email.indexOf('@')
+  if (at <= 0) return '***'
+  return `${email.slice(0, 1)}***${email.slice(at)}`
+}
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export const metadata = { GET: { requireAuth: false } }
@@ -131,7 +139,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   <div class="header">
     <h1>${escapeHtml(orgName)}</h1>
     <p>Manage your email preferences</p>
-    <div class="email-badge">${escapeHtml(contact.primary_email)}</div>
+    <div class="email-badge">${escapeHtml(parsed.scope === 'unsubscribe' ? maskEmail(contact.primary_email) : contact.primary_email)}</div>
   </div>
   ${globalUnsub ? `<div class="resubscribe-notice">You are currently unsubscribed from all emails.<br><button class="resub-btn" onclick="resubscribe()">Re-subscribe</button></div>` : ''}
   <div id="categories">

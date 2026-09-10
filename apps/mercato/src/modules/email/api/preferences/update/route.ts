@@ -37,6 +37,10 @@ export async function POST(req: Request) {
     const now = new Date()
 
     if (resubscribe) {
+      // An unsubscribe-only token (legacy token-less link) may opt out, never back in.
+      if (parsed.scope === 'unsubscribe') {
+        return NextResponse.json({ ok: false, error: 'This link can only unsubscribe' }, { status: 403 })
+      }
       // Remove from global unsubscribes
       await knex('email_unsubscribes')
         .where('contact_id', parsed.contactId)

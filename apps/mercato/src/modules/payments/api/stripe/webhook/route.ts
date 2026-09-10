@@ -40,9 +40,19 @@ export async function POST(req: Request) {
     let orgId: string | null = null
     let tenantId: string | null = null
 
-    if (event.type === 'checkout.session.completed') {
+    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
       const session = event.data.object
       const meta = session.metadata || {}
+
+      // Delayed-notification methods (ACH debit, Klarna, Cash App) complete
+      // the session before any money moves and report the real outcome later
+      // via async_payment_succeeded / async_payment_failed. Treating an
+      // unpaid session as paid marked invoices paid, moved deals to Won and
+      // credited affiliates on money that had not arrived.
+      const paymentStatus = typeof session.payment_status === 'string' ? session.payment_status : 'paid'
+      if (paymentStatus !== 'paid' && paymentStatus !== 'no_payment_required') {
+        return NextResponse.json({ received: true, deferred: paymentStatus })
+      }
 
       // Try metadata first (set during session creation)
       orgId = meta.orgId || null
@@ -178,8 +188,8 @@ export async function POST(req: Request) {
                   if (Array.isArray(targetIds) && targetIds.length > 0 && !targetIds.includes(meta.productId)) continue
                 } catch {}
               }
-              await knex.raw('INSERT INTO email_list_members (id, list_id, contact_id, added_at) VALUES (?, ?, ?, ?) ON CONFLICT (list_id, contact_id) DO NOTHING',
-                [require('crypto').randomUUID(), list.id, contactEntity.id, new Date()])
+              await knex.raw('INSERT INTO email_list_members (id, list_id, contact_id, added_at, tenant_id, organization_id) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (list_id, contact_id) DO NOTHING',
+                [require('crypto').randomUUID(), list.id, contactEntity.id, new Date(), list.tenant_id, list.organization_id])
               const [{ count }] = await knex('email_list_members').where('list_id', list.id).count()
               await knex('email_lists').where('id', list.id).update({ member_count: Number(count), updated_at: new Date() })
             }

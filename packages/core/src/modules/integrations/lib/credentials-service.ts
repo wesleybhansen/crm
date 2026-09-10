@@ -30,10 +30,11 @@ function resolveFallbackEncryptionSecret(): string {
 
   if (process.env.NODE_ENV !== 'production') return 'om-dev-tenant-encryption'
 
-  console.warn(
-    '[integrations.credentials] No encryption secret configured; using emergency fallback secret. Configure TENANT_DATA_ENCRYPTION_FALLBACK_KEY immediately.',
+  // A constant in the source is not a secret: anyone with the repo and a DB
+  // dump could decrypt every integration credential. Refuse instead.
+  throw new Error(
+    '[integrations.credentials] No encryption secret configured (set TENANT_DATA_ENCRYPTION_FALLBACK_KEY); refusing to encrypt integration credentials with a source-visible fallback',
   )
-  return 'om-emergency-fallback-rotate-me'
 }
 
 function deriveDekFromSecret(secret: string, tenantId: string): string {
