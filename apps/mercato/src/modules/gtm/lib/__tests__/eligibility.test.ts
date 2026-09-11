@@ -298,6 +298,17 @@ describe('policy false positives seen on the Launch Pad first run (2026-09-06)',
       likely_buyer: 'Independent single-location dentists whose patient acquisition has stalled',
     })).toBe(false)
     expect(describesIndividualAudience({ audience: 'Agencies that run consumer marketing for CPG brands' })).toBe(false)
+    expect(describesIndividualAudience({
+      audience: 'Independent dental practices in Minneapolis-Saint Paul with active map listings',
+      likely_buyer: 'Solo and independent dental practice owners who are losing local patient inquiries to newer clinics due to an outdated web presence.',
+    })).toBe(false)
+    expect(describesIndividualAudience({ audience: 'Clinics with a patient portal and online booking' })).toBe(false)
+    expect(describesIndividualAudience({ audience: 'Daycare centers with long parent waitlists' })).toBe(false)
+    expect(describesIndividualAudience({ audience: 'Renters looking for a two-bedroom in Denver' })).toBe(true)
+    expect(describesIndividualAudience({ audience: 'Families with kids under five in Tampa' })).toBe(true)
+    expect(describesIndividualAudience({ audience: 'Students earning their first paycheck' })).toBe(true)
+    expect(describesIndividualAudience({ audience: 'Retirees' })).toBe(true)
+    expect(describesIndividualAudience({ audience: 'Homeowners, mostly in Austin' })).toBe(true)
     expect(describesIndividualAudience({ audience: 'Patients recovering from knee surgery in Denver' })).toBe(true)
     expect(describesIndividualAudience({ audience: 'Homeowners in Austin with a pool' })).toBe(true)
     expect(describesIndividualAudience({ audience: 'Consumers who bought a standing desk this year' })).toBe(true)

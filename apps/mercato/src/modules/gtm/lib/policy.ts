@@ -82,14 +82,27 @@ function leadMode(value: string | null | undefined): LeadMode {
  * consumer audience wearing a b2b label: it must never receive automated
  * email or business-licensed person sourcing on the strength of that label.
  */
-const INDIVIDUAL_AUDIENCE_PATTERN = /\b(?:home[-\s]?owners?|home[-\s]?buyers?|home[-\s]?sellers?|first[-\s]?time buyers?|parents?|patients?|students?|renters?|tenants?|consumers?|individuals?|people who|persons? who|residents?|households?|families|retirees?|veterans?|immigrants?|job[-\s]?seekers?|newlyweds|couples|pet owners?|car owners?)\b(?!\s+(?:acquisition|intake|volume|flow|retention|experience|care|records?|base|lists?|counts?|pipeline|growth|marketing|outreach|leads?|scheduling|communications?|reviews?|engagement|satisfaction|onboarding|churn|data|portal|app|software|management|services?|billing|financing|education|referrals?))/i
+const INDIVIDUAL_NOUNS =
+  'home[-\\s]?owners?|home[-\\s]?buyers?|home[-\\s]?sellers?|first[-\\s]?time buyers?|parents?|patients?|students?|renters?|tenants?|consumers?|individuals?|people who|persons? who|residents?|households?|families|retirees?|veterans?|immigrants?|job[-\\s]?seekers?|newlyweds|couples|pet owners?|car owners?'
 
 /*
- * The negative lookahead above keeps an individual noun used as a MODIFIER
- * ("patient acquisition", "consumer marketing", "student housing") from
- * turning a business audience into people. Dentists whose "patient
- * acquisition has stalled" are the audience; their patients are not.
+ * What may follow an individual noun for it to be the HEAD of the audience
+ * phrase rather than a modifier of the next noun. "Patients recovering from
+ * surgery", "homeowners in Austin" and "consumers who bought a desk" are
+ * audiences of people; "patient inquiries", "patient acquisition" and
+ * "consumer marketing" are things a business has. A word list of modifiers
+ * can never be complete (the 2026-09-11 dental plays tripped on
+ * "patient inquiries" after "patient acquisition" had been handled), so the
+ * rule names what a head noun is followed by instead: the end of the text,
+ * punctuation, a function word, or a verb, participle or predicate. The list
+ * is explicit on purpose: a bare "-ing" catch-all reads "consumer marketing"
+ * as people doing something, so an unlisted verb is a miss to add, not a
+ * reason to widen the net.
  */
+const HEAD_NOUN_FOLLOWER =
+  '(?=\\s*(?:$|[,.;:!?)\\]]|(?:who|whose|whom|that|which|in|with|within|without|at|from|of|on|near|across|around|between|among|under|over|and|or|but|not|aged?|ages|living|located|based|looking|seeking|searching|asking|shopping|buying|selling|renting|moving|planning|preparing|posting|discussing|recovering|struggling|trying|needing|wanting|earning|working|running|owning|raising|caring|expecting|considering|comparing|researching|switching|are|is|were|was|have|has|had|need|needs|want|wants|use|uses|pay|pays|buy|buys|sell|sells|rent|rents|own|owns|run|runs|live|lives|work|works|ask|asks|shop|shops|struggle|struggles|search|searches|plan|plans|relocating|downsizing|upsizing|upgrading|renovating|remodeling|refinancing|retiring|graduating|launching|starting|opening|closing|hiring|growing|scaling|saving|paying|spending|dealing|facing|going|getting|leaving|entering|returning|recently|currently|actively|newly|already|still|now|about|ready|likely|interested|eligible|willing|able|unable|responsible|new to|listed|enrolled|approved|denied|priced|located|registered|signed|married|divorced|retired|employed|unemployed|insured|uninsured|overwhelmed|frustrated|stuck)\\b))'
+
+const INDIVIDUAL_AUDIENCE_PATTERN = new RegExp(`\\b(?:${INDIVIDUAL_NOUNS})\\b${HEAD_NOUN_FOLLOWER}`, 'i')
 
 export function describesIndividualAudience(input: Pick<GtmPolicyInput, 'audience' | 'likely_buyer'>): boolean {
   const text = [input.audience ?? '', input.likely_buyer ?? ''].join(' ')
