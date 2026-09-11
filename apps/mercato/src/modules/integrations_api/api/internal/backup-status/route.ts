@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server'
 import { createHash, timingSafeEqual } from 'crypto'
 import { readFile } from 'fs/promises'
 
-export const metadata = { POST: { requireAuth: false } }
+export const metadata = {
+  path: '/internal/backup-status',
+  POST: { requireAuth: false },
+}
 
 /**
  * Backup freshness for the hub's ops-health cron. The nightly backup on the
