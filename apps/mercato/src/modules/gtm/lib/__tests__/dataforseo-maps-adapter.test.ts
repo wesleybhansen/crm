@@ -6,6 +6,7 @@ import {
   DATAFORSEO_REQUIRED_TERMS_VERSION,
   createDataForSeoMapsAdapter,
   dataForSeoEnabled,
+  dataForSeoLocationCandidates,
   listingDomain,
 } from '../adapters/dataforseo/maps'
 
@@ -354,5 +355,77 @@ describe('DataForSEO Maps adapter', () => {
       query: 'HVAC contractors', max_candidates: 25,
     })
     expect(result).toEqual(expect.objectContaining({ status: 'ambiguous', cost_units: null }))
+  })
+})
+
+describe('DataForSEO Maps location fallback', () => {
+  it('lists the market as written, then the city without its metro suffix, the first city of a pair, then the state', () => {
+    expect(dataForSeoLocationCandidates('Minneapolis-Saint Paul, MN')).toEqual([
+      'Minneapolis-Saint Paul,Minnesota,United States',
+      'Minneapolis,Minnesota,United States',
+      'Minnesota,United States',
+    ])
+    expect(dataForSeoLocationCandidates('Denver metro, Colorado')).toEqual([
+      'Denver metro,Colorado,United States',
+      'Denver,Colorado,United States',
+      'Colorado,United States',
+    ])
+    expect(dataForSeoLocationCandidates('Dallas-Fort Worth metro, TX')).toEqual([
+      'Dallas-Fort Worth metro,Texas,United States',
+      'Dallas-Fort Worth,Texas,United States',
+      'Dallas,Texas,United States',
+      'Texas,United States',
+    ])
+    expect(dataForSeoLocationCandidates('Winston-Salem, NC')).toEqual([
+      'Winston-Salem,North Carolina,United States',
+      'Winston,North Carolina,United States',
+      'North Carolina,United States',
+    ])
+    expect(dataForSeoLocationCandidates('Austin, Texas')).toEqual(['Austin,Texas,United States', 'Texas,United States'])
+    expect(dataForSeoLocationCandidates('United States')).toEqual(['United States'])
+  })
+
+  it('retries an unknown location_name on the next candidate and records the one that answered', async () => {
+    const invalid = () => new Response(JSON.stringify({
+      status_code: 20000, status_message: 'Ok.', cost: 0,
+      tasks: [{ id: 'task-bad', status_code: 40501, status_message: 'Invalid Field: location_name.', cost: 0, result: null }],
+    }), { status: 200 })
+    const ok = () => new Response(JSON.stringify({
+      status_code: 20000, status_message: 'Ok.', cost: 0.002,
+      tasks: [{
+        id: 'task-ok', status_code: 20000, cost: 0.002,
+        result: [{ datetime: '2026-09-11T12:00:00.000Z', items: [{
+          title: 'Twin Cities Dental', domain: 'example.test', address: 'Minneapolis, MN', category: 'Dentist', place_id: 'place-1',
+          address_info: { city: 'Minneapolis', region: 'Minnesota', country_code: 'US' },
+        }] }],
+      }],
+    }), { status: 200 })
+    const fetchImpl = jest.fn().mockResolvedValueOnce(invalid()).mockResolvedValueOnce(ok()) as unknown as typeof fetch
+    const adapter = createDataForSeoMapsAdapter({ env: approvedEnv, fetchImpl })
+    const result = await adapter.search({
+      signal_kind: 'local_business_listing', entity_unit: 'locations', geography: 'US',
+      query: 'dental clinic', max_candidates: 25,
+      provider_query: { company_keywords: ['dental clinic'], locations: ['Minneapolis-Saint Paul, MN'] },
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(String((fetchImpl as jest.Mock).mock.calls[0][1]?.body))[0].location_name).toBe('Minneapolis-Saint Paul,Minnesota,United States')
+    expect(JSON.parse(String((fetchImpl as jest.Mock).mock.calls[1][1]?.body))[0].location_name).toBe('Minneapolis,Minnesota,United States')
+    expect(result.status).toBe('ok')
+    expect(result.data?.[0]?.identity?.provider_location).toBe('Minneapolis,Minnesota,United States')
+  })
+
+  it('does not retry a 40501 the provider charged for, and stops at the last candidate', async () => {
+    const charged = new Response(JSON.stringify({
+      status_code: 20000, cost: 0.002,
+      tasks: [{ id: 't', status_code: 40501, status_message: 'Invalid Field', cost: 0.002, result: null }],
+    }), { status: 200 })
+    const fetchImpl = jest.fn().mockResolvedValue(charged) as unknown as typeof fetch
+    const adapter = createDataForSeoMapsAdapter({ env: approvedEnv, fetchImpl })
+    const result = await adapter.search({
+      signal_kind: 'local_business_listing', entity_unit: 'locations', geography: 'US',
+      query: 'HVAC', max_candidates: 25, provider_query: { company_keywords: ['HVAC'], locations: ['Denver metro, Colorado'] },
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(result.status).toBe('error')
   })
 })
