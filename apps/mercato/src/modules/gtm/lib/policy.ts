@@ -52,7 +52,12 @@ const CONSUMER_POLICY_RULES: PolicyRule[] = [
     // year olds", "aged 65"). A bare range is a firmographic band: the
     // Launch Pad's dental plays were blocked because employee_ranges
     // ["1-10"] read as an age.
-    pattern: /(?:\b(?:retiree|retirement|senior citizen|elderly|empty nester|family status|married|unmarried|single parents?|new parents?|expectant parents?|widow(?:ed|er)?)\b|\b(?:age[sd]?\s*\d{1,3}|\d{1,3}\s*(?:-|to)\s*\d{1,3}\s*(?:year[-\s]?olds?|years?\s+old)|(?:over|under|older than|younger than)\s+\d{1,3})\b)/i,
+    // A bare numeric range is an age when a people-word precedes it ("women
+    // 25-34", "adults 25 to 34", "men 45+", "seniors 65 and older"); a band
+    // after "with" or before "employees" is a firmographic. The 2026-09-11
+    // rewrite that required the "year olds" suffix let all four of those
+    // consumer audiences through unflagged.
+    pattern: /(?:\b(?:retiree|retirement|senior citizen|seniors|elderly|empty nester|family status|married|unmarried|single parents?|new parents?|expectant parents?|widow(?:ed|er)?)\b|\b(?:age[sd]?\s*\d{1,3}|\d{1,3}\s*(?:-|to)\s*\d{1,3}\s*(?:year[-\s]?olds?|years?\s+old)|(?:over|under|older than|younger than)\s+\d{1,3})\b|\b(?:adults?|men|women|males?|females?|people|persons|seniors?|individuals?|consumers?|home[-\s]?owners?|renters?|parents?|buyers?|sellers?|professionals?|customers?|residents?|patients?|students?|clients?|moms?|dads?|mothers?|fathers?|couples|singles|veterans?|retirees?)\s+(?:aged\s+)?\d{1,3}\s*(?:\+|(?:-|–|to)\s*\d{1,3}\b|and\s+(?:older|over|up|above)\b))/i,
   },
 ]
 
@@ -104,7 +109,19 @@ const HEAD_NOUN_FOLLOWER =
 
 const INDIVIDUAL_AUDIENCE_PATTERN = new RegExp(`\\b(?:${INDIVIDUAL_NOUNS})\\b${HEAD_NOUN_FOLLOWER}`, 'i')
 
+/*
+ * An audience phrase leads with its head noun ("Patients undergoing
+ * chemotherapy", "Busy working parents", "First-time home buyers"), so an
+ * individual noun in the first three words is the audience no matter what
+ * follows it. The follower rule above only governs later positions, where
+ * the noun may be a modifier. Without this, an unlisted verb ("undergoing",
+ * "battling") let a b2b-labelled audience of people through to person
+ * sourcing (adversarial pass, 2026-09-11).
+ */
+const INDIVIDUAL_HEAD_START = new RegExp(`^\\s*(?:[a-z0-9-]+\\s+){0,2}(?:${INDIVIDUAL_NOUNS})\\b`, 'i')
+
 export function describesIndividualAudience(input: Pick<GtmPolicyInput, 'audience' | 'likely_buyer'>): boolean {
+  if (INDIVIDUAL_HEAD_START.test(input.audience ?? '')) return true
   const text = [input.audience ?? '', input.likely_buyer ?? ''].join(' ')
   return INDIVIDUAL_AUDIENCE_PATTERN.test(text)
 }
