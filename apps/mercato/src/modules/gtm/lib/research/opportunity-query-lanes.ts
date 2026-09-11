@@ -774,12 +774,28 @@ function genericSeeds(play: PlanPlayInput): string[] {
 function officialSocialSeeds(play: PlanPlayInput): string[] {
   const query = play.providerQuery ?? {}
   const supplied = values(query.source_search_keywords).map((value) => value.trim()).filter(Boolean)
-  const keywords = playFilterKeywords(play).filter((word) => !supplied.some((seed) => seed.toLowerCase().includes(word)))
+  // Short phrases people actually type: adjacent words from ONE authored
+  // sentence (the audience, then the signal), never a pair that straddles the
+  // two. "founders small" and "companies outbound" matched nobody.
   const phrases: string[] = []
-  for (let index = 0; index + 1 < keywords.length && phrases.length < 3; index += 2) {
-    phrases.push(`${keywords[index]} ${keywords[index + 1]}`)
+  const sentences = [play.audience, play.signal].filter((value): value is string => typeof value === 'string')
+  for (const sentence of sentences) {
+    const words = sentence
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, ' ')
+      .split(/\s+/)
+      .filter((word) => word.length >= 4 && !GENERIC_STOP_WORDS.has(word))
+    for (let index = 0; index + 1 < words.length && phrases.length < 3; index += 1) {
+      const phrase = `${words[index]} ${words[index + 1]}`
+      if (supplied.some((seed) => seed.toLowerCase().includes(phrase))) continue
+      phrases.push(phrase)
+    }
+    if (phrases.length >= 3) break
   }
-  if (!phrases.length && keywords.length) phrases.push(keywords[0]!)
+  if (!phrases.length) {
+    const keywords = playFilterKeywords(play)
+    if (keywords.length) phrases.push(keywords[0]!)
+  }
   return unique([...supplied, ...phrases])
 }
 

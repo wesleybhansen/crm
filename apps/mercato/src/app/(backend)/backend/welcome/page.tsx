@@ -353,7 +353,7 @@ export default function WelcomePage() {
     setLoadingPipeline(false)
   }
 
-  async function finish() {
+  async function finish(): Promise<boolean> {
     setFinishing(true)
 
     const validStages = pipelineStages.filter(s => s.name.trim())
@@ -380,13 +380,13 @@ export default function WelcomePage() {
         console.error('[onboarding] business-profile PUT failed', res.status, body)
         window.alert(`We couldn't save your setup (${res.status}). ${body?.error ?? ''}\n\nPlease try again or contact support.`)
         setFinishing(false)
-        return
+        return false
       }
     } catch (err) {
       console.error('[onboarding] business-profile PUT threw', err)
       window.alert("We couldn't save your setup. Please check your connection and try again.")
       setFinishing(false)
-      return
+      return false
     }
 
     // Create actual pipeline stages in the CRM.
@@ -428,6 +428,7 @@ export default function WelcomePage() {
     }
 
     setFinishing(false)
+    return true
   }
 
   const baseSteps = [
@@ -1243,7 +1244,7 @@ export default function WelcomePage() {
           )}
 
           {step === 4 && (
-            <Button type="button" size="sm" onClick={() => { finish(); setStep(5) }}
+            <Button type="button" size="sm" onClick={async () => { if (await finish()) setStep(5) }}
               disabled={finishing || pipelineStages.filter(s => s.name.trim()).length < 2}>
               {finishing ? <><Loader2 className="size-3.5 animate-spin mr-1.5" /> Setting up...</> : <>Finish Setup <Check className="size-3.5 ml-1" /></>}
             </Button>
