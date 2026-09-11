@@ -81,6 +81,7 @@ async function deliverWebhook(
         method: 'POST',
         headers,
         body,
+        redirect: 'manual',
         signal: AbortSignal.timeout(10000),
       })
 
@@ -183,6 +184,8 @@ export async function sendTestDelivery(
     headers['X-Webhook-Signature'] = `sha256=${signature}`
   }
   try {
+    // Same rule as a real delivery: only public targets, no redirects.
+    await assertPublicTarget(subscription.target_url)
     const response = await fetch(subscription.target_url, { method: 'POST', headers, body, signal: AbortSignal.timeout(10000) })
     const responseBody = (await response.text().catch(() => '')).slice(0, 2000)
     await knex('webhook_deliveries').insert({

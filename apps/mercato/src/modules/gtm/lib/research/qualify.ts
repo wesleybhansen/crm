@@ -800,7 +800,7 @@ function scoreOpportunity(
     // above - TypeScript has narrowed actionStatus away from 'fail' by here -
     // so nothing else blocks acceptance and the only remaining guard is the
     // review threshold. `unknowns` stays populated so the UI can flag the row.
-    if (onlySizeUnknown(play, hardUnknownIds) && fitScore >= FIT_REVIEW_THRESHOLD && avgConfidence >= 0.5) {
+    if (onlySizeUnknown(play, hardUnknownIds) && fitScore >= FIT_ACCEPT_THRESHOLD && avgConfidence >= 0.5) {
       return result(
         fitScore,
         'accepted',
@@ -1778,7 +1778,7 @@ export const ruleBasedFitScorer: FitScorer = {
       // criterion failure both returned above, so nothing else blocks
       // acceptance here; the remaining guard is the review threshold.
       // `unknowns` still carries account.employee_range so the UI can flag it.
-      if (onlySizeUnknown(play, hardUnknownIds) && fitScore >= FIT_REVIEW_THRESHOLD && avgConfidence >= 0.5) {
+      if (onlySizeUnknown(play, hardUnknownIds) && fitScore >= FIT_ACCEPT_THRESHOLD && avgConfidence >= 0.5) {
         return result(
           fitScore,
           'accepted',

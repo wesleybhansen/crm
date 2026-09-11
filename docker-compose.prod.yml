@@ -70,7 +70,9 @@ services:
       - uploads_data:/app/apps/mercato/uploads
       - attachments_storage:/app/apps/mercato/storage
       # Backup freshness for the hub's ops-health cron (read-only).
-      - /root/backups/status.json:/backups/status.json:ro
+      # Directory, not file: the scripts replace status.json atomically and a
+      # file bind-mount would freeze on the original inode.
+      - /root/backups:/backups:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -865,7 +865,7 @@ export default function CalendarPage() {
                   body: JSON.stringify({
                     to: email,
                     subject: `Calendar Invite: ${effectiveTitle}`,
-                    body: `Hi ${contactName(attendee)},\n\nYou have been invited to an event.\n\nEvent: ${effectiveTitle}\nDate: ${eventDate}\nEnd: ${eventEnd}\nType: ${meetingType}\n${newLocation ? `Location: ${newLocation}\n` : ''}\nLooking forward to it!`,
+                    bodyHtml: (`Hi ${contactName(attendee)},\n\nYou have been invited to an event.\n\nEvent: ${effectiveTitle}\nDate: ${eventDate}\nEnd: ${eventEnd}\nType: ${meetingType}\n${newLocation ? `Location: ${newLocation}\n` : ''}\nLooking forward to it!`).replace(/\n/g, '<br>'),
                   }),
                 })
               } catch { /* email send failed silently */ }
@@ -957,7 +957,7 @@ export default function CalendarPage() {
         body: JSON.stringify({
           to: showCancelEmail.guestEmail,
           subject: cancelEmailSubject,
-          body: cancelEmailBody,
+          bodyHtml: (cancelEmailBody).replace(/\n/g, '<br>'),
         }),
       })
     } catch { /* empty */ }
@@ -2627,7 +2627,7 @@ export default function CalendarPage() {
                         cc: sendEmailCc || undefined,
                         bcc: sendEmailBcc || undefined,
                         subject: sendEmailSubject,
-                        body: sendEmailBody,
+                        bodyHtml: (sendEmailBody).replace(/\n/g, '<br>'),
                       }),
                     })
                     setSendEmailPageId(null)
