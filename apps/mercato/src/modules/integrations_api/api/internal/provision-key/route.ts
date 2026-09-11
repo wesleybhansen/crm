@@ -24,10 +24,12 @@ export async function POST(req: Request) {
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
   const authHeader = (req.headers.get('authorization') || '').trim()
   const expected = secret ? `Bearer ${secret}` : ''
+  // Digest comparison: timingSafeEqual throws on buffers of different byte
+  // length, which a multibyte header turned into an unauthenticated 500.
+  const digest = (v: string) => crypto.createHash('sha256').update(v).digest()
   if (
     !secret ||
-    authHeader.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+    !crypto.timingSafeEqual(digest(authHeader), digest(expected))
   ) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }

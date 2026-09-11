@@ -859,7 +859,7 @@ export default function CalendarPage() {
               const email = attendee.primary_email
               if (!email) continue
               try {
-                await fetch('/api/email/send', {
+                await fetch('/api/email/messages', {
                   method: 'POST', credentials: 'include',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -951,7 +951,7 @@ export default function CalendarPage() {
     if (!showCancelEmail) return
     setSendingCancelEmail(true)
     try {
-      await fetch('/api/email/send', {
+      await fetch('/api/email/messages', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2619,7 +2619,7 @@ export default function CalendarPage() {
                   setSendingEmail(true)
                   try {
                     const toEmail = sendEmailSelectedContact?.primary_email || sendEmailTo.trim()
-                    await fetch('/api/email/send', {
+                    await fetch('/api/email/messages', {
                       method: 'POST', credentials: 'include',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({

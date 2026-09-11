@@ -10,6 +10,32 @@
 import crypto from 'crypto'
 import type { Knex } from 'knex'
 
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
+
+/** Customer-supplied webhook targets must resolve to public addresses only:
+ *  the delivery body is theirs, but the response comes back through the
+ *  deliveries API, so an internal target would be a read primitive. */
+async function assertPublicTarget(rawUrl: string): Promise<void> {
+  let url: URL
+  try { url = new URL(rawUrl) } catch { throw new Error('webhook target is not a valid URL') }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('webhook target must be http(s)')
+  const host = url.hostname.toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) throw new Error('webhook target is not public')
+  const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true })
+  for (const { address } of addresses) {
+    if (isPrivateAddress(address)) throw new Error('webhook target resolves to a private address')
+  }
+}
+function isPrivateAddress(ip: string): boolean {
+  if (ip.includes(':')) {
+    const v = ip.toLowerCase()
+    return v === '::1' || v === '::' || v.startsWith('fe80:') || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('::ffff:') && isPrivateAddress(v.slice(7))
+  }
+  const [a, b] = ip.split('.').map(Number)
+  return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)
+}
+
 const MAX_ATTEMPTS = 3
 const RETRY_DELAY_MS = 5000
 
@@ -47,6 +73,7 @@ async function deliverWebhook(
     const deliveryId = crypto.randomUUID()
     headers['X-Webhook-Delivery'] = deliveryId
     try {
+      await assertPublicTarget(subscription.target_url)
       const response = await fetch(subscription.target_url, {
         method: 'POST',
         headers,

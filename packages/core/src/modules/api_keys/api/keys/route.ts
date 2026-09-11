@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { requireSuperAdmin } from '../../../auth/lib/organizationAuthority'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
@@ -286,6 +287,11 @@ const crud = makeCrudRoute<
         const normalizedRoleTenantId = roleTenantId ? roleTenantId.toLowerCase() : null
         if (normalizedRoleTenantId && normalizedEffectiveTenantId && normalizedRoleTenantId !== normalizedEffectiveTenantId) {
           throw json({ error: translate('api_keys.errors.roleWrongTenant', `Role ${role.name} belongs to another tenant`, { role: role.name ?? value }) }, { status: 400 })
+        }
+        if (String(role.name ?? '').toLowerCase() === 'superadmin') {
+          // Every customer shares the tenant, so the tenant check above does not
+          // stop a member minting a platform-wide key.
+          await requireSuperAdmin(ctx, 'create an API key with the superadmin role')
         }
         roleEntities.push(role)
         roleIds.push(String(role.id))

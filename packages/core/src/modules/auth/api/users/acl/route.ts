@@ -86,6 +86,14 @@ export async function PUT(req: Request) {
   const requestedFeatures = normalizeFeatureList(parsed.data.features)
   const organizations = Array.isArray(parsed.data.organizations) ? parsed.data.organizations : null
 
+  if (!actorIsSuperAdmin) {
+    // The tenant is shared by every customer; the target must be in the
+    // actor's own organisation or the write rewrites another customer's access.
+    const target = await em.getKnex()('users').where('id', parsed.data.userId).first('organization_id')
+    if (!target || !auth.orgId || String(target.organization_id) !== String(auth.orgId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  }
   let acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
   const existingIsSuperAdmin = acl ? !!acl.isSuperAdmin : false
   const existingFeatures = acl && Array.isArray(acl.featuresJson) ? normalizeFeatureList(acl.featuresJson) : []

@@ -1,6 +1,17 @@
 import { Resend } from 'resend'
 import { signEmailToken } from '@/lib/email-token'
 
+import { createHmac } from 'crypto'
+
+/** The click redirect follows only URLs this service signed, so the tracking
+ *  route cannot be used as an open redirector on the CRM's domain. */
+export function trackingSecret(): string {
+  return process.env.EMAIL_TRACK_SECRET || process.env.AUTH_SECRET || process.env.NOLI_INTERNAL_SERVICE_SECRET || ''
+}
+export function signTrackedUrl(url: string): string {
+  return createHmac('sha256', trackingSecret()).update(url).digest('hex').slice(0, 32)
+}
+
 export interface SendEmailOptions {
   to: string | string[]
   from?: string
@@ -91,7 +102,7 @@ export class EmailSenderService {
       (match, url) => {
         // Don't track unsubscribe links
         if (url.includes('unsubscribe')) return match
-        return `href="${trackUrl}?url=${encodeURIComponent(url)}"`
+        return `href="${trackUrl}?url=${encodeURIComponent(url)}&sig=${signTrackedUrl(url)}"`
       }
     )
   }

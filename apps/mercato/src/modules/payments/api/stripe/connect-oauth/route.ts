@@ -1,4 +1,4 @@
-export const metadata = { GET: { requireAuth: true }, POST: { requireAuth: true } }
+export const metadata = { GET: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -38,66 +38,7 @@ export async function GET() {
   return NextResponse.redirect(authorizeUrl)
 }
 
-// Manual connection for dev/testing — accepts a Stripe account ID directly
-export async function POST(req: Request) {
-  const auth = await getAuthFromCookies()
-  if (!auth?.sub || !auth?.orgId) {
-    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const body = await req.json()
-  const stripeAccountId = body.stripeAccountId?.trim()
-
-  if (!stripeAccountId) {
-    return NextResponse.json({ ok: false, error: 'stripeAccountId is required' }, { status: 400 })
-  }
-
-  if (!stripeAccountId.startsWith('acct_')) {
-    return NextResponse.json({ ok: false, error: 'Invalid Stripe account ID format. Must start with acct_' }, { status: 400 })
-  }
-
-  try {
-    const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
-
-    const existing = await knex('stripe_connections')
-      .where('organization_id', auth.orgId)
-      .first()
-
-    if (existing) {
-      await knex('stripe_connections').where('id', existing.id).update({
-        stripe_account_id: stripeAccountId,
-        business_name: body.businessName || 'Manual Connection (Dev)',
-        livemode: false,
-        is_active: true,
-        updated_at: new Date(),
-      })
-    } else {
-      await knex('stripe_connections').insert({
-        id: require('crypto').randomUUID(),
-        tenant_id: auth.tenantId || null,
-        organization_id: auth.orgId,
-        stripe_account_id: stripeAccountId,
-        business_name: body.businessName || 'Manual Connection (Dev)',
-        livemode: false,
-        is_active: true,
-        created_at: new Date(),
-        updated_at: new Date(),
-      })
-    }
-
-    return NextResponse.json({ ok: true })
-  } catch (err) {
-    console.error('[stripe.connect-oauth] Manual connect error:', err)
-    return NextResponse.json({ ok: false, error: 'Failed to save connection' }, { status: 500 })
-  }
-}
-
-export const openApi: OpenApiRouteDoc = {
-  tag: 'Stripe Connect',
-  summary: 'Stripe Connect OAuth flow',
-  methods: {
-    GET: { summary: 'Redirect to Stripe Connect OAuth authorization', tags: ['Stripe Connect'] },
-    POST: { summary: 'Manually connect a Stripe account (dev/testing)', tags: ['Stripe Connect'] },
-  },
-}
+// The manual "connect by account id" handler that lived here let any
+// signed-in user bind any Stripe account to their organisation, and the
+// cancel and refund routes then acted on it with the platform key. Stripe
+// Connect is OAuth-only.

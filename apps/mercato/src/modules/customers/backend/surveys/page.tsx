@@ -312,20 +312,21 @@ export default function SurveysPage() {
       const surveyUrl = `${window.location.origin}/api/surveys/public/${survey.slug}`
       const name = sendName.trim() ? sendName.trim().split(' ')[0] : 'there'
       const messageHtml = sendMessage.trim().replace(/\n/g, '<br>')
-      await fetch('/api/email/send', {
+      const sendRes = await fetch('/api/email/messages', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           to: sendEmail.trim(),
           cc: sendCc.trim() || undefined,
           bcc: sendBcc.trim() || undefined,
           subject: sendSubject,
-          htmlBody: `<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:32px">
+          bodyHtml: `<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:32px">
             <div style="color:#1e293b;font-size:15px;line-height:1.7;margin-bottom:24px">${messageHtml}</div>
             <a href="${surveyUrl}" style="display:inline-block;background:#3b82f6;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">Take the Survey</a>
             <p style="color:#94a3b8;font-size:12px;margin-top:24px">This survey takes about 2 minutes to complete.</p>
           </div>`,
         }),
       })
+      if (!sendRes.ok) throw new Error('send failed')
       showToast(`Survey sent to ${sendEmail.trim()}`)
       setSendSurveyId(null)
     } catch { showToast('Failed to send email') }
