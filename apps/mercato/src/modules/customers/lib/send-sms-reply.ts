@@ -1,5 +1,6 @@
 import type { Knex } from 'knex'
 import crypto from 'crypto'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { upsertInboxConversation } from '@/lib/inbox-conversation'
 
 /**
@@ -70,7 +71,10 @@ export async function sendSmsReply(
   }
 
   const accountSid = conn.account_sid
-  const authToken = conn.auth_token
+  const authToken = await openSecretForTenant(null, conn.tenant_id ?? tenantId, conn.auth_token)
+  if (!authToken) {
+    return { ok: false, error: 'Twilio credentials could not be read. Reconnect Twilio in Settings.', status: 400 }
+  }
   const messageId = crypto.randomUUID()
   let status = 'queued'
   let twilioSid: string | null = null

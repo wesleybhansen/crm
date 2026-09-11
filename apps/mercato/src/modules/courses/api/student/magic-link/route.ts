@@ -3,6 +3,7 @@ export const metadata = { POST: { requireAuth: false } }
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import crypto from 'crypto'
 
 export async function POST(req: Request) {
@@ -60,7 +61,9 @@ export async function POST(req: Request) {
 
     // Send the login link via the org's own ESP only (no platform sender).
     const espConn = await knex('esp_connections').where('organization_id', organizationId).where('is_active', true).first()
-    const resendKey = espConn?.provider === 'resend' ? espConn.api_key : null
+    const resendKey = espConn?.provider === 'resend'
+      ? await openSecretForTenant(null, espConn.tenant_id, espConn.api_key)
+      : null
     if (resendKey) {
       try {
         const { Resend } = await import('resend')

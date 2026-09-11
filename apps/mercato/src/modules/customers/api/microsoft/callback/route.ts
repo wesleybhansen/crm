@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { verifyOAuthState } from '@/lib/oauth-state'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export const metadata = { path: '/microsoft/callback', GET: { requireAuth: false } }
 
@@ -77,6 +78,10 @@ export async function GET(req: Request) {
     }
 
     const expiry = new Date(Date.now() + (tokens.expires_in || 3600) * 1000)
+    const encryption = tenantEncryptionFromContainer(container)
+    const tenantId = crmUser.tenant_id as string | null
+    const sealedAccess = await sealSecretForTenant(encryption, tenantId, tokens.access_token)
+    const sealedRefresh = await sealSecretForTenant(encryption, tenantId, tokens.refresh_token || null)
 
     const existingEmail = await knex('email_connections')
       .where('user_id', userId)
@@ -93,8 +98,10 @@ export async function GET(req: Request) {
     if (existingEmail) {
       await knex('email_connections').where('id', existingEmail.id).update({
         email_address: emailAddress,
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token || existingEmail.refresh_token,
+        access_token: sealedAccess,
+        // Microsoft only returns a refresh token on the first consent; keep the
+        // stored (already sealed) one when this exchange did not carry one.
+        refresh_token: sealedRefresh || existingEmail.refresh_token,
         token_expiry: expiry,
         is_active: true,
         updated_at: new Date(),
@@ -107,8 +114,8 @@ export async function GET(req: Request) {
         user_id: userId,
         provider: 'microsoft',
         email_address: emailAddress,
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token || '',
+        access_token: sealedAccess,
+        refresh_token: sealedRefresh || '',
         token_expiry: expiry,
         is_primary: !anyExisting,
         is_active: true,

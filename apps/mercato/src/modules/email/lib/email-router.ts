@@ -5,6 +5,7 @@
  */
 
 import type { Knex } from 'knex'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { sendViaGmail, getGmailToken } from './gmail-service'
 import { sendViaOutlook, getOutlookToken } from './outlook-service'
 import { sendViaESP } from './esp-service'
@@ -143,6 +144,10 @@ export async function sendEmailForOrg(
 
       case 'smtp': {
         try {
+          const smtpPass = await openSecretForTenant(null, connection.tenant_id ?? tenantId, connection.smtp_pass)
+          if (connection.smtp_pass && !smtpPass) {
+            return { ok: false, error: 'Mailbox password could not be decrypted. Reconnect the mailbox in Settings.' }
+          }
           const nodemailer = await import('nodemailer')
           const transporter = nodemailer.createTransport({
             host: connection.smtp_host,
@@ -150,7 +155,7 @@ export async function sendEmailForOrg(
             secure: connection.smtp_port === 465,
             auth: {
               user: connection.smtp_user,
-              pass: connection.smtp_pass,
+              pass: smtpPass ?? undefined,
             },
           })
 
@@ -213,6 +218,7 @@ export async function sendBulkEmailForOrg(
 
   if (espConnection) {
     // Use ESP for bulk sending
+    const espApiKey = await openSecretForTenant(null, espConnection.tenant_id ?? tenantId, espConnection.api_key)
     const results: BulkSendResult['results'] = []
     let sent = 0
     let failed = 0
@@ -221,7 +227,7 @@ export async function sendBulkEmailForOrg(
       try {
         const result = await sendViaESP(
           espConnection.provider,
-          espConnection.api_key,
+          espApiKey || '',
           from,
           to,
           subject,
@@ -370,6 +376,7 @@ export async function sendEmailByPurpose(
             host: conn.smtp_host, port: conn.smtp_port || 587,
             secure: conn.smtp_port === 465,
             auth: { user: conn.smtp_user, pass: conn.smtp_pass },
+            // conn came from getProviderForPurpose, which already opened the seal.
           })
           const info = await transporter.sendMail({
             from: fromDisplay, to, cc: cc || undefined, bcc: bcc || undefined,

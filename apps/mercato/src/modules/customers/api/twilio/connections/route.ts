@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 // Get the org's Twilio connection status
 export async function GET() {
@@ -88,6 +89,9 @@ export async function POST(req: Request) {
       )
     }
 
+    const encryption = tenantEncryptionFromContainer(container)
+    const sealedAuthToken = await sealSecretForTenant(encryption, auth.tenantId, authToken)
+
     // Upsert into twilio_connections
     const existing = await knex('twilio_connections')
       .where('organization_id', auth.orgId)
@@ -96,7 +100,7 @@ export async function POST(req: Request) {
     if (existing) {
       await knex('twilio_connections').where('id', existing.id).update({
         account_sid: accountSid,
-        auth_token: authToken,
+        auth_token: sealedAuthToken,
         phone_number: phoneNumber,
         is_active: true,
         updated_at: new Date(),
@@ -107,7 +111,7 @@ export async function POST(req: Request) {
         tenant_id: auth.tenantId,
         organization_id: auth.orgId,
         account_sid: accountSid,
-        auth_token: authToken,
+        auth_token: sealedAuthToken,
         phone_number: phoneNumber,
         is_active: true,
         created_at: new Date(),
@@ -136,9 +140,12 @@ export async function DELETE() {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
+    // Scrub the auth token on disconnect. auth_token is NOT NULL, so '' is the
+    // scrubbed value. Twilio has no OAuth grant to revoke: the credential is the
+    // customer's own account token, which they rotate in the Twilio console.
     await knex('twilio_connections')
       .where('organization_id', auth.orgId)
-      .update({ is_active: false, updated_at: new Date() })
+      .update({ is_active: false, auth_token: '', updated_at: new Date() })
 
     return NextResponse.json({ ok: true })
   } catch {

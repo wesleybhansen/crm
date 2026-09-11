@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { requireProcessAuth } from '@/lib/cron-auth'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export const metadata = { path: '/reminders/process',
   POST: { requireAuth: false },
@@ -81,7 +82,9 @@ export async function POST(req: Request) {
         // Use the org's own ESP only — never a platform key.
         const espConn = await knex('esp_connections')
           .where('organization_id', reminder.organization_id).where('is_active', true).first()
-        const apiKey = espConn?.provider === 'resend' ? espConn.api_key : undefined
+        const apiKey = espConn?.provider === 'resend'
+          ? await openSecretForTenant(null, espConn.tenant_id, espConn.api_key)
+          : undefined
         const fromAddress = espConn?.default_sender_email || process.env.EMAIL_FROM || 'noreply@localhost'
 
         if (apiKey) {

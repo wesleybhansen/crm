@@ -28,6 +28,7 @@
  */
 
 import type { EmailConnection } from '../../../email/data/schema'
+import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { buildGtmMimeMessage, encodeGmailRaw, encodeGraphMime } from './mime'
 
 export class GtmSendTimeoutError extends Error {
@@ -145,6 +146,13 @@ export const smtpTransport: GtmSendTransport = {
     if (!config) {
       throw new Error('sender connection has no usable SMTP configuration')
     }
+    // smtp_pass is sealed at rest; resolveSmtpConfig stays sync (tests pin it),
+    // so the seal comes off here, right before the socket is opened.
+    const smtpPass = await openSecretForTenant(null, args.connection.tenantId, config.pass)
+    if (!smtpPass) {
+      throw new Error('sender connection app password could not be read')
+    }
+    config.pass = smtpPass
     const nodemailer = await import('nodemailer')
     const transporter = nodemailer.createTransport({
       host: config.host,
@@ -268,12 +276,15 @@ export async function resolveMailboxAccessToken(
   now: Date,
   persist?: PersistRefreshedToken,
 ): Promise<AccessTokenResult> {
-  if (accessTokenIsFresh(connection, now)) {
-    return { accessToken: connection.accessToken as string, source: 'stored', refreshed: null }
+  // Both token columns are sealed at rest; legacy plaintext rows pass through.
+  const storedAccess = await openSecretForTenant(null, connection.tenantId, connection.accessToken ?? null)
+  const storedRefresh = await openSecretForTenant(null, connection.tenantId, connection.refreshToken ?? null)
+  if (accessTokenIsFresh(connection, now) && storedAccess) {
+    return { accessToken: storedAccess, source: 'stored', refreshed: null }
   }
-  if (!connection.refreshToken) throw new Error(`${provider} mailbox requires reconnection`)
+  if (!storedRefresh) throw new Error(`${provider} mailbox requires reconnection`)
   const config = oauthConfiguration(provider)
-  config.body.set('refresh_token', connection.refreshToken)
+  config.body.set('refresh_token', storedRefresh)
   let response: Response
   try {
     response = await fetchImpl(config.url, {
@@ -341,13 +352,11 @@ type TokenPersistEm = {
  * connection material) includes updated_at, so an ORM flush with the onUpdate
  * hook would fail every subsequent send with 'sender_changed'.
  *
- * Encryption note: email_connections.access_token / refresh_token are plain
- * text columns whose at-rest encryption depends on a runtime encryption_maps
- * row that this repository does not seed (and email/api/smtp writes the
- * sibling smtp_pass via raw knex, bypassing the subscriber). This write
- * therefore stores the token exactly the way the connect flow stored the
- * original. If a tenant map for email_connections is ever seeded, route this
- * write through the encrypting path instead. Not changed here on purpose.
+ * Encryption note: email_connections.access_token / refresh_token are sealed
+ * with the per-tenant envelope (sealSecretForTenant) on every write, because
+ * the ORM encryption maps do not cover this entity and most of its writes are
+ * raw knex anyway. The column set below is unchanged and still avoids
+ * updated_at for the fingerprint reason above.
  */
 export function createTokenPersister(
   em: TokenPersistEm,
@@ -363,9 +372,11 @@ export function createTokenPersister(
         deletedAt: null,
       },
       {
-        accessToken: refreshed.accessToken,
+        accessToken: await sealSecretForTenant(null, connection.tenantId, refreshed.accessToken),
         tokenExpiry: refreshed.tokenExpiry,
-        ...(refreshed.refreshToken ? { refreshToken: refreshed.refreshToken } : {}),
+        ...(refreshed.refreshToken
+          ? { refreshToken: await sealSecretForTenant(null, connection.tenantId, refreshed.refreshToken) }
+          : {}),
       },
     )
   }

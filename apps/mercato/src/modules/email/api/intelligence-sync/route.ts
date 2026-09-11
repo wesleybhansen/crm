@@ -14,6 +14,7 @@ import { fetchImapInbox, fetchImapSent } from '@/modules/email/lib/imap-service'
 import { upsertInboxConversation } from '@/lib/inbox-conversation'
 import { parseSignature, enrichContactFromSignature } from '@/modules/email/lib/signature-enrichment'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { createPersonContact } from '@/modules/customers/lib/contact-write'
 import { findOrMergeContact } from '@/modules/customers/lib/dedup'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -38,23 +39,27 @@ async function getGmailTokenRaw(orgId: string, userId: string): Promise<TokenRes
   )
   if (!conn) return null
 
+  const tenantId = conn.tenant_id as string | null
+  const storedAccess = await openSecretForTenant(null, tenantId, conn.access_token)
+  const storedRefresh = await openSecretForTenant(null, tenantId, conn.refresh_token)
+
   const expiry = new Date(conn.token_expiry)
   const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000)
 
-  if (expiry > fiveMinutesFromNow) {
-    return { accessToken: conn.access_token, emailAddress: conn.email_address, connectionId: conn.id }
+  if (expiry > fiveMinutesFromNow && storedAccess) {
+    return { accessToken: storedAccess, emailAddress: conn.email_address, connectionId: conn.id }
   }
 
-  if (!conn.refresh_token) {
+  if (!storedRefresh) {
     throw new Error('Gmail token expired and no refresh token available')
   }
 
-  const refreshed = await refreshGmailToken(conn.refresh_token)
+  const refreshed = await refreshGmailToken(storedRefresh)
   const newExpiry = new Date(Date.now() + refreshed.expiresIn * 1000)
 
   await query(
     `UPDATE email_connections SET access_token = $1, token_expiry = $2, updated_at = now() WHERE id = $3`,
-    [refreshed.accessToken, newExpiry.toISOString(), conn.id]
+    [await sealSecretForTenant(null, tenantId, refreshed.accessToken), newExpiry.toISOString(), conn.id]
   )
 
   return { accessToken: refreshed.accessToken, emailAddress: conn.email_address, connectionId: conn.id }
@@ -69,23 +74,27 @@ async function getOutlookTokenRaw(orgId: string, userId: string): Promise<TokenR
   )
   if (!conn) return null
 
+  const tenantId = conn.tenant_id as string | null
+  const storedAccess = await openSecretForTenant(null, tenantId, conn.access_token)
+  const storedRefresh = await openSecretForTenant(null, tenantId, conn.refresh_token)
+
   const expiry = new Date(conn.token_expiry)
   const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000)
 
-  if (expiry > fiveMinutesFromNow) {
-    return { accessToken: conn.access_token, emailAddress: conn.email_address, connectionId: conn.id }
+  if (expiry > fiveMinutesFromNow && storedAccess) {
+    return { accessToken: storedAccess, emailAddress: conn.email_address, connectionId: conn.id }
   }
 
-  if (!conn.refresh_token) {
+  if (!storedRefresh) {
     throw new Error('Outlook token expired and no refresh token available')
   }
 
-  const refreshed = await refreshOutlookToken(conn.refresh_token)
+  const refreshed = await refreshOutlookToken(storedRefresh)
   const newExpiry = new Date(Date.now() + refreshed.expiresIn * 1000)
 
   await query(
     `UPDATE email_connections SET access_token = $1, token_expiry = $2, updated_at = now() WHERE id = $3`,
-    [refreshed.accessToken, newExpiry.toISOString(), conn.id]
+    [await sealSecretForTenant(null, tenantId, refreshed.accessToken), newExpiry.toISOString(), conn.id]
   )
 
   return { accessToken: refreshed.accessToken, emailAddress: conn.email_address, connectionId: conn.id }
@@ -469,7 +478,7 @@ async function runSync(
         port: imapConn.imap_port || 993,
         secure: imapConn.imap_secure ?? true,
         user: imapConn.smtp_user || imapConn.email_address,
-        pass: imapConn.smtp_pass,
+        pass: (await openSecretForTenant(null, imapConn.tenant_id, imapConn.smtp_pass)) || '',
       }
       const sinceAsDate = new Date(sinceDate)
       const toProcessed = (m: import('@/modules/email/lib/imap-service').FetchedEmail): ProcessedEmail => ({

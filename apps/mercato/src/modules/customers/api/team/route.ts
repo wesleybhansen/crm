@@ -3,6 +3,7 @@ export const metadata = { path: '/team', GET: { requireAuth: true }, POST: { req
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getTeamAuth, isTeamManager } from './auth'
+import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import crypto from 'node:crypto'
 
 export async function GET() {
@@ -142,16 +143,19 @@ export async function POST(req: Request) {
       )
       if (gmailConn?.access_token) {
         const { sendViaGmail, refreshGmailToken } = await import('@/modules/email/lib/gmail-service')
-        let accessToken = gmailConn.access_token
+        let accessToken = await openSecretForTenant(null, auth.tenantId, gmailConn.access_token)
+        const gmailRefresh = await openSecretForTenant(null, auth.tenantId, gmailConn.refresh_token)
         // Refresh if expired
-        if (gmailConn.token_expiry && new Date(gmailConn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && gmailConn.refresh_token) {
-          const refreshed = await refreshGmailToken(gmailConn.refresh_token)
+        if (gmailConn.token_expiry && new Date(gmailConn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && gmailRefresh) {
+          const refreshed = await refreshGmailToken(gmailRefresh)
           accessToken = refreshed.accessToken
           await query('UPDATE email_connections SET access_token = $1, token_expiry = $2 WHERE id = $3',
-            [accessToken, new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(), gmailConn.id])
+            [await sealSecretForTenant(null, auth.tenantId, accessToken), new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(), gmailConn.id])
         }
-        await sendViaGmail(accessToken, gmailConn.email_address, normalizedEmail, inviteSubject, inviteHtml)
-        emailSent = true
+        if (accessToken) {
+          await sendViaGmail(accessToken, gmailConn.email_address, normalizedEmail, inviteSubject, inviteHtml)
+          emailSent = true
+        }
       }
 
       // 2. Try user's connected Outlook
@@ -163,15 +167,18 @@ export async function POST(req: Request) {
         )
         if (outlookConn?.access_token) {
           const { sendViaOutlook, refreshOutlookToken } = await import('@/modules/email/lib/outlook-service')
-          let accessToken = outlookConn.access_token
-          if (outlookConn.token_expiry && new Date(outlookConn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && outlookConn.refresh_token) {
-            const refreshed = await refreshOutlookToken(outlookConn.refresh_token)
+          let accessToken = await openSecretForTenant(null, auth.tenantId, outlookConn.access_token)
+          const outlookRefresh = await openSecretForTenant(null, auth.tenantId, outlookConn.refresh_token)
+          if (outlookConn.token_expiry && new Date(outlookConn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && outlookRefresh) {
+            const refreshed = await refreshOutlookToken(outlookRefresh)
             accessToken = refreshed.accessToken
             await query('UPDATE email_connections SET access_token = $1, token_expiry = $2 WHERE id = $3',
-              [accessToken, new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(), outlookConn.id])
+              [await sealSecretForTenant(null, auth.tenantId, accessToken), new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(), outlookConn.id])
           }
-          await sendViaOutlook(accessToken, outlookConn.email_address, normalizedEmail, inviteSubject, inviteHtml)
-          emailSent = true
+          if (accessToken) {
+            await sendViaOutlook(accessToken, outlookConn.email_address, normalizedEmail, inviteSubject, inviteHtml)
+            emailSent = true
+          }
         }
       }
 
@@ -181,12 +188,13 @@ export async function POST(req: Request) {
           `SELECT provider, api_key, default_sender_email, default_sender_name FROM esp_connections WHERE organization_id = $1 AND is_active = true LIMIT 1`,
           [auth.orgId]
         )
-        if (espConn?.provider === 'resend' && espConn.api_key) {
+        const espApiKey = await openSecretForTenant(null, auth.tenantId, espConn?.api_key)
+        if (espConn?.provider === 'resend' && espApiKey) {
           const fromEmail = espConn.default_sender_email || 'noreply@resend.dev'
           const fromName = espConn.default_sender_name || 'Noli CRM'
           await fetch('https://api.resend.com/emails', {
             method: 'POST',
-            headers: { Authorization: `Bearer ${espConn.api_key}`, 'Content-Type': 'application/json' },
+            headers: { Authorization: `Bearer ${espApiKey}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ from: `${fromName} <${fromEmail}>`, to: [normalizedEmail], subject: inviteSubject, html: inviteHtml }),
           })
           emailSent = true

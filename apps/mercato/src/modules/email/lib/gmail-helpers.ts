@@ -4,6 +4,7 @@
  */
 
 import { query, queryOne } from '@/lib/db'
+import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { refreshGmailToken } from './gmail-service'
 
 export interface GmailTokenResult {
@@ -21,23 +22,27 @@ export async function getGmailTokenRaw(orgId: string, userId: string): Promise<G
   )
   if (!conn) return null
 
+  const tenantId = conn.tenant_id as string | null
+  const accessToken = await openSecretForTenant(null, tenantId, conn.access_token)
+  const refreshToken = await openSecretForTenant(null, tenantId, conn.refresh_token)
+
   const expiry = new Date(conn.token_expiry)
   const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000)
 
-  if (expiry > fiveMinutesFromNow) {
-    return { accessToken: conn.access_token, emailAddress: conn.email_address, connectionId: conn.id }
+  if (expiry > fiveMinutesFromNow && accessToken) {
+    return { accessToken, emailAddress: conn.email_address, connectionId: conn.id }
   }
 
-  if (!conn.refresh_token) {
+  if (!refreshToken) {
     throw new Error('Gmail token expired and no refresh token available')
   }
 
-  const refreshed = await refreshGmailToken(conn.refresh_token)
+  const refreshed = await refreshGmailToken(refreshToken)
   const newExpiry = new Date(Date.now() + refreshed.expiresIn * 1000)
 
   await query(
     `UPDATE email_connections SET access_token = $1, token_expiry = $2, updated_at = now() WHERE id = $3`,
-    [refreshed.accessToken, newExpiry.toISOString(), conn.id]
+    [await sealSecretForTenant(null, tenantId, refreshed.accessToken), newExpiry.toISOString(), conn.id]
   )
 
   return { accessToken: refreshed.accessToken, emailAddress: conn.email_address, connectionId: conn.id }

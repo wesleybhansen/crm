@@ -2,6 +2,7 @@ import { ImapFlow } from 'imapflow'
 import { simpleParser } from 'mailparser'
 import { z } from 'zod'
 import type { EmailConnection } from '../../../../email/data/schema'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import {
   boundedText,
   cleanMessageId,
@@ -92,7 +93,8 @@ export function createProductionImapPageSource(
   return async ({ afterUid, limit }) => {
     const host = connection.imapHost
     const user = connection.smtpUser || connection.emailAddress
-    const pass = connection.smtpPass
+    // smtp_pass is sealed at rest; open it right before connecting.
+    const pass = await openSecretForTenant(null, connection.tenantId, connection.smtpPass ?? null)
     if (!host || !user || !pass) throw new Error('imap mailbox requires reconnection')
     const client = new ImapFlow({
       host,

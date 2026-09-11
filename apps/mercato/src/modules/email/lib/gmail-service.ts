@@ -4,6 +4,7 @@
  */
 
 import type { Knex } from 'knex'
+import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 interface GmailSendResult {
   messageId: string
@@ -164,28 +165,34 @@ export async function getGmailToken(
 
   if (!connection) return null
 
+  // Stored sealed since the credential-encryption pass; legacy rows are plaintext
+  // and open() hands those back unchanged.
+  const tenantId = connection.tenant_id as string | null
+  const accessToken = await openSecretForTenant(null, tenantId, connection.access_token)
+  const refreshToken = await openSecretForTenant(null, tenantId, connection.refresh_token)
+
   const expiry = new Date(connection.token_expiry)
   const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000)
 
-  if (expiry > fiveMinutesFromNow) {
+  if (expiry > fiveMinutesFromNow && accessToken) {
     // Token still valid
     return {
-      accessToken: connection.access_token,
+      accessToken,
       emailAddress: connection.email_address,
     }
   }
 
   // Token expired or about to expire — refresh it
-  if (!connection.refresh_token) {
+  if (!refreshToken) {
     throw new Error('Gmail token expired and no refresh token available. Please reconnect Gmail in Settings.')
   }
 
   try {
-    const refreshed = await refreshGmailToken(connection.refresh_token)
+    const refreshed = await refreshGmailToken(refreshToken)
     const newExpiry = new Date(Date.now() + refreshed.expiresIn * 1000)
 
     await knex('email_connections').where('id', connection.id).update({
-      access_token: refreshed.accessToken,
+      access_token: await sealSecretForTenant(null, tenantId, refreshed.accessToken),
       token_expiry: newExpiry,
       updated_at: new Date(),
     })

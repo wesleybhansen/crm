@@ -30,10 +30,13 @@ export async function GET(req: Request) {
     const em = container.resolve('em') as EntityManager
     const knex = em.getKnex()
 
+    // Never echo the live signing secret on a list. It is shown once, by the
+    // call that set it.
     const subscriptions = await knex('webhook_subscriptions')
       .where('organization_id', auth.orgId)
       .where('tenant_id', auth.tenantId)
       .orderBy('created_at', 'desc')
+      .select('id', 'tenant_id', 'organization_id', 'event', 'target_url', 'is_active', 'created_at', 'updated_at')
 
     return NextResponse.json({ ok: true, data: subscriptions })
   } catch (error) {
@@ -81,6 +84,7 @@ export async function POST(req: Request) {
       updated_at: new Date(),
     })
 
+    // Create is the one response that carries the secret back.
     const subscription = await knex('webhook_subscriptions').where('id', id).first()
     return NextResponse.json({ ok: true, data: subscription })
   } catch (error) {

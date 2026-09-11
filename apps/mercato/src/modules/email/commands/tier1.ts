@@ -38,6 +38,12 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
+import { sealSecretForTenant, tenantEncryptionFromContainer, type TenantEncryptionLike } from '@open-mercato/shared/lib/encryption/secretColumns'
+
+/** Per-tenant key service used to seal third-party credentials on ORM writes. */
+function tenantEncryption(ctx: { container: { resolve: (name: string) => unknown } }): TenantEncryptionLike | null {
+  return tenantEncryptionFromContainer(ctx.container)
+}
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -647,13 +653,15 @@ const createEmailConnectionCommand: CommandHandler<EmailConnectionCreateInput, {
       userId: parsed.userId,
       provider: parsed.provider,
       emailAddress: parsed.emailAddress,
-      accessToken: parsed.accessToken ?? null,
-      refreshToken: parsed.refreshToken ?? null,
+      // EmailConnection is not in the ORM encryption maps, so the transparent
+      // subscriber never fires for it. Seal the credentials here instead.
+      accessToken: await sealSecretForTenant(tenantEncryption(ctx), parsed.tenantId, parsed.accessToken ?? null),
+      refreshToken: await sealSecretForTenant(tenantEncryption(ctx), parsed.tenantId, parsed.refreshToken ?? null),
       tokenExpiry: parsed.tokenExpiry ?? null,
       smtpHost: parsed.smtpHost ?? null,
       smtpPort: parsed.smtpPort ?? null,
       smtpUser: parsed.smtpUser ?? null,
-      smtpPass: parsed.smtpPass ?? null,
+      smtpPass: await sealSecretForTenant(tenantEncryption(ctx), parsed.tenantId, parsed.smtpPass ?? null),
       isPrimary: parsed.isPrimary ?? false,
       isActive: parsed.isActive ?? true,
     })
@@ -678,13 +686,13 @@ const updateEmailConnectionCommand: CommandHandler<EmailConnectionUpdateInput, {
     if (!c) throw new CrudHttpError(404, { error: 'Connection not found' })
     ensureTenantScope(ctx, c.tenantId)
     ensureOrganizationScope(ctx, c.organizationId)
-    if (parsed.accessToken !== undefined) c.accessToken = parsed.accessToken ?? null
-    if (parsed.refreshToken !== undefined) c.refreshToken = parsed.refreshToken ?? null
+    if (parsed.accessToken !== undefined) c.accessToken = await sealSecretForTenant(tenantEncryption(ctx), c.tenantId, parsed.accessToken ?? null)
+    if (parsed.refreshToken !== undefined) c.refreshToken = await sealSecretForTenant(tenantEncryption(ctx), c.tenantId, parsed.refreshToken ?? null)
     if (parsed.tokenExpiry !== undefined) c.tokenExpiry = parsed.tokenExpiry ?? null
     if (parsed.smtpHost !== undefined) c.smtpHost = parsed.smtpHost ?? null
     if (parsed.smtpPort !== undefined) c.smtpPort = parsed.smtpPort ?? null
     if (parsed.smtpUser !== undefined) c.smtpUser = parsed.smtpUser ?? null
-    if (parsed.smtpPass !== undefined) c.smtpPass = parsed.smtpPass ?? null
+    if (parsed.smtpPass !== undefined) c.smtpPass = await sealSecretForTenant(tenantEncryption(ctx), c.tenantId, parsed.smtpPass ?? null)
     if (parsed.isPrimary !== undefined) c.isPrimary = parsed.isPrimary
     if (parsed.isActive !== undefined) c.isActive = parsed.isActive
     await em.flush()
@@ -708,6 +716,11 @@ const deleteEmailConnectionCommand: CommandHandler<{ body?: Record<string, unkno
     ensureTenantScope(ctx, c.tenantId)
     ensureOrganizationScope(ctx, c.organizationId)
     c.deletedAt = new Date()
+    // Scrub the credentials: a deleted mailbox must not keep a usable token.
+    c.accessToken = null
+    c.refreshToken = null
+    c.smtpPass = null
+    c.isActive = false
     await em.flush()
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -741,7 +754,7 @@ const upsertEspConnectionCommand: CommandHandler<EspConnectionUpsertInput, { esp
         tenantId: parsed.tenantId,
         organizationId: parsed.organizationId,
         provider: parsed.provider,
-        apiKey: parsed.apiKey,
+        apiKey: (await sealSecretForTenant(tenantEncryption(ctx), parsed.tenantId, parsed.apiKey)) ?? '',
         sendingDomain: parsed.sendingDomain ?? null,
         defaultSenderEmail: parsed.defaultSenderEmail ?? null,
         defaultSenderName: parsed.defaultSenderName ?? null,
@@ -750,7 +763,7 @@ const upsertEspConnectionCommand: CommandHandler<EspConnectionUpsertInput, { esp
       em.persist(c)
     } else {
       ensureTenantScope(ctx, c.tenantId)
-      c.apiKey = parsed.apiKey
+      c.apiKey = (await sealSecretForTenant(tenantEncryption(ctx), c.tenantId, parsed.apiKey)) ?? ''
       if (parsed.sendingDomain !== undefined) c.sendingDomain = parsed.sendingDomain ?? null
       if (parsed.defaultSenderEmail !== undefined) c.defaultSenderEmail = parsed.defaultSenderEmail ?? null
       if (parsed.defaultSenderName !== undefined) c.defaultSenderName = parsed.defaultSenderName ?? null
@@ -777,6 +790,9 @@ const deleteEspConnectionCommand: CommandHandler<{ body?: Record<string, unknown
     ensureTenantScope(ctx, c.tenantId)
     ensureOrganizationScope(ctx, c.organizationId)
     c.deletedAt = new Date()
+    // api_key is NOT NULL: '' is the scrubbed value.
+    c.apiKey = ''
+    c.isActive = false
     await em.flush()
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({

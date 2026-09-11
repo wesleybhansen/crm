@@ -84,6 +84,17 @@ const ORG_TABLES = [
   'customer_companies',
   'customer_entities',
   'api_keys',
+  // Third-party credentials. These hold live provider tokens (mailbox OAuth
+  // and app passwords, ESP API keys, Stripe Connect tokens, Twilio auth
+  // tokens); a purge that left them behind would leave the departing user's
+  // integrations reachable.
+  'email_connections',
+  'esp_connections',
+  'esp_sender_addresses',
+  'email_routing',
+  'stripe_connections',
+  'twilio_connections',
+  'google_calendar_connections',
 ] as const
 
 export async function POST(req: Request) {

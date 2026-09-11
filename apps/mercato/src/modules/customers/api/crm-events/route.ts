@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import crypto from 'crypto'
 
 
@@ -194,7 +195,9 @@ export async function PUT(req: Request) {
       const attendees = await knex('event_attendees').where('event_id', id).where('status', 'registered')
       // Send via the org's own ESP only (no platform sender).
       const espConn = await knex('esp_connections').where('organization_id', auth.orgId).where('is_active', true).first()
-      const resendKey = espConn?.provider === 'resend' ? espConn.api_key : null
+      const resendKey = espConn?.provider === 'resend'
+        ? await openSecretForTenant(null, espConn.tenant_id ?? auth.tenantId, espConn.api_key)
+        : null
       if (resendKey && event && attendees.length > 0) {
         try {
           const { Resend } = await import('resend')

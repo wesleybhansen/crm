@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 /* Internal endpoint for the Noli COS "email desk" (the Chief of Staff's own
  * mailbox). The hub registers the desk's IMAP/SMTP credentials here so the
@@ -59,11 +60,13 @@ export async function POST(req: Request) {
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
     if (op === 'disconnect') {
+      // Scrub the app password too: a deactivated desk row must not keep a
+      // working mailbox credential.
       await knex('email_connections')
         .where('organization_id', String(auth.orgId))
         .where('email_address', address)
         .where('purpose', 'customer_service')
-        .update({ is_active: false, updated_at: new Date() })
+        .update({ is_active: false, smtp_pass: null, access_token: null, refresh_token: null, updated_at: new Date() })
       return NextResponse.json({ ok: true })
     }
 
@@ -79,12 +82,13 @@ export async function POST(req: Request) {
 
     // Upsert the desk mailbox as a customer-service connection (same shape as
     // the SMTP save route; scoped on org + address + purpose).
+    const encryption = tenantEncryptionFromContainer(container)
     const record = {
       email_address: address,
       smtp_host: smtpHost,
       smtp_port: smtpPort,
       smtp_user: address,
-      smtp_pass: password,
+      smtp_pass: await sealSecretForTenant(encryption, String(auth.tenantId), password),
       imap_host: imapHost,
       imap_port: imapPort,
       imap_secure: imapPort === 993,

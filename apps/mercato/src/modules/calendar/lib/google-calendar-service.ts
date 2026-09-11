@@ -5,6 +5,7 @@
 
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export interface CalendarConnection {
   id: string
@@ -13,25 +14,33 @@ export interface CalendarConnection {
   token_expiry: string
   calendar_id: string
   google_email: string
+  /** Needed to open the sealed token columns. Present on every row read with select *. */
+  tenant_id?: string | null
 }
 
 /** Exported for the internal calendar-events endpoint, which performs Google
  *  operations on behalf of the Chief of Staff so no token leaves the CRM. */
 export async function refreshTokenIfNeeded(connection: CalendarConnection): Promise<string> {
+  // The token columns are sealed at rest. Every Google Calendar caller goes
+  // through here, so this is the single place they are opened.
+  const tenantId = connection.tenant_id ?? null
+  const storedAccess = await openSecretForTenant(null, tenantId, connection.access_token)
+  const storedRefresh = await openSecretForTenant(null, tenantId, connection.refresh_token)
+
   const expiry = new Date(connection.token_expiry)
-  if (expiry > new Date(Date.now() + 5 * 60 * 1000)) {
-    return connection.access_token // Still valid
+  if (expiry > new Date(Date.now() + 5 * 60 * 1000) && storedAccess) {
+    return storedAccess // Still valid
   }
 
   // Refresh the token
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID
-  if (!clientId || !connection.refresh_token) {
+  if (!clientId || !storedRefresh) {
     throw new Error('Cannot refresh Google token — missing credentials')
   }
 
   const body: Record<string, string> = {
     client_id: clientId,
-    refresh_token: connection.refresh_token,
+    refresh_token: storedRefresh,
     grant_type: 'refresh_token',
   }
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET
@@ -63,7 +72,7 @@ export async function refreshTokenIfNeeded(connection: CalendarConnection): Prom
   const container = await createRequestContainer()
   const knex = (container.resolve('em') as EntityManager).getKnex()
   await knex('google_calendar_connections').where('id', connection.id).update({
-    access_token: tokens.access_token,
+    access_token: (await sealSecretForTenant(null, tenantId, tokens.access_token)) ?? tokens.access_token,
     token_expiry: new Date(Date.now() + (tokens.expires_in || 3600) * 1000),
     updated_at: new Date(),
   })

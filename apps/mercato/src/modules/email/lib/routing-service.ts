@@ -5,6 +5,11 @@
  */
 
 import type { Knex } from 'knex'
+import {
+  EMAIL_CONNECTION_SECRETS,
+  ESP_CONNECTION_SECRETS,
+  openSecretsOnRow,
+} from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export const EMAIL_PURPOSES = ['inbox', 'invoices', 'marketing', 'automations', 'transactional'] as const
 export type EmailPurpose = (typeof EMAIL_PURPOSES)[number]
@@ -111,6 +116,34 @@ export async function getEmailAddresses(knex: Knex, orgId: string): Promise<Unif
  * Checks configured routing first, then falls back to defaults.
  */
 export async function getProviderForPurpose(
+  knex: Knex,
+  orgId: string,
+  purpose: EmailPurpose,
+): Promise<ResolvedProvider | null> {
+  const resolved = await resolveProviderForPurpose(knex, orgId, purpose)
+  if (!resolved) return null
+  // Callers use `connection` / `espConnection` for credentials, so the sealed
+  // columns have to be opened here rather than at every send site.
+  if (resolved.connection) {
+    resolved.connection = (await openSecretsOnRow(
+      null,
+      resolved.connection.tenant_id,
+      resolved.connection,
+      EMAIL_CONNECTION_SECRETS,
+    )) as Record<string, any>
+  }
+  if (resolved.espConnection) {
+    resolved.espConnection = (await openSecretsOnRow(
+      null,
+      resolved.espConnection.tenant_id,
+      resolved.espConnection,
+      ESP_CONNECTION_SECRETS,
+    )) as Record<string, any>
+  }
+  return resolved
+}
+
+async function resolveProviderForPurpose(
   knex: Knex,
   orgId: string,
   purpose: EmailPurpose,

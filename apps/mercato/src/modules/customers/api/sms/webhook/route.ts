@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export const metadata = { path: '/sms/webhook', POST: { requireAuth: false } }
 
@@ -72,7 +73,8 @@ export async function POST(req: Request) {
       `${reqUrl.origin}${reqUrl.pathname}${reqUrl.search}`,
     ].filter((u) => u && !u.startsWith(reqUrl.pathname))
     const signature = req.headers.get('x-twilio-signature')
-    if (!twilioConnection?.auth_token || !validTwilioSignature(twilioConnection.auth_token, candidateUrls, params, signature)) {
+    const webhookAuthToken = await openSecretForTenant(null, twilioConnection?.tenant_id, twilioConnection?.auth_token)
+    if (!webhookAuthToken || !validTwilioSignature(webhookAuthToken, candidateUrls, params, signature)) {
       console.warn('[sms.webhook] rejected: missing connection or invalid Twilio signature', { to })
       return new NextResponse('<Response></Response>', { status: 403, headers: { 'Content-Type': 'text/xml' } })
     }

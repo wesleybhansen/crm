@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 const VALID_PROVIDERS = ['resend', 'sendgrid', 'ses', 'mailgun'] as const
 
@@ -69,6 +70,8 @@ export async function POST(req: Request) {
 
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
+    const encryption = tenantEncryptionFromContainer(container)
+    const sealedApiKey = await sealSecretForTenant(encryption, auth.tenantId, apiKey)
 
     // Upsert: update existing row for this org+provider, or insert new one
     const existing = await knex('esp_connections')
@@ -87,7 +90,7 @@ export async function POST(req: Request) {
       await knex('esp_connections')
         .where('id', existing.id)
         .update({
-          api_key: apiKey,
+          api_key: sealedApiKey,
           sending_domain: sendingDomain || null,
           default_sender_email: defaultSenderEmail || null,
           default_sender_name: defaultSenderName || null,
@@ -107,7 +110,7 @@ export async function POST(req: Request) {
         tenant_id: auth.tenantId,
         organization_id: auth.orgId,
         provider,
-        api_key: apiKey,
+        api_key: sealedApiKey,
         sending_domain: sendingDomain || null,
         default_sender_email: defaultSenderEmail || null,
         default_sender_name: defaultSenderName || null,
@@ -142,10 +145,13 @@ export async function DELETE(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
+    // api_key is NOT NULL, so '' is how the credential is scrubbed. There is no
+    // ESP-side revoke API for a customer-pasted key; the user rotates it at the
+    // provider.
     const deleted = await knex('esp_connections')
       .where('id', connectionId)
       .where('organization_id', auth.orgId)
-      .update({ is_active: false, updated_at: new Date() })
+      .update({ is_active: false, api_key: '', updated_at: new Date() })
 
     if (!deleted) {
       return NextResponse.json({ ok: false, error: 'Connection not found' }, { status: 404 })

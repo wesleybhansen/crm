@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findContactByPhone } from '@/modules/customers/lib/dedup'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -60,7 +61,13 @@ export async function POST(req: Request) {
 
     const fromNumber = twilioConnection.phone_number
     const accountSid = twilioConnection.account_sid
-    const authToken = twilioConnection.auth_token
+    const authToken = await openSecretForTenant(null, twilioConnection.tenant_id ?? auth.tenantId, twilioConnection.auth_token)
+    if (!authToken) {
+      return NextResponse.json(
+        { ok: false, error: 'Twilio credentials could not be read. Reconnect Twilio in Settings.' },
+        { status: 400 },
+      )
+    }
     const id = require('crypto').randomUUID()
     let status = 'queued'
     let twilioSid = null

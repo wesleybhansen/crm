@@ -4,6 +4,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { testImapConnection, getProviderPreset } from '@/modules/email/lib/imap-service'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { openSecretForTenant, sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { revokeGoogleOAuthToken } from '@open-mercato/shared/lib/integrations/revokeTokens'
 
 /* Internal service endpoint (shared NOLI_INTERNAL_SERVICE_SECRET) that lets the
  * hub's Unified Inbox manage a user's PERSONAL email mailboxes (purpose null)
@@ -159,12 +161,13 @@ export async function POST(req: Request) {
 
       const existing = await knex('email_connections').where('organization_id', auth.orgId).where('user_id', auth.userId).where('provider', 'smtp').where('email_address', emailAddress).whereNull('purpose').first()
       const anyExisting = await knex('email_connections').where('organization_id', auth.orgId).where('user_id', auth.userId).where('is_active', true).first()
+      const encryption = tenantEncryptionFromContainer(container)
       const record = {
         email_address: emailAddress,
         smtp_host: smtpHost,
         smtp_port: smtpPort,
         smtp_user: emailAddress,
-        smtp_pass: password,
+        smtp_pass: await sealSecretForTenant(encryption, auth.tenantId, password),
         imap_host: imapHost,
         imap_port: imapPort,
         imap_secure: imapSecure,
@@ -192,7 +195,28 @@ export async function POST(req: Request) {
     if (op === 'remove') {
       const id = typeof body.id === 'string' ? body.id : ''
       if (!id) return NextResponse.json({ ok: false, error: 'id required' }, { status: 400 })
-      await knex('email_connections').where('id', id).where('organization_id', auth.orgId).where('user_id', auth.userId).update({ is_active: false, updated_at: new Date() })
+      const removing = await knex('email_connections').where('id', id).where('organization_id', auth.orgId).where('user_id', auth.userId).first()
+      // Revoking kills the whole Google grant for this client, so skip it while
+      // the user still has Google Calendar connected.
+      const calendarStillConnected = await knex('google_calendar_connections')
+        .where('user_id', auth.userId)
+        .where('is_active', true)
+        .first()
+        .catch(() => null)
+      if (removing?.provider === 'gmail' && !calendarStillConnected) {
+        const enc = tenantEncryptionFromContainer(container)
+        const tid = removing.tenant_id ?? auth.tenantId
+        try {
+          await revokeGoogleOAuthToken({
+            refreshToken: await openSecretForTenant(enc, tid, removing.refresh_token),
+            accessToken: await openSecretForTenant(enc, tid, removing.access_token),
+          }, 'integrations.email')
+        } catch (revokeErr) {
+          console.warn('[integrations.email] revoke failed', revokeErr)
+        }
+      }
+      // Scrub the credentials along with deactivating the row.
+      await knex('email_connections').where('id', id).where('organization_id', auth.orgId).where('user_id', auth.userId).update({ is_active: false, access_token: null, refresh_token: null, smtp_pass: null, updated_at: new Date() })
       return NextResponse.json({ ok: true })
     }
 

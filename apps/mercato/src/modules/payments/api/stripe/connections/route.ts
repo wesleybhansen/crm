@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { deauthorizeStripeConnect, stripeConnectPlatformCredentials } from '@open-mercato/shared/lib/integrations/revokeTokens'
 
 // Get the org's Stripe connection status
 export async function GET() {
@@ -49,9 +50,25 @@ export async function DELETE() {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
+    const rows = await knex('stripe_connections')
+      .where('organization_id', auth.orgId)
+      .where('is_active', true)
+
+    // Tell Stripe the platform no longer has access to the connected account,
+    // then drop our copy of the tokens. Best effort: a Stripe error must not
+    // block the disconnect.
+    const { clientId, secretKey } = stripeConnectPlatformCredentials()
+    for (const row of rows) {
+      try {
+        await deauthorizeStripeConnect({ stripeUserId: row.stripe_account_id, clientId, secretKey }, 'stripe.connections')
+      } catch (revokeErr) {
+        console.warn('[stripe.connections.delete] deauthorize failed', revokeErr)
+      }
+    }
+
     await knex('stripe_connections')
       .where('organization_id', auth.orgId)
-      .update({ is_active: false, updated_at: new Date() })
+      .update({ is_active: false, access_token: null, refresh_token: null, updated_at: new Date() })
 
     return NextResponse.json({ ok: true })
   } catch {

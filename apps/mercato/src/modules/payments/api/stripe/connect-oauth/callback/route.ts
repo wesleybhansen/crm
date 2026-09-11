@@ -5,6 +5,7 @@ import { verifyOAuthState } from '@/lib/oauth-state'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export const metadata = { GET: { requireAuth: false } }
 
@@ -74,6 +75,11 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
+    const encryption = tenantEncryptionFromContainer(container)
+    const connTenantId = stateData.tenantId || null
+    const sealedAccess = await sealSecretForTenant(encryption, connTenantId, access_token)
+    const sealedRefresh = await sealSecretForTenant(encryption, connTenantId, refresh_token || null)
+
     // Upsert into stripe_connections
     const existing = await knex('stripe_connections')
       .where('organization_id', stateData.orgId)
@@ -82,8 +88,8 @@ export async function GET(req: Request) {
     if (existing) {
       await knex('stripe_connections').where('id', existing.id).update({
         stripe_account_id: stripe_user_id,
-        access_token,
-        refresh_token: refresh_token || null,
+        access_token: sealedAccess,
+        refresh_token: sealedRefresh,
         business_name: businessName,
         is_active: true,
         updated_at: new Date(),
@@ -94,8 +100,8 @@ export async function GET(req: Request) {
         tenant_id: stateData.tenantId || null,
         organization_id: stateData.orgId,
         stripe_account_id: stripe_user_id,
-        access_token,
-        refresh_token: refresh_token || null,
+        access_token: sealedAccess,
+        refresh_token: sealedRefresh,
         business_name: businessName,
         is_active: true,
         created_at: new Date(),

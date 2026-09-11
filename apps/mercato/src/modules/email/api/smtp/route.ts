@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
+import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { testImapConnection, getProviderPreset } from '../../lib/imap-service'
 
 // POST: Save IMAP + SMTP configuration (unified email connection)
@@ -100,12 +101,14 @@ export async function POST(req: Request) {
       .where('is_active', true)
       .first()
 
+    const encryption = tenantEncryptionFromContainer(container)
+
     const record = {
       email_address: emailAddress,
       smtp_host: resolvedSmtpHost,
       smtp_port: resolvedSmtpPort,
       smtp_user: emailAddress,
-      smtp_pass: password,
+      smtp_pass: await sealSecretForTenant(encryption, auth.tenantId, password),
       imap_host: resolvedImapHost,
       imap_port: resolvedImapPort,
       imap_secure: resolvedImapSecure,
@@ -155,12 +158,14 @@ export async function DELETE(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
+    // Scrub the app password on disconnect: an inactive row must not keep a
+    // usable mailbox credential.
     const deleted = await knex('email_connections')
       .where('id', connectionId)
       .where('organization_id', auth.orgId)
       .where('user_id', auth.sub)
       .where('provider', 'smtp')
-      .update({ is_active: false, updated_at: new Date() })
+      .update({ is_active: false, smtp_pass: null, access_token: null, refresh_token: null, updated_at: new Date() })
 
     if (!deleted) {
       return NextResponse.json({ ok: false, error: 'Connection not found' }, { status: 404 })

@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { verifyOAuthState } from '@/lib/oauth-state'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export const metadata = { path: '/google/callback', GET: { requireAuth: false } }
 
@@ -96,6 +97,10 @@ export async function GET(req: Request) {
     }
 
     const expiry = new Date(Date.now() + (tokens.expires_in || 3600) * 1000)
+    const encryption = tenantEncryptionFromContainer(container)
+    const connTenantId = crmUser.tenant_id as string | null
+    const sealedAccess = await sealSecretForTenant(encryption, connTenantId, tokens.access_token)
+    const sealedRefresh = await sealSecretForTenant(encryption, connTenantId, tokens.refresh_token || null)
 
     // Store calendar connection (existing behavior) for calendar or both
     if (connectType === 'calendar' || connectType === 'both') {
@@ -103,8 +108,10 @@ export async function GET(req: Request) {
       if (existing) {
         await knex('google_calendar_connections').where('id', existing.id).update({
           google_email: userInfo.email,
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token || existing.refresh_token,
+          access_token: sealedAccess,
+          // Google only returns a refresh token on first consent; keep the stored
+          // (already sealed) one when this exchange did not carry one.
+          refresh_token: sealedRefresh || existing.refresh_token,
           token_expiry: expiry,
           is_active: true,
           updated_at: new Date(),
@@ -116,8 +123,8 @@ export async function GET(req: Request) {
           organization_id: crmUser.organization_id,
           user_id: userId,
           google_email: userInfo.email,
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token || '',
+          access_token: sealedAccess,
+          refresh_token: sealedRefresh || '',
           token_expiry: expiry,
           calendar_id: 'primary',
           is_active: true,

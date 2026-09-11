@@ -7,6 +7,7 @@ export const metadata = { path: '/reminders/check', POST: { requireAuth: true } 
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/lib/db'
+import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export async function POST() {
   const auth = await getAuthFromCookies()
@@ -78,11 +79,12 @@ export async function POST() {
             `SELECT provider, api_key, default_sender_email FROM esp_connections WHERE organization_id = $1 AND is_active = true LIMIT 1`,
             [auth.orgId]
           )
-          if (espConn?.provider === 'resend' && espConn.api_key) {
+          const espApiKey = await openSecretForTenant(null, auth.tenantId, espConn?.api_key)
+          if (espConn?.provider === 'resend' && espApiKey) {
             try {
               const espRes = await fetch('https://api.resend.com/emails', {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${espConn.api_key}`, 'Content-Type': 'application/json' },
+                headers: { Authorization: `Bearer ${espApiKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   from: espConn.default_sender_email || 'noreply@resend.dev',
                   to: [userEmail], subject, html: bodyHtml,
@@ -105,15 +107,18 @@ export async function POST() {
                 [auth.orgId, userId]
               )
               if (conn?.access_token) {
-                let accessToken = conn.access_token
-                if (conn.token_expiry && new Date(conn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && conn.refresh_token) {
-                  const refreshed = await refreshGmailToken(conn.refresh_token)
+                let accessToken = await openSecretForTenant(null, auth.tenantId, conn.access_token)
+                const connRefresh = await openSecretForTenant(null, auth.tenantId, conn.refresh_token)
+                if (conn.token_expiry && new Date(conn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && connRefresh) {
+                  const refreshed = await refreshGmailToken(connRefresh)
                   accessToken = refreshed.accessToken
                   await query('UPDATE email_connections SET access_token = $1, token_expiry = $2 WHERE id = $3',
-                    [accessToken, new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(), conn.id])
+                    [await sealSecretForTenant(null, auth.tenantId, accessToken), new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(), conn.id])
                 }
-                await sendViaGmail(accessToken, conn.email_address, conn.email_address, subject, bodyHtml)
-                sent = true
+                if (accessToken) {
+                  await sendViaGmail(accessToken, conn.email_address, conn.email_address, subject, bodyHtml)
+                  sent = true
+                }
               }
             } catch (e) {
               console.error('[reminders.check] Gmail send failed:', e)

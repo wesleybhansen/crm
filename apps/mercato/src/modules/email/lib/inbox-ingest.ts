@@ -16,6 +16,7 @@
 
 import type { Knex } from 'knex'
 import crypto from 'crypto'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { fetchImapInbox, listInboxMessageIds } from '@/modules/email/lib/imap-service'
 import { upsertInboxConversation } from '@/lib/inbox-conversation'
 
@@ -112,12 +113,19 @@ export async function ingestImapConnection(
     return { emailsProcessed: 0, contactsCreated: 0, errors: ['Connection has no IMAP host'] }
   }
 
+  // smtp_pass is sealed at rest. Every IMAP ingest path funnels through here, so
+  // this is the one place the app password has to be opened.
+  const imapPass = await openSecretForTenant(null, tenantId, conn.smtp_pass)
+  if (conn.smtp_pass && !imapPass) {
+    return { emailsProcessed: 0, contactsCreated: 0, errors: ['Mailbox password could not be decrypted — reconnect the mailbox'] }
+  }
+
   const imapConfig = {
     host: conn.imap_host,
     port: conn.imap_port || 993,
     secure: conn.imap_secure ?? true,
     user: conn.smtp_user || conn.email_address || '',
-    pass: conn.smtp_pass || '',
+    pass: imapPass || '',
   }
 
   const fetched = await fetchImapInbox(imapConfig, opts.sinceDate, maxMessages)

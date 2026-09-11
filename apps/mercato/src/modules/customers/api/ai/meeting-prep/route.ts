@@ -13,6 +13,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { listOpenCommitments, extractCommitmentsForContact, formatCommitmentsForBrief } from '../../../lib/commitments'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export const metadata = { path: '/ai/meeting-prep',
   POST: { requireAuth: false },
@@ -47,19 +48,24 @@ interface MeetingPrepResult {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function refreshCalendarToken(knex: ReturnType<EntityManager['getKnex']>, connection: Record<string, unknown>): Promise<string> {
+  // The token columns are sealed at rest.
+  const tenantId = (connection.tenant_id as string | null | undefined) ?? null
+  const storedAccess = await openSecretForTenant(null, tenantId, connection.access_token as string | null)
+  const storedRefresh = await openSecretForTenant(null, tenantId, connection.refresh_token as string | null)
+
   const expiry = new Date(connection.token_expiry as string)
-  if (expiry > new Date(Date.now() + 5 * 60 * 1000)) {
-    return connection.access_token as string
+  if (expiry > new Date(Date.now() + 5 * 60 * 1000) && storedAccess) {
+    return storedAccess
   }
 
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID
-  if (!clientId || !connection.refresh_token) {
+  if (!clientId || !storedRefresh) {
     throw new Error('Cannot refresh Google token')
   }
 
   const body: Record<string, string> = {
     client_id: clientId,
-    refresh_token: connection.refresh_token as string,
+    refresh_token: storedRefresh,
     grant_type: 'refresh_token',
   }
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET
@@ -78,7 +84,7 @@ async function refreshCalendarToken(knex: ReturnType<EntityManager['getKnex']>, 
 
   await knex('google_calendar_connections')
     .where('id', String(connection.id)).update({
-    access_token: tokens.access_token,
+    access_token: (await sealSecretForTenant(null, tenantId, tokens.access_token)) ?? tokens.access_token,
     token_expiry: new Date(Date.now() + (tokens.expires_in || 3600) * 1000),
     updated_at: new Date(),
   })
@@ -491,7 +497,7 @@ export async function POST(req: Request) {
     // Find all orgs with Google Calendar connections
     const connections = await knex('google_calendar_connections')
       .where('is_active', true)
-      .select('id', 'user_id', 'organization_id', 'access_token', 'refresh_token', 'token_expiry', 'calendar_id')
+      .select('id', 'user_id', 'organization_id', 'tenant_id', 'access_token', 'refresh_token', 'token_expiry', 'calendar_id')
 
     let generated = 0
     let skipped = 0

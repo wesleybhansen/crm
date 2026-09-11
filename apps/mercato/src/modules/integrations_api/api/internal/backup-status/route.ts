@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server'
 import { createHash, timingSafeEqual } from 'crypto'
 import { readFile } from 'fs/promises'
 
-export const metadata = { GET: { requireAuth: false } }
+export const metadata = { POST: { requireAuth: false } }
 
 /**
  * Backup freshness for the hub's ops-health cron. The nightly backup on the
  * box writes /root/backups/status.json; docker-compose mounts it read-only at
- * /backups/status.json. Same shared-secret auth as the other /internal/*.
+ * /backups/status.json. Same shared-secret auth as the other /internal/*,
+ * and POST like them: the API dispatcher does not serve GET on this tree.
  */
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   const secret = process.env.NOLI_INTERNAL_SERVICE_SECRET
   const authHeader = (req.headers.get('authorization') || '').trim()
   const expected = secret ? `Bearer ${secret}` : ''

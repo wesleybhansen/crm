@@ -5,6 +5,8 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { openSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { revokeGoogleOAuthToken } from '@open-mercato/shared/lib/integrations/revokeTokens'
 
 // GET: Return the user's email connections.
 //   ?purpose=customer_service  -> only dedicated support inboxes
@@ -68,11 +70,49 @@ export async function DELETE(req: Request) {
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
     // Only allow deleting own connections within the same org
+    const existing = await knex('email_connections')
+      .where('id', connectionId)
+      .where('organization_id', auth.orgId)
+      .where('user_id', auth.sub)
+      .first()
+
+    if (!existing) {
+      return NextResponse.json({ ok: false, error: 'Connection not found' }, { status: 404 })
+    }
+
+    // Tell Google the grant is gone before we drop our copy of it. Best effort:
+    // a provider outage must not leave the user unable to disconnect. Skipped
+    // while a Google Calendar connection is still live, because revoking kills
+    // the whole grant for this OAuth client, calendar included.
+    const calendarStillConnected = await knex('google_calendar_connections')
+      .where('user_id', auth.sub)
+      .where('is_active', true)
+      .first()
+      .catch(() => null)
+    if (existing.provider === 'gmail' && !calendarStillConnected) {
+      const encryption = tenantEncryptionFromContainer(container)
+      const tenantId = existing.tenant_id ?? auth.tenantId
+      try {
+        await revokeGoogleOAuthToken({
+          refreshToken: await openSecretForTenant(encryption, tenantId, existing.refresh_token),
+          accessToken: await openSecretForTenant(encryption, tenantId, existing.access_token),
+        }, 'email.connections')
+      } catch (revokeErr) {
+        console.warn('[email.connections.delete] revoke failed', revokeErr)
+      }
+    }
+
     const deleted = await knex('email_connections')
       .where('id', connectionId)
       .where('organization_id', auth.orgId)
       .where('user_id', auth.sub)
-      .update({ is_active: false, updated_at: new Date() })
+      .update({
+        is_active: false,
+        access_token: null,
+        refresh_token: null,
+        smtp_pass: null,
+        updated_at: new Date(),
+      })
 
     if (!deleted) {
       return NextResponse.json({ ok: false, error: 'Connection not found' }, { status: 404 })

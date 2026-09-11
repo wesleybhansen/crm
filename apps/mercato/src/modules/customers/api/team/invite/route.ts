@@ -3,6 +3,7 @@ export const metadata = { path: '/team/invite', POST: { requireAuth: true }, DEL
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getTeamAuth, isTeamManager } from '../auth'
+import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export async function POST(req: Request) {
   const auth = await getTeamAuth()
@@ -41,10 +42,11 @@ export async function POST(req: Request) {
         `SELECT provider, api_key FROM esp_connections WHERE organization_id = $1 AND is_active = true LIMIT 1`,
         [auth.orgId]
       )
-      if (espConn?.provider === 'resend' && espConn.api_key) {
+      const espApiKey = await openSecretForTenant(null, auth.tenantId, espConn?.api_key)
+      if (espConn?.provider === 'resend' && espApiKey) {
         await fetch('https://api.resend.com/emails', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${espConn.api_key}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${espApiKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             from: 'noreply@updates.launchos.com',
             to: [invite.email],

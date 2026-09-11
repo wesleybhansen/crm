@@ -19,13 +19,20 @@ function generateSecret(): string {
   return `whsec_${crypto.randomBytes(24).toString('hex')}`
 }
 
-function rowToResponse(row: any): any {
+/*
+ * The signing secret is shown ONCE, by the call that set it (create, or an
+ * update/rotate that supplied a new one). Every other response returns null:
+ * a list endpoint that echoes live signing secrets on every GET turns any
+ * read-only webhooks.view holder, cached response or captured log into a
+ * forgery capability.
+ */
+function rowToResponse(row: any, opts?: { revealSecret?: boolean }): any {
   if (!row) return row
   return {
     id: row.id,
     event: row.event,
     targetUrl: row.target_url,
-    secret: row.secret,
+    secret: opts?.revealSecret ? row.secret : null,
     isActive: row.is_active,
     tenantId: row.tenant_id,
     organizationId: row.organization_id,
@@ -44,7 +51,7 @@ export async function GET(_req: Request, ctx?: any) {
       .where('organization_id', auth.orgId)
       .where('tenant_id', auth.tenantId)
       .orderBy('created_at', 'desc')
-    return NextResponse.json({ ok: true, data: rows.map(rowToResponse) })
+    return NextResponse.json({ ok: true, data: rows.map((row: any) => rowToResponse(row)) })
   } catch (err) {
     console.error('[webhooks.subscriptions.GET]', err)
     return NextResponse.json({ ok: false, error: 'Failed to list subscriptions' }, { status: 500 })
@@ -78,7 +85,8 @@ export async function POST(req: Request, ctx?: any) {
       updated_at: new Date(),
     })
     const row = await knex('webhook_subscriptions').where('id', id).first()
-    return NextResponse.json({ ok: true, data: rowToResponse(row) }, { status: 201 })
+    // Only time the caller ever sees it.
+    return NextResponse.json({ ok: true, data: rowToResponse(row, { revealSecret: true }) }, { status: 201 })
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: 'Invalid input', details: err.issues }, { status: 400 })
@@ -112,7 +120,8 @@ export async function PUT(req: Request, ctx?: any) {
       .update(updates)
     if (!updated) return NextResponse.json({ ok: false, error: 'Subscription not found' }, { status: 404 })
     const row = await knex('webhook_subscriptions').where('id', parsed.id).first()
-    return NextResponse.json({ ok: true, data: rowToResponse(row) })
+    // A PUT that set a new secret is a rotation: echo it once.
+    return NextResponse.json({ ok: true, data: rowToResponse(row, { revealSecret: parsed.secret !== undefined }) })
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: 'Invalid input', details: err.issues }, { status: 400 })
