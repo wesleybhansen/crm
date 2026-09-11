@@ -251,6 +251,35 @@ function mapsUrl(item: Record<string, unknown>): string | null {
   return null
 }
 
+/** DataForSEO code for a request field it cannot use; for Maps that is a
+ *  location_name it does not know. */
+export const DATAFORSEO_INVALID_FIELD_CODE = 40501
+
+/**
+ * Location names to try, most specific first. DataForSEO knows cities,
+ * counties and states, not metros: "Minneapolis-Saint Paul, MN" and "Denver
+ * metro, Colorado" are how members and the analyst describe a market, and
+ * both come back 40501. Retrying is only ever triggered BY a 40501 on the
+ * name before it, so a real hyphenated city such as Winston-Salem is served
+ * on the first try and never split.
+ */
+export function dataForSeoLocationCandidates(raw: string): string[] {
+  const parts = raw.split(',').map((part) => part.trim()).filter(Boolean)
+  const candidates: (string | null)[] = [canonicalDataForSeoUsLocation(raw)]
+  if (parts.length >= 2) {
+    const city = parts[0]
+      .replace(/\s+(?:metro(?:politan)?(?:\s+area)?|area|region|county|greater area)$/i, '')
+      .replace(/^(?:greater|metro)\s+/i, '')
+      .trim()
+    const first = city.split(/\s*(?:-|–|—|\/|&|\band\b)\s*/i)[0]?.trim() ?? ''
+    const rest = parts.slice(1).join(', ')
+    if (city && city !== parts[0]) candidates.push(canonicalDataForSeoUsLocation(`${city}, ${rest}`))
+    if (first && first !== city) candidates.push(canonicalDataForSeoUsLocation(`${first}, ${rest}`))
+    candidates.push(canonicalDataForSeoUsLocation(rest))
+  }
+  return [...new Set(candidates.filter((value): value is string => typeof value === 'string' && value.length > 0))]
+}
+
 function keywordAndLocation(plan: { query: string; provider_query?: Record<string, unknown> }) {
   const query = plan.provider_query ?? {}
   const keywords = Array.isArray(query.company_keywords)
@@ -265,6 +294,7 @@ function keywordAndLocation(plan: { query: string; provider_query?: Record<strin
     // all-terms query that suppresses valid local results.
     keyword: keywords[0]?.trim() || plan.query.trim(),
     location: canonicalDataForSeoUsLocation(locations[0]?.trim() || 'United States'),
+    locationCandidates: dataForSeoLocationCandidates(locations[0]?.trim() || 'United States'),
   }
 }
 
@@ -312,7 +342,7 @@ export function createDataForSeoMapsAdapter(deps: {
       if (!dataForSeoEnabled(env)) {
         return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('disabled'), error: 'provider_disabled: DataForSEO requires credentials plus approved terms and price versions and provider-retention truth' }
       }
-      const { keyword, location } = keywordAndLocation(plan)
+      const { keyword, location, locationCandidates } = keywordAndLocation(plan)
       if (!keyword) {
         return { status: 'error', data: null, cost_units: 0, receipt: baseReceipt('bad_request'), error: 'bad_request: a local-business keyword is required' }
       }
@@ -330,13 +360,32 @@ export function createDataForSeoMapsAdapter(deps: {
       }
       try {
         const authorization = Buffer.from(`${envValue(env, 'GTM_DATAFORSEO_LOGIN')}:${envValue(env, 'GTM_DATAFORSEO_PASSWORD')}`).toString('base64')
-        const response = await fetchImpl(DATAFORSEO_MAPS_URL, {
-          method: 'POST',
-          headers: { authorization: `Basic ${authorization}`, 'content-type': 'application/json' },
-          body: JSON.stringify([{ keyword, location_name: location, language_code: 'en', depth: maxCandidates }]),
-          signal: AbortSignal.timeout(DATAFORSEO_LIVE_TIMEOUT_MS),
-        })
-        let payload: unknown
+        // An unknown location_name is a 40501 task error that DataForSEO does
+        // not charge for. Fall back to the next candidate (city without its
+        // metro suffix, first city of a pair, then the state) and keep the
+        // one that answered so the receipt records what was actually searched.
+        let response: Response | null = null
+        let payload: unknown = null
+        let usedLocation = location
+        for (const candidate of locationCandidates.length > 0 ? locationCandidates : [location]) {
+          usedLocation = candidate
+          response = await fetchImpl(DATAFORSEO_MAPS_URL, {
+            method: 'POST',
+            headers: { authorization: `Basic ${authorization}`, 'content-type': 'application/json' },
+            body: JSON.stringify([{ keyword, location_name: candidate, language_code: 'en', depth: maxCandidates }]),
+            signal: AbortSignal.timeout(DATAFORSEO_LIVE_TIMEOUT_MS),
+          })
+          try {
+            payload = await response.clone().json()
+          } catch {
+            break
+          }
+          const probeTask = taskFrom(payload)
+          const probeCost = finiteNumber(probeTask.cost) ?? finiteNumber(objectValue(payload).cost)
+          if (Number(probeTask.status_code ?? 0) === DATAFORSEO_INVALID_FIELD_CODE && (probeCost == null || probeCost === 0)) continue
+          break
+        }
+        if (!response) throw new Error('DataForSEO request was not sent')
         try {
           payload = await response.json()
         } catch {
@@ -446,7 +495,7 @@ export function createDataForSeoMapsAdapter(deps: {
               // address: downstream qualification may use it to avoid a false
               // rejection, but never as proof the returned entity is inside
               // that boundary.
-              provider_location: location,
+              provider_location: usedLocation,
               city: stringValue(addressInfo.city),
               region: stringValue(addressInfo.region),
               country_code: stringValue(addressInfo.country_code),
@@ -469,7 +518,7 @@ export function createDataForSeoMapsAdapter(deps: {
                 address,
                 listed_domain: stringValue(item.domain),
                 search_query: keyword,
-                provider_location: location,
+                provider_location: usedLocation,
                 country_code: addressInfo.country_code ?? null,
                 // Maps listings carry no publication time; the qualifier must
                 // not treat retrieval time as freshness.
