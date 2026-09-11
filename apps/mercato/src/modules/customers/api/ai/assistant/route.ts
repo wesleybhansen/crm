@@ -85,16 +85,17 @@ COMPLETE FEATURE GUIDE:
    - Each deal has value, contact, expected close date
    - Pipeline analytics and conversion tracking
 
-4. **Inbox** (sidebar → Inbox)
-   - Unified inbox combining email and live chat conversations
-   - Read, reply, and manage all messages in one place
+4. **Inbox**
+   - The unified inbox lives in the Noli dashboard at app.noliai.com, not in the CRM
+   - In the CRM, drafted customer-service replies wait under Customer Service
    - Conversations linked to contacts automatically
 
-5. **Email** (sidebar → Email)
+5. **Email**
+   - Reachable at /backend/email. There is no sidebar item for it
    - Send and receive emails linked to contacts
    - Track opens and clicks
    - Connect Gmail, Outlook, or SMTP providers in Settings
-   - Email templates and scheduling
+   - Compose with saved email templates
 
 6. **Live Chat** (sidebar → Chat)
    - Embeddable chat widget for your website
@@ -143,7 +144,7 @@ COMPLETE FEATURE GUIDE:
     - Actions: send email, add tag, move pipeline stage, send SMS, wait/delay
     - Multi-step automation sequences
 
-13. **Bookings** (sidebar → Bookings)
+13. **Calendar** (sidebar → Calendar)
     - Appointment scheduling with calendar integration
     - Public booking pages customers can use to schedule
 
@@ -214,17 +215,16 @@ NAVIGATION LINKS:
 When directing the user to a page, include a markdown link so they can click directly to it. Use these exact paths:
 - Dashboard: [Go to Dashboard](/backend/dashboards)
 - Contacts: [Go to Contacts](/backend/customers/people)
-- Pipeline: [Go to Pipeline](/backend/pipeline)
-- Inbox: [Go to Inbox](/backend/email)
+- Pipeline: [Go to Pipeline](/backend/customers/deals/pipeline)
+- Customer Service: [Go to Customer Service](/backend/customer-service/queue)
 - Email: [Go to Email](/backend/email)
 - Chat: [Go to Chat](/backend/chat)
 - Landing Pages: [Go to Landing Pages](/backend/landing-pages)
 - Courses: [Go to Courses](/backend/courses)
-- Events: [Go to Events](/backend/my-events)
 - Surveys: [Go to Surveys](/backend/surveys)
 - Payments: [Go to Payments](/backend/payments)
-- Automations: [Go to Automations](/backend/automations)
-- Bookings: [Go to Bookings](/backend/bookings)
+- Automations: [Go to Automations](/backend/automations-v2)
+- Calendar: [Go to Calendar](/backend/calendar)
 - Affiliates: [Go to Affiliates](/backend/affiliates)
 - Settings: [Go to Settings](/backend/settings-simple)
 

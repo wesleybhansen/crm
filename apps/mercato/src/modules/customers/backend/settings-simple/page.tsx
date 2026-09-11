@@ -1338,7 +1338,7 @@ export default function SimpleSettingsPage() {
           <div className="px-4 py-3 space-y-3">
             <div>
               <p className="text-sm font-medium">AI Provider Keys</p>
-              <p className="text-xs text-muted-foreground">Add your own API keys. These are used as fallback when the platform AI cap is reached, and for voice assistant TTS.</p>
+              <p className="text-xs text-muted-foreground">Add your own API keys to use for AI features and the voice assistant.</p>
             </div>
             <div>
               <label className="text-[12.5px] font-medium text-foreground/80 block mb-1">Google Gemini API Key</label>
@@ -1479,11 +1479,16 @@ export default function SimpleSettingsPage() {
             { href: '/backend/forms', label: 'Forms' },
             { href: '/backend/landing-pages', label: 'Landing Pages' },
             { href: '/backend/funnels', label: 'Funnels' },
-            { href: '/backend/customer-service', label: 'Inbox' },
+            { href: '/backend/customer-service', label: 'Customer Service' },
             { href: '/backend/courses', label: 'Courses' },
             { href: '/backend/sequences', label: 'Sequences' },
             { href: '/backend/surveys', label: 'Surveys' },
             { href: '/backend/my-events', label: 'Events' },
+            { href: '/backend/dashboards', label: 'Dashboard' },
+            { href: '/backend/email-marketing', label: 'Email Marketing' },
+            { href: '/backend/reports', label: 'Reports' },
+            { href: '/backend/reputation', label: 'Reputation' },
+            { href: '/backend/debrief', label: 'Call Debrief' },
           ].map(item => (
             <div key={item.href} className="flex items-center justify-between px-4 py-2.5">
               <span className="text-sm">{item.label}</span>

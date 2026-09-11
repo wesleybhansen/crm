@@ -1311,7 +1311,7 @@ export default function CustomerServiceSettingsPage() {
               <MessageSquare className="size-4 text-muted-foreground" /> Customer service SMS number
             </h2>
             <p className="text-xs text-muted-foreground mb-3">
-              Use a dedicated Twilio number for support texts. Texts to this number are drafted by Noli and follow the reply mode in Settings. Connect your Twilio account in Settings first. Use a number that is different from the one your Inbox uses, so support texts and inbox texts stay separate.
+              Use a dedicated Twilio number for support texts. Texts to this number are drafted by Noli and follow the reply mode in Settings. Connect your Twilio account first, in Settings under Business Information, Edit, Integrations step. Use a number that is different from the one your Inbox uses, so support texts and inbox texts stay separate.
             </p>
             <div className="rounded-lg border">
               <div className="px-4 py-3 space-y-2">
@@ -1337,7 +1337,7 @@ export default function CustomerServiceSettingsPage() {
                   )
                 ) : (
                   <p className="text-[12.5px] text-muted-foreground">
-                    No Twilio account connected yet. Connect Twilio in Settings, then enter a dedicated support number here.
+                    No Twilio account connected yet. Connect Twilio first, in Settings under Business Information, Edit, Integrations step, then enter a dedicated support number here.
                   </p>
                 )}
                 <div className="rounded-md bg-muted/40 border px-3 py-2 mt-1">

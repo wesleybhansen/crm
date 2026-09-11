@@ -78,7 +78,7 @@ async function sendChatFlagAlert(
     if (!recipient?.email_address) return
 
     const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const queueUrl = `${appUrl.replace(/\/$/, '')}/backend/customer-service`
+    const queueUrl = `${appUrl.replace(/\/$/, '')}/backend/customer-service/queue`
     const labels = d.reasons.map((r) => r.label).filter(Boolean)
     const scenarioLine = labels.length ? labels.join(', ') : 'a flagged scenario'
     const esc = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

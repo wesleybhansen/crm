@@ -513,7 +513,7 @@ export default function WelcomePage() {
               placeholder="e.g. Acme Coaching" autoFocus />
             <div>
               <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1">Website URL (optional)</label>
-              <p className="text-xs text-muted-foreground mb-2">We'll scan your website to auto-fill your business details, colors, and services.</p>
+              <p className="text-xs text-muted-foreground mb-2">We'll scan your website to auto-fill your business details.</p>
               <div className="flex gap-2">
                 <Input value={websiteUrl} onChange={e => { setWebsiteUrl(e.target.value); setScanComplete(false); setScanError('') }}
                   placeholder="https://yourbusiness.com" className="h-9 text-sm flex-1" />

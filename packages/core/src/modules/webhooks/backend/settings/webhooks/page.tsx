@@ -43,6 +43,9 @@ export default function WebhooksSettingsPage() {
   const [newEvent, setNewEvent] = useState('')
   const [newUrl, setNewUrl] = useState('')
   const [message, setMessage] = useState<string | null>(null)
+  // The signing secret comes back exactly once, on the create response. Hold it
+  // here so the customer can copy it; it can never be fetched again.
+  const [newSecret, setNewSecret] = useState<{ event: string; secret: string } | null>(null)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -77,13 +80,15 @@ export default function WebhooksSettingsPage() {
     if (!newEvent || !newUrl) { setMessage('Pick an event and enter a URL.'); return }
     setCreating(true)
     try {
-      await apiCallOrThrow('/api/webhooks/subscriptions', {
+      const created = await readApiResultOrThrow<{ data: Subscription }>('/api/webhooks/subscriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ event: newEvent, targetUrl: newUrl }),
       })
+      const createdEvent = newEvent
       setNewEvent('')
       setNewUrl('')
+      if (created?.data?.secret) setNewSecret({ event: createdEvent, secret: created.data.secret })
       await loadAll()
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to create subscription')
@@ -110,7 +115,7 @@ export default function WebhooksSettingsPage() {
   async function handleRotate(sub: Subscription) {
     if (!confirm('Rotate the signing secret? The old secret will stop working immediately.')) return
     const res = await readApiResultOrThrow<{ data: { secret: string } }>(`/api/webhooks/subscriptions/${sub.id}/rotate-secret`, { method: 'POST' })
-    alert(`New secret:\n\n${res.data.secret}\n\nStore this securely — it won't be shown again this way.`)
+    setNewSecret({ event: sub.event, secret: res.data.secret })
     await loadAll()
   }
 
@@ -138,12 +143,40 @@ export default function WebhooksSettingsPage() {
       <header>
         <h1 className="text-xl font-semibold">Webhooks</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Subscribe external URLs to CRM events. Each POST is signed with HMAC-SHA256 and retried up to 3 times on failure.
+          Subscribe external URLs to CRM events. Each POST is signed with HMAC-SHA256 and retried up to 3 times on
+          failure. The signing secret is shown once, when you create the webhook or rotate its secret, so copy it then.
         </p>
       </header>
 
       {message && (
         <div className="rounded-lg border bg-accent/5 px-3 py-2 text-xs text-muted-foreground">{message}</div>
+      )}
+
+      {newSecret && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
+          <p className="text-sm font-semibold">Copy this signing secret now</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            This is the secret for <span className="font-medium">{newSecret.event}</span>. We show it once and cannot
+            show it again. If you lose it, rotate the secret or delete the webhook and create a new one.
+          </p>
+          <p className="mt-2 break-all rounded-lg border bg-background px-3 py-2 font-mono text-xs">{newSecret.secret}</p>
+          <div className="mt-2 flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                navigator.clipboard?.writeText(newSecret.secret)
+                setMessage('Signing secret copied to your clipboard.')
+              }}
+            >
+              Copy secret
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setNewSecret(null)}>
+              I have saved it
+            </Button>
+          </div>
+        </div>
       )}
 
       <section className="rounded-xl border bg-card p-5">
@@ -198,9 +231,6 @@ export default function WebhooksSettingsPage() {
                       <span className="text-sm font-medium">{sub.event}</span>
                     </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground">{sub.targetUrl}</p>
-                    {sub.secret && (
-                      <p className="mt-1 text-[10px] font-mono text-muted-foreground/70">secret: {sub.secret.slice(0, 12)}…</p>
-                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Button type="button" size="sm" variant="outline" onClick={() => handleTest(sub)}>Send Test</Button>

@@ -100,7 +100,7 @@ const STORAGE_KEY_CANNED = 'chat_canned_responses'
 
 const DEFAULT_CANNED: CannedResponse[] = [
   { id: '1', shortcut: 'hello', text: 'Hi there! How can I help you today?' },
-  { id: '2', shortcut: 'price', text: 'Our pricing starts at $29/mo. Would you like me to send more details?' },
+  { id: '2', shortcut: 'price', text: '[Add your pricing here.] Would you like me to send more details?' },
   { id: '3', shortcut: 'hours', text: 'Our business hours are Monday-Friday, 9 AM to 5 PM EST.' },
   { id: '4', shortcut: 'thanks', text: 'Thank you for reaching out! Is there anything else I can help with?' },
   { id: '5', shortcut: 'bye', text: 'Thanks for chatting with us. Have a great day!' },
@@ -797,7 +797,7 @@ function CreationWizard({
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  This is the easiest option -- just share the link via email, social media, or anywhere else.
+                  This is the easiest option. Just share the link via email, social media, or anywhere else.
                 </p>
               </div>
 
@@ -1298,7 +1298,7 @@ export default function ChatPage() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-xl font-semibold text-foreground">Edit Widget: {editingWidget.name}</h1>
-              <p className="text-sm text-muted-foreground mt-1">Manage settings, bot configuration, and deployment</p>
+              <p className="text-sm text-muted-foreground mt-1">Manage settings and deployment</p>
             </div>
             <Button variant="outline" size="sm" type="button" onClick={() => { setEditingWidget(null); loadWidgets() }}>
               <ArrowLeft className="size-4 mr-1.5" /> Back
