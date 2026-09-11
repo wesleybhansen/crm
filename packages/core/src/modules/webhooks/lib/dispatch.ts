@@ -21,6 +21,9 @@ async function assertPublicTarget(rawUrl: string): Promise<void> {
   try { url = new URL(rawUrl) } catch { throw new Error('webhook target is not a valid URL') }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('webhook target must be http(s)')
   const host = url.hostname.toLowerCase()
+  // Integration runs deliver to a listener on the loopback interface; the
+  // guard is lifted there by an explicit flag, never by default.
+  if (process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS === '1') return
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) throw new Error('webhook target is not public')
   const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true })
   for (const { address } of addresses) {
