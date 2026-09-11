@@ -894,6 +894,9 @@ const ALIAS_GROUPS: string[][] = [
   // professional headlines. This does not broaden the role: it only treats
   // the inflection as the same exact title token.
   ['realtor', 'realtors'],
+  // Providers abbreviate Saint in place names (St Paul, St Louis, St
+  // Petersburg) while a play spells it out.
+  ['saint', 'st'],
   // US state code / name pairs. Providers return the code (LeadMagic sends
   // contact_state_code) while a play names the state, so without these every
   // location criterion hard-fails on "Austin, TX" versus "Austin, Texas".
@@ -1157,6 +1160,39 @@ function derivedPlayGeography(play: FitPlayInput): string | null {
   return tokens.length > 0 ? belowCountry.join(', ') : null
 }
 
+/*
+ * A market written as a metro or a twin city ("Minneapolis-Saint Paul, MN",
+ * "Dallas-Fort Worth, TX", "Denver metro, Colorado") is one boundary that
+ * providers answer with rows in EITHER city. Token matching wanted every
+ * word of the value, so a Minneapolis dentist failed "Minneapolis-Saint
+ * Paul, MN" and the 2026-09-11 Launch Pad dental run rejected all 100 Maps
+ * rows on location. Expand such a value into the market as written plus
+ * each city with its state; a row satisfies the criterion by matching any of
+ * them. Single cities and country-only values pass through unchanged.
+ */
+export function expandLocationExpectations(values: string[]): string[] {
+  const out: string[] = []
+  const push = (value: string) => {
+    if (!out.some((existing) => normalized(existing) === normalized(value))) out.push(value)
+  }
+  for (const raw of values) {
+    const value = raw.trim()
+    if (!value) continue
+    push(value)
+    const parts = value.split(',').map((part) => part.trim()).filter(Boolean)
+    if (parts.length < 2) continue
+    const rest = parts.slice(1).join(', ')
+    const city = parts[0]
+      .replace(/\s+(?:metro(?:politan)?(?:\s+area)?|area|region|greater area)$/i, '')
+      .replace(/^(?:greater|metro)\s+/i, '')
+      .trim()
+    if (city && city !== parts[0]) push(`${city}, ${rest}`)
+    const cities = city.split(/\s*(?:-|–|—|\/|&|\band\b)\s*/i).map((part) => part.trim()).filter(Boolean)
+    if (cities.length > 1) for (const single of cities) push(`${single}, ${rest}`)
+  }
+  return out
+}
+
 function addCriterion(
   output: CriterionDefinition[],
   query: Record<string, unknown>,
@@ -1231,14 +1267,18 @@ function compileDefinitions(play: FitPlayInput, candidateKind: Candidate['entity
       fields: ['department', 'job_function'],
     })
   }
-  addCriterion(definitions, query, 'locations', {
-    id: 'geography.location',
-    dimension: 'geography',
-    label: 'Location',
-    hard: true,
-    fields: ['location', 'city', 'geography', 'region'],
-    targetingFields: ['provider_location'],
-  })
+  const locationExpectations = expandLocationExpectations(strings(query.locations))
+  if (locationExpectations.length) {
+    definitions.push({
+      id: 'geography.location',
+      dimension: 'geography',
+      label: 'Location',
+      hard: true,
+      expected: locationExpectations,
+      fields: ['location', 'city', 'geography', 'region'],
+      targetingFields: ['provider_location'],
+    })
+  }
   const derivedGeography = derivedPlayGeography(play)
   if (!strings(query.locations).length && derivedGeography) {
     // A play for "Realtors in Austin, Texas" whose provider query names no
@@ -1250,7 +1290,7 @@ function compileDefinitions(play: FitPlayInput, candidateKind: Candidate['entity
       dimension: 'geography',
       label: 'Location',
       hard: true,
-      expected: [derivedGeography],
+      expected: expandLocationExpectations([derivedGeography]),
       fields: ['location', 'city', 'geography', 'region'],
       targetingFields: ['provider_location'],
     })
