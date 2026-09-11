@@ -1193,6 +1193,27 @@ export function expandLocationExpectations(values: string[]): string[] {
   return out
 }
 
+/*
+ * A Google Maps listing carries the provider's category ("Dentist"), not a
+ * LinkedIn industry ("Medical & Health Care"). The listing lane is searched
+ * by company_keywords, so when the row's category satisfies those, the
+ * coarse industry label the analyst wrote for people-search lanes does not
+ * contradict the row; it does not apply to it. An unrelated listing still
+ * fails on the keywords themselves, and rows from every other source keep
+ * the industry criterion as it was. (2026-09-11 Launch Pad dental run: 100
+ * Maps rows, every one rejected on industry while keywords passed.)
+ */
+const GOOGLE_MAPS_PLACE_URL = /google\.com\/maps\/place/i
+
+export function reconcileListingCategory(identity: Record<string, unknown>, criteria: CriterionResult[]): void {
+  if (!observedValues(identity, ['urls']).some((url) => GOOGLE_MAPS_PLACE_URL.test(url))) return
+  const industry = criteria.find((row) => row.id === 'account.industry')
+  const keywords = criteria.find((row) => row.id === 'account.keywords')
+  if (!industry || industry.status !== 'fail' || keywords?.status !== 'pass') return
+  industry.status = 'pass'
+  industry.observed = [...industry.observed, 'listing category satisfies company_keywords']
+}
+
 function addCriterion(
   output: CriterionDefinition[],
   query: Record<string, unknown>,
@@ -1653,6 +1674,7 @@ export const ruleBasedFitScorer: FitScorer = {
     const definitions = compileDefinitions(play, candidate.entity_kind)
     const profile = compileQualificationProfile(play, candidate.entity_kind)
     const criteria = definitions.map((definition) => evaluateCriterion(definition, identity, evidence, referenceTime))
+    reconcileListingCategory(identity, criteria)
     const domain = stringValue(identity, ['domain'])
     const company = stringValue(identity, ['company', 'company_name'])
     const title = stringValue(identity, ['title', 'job_title'])

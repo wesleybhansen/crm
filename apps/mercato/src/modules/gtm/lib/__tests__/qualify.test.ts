@@ -2729,3 +2729,48 @@ describe('metro and twin-city markets', () => {
     expect(duluth.verdict).toBe('rejected')
   })
 })
+
+describe('Google Maps listing categories versus LinkedIn industries', () => {
+  const play = {
+    entityUnit: 'locations',
+    geography: 'Minneapolis, MN',
+    recencyWindow: 'last 30 days',
+    referenceTime: '2026-08-02T12:00:00.000Z',
+    providerQuery: { industries: ['Medical & Health Care'], company_keywords: ['dentist', 'dental clinic'], locations: ['Minneapolis, MN'] },
+  }
+  const listing = (name: string, category: string) => ({
+    entity_kind: 'company' as const,
+    identity: {
+      name, domain: `${name.toLowerCase().replace(/[^a-z]+/g, '')}.example`, industry: category,
+      city: 'Minneapolis', region: 'Minnesota', location: '3624 E Lake St, Minneapolis, MN 55406', country_code: 'US',
+      urls: ['https://www.google.com/maps/place/?q=place_id:ChIJVWxmwiwo9ocRALYTQ0Pb4tk'],
+      provider_location: 'Minneapolis,Minnesota,United States',
+    },
+  })
+
+  it('lets a listing whose category satisfies the keywords pass the industry the analyst wrote for people search', () => {
+    const result = ruleBasedFitScorer.score(listing('Longfellow Family Dentistry', 'Dentist'), play, strongEvidence)
+    expect(result.criteria).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'account.keywords', status: 'pass' }),
+      expect.objectContaining({ id: 'account.industry', status: 'pass' }),
+    ]))
+    expect(result.verdict).toBe('accepted')
+  })
+
+  it('still rejects a listing whose category does not satisfy the keywords', () => {
+    const result = ruleBasedFitScorer.score(listing('Lake Street Veterinary', 'Veterinarian'), play, strongEvidence)
+    expect(result.criteria).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'account.keywords', status: 'fail' })]))
+    expect(result.verdict).toBe('rejected')
+  })
+
+  it('leaves a non-listing company row to the industry criterion as before', () => {
+    const company = listing('Longfellow Family Dentistry', 'Dentist')
+    const result = ruleBasedFitScorer.score(
+      { ...company, identity: { ...company.identity, urls: ['https://www.linkedin.com/company/longfellow-family-dentistry'] } },
+      play,
+      strongEvidence,
+    )
+    expect(result.criteria).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'account.industry', status: 'fail' })]))
+    expect(result.verdict).toBe('rejected')
+  })
+})
