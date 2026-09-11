@@ -344,7 +344,7 @@ describe('adversarial pass on the 2026-09-11 policy rewrites', () => {
   it('a people-word before a bare age range is age targeting; a firmographic band is not', () => {
     for (const audience of ['Women 25-34 in Austin who run', 'Adults 25 to 34 shopping for a first home', 'Men 45+ with back pain', 'Seniors 65 and older downsizing', 'Homeowners aged 55 to 70']) {
       expect(consumerPolicyFlags({ audience })).toContain('sensitive_life_stage')
-      expect(computeGtmPolicy({ market_type: 'b2c', geography: 'Austin, TX', audience }).research_eligibility, audience).toBe('blocked')
+      expect(computeGtmPolicy({ market_type: 'b2c', geography: 'Austin, TX', audience }).research_eligibility).toBe('blocked')
     }
     for (const audience of ['Independent dental clinics with 10 to 40 employees', 'Contractors with 5-25 employees in Phoenix', 'Companies with 2-5 locations']) {
       expect(consumerPolicyFlags({ audience, provider_query: { employee_ranges: ['1-10'] } })).toEqual([])
@@ -354,7 +354,7 @@ describe('adversarial pass on the 2026-09-11 policy rewrites', () => {
   it('an individual noun that leads the audience phrase is the audience whatever verb follows it', () => {
     for (const audience of ['Patients undergoing chemotherapy in Denver', 'Homeowners battling flood damage in Houston', 'Busy working parents juggling two jobs', 'First-time home buyers frustrated with agents']) {
       expect(describesIndividualAudience({ audience })).toBe(true)
-      expect(computeGtmPolicy({ market_type: 'b2b', geography: 'Austin, TX', audience }).research_eligibility, audience).toBe('import_only')
+      expect(computeGtmPolicy({ market_type: 'b2b', geography: 'Austin, TX', audience }).research_eligibility).toBe('import_only')
     }
     for (const audience of ['Clinics with a patient portal and online booking', 'Dentists and practice managers discussing patient acquisition', 'Daycare centers with long parent waitlists']) {
       expect(describesIndividualAudience({ audience })).toBe(false)
