@@ -67,7 +67,9 @@ describe('Noli onboarding seed contract', () => {
 
   it('wires shared context to the CRM completion gate and reviewable GTM seed', () => {
     const source = readFileSync(path.resolve(process.cwd(), 'src/modules/integrations_api/api/internal/seed-profile/route.ts'), 'utf8')
-    expect(source).toMatch(/input\.onboardingComplete = true/)
+    // The seed must not finish onboarding for the customer: the welcome
+    // wizard still runs, pre-filled, so a mailbox gets connected.
+    expect(source).not.toMatch(/input\.onboardingComplete = true/)
     expect(source).toMatch(/ensureGtmStarter/)
     expect(source).toMatch(/gtm\.workspace\.onboarding_seeded/)
     expect(source).toMatch(/status: templateReady \? 'ready' : 'context_seeded'/)

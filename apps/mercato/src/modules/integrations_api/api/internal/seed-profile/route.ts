@@ -183,7 +183,9 @@ export async function POST(req: Request) {
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
     }
-    if (!existing?.onboardingComplete) input.onboardingComplete = true
+    // The seed pre-fills the profile; it does not finish onboarding for the
+    // customer. The welcome wizard still runs (already configured) so the
+    // customer is asked to connect a mailbox and confirm the pipeline.
     const put = (key: string, existingVal: unknown, incoming: unknown) => {
       if (!has(existingVal) && has(incoming)) input[key] = incoming
     }
@@ -287,7 +289,7 @@ export async function POST(req: Request) {
       firstValue: {
         crm: {
           status: templateReady ? 'ready' : 'context_seeded',
-          onboardingComplete: true,
+          onboardingComplete: Boolean(existing?.onboardingComplete),
           pipelineConfigured: has(existing?.pipelineStages) || has(input.pipelineStages),
           followUpDraftReady: templateReady,
         },
