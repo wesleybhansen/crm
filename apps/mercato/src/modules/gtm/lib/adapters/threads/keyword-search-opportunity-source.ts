@@ -376,6 +376,17 @@ export function createThreadsKeywordSearchAdapter(deps: ThreadsKeywordSearchDeps
           headers: { Authorization: `Bearer ${accessToken}` },
           signal: controller.signal,
         })
+        // Meta answers 5xx sporadically on an otherwise valid search (three
+        // times in one afternoon on 2026-09-10). One short retry turns most of
+        // those into a real answer instead of an ambiguous lane.
+        if (response.status >= 500 && !controller.signal.aborted) {
+          await new Promise((resolve) => setTimeout(resolve, 600))
+          response = await fetchImpl(url.toString(), {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: controller.signal,
+          })
+        }
       } catch (error) {
         clearTimeout(timer)
         const timeout = error instanceof Error && error.name === 'AbortError'

@@ -239,6 +239,17 @@ describe('official Threads keyword-search opportunity source', () => {
     const server = createThreadsKeywordSearchAdapter({ env: approvedEnv, fetchImpl: fetchWith(() => new Response('', { status: 503 })).fetchImpl, now, connection: connection().access })
     expect(await server.search(plan)).toMatchObject({ status: 'ambiguous', cost_units: null })
 
+    // One transient 500 is retried once and the retry's answer is used.
+    let attempts = 0
+    const flaky = createThreadsKeywordSearchAdapter({
+      env: approvedEnv,
+      fetchImpl: fetchWith(() => (attempts++ === 0 ? new Response('', { status: 500 }) : jsonResponse({ data: [post()] }))).fetchImpl,
+      now,
+      connection: connection().access,
+    })
+    expect(await flaky.search(plan)).toMatchObject({ status: 'ok' })
+    expect(attempts).toBe(2)
+
     const throttled = createThreadsKeywordSearchAdapter({ env: approvedEnv, fetchImpl: fetchWith(() => jsonResponse({ error: { code: 4 } }, 400)).fetchImpl, now, connection: connection().access })
     expect(await throttled.search(plan)).toMatchObject({ status: 'error', cost_units: 0 })
 

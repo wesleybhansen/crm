@@ -766,6 +766,23 @@ function genericSeeds(play: PlanPlayInput): string[] {
   return unique([...supplied, ...authored])
 }
 
+/* The official X and Threads searches match every term as a keyword, so a
+ * whole audience sentence ("Fractional operators and independent consultants
+ * discussing offer launches...") can never match a post. Those lanes take the
+ * play's supplied search keywords first and, when there are not enough, short
+ * two-word phrases built from the play's filter keywords. */
+function officialSocialSeeds(play: PlanPlayInput): string[] {
+  const query = play.providerQuery ?? {}
+  const supplied = values(query.source_search_keywords).map((value) => value.trim()).filter(Boolean)
+  const keywords = playFilterKeywords(play).filter((word) => !supplied.some((seed) => seed.toLowerCase().includes(word)))
+  const phrases: string[] = []
+  for (let index = 0; index + 1 < keywords.length && phrases.length < 3; index += 2) {
+    phrases.push(`${keywords[index]} ${keywords[index + 1]}`)
+  }
+  if (!phrases.length && keywords.length) phrases.push(keywords[0]!)
+  return unique([...supplied, ...phrases])
+}
+
 function quoted(value: string): string {
   return `"${value.replace(/"/g, '').trim()}"`
 }
@@ -848,7 +865,11 @@ export function buildOpportunityQueryLanes(
   const playText = [play.audience, play.signal, ...values(providerQuery.audience_keywords)].join(' ')
   const realtor = REALTOR_PLAY.test(playText)
   const realtorTransaction = realtor && intent !== 'local_audience'
-  const authoredSeeds = realtor ? realtorSeeds(intent, adapterId, geography) : genericSeeds(play)
+  const authoredSeeds = realtor
+    ? realtorSeeds(intent, adapterId, geography)
+    : adapterId === XAI_X_SEARCH_LANE_ADAPTER_ID || adapterId === THREADS_KEYWORD_SEARCH_LANE_ADAPTER_ID
+      ? officialSocialSeeds(play)
+      : genericSeeds(play)
   // The two fixed Reddit topic-community lanes may intentionally use the same
   // market-name query against different frozen subreddits. Their scopes and
   // quote lane IDs are distinct even though the actor-native search text is
