@@ -2707,20 +2707,23 @@ describe('metro and twin-city markets', () => {
       referenceTime: '2026-08-02T12:00:00.000Z',
       providerQuery: { industries: ['Dentist'], locations: ['Minneapolis-Saint Paul, MN'] },
     }
-    const row = (name: string, city: string, location: string) => ({
+    // provider_location is the place the search targeted (what #242 sends
+    // after its metro fallback); location/city/region are what the row says.
+    const row = (name: string, city: string, location: string, searched: string) => ({
       entity_kind: 'company' as const,
       identity: {
         name, domain: `${name.toLowerCase().replace(/[^a-z]+/g, '')}.example`, industry: 'Dentist',
         city, region: 'Minnesota', location, country_code: 'US',
-        provider_location: 'Minneapolis,Minnesota,United States',
+        provider_location: searched,
       },
     })
-    const stPaul = ruleBasedFitScorer.score(row('The Dental Clinic', 'St Paul', '1932 University Ave W, St Paul, MN 55104'), play, strongEvidence)
-    const minneapolis = ruleBasedFitScorer.score(row('Longfellow Family Dentistry', 'Minneapolis', '3624 E Lake St, Minneapolis, MN 55406'), play, strongEvidence)
-    const duluth = ruleBasedFitScorer.score(row('North Shore Dental', 'Duluth', '10 W Superior St, Duluth, MN 55802'), play, strongEvidence)
+    const searched = 'Minneapolis,Minnesota,United States'
+    const stPaul = ruleBasedFitScorer.score(row('The Dental Clinic', 'St Paul', '1932 University Ave W, St Paul, MN 55104', searched), play, strongEvidence)
+    const minneapolis = ruleBasedFitScorer.score(row('Longfellow Family Dentistry', 'Minneapolis', '3624 E Lake St, Minneapolis, MN 55406', searched), play, strongEvidence)
+    const duluth = ruleBasedFitScorer.score(row('North Shore Dental', 'Duluth', '10 W Superior St, Duluth, MN 55802', 'Duluth,Minnesota,United States'), play, strongEvidence)
     for (const result of [stPaul, minneapolis]) {
       expect(result.criteria).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'geography.location', status: 'pass' })]))
-      expect(result.verdict).not.toBe('rejected')
+      expect(result.verdict).toBe('accepted')
     }
     expect(duluth.criteria).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'geography.location', status: 'fail' })]))
     expect(duluth.verdict).toBe('rejected')
