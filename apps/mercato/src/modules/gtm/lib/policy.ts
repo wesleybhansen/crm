@@ -57,7 +57,7 @@ const CONSUMER_POLICY_RULES: PolicyRule[] = [
     // after "with" or before "employees" is a firmographic. The 2026-09-11
     // rewrite that required the "year olds" suffix let all four of those
     // consumer audiences through unflagged.
-    pattern: /(?:\b(?:retiree|retirement|senior citizen|seniors|elderly|empty nester|family status|married|unmarried|single parents?|new parents?|expectant parents?|widow(?:ed|er)?)\b|\b(?:age[sd]?\s*\d{1,3}|\d{1,3}\s*(?:-|to)\s*\d{1,3}\s*(?:year[-\s]?olds?|years?\s+old)|(?:over|under|older than|younger than)\s+\d{1,3})\b|\b(?:adults?|men|women|males?|females?|people|persons|seniors?|individuals?|consumers?|home[-\s]?owners?|renters?|parents?|buyers?|sellers?|professionals?|customers?|residents?|patients?|students?|clients?|moms?|dads?|mothers?|fathers?|couples|singles|veterans?|retirees?)\s+(?:aged\s+)?\d{1,3}\s*(?:\+|(?:-|–|to)\s*\d{1,3}\b|and\s+(?:older|over|up|above)\b))/i,
+    pattern: /(?:\b(?:retiree|retirement|senior citizen|seniors|elderly|empty nester|family status|married|unmarried|single parents?|new parents?|expectant parents?|widow(?:ed|er)?)\b|\b(?:age[sd]?\s*\d{1,3}|\d{1,3}\s*(?:-|to)\s*\d{1,3}\s*(?:year[-\s]?olds?|years?\s+old)|(?:over|under|older than|younger than)\s+\d{1,3})\b|\b(?:adults?|men|women|males?|females?|people|persons|seniors?|individuals?|consumers?|home[-\s]?owners?|renters?|parents?|buyers?|sellers?|professionals?|customers?|residents?|patients?|students?|clients?|moms?|dads?|mothers?|fathers?|couples|singles|veterans?|retirees?)\s+(?:aged\s+)?\d{1,3}\s*(?:\+|(?:-|–|to)\s*\d{1,3}\b|and\s+(?:older|over|up|above)\b)(?!\s*(?:years?|yrs?|months?|mos?|weeks?|days?|hours?|miles?|units?|employees?|staff|locations?|bedrooms?|acres?|sq|%|percent|k\b|x\b|times|properties|homes|doors|seats|listings|transactions|deals|clients|customers|reviews|stars)\b))/i,
   },
 ]
 
@@ -118,7 +118,16 @@ const INDIVIDUAL_AUDIENCE_PATTERN = new RegExp(`\\b(?:${INDIVIDUAL_NOUNS})\\b${H
  * "battling") let a b2b-labelled audience of people through to person
  * sourcing (adversarial pass, 2026-09-11).
  */
-const INDIVIDUAL_HEAD_START = new RegExp(`^\\s*(?:[a-z0-9-]+\\s+){0,2}(?:${INDIVIDUAL_NOUNS})\\b`, 'i')
+/*
+ * "Homeowner associations", "couples therapists", "patient advocacy
+ * nonprofits", "student housing operators": an organisation or profession
+ * named after the people it serves is a business audience. The word right
+ * after the leading noun decides.
+ */
+const ORGANISATION_AFTER_NOUN =
+  '(?!\\s+(?:associations?|boards?|networks?|groups?|clubs?|unions?|councils?|committees?|cooperatives?|co-?ops?|programs?|agencies|agency|clinics?|centers?|centres?|companies|company|firms?|operators?|vendors?|providers?|platforms?|apps?|software|marketplaces?|nonprofits?|non-profits?|organi[sz]ations?|services?|housing|coaching|advocacy|rights|insurance|therapists?|counsel(?:l)?ors?|coaches|attorneys?|lawyers?|advocates?|brokers?|agents?|advis[eo]rs?|consultants?|managers?|management|teachers?|educators?|publishers?|magazines?|media|forums?|communities|events?|conferences?)\\b)'
+
+const INDIVIDUAL_HEAD_START = new RegExp(`^\\s*(?:[a-z0-9-]+\\s+){0,2}(?:${INDIVIDUAL_NOUNS})\\b${ORGANISATION_AFTER_NOUN}`, 'i')
 
 export function describesIndividualAudience(input: Pick<GtmPolicyInput, 'audience' | 'likely_buyer'>): boolean {
   if (INDIVIDUAL_HEAD_START.test(input.audience ?? '')) return true

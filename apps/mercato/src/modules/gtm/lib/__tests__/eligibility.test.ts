@@ -361,3 +361,28 @@ describe('adversarial pass on the 2026-09-11 policy rewrites', () => {
     }
   })
 })
+
+describe('second adversarial pass: organisations named after people, ranges with units', () => {
+  it('an organisation or profession named after the people it serves is a business audience', () => {
+    for (const audience of [
+      'Homeowner associations in Austin with 50+ units', 'Couples therapists in Denver with a waitlist', 'Patient advocacy nonprofits in Ohio',
+      'Student housing operators near campus', 'Tenant rights attorneys in Phoenix', 'Veterans service organizations in Texas',
+      'Parent coaching businesses with online programs', 'Renters insurance agencies in Florida',
+    ]) {
+      expect(describesIndividualAudience({ audience })).toBe(false)
+      expect(computeGtmPolicy({ market_type: 'b2b', geography: 'Austin, TX', audience }).research_eligibility).toBe('provider_runnable')
+    }
+    for (const audience of ['Homeowners in Austin with 50+ year old roofs', 'Couples planning a wedding in Denver', 'Patients with a waitlist referral']) {
+      expect(describesIndividualAudience({ audience })).toBe(true)
+    }
+  })
+
+  it('a range followed by a unit is not an age; a bare range or a plus after a people-word still is', () => {
+    for (const audience of ['Buyers 2-3 months from closing in Austin', 'Homeowners 5-10 years in their home', 'Renters 6+ months into a lease who want to buy', 'Landlords with 5-20 doors']) {
+      expect(consumerPolicyFlags({ audience })).toEqual([])
+    }
+    for (const audience of ['Women 25-34 in Austin', 'Renters 25 to 34 years old', 'Homeowners 65+ in Tampa', 'Men 45 and older with back pain']) {
+      expect(consumerPolicyFlags({ audience })).toContain('sensitive_life_stage')
+    }
+  })
+})
