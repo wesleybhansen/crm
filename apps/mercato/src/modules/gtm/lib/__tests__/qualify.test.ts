@@ -4,6 +4,7 @@ import {
   FIT_REVIEW_THRESHOLD,
   FIT_REASONS,
   PUBLIC_REPLY_PARTICIPATION_NOTE,
+  expandLocationExpectations,
   ruleBasedFitScorer,
   summarizeFitResults,
   type FitResult,
@@ -2685,5 +2686,43 @@ describe('LinkedIn engagement topic evidence', () => {
     expect(result.criteria).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'signal.engagement_topic', status: 'fail' }),
     ]))
+  })
+})
+
+describe('metro and twin-city markets', () => {
+  it('expands a metro or twin-city value into each city with its state, and leaves single places alone', () => {
+    expect(expandLocationExpectations(['Minneapolis-Saint Paul, MN'])).toEqual(['Minneapolis-Saint Paul, MN', 'Minneapolis, MN', 'Saint Paul, MN'])
+    expect(expandLocationExpectations(['Dallas-Fort Worth metro, TX'])).toEqual(['Dallas-Fort Worth metro, TX', 'Dallas-Fort Worth, TX', 'Dallas, TX', 'Fort Worth, TX'])
+    expect(expandLocationExpectations(['Denver metro, Colorado'])).toEqual(['Denver metro, Colorado', 'Denver, Colorado'])
+    expect(expandLocationExpectations(['Austin, TX'])).toEqual(['Austin, TX'])
+    expect(expandLocationExpectations(['United States'])).toEqual(['United States'])
+  })
+
+  it('accepts a Google Maps row in either city of a twin-city market and still rejects one outside it', () => {
+    const play = {
+      entityUnit: 'locations',
+      geography: 'Minneapolis-Saint Paul, MN',
+      recencyWindow: 'last 30 days',
+      // Within 30 days of the shared job-posting evidence, like the other fixtures.
+      referenceTime: '2026-08-02T12:00:00.000Z',
+      providerQuery: { industries: ['Dentist'], locations: ['Minneapolis-Saint Paul, MN'] },
+    }
+    const row = (name: string, city: string, location: string) => ({
+      entity_kind: 'company' as const,
+      identity: {
+        name, domain: `${name.toLowerCase().replace(/[^a-z]+/g, '')}.example`, industry: 'Dentist',
+        city, region: 'Minnesota', location, country_code: 'US',
+        provider_location: 'Minneapolis,Minnesota,United States',
+      },
+    })
+    const stPaul = ruleBasedFitScorer.score(row('The Dental Clinic', 'St Paul', '1932 University Ave W, St Paul, MN 55104'), play, strongEvidence)
+    const minneapolis = ruleBasedFitScorer.score(row('Longfellow Family Dentistry', 'Minneapolis', '3624 E Lake St, Minneapolis, MN 55406'), play, strongEvidence)
+    const duluth = ruleBasedFitScorer.score(row('North Shore Dental', 'Duluth', '10 W Superior St, Duluth, MN 55802'), play, strongEvidence)
+    for (const result of [stPaul, minneapolis]) {
+      expect(result.criteria).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'geography.location', status: 'pass' })]))
+      expect(result.verdict).not.toBe('rejected')
+    }
+    expect(duluth.criteria).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'geography.location', status: 'fail' })]))
+    expect(duluth.verdict).toBe('rejected')
   })
 })
