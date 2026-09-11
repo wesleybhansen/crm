@@ -125,7 +125,38 @@ export const FIT_REASONS = {
   notActionable: 'opportunity_not_actionable_under_observed_rules',
   irrelevantOpportunity: 'opportunity_not_relevant_to_play',
   realtorNoise: 'realtor_false_positive',
+  // Per-play "team size: confirm later". Google Maps (and every other listing
+  // provider) never reports an employee count, so a play that asks for a team
+  // size band can only ever answer 'unknown' for account.employee_range and
+  // every row honestly lands in review. With the setting on, a row whose ONLY
+  // hard unknown is company size is accepted and flagged, so the member
+  // confirms the size on the prospect's own site instead of triaging a queue
+  // that can never be resolved from the provider data.
+  acceptedSizeUnconfirmed: 'accepted_size_unconfirmed',
 } as const
+
+/*
+ * Per-play setting stored on the play's providerQuery as `size_confirm_later`.
+ * Off (absent) is the historical behaviour: an unknown hard criterion is
+ * review, full stop.
+ */
+export const SIZE_CONFIRM_LATER_CRITERION = 'account.employee_range'
+
+export function sizeConfirmLaterEnabled(play: FitPlayInput): boolean {
+  const value = (play.providerQuery ?? {}).size_confirm_later
+  return value === true || value === 'true'
+}
+
+/*
+ * True when the play says "confirm team size later" and the only hard
+ * criteria the provider could not answer are company size. Anything else
+ * unknown (industry, title, keywords, geography) still means review.
+ */
+function onlySizeUnknown(play: FitPlayInput, hardUnknownIds: string[]): boolean {
+  if (hardUnknownIds.length === 0) return false
+  if (!sizeConfirmLaterEnabled(play)) return false
+  return hardUnknownIds.every((id) => id === SIZE_CONFIRM_LATER_CRITERION)
+}
 
 const EMPTY_BREAKDOWN: FitBreakdown = {
   identity: 0,
@@ -762,7 +793,25 @@ function scoreOpportunity(
   if (actionStatus === 'fail') {
     return result(Math.min(fitScore, 20), 'rejected', FIT_REASONS.notActionable, breakdown, unknowns, contradictions, profile, criteria)
   }
-  if (criteria.some((row) => row.hard && row.status === 'unknown')) {
+  const hardUnknownIds = criteria.filter((row) => row.hard && row.status === 'unknown').map((row) => row.id)
+  if (hardUnknownIds.length > 0) {
+    // "Team size: confirm later". Every hard fail (destination, intent,
+    // audience, geography, freshness, actionability) has already returned
+    // above - TypeScript has narrowed actionStatus away from 'fail' by here -
+    // so nothing else blocks acceptance and the only remaining guard is the
+    // review threshold. `unknowns` stays populated so the UI can flag the row.
+    if (onlySizeUnknown(play, hardUnknownIds) && fitScore >= FIT_REVIEW_THRESHOLD && avgConfidence >= 0.5) {
+      return result(
+        fitScore,
+        'accepted',
+        FIT_REASONS.acceptedSizeUnconfirmed,
+        breakdown,
+        unknowns,
+        contradictions,
+        profile,
+        criteria,
+      )
+    }
     return result(
       Math.min(fitScore, FIT_ACCEPT_THRESHOLD - 1),
       'review',
@@ -1723,7 +1772,24 @@ export const ruleBasedFitScorer: FitScorer = {
       const reason = hardFailure.id === 'signal.recency' ? FIT_REASONS.staleSignal : FIT_REASONS.criterionMismatch
       return result(fitScore, 'rejected', reason, breakdown, unknowns, contradictions, profile, criteria)
     }
-    if (criteria.some((row) => row.hard && row.status === 'unknown')) {
+    const hardUnknownIds = criteria.filter((row) => row.hard && row.status === 'unknown').map((row) => row.id)
+    if (hardUnknownIds.length > 0) {
+      // "Team size: confirm later". The exclusion failure and the hard
+      // criterion failure both returned above, so nothing else blocks
+      // acceptance here; the remaining guard is the review threshold.
+      // `unknowns` still carries account.employee_range so the UI can flag it.
+      if (onlySizeUnknown(play, hardUnknownIds) && fitScore >= FIT_REVIEW_THRESHOLD && avgConfidence >= 0.5) {
+        return result(
+          fitScore,
+          'accepted',
+          FIT_REASONS.acceptedSizeUnconfirmed,
+          breakdown,
+          unknowns,
+          contradictions,
+          profile,
+          criteria,
+        )
+      }
       return result(
         fitScore,
         'review',

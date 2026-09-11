@@ -196,7 +196,12 @@ const ROUTES: RouteCase[] = [
     headers: { create: { 'idempotency-key': 'manual-key-1' } },
   },
   { name: 'overview', schema: 'gtmOverviewBodySchema' },
-  { name: 'plays', schema: 'gtmPlayDetailBodySchema' },
+  {
+    name: 'plays',
+    schema: 'gtmPlayDetailBodySchema',
+    // The write op's refinement demands the flag the generator skips (optional).
+    overrides: { 'set-size-confirm-later': { sizeConfirmLater: true } },
+  },
   { name: 'privacy', schema: 'gtmPrivacyBodySchema' },
   { name: 'reconciliation', schema: 'gtmReconciliationBodySchema' },
   { name: 'research-runs', schema: 'gtmResearchRunsBodySchema' },

@@ -15,10 +15,17 @@ import { shapePlayDetail, isUuid } from '../../../lib/play-shape'
  * NOLI_INTERNAL_SERVICE_SECRET - to render one full typed play. Identity is
  * re-resolved at this boundary (noliUserId -> Clerk -> Mercato auth context,
  * gated on the 'crm' entitlement); the caller's claims about org/tenant
- * ownership are never trusted. Read-only: no rows are written.
+ * ownership are never trusted. Read-only unless op is a write (below).
  *
  * Opaque 404: a missing, foreign-org, soft-deleted, or malformed playId all
  * produce the identical response, so callers cannot probe other orgs' rows.
+ *
+ * One narrow write: op 'set-size-confirm-later' flips the single
+ * `size_confirm_later` key on the play's provider_query (the per-play "team
+ * size: confirm later" setting the qualifier reads). It needs gtm.edit, is
+ * scoped exactly like the read, and touches no other provider_query key, so
+ * the frozen sourcing criteria cannot be rewritten through this route. Every
+ * other op is read-only.
  *
  * Public at the dispatcher level (requireAuth: false) - we authenticate with
  * the shared secret instead of a Clerk/JWT session, mirroring
@@ -83,7 +90,8 @@ export async function POST(req: Request) {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const { hasGtmFeature } = await import('../../../lib/authorize')
-    if (!(await hasGtmFeature(container, { organizationId, tenantId, userId }, 'gtm.view'))) {
+    const writing = parsed.data.op === 'set-size-confirm-later'
+    if (!(await hasGtmFeature(container, { organizationId, tenantId, userId }, writing ? 'gtm.edit' : 'gtm.view'))) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
     }
     const em = container.resolve('em') as EntityManager
@@ -99,6 +107,20 @@ export async function POST(req: Request) {
     })
     if (!play) {
       return opaqueNotFound()
+    }
+
+    if (writing) {
+      // Single-key edit: everything else in provider_query is carried over
+      // untouched, and `false` removes the key rather than storing a falsey
+      // flag, so an off play looks exactly like one that never had it.
+      const current = (play.providerQuery && typeof play.providerQuery === 'object' && !Array.isArray(play.providerQuery)
+        ? play.providerQuery
+        : {}) as Record<string, unknown>
+      const next = { ...current }
+      if (parsed.data.sizeConfirmLater) next.size_confirm_later = true
+      else delete next.size_confirm_later
+      play.providerQuery = next
+      await em.flush()
     }
 
     return NextResponse.json({ ok: true, play: shapePlayDetail(play) })

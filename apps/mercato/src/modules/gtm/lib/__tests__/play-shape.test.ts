@@ -72,8 +72,19 @@ describe('shapePlaySummary', () => {
       outreach_mode: 'automated_email',
       outreach_policy_reason: fullRow.outreachPolicyReason,
       policy_flags: [],
+      size_confirm_later: false,
       created_at: '2026-07-23T09:00:00.000Z',
     })
+  })
+
+  it('reports the per-play team-size setting from provider_query', () => {
+    expect(shapePlaySummary({ ...fullRow, providerQuery: { size_confirm_later: true } }).size_confirm_later)
+      .toBe(true)
+    expect(shapePlaySummary({ ...fullRow, providerQuery: { size_confirm_later: 'true' } }).size_confirm_later)
+      .toBe(true)
+    expect(shapePlaySummary({ ...fullRow, providerQuery: { employee_ranges: ['2 to 50'] } }).size_confirm_later)
+      .toBe(false)
+    expect(shapePlaySummary({ ...fullRow, providerQuery: null }).size_confirm_later).toBe(false)
   })
 
   it('nulls every optional field that is absent', () => {

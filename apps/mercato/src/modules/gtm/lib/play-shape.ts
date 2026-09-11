@@ -32,6 +32,7 @@ export type GtmPlayRowLike = {
   estimatedSize?: Record<string, unknown> | null
   entityUnit?: string | null
   estimateMethod?: string | null
+  providerQuery?: Record<string, unknown> | null
   confidence?: string | null
   confidenceRationale?: string | null
   likelyBuyer?: string | null
@@ -66,6 +67,10 @@ export type GtmPlaySummary = {
   outreach_mode: string | null
   outreach_policy_reason: string | null
   policy_flags: string[]
+  // Per-play "team size: confirm later". Surfaced as a single boolean rather
+  // than the whole provider_query, which stays server-side: the hub only ever
+  // needs to render and flip this one switch.
+  size_confirm_later: boolean
   created_at: string
 }
 
@@ -91,6 +96,14 @@ export type GtmPlayCounts = {
   strategy_only: number
 }
 
+// Mirrors sizeConfirmLaterEnabled() in lib/research/qualify.ts: only an
+// explicit true (or the string "true") counts, so a missing key is off.
+function sizeConfirmLater(providerQuery: Record<string, unknown> | null | undefined): boolean {
+  if (!providerQuery || typeof providerQuery !== 'object' || Array.isArray(providerQuery)) return false
+  const value = providerQuery.size_confirm_later
+  return value === true || value === 'true'
+}
+
 function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null
 }
@@ -113,6 +126,7 @@ export function shapePlaySummary(play: GtmPlayRowLike): GtmPlaySummary {
     outreach_mode: play.outreachMode ?? null,
     outreach_policy_reason: play.outreachPolicyReason ?? null,
     policy_flags: play.policyFlags ?? [],
+    size_confirm_later: sizeConfirmLater(play.providerQuery),
     created_at: play.createdAt.toISOString(),
   }
 }

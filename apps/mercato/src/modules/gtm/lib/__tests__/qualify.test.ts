@@ -2774,3 +2774,90 @@ describe('Google Maps listing categories versus LinkedIn industries', () => {
     expect(result.verdict).toBe('rejected')
   })
 })
+
+/*
+ * Per-play "team size: confirm later" (providerQuery.size_confirm_later).
+ * Google Maps never reports an employee count, so a play asking for a size
+ * band could only ever produce review. With the setting on, a row whose ONLY
+ * hard unknown is company size is accepted and flagged instead.
+ */
+describe('size_confirm_later', () => {
+  const mapsCompany = {
+    entity_kind: 'company' as const,
+    identity: {
+      name: 'Example Family Dental',
+      domain: 'example-dental.test',
+      industry: 'Dental clinic',
+      location: 'San Diego County, California, United States',
+      provider_location: 'San Diego County,California,United States',
+      country_code: 'US',
+    },
+  }
+  const sizePlay = {
+    entityUnit: 'companies',
+    geography: 'San Diego County, California',
+    providerQuery: {
+      industries: ['Dentistry', 'Medical Practices'],
+      employee_ranges: ['2 to 50'],
+      locations: ['San Diego County, California'],
+    },
+  }
+
+  it('leaves the row in review when the setting is off', () => {
+    const result = ruleBasedFitScorer.score(mapsCompany, sizePlay, strongEvidence)
+    expect(result.verdict).toBe('review')
+    expect(result.reason).toBe(FIT_REASONS.criterionUnknown)
+    expect(result.unknowns).toContain('account.employee_range')
+  })
+
+  it('accepts and flags the row when size is the only hard unknown', () => {
+    const result = ruleBasedFitScorer.score(
+      mapsCompany,
+      { ...sizePlay, providerQuery: { ...sizePlay.providerQuery, size_confirm_later: true } },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('accepted')
+    expect(result.reason).toBe(FIT_REASONS.acceptedSizeUnconfirmed)
+    // The unknown is kept, not erased: the UI flags it for confirmation.
+    expect(result.unknowns).toContain('account.employee_range')
+    expect(result.criteria).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'account.employee_range', status: 'unknown' })]),
+    )
+  })
+
+  it('still reviews when another hard criterion is also unknown', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'company' as const,
+        identity: { name: 'Example Family Dental', domain: 'example-dental.test' },
+      },
+      { ...sizePlay, providerQuery: { ...sizePlay.providerQuery, size_confirm_later: true } },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('review')
+    expect(result.reason).toBe(FIT_REASONS.criterionUnknown)
+    expect(result.unknowns).toContain('account.industry')
+  })
+
+  it('never rescues a row that fails a hard criterion outright', () => {
+    const result = ruleBasedFitScorer.score(
+      {
+        entity_kind: 'company' as const,
+        identity: { ...mapsCompany.identity, industry: 'Veterinarian' },
+      },
+      { ...sizePlay, providerQuery: { ...sizePlay.providerQuery, size_confirm_later: true } },
+      strongEvidence,
+    )
+    expect(result.verdict).toBe('rejected')
+    expect(result.reason).toBe(FIT_REASONS.criterionMismatch)
+  })
+
+  it('reads the flag as the string "true" as well', () => {
+    const result = ruleBasedFitScorer.score(
+      mapsCompany,
+      { ...sizePlay, providerQuery: { ...sizePlay.providerQuery, size_confirm_later: 'true' } },
+      strongEvidence,
+    )
+    expect(result.reason).toBe(FIT_REASONS.acceptedSizeUnconfirmed)
+  })
+})

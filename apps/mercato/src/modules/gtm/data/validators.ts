@@ -68,10 +68,20 @@ export const gtmOverviewBodySchema = z.object({
 // playId is intentionally NOT format-validated here: a malformed id must
 // produce the same opaque 404 as a missing/foreign row (checked in the route
 // via isUuid), never a distinguishable 400.
-export const gtmPlayDetailBodySchema = z.object({
-  noliUserId: z.string().trim().min(1).max(200),
-  playId: z.string().trim().min(1).max(200),
-})
+// `op` is the only write this route accepts. It is an explicit allowlist of
+// one field on the play's provider_query ("team size: confirm later"), so a
+// caller can never rewrite the frozen sourcing criteria through this door.
+export const gtmPlayDetailBodySchema = z
+  .object({
+    noliUserId: z.string().trim().min(1).max(200),
+    playId: z.string().trim().min(1).max(200),
+    op: z.enum(['detail', 'set-size-confirm-later']).optional(),
+    sizeConfirmLater: z.boolean().optional(),
+  })
+  .refine(
+    (value) => value.op !== 'set-size-confirm-later' || typeof value.sizeConfirmLater === 'boolean',
+    { message: 'sizeConfirmLater is required', path: ['sizeConfirmLater'] },
+  )
 
 export type GtmOverviewBody = z.infer<typeof gtmOverviewBodySchema>
 export type GtmPlayDetailBody = z.infer<typeof gtmPlayDetailBodySchema>
