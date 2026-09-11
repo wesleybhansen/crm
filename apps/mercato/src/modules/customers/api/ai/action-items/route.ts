@@ -89,7 +89,7 @@ export async function GET() {
           type: 'email',
           title: `${unreadCount} unread message${unreadCount > 1 ? 's' : ''} in your inbox`,
           description: unreadCount === 1 ? 'You have a message waiting for a reply.' : 'You have messages waiting for replies.',
-          href: '/backend/inbox-ops',
+          href: '/backend/email',
           priority: 0,
         })
       }

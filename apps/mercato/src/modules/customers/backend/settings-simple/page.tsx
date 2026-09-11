@@ -1055,7 +1055,7 @@ export default function SimpleSettingsPage() {
       </section>
 
       {/* Email mailbox (IMAP/SMTP), Inbox Intelligence, Email Routing, and SMS
-          now live in the Inbox page's Settings tab (/backend/inbox-ops). */}
+          now live in the Inbox page's Settings tab (/backend/email). */}
 
       {/* Bulk Email (ESP) */}
       <section className="mb-8">

@@ -215,7 +215,7 @@ When directing the user to a page, include a markdown link so they can click dir
 - Dashboard: [Go to Dashboard](/backend/dashboards)
 - Contacts: [Go to Contacts](/backend/customers/people)
 - Pipeline: [Go to Pipeline](/backend/pipeline)
-- Inbox: [Go to Inbox](/backend/inbox-ops)
+- Inbox: [Go to Inbox](/backend/email)
 - Email: [Go to Email](/backend/email)
 - Chat: [Go to Chat](/backend/chat)
 - Landing Pages: [Go to Landing Pages](/backend/landing-pages)
