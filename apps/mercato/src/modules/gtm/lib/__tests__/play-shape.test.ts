@@ -3,6 +3,8 @@ import {
   shapePlaySummary,
   shapePlayDetail,
   buildPlayCounts,
+  deriveEstimatedReach,
+  reachConfidence,
   type GtmPlayRowLike,
 } from '../play-shape'
 
@@ -23,6 +25,7 @@ const fullRow: GtmPlayRowLike = {
   estimatedSize: { label: '500-1000', low: 500, high: 1000 },
   entityUnit: 'companies',
   estimateMethod: 'source volume sampling',
+  estimateBasis: 'sampled',
   confidence: 'medium',
   confidenceRationale: 'Funding feeds are dense but noisy',
   likelyBuyer: 'Founder or head of ops',
@@ -66,6 +69,15 @@ describe('shapePlaySummary', () => {
       source_hint: fullRow.sourceHint,
       geography: 'United States',
       confidence: 'medium',
+      likely_buyer: 'Founder or head of ops',
+      why_now: 'New budget lands right after a raise',
+      estimated_reach: {
+        low: 500,
+        high: 1000,
+        unit: 'companies',
+        confidence: 'fair',
+        method: 'source volume sampling',
+      },
       execution_eligibility: 'executable',
       eligibility_reason: fullRow.eligibilityReason,
       lead_mode: 'business',
@@ -106,6 +118,9 @@ describe('shapePlaySummary', () => {
     expect(summary.source_hint).toBeNull()
     expect(summary.geography).toBeNull()
     expect(summary.confidence).toBeNull()
+    expect(summary.likely_buyer).toBeNull()
+    expect(summary.why_now).toBeNull()
+    expect(summary.estimated_reach).toEqual({ low: null, high: null, unit: null, confidence: null, method: null })
     expect(summary.eligibility_reason).toBeNull()
     expect(summary.lead_mode).toBeNull()
     expect(summary.research_eligibility).toBeNull()
@@ -126,8 +141,11 @@ describe('shapePlayDetail', () => {
       estimated_size: { label: '500-1000', low: 500, high: 1000 },
       entity_unit: 'companies',
       estimate_method: 'source volume sampling',
+      estimate_basis: 'sampled',
       confidence_rationale: fullRow.confidenceRationale,
       likely_buyer: 'Founder or head of ops',
+      why_now: fullRow.whyNow,
+      estimated_reach: { low: 500, high: 1000, unit: 'companies', confidence: 'fair', method: 'source volume sampling' },
       eligibility_evaluated_at: '2026-07-23T10:00:00.000Z',
       policy_evaluated_at: '2026-08-26T10:00:00.000Z',
       updated_at: '2026-07-23T09:30:00.000Z',
@@ -142,6 +160,74 @@ describe('shapePlayDetail', () => {
   it('nulls eligibility_evaluated_at when never evaluated', () => {
     const detail = shapePlayDetail({ ...fullRow, eligibilityEvaluatedAt: null })
     expect(detail.eligibility_evaluated_at).toBeNull()
+  })
+})
+
+describe('deriveEstimatedReach', () => {
+  // The shape every imported audience-play row actually stores (131 of 154
+  // live rows at the time of writing): {low, high, label} numbers, a free-text
+  // entity_unit, a "Modeled from ..." method and a low|medium|high grade.
+  it('maps a stored low/high range with the engine confidence words', () => {
+    expect(
+      deriveEstimatedReach({
+        estimatedSize: { low: 120, high: 180, label: 'modeled range: roughly 120 to 180 practices' },
+        entityUnit: 'businesses',
+        estimateMethod: 'Modeled from state dental board registrations.',
+        confidence: 'medium',
+      }),
+    ).toEqual({
+      low: 120,
+      high: 180,
+      unit: 'businesses',
+      confidence: 'fair',
+      method: 'Modeled from state dental board registrations.',
+    })
+    expect(deriveEstimatedReach({ estimatedSize: { low: 1, high: 2 }, confidence: 'low' }).confidence).toBe('rough')
+    expect(deriveEstimatedReach({ estimatedSize: { low: 1, high: 2 }, confidence: 'HIGH ' }).confidence).toBe('solid')
+  })
+
+  it('carries a single point estimate on both bounds', () => {
+    expect(deriveEstimatedReach({ estimatedSize: { value: 500 }, entityUnit: 'people', confidence: 'high' }))
+      .toEqual({ low: 500, high: 500, unit: 'people', confidence: 'solid', method: null })
+    // only one bound stored: the other stays null rather than being invented
+    expect(deriveEstimatedReach({ estimatedSize: { low: 40, label: 'at least 40' }, entityUnit: 'companies' }))
+      .toMatchObject({ low: 40, high: null })
+    expect(deriveEstimatedReach({ estimatedSize: { high: '90' }, entityUnit: 'companies' }))
+      .toMatchObject({ low: null, high: 90 })
+  })
+
+  it('never invents numbers when the estimate is missing or non-numeric', () => {
+    const empty = { low: null, high: null, unit: null, confidence: null, method: null }
+    expect(deriveEstimatedReach({})).toEqual(empty)
+    expect(deriveEstimatedReach({ estimatedSize: null, entityUnit: null, estimateMethod: null, confidence: null })).toEqual(empty)
+    // label-only: the text is never parsed for numbers
+    expect(deriveEstimatedReach({ estimatedSize: { label: 'dozens per week' }, entityUnit: 'post', estimateMethod: 'modeled' }))
+      .toEqual({ low: null, high: null, unit: 'post', confidence: null, method: 'modeled' })
+    expect(deriveEstimatedReach({ estimatedSize: { low: 'about 120', high: NaN, value: -5 } }))
+      .toMatchObject({ low: null, high: null })
+    expect(deriveEstimatedReach({ estimatedSize: { low: true, high: { n: 3 } } }))
+      .toMatchObject({ low: null, high: null })
+    // an array or scalar stored in the jsonb column is treated as no estimate
+    expect(deriveEstimatedReach({ estimatedSize: [120, 180] as unknown as Record<string, unknown> }))
+      .toMatchObject({ low: null, high: null })
+  })
+
+  it('maps an unknown or unrecognised confidence to null', () => {
+    expect(reachConfidence('unknown')).toBeNull()
+    expect(reachConfidence(null)).toBeNull()
+    expect(reachConfidence('')).toBeNull()
+    expect(reachConfidence('very high')).toBeNull()
+    expect(reachConfidence(0.8)).toBeNull()
+    expect(reachConfidence('fair')).toBe('fair')
+    expect(deriveEstimatedReach({ estimatedSize: { low: 30, high: 80 }, confidence: 'unknown' }))
+      .toMatchObject({ low: 30, high: 80, confidence: null })
+  })
+
+  it('orders a reversed range and falls back to unit/method inside the jsonb', () => {
+    expect(deriveEstimatedReach({ estimatedSize: { low: 200, high: 100, unit: 'locations', method: 'counted' } }))
+      .toEqual({ low: 100, high: 200, unit: 'locations', confidence: null, method: 'counted' })
+    // the column wins over the jsonb when both are present
+    expect(deriveEstimatedReach({ estimatedSize: { low: 1, high: 2, unit: 'x' }, entityUnit: ' people ' }).unit).toBe('people')
   })
 })
 

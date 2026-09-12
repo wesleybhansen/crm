@@ -33,6 +33,7 @@ export type GtmPlayRowLike = {
   estimatedSize?: Record<string, unknown> | null
   entityUnit?: string | null
   estimateMethod?: string | null
+  estimateBasis?: string | null
   providerQuery?: Record<string, unknown> | null
   confidence?: string | null
   confidenceRationale?: string | null
@@ -51,6 +52,26 @@ export type GtmPlayRowLike = {
   updatedAt: Date
 }
 
+// Hub-facing reach grade. Imported reports grade confidence low | medium |
+// high (audience-plays engine, Confidence); the hub renders it as a word a
+// customer reads without a legend: "fair" not "medium".
+export type GtmReachConfidence = 'rough' | 'fair' | 'solid'
+
+// Deterministic projection of the stored estimate columns so the hub can
+// render "EST. 120 to 180 businesses, fair" from the plays list without
+// parsing estimated_size itself. Numbers come ONLY from the stored jsonb
+// (low/high, or a single point estimate carried on both bounds); nothing is
+// inferred from the label text, and unknown means null, never a guess.
+export type GtmEstimatedReach = {
+  low: number | null
+  high: number | null
+  // Free text as the report authored it: 'businesses' | 'people' | 'companies'
+  // | 'opportunities' | ... Null when the row has no unit rather than a default.
+  unit: string | null
+  confidence: GtmReachConfidence | null
+  method: string | null
+}
+
 export type GtmPlaySummary = {
   id: string
   source: string
@@ -63,6 +84,11 @@ export type GtmPlaySummary = {
   source_hint: string | null
   geography: string | null
   confidence: string | null
+  // Buyer persona and the timing argument travel with the list so a card can
+  // show "who buys" and "why now" without a detail round-trip.
+  likely_buyer: string | null
+  why_now: string | null
+  estimated_reach: GtmEstimatedReach
   execution_eligibility: string
   eligibility_reason: string | null
   lead_mode: string | null
@@ -81,14 +107,14 @@ export type GtmPlaySummary = {
 export type GtmPlayDetail = GtmPlaySummary & {
   workspace_id: string
   recency_window: string | null
-  why_now: string | null
   recommended_angle: string | null
   supported_channels: unknown[] | null
   estimated_size: Record<string, unknown> | null
   entity_unit: string | null
   estimate_method: string | null
+  // measured | sampled | modeled | unknown (import validator enum), or null.
+  estimate_basis: string | null
   confidence_rationale: string | null
-  likely_buyer: string | null
   eligibility_evaluated_at: string | null
   policy_evaluated_at: string | null
   updated_at: string
@@ -108,6 +134,79 @@ function sizeConfirmLater(providerQuery: Record<string, unknown> | null | undefi
   return value === true || value === 'true'
 }
 
+function nonEmptyText(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+// A stored bound is only usable as a finite, non-negative number. Numeric
+// strings ("120") are accepted because jsonb written by hand sometimes carries
+// them; anything else (label text, NaN, negatives, booleans) is null.
+function reachNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!/^\d+(\.\d+)?$/.test(trimmed)) return null
+    const parsed = Number(trimmed)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+const REACH_CONFIDENCE: Record<string, GtmReachConfidence> = {
+  // audience-plays engine grades
+  low: 'rough',
+  medium: 'fair',
+  high: 'solid',
+  // already-graded values pass through unchanged
+  rough: 'rough',
+  fair: 'fair',
+  solid: 'solid',
+}
+
+// low | medium | high -> rough | fair | solid. 'unknown', null, numbers and any
+// other wording map to null: the hub then omits the grade instead of
+// showing a made-up one.
+export function reachConfidence(value: unknown): GtmReachConfidence | null {
+  const text = nonEmptyText(value)
+  if (!text) return null
+  return REACH_CONFIDENCE[text.toLowerCase()] ?? null
+}
+
+// Point-estimate keys a stored estimated_size may carry instead of low/high.
+// Checked only when neither bound is present, first match wins.
+const POINT_ESTIMATE_KEYS = ['value', 'count', 'estimate', 'size', 'total'] as const
+
+export function deriveEstimatedReach(play: Pick<GtmPlayRowLike, 'estimatedSize' | 'entityUnit' | 'estimateMethod' | 'confidence'>): GtmEstimatedReach {
+  const size = play.estimatedSize && typeof play.estimatedSize === 'object' && !Array.isArray(play.estimatedSize)
+    ? play.estimatedSize
+    : null
+
+  let low = size ? reachNumber(size.low) : null
+  let high = size ? reachNumber(size.high) : null
+  if (size && low === null && high === null) {
+    for (const key of POINT_ESTIMATE_KEYS) {
+      const point = reachNumber(size[key])
+      if (point !== null) {
+        low = point
+        high = point
+        break
+      }
+    }
+  }
+  // Both bounds present but reversed: order them. Neither number is changed.
+  if (low !== null && high !== null && low > high) [low, high] = [high, low]
+
+  return {
+    low,
+    high,
+    unit: nonEmptyText(play.entityUnit) ?? (size ? nonEmptyText(size.unit) ?? nonEmptyText(size.entity_unit) : null),
+    confidence: reachConfidence(play.confidence),
+    method: nonEmptyText(play.estimateMethod) ?? (size ? nonEmptyText(size.method) : null),
+  }
+}
+
 function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null
 }
@@ -123,6 +222,9 @@ export function shapePlaySummary(play: GtmPlayRowLike): GtmPlaySummary {
     source_hint: play.sourceHint ?? null,
     geography: play.geography ?? null,
     confidence: play.confidence ?? null,
+    likely_buyer: play.likelyBuyer ?? null,
+    why_now: play.whyNow ?? null,
+    estimated_reach: deriveEstimatedReach(play),
     execution_eligibility: play.executionEligibility,
     eligibility_reason: play.eligibilityReason ?? null,
     lead_mode: play.leadMode ?? null,
@@ -141,14 +243,13 @@ export function shapePlayDetail(play: GtmPlayRowLike): GtmPlayDetail {
     ...shapePlaySummary(play),
     workspace_id: play.workspaceId,
     recency_window: play.recencyWindow ?? null,
-    why_now: play.whyNow ?? null,
     recommended_angle: play.recommendedAngle ?? null,
     supported_channels: play.supportedChannels ?? null,
     estimated_size: play.estimatedSize ?? null,
     entity_unit: play.entityUnit ?? null,
     estimate_method: play.estimateMethod ?? null,
+    estimate_basis: play.estimateBasis ?? null,
     confidence_rationale: play.confidenceRationale ?? null,
-    likely_buyer: play.likelyBuyer ?? null,
     eligibility_evaluated_at: iso(play.eligibilityEvaluatedAt),
     policy_evaluated_at: iso(play.policyEvaluatedAt),
     updated_at: play.updatedAt.toISOString(),
