@@ -10,7 +10,7 @@ import {
 } from '../../data/entities'
 import { GtmCampaignError, type CampaignEm, type GtmCtx, type StepSpec } from './build'
 import { computeDraftState, loadCampaign } from './approve'
-import { sanitizeMergeValue } from './render'
+import { buildMergeValues, sanitizeMergeValue } from './render'
 
 /*
  * One example recipient's rendered sequence for the hub's campaign review
@@ -29,10 +29,11 @@ import { sanitizeMergeValue } from './render'
  * {{first_name}} / {{company}} / {{signal}} / {{why_now}} in a single regex
  * pass and records no positions, and frozen rows, AI drafts, and manual
  * overrides carry no template to re-render with sentinel markers. Spans are
- * therefore located by value: the merge values are rebuilt with the
- * renderer's own sanitizeMergeValue() rules (first token of a person's name,
- * company or the company's own name, top-confidence evidence claim, the
- * play's why_now) and each value is searched in the rendered text, longest
+ * therefore located by value: the merge values are rebuilt by the renderer's
+ * own buildMergeValues() (first token of a person's name, company or the
+ * company's own name, the top-confidence evidence claim rewritten to second
+ * person, the play's why_now) and each value is searched in the rendered
+ * text, longest
  * value first, on word boundaries, without overlap. A value that also
  * appears verbatim in the fixed template copy is highlighted as well, which
  * is acceptable for a preview highlight; values shorter than two characters
@@ -76,11 +77,21 @@ function boundaryOk(text: string, start: number, end: number): boolean {
   return !(before && WORD_CHAR.test(before)) && !(after && WORD_CHAR.test(after))
 }
 
+// The renderer decides a value's terminal punctuation and its capital from the
+// slot it lands in (lib/campaign/render.ts substitute()), so the text can hold
+// a trimmed or capitalized form of the stored value. Every form is offered to
+// the locator, longest first, and the one actually present wins.
+function spanVariants(value: string): string[] {
+  const capitalize = (input: string) => input.charAt(0).toUpperCase() + input.slice(1)
+  const trimmed = value.replace(/[ \t]*[.!?]+$/, '')
+  const forms = [value, trimmed, capitalize(value), capitalize(trimmed)]
+  return [...new Set(forms)].filter((form) => form.length >= MIN_SPAN_VALUE_LENGTH)
+}
+
 export function computeMergeSpans(text: string | null | undefined, values: MergeValues): MergeSpan[] {
   if (!text) return []
   const candidates = MERGE_SPAN_FIELDS
-    .map((field) => ({ field, value: values[field] ?? '' }))
-    .filter((entry) => entry.value.length >= MIN_SPAN_VALUE_LENGTH)
+    .flatMap((field) => spanVariants(values[field] ?? '').map((value) => ({ field, value })))
     // Longest first so "Synthetic Co" wins over a first name "Synthetic"
     // that sits inside it; ties keep the field order above.
     .sort((a, b) => b.value.length - a.value.length)
@@ -144,14 +155,12 @@ export async function mergeValuesForCandidate(
     const confidence = Number(row.confidence ?? 0)
     if (!top || confidence > top.confidence) top = { claim: row.claim, confidence }
   }
-  const identity = (candidate.identity ?? {}) as Record<string, unknown>
-  const name = sanitizeMergeValue(identity.name)
-  return {
-    first_name: candidate.entityKind === 'person' ? name.split(' ')[0] || '' : '',
-    company: sanitizeMergeValue(identity.company) || (candidate.entityKind === 'company' ? name : ''),
-    signal: sanitizeMergeValue(top?.claim ?? null),
-    why_now: whyNow,
-  }
+  return buildMergeValues({
+    entityKind: candidate.entityKind,
+    identity: candidate.identity as Record<string, unknown> | null | undefined,
+    claim: top?.claim ?? null,
+    whyNow,
+  })
 }
 
 function recipientShape(candidate: GtmCandidate | null): CampaignDraftSample['recipient'] {

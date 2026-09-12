@@ -26,7 +26,13 @@ import { latestMatchForCandidate } from '../../../lib/research/match-projection'
  *            has_verified_email, exact best email_verification_state,
  *            email_contact_count, and evidence_count, computed via two grouped
  *            queries over the page's candidate ids (lib/listing.ts; never one
- *            query per candidate)
+ *            query per candidate).
+ *            The page is a PAGE: `total` is the exact number of rows these
+ *            same filters match (not the number returned) and `capped` says
+ *            the page was truncated, so a caller never renders the cap as a
+ *            count. `total` is null only when it cannot be counted exactly
+ *            (the contextual branch's match scan came back full); `capped` is
+ *            true in that case.
  * - 'review' manual verdict override for one candidate; the change writes a
  *            gtm_audit_events row in the same transaction
  * - 'export' explicit, audited reviewed-lead export: latest play-contextual
@@ -43,6 +49,10 @@ export const metadata = {
 }
 
 const LIST_CAP = 100
+// The contextual (runId/playId) branch projects the latest match per candidate
+// in memory. A scan that comes back full means the projection may be
+// incomplete, so the honest answer for `total` is null, never a number.
+const MATCH_SCAN_LIMIT = 1000
 
 function opaqueNotFound() {
   return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
@@ -342,6 +352,9 @@ export async function POST(req: Request) {
     if (body.workspaceId != null && !isUuid(body.workspaceId)) return opaqueNotFound()
 
     let rows: { candidate: GtmCandidate; match: GtmCandidateMatch | null }[] = []
+    // Rows matching THIS list's filters (fitStatus included), independent of
+    // the page cap. null = not exactly countable; never a guess.
+    let listTotal: number | null = 0
     let total = 0
     let accepted = 0
     let review = 0
@@ -364,7 +377,7 @@ export async function POST(req: Request) {
       if (body.workspaceId) matchWhere.workspaceId = body.workspaceId
       const allMatches = await em.find(GtmCandidateMatch, matchWhere, {
         orderBy: { createdAt: 'desc', id: 'desc' },
-        limit: 1000,
+        limit: MATCH_SCAN_LIMIT,
       })
       const latestMatches: GtmCandidateMatch[] = []
       const seen = new Set<string>()
@@ -393,11 +406,14 @@ export async function POST(req: Request) {
           })
         : []
       const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]))
-      rows = filteredMatches
+      const matched = filteredMatches
         .map((match) => ({ candidate: byId.get(match.candidateId), match }))
         .filter((row): row is { candidate: GtmCandidate; match: GtmCandidateMatch } => Boolean(row.candidate))
         .sort((a, b) => Number(b.match.fitScore ?? 0) - Number(a.match.fitScore ?? 0))
-        .slice(0, LIST_CAP)
+      // Exact, unless the bounded match scan came back full - then the
+      // projection itself may be short, and a number would be a lie.
+      listTotal = allMatches.length >= MATCH_SCAN_LIMIT ? null : matched.length
+      rows = matched.slice(0, LIST_CAP)
     } else {
       type ProjectedRow = { candidate_id: string; match_id: string | null }
       type SummaryRow = {
@@ -490,6 +506,12 @@ export async function POST(req: Request) {
       review = Number(summary.review)
       rejected = Number(summary.rejected)
       unscored = Number(summary.unscored)
+      // The summary counts run over the SAME projected CTE, with the same
+      // fit_status expression the page's WHERE uses, so the matching bucket is
+      // already the exact count for this list's filters: no extra COUNT query.
+      listTotal = body.fitStatus
+        ? { accepted, review, rejected, unscored }[body.fitStatus]
+        : total
       const scored = accepted + review + rejected
       qualification = {
         scored,
@@ -554,7 +576,14 @@ export async function POST(req: Request) {
           confidence: extra?.confidence ?? null,
         }
       }),
+      // Rows matching this list's filters, not the number of rows returned.
+      // A caller renders THIS as "N opportunities waiting on you"; `capped`
+      // says the page above is a page (show "N", never "cap+" as an exact
+      // count). total === null means it could not be counted exactly.
+      total: listTotal,
+      capped: listTotal === null || listTotal > rows.length,
       summary: {
+        // Workspace/run-wide totals, ignoring the fitStatus filter.
         total,
         by_fit_status: { accepted, review, rejected, unscored },
         qualification,

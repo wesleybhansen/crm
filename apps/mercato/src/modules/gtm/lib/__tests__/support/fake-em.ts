@@ -222,6 +222,12 @@ export class FakeEm implements ResearchEm, RetentionEm, CampaignEm, ExecutionEm,
     return rows.map((row) => this.hydrate(row))
   }
 
+  // Mirrors MikroORM's em.count(): how many stored rows match, ignoring any
+  // page limit (lib/listing.ts countCampaigns).
+  async count<T extends object>(Ctor: new () => T, where: Record<string, unknown>): Promise<number> {
+    return this.table(Ctor).filter((row) => matchesWhere(row, where)).length
+  }
+
   async findOne<T extends object>(
     Ctor: new () => T,
     where: Record<string, unknown>,

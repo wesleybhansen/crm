@@ -7,11 +7,15 @@ import {
   createCampaign,
 } from '../campaign/build'
 import {
+  collapseDoubledSentencePunctuation,
+  dropRepeatedCompanyMentions,
   messageContentHash,
   messagesAreMateriallyDistinct,
   renderMessages,
   sanitizeMergeValue,
   substituteUnsubscribeUrl,
+  toSecondPerson,
+  trimTrailingSentencePunctuation,
   UNSUBSCRIBE_URL_TOKEN,
 } from '../campaign/render'
 import type { GtmCampaign, GtmCandidate, GtmPlay, GtmResearchRun } from '../../data/entities'
@@ -220,5 +224,161 @@ describe('sanitizeMergeValue', () => {
     expect(sanitizeMergeValue('  {{evil}}   payload ')).toBe('evil payload')
     expect(sanitizeMergeValue('{}{}{}')).toBe('')
     expect(sanitizeMergeValue(42)).toBe('')
+  })
+
+  it('leaves punctuation alone: the slot decides, not the value', () => {
+    expect(sanitizeMergeValue('they raised a Series B.')).toBe('they raised a Series B.')
+  })
+})
+
+// Walkthrough defect D17: "Hi Kayla," followed by "I noticed Kayla Kurtz is
+// currently listed as Vice President, Sales & Business Development at Forthea
+// - Digital Marketing Agency.."
+describe('drafted copy reads as a message, not a dossier (D17)', () => {
+  const CLAIM =
+    'Kayla Kurtz is currently listed as Vice President, Sales at Forthea Digital Marketing Agency.'
+  const BODY = 'Hi {{first_name}},\n\nI noticed {{signal}}.\n\n{{why_now}}'
+
+  it('never renders a double period when the claim already ended the sentence', async () => {
+    const { em, run, campaign } = await setup()
+    const candidate = await seedCandidate(em, run, {
+      name: 'Kayla Kurtz',
+      company: 'Forthea Digital Marketing Agency',
+      evidenceClaim: CLAIM,
+    })
+    const [row] = await renderMessages(
+      em,
+      ctx,
+      campaign,
+      [candidate],
+      { subject: 'Quick question for {{company}}', body: BODY },
+      POSTAL_ADDRESS,
+    )
+    expect(row.bodyText).not.toContain('..')
+    expect(row.bodyHtml).not.toContain('..')
+    expect(row.bodyText).toContain(
+      'I noticed you are currently listed as Vice President, Sales at Forthea Digital Marketing Agency.',
+    )
+  })
+
+  it('addresses the recipient as "you" after the greeting, never by full name', async () => {
+    const { em, run, campaign } = await setup()
+    const candidate = await seedCandidate(em, run, {
+      name: 'Kayla Kurtz',
+      company: 'Forthea Digital Marketing Agency',
+      evidenceClaim: CLAIM,
+    })
+    const [row] = await renderMessages(
+      em,
+      ctx,
+      campaign,
+      [candidate],
+      { subject: 'Quick question for {{company}}', body: BODY },
+      POSTAL_ADDRESS,
+    )
+    expect(row.bodyText).toContain('Hi Kayla,')
+    // The greeting is the only place the name appears.
+    expect(row.bodyText.match(/Kayla/g)).toHaveLength(1)
+    expect(row.bodyText).not.toContain('Kayla Kurtz')
+  })
+
+  it('trims a merge value that already ends in punctuation of any kind', async () => {
+    const { em, run, campaign } = await setup()
+    const candidate = await seedCandidate(em, run, {
+      name: 'Kayla Kurtz',
+      company: 'Forthea Digital',
+      evidenceClaim: 'Kayla Kurtz just opened a second office in Fresno!',
+    })
+    const [row] = await renderMessages(
+      em,
+      ctx,
+      campaign,
+      [candidate],
+      { subject: 'Quick question for {{company}}', body: BODY },
+      POSTAL_ADDRESS,
+    )
+    expect(row.bodyText).toContain('I noticed you just opened a second office in Fresno.')
+    expect(row.bodyText).not.toContain('!.')
+    expect(row.bodyText).not.toContain('..')
+  })
+
+  it('keeps the value untouched when the template does not end the sentence', async () => {
+    const { em, run, campaign } = await setup()
+    const candidate = await seedCandidate(em, run, {
+      name: 'Ada Synthetic',
+      company: 'Looply Labs',
+      evidenceClaim: 'the team opened two new offices in Fresno.',
+    })
+    const [row] = await renderMessages(
+      em,
+      ctx,
+      campaign,
+      [candidate],
+      { subject: 'Hello {{company}}', body: 'Hi {{first_name}},\n\n{{signal}} Worth a look?' },
+      POSTAL_ADDRESS,
+    )
+    expect(row.bodyText).toContain('the team opened two new offices in Fresno. Worth a look?')
+  })
+
+  it('does not name the same company twice in one sentence', async () => {
+    const { em, run, campaign } = await setup()
+    const candidate = await seedCandidate(em, run, {
+      name: 'Kayla Kurtz',
+      company: 'Forthea Digital',
+      evidenceClaim: 'Kayla Kurtz opened a second office at Forthea Digital',
+    })
+    const [row] = await renderMessages(
+      em,
+      ctx,
+      campaign,
+      [candidate],
+      { subject: 'Quick question', body: 'Hi {{first_name}},\n\nSaw {{signal}} at {{company}}.' },
+      POSTAL_ADDRESS,
+    )
+    expect(row.bodyText).toContain('Saw you opened a second office at Forthea Digital.')
+    expect(row.bodyText.match(/Forthea Digital/g)).toHaveLength(1)
+  })
+})
+
+describe('merge-value copy helpers', () => {
+  it('trimTrailingSentencePunctuation drops only the value\'s own terminator', () => {
+    expect(trimTrailingSentencePunctuation('raised a Series B.')).toBe('raised a Series B')
+    expect(trimTrailingSentencePunctuation('raised a Series B!')).toBe('raised a Series B')
+    expect(trimTrailingSentencePunctuation('raised a Series B')).toBe('raised a Series B')
+    expect(trimTrailingSentencePunctuation('hiring in Q4, fast')).toBe('hiring in Q4, fast')
+  })
+
+  it('collapseDoubledSentencePunctuation removes ".." and leaves an ellipsis alone', () => {
+    expect(collapseDoubledSentencePunctuation('at Forthea..')).toBe('at Forthea.')
+    expect(collapseDoubledSentencePunctuation('closed a round!.')).toBe('closed a round!')
+    expect(collapseDoubledSentencePunctuation('really?.')).toBe('really?')
+    expect(collapseDoubledSentencePunctuation('well... it depends.')).toBe('well... it depends.')
+    expect(collapseDoubledSentencePunctuation('one. two.')).toBe('one. two.')
+  })
+
+  it('toSecondPerson rewrites the recipient, not the company', () => {
+    expect(toSecondPerson('Kayla Kurtz is hiring three reps', 'Kayla Kurtz')).toBe(
+      'you are hiring three reps',
+    )
+    expect(toSecondPerson("Kayla Kurtz's team doubled", 'Kayla Kurtz')).toBe('your team doubled')
+    expect(toSecondPerson('Forthea Digital is hiring', 'Kayla Kurtz')).toBe(
+      'Forthea Digital is hiring',
+    )
+    // A one-word name is never rewritten: too easy to hit by accident.
+    expect(toSecondPerson('Grace is hiring', 'Grace')).toBe('Grace is hiring')
+  })
+
+  it('dropRepeatedCompanyMentions only cuts a repeated trailing phrase', () => {
+    expect(dropRepeatedCompanyMentions('Saw an office at Acme at Acme.', 'Acme')).toBe(
+      'Saw an office at Acme.',
+    )
+    // A mention that carries the grammar of the sentence is kept.
+    expect(dropRepeatedCompanyMentions('Acme is hiring and Acme is growing.', 'Acme')).toBe(
+      'Acme is hiring and Acme is growing.',
+    )
+    // Separate sentences may each name it once.
+    expect(dropRepeatedCompanyMentions('Hello Acme. Worth a look for Acme?', 'Acme')).toBe(
+      'Hello Acme. Worth a look for Acme?',
+    )
   })
 })

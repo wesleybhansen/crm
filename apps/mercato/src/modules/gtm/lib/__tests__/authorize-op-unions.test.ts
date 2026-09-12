@@ -57,7 +57,7 @@ const TABLES: Table[] = [
     name: 'campaigns',
     schema: validators.gtmCampaignsBodySchema,
     resolve: campaignFeatureForOp,
-    readOps: ['list', 'analytics', 'draft-state', 'list-senders', 'status'],
+    readOps: ['list', 'analytics', 'draft-state', 'draft-sample', 'list-senders', 'status'],
     elevated: { approve: 'gtm.approve' },
   },
   {
@@ -130,7 +130,7 @@ const TABLES: Table[] = [
     name: 'research-runs',
     schema: validators.gtmResearchRunsBodySchema,
     resolve: researchFeatureForOp,
-    readOps: ['list', 'plan', 'status'],
+    readOps: ['list', 'plan', 'status', 'summary'],
     elevated: { execute: 'gtm.launch', 'retention-sweep': 'gtm.launch' },
   },
   {

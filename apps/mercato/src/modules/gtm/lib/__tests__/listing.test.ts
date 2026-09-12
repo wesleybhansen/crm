@@ -3,6 +3,7 @@ import { ORG, OTHER_ORG, TENANT, WORKSPACE, seedCandidate, seedPlay, seedRun } f
 import {
   GTM_LIST_CAP,
   candidateEnrichment,
+  countCampaigns,
   listCampaigns,
   listResearchRuns,
 } from '../listing'
@@ -117,6 +118,25 @@ describe('listCampaigns', () => {
     const times = rows.map((row) => row.createdAt.getTime())
     expect(times).toEqual([...times].sort((a, b) => b - a))
     expect(Math.min(...times)).toBe(Date.UTC(2026, 0, 1, 0, 5))
+  })
+})
+
+describe('countCampaigns', () => {
+  it('counts past the page cap, with the same scoping and filters as the list', async () => {
+    const em = new FakeEm()
+    for (let i = 0; i < GTM_LIST_CAP + 5; i += 1) {
+      seedCampaign(em, { createdAt: new Date(Date.UTC(2026, 0, 1, 0, i)) })
+    }
+    seedCampaign(em, { workspaceId: OTHER_WORKSPACE })
+    seedCampaign(em, { organizationId: OTHER_ORG, name: 'Foreign campaign' })
+    seedCampaign(em, { deletedAt: new Date(), name: 'Deleted campaign' })
+    await em.flush()
+
+    // The page is capped; the count is the truth behind it.
+    expect(await listCampaigns(em, ctx)).toHaveLength(GTM_LIST_CAP)
+    expect(await countCampaigns(em, ctx)).toBe(GTM_LIST_CAP + 6)
+    expect(await countCampaigns(em, ctx, { workspaceId: WORKSPACE })).toBe(GTM_LIST_CAP + 5)
+    expect(await countCampaigns(em, ctx, { workspaceId: OTHER_WORKSPACE })).toBe(1)
   })
 })
 

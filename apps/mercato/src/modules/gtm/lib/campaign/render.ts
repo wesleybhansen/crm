@@ -27,6 +27,17 @@ import { GtmCampaign, GtmCandidate, GtmEvidence, GtmPlay } from '../../data/enti
  * A missing field renders the honest review token [[missing:field]] and
  * flags the row needs_review; a fact is NEVER invented to fill a hole.
  *
+ * Copy rules applied at merge time (a value is a FACT, the sentence around it
+ * is the template's):
+ *   - the recipient is addressed as "you" after the greeting: an evidence
+ *     claim that names the person in the third person is rewritten
+ *     (toSecondPerson), so no draft reads "Hi Kayla," then "Kayla Kurtz is
+ *     listed as VP of Sales at Acme."
+ *   - the template owns the sentence's full stop: a value that already ends
+ *     one has it trimmed, so ".." can never render
+ *   - the same company is never named twice in one sentence
+ *     (dropRepeatedCompanyMentions)
+ *
  * Injection safety: candidate- and evidence-sourced text is DATA. Every
  * merge value is sanitized by stripping curly braces before substitution, so
  * a candidate whose name or evidence contains "{{evil}}" (or any template-
@@ -132,9 +143,144 @@ export function messagesAreMateriallyDistinct(left: string, right: string): bool
 
 // Candidate-sourced text is data, never template: strip anything that could
 // read as a merge token and collapse whitespace.
+//
+// Punctuation is deliberately NOT touched here: whether a value's own full
+// stop is wanted depends on the slot it lands in, which only the substitution
+// step knows. That decision lives in substitute() below, via
+// trimTrailingSentencePunctuation().
 export function sanitizeMergeValue(value: unknown): string {
   if (typeof value !== 'string') return ''
   return value.replace(/[{}]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// The template supplies the full stop right after the token, as in
+// 'I noticed {{signal}}.'
+const TEMPLATE_ENDS_SENTENCE = /^[ \t]*[.!?]/
+// The token sits at the start of a sentence in the template.
+const TEMPLATE_STARTS_SENTENCE = /(?:^|[.!?\n])[ \t]*$/
+
+/*
+ * A merge value that already ends its own sentence (evidence claims usually
+ * do: "... at Forthea Digital Marketing Agency.") renders a double period
+ * when the template ends the sentence too. The template owns the sentence, so
+ * the value's own terminal punctuation is dropped.
+ */
+export function trimTrailingSentencePunctuation(value: string): string {
+  return value.replace(/[ \t]*[.!?]+$/, '')
+}
+
+/*
+ * Belt-and-braces: no rendered message ever ships a doubled full stop,
+ * whichever path produced the copy. A real ellipsis is left alone.
+ */
+const ELLIPSIS_PLACEHOLDER = '\uE000gtm-ellipsis\uE000'
+export function collapseDoubledSentencePunctuation(value: string): string {
+  return value
+    .replace(/\.{3,}/g, ELLIPSIS_PLACEHOLDER)
+    .replace(/([.!?])[ \t]*\.(?!\.)/g, '$1')
+    .split(ELLIPSIS_PLACEHOLDER)
+    .join('...')
+}
+
+// "is"/"was"/"has" agree with a third-person subject; once that subject
+// becomes "you" the verb has to follow, or the sentence reads broken.
+const SECOND_PERSON_VERBS: Record<string, string> = {
+  is: 'are',
+  was: 'were',
+  has: 'have',
+  does: 'do',
+  isnt: "aren't",
+  wasnt: "weren't",
+  hasnt: "haven't",
+  doesnt: "don't",
+}
+
+/*
+ * The email speaks TO the recipient. Evidence claims are written ABOUT them
+ * ("Kayla Kurtz is currently listed as Vice President, Sales at Forthea"), so
+ * merging one raw produces a dossier line right under "Hi Kayla," (defect
+ * D17). The person's own name is rewritten to "you"/"your" and the following
+ * verb is agreed. Only a multi-token name is rewritten - a single common
+ * first name is too easy to hit by accident - and company names are never
+ * rewritten, because the email still names the company.
+ */
+export function toSecondPerson(value: string, personName: string): string {
+  const name = personName.trim()
+  if (!value || name.split(/\s+/).filter(Boolean).length < 2) return value
+  const pattern = new RegExp(`\\b${escapeRegExp(name)}(?:'s|’s)?\\b`, 'gi')
+  let rewritten = value.replace(pattern, (match) => (/['’]s$/.test(match) ? 'your' : 'you'))
+  if (rewritten === value) return value
+  rewritten = rewritten.replace(
+    /\b(you)(\s+)(is|was|has|does|isn['’]t|wasn['’]t|hasn['’]t|doesn['’]t)\b/gi,
+    (_match, pronoun: string, gap: string, verb: string) => {
+      const key = verb.toLowerCase().replace(/['’]/g, '')
+      return `${pronoun}${gap}${SECOND_PERSON_VERBS[key] ?? verb}`
+    },
+  )
+  // A pronoun that starts a sentence inside the value keeps its capital; the
+  // value's own first character is handled at substitution time, where the
+  // template position is known.
+  return rewritten.replace(
+    /([.!?]\s+)(you|your)\b/g,
+    (_match, lead: string, word: string) => `${lead}${word.charAt(0).toUpperCase()}${word.slice(1)}`,
+  )
+}
+
+function splitSentences(text: string): string[] {
+  const parts: string[] = []
+  let current = ''
+  for (const char of text) {
+    current += char
+    if (char === '.' || char === '!' || char === '?' || char === '\n') {
+      parts.push(current)
+      current = ''
+    }
+  }
+  if (current) parts.push(current)
+  return parts
+}
+
+const COMPANY_CONNECTORS = 'at|for|with|to|from|like|of|in'
+
+/*
+ * Naming the same company twice in one sentence reads like a mail merge
+ * ("... at Forthea? Happy to show how teams like Forthea use it."). Only a
+ * trailing connector phrase (" at <Company>") is dropped, and only when the
+ * sentence already named the company earlier: a mention that carries the
+ * sentence's grammar is never cut.
+ */
+export function dropRepeatedCompanyMentions(text: string, company: string): string {
+  const name = company.trim()
+  if (!text || name.length < 2) return text
+  const mention = new RegExp(`\\b${escapeRegExp(name)}\\b`, 'gi')
+  const phrase = new RegExp(`[ \\t]+(?:${COMPANY_CONNECTORS})[ \\t]+${escapeRegExp(name)}\\b`, 'gi')
+  return splitSentences(text)
+    .map((sentence) => {
+      let current = sentence
+      for (let pass = 0; pass < 4; pass += 1) {
+        mention.lastIndex = 0
+        const mentions = current.match(mention) ?? []
+        if (mentions.length < 2) break
+        phrase.lastIndex = 0
+        const matches: { index: number; length: number }[] = []
+        let found = phrase.exec(current)
+        while (found) {
+          matches.push({ index: found.index, length: found[0].length })
+          found = phrase.exec(current)
+        }
+        const firstMention = current.search(mention)
+        const droppable = matches.filter((match) => match.index > firstMention)
+        if (droppable.length === 0) break
+        const last = droppable[droppable.length - 1]
+        current = current.slice(0, last.index) + current.slice(last.index + last.length)
+      }
+      return current
+    })
+    .join('')
 }
 
 function escapeHtml(value: string): string {
@@ -148,20 +294,58 @@ function escapeHtml(value: string): string {
 
 type MergeValues = Partial<Record<MergeField, string>>
 
+/*
+ * The one place merge values are built from a candidate. renderMessages() and
+ * the hub's draft-sample span locator (lib/campaign/draft-sample.ts) both call
+ * it, so the values the preview highlights are byte-for-byte the values the
+ * renderer inserted.
+ */
+export function buildMergeValues(input: {
+  entityKind: string
+  identity: Record<string, unknown> | null | undefined
+  claim: string | null
+  whyNow: string
+}): Record<MergeField, string> {
+  const identity = (input.identity ?? {}) as Record<string, unknown>
+  const name = sanitizeMergeValue(identity.name)
+  const claim = sanitizeMergeValue(input.claim ?? null)
+  return {
+    first_name: input.entityKind === 'person' ? name.split(' ')[0] || '' : '',
+    company:
+      sanitizeMergeValue(identity.company) || (input.entityKind === 'company' ? name : ''),
+    // Greeting aside, the copy talks to the recipient, not about them.
+    signal: input.entityKind === 'person' ? toSecondPerson(claim, name) : claim,
+    why_now: input.whyNow,
+  }
+}
+
 function substitute(
   template: string,
   values: MergeValues,
   missing: Set<string>,
   transform: (value: string) => string,
 ): string {
-  return template.replace(MERGE_TOKEN, (_match, field: MergeField) => {
-    const value = values[field]
-    if (!value) {
-      missing.add(field)
-      return `[[missing:${field}]]`
-    }
-    return transform(value)
-  })
+  return template.replace(
+    MERGE_TOKEN,
+    (match: string, field: MergeField, offset: number, whole: string) => {
+      const value = values[field]
+      if (!value) {
+        missing.add(field)
+        return `[[missing:${field}]]`
+      }
+      const before = whole.slice(0, offset)
+      const after = whole.slice(offset + match.length)
+      let merged = value
+      // The template ends the sentence itself, so the value must not.
+      if (TEMPLATE_ENDS_SENTENCE.test(after)) merged = trimTrailingSentencePunctuation(merged)
+      // A second-person rewrite that lands at the start of a sentence needs
+      // the capital the claim's own subject used to carry.
+      if (TEMPLATE_STARTS_SENTENCE.test(before) && /^(?:you|your)\b/.test(merged)) {
+        merged = merged.charAt(0).toUpperCase() + merged.slice(1)
+      }
+      return transform(merged)
+    },
+  )
 }
 
 // Append the standardized CAN-SPAM footer (sending org's postal address +
@@ -220,14 +404,19 @@ export function renderForCandidate(
 ): RenderedPreview {
   const missing = new Set<string>()
   const identity = (value: string) => value
-  const subject = substitute(template.subject, values, missing, identity)
-  const bodyText = substitute(template.body, values, missing, identity)
+  const company = values.company ?? ''
+  // Post-merge copy rules, applied identically to text and HTML (the HTML
+  // pass sees the escaped company name, so both drop the same phrase).
+  const tidy = (value: string, companyName: string) =>
+    collapseDoubledSentencePunctuation(dropRepeatedCompanyMentions(value, companyName))
+  const subject = tidy(substitute(template.subject, values, missing, identity), company)
+  const bodyText = tidy(substitute(template.body, values, missing, identity), company)
   // Escape the template body first (braces survive escaping), substitute
   // HTML-escaped values, then turn newlines into breaks.
-  const bodyHtml = substitute(escapeHtml(template.body), values, missing, escapeHtml).replace(
-    /\n/g,
-    '<br/>',
-  )
+  const bodyHtml = tidy(
+    substitute(escapeHtml(template.body), values, missing, escapeHtml),
+    escapeHtml(company),
+  ).replace(/\n/g, '<br/>')
   return finalizeRender(candidateId, step, subject, bodyText, bodyHtml, postalAddress, missing, 'template')
 }
 
@@ -242,8 +431,8 @@ export function renderAiDraftForCandidate(
   step: Pick<StepSpec, 'key' | 'order'> = { key: 'email_1', order: 1 },
 ): RenderedPreview {
   const missing = new Set<string>()
-  const subject = draft.subject.replace(/[{}]/g, '')
-  const bodyTextCore = draft.body_text.replace(/[{}]/g, '')
+  const subject = collapseDoubledSentencePunctuation(draft.subject.replace(/[{}]/g, ''))
+  const bodyTextCore = collapseDoubledSentencePunctuation(draft.body_text.replace(/[{}]/g, ''))
   const bodyHtmlCore = escapeHtml(bodyTextCore).replace(/\n/g, '<br/>')
   return finalizeRender(candidateId, step, subject, bodyTextCore, bodyHtmlCore, postalAddress, missing, 'ai')
 }
@@ -255,8 +444,8 @@ export function renderManualOverrideForCandidate(
   step: Pick<StepSpec, 'key' | 'order'> = { key: 'email_1', order: 1 },
 ): RenderedPreview {
   const missing = new Set<string>()
-  const subject = override.subject.replace(/[{}]/g, '')
-  const bodyTextCore = override.body_text.replace(/[{}]/g, '')
+  const subject = collapseDoubledSentencePunctuation(override.subject.replace(/[{}]/g, ''))
+  const bodyTextCore = collapseDoubledSentencePunctuation(override.body_text.replace(/[{}]/g, ''))
   const bodyHtmlCore = escapeHtml(bodyTextCore).replace(/\n/g, '<br/>')
   return finalizeRender(candidateId, step, subject, bodyTextCore, bodyHtmlCore, postalAddress, missing, 'manual')
 }
@@ -320,16 +509,12 @@ export async function renderMessages(
     .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
   const rendered: RenderedPreview[] = []
   for (const candidate of candidates) {
-    const identity = (candidate.identity ?? {}) as Record<string, unknown>
-    const name = sanitizeMergeValue(identity.name)
-    const values: MergeValues = {
-      first_name: candidate.entityKind === 'person' ? name.split(' ')[0] || '' : '',
-      company:
-        sanitizeMergeValue(identity.company) ||
-        (candidate.entityKind === 'company' ? name : ''),
-      signal: sanitizeMergeValue(topClaim.get(candidate.id)?.claim ?? null),
-      why_now: whyNow,
-    }
+    const values: MergeValues = buildMergeValues({
+      entityKind: candidate.entityKind,
+      identity: candidate.identity as Record<string, unknown> | null | undefined,
+      claim: topClaim.get(candidate.id)?.claim ?? null,
+      whyNow,
+    })
     const candidateRows = emailSteps.map((step) => {
       const manualOverride = manualOverrides[candidate.id]?.[step.key]
       if (manualOverride) {

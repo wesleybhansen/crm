@@ -35,7 +35,9 @@ import { GtmAiMeteringError } from '../../../lib/ai/telemetry'
  * Ops (body.op):
  * - 'list'            workspace-wide campaign summaries (optionally filtered
  *                     by workspaceId), org+tenant self-scoped, soft-deleted
- *                     excluded, capped at 50, newest first (lib/listing.ts)
+ *                     excluded, capped at 50, newest first (lib/listing.ts).
+ *                     Carries `total` (exact COUNT over the same filters) and
+ *                     `capped`, so the cap is never read as a count
  * - 'analytics'       count-only current-version outcomes for one workspace;
  *                     provider acceptance is not reported as delivery
  * - 'create'          drafts a campaign on an EXECUTABLE play (section 7
@@ -220,12 +222,13 @@ export async function POST(req: Request) {
     if (body.op === 'list') {
       // Opaque 404 for a malformed workspace filter, same as a missing row.
       if (body.workspaceId != null && !isUuid(body.workspaceId)) return opaqueNotFound()
-      const { listCampaigns, GTM_LIST_CAP } = await import('../../../lib/listing')
-      const campaigns = await listCampaigns(
-        em as unknown as import('../../../lib/listing').ListEm,
-        ctx,
-        { workspaceId: body.workspaceId ?? null },
-      )
+      const { listCampaigns, countCampaigns, GTM_LIST_CAP } = await import('../../../lib/listing')
+      const listEm = em as unknown as import('../../../lib/listing').ListEm
+      const filters = { workspaceId: body.workspaceId ?? null }
+      const [campaigns, total] = await Promise.all([
+        listCampaigns(listEm, ctx, filters),
+        countCampaigns(listEm, ctx, filters),
+      ])
       return NextResponse.json({
         ok: true,
         campaigns: campaigns.map((campaign) => ({
@@ -236,6 +239,10 @@ export async function POST(req: Request) {
           created_at: campaign.createdAt,
           play_id: campaign.playId,
         })),
+        // Campaigns matching these filters, not the number returned: the page
+        // is capped at GTM_LIST_CAP, so `campaigns.length` is never a count.
+        total,
+        capped: total > campaigns.length,
         cap: GTM_LIST_CAP,
       })
     }

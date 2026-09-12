@@ -22,6 +22,7 @@ export interface ListEm {
     where: Record<string, unknown>,
     options?: { orderBy?: Record<string, 'asc' | 'desc'>; limit?: number },
   ): Promise<T[]>
+  count<T extends object>(entityClass: new () => T, where: Record<string, unknown>): Promise<number>
 }
 
 // Identity resolved server-side at the route boundary; never caller-supplied.
@@ -39,6 +40,22 @@ export async function listCampaigns(
   const where = scopedWhere(ctx)
   if (filters.workspaceId) where.workspaceId = filters.workspaceId
   return em.find(GtmCampaign, where, { orderBy: { createdAt: 'desc' }, limit: GTM_LIST_CAP })
+}
+
+/*
+ * How many campaigns the SAME filters match, so a caller can show an honest
+ * count next to a capped page instead of rendering the cap as the count.
+ * One indexed COUNT over an org/tenant-scoped table: cheap, and cheap for any
+ * campaign volume a workspace will plausibly reach.
+ */
+export async function countCampaigns(
+  em: ListEm,
+  ctx: ListCtx,
+  filters: { workspaceId?: string | null } = {},
+): Promise<number> {
+  const where = scopedWhere(ctx)
+  if (filters.workspaceId) where.workspaceId = filters.workspaceId
+  return em.count(GtmCampaign, where)
 }
 
 export async function listResearchRuns(

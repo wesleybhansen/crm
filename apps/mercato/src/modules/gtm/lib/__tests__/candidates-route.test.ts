@@ -164,6 +164,38 @@ describe('POST /internal/gtm/candidates', () => {
     })
   })
 
+  // Walkthrough defect D2: the hub rendered the page length ("100
+  // opportunities waiting on you"), which is the cap, not a count.
+  it('reports an honest total and whether the page was capped', async () => {
+    const { POST } = await import('../../api/internal/candidates/route')
+    const { run } = await seedPlayCandidate('automated_email')
+
+    const list = await readJson(
+      await POST(internalRequest({ op: 'list', noliUserId: HARNESS_NOLI_USER, runId: run.id })),
+    )
+    expect((list.candidates as unknown[]).length).toBe(1)
+    expect(list.total).toBe(1)
+    expect(list.capped).toBe(false)
+    expect(list.cap).toBe(100)
+
+    // The total follows the list's own fitStatus filter, not the run total.
+    const filtered = await readJson(
+      await POST(
+        internalRequest({
+          op: 'list',
+          noliUserId: HARNESS_NOLI_USER,
+          runId: run.id,
+          fitStatus: 'review',
+        }),
+      ),
+    )
+    expect(filtered.candidates).toHaveLength(0)
+    expect(filtered.total).toBe(0)
+    expect(filtered.capped).toBe(false)
+    // The workspace-wide summary is unchanged and still counts the accepted row.
+    expect((filtered.summary as Record<string, unknown>).total).toBe(1)
+  })
+
   it('takes the export idempotency key from the header, never from the body (L5)', async () => {
     const { POST } = await import('../../api/internal/candidates/route')
     const { play } = await seedPlayCandidate('automated_email')
