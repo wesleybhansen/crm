@@ -139,6 +139,7 @@ describe('Scout provider fallback routing', () => {
       tokensOut: 5,
       feature: 'scout-assistant',
       byoKey: true,
+      metadata: { scout_usage_observation: expect.objectContaining({ provider: 'openai', scope: 'final_response_only', workflowCoverage: 'incomplete' }) },
     })
   })
 
@@ -160,6 +161,7 @@ describe('Scout provider fallback routing', () => {
       tokensOut: 5,
       feature: 'scout-assistant',
       byoKey: false,
+      metadata: { scout_usage_observation: expect.objectContaining({ provider: 'openai', scope: 'final_response_only', workflowCoverage: 'incomplete' }) },
     })
   })
 })

@@ -16,6 +16,23 @@ import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { renderToolCatalogForPrompt } from '@/modules/customers/lib/crm-tool-catalog'
+import { observeScoutUsage, type ScoutUsageObservation } from '@/modules/customers/lib/scout-usage-observation'
+
+export const openApi = {
+  tag: 'Customers',
+  summary: 'Ask the Scout assistant',
+  methods: {
+    POST: { summary: 'Generate a Scout message using the existing allowance-gated provider fallback' },
+  },
+}
+
+type AssistantResult = {
+  text: string
+  model: string
+  tokensIn: number
+  tokensOut: number
+  usageObservation: ScoutUsageObservation
+}
 
 // Decrypt display_name + primary_email on a list of customer_entities rows.
 // Raw knex reads ciphertext when tenant encryption is on; without this the
@@ -681,7 +698,7 @@ export async function POST(req: Request, ctx?: any) {
     // Gemini first (preferred for cost), then OpenAI fallback if Gemini is
     // rate-limited, keyless, or otherwise unreachable. Either provider returns
     // {text, model, tokensIn, tokensOut} or throws a classified error.
-    let result: { text: string; model: string; tokensIn: number; tokensOut: number } | null = null
+    let result: AssistantResult | null = null
     let provider: 'gemini' | 'openai' | null = null
     let servedWithByoKey = false
     let lastError: { provider: string; message: string } | null = null
@@ -735,6 +752,7 @@ export async function POST(req: Request, ctx?: any) {
           tokensOut: result.tokensOut,
           feature: 'scout-assistant',
           byoKey: servedWithByoKey,
+          metadata: { scout_usage_observation: result.usageObservation },
         })
       } catch {}
       return NextResponse.json({ ok: true, message: result.text, provider })
@@ -756,7 +774,7 @@ export async function POST(req: Request, ctx?: any) {
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 
-async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<{ text: string; model: string; tokensIn: number; tokensOut: number }> {
+async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<AssistantResult> {
   const model = process.env.AI_MODEL || 'gemini-3.5-flash'
   const contents = msgs.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
@@ -800,10 +818,10 @@ async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessag
   }
   const tokensIn = Number(data?.usageMetadata?.promptTokenCount) || 0
   const tokensOut = Number(data?.usageMetadata?.candidatesTokenCount) || 0
-  return { text, model, tokensIn, tokensOut }
+  return { text, model, tokensIn, tokensOut, usageObservation: observeScoutUsage('gemini', data?.usageMetadata) }
 }
 
-async function callOpenAI(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<{ text: string; model: string; tokensIn: number; tokensOut: number }> {
+async function callOpenAI(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<AssistantResult> {
   const model = process.env.OPENAI_FALLBACK_MODEL || 'gpt-4o-mini'
   const openaiMessages = [
     { role: 'system', content: systemPrompt },
@@ -839,5 +857,5 @@ async function callOpenAI(apiKey: string, systemPrompt: string, msgs: ChatMessag
   if (!text) throw new Error('Empty OpenAI response')
   const tokensIn = Number(data?.usage?.prompt_tokens) || 0
   const tokensOut = Number(data?.usage?.completion_tokens) || 0
-  return { text, model, tokensIn, tokensOut }
+  return { text, model, tokensIn, tokensOut, usageObservation: observeScoutUsage('openai', data?.usage) }
 }
