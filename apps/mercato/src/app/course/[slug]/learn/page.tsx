@@ -231,6 +231,7 @@ export default function StudentCoursePage() {
                 </div>
                 <h2 style={{ fontSize: '22px', fontWeight: 700, marginBottom: '8px', color: '#1a1a2e' }}>Check your email</h2>
                 <p style={{ color: '#64748b', fontSize: '15px', lineHeight: 1.6 }}>We sent an access link to <strong style={{ color: '#374151' }}>{loginEmail}</strong>. Click the link to access your course.</p>
+                <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '16px', lineHeight: 1.5 }}>Links are valid for 7 days. If yours has expired, come back here and request a new one.</p>
               </>
             ) : (
               <>

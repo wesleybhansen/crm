@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
+import { magicLinkExpiresAt } from '@/modules/courses/lib/magic-tokens'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
       organization_id: course.organization_id,
       email: studentEmail.trim().toLowerCase(),
       token: magicToken,
-      expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // perpetual
+      expires_at: magicLinkExpiresAt(),
       created_at: new Date(),
     })
 

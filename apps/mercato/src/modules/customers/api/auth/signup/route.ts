@@ -7,14 +7,13 @@ import { AuthService } from '@open-mercato/core/modules/auth/services/authServic
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
-
-const BETA_WHITELIST = ['wesley.b.hansen@gmail.com', 'weshansen123@yahoo.com']
+import { isSignupInvited, normalizeSignupEmail, SIGNUP_INVITE_ONLY_MESSAGE } from '@/modules/customers/lib/signup-gate'
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const name = String(body?.name || '').trim()
-    const email = String(body?.email || '').trim().toLowerCase()
+    const email = normalizeSignupEmail(body?.email)
     const password = String(body?.password || '')
 
     if (!name || !email || !password) {
@@ -26,11 +25,9 @@ export async function POST(req: NextRequest) {
     if (password.length < 8) {
       return NextResponse.json({ ok: false, error: 'Password must be at least 8 characters' }, { status: 400 })
     }
-    if (!BETA_WHITELIST.includes(email)) {
-      return NextResponse.json({
-        ok: false,
-        error: 'Signups are currently invite-only. Contact us for access.',
-      }, { status: 403 })
+    // Invite gate. Shared with the Google OAuth path (see lib/signup-gate.ts).
+    if (!isSignupInvited(email)) {
+      return NextResponse.json({ ok: false, error: SIGNUP_INVITE_ONLY_MESSAGE }, { status: 403 })
     }
 
     const container = await createRequestContainer()

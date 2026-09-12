@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import crypto from 'crypto'
+import { magicLinkExpiresAt, magicLinkTtlLabel } from '@/modules/courses/lib/magic-tokens'
 
 export async function POST(req: Request) {
   try {
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
 
     // Generate token
     const token = crypto.randomBytes(32).toString('hex')
-    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // 1 year (effectively perpetual)
+    const expiresAt = magicLinkExpiresAt()
 
     await knex('course_magic_tokens').insert({
       id: crypto.randomUUID(),
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
               <h2 style="margin:0 0 8px;font-size:20px">Access Your Courses</h2>
               <p style="color:#64748b;font-size:14px;line-height:1.6;margin-bottom:24px">Click the button below to log in and access your enrolled courses.</p>
               <a href="${magicLink}" style="display:inline-block;background:#6366f1;color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Open My Courses</a>
-              <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you didn't request this, you can safely ignore this email.</p>
+              <p style="color:#94a3b8;font-size:12px;margin-top:24px">This link is valid for ${magicLinkTtlLabel()}. You can request a new one anytime. If you didn't request this, you can safely ignore this email.</p>
             </div>`,
         })
       } catch (err) {

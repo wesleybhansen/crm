@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOrMergeContact } from '@/modules/customers/lib/dedup'
+import { magicLinkExpiresAt, magicLinkTtlLabel } from '@/modules/courses/lib/magic-tokens'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['courses.view'] },
@@ -169,7 +170,7 @@ export async function POST(req: Request) {
         organization_id: course.organization_id,
         email: studentEmail.toLowerCase(),
         token,
-        expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // perpetual
+        expires_at: magicLinkExpiresAt(),
         created_at: new Date(),
       })
       const magicLink = `${origin}/api/courses/student/verify?token=${token}`
@@ -178,7 +179,7 @@ export async function POST(req: Request) {
         <h2 style="margin:0 0 8px;font-size:20px">You're enrolled!</h2>
         <p style="color:#64748b;font-size:14px;line-height:1.6;margin-bottom:20px">Welcome to <strong>${course.title}</strong>. Click below to start learning.</p>
         <a href="${magicLink}" style="display:inline-block;background:#6366f1;color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Start Course</a>
-        <p style="color:#94a3b8;font-size:12px;margin-top:24px">This link expires in 24 hours. You can request a new one anytime.</p>
+        <p style="color:#94a3b8;font-size:12px;margin-top:24px">This link is valid for ${magicLinkTtlLabel()}. You can request a new one anytime.</p>
       </div>`
 
       const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')

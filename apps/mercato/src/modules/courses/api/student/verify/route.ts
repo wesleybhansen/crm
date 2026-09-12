@@ -4,6 +4,16 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
+import { checkMagicToken, magicLinkTtlLabel, type MagicTokenRow } from '@/modules/courses/lib/magic-tokens'
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 
 export async function GET(req: Request) {
   try {
@@ -16,14 +26,23 @@ export async function GET(req: Request) {
       return new NextResponse('Invalid link', { status: 400, headers: { 'Content-Type': 'text/html' } })
     }
 
-    // Look up token — tokens are reusable and don't expire
-    const magicToken = await knex('course_magic_tokens')
+    const magicToken = (await knex('course_magic_tokens')
       .where('token', token)
-      .first()
+      .first()) as MagicTokenRow | undefined
 
-    if (!magicToken) {
-      const email = ''
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Link Expired</title>
+    // Expiry (default 7 days) + bounded use, see lib/magic-tokens.ts
+    const check = magicToken ? checkMagicToken(magicToken) : null
+
+    if (!magicToken || !check || !check.ok) {
+      const reason = check && !check.ok ? check.reason : 'invalid'
+      const email = magicToken ? escapeHtml(magicToken.email) : ''
+      const ttl = magicLinkTtlLabel()
+      const copy = reason === 'expired'
+        ? { title: 'Link expired', body: `This access link has expired. Links are valid for ${ttl} after they are sent. Enter your email below to get a new one instantly.` }
+        : reason === 'used'
+          ? { title: 'Link already used', body: 'This access link has already been used and cannot be opened again. Enter your email below to get a new one instantly.' }
+          : { title: 'Invalid link', body: 'This access link is no longer valid. Enter your email below to get a new one instantly.' }
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${copy.title}</title>
 <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(160deg,#f8faff,#f1f5f9,#faf5ff);padding:24px}
 .card{background:#fff;border-radius:20px;box-shadow:0 1px 2px rgba(0,0,0,.03),0 8px 32px rgba(0,0,0,.06);max-width:420px;width:100%;padding:48px 40px;text-align:center}
 .icon{width:56px;height:56px;background:#fef2f2;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
@@ -38,8 +57,8 @@ button:disabled{opacity:0.6;cursor:not-allowed}
 .sub{color:#94a3b8;font-size:13px;margin-top:16px}</style></head>
 <body><div class="card">
 <div class="icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>
-<h1>Invalid link</h1>
-<p>This access link is no longer valid. Enter your email below to get a new one instantly.</p>
+<h1>${copy.title}</h1>
+<p>${copy.body}</p>
 <div id="form">
 <input type="email" id="email" placeholder="your@email.com" value="${email}">
 <button onclick="resend()" id="btn">Send New Link</button>
@@ -54,8 +73,10 @@ document.getElementById('email').addEventListener('keydown',function(e){if(e.key
       return new NextResponse(html, { status: 400, headers: { 'Content-Type': 'text/html' } })
     }
 
-    // Update last used timestamp (tokens are reusable)
-    await knex('course_magic_tokens').where('id', magicToken.id).update({ used_at: new Date() })
+    // Stamp first use; later clicks inside the grace window keep the original stamp so the window cannot be extended.
+    if (check.firstUse) {
+      await knex('course_magic_tokens').where('id', magicToken.id).whereNull('used_at').update({ used_at: new Date() })
+    }
 
     // Create session
     const sessionToken = crypto.randomBytes(32).toString('hex')

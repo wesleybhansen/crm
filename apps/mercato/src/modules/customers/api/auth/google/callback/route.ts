@@ -8,6 +8,7 @@ import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-ap
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { isSignupInvited, normalizeSignupEmail, SIGNUP_INVITE_ONLY_MESSAGE } from '@/modules/customers/lib/signup-gate'
 
 type GoogleIdPayload = {
   sub: string
@@ -97,7 +98,7 @@ export async function GET(req: NextRequest) {
   }
   if (payload.email_verified === false) return errorRedirect(base, 'Google account email is not verified')
 
-  const email = payload.email.toLowerCase().trim()
+  const email = normalizeSignupEmail(payload.email)
   const googleSub = payload.sub
   const name = payload.name?.trim() || [payload.given_name, payload.family_name].filter(Boolean).join(' ') || email
 
@@ -119,6 +120,12 @@ export async function GET(req: NextRequest) {
   }
 
   if (!user) {
+    // Brand-new identity: apply the same invite gate as email/password sign-up.
+    // Without this, any verified Google account could mint itself an admin workspace.
+    if (!isSignupInvited(email)) {
+      return errorRedirect(base, SIGNUP_INVITE_ONLY_MESSAGE)
+    }
+
     const nameParts = name.split(/\s+/)
     const firstName = nameParts[0]
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : undefined
