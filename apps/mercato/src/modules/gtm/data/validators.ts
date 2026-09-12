@@ -156,6 +156,16 @@ export const gtmResearchRunsBodySchema = z.discriminatedUnion('op', [
     noliUserId: idString,
     runId: idString,
   }),
+  // Read-only run summary for the hub (lib/research/summary.ts). Exactly one
+  // of runId | playId is required; playId means that play's most recent run.
+  // The route enforces the at-least-one rule (discriminated-union members
+  // cannot carry a refinement).
+  z.object({
+    op: z.literal('summary'),
+    noliUserId: idString,
+    runId: idString.optional(),
+    playId: idString.optional(),
+  }),
   z.object({
     op: z.literal('requalify'),
     noliUserId: idString,
@@ -380,6 +390,15 @@ export const gtmCampaignsBodySchema = z.discriminatedUnion('op', [
     op: z.literal('draft-state'),
     noliUserId: idString,
     campaignId: idString,
+  }),
+  // One example recipient's rendered sequence with merge-field spans
+  // (lib/campaign/draft-sample.ts). enrollmentId picks a specific frozen
+  // enrollment; absent = first enrollment with a rendered message.
+  z.object({
+    op: z.literal('draft-sample'),
+    noliUserId: idString,
+    campaignId: idString,
+    enrollmentId: idString.optional(),
   }),
   z.object({
     op: z.literal('list-senders'),

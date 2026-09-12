@@ -20,14 +20,14 @@ type GtmContainer = {
   resolve(name: string): unknown
 }
 
-const CAMPAIGN_READ_OPS = new Set(['list', 'analytics', 'draft-state', 'list-senders', 'status'])
+const CAMPAIGN_READ_OPS = new Set(['list', 'analytics', 'draft-state', 'draft-sample', 'list-senders', 'status'])
 const CANDIDATE_READ_OPS = new Set(['list', 'detail'])
 const CHAT_READ_OPS = new Set(['thread-list', 'messages'])
 const ENRICHMENT_READ_OPS = new Set(['plan', 'status'])
 const DECISION_MAKER_READ_OPS = new Set(['plan', 'status'])
 const INBOX_READ_OPS = new Set(['list', 'thread'])
 const HANDOFF_READ_OPS = new Set(['assets-list', 'asset-status'])
-const RESEARCH_READ_OPS = new Set(['list', 'plan', 'status'])
+const RESEARCH_READ_OPS = new Set(['list', 'plan', 'status', 'summary'])
 const STRATEGY_READ_OPS = new Set(['icp-list', 'icp-get', 'voice-list', 'voice-get'])
 const TASK_READ_OPS = new Set(['list', 'timeline'])
 const PRIVACY_READ_OPS = new Set(['status', 'list-partial'])

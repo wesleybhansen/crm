@@ -58,6 +58,9 @@ export class GtmCampaignError extends Error {
       | 'candidate_not_found'
       | 'message_not_found'
       | 'workspace_not_found'
+      // draft-sample: enrollment missing/foreign (opaque 404) or nothing rendered yet (422)
+      | 'enrollment_not_found'
+      | 'sample_unavailable'
       | 'postal_address_required'
       | 'sender_changed'
       | 'message_review_required'

@@ -43,6 +43,11 @@ import { GtmAiMeteringError } from '../../../lib/ai/telemetry'
  * - 'draft-state'     recipients + rendered previews + exclusions +
  *                     projected credits + the draft content_hash the
  *                     reviewer must echo back on approve
+ * - 'draft-sample'    one example recipient's rendered sequence for the
+ *                     current version (frozen rows when approved, the
+ *                     read-only draft render otherwise) with merge-field
+ *                     spans and plain-English wait rules
+ *                     (lib/campaign/draft-sample.ts)
  * - 'list-senders'    active personal mailbox metadata for the represented
  *                     user; credentials never leave the CRM
  * - 'update-sequence' edits the canonical draft step plan after an exact
@@ -151,7 +156,8 @@ function errorResponse(err: GtmCampaignError) {
     err.code === 'play_not_found' ||
     err.code === 'candidate_not_found' ||
     err.code === 'message_not_found' ||
-    err.code === 'workspace_not_found'
+    err.code === 'workspace_not_found' ||
+    err.code === 'enrollment_not_found'
   ) {
     return opaqueNotFound()
   }
@@ -292,6 +298,17 @@ export async function POST(req: Request) {
         campaign: campaignShape(campaign),
         draft: shapeCampaignDraft(draft),
       })
+    }
+
+    if (body.op === 'draft-sample') {
+      // Opaque 404 for a malformed enrollment id, same as a foreign row.
+      if (body.enrollmentId != null && !isUuid(body.enrollmentId)) return opaqueNotFound()
+      const { getCampaignDraftSample } = await import('../../../lib/campaign/draft-sample')
+      const sample = await getCampaignDraftSample(em, ctx, {
+        campaignId: body.campaignId,
+        enrollmentId: body.enrollmentId ?? null,
+      })
+      return NextResponse.json({ ok: true, sample })
     }
 
     if (body.op === 'update-sequence') {

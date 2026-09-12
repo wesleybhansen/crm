@@ -42,6 +42,10 @@ import type { GtmCreditLedger } from '../../../lib/credits/ledger'
  *             priced->running claim is a conditional UPDATE so two
  *             concurrent executes cannot double-run.
  * - 'status'  returns the run plus candidate/operation counts
+ * - 'summary' read-only run summary for the hub: sources searched, funnel
+ *             counts, quote vs settled spend in cents, qualification rate,
+ *             top reject reasons with labels (lib/research/summary.ts).
+ *             { runId } or { playId } (= that play's most recent run)
  * - 'requalify' deterministically rescores stored output from the frozen run
  *               snapshot, with no provider or billing call
  * - 'sweep-stale-runs' (gtm.launch) marks runs stuck in 'running' past a
@@ -227,6 +231,23 @@ export async function POST(req: Request) {
         })),
         cap: GTM_LIST_CAP,
       })
+    }
+
+    if (body.op === 'summary') {
+      if (!body.runId && !body.playId) {
+        return NextResponse.json({ ok: false, error: 'runId or playId is required' }, { status: 400 })
+      }
+      // Opaque 404 for malformed ids, same as a missing or foreign row.
+      if (body.runId != null && !isUuid(body.runId)) return opaqueNotFound()
+      if (body.playId != null && !isUuid(body.playId)) return opaqueNotFound()
+      const { summarizeResearchRun } = await import('../../../lib/research/summary')
+      const summary = await summarizeResearchRun(
+        em as unknown as import('../../../lib/research/summary').ResearchSummaryEm,
+        { organizationId, tenantId },
+        { runId: body.runId ?? null, playId: body.playId ?? null },
+      )
+      if (!summary) return opaqueNotFound()
+      return NextResponse.json({ ok: true, summary })
     }
 
     if (body.op === 'retention-sweep') {
