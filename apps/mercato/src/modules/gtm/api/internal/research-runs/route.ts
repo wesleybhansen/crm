@@ -368,6 +368,7 @@ export async function POST(req: Request) {
           inputSnapshot: {
             play: {
               id: play.id,
+              name: play.name ?? null,
               signal: play.signal ?? null,
               entity_unit: play.entityUnit ?? null,
               geography: play.geography ?? null,

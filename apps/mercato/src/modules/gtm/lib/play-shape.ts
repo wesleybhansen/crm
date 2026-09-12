@@ -20,6 +20,7 @@ export type GtmPlayRowLike = {
   id: string
   workspaceId: string
   source: string
+  name?: string | null
   marketType?: string | null
   audience?: string | null
   signal?: string | null
@@ -53,6 +54,9 @@ export type GtmPlayRowLike = {
 export type GtmPlaySummary = {
   id: string
   source: string
+  // Short label for dropdowns and cards; `audience` is the subtitle. Null for
+  // rows the backfill has not reached yet, so the hub falls back to audience.
+  name: string | null
   market_type: string | null
   audience: string | null
   signal: string | null
@@ -112,6 +116,7 @@ export function shapePlaySummary(play: GtmPlayRowLike): GtmPlaySummary {
   return {
     id: play.id,
     source: play.source,
+    name: play.name ?? null,
     market_type: play.marketType ?? null,
     audience: play.audience ?? null,
     signal: play.signal ?? null,

@@ -191,6 +191,12 @@ export class GtmPlay {
   @Property({ name: 'imported_play_key', type: 'text', nullable: true })
   importedPlayKey?: string | null
 
+  // Short dropdown label (3..80 chars, single line). Generated best-effort at
+  // creation and backfilled by /internal/gtm/plays/name-backfill; `audience`
+  // remains the subtitle. Null only until a name has been assigned.
+  @Property({ type: 'text', nullable: true })
+  name?: string | null
+
   // Typed play fields per GTM-SPEC-01 section 3.5
   // b2b | b2c | mixed | unknown
   @Property({ name: 'market_type', type: 'text', nullable: true })

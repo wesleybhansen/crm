@@ -1,6 +1,8 @@
 import {
   gtmHandoffBodySchema,
   gtmInboxBodySchema,
+  gtmPlayNameBackfillBodySchema,
+  gtmPlayNameSchema,
   gtmPrivacyBodySchema,
   importedPlaySchema,
 } from '../../data/validators'
@@ -12,6 +14,29 @@ import {
  * draft-hash echo on approve-draft (M6), and the new privacy operator ops.
  */
 describe('GTM validator hardening', () => {
+  it('accepts a trimmed, single-line 3..80 character play name (optional on import)', () => {
+    expect(gtmPlayNameSchema.parse('  Austin dental practices, 1 to 50 staff  ')).toBe(
+      'Austin dental practices, 1 to 50 staff',
+    )
+    expect(gtmPlayNameSchema.parse('x'.repeat(80))).toHaveLength(80)
+    for (const bad of ['', 'ab', '  ab  ', 'x'.repeat(81), 'two\nlines', 'cr\rhere', 'ls\u2028sep', 42, null]) {
+      expect(gtmPlayNameSchema.safeParse(bad).success).toBe(false)
+    }
+    expect(importedPlaySchema.safeParse({}).success).toBe(true)
+    expect(importedPlaySchema.safeParse({ name: null }).success).toBe(true)
+    expect(importedPlaySchema.safeParse({ name: 'Reddit founders stuck after idea' }).success).toBe(true)
+    expect(importedPlaySchema.safeParse({ name: 'no' }).success).toBe(false)
+    expect(importedPlaySchema.safeParse({ name: 'multi\nline name' }).success).toBe(false)
+  })
+
+  it('defaults and bounds the name-backfill body', () => {
+    expect(gtmPlayNameBackfillBodySchema.parse({})).toEqual({ dryRun: false, limit: 50 })
+    expect(gtmPlayNameBackfillBodySchema.parse({ dryRun: true, limit: 500 })).toEqual({ dryRun: true, limit: 500 })
+    for (const bad of [{ limit: 0 }, { limit: 501 }, { limit: 2.5 }, { limit: '10' }, { dryRun: 'yes' }]) {
+      expect(gtmPlayNameBackfillBodySchema.safeParse(bad).success).toBe(false)
+    }
+  })
+
   it('accepts only b2b | b2c | mixed (or null) as market_type', () => {
     expect(importedPlaySchema.safeParse({ market_type: 'b2b' }).success).toBe(true)
     expect(importedPlaySchema.safeParse({ market_type: 'mixed' }).success).toBe(true)

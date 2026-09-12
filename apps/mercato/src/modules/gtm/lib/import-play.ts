@@ -38,6 +38,9 @@ export type ImportedPlayValues = {
   source: 'imported'
   importedReportTokenHash: string
   importedPlayKey: string
+  // Caller-supplied short name, or null: the route then assigns one
+  // best-effort after the row is committed (lib/play-name-runtime.ts).
+  name: string | null
   marketType: 'b2b' | 'b2c' | 'mixed' | null
   audience: string | null
   signal: string | null
@@ -124,6 +127,7 @@ export function buildImportedPlayValues(
     source: 'imported',
     importedReportTokenHash: normalizeReportTokenHash(reportTokenHash),
     importedPlayKey: computeImportedPlayKey(play, likelyBuyer),
+    name: play.name ?? null,
     marketType,
     audience: play.audience ?? null,
     signal: play.signal ?? null,

@@ -206,6 +206,7 @@ export const gtmListWorkspacesTool: AiToolDefinition = {
         updatedAt: iso(workspace.updatedAt),
         plays: (playsByWorkspace.get(workspace.id) ?? []).map((play) => ({
           id: play.id,
+          name: play.name ?? null,
           marketType: play.marketType ?? null,
           audience: play.audience ?? null,
           signal: play.signal ?? null,

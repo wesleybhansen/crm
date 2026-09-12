@@ -115,6 +115,7 @@ export async function POST(req: Request) {
           outreach_mode: existing.outreachMode ?? null,
           outreach_policy_reason: existing.outreachPolicyReason ?? null,
           policy_flags: existing.policyFlags ?? [],
+          name: existing.name ?? null,
           alreadyImported: true,
         },
       })
@@ -176,11 +177,25 @@ export async function POST(req: Request) {
         return { play, workspace }
       })
 
+      // 9. Short name, best effort: a metered model call through the GTM
+      //    drafting gateway, the deterministic fallback when the call or its
+      //    metering fails, and a write via a single conditional UPDATE.
+      //    Never throws and never blocks the import; a row left unnamed is
+      //    picked up by /internal/gtm/plays/name-backfill.
+      const { assignNameToNewPlay } = await import('../../../lib/play-name-runtime')
+      const assignedName = await assignNameToNewPlay(
+        em,
+        { organizationId, tenantId, userId, requestId: requestId || null },
+        result.play,
+        body.noliUserId,
+      )
+
       return NextResponse.json({
         ok: true,
         data: {
           playId: result.play.id,
           workspaceId: result.workspace.id,
+          name: assignedName,
           execution_eligibility: result.play.executionEligibility,
           eligibility_reason: result.play.eligibilityReason ?? null,
           lead_mode: result.play.leadMode ?? null,
@@ -216,6 +231,7 @@ export async function POST(req: Request) {
               outreach_mode: winner.outreachMode ?? null,
               outreach_policy_reason: winner.outreachPolicyReason ?? null,
               policy_flags: winner.policyFlags ?? [],
+              name: winner.name ?? null,
               alreadyImported: true,
             },
           })

@@ -10,6 +10,7 @@ const fullRow: GtmPlayRowLike = {
   id: '11111111-2222-4333-8444-555555555555',
   workspaceId: '99999999-8888-4777-8666-555555555555',
   source: 'imported',
+  name: 'Seed-stage US SaaS founders',
   marketType: 'b2b',
   audience: 'US B2B SaaS founders who just raised a seed round',
   signal: 'Recent seed announcement',
@@ -58,6 +59,7 @@ describe('shapePlaySummary', () => {
     expect(shapePlaySummary(fullRow)).toEqual({
       id: fullRow.id,
       source: 'imported',
+      name: 'Seed-stage US SaaS founders',
       market_type: 'b2b',
       audience: fullRow.audience,
       signal: fullRow.signal,
@@ -97,6 +99,7 @@ describe('shapePlaySummary', () => {
       updatedAt: new Date('2026-07-23T09:00:00.000Z'),
     }
     const summary = shapePlaySummary(sparse)
+    expect(summary.name).toBeNull()
     expect(summary.market_type).toBeNull()
     expect(summary.audience).toBeNull()
     expect(summary.signal).toBeNull()
@@ -130,6 +133,8 @@ describe('shapePlayDetail', () => {
       updated_at: '2026-07-23T09:30:00.000Z',
     })
     // and everything from the summary shape
+    expect(detail.name).toBe('Seed-stage US SaaS founders')
+    expect(detail.audience).toBe(fullRow.audience)
     expect(detail.execution_eligibility).toBe('executable')
     expect(detail.created_at).toBe('2026-07-23T09:00:00.000Z')
   })

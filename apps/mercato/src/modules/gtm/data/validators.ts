@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { chatContentIsBounded, GTM_CHAT_MESSAGE_READ_CAP } from './chat-contract'
+import { PLAY_NAME_MAX_LENGTH, PLAY_NAME_MIN_LENGTH } from '../lib/play-name'
 
 const optionalText = z
   .string()
@@ -15,7 +16,17 @@ const optionalText = z
 // market_type is a strict enum (review research H13): a free-text label was
 // a trusted caller input that selected automated email and skipped the
 // consumer policy screen.
+// Short play name (dropdown label): trimmed, one line, 3..80 characters.
+// Optional on import; a missing name is generated server-side at creation.
+export const gtmPlayNameSchema = z
+  .string()
+  .trim()
+  .min(PLAY_NAME_MIN_LENGTH)
+  .max(PLAY_NAME_MAX_LENGTH)
+  .refine((value) => !/[\r\n\u2028\u2029]/.test(value), { message: 'name must be a single line' })
+
 export const importedPlaySchema = z.object({
+  name: gtmPlayNameSchema.optional().nullable(),
   market_type: z.enum(['b2b', 'b2c', 'mixed']).optional().nullable(),
   audience: optionalText,
   signal: optionalText,
@@ -85,6 +96,16 @@ export const gtmPlayDetailBodySchema = z
 
 export type GtmOverviewBody = z.infer<typeof gtmOverviewBodySchema>
 export type GtmPlayDetailBody = z.infer<typeof gtmPlayDetailBodySchema>
+
+// Service-only name backfill (/internal/gtm/plays/name-backfill): no
+// represented user, no org filter from the caller. dryRun returns the
+// deterministic fallback names without a model call or a write.
+export const gtmPlayNameBackfillBodySchema = z.object({
+  dryRun: z.boolean().optional().default(false),
+  limit: z.number().int().min(1).max(500).optional().default(50),
+})
+
+export type GtmPlayNameBackfillBody = z.infer<typeof gtmPlayNameBackfillBodySchema>
 
 // ---------------------------------------------------------------------------
 // Tranche 3: research runs + candidates (SPEC-066 sections 5, 11, 14)

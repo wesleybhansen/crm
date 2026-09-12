@@ -49,6 +49,7 @@ function runInputSnapshot(play: GtmPlay, plan: ReturnType<typeof buildSourcePlan
   return {
     play: {
       id: play.id,
+      name: play.name ?? null,
       signal: play.signal ?? null,
       entity_unit: play.entityUnit ?? null,
       geography: play.geography ?? null,
