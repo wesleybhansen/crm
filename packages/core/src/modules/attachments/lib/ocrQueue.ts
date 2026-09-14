@@ -25,7 +25,7 @@ export async function processAttachmentOcr(
 
   try {
     const partition = await em.findOne(AttachmentPartition, { code: partitionCode })
-    const resolvedModel = partition?.ocrModel ?? process.env.OCR_MODEL ?? 'gpt-5-mini'
+    const resolvedModel = partition?.ocrModel ?? process.env.OCR_MODEL ?? 'gpt-5.6-luna'
 
     // P-3 allowance gate + unified BYOK fall-through (GAP-4). OCR runs on OpenAI.
     // Background worker → no 402: when the org is over its pooled allowance and

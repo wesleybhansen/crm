@@ -17,7 +17,7 @@ import {
   type ScoredRunResult,
 } from "./schemas";
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MODEL = "gemini-3.8-flash";
 const MAX_CASES_LIMIT = 20;
 const CALLS_PER_CASE_LIMIT = 2;
 const MAX_OUTPUT_TOKENS = 512;

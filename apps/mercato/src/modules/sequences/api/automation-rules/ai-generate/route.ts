@@ -92,7 +92,7 @@ User request: ${prompt}`
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
@@ -112,7 +112,7 @@ User request: ${prompt}`
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
 
       void meterCustomersAi(auth, {
-        model: 'gemini-3.5-flash',
+        model: 'gemini-3.8-flash',
         tokensIn: data?.usageMetadata?.promptTokenCount || 0,
         tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
         feature: 'sequence-ai-generate',

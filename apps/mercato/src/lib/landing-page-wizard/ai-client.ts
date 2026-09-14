@@ -121,7 +121,7 @@ async function callGemini(
   opts: { jsonMode: boolean; maxTokens: number },
   retries = 2
 ): Promise<CallAIResult> {
-  const model = process.env.AI_MODEL || 'gemini-3.5-flash'
+  const model = process.env.AI_MODEL || 'gemini-3.8-flash'
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (attempt > 0) {
@@ -281,7 +281,7 @@ async function callXai(
   opts: { jsonMode: boolean; maxTokens: number }
 ): Promise<CallAIResult> {
   // xAI/Grok is OpenAI-compatible — same chat/completions shape, different host.
-  const model = process.env.XAI_MODEL || 'grok-4.5'
+  const model = process.env.XAI_MODEL || 'grok-4.6'
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 90000)
 

@@ -65,7 +65,7 @@ Return ONLY valid JSON, no markdown:
 {"mapping": {"name": <index|null>, "first_name": <index|null>, "last_name": <index|null>, "email": <index|null>, "phone": <index|null>, "source": <index|null>}, "confidence": 0.0}`
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
@@ -77,7 +77,7 @@ Return ONLY valid JSON, no markdown:
     )
     const data = await res.json()
     void meterCustomersAi(auth, {
-      model: 'gemini-3.5-flash',
+      model: 'gemini-3.8-flash',
       tokensIn: data?.usageMetadata?.promptTokenCount || 0,
       tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
       feature: 'import-column-map',

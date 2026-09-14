@@ -775,7 +775,7 @@ export async function POST(req: Request, ctx?: any) {
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 
 async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessage[]): Promise<AssistantResult> {
-  const model = process.env.AI_MODEL || 'gemini-3.5-flash'
+  const model = process.env.AI_MODEL || 'gemini-3.8-flash'
   const contents = msgs.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],

@@ -39,16 +39,19 @@ import { getNoliCoreClient, findPrimaryOrgIdForUser } from './core-client';
 const PRICING: Record<string, { in: number; out: number; cached: number }> = {
   // Anthropic
   'claude-opus-4-2025': { in: 15, out: 75, cached: 1.5 }, // retired Opus 4 (legacy rows)
+  'claude-opus-5': { in: 5, out: 25, cached: 0.5 },
   'claude-opus': { in: 5, out: 25, cached: 0.5 }, // current Opus
   'claude-sonnet-4-6': { in: 3, out: 15, cached: 0.3 },
+  'claude-sonnet-5': { in: 2, out: 10, cached: 0.2 },
   'claude-sonnet': { in: 3, out: 15, cached: 0.3 },
   'claude-haiku-4-5-20251001': { in: 1, out: 5, cached: 0.1 },
   'claude-haiku': { in: 1, out: 5, cached: 0.1 },
+  'claude-fable-5-1': { in: 10, out: 50, cached: 0.25 },
   'claude-fable-5': { in: 10, out: 50, cached: 1.0 },
   // OpenAI
-  'gpt-5.6-sol': { in: 5, out: 30, cached: 0.5 },
-  'gpt-5.6-terra': { in: 2.5, out: 15, cached: 0.25 },
-  'gpt-5.6-luna': { in: 1, out: 6, cached: 0.1 },
+  'gpt-5.6-sol': { in: 4, out: 20, cached: 0.4 },
+  'gpt-5.6-terra': { in: 2, out: 12, cached: 0.2 },
+  'gpt-5.6-luna': { in: 0.2, out: 1.2, cached: 0.02 },
   'gpt-5.5': { in: 5, out: 30, cached: 0.5 },
   'gpt-5.4-mini': { in: 0.75, out: 4.5, cached: 0.075 },
   'gpt-5.4': { in: 2.5, out: 15, cached: 0.25 },
@@ -70,13 +73,17 @@ const PRICING: Record<string, { in: number; out: number; cached: number }> = {
   'tts-1-hd': { in: 30, out: 0, cached: 30 },
   'tts-1': { in: 15, out: 0, cached: 15 },
   // Google
+  'gemini-3.8-flash': { in: 0.75, out: 3.75, cached: 0.075 },
+  'gemini-3.7-flash': { in: 0.75, out: 3.75, cached: 0.075 },
   'gemini-3.5-flash': { in: 1.5, out: 9, cached: 0.15 },
+  'gemini-3.1-pro-preview': { in: 2, out: 12, cached: 0.2 },
   'gemini-3-flash': { in: 0.5, out: 3, cached: 0.05 },
   'gemini-3-pro': { in: 2, out: 12, cached: 0.2 },
   'gemini-2.5-flash': { in: 0.3, out: 2.5, cached: 0.03 },
   'gemini-2.5-pro': { in: 1.25, out: 10, cached: 0.125 },
   'gemini': { in: 0.3, out: 2.5, cached: 0.03 }, // generic Gemini fallback (2.5-flash class)
   // xAI (Grok — OpenAI-compatible). Longer prefix precedes the generic.
+  'grok-4.6': { in: 2, out: 6, cached: 0.5 },
   'grok-4.5': { in: 2, out: 6, cached: 0.5 },
   'grok': { in: 2, out: 6, cached: 0.5 },
 };

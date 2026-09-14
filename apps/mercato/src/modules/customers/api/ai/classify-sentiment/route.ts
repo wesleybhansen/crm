@@ -80,7 +80,7 @@ Email:
 Sentiment:`
 
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': orgKey },
@@ -94,7 +94,7 @@ Sentiment:`
         const data = await res.json()
         // Background cron: meter against the email's owning org (no auth ctx).
         void meterCustomersAi({ orgId: email.organization_id }, {
-          model: 'gemini-3.5-flash',
+          model: 'gemini-3.8-flash',
           tokensIn: data?.usageMetadata?.promptTokenCount || 0,
           tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
           feature: 'classify-sentiment',

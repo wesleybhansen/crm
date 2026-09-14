@@ -131,7 +131,7 @@ Website text content:
 ${textContent}`
 
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
@@ -152,7 +152,7 @@ ${textContent}`
     }
 
     void meterCustomersAi(auth, {
-      model: 'gemini-3.5-flash',
+      model: 'gemini-3.8-flash',
       tokensIn: geminiData?.usageMetadata?.promptTokenCount || 0,
       tokensOut: geminiData?.usageMetadata?.candidatesTokenCount || 0,
       feature: 'scan-website',

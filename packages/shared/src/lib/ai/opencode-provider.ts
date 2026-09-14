@@ -22,19 +22,19 @@ export const OPEN_CODE_PROVIDERS: Record<OpenCodeProviderId, OpenCodeProviderDef
     id: 'openai',
     name: 'OpenAI',
     envKeys: ['OPENAI_API_KEY'],
-    defaultModel: 'gpt-5-mini',
+    defaultModel: 'gpt-5.6-luna',
   },
   google: {
     id: 'google',
     name: 'Google',
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
-    defaultModel: 'gemini-3.5-flash',
+    defaultModel: 'gemini-3.8-flash',
   },
   xai: {
     id: 'xai',
     name: 'xAI (Grok)',
     envKeys: ['XAI_API_KEY'],
-    defaultModel: 'grok-4.5',
+    defaultModel: 'grok-4.6',
   },
 }
 

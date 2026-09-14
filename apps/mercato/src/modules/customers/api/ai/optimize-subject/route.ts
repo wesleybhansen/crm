@@ -55,7 +55,7 @@ Return ONLY valid JSON, no markdown.`
 
     if (provider === 'google') {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
@@ -70,7 +70,7 @@ Return ONLY valid JSON, no markdown.`
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (jsonMatch) result = JSON.parse(jsonMatch[0])
       void meterCustomersAi(auth, {
-        model: 'gemini-3.5-flash',
+        model: 'gemini-3.8-flash',
         tokensIn: data?.usageMetadata?.promptTokenCount || 0,
         tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
         feature: 'optimize-subject',

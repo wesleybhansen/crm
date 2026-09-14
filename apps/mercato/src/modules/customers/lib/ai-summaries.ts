@@ -15,7 +15,7 @@ import type { Knex } from 'knex'
  * draft-reply.ts): this module never meters.
  */
 
-const SUMMARY_MODEL = 'gemini-2.5-flash'
+const SUMMARY_MODEL = 'gemini-3.8-flash'
 
 // Must match the drafter's transcript window in draft-reply.ts (slice(-10)).
 const RECENT_WINDOW = 10

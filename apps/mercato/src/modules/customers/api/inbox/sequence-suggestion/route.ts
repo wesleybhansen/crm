@@ -19,7 +19,7 @@ export const metadata = {
   POST: { requireAuth: true },
 }
 
-const MATCH_MODEL = 'gemini-2.5-flash'
+const MATCH_MODEL = 'gemini-3.8-flash'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()

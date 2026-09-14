@@ -90,7 +90,7 @@ export type DraftReplyResult = {
   matchedScenarios: string[]
 }
 
-const DRAFT_MODEL = 'gemini-2.5-flash'
+const DRAFT_MODEL = 'gemini-3.8-flash'
 
 /**
  * Build the default sign-off used when an org has not set its own Customer

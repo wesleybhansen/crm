@@ -49,8 +49,8 @@ const DEFAULT_FORM = {
 
 const OCR_MODEL_OPTIONS = [
   { value: '', label: 'Default (from environment)' },
-  { value: 'gpt-5-mini', label: 'GPT-5 Mini (Recommended)' },
-  { value: 'gpt-5.5', label: 'GPT-5.5 (Higher Accuracy)' },
+  { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna (Recommended)' },
+  { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (Higher Accuracy)' },
 ]
 
 export function AttachmentPartitionSettings() {
@@ -415,7 +415,7 @@ export function AttachmentPartitionSettings() {
                 <p className="text-xs text-muted-foreground">
                   {t(
                     'attachments.partitions.form.ocrModelHelp',
-                    'Choose the LLM model for OCR processing. Falls back to OCR_MODEL environment variable or gpt-5-mini.'
+                    'Choose the LLM model for OCR processing. Falls back to OCR_MODEL environment variable or gpt-5.6-luna.'
                   )}
                 </p>
               </div>

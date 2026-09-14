@@ -414,7 +414,7 @@ RULES:
     // Over-allowance orgs that gated through on a BYO key run on that key, not
     // the platform key (otherwise Noli eats the over-pool cost).
     const google = createGoogleGenerativeAI({ apiKey: gate.byoApiKey || apiKey })
-    const model = google('gemini-3.5-flash')
+    const model = google('gemini-3.8-flash')
 
     const aiMessages = messagesForContext.map((m: { sender_type: string; message: string }) => ({
       role: m.sender_type === 'visitor' ? 'user' as const : 'assistant' as const,
@@ -430,7 +430,7 @@ RULES:
     // Meter against the widget's org so public-chatbot AI counts toward their pool.
     const usage = (result.usage || {}) as { promptTokens?: number; completionTokens?: number; inputTokens?: number; outputTokens?: number }
     void meterCustomersAi({ orgId: widget.organization_id }, {
-      model: 'gemini-3.5-flash',
+      model: 'gemini-3.8-flash',
       tokensIn: usage.promptTokens ?? usage.inputTokens ?? 0,
       tokensOut: usage.completionTokens ?? usage.outputTokens ?? 0,
       feature: 'public-chatbot',

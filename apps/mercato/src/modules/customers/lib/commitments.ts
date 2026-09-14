@@ -9,7 +9,7 @@ import type { Knex } from 'knex'
  * The extractor NEVER meters itself — callers gate + meter (house rule from
  * ai-summaries.ts). */
 
-const EXTRACT_MODEL = 'gemini-2.5-flash'
+const EXTRACT_MODEL = 'gemini-3.8-flash'
 const MAX_EMAILS = 12
 const PER_MESSAGE_CAP = 1200
 

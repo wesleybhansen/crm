@@ -123,7 +123,7 @@ export class AIPageBuilder {
 
   private resolveModel(): string {
     switch (this.provider) {
-      case 'google': return process.env.AI_MODEL || 'gemini-3.5-flash'
+      case 'google': return process.env.AI_MODEL || 'gemini-3.8-flash'
       case 'anthropic': return process.env.AI_MODEL || 'claude-haiku-4-5-20251001'
       case 'openai': return process.env.AI_MODEL || 'gpt-4o-mini'
     }

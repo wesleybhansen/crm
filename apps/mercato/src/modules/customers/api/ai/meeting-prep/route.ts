@@ -255,7 +255,7 @@ DATA:
 ${dataSection}`
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
@@ -275,7 +275,7 @@ ${dataSection}`
   const text = result.candidates?.[0]?.content?.parts?.[0]?.text || ''
 
   void meterCustomersAi({ orgId }, {
-    model: 'gemini-3.5-flash',
+    model: 'gemini-3.8-flash',
     tokensIn: result?.usageMetadata?.promptTokenCount || 0,
     tokensOut: result?.usageMetadata?.candidatesTokenCount || 0,
     feature: 'meeting-prep',

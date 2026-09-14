@@ -23,9 +23,12 @@ type ModelPricing = { in: number; out: number }
 // USD per 1M tokens (input / output). Canonical, verified against live pricing.
 const PRICING: Record<string, ModelPricing> = {
   // Anthropic
+  'claude-opus-5': { in: 5.0, out: 25.0 },
   'claude-opus': { in: 5.0, out: 25.0 },
+  'claude-sonnet-5': { in: 2.0, out: 10.0 },
   'claude-sonnet': { in: 3.0, out: 15.0 },
   'claude-haiku': { in: 1.0, out: 5.0 },
+  'claude-fable-5-1': { in: 10.0, out: 50.0 },
   // OpenAI
   'gpt-4o': { in: 2.5, out: 10.0 },
   'gpt-4o-mini': { in: 0.15, out: 0.6 },
@@ -34,15 +37,23 @@ const PRICING: Record<string, ModelPricing> = {
   'gpt-5.4-mini': { in: 0.75, out: 4.5 },
   'gpt-5.4': { in: 2.5, out: 15.0 },
   'gpt-5.5': { in: 5.0, out: 30.0 },
+  'gpt-5.6-luna': { in: 0.2, out: 1.2 },
+  'gpt-5.6-terra': { in: 2.0, out: 12.0 },
+  'gpt-5.6-sol': { in: 4.0, out: 20.0 },
   'text-embedding-3-large': { in: 0.13, out: 0 },
   'text-embedding-3-small': { in: 0.02, out: 0 },
   'text-embedding': { in: 0.1, out: 0 },
   // Google
+  'gemini-3.8-flash': { in: 0.75, out: 3.75 },
+  'gemini-3.7-flash': { in: 0.75, out: 3.75 },
   'gemini-3.5-flash': { in: 1.5, out: 9.0 },
+  'gemini-3.1-pro-preview': { in: 2.0, out: 12.0 },
   'gemini-3-flash': { in: 0.5, out: 3.0 },
   'gemini-3-pro': { in: 2.0, out: 12.0 },
   'gemini-2.5-flash': { in: 0.3, out: 2.5 },
   'gemini-2.5-pro': { in: 1.25, out: 10.0 },
+  // xAI
+  'grok-4.6': { in: 2.0, out: 6.0 },
 }
 
 export type LogAiUsageArgs = {
