@@ -1,4 +1,4 @@
-import { renderDigestHtml, factualSummary, type DigestData, type DigestProse } from '../digest-render'
+import { renderDigestHtml, factualSummary, factualStatus, type DigestData, type DigestProse } from '../digest-render'
 
 /* The weekly digest used to ask the model for a whole HTML document against a
  * 2,048 token ceiling. A real send hit the cap mid-tag and put
@@ -138,5 +138,15 @@ describe('the summary when the model gives us nothing', () => {
     const html = renderDigestHtml(busyWeek, prose, 'Northstar Studio')
     expect(html).toContain('New contacts</h3>')
     expect(html).toContain('Dana Reyes (from website)')
+  })
+})
+
+describe('the status label when the model gives us nothing', () => {
+  it('names what happened instead of reading like a placeholder', () => {
+    expect(factualStatus(emptyWeek)).toBe('Quiet week')
+    expect(factualStatus({ ...emptyWeek, emailsSent: 12 })).toBe('Outreach sent, no replies yet')
+    expect(factualStatus({ ...emptyWeek, newContactCount: 2 })).toBe('Pipeline building')
+    expect(factualStatus(busyWeek)).toBe('Revenue booked')
+    expect(renderDigestHtml(busyWeek, null, 'X')).not.toContain('Status: This week')
   })
 })

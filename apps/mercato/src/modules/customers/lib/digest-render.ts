@@ -59,6 +59,15 @@ export function factualSummary(data: DigestData): string {
   return `Over ${period}: ${list}.${cold}`
 }
 
+/* A status label from the data, for when the model has none. "This week" read
+ * like a placeholder, so this names what actually happened. */
+export function factualStatus(data: DigestData): string {
+  if (data.revenue > 0 || data.dealsWon.length > 0) return 'Revenue booked'
+  if (data.newContactCount > 0 || data.submissionCount > 0) return 'Pipeline building'
+  if (data.emailsSent > 0) return 'Outreach sent, no replies yet'
+  return 'Quiet week'
+}
+
 function kpiCell(label: string, value: string, note?: string): string {
   return `<td style="padding:16px 18px;border:1px solid #e6e8ec;vertical-align:top;width:50%;">
       <div style="font-size:13px;color:#6b7280;letter-spacing:.02em;">${escapeHtml(label)}</div>
@@ -85,7 +94,7 @@ export function renderDigestHtml(data: DigestData, prose: DigestProse | null, bu
     ? `${money(data.wonValue)} won, ${money(data.lostValue)} lost`
     : 'No deals closed this period'
 
-  const status = prose?.status ?? (data.newContactCount + data.dealsWon.length + data.emailsSent === 0 ? 'Quiet week' : 'This week')
+  const status = prose?.status ?? factualStatus(data)
   const summary = prose?.summary ?? factualSummary(data)
 
   const rows = [
