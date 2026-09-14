@@ -35,6 +35,30 @@ export function escapeHtml(value: unknown): string {
 
 export const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`
 
+/* What the week was, in one sentence, computed from the data. Used when the
+ * model has nothing to say, so a failed call costs the reader some polish and
+ * never looks like the report itself is broken. */
+export function factualSummary(data: DigestData): string {
+  const parts: string[] = []
+  if (data.newContactCount > 0) parts.push(`${data.newContactCount} new contact${data.newContactCount === 1 ? '' : 's'}`)
+  if (data.dealsWon.length > 0) parts.push(`${data.dealsWon.length} deal${data.dealsWon.length === 1 ? '' : 's'} won worth ${money(data.wonValue)}`)
+  if (data.dealsLost.length > 0) parts.push(`${data.dealsLost.length} deal${data.dealsLost.length === 1 ? '' : 's'} lost`)
+  if (data.emailsSent > 0) parts.push(`${data.emailsSent} email${data.emailsSent === 1 ? '' : 's'} sent`)
+  if (data.submissionCount > 0) parts.push(`${data.submissionCount} landing page submission${data.submissionCount === 1 ? '' : 's'}`)
+  if (data.revenue > 0) parts.push(`${money(data.revenue)} collected`)
+
+  const period = `the last ${data.periodDays} days`
+  if (parts.length === 0) {
+    return `Nothing was recorded in ${period}: no new contacts, no deals closed and no outbound email. The numbers below are all zero because the system has nothing to report, not because it failed to look.`
+  }
+  const last = parts.pop() as string
+  const list = parts.length > 0 ? `${parts.join(', ')} and ${last}` : last
+  const cold = data.coldContacts.length > 0
+    ? ` ${data.coldContacts.length} contact${data.coldContacts.length === 1 ? ' is' : 's are'} going cold.`
+    : ''
+  return `Over ${period}: ${list}.${cold}`
+}
+
 function kpiCell(label: string, value: string, note?: string): string {
   return `<td style="padding:16px 18px;border:1px solid #e6e8ec;vertical-align:top;width:50%;">
       <div style="font-size:13px;color:#6b7280;letter-spacing:.02em;">${escapeHtml(label)}</div>
@@ -62,8 +86,7 @@ export function renderDigestHtml(data: DigestData, prose: DigestProse | null, bu
     : 'No deals closed this period'
 
   const status = prose?.status ?? (data.newContactCount + data.dealsWon.length + data.emailsSent === 0 ? 'Quiet week' : 'This week')
-  const summary = prose?.summary
-    ?? 'This is the record of what the system captured this period. The written summary could not be generated this time, so the numbers below stand on their own.'
+  const summary = prose?.summary ?? factualSummary(data)
 
   const rows = [
     [kpiCell('New contacts', String(data.newContactCount)), kpiCell('Revenue (invoices paid)', money(data.revenue))],
@@ -90,6 +113,7 @@ export function renderDigestHtml(data: DigestData, prose: DigestProse | null, bu
     ${rows.map(cells => `<tr>${cells.join('')}</tr>`).join('')}
   </table>
 
+  ${listSection('New contacts', data.newContacts.map(c => (c.source ? `${c.display_name} (from ${c.source})` : c.display_name)))}
   ${listSection('Contacts going cold', data.coldContacts.map(c => `${c.display_name} (engagement score ${c.score})`))}
   ${listSection('Deals won', data.dealsWon.map(d => `${d.title} — ${money(d.value)}`))}
   ${listSection('Suggested next week', prose?.suggestions ?? [])}

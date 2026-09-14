@@ -1,4 +1,4 @@
-import { renderDigestHtml, type DigestData, type DigestProse } from '../digest-render'
+import { renderDigestHtml, factualSummary, type DigestData, type DigestProse } from '../digest-render'
 
 /* The weekly digest used to ask the model for a whole HTML document against a
  * 2,048 token ceiling. A real send hit the cap mid-tag and put
@@ -109,5 +109,34 @@ describe('weekly digest rendering', () => {
     expect(html).not.toContain('Suggested next week')
     expect(html).not.toContain('Contacts going cold')
     expect(html).not.toContain('Deals won</h3>')
+  })
+})
+
+describe('the summary when the model gives us nothing', () => {
+  it('states the facts rather than reporting a malfunction', () => {
+    const html = renderDigestHtml(busyWeek, null, 'Northstar Studio')
+    expect(html).not.toMatch(/could not be generated|unavailable|error/i)
+    expect(html).toContain('1 new contact')
+    expect(html).toContain('40 emails sent')
+    expect(html).toContain('$4,200 collected')
+  })
+
+  it('says plainly that a quiet week is quiet, and why the zeros are zeros', () => {
+    const line = factualSummary(emptyWeek)
+    expect(line).toContain('Nothing was recorded')
+    expect(line).toContain('not because it failed to look')
+  })
+
+  it('reads as a sentence with one item, two items and many', () => {
+    expect(factualSummary({ ...emptyWeek, revenue: 500 })).toBe('Over the last 7 days: $500 collected.')
+    expect(factualSummary({ ...emptyWeek, emailsSent: 2, revenue: 500 })).toBe('Over the last 7 days: 2 emails sent and $500 collected.')
+    const many = factualSummary({ ...emptyWeek, newContactCount: 3, emailsSent: 2, revenue: 500 })
+    expect(many).toBe('Over the last 7 days: 3 new contacts, 2 emails sent and $500 collected.')
+  })
+
+  it('names new contacts, which the data gathered and the report used to drop', () => {
+    const html = renderDigestHtml(busyWeek, prose, 'Northstar Studio')
+    expect(html).toContain('New contacts</h3>')
+    expect(html).toContain('Dana Reyes (from website)')
   })
 })

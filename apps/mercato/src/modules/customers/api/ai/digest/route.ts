@@ -394,13 +394,18 @@ export async function GET() {
     const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
 
     const data = await gatherDigestData(knex, auth.orgId, auth.tenantId, 7)
-    const previewOrg = await knex('organizations').where({ id: auth.orgId }).select('business_name').first()
+    // The name lives on business_profiles, keyed by organization_id, which is
+    // where the scheduled path reads it from too.
+    const previewProfile = await knex('business_profiles')
+      .where({ organization_id: auth.orgId, tenant_id: auth.tenantId })
+      .select('business_name')
+      .first()
     const digestHtml = await generateDigestHtml(
       data,
       personaPrompt,
       auth.orgId,
       gate.byoApiKey,
-      (previewOrg as { business_name?: string } | undefined)?.business_name || 'Your Business',
+      (previewProfile as { business_name?: string } | undefined)?.business_name || 'Your Business',
     )
 
     return NextResponse.json({
