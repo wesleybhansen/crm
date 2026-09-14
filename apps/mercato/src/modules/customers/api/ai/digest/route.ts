@@ -11,6 +11,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { decryptRowFields, CONTACT_ENTITY_KEY, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { renderDigestHtml, money, type DigestData, type DigestProse } from '../../../lib/digest-render'
 
 export const metadata = { path: '/ai/digest',
   POST: { requireAuth: false },
@@ -147,12 +148,22 @@ async function gatherDigestData(knex: ReturnType<EntityManager['getKnex']>, orgI
   }
 }
 
-async function generateDigestHtml(data: Awaited<ReturnType<typeof gatherDigestData>>, personaPrompt: string, orgId?: string | null, byoApiKey?: string | null): Promise<string> {
-  // Over-allowance orgs that gated through on a BYO key run on that key.
+/* The model writes the words, never the markup.
+ *
+ * It used to return the whole HTML email against a 2,048 token ceiling, and a
+ * gemini-3.x model spends part of that budget thinking. A real digest hit the
+ * cap mid-tag and shipped `<span style="font-size:` into a customer's inbox
+ * with the rest of the report missing. Asking for a few short strings instead
+ * means a cut-off answer can only cost us the prose, the numbers are ours and
+ * always correct, and the layout cannot break. */
+async function generateDigestProse(
+  data: DigestData,
+  personaPrompt: string,
+  orgId?: string | null,
+  byoApiKey?: string | null,
+): Promise<DigestProse | null> {
   const apiKey = byoApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
-  if (!apiKey) {
-    throw new Error('Gemini API key not configured')
-  }
+  if (!apiKey) return null
 
   const dataSection = `
 PERIOD: Last ${data.periodDays} days
@@ -160,60 +171,102 @@ PERIOD: Last ${data.periodDays} days
 NEW CONTACTS (${data.newContactCount}):
 ${data.newContacts.length > 0 ? data.newContacts.map(c => `- ${c.display_name}${c.source ? ` (from ${c.source})` : ''}`).join('\n') : 'None'}
 
-DEALS WON (${data.dealsWon.length}): Total $${data.wonValue.toLocaleString()}
-${data.dealsWon.length > 0 ? data.dealsWon.map(d => `- "${d.title}" — $${d.value.toLocaleString()}`).join('\n') : 'None'}
+DEALS WON (${data.dealsWon.length}): Total ${money(data.wonValue)}
+${data.dealsWon.length > 0 ? data.dealsWon.map(d => `- "${d.title}" — ${money(d.value)}`).join('\n') : 'None'}
 
-DEALS LOST (${data.dealsLost.length}): Total $${data.lostValue.toLocaleString()}
-${data.dealsLost.length > 0 ? data.dealsLost.map(d => `- "${d.title}" — $${d.value.toLocaleString()}`).join('\n') : 'None'}
+DEALS LOST (${data.dealsLost.length}): Total ${money(data.lostValue)}
+${data.dealsLost.length > 0 ? data.dealsLost.map(d => `- "${d.title}" — ${money(d.value)}`).join('\n') : 'None'}
 
-EMAILS SENT: ${data.emailsSent} | Open Rate: ${data.openRate}%
+EMAILS SENT: ${data.emailsSent} | Open rate: ${data.openRate}%
 LANDING PAGE SUBMISSIONS: ${data.submissionCount}
-REVENUE (Invoices Paid): $${data.revenue.toLocaleString()}
-FORECAST FOR THIS MONTH: ${data.forecastThisMonth.deals > 0 ? `${data.forecastThisMonth.deals} open deal${data.forecastThisMonth.deals !== 1 ? 's' : ''} expected to close, weighted value ~$${data.forecastThisMonth.weighted.toLocaleString()} (deal value x win probability)` : 'No open deals with a close date this month — worth scheduling expected close dates on active deals'}
+REVENUE (invoices paid): ${money(data.revenue)}
+FORECAST THIS MONTH: ${data.forecastThisMonth.deals} open deal(s), weighted ${money(data.forecastThisMonth.weighted)}
 
 CONTACTS GOING COLD:
-${data.coldContacts.length > 0 ? data.coldContacts.map(c => `- ${c.display_name} (score: ${c.score})`).join('\n') : 'None — all contacts are engaged'}
+${data.coldContacts.length > 0 ? data.coldContacts.map(c => `- ${c.display_name} (score: ${c.score})`).join('\n') : 'None, every contact is engaged'}
 `
 
   const prompt = `${personaPrompt}
 
-Generate a weekly business review email in clean HTML format. Be specific with numbers and names from the data below. Include 3 actionable suggestions for next week based on the data.
+Write the words for this week's business review. Return JSON only.
 
-Format as a well-styled HTML email body (no <html>/<head>/<body> tags — just the inner content). Use inline styles. Keep it scannable with headers and bullet points. Use a professional, clean design.
+- status: two to four words naming where the business stands this week, in plain language. Examples: "Quiet week", "Pipeline building", "Revenue up".
+- summary: two or three sentences on what actually happened, using the real numbers and names below. If nothing happened, say so plainly and say what would change that. Never invent a number that is not in the data.
+- suggestions: exactly three specific things to do next week, each one sentence, each tied to something in the data.
+
+Write plain sentences. No markup, no markdown, no em dashes, no exclamation marks.
 
 DATA:
 ${dataSection}`
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-      }),
-    },
-  )
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            // Room for the model to think and still finish. The old 2048 was
+            // shared with a whole HTML document and ran out mid-tag.
+            maxOutputTokens: 4096,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                status: { type: 'STRING' },
+                summary: { type: 'STRING' },
+                suggestions: { type: 'ARRAY', items: { type: 'STRING' } },
+              },
+              required: ['status', 'summary', 'suggestions'],
+            },
+          },
+        }),
+      },
+    )
+    if (!res.ok) return null
 
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}))
-    throw new Error(`Gemini API error (${res.status}): ${JSON.stringify(errorData)}`)
+    const result = await res.json()
+    void meterCustomersAi({ orgId }, {
+      model: 'gemini-3.5-flash',
+      tokensIn: result?.usageMetadata?.promptTokenCount || 0,
+      tokensOut: result?.usageMetadata?.candidatesTokenCount || 0,
+      feature: 'digest',
+      byoKey: !!byoApiKey,
+    })
+
+    // A cut-off answer is not partially usable, so it is dropped rather than
+    // rendered. The report still sends with its numbers.
+    if (result?.candidates?.[0]?.finishReason && result.candidates[0].finishReason !== 'STOP') return null
+
+    const text = String(result?.candidates?.[0]?.content?.parts?.[0]?.text || '')
+      .replace(/^```json?\n?/i, '')
+      .replace(/\n?```$/i, '')
+      .trim()
+    if (!text) return null
+
+    const parsed = JSON.parse(text) as Partial<DigestProse>
+    const suggestions = Array.isArray(parsed.suggestions)
+      ? parsed.suggestions.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 3)
+      : []
+    if (!parsed.status || !parsed.summary) return null
+    return { status: String(parsed.status), summary: String(parsed.summary), suggestions }
+  } catch {
+    return null
   }
+}
 
-  const result = await res.json()
-  const text = result.candidates?.[0]?.content?.parts?.[0]?.text || ''
-
-  void meterCustomersAi({ orgId }, {
-    model: 'gemini-3.5-flash',
-    tokensIn: result?.usageMetadata?.promptTokenCount || 0,
-    tokensOut: result?.usageMetadata?.candidatesTokenCount || 0,
-    feature: 'digest',
-    byoKey: !!byoApiKey,
-  })
-
-  // Strip markdown code fences if present
-  return text.replace(/^```html?\n?/i, '').replace(/\n?```$/i, '').trim()
+async function generateDigestHtml(
+  data: DigestData,
+  personaPrompt: string,
+  orgId?: string | null,
+  byoApiKey?: string | null,
+  businessName = 'Noli AI',
+): Promise<string> {
+  const prose = await generateDigestProse(data, personaPrompt, orgId, byoApiKey)
+  return renderDigestHtml(data, prose, businessName)
 }
 
 // ── POST — Cron-triggered digest send ────────────────────────────────────────
@@ -278,10 +331,10 @@ export async function POST(req: Request) {
         const persona = await getPersonaForOrg(knex, org.organization_id)
         const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
 
-        const data = await gatherDigestData(knex, org.organization_id, org.tenant_id, days)
-        const digestHtml = await generateDigestHtml(data, personaPrompt, org.organization_id, capGate.byoApiKey)
-
         const businessName = org.business_name || 'Your Business'
+        const data = await gatherDigestData(knex, org.organization_id, org.tenant_id, days)
+        const digestHtml = await generateDigestHtml(data, personaPrompt, org.organization_id, capGate.byoApiKey, businessName)
+
         const periodLabel = frequency === 'daily' ? 'Daily' : 'Weekly'
         const subject = `${periodLabel} Business Review — ${businessName}`
 
@@ -341,7 +394,14 @@ export async function GET() {
     const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
 
     const data = await gatherDigestData(knex, auth.orgId, auth.tenantId, 7)
-    const digestHtml = await generateDigestHtml(data, personaPrompt, auth.orgId, gate.byoApiKey)
+    const previewOrg = await knex('organizations').where({ id: auth.orgId }).select('business_name').first()
+    const digestHtml = await generateDigestHtml(
+      data,
+      personaPrompt,
+      auth.orgId,
+      gate.byoApiKey,
+      (previewOrg as { business_name?: string } | undefined)?.business_name || 'Your Business',
+    )
 
     return NextResponse.json({
       ok: true,
