@@ -10,6 +10,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { query, queryOne } from '@/lib/db'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 // Gmail-based voice learning is disabled pending Tier 1 OAuth verification.
 // Re-add these imports when restoring the Gmail source path:
 // import { getGmailTokenRaw, fetchGmailSentMessages } from '@/modules/email/lib/gmail-helpers'
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: ANALYSIS_PROMPT + writingSamples }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 2000 },
+          generationConfig: geminiGenerationConfig({ temperature: 0.3, maxOutputTokens: 2000 }),
         }),
       }
     )
@@ -113,7 +114,7 @@ export async function POST(req: Request) {
     }
 
     const aiData = await aiRes.json()
-    const rawText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    const rawText = geminiText(aiData) || ''
 
     // Parse the JSON response — strip markdown fences if present
     const cleaned = rawText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()

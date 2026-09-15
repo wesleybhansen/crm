@@ -7,6 +7,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const metadata = { path: '/ai/classify-sentiment', POST: { requireAuth: false } }
 
@@ -86,7 +87,7 @@ Sentiment:`
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': orgKey },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0, maxOutputTokens: 10 },
+              generationConfig: geminiGenerationConfig({ temperature: 0, maxOutputTokens: 10 }),
             }),
           }
         )
@@ -100,7 +101,7 @@ Sentiment:`
           feature: 'classify-sentiment',
           byoKey: !!gate.byoApiKey,
         })
-        const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().toLowerCase()
+        const text = (geminiText(data) || '').trim().toLowerCase()
 
         let sentiment = 'neutral'
         if (text.includes('negative')) sentiment = 'negative'

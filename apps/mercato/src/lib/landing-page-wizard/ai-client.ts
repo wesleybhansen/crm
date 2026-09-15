@@ -1,3 +1,4 @@
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 /**
  * Reusable AI caller with provider fallback chain: Gemini -> Anthropic -> OpenAI.
  * Extracted from the landing-page-ai generate route for shared use across wizard endpoints.
@@ -131,7 +132,7 @@ async function callGemini(
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 90000)
 
-    const generationConfig: Record<string, unknown> = {
+    const generationConfig: { maxOutputTokens: number; temperature: number; responseMimeType?: string } = {
       temperature: 0.7,
       maxOutputTokens: opts.maxTokens,
     }
@@ -147,7 +148,7 @@ async function callGemini(
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-          generationConfig,
+          generationConfig: geminiGenerationConfig(generationConfig),
         }),
         signal: controller.signal,
       }
@@ -168,7 +169,7 @@ async function callGemini(
     }
 
     return {
-      text: data.candidates?.[0]?.content?.parts?.[0]?.text || '',
+      text: geminiText(data) || '',
       model,
       provider: 'google',
       usage: {

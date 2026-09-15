@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -61,12 +62,12 @@ Return ONLY valid JSON, no markdown.`
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 500 },
+            generationConfig: geminiGenerationConfig({ temperature: 0.7, maxOutputTokens: 500 }),
           }),
         }
       )
       const data = await res.json()
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      const text = geminiText(data) || ''
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (jsonMatch) result = JSON.parse(jsonMatch[0])
       void meterCustomersAi(auth, {

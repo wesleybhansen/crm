@@ -5,6 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import crypto from 'crypto'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['courses.manage'] },
@@ -75,10 +76,10 @@ Return ONLY valid JSON (no markdown fences):
       const outlineRes = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
         { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
-          body: JSON.stringify({ contents: [{ parts: [{ text: outlinePrompt }] }], generationConfig: { maxOutputTokens: 4000 } }) },
+          body: JSON.stringify({ contents: [{ parts: [{ text: outlinePrompt }] }], generationConfig: geminiGenerationConfig({ maxOutputTokens: 4000 }) }) },
       )
       const outlineData = await outlineRes.json()
-      let outlineText = outlineData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+      let outlineText = geminiText(outlineData)?.trim() || ''
       outlineText = outlineText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
       const jsonMatch = outlineText.match(/\{[\s\S]*\}/)
       if (!jsonMatch) return NextResponse.json({ ok: false, error: 'AI failed to generate outline' }, { status: 500 })
@@ -183,13 +184,13 @@ Write thorough, practical markdown content: start with a brief intro (2-3 senten
             const res = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
               { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey }, signal: controller.signal,
-                body: JSON.stringify({ contents: [{ parts: [{ text: lessonPrompt }] }], generationConfig: { maxOutputTokens: 10000, temperature: 0.7 } }) },
+                body: JSON.stringify({ contents: [{ parts: [{ text: lessonPrompt }] }], generationConfig: geminiGenerationConfig({ maxOutputTokens: 10000, temperature: 0.7 }) }) },
             )
             clearTimeout(timeout)
             const data = await res.json()
             bgTokensIn += data?.usageMetadata?.promptTokenCount || 0
             bgTokensOut += data?.usageMetadata?.candidatesTokenCount || 0
-            const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+            const content = geminiText(data)?.trim() || ''
             if (content) {
               await bgKnex('course_lessons').where('id', lesson.id).update({ content })
             }

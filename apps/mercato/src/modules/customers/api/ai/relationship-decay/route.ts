@@ -10,6 +10,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { requireProcessAuth } from '@/lib/cron-auth'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const openApi: OpenApiRouteDoc = {
   summary: 'Relationship decay alerts',
@@ -303,7 +304,7 @@ Return ONLY the email body text, no subject line.`
                 body: JSON.stringify({
                   system_instruction: { parts: [{ text: systemPrompt }] },
                   contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                  generationConfig: { temperature: 0.8, maxOutputTokens: 256 },
+                  generationConfig: geminiGenerationConfig({ temperature: 0.8, maxOutputTokens: 256 }),
                 }),
               }
             )
@@ -316,7 +317,7 @@ Return ONLY the email body text, no subject line.`
               feature: 'relationship-decay',
               byoKey: !!capGate.byoApiKey,
             })
-            const draftBody = data.candidates?.[0]?.content?.parts?.[0]?.text
+            const draftBody = geminiText(data)
             if (draftBody) {
               alert.draftEmail = draftBody
               draftsGenerated++

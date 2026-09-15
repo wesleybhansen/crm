@@ -1,5 +1,6 @@
 import type { Knex } from 'knex'
 import { composeReplyPromptV1 } from './reply-prompt-contract'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 /**
  * Shared reply-drafting logic for the inbox. Factored out of
@@ -266,14 +267,14 @@ Respond with ONLY JSON: {"approve": true|false, "reason": "one short sentence"}`
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 200, temperature: 0, responseMimeType: 'application/json' },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 200, temperature: 0, responseMimeType: 'application/json' }),
         }),
       },
     )
     const data = await res.json()
     const tokensIn = data?.usageMetadata?.promptTokenCount || 0
     const tokensOut = data?.usageMetadata?.candidatesTokenCount || 0
-    const raw: string | undefined = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    const raw: string | undefined = geminiText(data)?.trim()
     if (!raw) return { approve: false, tokensIn, tokensOut }
     const parsed = tryParseEnvelope(raw) as { approve?: unknown } | null
     return { approve: parsed?.approve === true, tokensIn, tokensOut }
@@ -388,7 +389,7 @@ ${ts.summary}`
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [{ parts: [{ text: replyPrompt }] }],
-        generationConfig: { maxOutputTokens: 10000, temperature: 0.7, responseMimeType: 'application/json' },
+        generationConfig: geminiGenerationConfig({ maxOutputTokens: 10000, temperature: 0.7, responseMimeType: 'application/json' }),
       }),
       // A hung provider used to stall the whole */15 cron pass.
       signal: AbortSignal.timeout(60_000),
@@ -401,7 +402,7 @@ ${ts.summary}`
   const aiData = await aiRes.json()
   const finishReason: string = String(aiData.candidates?.[0]?.finishReason ?? 'STOP')
   const raw: string | undefined = finishReason === 'STOP'
-    ? aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    ? geminiText(aiData)?.trim()
     : undefined // MAX_TOKENS / SAFETY: a cut or blocked reply is not a draft
 
   const tokensIn = (aiData?.usageMetadata?.promptTokenCount || 0) + threadSummaryTokensIn

@@ -12,6 +12,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { decryptRowFields, CONTACT_ENTITY_KEY, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { renderDigestHtml, money, type DigestData, type DigestProse } from '../../../lib/digest-render'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const metadata = { path: '/ai/digest',
   POST: { requireAuth: false },
@@ -207,10 +208,9 @@ ${dataSection}`
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
+          generationConfig: geminiGenerationConfig({
             temperature: 0.7,
-            // Room for the model to think and still finish. The old 2048 was
-            // shared with a whole HTML document and ran out mid-tag.
+            // The answer budget; thinking gets its own reserve on top.
             maxOutputTokens: 4096,
             responseMimeType: 'application/json',
             responseSchema: {
@@ -222,7 +222,7 @@ ${dataSection}`
               },
               required: ['status', 'summary', 'suggestions'],
             },
-          },
+          }),
         }),
       },
     )
@@ -241,7 +241,7 @@ ${dataSection}`
     // rendered. The report still sends with its numbers.
     if (result?.candidates?.[0]?.finishReason && result.candidates[0].finishReason !== 'STOP') return null
 
-    const text = String(result?.candidates?.[0]?.content?.parts?.[0]?.text || '')
+    const text = String(geminiText(result) || '')
       .replace(/^```json?\n?/i, '')
       .replace(/\n?```$/i, '')
       .trim()

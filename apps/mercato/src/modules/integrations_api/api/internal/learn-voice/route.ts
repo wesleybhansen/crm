@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 /* Internal service endpoint (shared NOLI_INTERNAL_SERVICE_SECRET) that learns the
  * user's writing voice from their own sent mail (or pasted samples) and stores it
@@ -213,7 +214,7 @@ export async function POST(req: Request) {
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: ANALYSIS_PROMPT + samples }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 2000 },
+          generationConfig: geminiGenerationConfig({ temperature: 0.3, maxOutputTokens: 2000 }),
         }),
       })
       if (!aiRes.ok) {
@@ -222,7 +223,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: 'Could not analyze your writing. Try again.' }, { status: 502 })
       }
       const aiData = await aiRes.json()
-      const rawText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      const rawText = geminiText(aiData) || ''
       const cleaned = rawText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
       let voiceProfile: unknown
       try {

@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 /* Migration assistant (T4): AI column mapping for spreadsheet imports.
  * The user uploads any CSV export (HubSpot, GHL, Sheets, whatever) — this maps
@@ -71,7 +72,7 @@ Return ONLY valid JSON, no markdown:
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 400, responseMimeType: 'application/json' },
+          generationConfig: geminiGenerationConfig({ temperature: 0, maxOutputTokens: 400, responseMimeType: 'application/json' }),
         }),
       }
     )
@@ -84,7 +85,7 @@ Return ONLY valid JSON, no markdown:
       byoKey: !!gate.byoApiKey,
     })
 
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    const text = geminiText(data) || ''
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
       return NextResponse.json({ ok: false, error: 'AI could not map the columns' }, { status: 500 })

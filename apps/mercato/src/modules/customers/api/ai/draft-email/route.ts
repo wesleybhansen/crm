@@ -8,6 +8,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg, buildVoicePromptSection } from '../persona'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   try {
@@ -90,7 +91,7 @@ RULES:
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 512 },
+          generationConfig: geminiGenerationConfig({ temperature: 0.7, maxOutputTokens: 512 }),
         }),
         signal: controller.signal,
       }
@@ -111,7 +112,7 @@ Best regards`,
       })
     }
 
-    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    let text = geminiText(data) || ''
     text = text.trim()
     if (text.startsWith('```')) text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
 

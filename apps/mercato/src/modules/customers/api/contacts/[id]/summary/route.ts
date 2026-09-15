@@ -9,6 +9,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 // GET — load saved summary (no generation)
 export async function GET(
@@ -267,7 +268,7 @@ ${promptSections}`
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { maxOutputTokens: 300 },
+              generationConfig: geminiGenerationConfig({ maxOutputTokens: 300 }),
             }),
           },
         )
@@ -279,7 +280,7 @@ ${promptSections}`
           feature: 'contact-summary',
           byoKey: !!gate.byoApiKey,
         })
-        const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text
+        const aiText = geminiText(aiData)
         if (aiText) {
           summary = aiText.trim()
           isAi = true

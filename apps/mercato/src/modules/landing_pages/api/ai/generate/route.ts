@@ -11,6 +11,7 @@ import {
   resolvePlatformProviderApiKey,
   resolvePrimaryProviderAccess,
 } from '@/lib/usage/provider-access'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['landing_pages.create'] },
@@ -100,7 +101,7 @@ ${bodyContent}`
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey! },
           body: JSON.stringify({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 16384 },
+            generationConfig: geminiGenerationConfig({ temperature: 0.7, maxOutputTokens: 16384 }),
           }),
           signal: controller.signal,
         }
@@ -118,7 +119,7 @@ ${bodyContent}`
         feature: 'landing-generate',
         byoKey: providerAccess.byoKey,
       })
-      html = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      html = geminiText(data) || ''
     } else if (provider === 'anthropic') {
       const model = process.env.AI_MODEL || 'claude-haiku-4-5-20251001'
       const response = await fetch('https://api.anthropic.com/v1/messages', {

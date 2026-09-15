@@ -4,6 +4,7 @@ import {
   resolvePlatformProviderApiKey,
   type SupportedAiProvider,
 } from '@/lib/usage/provider-access'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export interface ConversationMessage {
   role: 'user' | 'assistant'
@@ -271,10 +272,10 @@ Apply the user's feedback and return the COMPLETE updated JSON content (same str
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemMsg }] },
           contents,
-          generationConfig: {
+          generationConfig: geminiGenerationConfig({
             temperature: 0.7,
             maxOutputTokens: 4096,
-          },
+          }),
         }),
       }
     )
@@ -284,7 +285,7 @@ Apply the user's feedback and return the COMPLETE updated JSON content (same str
       console.error('[ai-page-builder] Gemini error:', JSON.stringify(data.error))
       throw new Error(`Gemini API error: ${data.error.message || JSON.stringify(data.error)}`)
     }
-    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+    if (!geminiText(data)) {
       console.error('[ai-page-builder] Gemini empty response:', JSON.stringify(data).substring(0, 500))
       throw new Error('Gemini returned empty response')
     }
@@ -293,7 +294,7 @@ Apply the user's feedback and return the COMPLETE updated JSON content (same str
       tokensIn: data?.usageMetadata?.promptTokenCount || 0,
       tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
     }
-    return data.candidates[0].content.parts[0].text
+    return geminiText(data)
   }
 
   private async callClaude(messages: Array<{ role: string; content: string }>): Promise<string> {

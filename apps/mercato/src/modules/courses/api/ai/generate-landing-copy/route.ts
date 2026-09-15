@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['courses.manage'] },
@@ -115,12 +116,12 @@ Return ONLY valid JSON (no markdown, no explanation):
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
       {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 4000, temperature: 0.8 } }),
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: geminiGenerationConfig({ maxOutputTokens: 4000, temperature: 0.8 }) }),
       },
     )
 
     const aiData = await aiRes.json()
-    let text = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+    let text = geminiText(aiData)?.trim() || ''
     text = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) return NextResponse.json({ ok: false, error: 'AI returned invalid format' }, { status: 500 })

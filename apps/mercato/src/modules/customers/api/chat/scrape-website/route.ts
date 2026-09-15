@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { safeFetch } from '@/lib/safe-fetch'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 // Common pages that typically contain useful business information
 const COMMON_PATHS = [
@@ -253,12 +254,12 @@ ${combinedContent.substring(0, 120000)}`
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { maxOutputTokens: 8000 },
+              generationConfig: geminiGenerationConfig({ maxOutputTokens: 8000 }),
             }),
           },
         )
         const aiData = await aiRes.json()
-        const summary = aiData.candidates?.[0]?.content?.parts?.[0]?.text
+        const summary = geminiText(aiData)
         if (summary) {
           void meterCustomersAi(auth, {
             model: 'gemini-2.5-flash',

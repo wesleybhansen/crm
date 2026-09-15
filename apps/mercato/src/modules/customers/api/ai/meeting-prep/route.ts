@@ -14,6 +14,7 @@ import { listOpenCommitments, extractCommitmentsForContact, formatCommitmentsFor
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const metadata = { path: '/ai/meeting-prep',
   POST: { requireAuth: false },
@@ -261,7 +262,7 @@ ${dataSection}`
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 1500 },
+        generationConfig: geminiGenerationConfig({ temperature: 0.7, maxOutputTokens: 1500 }),
       }),
     },
   )
@@ -272,7 +273,7 @@ ${dataSection}`
   }
 
   const result = await res.json()
-  const text = result.candidates?.[0]?.content?.parts?.[0]?.text || ''
+  const text = geminiText(result) || ''
 
   void meterCustomersAi({ orgId }, {
     model: 'gemini-3.8-flash',

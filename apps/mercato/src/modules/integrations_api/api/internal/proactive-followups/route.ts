@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { geminiGenerationConfig } from '@/lib/ai/gemini'
 
 /*
  * Internal server-to-server endpoint (Noli U-53: CRM follow-up execution).
@@ -45,7 +46,7 @@ Return STRICT JSON: {"subject": "...", "body": "..."}`
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 2048, responseMimeType: 'application/json' },
+          generationConfig: geminiGenerationConfig({ temperature: 0.7, maxOutputTokens: 2048, responseMimeType: 'application/json' }),
         }),
         signal: AbortSignal.timeout(30_000),
       },

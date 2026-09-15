@@ -17,6 +17,7 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { renderToolCatalogForPrompt } from '@/modules/customers/lib/crm-tool-catalog'
 import { observeScoutUsage, type ScoutUsageObservation } from '@/modules/customers/lib/scout-usage-observation'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const openApi = {
   tag: 'Customers',
@@ -793,7 +794,7 @@ async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessag
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents,
-          generationConfig: { temperature: 0.7, maxOutputTokens: 1500 },
+          generationConfig: geminiGenerationConfig({ temperature: 0.7, maxOutputTokens: 1500 }),
         }),
         signal: controller.signal,
       }
@@ -810,7 +811,7 @@ async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessag
     err.retriable = res.status === 429 || res.status >= 500 || /resource exhausted|rate limit|quota/i.test(msg)
     throw err
   }
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+  const text = geminiText(data)
   if (!text) {
     const err: any = new Error('Empty Gemini response')
     err.retriable = true

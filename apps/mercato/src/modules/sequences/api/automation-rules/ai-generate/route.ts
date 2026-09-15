@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 const VALID_TRIGGERS = ['contact_created', 'tag_added', 'tag_removed', 'form_submitted', 'invoice_paid', 'booking_created', 'deal_won', 'deal_lost', 'course_enrolled', 'stage_change']
 const VALID_ACTIONS = ['send_email', 'send_sms', 'add_tag', 'remove_tag', 'move_to_stage', 'create_task', 'add_to_list', 'enroll_in_sequence', 'webhook']
@@ -98,7 +99,7 @@ User request: ${prompt}`
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
           body: JSON.stringify({
             contents: [{ parts: [{ text: systemPrompt }] }],
-            generationConfig: { maxOutputTokens: 2000, temperature: 0.7 },
+            generationConfig: geminiGenerationConfig({ maxOutputTokens: 2000, temperature: 0.7 }),
           }),
         },
       )
@@ -109,7 +110,7 @@ User request: ${prompt}`
       }
 
       const data = await res.json()
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      const text = geminiText(data) || ''
 
       void meterCustomersAi(auth, {
         model: 'gemini-3.8-flash',

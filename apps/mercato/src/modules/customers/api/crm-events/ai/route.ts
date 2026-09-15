@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 
 export async function POST(req: Request) {
@@ -61,7 +62,7 @@ Return ONLY valid JSON:
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
       { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 3000, temperature: 0.8 } }) },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: geminiGenerationConfig({ maxOutputTokens: 3000, temperature: 0.8 }) }) },
     )
     const aiData = await res.json()
     void meterCustomersAi(auth, {
@@ -71,7 +72,7 @@ Return ONLY valid JSON:
       feature: 'crm-events-ai-copy',
       byoKey: !!gate.byoApiKey,
     })
-    let text = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+    let text = geminiText(aiData)?.trim() || ''
     text = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) return NextResponse.json({ ok: false, error: 'AI returned invalid format' }, { status: 500 })

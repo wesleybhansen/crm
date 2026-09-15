@@ -6,6 +6,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { safeFetch } from '@/lib/safe-fetch'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -137,13 +138,13 @@ ${textContent}`
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 1000 },
+          generationConfig: geminiGenerationConfig({ temperature: 0.3, maxOutputTokens: 1000 }),
         }),
       }
     )
 
     const geminiData = await geminiRes.json()
-    const aiText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    const aiText = geminiText(geminiData) || ''
     const jsonMatch = aiText.match(/\{[\s\S]*\}/)
 
     let aiResult: any = {}

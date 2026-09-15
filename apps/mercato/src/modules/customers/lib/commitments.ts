@@ -1,4 +1,5 @@
 import type { Knex } from 'knex'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 /* Commitments: first-class "what was promised, both directions" records.
  *
@@ -112,14 +113,14 @@ ${transcript}${trackedBlock}`
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 700, temperature: 0.2 },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 700, temperature: 0.2 }),
         }),
       },
     )
     const aiData = await aiRes.json()
     const tokensIn = aiData?.usageMetadata?.promptTokenCount || 0
     const tokensOut = aiData?.usageMetadata?.candidatesTokenCount || 0
-    const text: string | undefined = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    const text: string | undefined = geminiText(aiData)?.trim()
     if (!text) return { ...none, tokensIn, tokensOut }
 
     let items: Array<{ direction?: string; description?: string; dueDate?: string | null }> = []

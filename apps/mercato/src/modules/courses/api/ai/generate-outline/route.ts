@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['courses.manage'] },
@@ -93,7 +94,7 @@ Rules:
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 4000, temperature: 0.7 },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 4000, temperature: 0.7 }),
         }),
       },
     )
@@ -104,7 +105,7 @@ Rules:
       console.error('[courses.ai.generate-outline] Blocked by safety filter:', blocked)
       return NextResponse.json({ ok: false, error: 'AI content filter blocked this request. Try simplifying your source documents or topic.' }, { status: 400 })
     }
-    let text = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    let text = geminiText(aiData)?.trim()
     if (!text) {
       console.error('[courses.ai.generate-outline] Empty AI response:', JSON.stringify(aiData).substring(0, 500))
       return NextResponse.json({ ok: false, error: 'AI could not generate an outline. Try again or simplify your inputs.' }, { status: 500 })

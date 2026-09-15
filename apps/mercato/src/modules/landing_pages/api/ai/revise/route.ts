@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { BASE_CRAFT_RULES } from '@/lib/landing-page-wizard/constants'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['landing_pages.edit'] },
@@ -72,7 +73,7 @@ ${bodyContent}`
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 16384 },
+          generationConfig: geminiGenerationConfig({ temperature: 0.7, maxOutputTokens: 16384 }),
         }),
         signal: controller.signal,
       }
@@ -91,7 +92,7 @@ ${bodyContent}`
       return NextResponse.json({ ok: false, error: `AI error: ${data.error.message}` }, { status: 500 })
     }
 
-    let html = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    let html = geminiText(data) || ''
     html = html.trim()
     if (html.startsWith('```')) {
       html = html.replace(/^```(?:html)?\n?/, '').replace(/\n?```$/, '')

@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['courses.manage'] },
@@ -68,13 +69,13 @@ Return ONLY the lesson content — no title header (the platform adds that), no 
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 10000, temperature: 0.7 },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 10000, temperature: 0.7 }),
         }),
       },
     )
 
     const aiData = await aiRes.json()
-    let content = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    let content = geminiText(aiData)?.trim()
     if (!content) return NextResponse.json({ ok: false, error: 'AI could not generate lesson content' }, { status: 500 })
 
     void meterCustomersAi(auth, {

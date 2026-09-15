@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 // Modest abuse guard: per-session sliding-window message cap (in-memory, resets on restart).
 const TUTOR_MESSAGES_PER_HOUR = 30
@@ -149,13 +150,13 @@ RULES:
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
         body: JSON.stringify({
           contents,
-          generationConfig: { maxOutputTokens: 2000, temperature: 0.7 },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 2000, temperature: 0.7 }),
         }),
       },
     )
 
     const aiData = await res.json()
-    const reply = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    const reply = geminiText(aiData)?.trim()
 
     if (!reply) {
       return NextResponse.json({ ok: false, error: 'AI could not generate a response' }, { status: 500 })

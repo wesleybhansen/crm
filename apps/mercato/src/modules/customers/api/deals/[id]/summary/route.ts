@@ -11,6 +11,7 @@ import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 // Per-deal AI summary, cached on customer_deals.ai_summary (mirrors the
 // contacts/[id]/summary pattern). Consumed by meeting-prep briefs and Scout;
@@ -152,7 +153,7 @@ ${promptSections}`
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 350 },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 350 }),
         }),
       },
     )
@@ -164,7 +165,7 @@ ${promptSections}`
       feature: 'deal-summary',
       byoKey: !!gate.byoApiKey,
     })
-    const summary: string | undefined = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    const summary: string | undefined = geminiText(aiData)?.trim()
     if (!summary) return NextResponse.json({ ok: false, error: 'AI could not generate a summary' }, { status: 500 })
 
     const now = new Date()

@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 /* Self-recommending sequences: "this lead looks like a workshop inquiry —
  * start the workshop follow-up?" GET matches an inbox conversation against
@@ -93,7 +94,7 @@ Return ONLY JSON: {"sequenceId": "<id>" | null, "reason": "<one short sentence f
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 200, temperature: 0.1 },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 200, temperature: 0.1 }),
         }),
       },
     )
@@ -105,7 +106,7 @@ Return ONLY JSON: {"sequenceId": "<id>" | null, "reason": "<one short sentence f
       feature: 'sequence-suggestion',
       byoKey: !!gate.byoApiKey,
     })
-    const text: string | undefined = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    const text: string | undefined = geminiText(aiData)?.trim()
     let verdict: { sequenceId?: string | null; reason?: string } = {}
     try {
       const match = text?.match(/\{[\s\S]*\}/)

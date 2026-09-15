@@ -7,6 +7,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { logTimelineEvent } from '@/lib/timeline'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 /* Voice debrief: talk for 60 seconds after a call and it becomes records.
  * Takes a raw transcript (browser speech-to-text or typed), parses it into a
@@ -87,7 +88,7 @@ ${transcript}`
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 2200, temperature: 0.3 },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 2200, temperature: 0.3 }),
         }),
       },
     )
@@ -99,7 +100,7 @@ ${transcript}`
       feature: 'voice-debrief',
       byoKey: !!gate.byoApiKey,
     })
-    const text: string | undefined = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    const text: string | undefined = geminiText(aiData)?.trim()
     if (!text) return NextResponse.json({ ok: false, error: 'Could not process the debrief. Try again.' }, { status: 502 })
 
     let plan: DebriefPlan

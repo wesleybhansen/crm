@@ -9,6 +9,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -60,13 +61,13 @@ Return ONLY a valid JSON array (no markdown, no explanation):
               { inlineData: { mimeType, data: base64 } },
             ],
           }],
-          generationConfig: { maxOutputTokens: 4000, temperature: 0.1 },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 4000, temperature: 0.1 }),
         }),
       },
     )
 
     const aiData = await res.json()
-    let text = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+    let text = geminiText(aiData)?.trim() || ''
     text = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
 
     if (!text) return NextResponse.json({ ok: false, error: 'Could not extract information from image' }, { status: 400 })

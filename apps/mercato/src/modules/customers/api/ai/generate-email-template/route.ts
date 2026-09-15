@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   try {
@@ -73,7 +74,7 @@ OUTPUT: Return ONLY the raw HTML. No markdown fences, no explanation. Just the c
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
+          generationConfig: geminiGenerationConfig({ temperature: 0.4, maxOutputTokens: 8192 }),
         }),
         signal: controller.signal,
       }
@@ -93,7 +94,7 @@ OUTPUT: Return ONLY the raw HTML. No markdown fences, no explanation. Just the c
       return NextResponse.json({ ok: false, error: 'AI generation failed' }, { status: 502 })
     }
 
-    let htmlTemplate = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    let htmlTemplate = geminiText(data) || ''
     htmlTemplate = htmlTemplate.trim()
     if (htmlTemplate.startsWith('```')) {
       htmlTemplate = htmlTemplate.replace(/^```(?:html)?\n?/, '').replace(/\n?```$/, '')

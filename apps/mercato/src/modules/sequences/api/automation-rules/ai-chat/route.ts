@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
+import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
@@ -128,12 +129,12 @@ GUIDELINES:
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents,
-          generationConfig: { maxOutputTokens: 800 },
+          generationConfig: geminiGenerationConfig({ maxOutputTokens: 800 }),
         }),
       },
     )
     const data = await res.json()
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    const text = geminiText(data) || ''
 
     if (!text) {
       return NextResponse.json({ ok: false, error: 'No response from AI' }, { status: 500 })
