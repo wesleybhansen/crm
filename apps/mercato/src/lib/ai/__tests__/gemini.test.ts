@@ -1,4 +1,4 @@
-import { GEMINI_THINKING_RESERVE_TOKENS, geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { GEMINI_THINKING_RESERVE_TOKENS, geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 // Measured 2026-09-14 on gemini-3.8-flash: the sentiment classifier's 10-token
 // cap produced 7 thinking tokens and no answer at all.
@@ -26,5 +26,17 @@ describe('geminiText', () => {
     expect(geminiText(undefined)).toBe('')
     expect(geminiText({ candidates: [] })).toBe('')
     expect(geminiText({ candidates: [{ content: null }] })).toBe('')
+  })
+})
+
+describe('geminiUsage', () => {
+  it('bills thoughts as output tokens, the way Google does', () => {
+    const usage = geminiUsage({ usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 30, thoughtsTokenCount: 700 } })
+    expect(usage).toEqual({ tokensIn: 120, tokensOut: 730 })
+  })
+
+  it('treats missing counts as zero', () => {
+    expect(geminiUsage({ usageMetadata: { promptTokenCount: 5 } })).toEqual({ tokensIn: 5, tokensOut: 0 })
+    expect(geminiUsage(undefined)).toEqual({ tokensIn: 0, tokensOut: 0 })
   })
 })

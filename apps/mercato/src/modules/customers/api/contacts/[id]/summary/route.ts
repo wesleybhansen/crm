@@ -9,7 +9,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 // GET — load saved summary (no generation)
 export async function GET(
@@ -275,8 +275,8 @@ ${promptSections}`
         const aiData = await aiRes.json()
         void meterCustomersAi(auth, {
           model: 'gemini-3.8-flash',
-          tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
-          tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+          tokensIn: geminiUsage(aiData).tokensIn,
+          tokensOut: geminiUsage(aiData).tokensOut,
           feature: 'contact-summary',
           byoKey: !!gate.byoApiKey,
         })

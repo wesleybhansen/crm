@@ -10,7 +10,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { requireProcessAuth } from '@/lib/cron-auth'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export const openApi: OpenApiRouteDoc = {
   summary: 'Relationship decay alerts',
@@ -312,8 +312,8 @@ Return ONLY the email body text, no subject line.`
             const data = await response.json()
             void meterCustomersAi({ orgId: org.id }, {
               model,
-              tokensIn: data?.usageMetadata?.promptTokenCount || 0,
-              tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+              tokensIn: geminiUsage(data).tokensIn,
+              tokensOut: geminiUsage(data).tokensOut,
               feature: 'relationship-decay',
               byoKey: !!capGate.byoApiKey,
             })

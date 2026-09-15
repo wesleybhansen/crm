@@ -5,7 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { BASE_CRAFT_RULES } from '@/lib/landing-page-wizard/constants'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['landing_pages.edit'] },
@@ -83,8 +83,8 @@ ${bodyContent}`
     const data = await response.json()
     void meterCustomersAi(auth, {
       model,
-      tokensIn: data?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(data).tokensIn,
+      tokensOut: geminiUsage(data).tokensOut,
       feature: 'landing-revise',
       byoKey: !!gate.byoApiKey,
     })

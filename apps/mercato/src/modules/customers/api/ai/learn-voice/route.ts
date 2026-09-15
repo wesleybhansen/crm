@@ -10,7 +10,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { query, queryOne } from '@/lib/db'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 // Gmail-based voice learning is disabled pending Tier 1 OAuth verification.
 // Re-add these imports when restoring the Gmail source path:
 // import { getGmailTokenRaw, fetchGmailSentMessages } from '@/modules/email/lib/gmail-helpers'
@@ -134,8 +134,8 @@ export async function POST(req: Request) {
 
     void meterCustomersAi(auth, {
       model: 'gemini-3.8-flash',
-      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(aiData).tokensIn,
+      tokensOut: geminiUsage(aiData).tokensOut,
       feature: 'learn-voice',
       byoKey: !!gate.byoApiKey,
     })

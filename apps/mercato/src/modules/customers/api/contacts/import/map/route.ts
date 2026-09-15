@@ -5,7 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 /* Migration assistant (T4): AI column mapping for spreadsheet imports.
  * The user uploads any CSV export (HubSpot, GHL, Sheets, whatever) — this maps
@@ -79,8 +79,8 @@ Return ONLY valid JSON, no markdown:
     const data = await res.json()
     void meterCustomersAi(auth, {
       model: 'gemini-3.8-flash',
-      tokensIn: data?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(data).tokensIn,
+      tokensOut: geminiUsage(data).tokensOut,
       feature: 'import-column-map',
       byoKey: !!gate.byoApiKey,
     })

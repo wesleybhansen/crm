@@ -5,7 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 // Modest abuse guard: per-session sliding-window message cap (in-memory, resets on restart).
 const TUTOR_MESSAGES_PER_HOUR = 30
@@ -164,8 +164,8 @@ RULES:
 
     void meterCustomersAi(orgAuth, {
       model: 'gemini-2.5-flash',
-      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(aiData).tokensIn,
+      tokensOut: geminiUsage(aiData).tokensOut,
       feature: 'course-tutor',
       byoKey: !!gate.byoApiKey,
     })

@@ -11,7 +11,7 @@ import {
   resolvePlatformProviderApiKey,
   resolvePrimaryProviderAccess,
 } from '@/lib/usage/provider-access'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['landing_pages.create'] },
@@ -114,8 +114,8 @@ ${bodyContent}`
       }
       void meterCustomersAi(auth, {
         model,
-        tokensIn: data?.usageMetadata?.promptTokenCount || 0,
-        tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+        tokensIn: geminiUsage(data).tokensIn,
+        tokensOut: geminiUsage(data).tokensOut,
         feature: 'landing-generate',
         byoKey: providerAccess.byoKey,
       })

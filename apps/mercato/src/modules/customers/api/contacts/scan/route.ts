@@ -9,7 +9,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -84,8 +84,8 @@ Return ONLY a valid JSON array (no markdown, no explanation):
 
     void meterCustomersAi(auth, {
       model: 'gemini-2.5-flash',
-      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(aiData).tokensIn,
+      tokensOut: geminiUsage(aiData).tokensOut,
       feature: 'contacts-scan',
       byoKey: !!gate.byoApiKey,
     })

@@ -11,7 +11,7 @@ import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 // Per-deal AI summary, cached on customer_deals.ai_summary (mirrors the
 // contacts/[id]/summary pattern). Consumed by meeting-prep briefs and Scout;
@@ -160,8 +160,8 @@ ${promptSections}`
     const aiData = await aiRes.json()
     void meterCustomersAi(auth, {
       model: 'gemini-3.8-flash',
-      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(aiData).tokensIn,
+      tokensOut: geminiUsage(aiData).tokensOut,
       feature: 'deal-summary',
       byoKey: !!gate.byoApiKey,
     })

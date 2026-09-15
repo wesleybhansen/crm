@@ -7,7 +7,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { logTimelineEvent } from '@/lib/timeline'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 /* Voice debrief: talk for 60 seconds after a call and it becomes records.
  * Takes a raw transcript (browser speech-to-text or typed), parses it into a
@@ -95,8 +95,8 @@ ${transcript}`
     const aiData = await aiRes.json()
     void meterCustomersAi(auth, {
       model: DEBRIEF_MODEL,
-      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(aiData).tokensIn,
+      tokensOut: geminiUsage(aiData).tokensOut,
       feature: 'voice-debrief',
       byoKey: !!gate.byoApiKey,
     })

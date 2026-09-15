@@ -17,7 +17,7 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { renderToolCatalogForPrompt } from '@/modules/customers/lib/crm-tool-catalog'
 import { observeScoutUsage, type ScoutUsageObservation } from '@/modules/customers/lib/scout-usage-observation'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export const openApi = {
   tag: 'Customers',
@@ -817,8 +817,8 @@ async function callGemini(apiKey: string, systemPrompt: string, msgs: ChatMessag
     err.retriable = true
     throw err
   }
-  const tokensIn = Number(data?.usageMetadata?.promptTokenCount) || 0
-  const tokensOut = Number(data?.usageMetadata?.candidatesTokenCount) || 0
+  const tokensIn = geminiUsage(data).tokensIn
+  const tokensOut = geminiUsage(data).tokensOut
   return { text, model, tokensIn, tokensOut, usageObservation: observeScoutUsage('gemini', data?.usageMetadata) }
 }
 

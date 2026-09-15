@@ -5,7 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import crypto from 'crypto'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['courses.manage'] },
@@ -86,8 +86,8 @@ Return ONLY valid JSON (no markdown fences):
       outline = JSON.parse(jsonMatch[0])
       void meterCustomersAi(auth, {
         model: 'gemini-2.5-flash',
-        tokensIn: outlineData?.usageMetadata?.promptTokenCount || 0,
-        tokensOut: outlineData?.usageMetadata?.candidatesTokenCount || 0,
+        tokensIn: geminiUsage(outlineData).tokensIn,
+        tokensOut: geminiUsage(outlineData).tokensOut,
         feature: 'courses-generate-full-course',
         byoKey: !!gate.byoApiKey,
       })
@@ -188,8 +188,8 @@ Write thorough, practical markdown content: start with a brief intro (2-3 senten
             )
             clearTimeout(timeout)
             const data = await res.json()
-            bgTokensIn += data?.usageMetadata?.promptTokenCount || 0
-            bgTokensOut += data?.usageMetadata?.candidatesTokenCount || 0
+            bgTokensIn += geminiUsage(data).tokensIn
+            bgTokensOut += geminiUsage(data).tokensOut
             const content = geminiText(data)?.trim() || ''
             if (content) {
               await bgKnex('course_lessons').where('id', lesson.id).update({ content })

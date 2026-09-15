@@ -5,7 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { safeFetch } from '@/lib/safe-fetch'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 // Common pages that typically contain useful business information
 const COMMON_PATHS = [
@@ -263,8 +263,8 @@ ${combinedContent.substring(0, 120000)}`
         if (summary) {
           void meterCustomersAi(auth, {
             model: 'gemini-2.5-flash',
-            tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
-            tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+            tokensIn: geminiUsage(aiData).tokensIn,
+            tokensOut: geminiUsage(aiData).tokensOut,
             feature: 'chat-scrape-website',
             byoKey: !!gate.byoApiKey,
           })

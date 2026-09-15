@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 /* Self-recommending sequences: "this lead looks like a workshop inquiry —
  * start the workshop follow-up?" GET matches an inbox conversation against
@@ -101,8 +101,8 @@ Return ONLY JSON: {"sequenceId": "<id>" | null, "reason": "<one short sentence f
     const aiData = await aiRes.json()
     void meterCustomersAi(auth, {
       model: MATCH_MODEL,
-      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(aiData).tokensIn,
+      tokensOut: geminiUsage(aiData).tokensOut,
       feature: 'sequence-suggestion',
       byoKey: !!gate.byoApiKey,
     })

@@ -4,7 +4,7 @@ import {
   resolvePlatformProviderApiKey,
   type SupportedAiProvider,
 } from '@/lib/usage/provider-access'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export interface ConversationMessage {
   role: 'user' | 'assistant'
@@ -291,8 +291,8 @@ Apply the user's feedback and return the COMPLETE updated JSON content (same str
     }
 
     this.lastUsage = {
-      tokensIn: data?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(data).tokensIn,
+      tokensOut: geminiUsage(data).tokensOut,
     }
     return geminiText(data)
   }

@@ -8,7 +8,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildPersonaPrompt, getPersonaForOrg, buildVoicePromptSection } from '../persona'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   try {
@@ -118,8 +118,8 @@ Best regards`,
 
     void meterCustomersAi(auth, {
       model,
-      tokensIn: data?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(data).tokensIn,
+      tokensOut: geminiUsage(data).tokensOut,
       feature: 'draft-email',
       byoKey: !!gate.byoApiKey,
     })

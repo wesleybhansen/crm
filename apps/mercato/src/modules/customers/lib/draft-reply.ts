@@ -1,6 +1,6 @@
 import type { Knex } from 'knex'
 import { composeReplyPromptV1 } from './reply-prompt-contract'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 /**
  * Shared reply-drafting logic for the inbox. Factored out of
@@ -272,8 +272,8 @@ Respond with ONLY JSON: {"approve": true|false, "reason": "one short sentence"}`
       },
     )
     const data = await res.json()
-    const tokensIn = data?.usageMetadata?.promptTokenCount || 0
-    const tokensOut = data?.usageMetadata?.candidatesTokenCount || 0
+    const tokensIn = geminiUsage(data).tokensIn
+    const tokensOut = geminiUsage(data).tokensOut
     const raw: string | undefined = geminiText(data)?.trim()
     if (!raw) return { approve: false, tokensIn, tokensOut }
     const parsed = tryParseEnvelope(raw) as { approve?: unknown } | null
@@ -405,8 +405,8 @@ ${ts.summary}`
     ? geminiText(aiData)?.trim()
     : undefined // MAX_TOKENS / SAFETY: a cut or blocked reply is not a draft
 
-  const tokensIn = (aiData?.usageMetadata?.promptTokenCount || 0) + threadSummaryTokensIn
-  const tokensOut = (aiData?.usageMetadata?.candidatesTokenCount || 0) + threadSummaryTokensOut
+  const tokensIn = (geminiUsage(aiData).tokensIn) + threadSummaryTokensIn
+  const tokensOut = (geminiUsage(aiData).tokensOut) + threadSummaryTokensOut
 
   if (!raw) {
     return { ok: false, error: 'AI could not generate a draft', model: DRAFT_MODEL, tokensIn, tokensOut, confidence: 0, autoSendSafe: false, matchedScenarios: [] }

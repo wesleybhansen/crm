@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   try {
@@ -84,8 +84,8 @@ OUTPUT: Return ONLY the raw HTML. No markdown fences, no explanation. Just the c
     const data = await response.json()
     void meterCustomersAi(auth, {
       model,
-      tokensIn: data?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(data).tokensIn,
+      tokensOut: geminiUsage(data).tokensOut,
       feature: 'generate-email-template',
       byoKey: !!gate.byoApiKey,
     })

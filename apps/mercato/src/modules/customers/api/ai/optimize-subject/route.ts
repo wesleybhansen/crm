@@ -5,7 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -72,8 +72,8 @@ Return ONLY valid JSON, no markdown.`
       if (jsonMatch) result = JSON.parse(jsonMatch[0])
       void meterCustomersAi(auth, {
         model: 'gemini-3.8-flash',
-        tokensIn: data?.usageMetadata?.promptTokenCount || 0,
-        tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+        tokensIn: geminiUsage(data).tokensIn,
+        tokensOut: geminiUsage(data).tokensOut,
         feature: 'optimize-subject',
         byoKey: !!gate.byoApiKey,
       })

@@ -6,7 +6,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { safeFetch } from '@/lib/safe-fetch'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -154,8 +154,8 @@ ${textContent}`
 
     void meterCustomersAi(auth, {
       model: 'gemini-3.8-flash',
-      tokensIn: geminiData?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: geminiData?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(geminiData).tokensIn,
+      tokensOut: geminiUsage(geminiData).tokensOut,
       feature: 'scan-website',
       byoKey: !!gate.byoApiKey,
     })

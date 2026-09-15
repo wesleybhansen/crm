@@ -12,7 +12,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { decryptRowFields, CONTACT_ENTITY_KEY, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { renderDigestHtml, money, type DigestData, type DigestProse } from '../../../lib/digest-render'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export const metadata = { path: '/ai/digest',
   POST: { requireAuth: false },
@@ -231,8 +231,8 @@ ${dataSection}`
     const result = await res.json()
     void meterCustomersAi({ orgId }, {
       model: 'gemini-3.8-flash',
-      tokensIn: result?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: result?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(result).tokensIn,
+      tokensOut: geminiUsage(result).tokensOut,
       feature: 'digest',
       byoKey: !!byoApiKey,
     })

@@ -1,4 +1,4 @@
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 /**
  * Reusable AI caller with provider fallback chain: Gemini -> Anthropic -> OpenAI.
  * Extracted from the landing-page-ai generate route for shared use across wizard endpoints.
@@ -173,8 +173,8 @@ async function callGemini(
       model,
       provider: 'google',
       usage: {
-        tokensIn: data?.usageMetadata?.promptTokenCount || 0,
-        tokensOut: data?.usageMetadata?.candidatesTokenCount || 0,
+        tokensIn: geminiUsage(data).tokensIn,
+        tokensOut: geminiUsage(data).tokensOut,
       },
     }
   }

@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
-import { geminiGenerationConfig, geminiText } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['courses.manage'] },
@@ -130,8 +130,8 @@ Return ONLY valid JSON (no markdown, no explanation):
 
     void meterCustomersAi(auth, {
       model: 'gemini-2.5-flash',
-      tokensIn: aiData?.usageMetadata?.promptTokenCount || 0,
-      tokensOut: aiData?.usageMetadata?.candidatesTokenCount || 0,
+      tokensIn: geminiUsage(aiData).tokensIn,
+      tokensOut: geminiUsage(aiData).tokensOut,
       feature: 'courses-generate-landing-copy',
       byoKey: !!gate.byoApiKey,
     })

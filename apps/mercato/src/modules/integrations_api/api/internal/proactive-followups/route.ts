@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
-import { geminiGenerationConfig } from '@/lib/ai/gemini'
+import { geminiGenerationConfig, geminiUsage } from '@/lib/ai/gemini'
 
 /*
  * Internal server-to-server endpoint (Noli U-53: CRM follow-up execution).
@@ -62,8 +62,8 @@ Return STRICT JSON: {"subject": "...", "body": "..."}`
     const body = (parsed.body ?? '').trim().slice(0, 6000)
     return {
       draft: subject && body ? { subject, body } : null,
-      tokensIn: data.usageMetadata?.promptTokenCount ?? 0,
-      tokensOut: data.usageMetadata?.candidatesTokenCount ?? 0,
+      tokensIn: geminiUsage(data).tokensIn ?? 0,
+      tokensOut: geminiUsage(data).tokensOut ?? 0,
     }
   } catch {
     return { draft: null, tokensIn: 0, tokensOut: 0 }
