@@ -176,8 +176,12 @@ function normalizeOptionalString(value: string | null | undefined): string | nul
  * Derive the source tag category + detail from the create input + runtime ctx.
  * Called on every successful person create so marketing reports get real
  * attribution without manual tagging.
+ *
+ * Exported for unit testing (onboarding audit, 2026-09-16): the CRM's own
+ * source label helper and the "marketing" branch below need coverage
+ * without going through the full create-person command.
  */
-function deriveSourceFromInput(parsed: any, ctx: any): { category: string; detail?: string } {
+export function deriveSourceFromInput(parsed: any, ctx: any): { category: string; detail?: string } {
   const raw = (parsed?.source ?? '').toString().trim().toLowerCase()
   // Auth context hints
   const keyName: string | undefined = ctx?.auth?.keyName
@@ -197,6 +201,13 @@ function deriveSourceFromInput(parsed: any, ctx: any): { category: string; detai
   if (raw === 'booking') return { category: 'booking' }
   if (raw === 'form') return { category: 'form' }
   if (raw === 'landing' || raw === 'landing_page') return { category: 'landing' }
+  // Leads created from the AMS-to-CRM marketing channel (onboarding audit,
+  // 2026-09-16): landing page / lead magnet name rides in sourceDetail, a
+  // plaintext non-PII field, and is kept in source_details rather than the
+  // source tag itself.
+  if (raw === 'marketing' || raw === 'ams' || raw === 'ams_marketing') {
+    return { category: 'marketing', detail: normalizeOptionalString(parsed?.sourceDetail) || undefined }
+  }
   if (raw === 'api') return { category: 'api', detail: keyName }
   // Fallback: API-key origin gets source:api:<key name>
   if (isApiKey) return { category: 'api', detail: keyName }
@@ -581,6 +592,35 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       const { tagContactSource } = await import('../lib/sourceTagging')
       await tagContactSource(em.getKnex(), { tenantId, organizationId }, entity.id, derivedSource.category as any, derivedSource.detail)
     } catch {}
+
+    // Leads from the AMS-to-CRM marketing channel must be visible, not just
+    // tagged (onboarding audit, 2026-09-16): keep the landing page / lead
+    // magnet name in source_details (the existing plaintext attribution
+    // column the /contacts/sources report already reads) and drop a
+    // timeline activity row so the contact reads as "added", not silent.
+    // Best-effort like the tagging above: never break contact creation.
+    if (derivedSource.category === 'marketing') {
+      const detail = derivedSource.detail
+      if (detail) {
+        try {
+          await em.getKnex()('customer_entities').where('id', entity.id)
+            .update({ source_details: JSON.stringify({ landing_page: detail }) })
+        } catch {}
+      }
+      try {
+        const activity = em.create(CustomerActivity, {
+          organizationId,
+          tenantId,
+          entity,
+          activityType: 'note',
+          subject: 'Added from your marketing system',
+          body: detail ? `From your marketing system: ${detail}` : 'Added from your marketing system.',
+          occurredAt: new Date(),
+        })
+        em.persist(activity)
+        await em.flush()
+      } catch {}
+    }
 
     return { entityId: entity.id, personId: profile.id }
   },

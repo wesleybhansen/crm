@@ -86,6 +86,7 @@ function serializeProfile(bp: CustomerBusinessProfile | null) {
     interface_mode: bp.interfaceMode,
     onboarding_complete: bp.onboardingComplete,
     seeded_by: bp.seededBy,
+    seeded_reviewed_at: bp.seededReviewedAt,
     brand_voice_profile: bp.brandVoiceProfile,
     brand_voice_updated_at: bp.brandVoiceUpdatedAt,
     brand_voice_source: bp.brandVoiceSource,

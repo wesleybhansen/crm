@@ -300,6 +300,11 @@ export default function PipelinePage() {
             {mode === 'journey'
               ? 'Track contacts through their lifecycle stages'
               : 'Track deals through your sales process'}
+            {' · '}
+            <a href="https://noliai.com/help/crm-pipeline" target="_blank" rel="noopener noreferrer"
+              className="text-accent hover:underline">
+              Help
+            </a>
           </p>
           {mode === 'journey' && showDragHint && (
             <div className="flex items-center gap-2 mt-2 bg-accent/10 text-accent dark:bg-accent/20 dark:text-accent px-3 py-1.5 rounded-md text-xs font-medium w-fit">

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { X, Send, Loader2, Sparkles, Check, XCircle, Trash2, Maximize2, Minimize2, BarChart3, Calendar, CheckSquare, Zap, Mic } from 'lucide-react'
+import { X, Send, Loader2, Sparkles, Check, XCircle, Trash2, Maximize2, Minimize2, BarChart3, Calendar, CheckSquare, Zap, Mic, HelpCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 type CrmAction = {
@@ -618,6 +618,12 @@ export function AiAssistantWidget() {
               </div>
             </div>
             <div className="flex items-center gap-0.5">
+              <a href="https://noliai.com/help/crm-scout" target="_blank" rel="noopener noreferrer"
+                title="How your Chief of Staff works in the CRM"
+                aria-label="How your Chief of Staff works in the CRM"
+                className="w-7 h-7 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition">
+                <HelpCircle className="size-3.5" />
+              </a>
               <button type="button" onClick={clearChat} title="Clear chat"
                 className="w-7 h-7 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition">
                 <Trash2 className="size-3.5" />

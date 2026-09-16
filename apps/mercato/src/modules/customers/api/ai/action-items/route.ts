@@ -6,6 +6,17 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getPersonaForOrg } from '../persona'
+import { NOLI_FIRST_VALUE_TEMPLATE_NAME } from '@/modules/integrations_api/lib/onboarding-seed'
+
+type SeededSummary = {
+  businessName: string | null
+  businessDescription: string | null
+  pipelineStages: string[]
+  cosName: string
+  followUpTemplateName: string | null
+  seededBy: string | null
+  seededReviewedAt: string | null
+}
 
 export async function GET() {
   try {
@@ -24,6 +35,42 @@ export async function GET() {
     try {
       const profile = await getPersonaForOrg(knex, auth.orgId)
       if (profile?.ai_persona_name) personaName = profile.ai_persona_name
+    } catch {}
+
+    // Confirm-and-go summary for seeded accounts (onboarding audit,
+    // 2026-09-16): the dashboard replaces its one-line seeded banner with a
+    // short card built from server state, not a second round trip the
+    // client would otherwise need to the business-profile route.
+    let seededSummary: SeededSummary | null = null
+    try {
+      const bp = await knex('business_profiles').where('organization_id', auth.orgId).first()
+      if (bp?.seeded_by) {
+        const rawStages = Array.isArray(bp.pipeline_stages)
+          ? bp.pipeline_stages
+          : (typeof bp.pipeline_stages === 'string' ? JSON.parse(bp.pipeline_stages) : [])
+        const pipelineStages = (Array.isArray(rawStages) ? rawStages : [])
+          .map((s: any) => (typeof s === 'string' ? s : s?.name))
+          .filter(Boolean)
+
+        let followUpTemplateName: string | null = null
+        try {
+          const tpl = await knex('email_templates')
+            .where({ organization_id: auth.orgId, name: NOLI_FIRST_VALUE_TEMPLATE_NAME })
+            .whereNull('deleted_at')
+            .first()
+          followUpTemplateName = tpl?.name ?? null
+        } catch {}
+
+        seededSummary = {
+          businessName: bp.business_name ?? null,
+          businessDescription: bp.business_description ?? null,
+          pipelineStages,
+          cosName: bp.ai_persona_name || personaName,
+          followUpTemplateName,
+          seededBy: bp.seeded_by ?? null,
+          seededReviewedAt: bp.seeded_reviewed_at ?? null,
+        }
+      }
     } catch {}
 
     const now = new Date()
@@ -428,6 +475,7 @@ export async function GET() {
         stats,
         recentActivity,
         personaName,
+        seededSummary,
       },
     })
   } catch (error) {

@@ -1106,6 +1106,7 @@ export class CustomerBusinessProfile {
     | 'interfaceMode'
     | 'onboardingComplete'
     | 'seededBy'
+    | 'seededReviewedAt'
     | 'createdAt'
     | 'updatedAt'
 
@@ -1187,6 +1188,13 @@ export class CustomerBusinessProfile {
   // themselves.
   @Property({ name: 'seeded_by', type: 'text', nullable: true })
   seededBy?: string | null
+
+  // Server-side dismissal for the dashboard's confirm-and-go summary card
+  // (onboarding audit, 2026-09-16): set once the member clicks "Looks
+  // right" so the card does not come back on another device or after
+  // cookies clear. Null until reviewed.
+  @Property({ name: 'seeded_reviewed_at', type: 'timestamptz', nullable: true })
+  seededReviewedAt?: Date | null
 
   @Property({ name: 'brand_voice_profile', type: 'json', nullable: true })
   brandVoiceProfile?: Record<string, unknown> | null

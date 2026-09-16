@@ -32,6 +32,7 @@ export type SourceCategory =
   | 'photo_scan'
   | 'purchase'
   | 'customer'
+  | 'marketing'
 
 type Scope = { tenantId: string; organizationId: string }
 

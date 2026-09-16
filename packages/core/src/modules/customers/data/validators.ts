@@ -38,6 +38,10 @@ const baseEntitySchema = {
   status: z.string().trim().max(100).optional(),
   lifecycleStage: z.string().trim().max(100).optional(),
   source: z.string().trim().max(150).optional(),
+  // Plaintext, non-PII attribution detail for a source category that
+  // supports one (currently 'marketing': the landing page or lead magnet
+  // name). Stored in source_details, never in an encrypted field.
+  sourceDetail: z.string().trim().max(200).optional(),
   isActive: z.boolean().optional(),
   nextInteraction: nextInteractionSchema.nullable().optional(),
   tags: z.array(uuid()).optional(),
@@ -582,6 +586,7 @@ export const businessProfileUpsertSchema = scopedSchema.extend({
   interfaceMode: z.enum(['simple', 'advanced']).optional().nullable(),
   onboardingComplete: z.boolean().optional().nullable(),
   seededBy: z.string().trim().max(100).optional().nullable(),
+  seededReviewedAt: z.coerce.date().optional().nullable(),
   brandVoiceProfile: z.record(z.string(), z.unknown()).optional().nullable(),
   brandVoiceUpdatedAt: z.coerce.date().optional().nullable(),
   brandVoiceSource: z.string().trim().max(200).optional().nullable(),

@@ -1340,7 +1340,7 @@ const upsertBusinessProfileCommand: CommandHandler<BusinessProfileUpsertInput, {
       'businessName', 'businessType', 'businessDescription', 'mainOffer', 'idealClients',
       'teamSize', 'aiPersonaName', 'aiPersonaStyle', 'aiCustomInstructions', 'websiteUrl',
       'pipelineMode', 'digestFrequency', 'digestDay', 'emailIntakeMode', 'interfaceMode',
-      'onboardingComplete', 'seededBy', 'brandVoiceUpdatedAt', 'brandVoiceSource',
+      'onboardingComplete', 'seededBy', 'seededReviewedAt', 'brandVoiceUpdatedAt', 'brandVoiceSource',
     ]
     for (const f of fields) {
       if (parsed[f] !== undefined) (bp as any)[f] = parsed[f] ?? null

@@ -15,6 +15,10 @@ export type CrmFirstValueDraft = {
 
 export const NOLI_FIRST_VALUE_TEMPLATE_MARKER = '<!-- noli:first-value:v2 -->'
 
+// Shared between seed-profile (writer) and the dashboard's confirm-and-go
+// summary card (reader, onboarding audit 2026-09-16) so the two never drift.
+export const NOLI_FIRST_VALUE_TEMPLATE_NAME = 'Follow-up: new inquiry (drafted by your Noli team)'
+
 const clean = (value: unknown, max: number): string =>
   (typeof value === 'string' ? value : '').replace(/—|–/g, ', ').trim().slice(0, max)
 

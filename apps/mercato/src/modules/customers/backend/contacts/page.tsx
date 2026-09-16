@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { splitCsvLine } from '@/lib/csv'
+import { contactSourceLabel } from '@/modules/customers/lib/contactSourceLabel'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Plus, Search, X, Mail, DollarSign, Tag, StickyNote, Phone, Building2, ExternalLink, CheckCircle2, Circle, Send, Loader2, Upload, MessageSquare, Flame, FileText, Activity, CheckSquare, Calendar, BookOpen, TrendingUp, Clock, Bell, Paperclip, Download, Trash2, Briefcase, Sparkles, RefreshCw, Camera, Users, Pencil, Check, ChevronDown, Filter } from 'lucide-react'
+import { Plus, Search, X, Mail, DollarSign, Tag, StickyNote, Phone, Building2, ExternalLink, CheckCircle2, Circle, Send, Loader2, Upload, MessageSquare, Flame, FileText, Activity, CheckSquare, Calendar, BookOpen, TrendingUp, Clock, Bell, Paperclip, Download, Trash2, Briefcase, Sparkles, RefreshCw, Camera, Users, Pencil, Check, ChevronDown, Filter, Megaphone } from 'lucide-react'
 import { EmailComposeModal } from '@/components/EmailComposeModal'
 import { CreateDealModal } from '@/components/CreateDealModal'
 import { SmsComposeModal } from '@/components/SmsComposeModal'
@@ -137,6 +138,15 @@ export default function ContactsPage() {
       }).catch(() => setPipelineStages(['New Lead', 'Contacted', 'Qualified', 'Proposal', 'Won', 'Lost']))
     }
   }, [tab, search, filterTag, filterStage, filterEngagement])
+
+  // Dashboard's confirm-and-go summary links "Import contacts" here with
+  // ?import=1 so it opens straight into the same paste-a-CSV flow the
+  // welcome wizard uses, instead of landing on an empty list.
+  useEffect(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('import') === '1') {
+      setShowImport(true)
+    }
+  }, [])
 
   function loadContacts() {
     setLoading(true)
@@ -877,9 +887,24 @@ export default function ContactsPage() {
                 </Button>
               )}
               {!search && tab === 'people' && (
-                <Button type="button" size="sm" className="mt-3" onClick={() => window.location.href = '/backend/customers/people/create'}>
-                  <Plus className="size-3.5 mr-1.5" /> Add your first contact
-                </Button>
+                <div className="mt-3 flex flex-col items-center gap-2.5">
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <Button type="button" size="sm" onClick={() => setShowImport(true)}>
+                      <Upload className="size-3.5 mr-1.5" /> Import a CSV
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => window.location.href = '/backend/customers/people/create'}>
+                      <Plus className="size-3.5 mr-1.5" /> Add one by hand
+                    </Button>
+                  </div>
+                  <a href="https://app.noliai.com/dashboard/cos?ask=setup" target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-accent hover:underline">
+                    Ask your Chief of Staff to add the people you already talk to
+                  </a>
+                  <a href="https://noliai.com/help/crm-first-steps" target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 mt-1.5">
+                    Help
+                  </a>
+                </div>
               )}
             </div>
           ) : (
@@ -915,6 +940,13 @@ export default function ContactsPage() {
                       title={`Engagement: ${contact.status}`}>
                       <span className={`size-1.5 rounded-full ${statusHue(contact.status)!.dot}`} />
                       <span className="capitalize hidden sm:inline">{contact.status}</span>
+                    </span>
+                  )}
+                  {tab === 'people' && editCompanyId !== contact.id && contactSourceLabel(contact.source) && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent shrink-0"
+                      title={contactSourceLabel(contact.source) || undefined}>
+                      <Megaphone className="size-3" />
+                      <span className="hidden sm:inline">{contactSourceLabel(contact.source)}</span>
                     </span>
                   )}
                   {contact.lifecycle_stage && editCompanyId !== contact.id && (
@@ -1598,7 +1630,7 @@ export default function ContactsPage() {
               <div className="space-y-3">
                 <DetailRow icon={Mail} label="Email" value={selectedContact.primary_email} />
                 <DetailRow icon={Phone} label="Phone" value={selectedContact.primary_phone} />
-                <DetailRow icon={Tag} label="Source" value={selectedContact.source} />
+                <DetailRow icon={Tag} label="Source" value={contactSourceLabel(selectedContact.source) ?? selectedContact.source} />
                 <div className="flex items-center gap-2">
                   <Tag className="size-4 text-muted-foreground shrink-0" />
                   <div className="flex-1">

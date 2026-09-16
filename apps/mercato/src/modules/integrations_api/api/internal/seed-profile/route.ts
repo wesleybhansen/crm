@@ -9,6 +9,7 @@ import {
   gtmVoiceStarter,
   isLegacyNoliFirstValueTemplate,
   NOLI_FIRST_VALUE_TEMPLATE_MARKER,
+  NOLI_FIRST_VALUE_TEMPLATE_NAME,
   type NoliOnboardingSeed,
 } from '../../../lib/onboarding-seed'
 
@@ -233,7 +234,7 @@ export async function POST(req: Request) {
     if (hasFirstValueContext) {
       try {
         const { EmailTemplate } = await import('@/modules/email/data/schema')
-        const name = 'Follow-up: new inquiry (drafted by your Noli team)'
+        const name = NOLI_FIRST_VALUE_TEMPLATE_NAME
         const prior = await em.findOne(EmailTemplate, {
           organizationId: auth.orgId as string,
           tenantId: auth.tenantId as string,

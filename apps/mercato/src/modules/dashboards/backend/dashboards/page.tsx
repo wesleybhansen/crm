@@ -5,7 +5,7 @@ import {
   Users, DollarSign, FileText, Eye, Plus, Send, TrendingUp, TrendingDown,
   AlertCircle, CheckCircle2, ArrowRight, BarChart3, Flame, AlertTriangle,
   Mail, HeartCrack, Clock, Zap, BookOpen, CalendarPlus, UserPlus,
-  ArrowUpRight, Target, Activity, X, Mic, Sparkles } from 'lucide-react'
+  ArrowUpRight, Target, Activity, X, Mic, Sparkles, Upload } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -23,6 +23,21 @@ interface DashboardData {
   }
   recentActivity: Array<{ type: string; text: string; time: string }>
   personaName?: string
+  seededSummary?: SeededSummary | null
+}
+
+// Confirm-and-go summary for seeded accounts (onboarding audit, 2026-09-16):
+// business name/description, pipeline and Chief of Staff name came from the
+// Noli hub profile, and the follow-up template only exists when the seed
+// had enough context to draft one.
+interface SeededSummary {
+  businessName: string | null
+  businessDescription: string | null
+  pipelineStages: string[]
+  cosName: string
+  followUpTemplateName: string | null
+  seededBy: string | null
+  seededReviewedAt: string | null
 }
 
 interface FirstValueDraft {
@@ -53,8 +68,11 @@ export default function SimpleDashboard() {
   const [firstValue, setFirstValue] = useState<FirstValueDraft | null>(null)
   const [firstValueExpanded, setFirstValueExpanded] = useState(false)
   // Seeded accounts skip the wizard (onboarding audit, 2026-09-16): show a
-  // short one-time banner instead, dismissible like the other cards here.
-  const [showSeededBanner, setShowSeededBanner] = useState(false)
+  // compact confirm-and-go summary instead of the wizard, dismissed
+  // server-side (seeded_reviewed_at) so it never reappears on another
+  // device. seededDismissed hides it instantly on click, ahead of the PUT.
+  const [seededDismissed, setSeededDismissed] = useState(false)
+  const [seededDismissing, setSeededDismissing] = useState(false)
   const [dismissedItems, setDismissedItems] = useState<Set<string>>(() => {
     try {
       const cookie = document.cookie.split('; ').find(c => c.startsWith('crm_dismissed_actions='))
@@ -70,10 +88,6 @@ export default function SimpleDashboard() {
         if (d.ok && d.data === null) { window.location.href = '/backend/welcome'; return }
         if (d.ok && d.data && d.data.onboarding_complete === false) { window.location.href = '/backend/welcome'; return }
         setHasProfile(true)
-        if (d.ok && d.data?.seeded_by === 'noli-hub') {
-          const seenCookie = document.cookie.split('; ').find(c => c.startsWith('crm_seeded_banner_seen='))
-          if (!seenCookie) setShowSeededBanner(true)
-        }
       })
       .catch(() => {})
 
@@ -117,6 +131,22 @@ export default function SimpleDashboard() {
   const unreadInbox = stats?.inbox?.unread ?? 0
   const weeklyInbox = stats?.inbox?.last7Days ?? 0
   const isNewUser = totalContacts === 0 && openDeals === 0
+  const seededSummary = data?.seededSummary ?? null
+  const showSeededSummary = Boolean(seededSummary && !seededSummary.seededReviewedAt && !seededDismissed)
+
+  async function dismissSeededSummary() {
+    setSeededDismissed(true)
+    setSeededDismissing(true)
+    try {
+      await fetch('/api/customers/business-profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ seededReviewedAt: new Date().toISOString() }),
+      })
+    } catch {}
+    setSeededDismissing(false)
+  }
 
   if (loading) {
     return (
@@ -164,21 +194,53 @@ export default function SimpleDashboard() {
         </div>
       </div>
 
-      {/* Seeded accounts skip the wizard entirely: tell them where their
-          setup came from and where to review it, once. */}
-      {showSeededBanner && (
-        <div className="mb-8 rounded-xl border bg-muted/30 px-4 py-3 flex items-center gap-3">
-          <CheckCircle2 className="size-4 text-[#047857] dark:text-[#34d399] shrink-0" />
-          <p className="text-sm text-muted-foreground flex-1">
-            Your workspace was set up from your Noli profile. Review it any time in{' '}
-            <a href="/backend/settings" className="text-accent hover:underline">Settings</a>.
-          </p>
-          <button type="button" onClick={() => {
-            document.cookie = `crm_seeded_banner_seen=1; path=/; max-age=${60 * 60 * 24 * 365}`
-            setShowSeededBanner(false)
-          }} className="p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition shrink-0" title="Dismiss">
-            <X className="size-3.5" />
-          </button>
+      {/* Seeded accounts skip the wizard entirely (onboarding audit,
+          2026-09-16): a confirm-and-go summary replaces it, built from
+          server state, dismissed server-side so it never comes back. */}
+      {showSeededSummary && seededSummary && (
+        <div className="mb-8 rounded-xl border bg-muted/30 p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="size-5 text-[#047857] dark:text-[#34d399] shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">We set this up from your Noli profile.</p>
+              <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                {seededSummary.businessName && (
+                  <p>
+                    <span className="font-medium text-foreground">{seededSummary.businessName}</span>
+                    {seededSummary.businessDescription ? ` · ${seededSummary.businessDescription}` : ''}
+                  </p>
+                )}
+                <p>
+                  Chief of Staff: <span className="font-medium text-foreground">{seededSummary.cosName}</span>
+                  {seededSummary.followUpTemplateName && (
+                    <>
+                      {' · '}Follow-up template ready: <span className="font-medium text-foreground">{seededSummary.followUpTemplateName}</span>
+                    </>
+                  )}
+                </p>
+              </div>
+              {seededSummary.pipelineStages.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {seededSummary.pipelineStages.map(stage => (
+                    <span key={stage} className="inline-flex items-center rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
+                      {stage}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button type="button" size="sm" disabled={seededDismissing} onClick={dismissSeededSummary}>
+                  <CheckCircle2 className="size-3.5 mr-1.5" /> Looks right
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => window.location.href = '/backend/settings'}>
+                  Edit in Settings
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => window.location.href = '/backend/contacts?import=1'}>
+                  <Upload className="size-3.5 mr-1.5" /> Import contacts
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
