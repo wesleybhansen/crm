@@ -73,7 +73,7 @@ export async function POST(req: Request) {
       [auth.orgId]
     )
 
-    const personaName = profile?.ai_persona_name || 'Scout'
+    const personaName = profile?.ai_persona_name || 'Noli'
     const personaStyle = profile?.ai_persona_style || 'professional'
 
     // Build persona prompt

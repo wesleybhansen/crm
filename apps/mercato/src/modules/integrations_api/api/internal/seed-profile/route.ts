@@ -18,8 +18,9 @@ import {
  * The Noli hub calls this server-to-server — proven by the shared
  * NOLI_INTERNAL_SERVICE_SECRET — after the customer completes the one-time
  * platform setup scan. It pre-seeds the org's CRM business profile (pipeline
- * stages, brand, socials, services) so the CRM welcome flow opens already
- * configured instead of empty.
+ * stages, brand, socials, services, Chief of Staff name) so the CRM opens
+ * already configured instead of empty, and skips the CRM's own wizard once
+ * the profile and pipeline are filled.
  *
  * Merge semantics: never clobber what the user already set. Empty CRM fields
  * are filled once, while confirmed Intel Hub context can refresh the GTM
@@ -185,9 +186,11 @@ export async function POST(req: Request) {
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
     }
-    // The seed pre-fills the profile; it does not finish onboarding for the
-    // customer. The welcome wizard still runs (already configured) so the
-    // customer is asked to connect a mailbox and confirm the pipeline.
+    // Onboarding audit quick win (2026-09-16): the seed used to only pre-fill
+    // the profile and leave the CRM's 9-step wizard for the customer to click
+    // through. Founder decision: a seeded account skips the wizard once the
+    // hub has given it a business name and a pipeline, landing the member on
+    // the dashboard instead. The wizard stays reachable by URL.
     const put = (key: string, existingVal: unknown, incoming: unknown) => {
       if (!has(existingVal) && has(incoming)) input[key] = incoming
     }
@@ -205,6 +208,18 @@ export async function POST(req: Request) {
     put('pipelineMode', existing?.pipelineMode, body.pipelineMode === 'journey' ? 'journey' : body.pipelineMode === 'deals' ? 'deals' : '')
     put('brandColors', existing?.brandColors, rec(body.brandColors))
     put('socialLinks', existing?.socialLinks, rec(body.socialLinks))
+    // The customer names their Chief of Staff once, during hub setup; that
+    // name replaces the CRM's separate "Scout" persona instead of asking
+    // again in the wizard.
+    put('aiPersonaName', existing?.aiPersonaName, str(body.cosName, 200))
+
+    const hasBusinessName = has(existing?.businessName) || has(input.businessName)
+    const hasPipeline = has(existing?.pipelineStages) || has(input.pipelineStages)
+    const alreadyOnboarded = Boolean(existing?.onboardingComplete)
+    if (!alreadyOnboarded && hasBusinessName && hasPipeline) {
+      input.onboardingComplete = true
+      input.seededBy = 'noli-hub'
+    }
 
     // U-52: the audit's drafted follow-up email becomes a real, reusable
     // email template (idempotent by name; never duplicates).
@@ -282,6 +297,11 @@ export async function POST(req: Request) {
       onboardingSeed,
       req.headers.get('x-request-id'),
     )
+    // The follow-up template stays best-effort (it can fail independently of
+    // the profile/pipeline seed above), so the hub's "ready" signal must not
+    // wait on it: the profile and pipeline being seeded is enough on its own.
+    const pipelineConfigured = has(existing?.pipelineStages) || has(input.pipelineStages)
+    const crmReady = (hasBusinessName && pipelineConfigured) || templateReady
     return NextResponse.json({
       ok: true,
       seeded: true,
@@ -290,9 +310,9 @@ export async function POST(req: Request) {
       template: templateReady,
       firstValue: {
         crm: {
-          status: templateReady ? 'ready' : 'context_seeded',
-          onboardingComplete: Boolean(existing?.onboardingComplete),
-          pipelineConfigured: has(existing?.pipelineStages) || has(input.pipelineStages),
+          status: crmReady ? 'ready' : 'context_seeded',
+          onboardingComplete: Boolean(existing?.onboardingComplete) || input.onboardingComplete === true,
+          pipelineConfigured,
           followUpDraftReady: templateReady,
         },
         gtm,

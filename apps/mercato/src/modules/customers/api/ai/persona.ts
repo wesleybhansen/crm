@@ -40,7 +40,7 @@ const stylePrompts: Record<string, (name: string) => string> = {
 }
 
 export function buildPersonaPrompt(profile: PersonaProfile): string {
-  const name = profile.ai_persona_name || 'Scout'
+  const name = profile.ai_persona_name || 'Noli'
   const style = profile.ai_persona_style || 'professional'
 
   const parts: string[] = []

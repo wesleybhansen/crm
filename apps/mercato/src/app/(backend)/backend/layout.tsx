@@ -331,7 +331,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   // Interface mode and onboarding status: read from database only
   let interfaceMode = 'simple'
   let onboardingComplete = false
-  let aiPersonaName = 'AI Assistant'
+  let aiPersonaName = 'Noli'
   try {
     const modeContainer = await ensureContainer()
     const knex = (modeContainer.resolve('em') as EntityManager).getKnex()
@@ -339,7 +339,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     if (profile) {
       interfaceMode = profile.interface_mode || 'simple'
       onboardingComplete = !!profile.onboarding_complete
-      aiPersonaName = profile.ai_persona_name || 'AI Assistant'
+      aiPersonaName = profile.ai_persona_name || 'Noli'
     }
   } catch {}
 
@@ -565,8 +565,8 @@ function filterForSimpleMode(groups: NavGroup[], translate: (key: string, fallba
       },
       {
         href: '/backend/assistant',
-        title: personaName || 'AI Assistant',
-        defaultTitle: 'AI Assistant',
+        title: personaName || 'Noli',
+        defaultTitle: 'Noli',
         enabled: true,
         icon: createElement(Sparkles, { className: iconClass }),
       },

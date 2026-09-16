@@ -1610,6 +1610,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             </span>
           ) : null}
           <nav className="flex items-center gap-3 text-xs text-muted-foreground">
+            <a href="https://noliai.com/help/crm-first-steps" target="_blank" rel="noopener noreferrer" className="transition hover:text-foreground">
+              {t('common.help', 'Help')}
+            </a>
             <Link href="/terms" className="transition hover:text-foreground">
               {t('common.terms')}
             </Link>

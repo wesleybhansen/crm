@@ -494,7 +494,7 @@
   "customers.notifications.person.stage_changed.body": "{contactName} moved to {stage}",
   "customers.notifications.person.stage_changed.title": "Contact stage changed",
   "customers.notifications.scout.action.body": "{action}",
-  "customers.notifications.scout.action.title": "Scout ran an action",
+  "customers.notifications.scout.action.title": "Your Chief of Staff ran an action",
   "customers.people.create.title": "Utwórz osobę",
   "customers.people.detail.actions.addDeal": "Dodaj szansę",
   "customers.people.detail.actions.backToList": "Powrót do listy osób",

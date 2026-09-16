@@ -1105,6 +1105,7 @@ export class CustomerBusinessProfile {
     | 'emailIntakeMode'
     | 'interfaceMode'
     | 'onboardingComplete'
+    | 'seededBy'
     | 'createdAt'
     | 'updatedAt'
 
@@ -1141,7 +1142,7 @@ export class CustomerBusinessProfile {
   @Property({ name: 'pipeline_stages', type: 'json', nullable: true })
   pipelineStages?: unknown[] | null
 
-  @Property({ name: 'ai_persona_name', type: 'text', nullable: true, default: 'Scout' })
+  @Property({ name: 'ai_persona_name', type: 'text', nullable: true, default: 'Noli' })
   aiPersonaName?: string | null
 
   @Property({ name: 'ai_persona_style', type: 'text', nullable: true, default: 'professional' })
@@ -1179,6 +1180,13 @@ export class CustomerBusinessProfile {
 
   @Property({ name: 'onboarding_complete', type: 'boolean', nullable: true, default: false })
   onboardingComplete?: boolean | null
+
+  // Which system finished onboarding on the customer's behalf (e.g.
+  // 'noli-hub' when the account was seeded from the Noli hub profile and the
+  // 9-step wizard was skipped). Null when the customer completed the wizard
+  // themselves.
+  @Property({ name: 'seeded_by', type: 'text', nullable: true })
+  seededBy?: string | null
 
   @Property({ name: 'brand_voice_profile', type: 'json', nullable: true })
   brandVoiceProfile?: Record<string, unknown> | null

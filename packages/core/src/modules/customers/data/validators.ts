@@ -581,6 +581,7 @@ export const businessProfileUpsertSchema = scopedSchema.extend({
   emailIntakeMode: z.enum(['suggest', 'auto', 'off']).optional().nullable(),
   interfaceMode: z.enum(['simple', 'advanced']).optional().nullable(),
   onboardingComplete: z.boolean().optional().nullable(),
+  seededBy: z.string().trim().max(100).optional().nullable(),
   brandVoiceProfile: z.record(z.string(), z.unknown()).optional().nullable(),
   brandVoiceUpdatedAt: z.coerce.date().optional().nullable(),
   brandVoiceSource: z.string().trim().max(200).optional().nullable(),

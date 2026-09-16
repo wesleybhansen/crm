@@ -21,9 +21,9 @@ import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini
 
 export const openApi = {
   tag: 'Customers',
-  summary: 'Ask the Scout assistant',
+  summary: 'Ask the Chief of Staff assistant',
   methods: {
-    POST: { summary: 'Generate a Scout message using the existing allowance-gated provider fallback' },
+    POST: { summary: 'Generate a Chief of Staff message using the existing allowance-gated provider fallback' },
   },
 }
 
@@ -74,7 +74,11 @@ async function decryptDealRows(em: EntityManager, rows: any[], tenantId: string,
 }
 
 
-const CRM_INSTRUCTIONS = `You are Scout, an AI assistant built into a CRM platform designed for solopreneurs and small businesses. You help users navigate the app, answer questions about their data, and take actions on their behalf.
+// Name and style come from personaPrompt (built from the org's stored
+// persona, defaulting to "Noli") which is prepended ahead of this block —
+// this text must not assert a name of its own, or it contradicts whatever
+// the customer named their Chief of Staff.
+const CRM_INSTRUCTIONS = `You are the Chief of Staff built into this CRM platform, designed for solopreneurs and small businesses. You help users navigate the app, answer questions about their data, and take actions on their behalf.
 
 COMPLETE FEATURE GUIDE:
 
@@ -627,7 +631,7 @@ export async function POST(req: Request, ctx?: any) {
     if (!hasConfiguredProvider) {
       return NextResponse.json({
         ok: true,
-        message: "I'm Scout, your CRM assistant, but no AI API keys are configured. I can still help with basic navigation — what are you looking for?",
+        message: "I'm Noli, your Chief of Staff, but no AI API keys are configured. I can still help with basic navigation, what are you looking for?",
       })
     }
 

@@ -20,7 +20,7 @@ export async function GET() {
     const w = { tenant_id: auth.tenantId, organization_id: auth.orgId }
 
     // Load persona name for dashboard greeting
-    let personaName = 'Scout'
+    let personaName = 'Noli'
     try {
       const profile = await getPersonaForOrg(knex, auth.orgId)
       if (profile?.ai_persona_name) personaName = profile.ai_persona_name

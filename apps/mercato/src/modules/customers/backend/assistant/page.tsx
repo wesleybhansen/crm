@@ -1376,7 +1376,7 @@ export default function VoiceAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [personaName, setPersonaName] = useState('Scout')
+  const [personaName, setPersonaName] = useState('Noli')
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
@@ -1419,7 +1419,7 @@ export default function VoiceAssistantPage() {
       fetch('/api/customers/business-profile', { credentials: 'include' }).then(r => r.json()).catch(() => null),
       fetch('/api/ai/action-items', { credentials: 'include' }).then(r => r.json()).catch(() => null),
     ]).then(([profileRes, actionRes]) => {
-      const name = profileRes?.ok && profileRes?.data?.ai_persona_name ? profileRes.data.ai_persona_name : 'Scout'
+      const name = profileRes?.ok && profileRes?.data?.ai_persona_name ? profileRes.data.ai_persona_name : 'Noli'
       setPersonaName(name)
 
       const items: Array<{ title: string; description?: string }> = actionRes?.ok && Array.isArray(actionRes?.data?.actionItems)
@@ -1438,7 +1438,7 @@ export default function VoiceAssistantPage() {
 
       setMessages([{ role: 'assistant', content: greeting }])
     }).catch(() => {
-      setMessages([{ role: 'assistant', content: "Hey! I'm your AI assistant. What can I help with?" }])
+      setMessages([{ role: 'assistant', content: "Hey! I'm your Chief of Staff. What can I help with?" }])
     })
   }, [])
 
@@ -2247,7 +2247,7 @@ export default function VoiceAssistantPage() {
                       <AlertCircle className="size-4 text-[#b45309] dark:text-[#fbbf24] shrink-0 mt-0.5" />
                       <div className="flex-1">
                         <div className="font-medium text-[#b45309] dark:text-[#fbbf24]">
-                          Scout described actions it didn&apos;t actually run.
+                          {personaName} described actions it didn&apos;t actually run.
                         </div>
                         <div className="text-[#b45309] dark:text-[#fbbf24] mt-0.5">
                           Mentioned: {msg.reconciliationWarning.verbsClaimed.join(', ')} · Tool calls emitted: {msg.reconciliationWarning.toolsCalled}

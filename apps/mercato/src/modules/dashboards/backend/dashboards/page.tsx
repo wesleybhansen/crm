@@ -52,6 +52,9 @@ export default function SimpleDashboard() {
   const [hasProfile, setHasProfile] = useState(true)
   const [firstValue, setFirstValue] = useState<FirstValueDraft | null>(null)
   const [firstValueExpanded, setFirstValueExpanded] = useState(false)
+  // Seeded accounts skip the wizard (onboarding audit, 2026-09-16): show a
+  // short one-time banner instead, dismissible like the other cards here.
+  const [showSeededBanner, setShowSeededBanner] = useState(false)
   const [dismissedItems, setDismissedItems] = useState<Set<string>>(() => {
     try {
       const cookie = document.cookie.split('; ').find(c => c.startsWith('crm_dismissed_actions='))
@@ -67,6 +70,10 @@ export default function SimpleDashboard() {
         if (d.ok && d.data === null) { window.location.href = '/backend/welcome'; return }
         if (d.ok && d.data && d.data.onboarding_complete === false) { window.location.href = '/backend/welcome'; return }
         setHasProfile(true)
+        if (d.ok && d.data?.seeded_by === 'noli-hub') {
+          const seenCookie = document.cookie.split('; ').find(c => c.startsWith('crm_seeded_banner_seen='))
+          if (!seenCookie) setShowSeededBanner(true)
+        }
       })
       .catch(() => {})
 
@@ -157,6 +164,24 @@ export default function SimpleDashboard() {
         </div>
       </div>
 
+      {/* Seeded accounts skip the wizard entirely: tell them where their
+          setup came from and where to review it, once. */}
+      {showSeededBanner && (
+        <div className="mb-8 rounded-xl border bg-muted/30 px-4 py-3 flex items-center gap-3">
+          <CheckCircle2 className="size-4 text-[#047857] dark:text-[#34d399] shrink-0" />
+          <p className="text-sm text-muted-foreground flex-1">
+            Your workspace was set up from your Noli profile. Review it any time in{' '}
+            <a href="/backend/settings" className="text-accent hover:underline">Settings</a>.
+          </p>
+          <button type="button" onClick={() => {
+            document.cookie = `crm_seeded_banner_seen=1; path=/; max-age=${60 * 60 * 24 * 365}`
+            setShowSeededBanner(false)
+          }} className="p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition shrink-0" title="Dismiss">
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* First win: a brand-new account's first moment should be a useful artifact, not a wall of zeros. */}
       {isNewUser && firstValue?.ready && (
         <section className="mb-8 overflow-hidden rounded-xl border border-accent/30 bg-gradient-to-br from-accent/[.10] via-card to-card" aria-labelledby="first-value-heading">
@@ -200,7 +225,7 @@ export default function SimpleDashboard() {
           <div className="flex-1 min-w-[240px]">
             <p className="text-sm font-semibold">Your first win takes 15 seconds</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              You never have to fill in forms here. Just tell Scout what you want, like adding your first contact, and watch it happen.
+              You never have to fill in forms here. Just tell {data?.personaName || 'Noli'} what you want, like adding your first contact, and watch it happen.
             </p>
           </div>
           <Button
@@ -210,7 +235,7 @@ export default function SimpleDashboard() {
               detail: { prefill: 'Add my first contact: Jane Smith, jane@example.com, met at the chamber mixer last week' },
             }))}
           >
-            <Sparkles className="size-3.5 mr-1.5" /> Tell Scout to add my first contact
+            <Sparkles className="size-3.5 mr-1.5" /> Tell {data?.personaName || 'Noli'} to add my first contact
           </Button>
           <button type="button" onClick={() => {
             setDismissedItems(prev => {

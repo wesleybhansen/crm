@@ -329,7 +329,7 @@ export async function POST(req: Request) {
         }
 
         const persona = await getPersonaForOrg(knex, org.organization_id)
-        const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
+        const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Noli, a professional business assistant.'
 
         const businessName = org.business_name || 'Your Business'
         const data = await gatherDigestData(knex, org.organization_id, org.tenant_id, days)
@@ -391,7 +391,7 @@ export async function GET() {
     if (!gate.allowed) return NextResponse.json({ ok: false, error: gate.message }, { status: 402 })
 
     const persona = await getPersonaForOrg(knex, auth.orgId)
-    const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
+    const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Noli, a professional business assistant.'
 
     const data = await gatherDigestData(knex, auth.orgId, auth.tenantId, 7)
     // The name lives on business_profiles, keyed by organization_id, which is

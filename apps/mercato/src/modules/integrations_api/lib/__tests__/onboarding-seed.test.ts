@@ -67,12 +67,15 @@ describe('Noli onboarding seed contract', () => {
 
   it('wires shared context to the CRM completion gate and reviewable GTM seed', () => {
     const source = readFileSync(path.resolve(process.cwd(), 'src/modules/integrations_api/api/internal/seed-profile/route.ts'), 'utf8')
-    // The seed must not finish onboarding for the customer: the welcome
-    // wizard still runs, pre-filled, so a mailbox gets connected.
-    expect(source).not.toMatch(/input\.onboardingComplete = true/)
+    // Founder decision 2026-09-16: a seeded account skips the CRM's 9-step
+    // wizard once the hub has given it a business name and a pipeline, and
+    // the hub's "ready" signal must not depend on the best-effort follow-up
+    // template alone.
+    expect(source).toMatch(/input\.onboardingComplete = true/)
+    expect(source).toMatch(/input\.seededBy = 'noli-hub'/)
     expect(source).toMatch(/ensureGtmStarter/)
     expect(source).toMatch(/gtm\.workspace\.onboarding_seeded/)
-    expect(source).toMatch(/status: templateReady \? 'ready' : 'context_seeded'/)
+    expect(source).toMatch(/status: crmReady \? 'ready' : 'context_seeded'/)
     expect(source).toMatch(/followUpDraftReady: templateReady/)
     expect(source).not.toMatch(/sendEmailByPurpose|provider.*execute|GtmEnrollment/)
   })

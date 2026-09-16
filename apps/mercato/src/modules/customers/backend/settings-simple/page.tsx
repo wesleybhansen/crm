@@ -60,7 +60,7 @@ export default function SimpleSettingsPage() {
   const [disconnectingTwilio, setDisconnectingTwilio] = useState(false)
 
   // AI Persona state
-  const [aiPersonaName, setAiPersonaName] = useState('Scout')
+  const [aiPersonaName, setAiPersonaName] = useState('Noli')
   const [aiPersonaStyle, setAiPersonaStyle] = useState('professional')
   const [aiCustomInstructions, setAiCustomInstructions] = useState('')
   const [savingPersona, setSavingPersona] = useState(false)
@@ -465,7 +465,7 @@ export default function SimpleSettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          aiPersonaName: aiPersonaName.trim() || 'Scout',
+          aiPersonaName: aiPersonaName.trim() || 'Noli',
           aiPersonaStyle,
           aiCustomInstructions: aiCustomInstructions.trim() || undefined,
         }),
@@ -737,16 +737,16 @@ export default function SimpleSettingsPage() {
         </div>
       </section>
 
-      {/* AI Assistant */}
+      {/* Chief of Staff */}
       <section className="mb-8">
         <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <Sparkles className="size-4 text-muted-foreground" /> AI Assistant
+          <Sparkles className="size-4 text-muted-foreground" /> Your Chief of Staff
         </h2>
         <div className="rounded-lg border divide-y">
           <div className="px-4 py-3">
-            <label className="text-[12.5px] font-medium text-foreground/80 block mb-1.5">Assistant Name</label>
+            <label className="text-[12.5px] font-medium text-foreground/80 block mb-1.5">Name</label>
             <Input value={aiPersonaName} onChange={e => setAiPersonaName(e.target.value)}
-              placeholder="e.g. Scout, Atlas, Sage" className="h-9 text-sm" />
+              placeholder="e.g. Noli, Atlas, Sage" className="h-9 text-sm" />
           </div>
           <div className="px-4 py-3">
             <label className="text-[12.5px] font-medium text-foreground/80 block mb-2">Communication Style</label>
@@ -782,13 +782,13 @@ export default function SimpleSettingsPage() {
               </div>
               <div className="text-xs text-foreground/80 leading-relaxed">
                 {aiPersonaStyle === 'professional' && (
-                  <p><strong>{aiPersonaName || 'Scout'}</strong>: I've analyzed your pipeline. You have 3 deals that haven't been updated in over a week. I'd recommend following up on the Smith proposal first — it has the highest value.</p>
+                  <p><strong>{aiPersonaName || 'Noli'}</strong>: I've analyzed your pipeline. You have 3 deals that haven't been updated in over a week. I'd recommend following up on the Smith proposal first, it has the highest value.</p>
                 )}
                 {aiPersonaStyle === 'casual' && (
-                  <p><strong>{aiPersonaName || 'Scout'}</strong>: Hey! Looks like you've got a few deals that could use some love. The Smith proposal is the big one — maybe shoot them a quick check-in today?</p>
+                  <p><strong>{aiPersonaName || 'Noli'}</strong>: Hey! Looks like you've got a few deals that could use some love. The Smith proposal is the big one, maybe shoot them a quick check-in today?</p>
                 )}
                 {aiPersonaStyle === 'minimal' && (
-                  <p><strong>{aiPersonaName || 'Scout'}</strong>: 3 stale deals. Prioritize Smith proposal ($12k). Follow up today.</p>
+                  <p><strong>{aiPersonaName || 'Noli'}</strong>: 3 stale deals. Prioritize Smith proposal ($12k). Follow up today.</p>
                 )}
               </div>
             </div>

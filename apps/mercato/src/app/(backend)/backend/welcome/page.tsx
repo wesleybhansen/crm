@@ -77,7 +77,7 @@ export default function WelcomePage() {
   const [finishing, setFinishing] = useState(false)
 
   // AI Persona state
-  const [aiPersonaName, setAiPersonaName] = useState('Scout')
+  const [aiPersonaName, setAiPersonaName] = useState('Noli')
   const [aiPersonaStyle, setAiPersonaStyle] = useState('professional')
   const [aiCustomInstructions, setAiCustomInstructions] = useState('')
 
@@ -367,7 +367,7 @@ export default function WelcomePage() {
           idealClients, teamSize, clientSources: selectedSources,
           pipelineStages: validStages,
           pipelineMode: pipelineMode || 'deals',
-          aiPersonaName: aiPersonaName.trim() || 'Scout',
+          aiPersonaName: aiPersonaName.trim() || 'Noli',
           aiPersonaStyle,
           aiCustomInstructions: aiCustomInstructions.trim() || undefined,
           websiteUrl: websiteUrl.trim() || undefined,
@@ -433,12 +433,12 @@ export default function WelcomePage() {
 
   const baseSteps = [
     { title: 'About Your Business', subtitle: 'Help us set up Noli CRM the right way.' },
-    { title: 'Your AI Assistant', subtitle: 'Give your AI helper a name and personality.' },
+    { title: 'Your Chief of Staff', subtitle: 'This is the same Chief of Staff you named in Noli. Change the name here if you like.' },
     { title: 'Your Offer & Clients', subtitle: 'So we can tailor everything to your business.' },
     { title: 'How You Get Clients', subtitle: 'This helps us suggest the right tools and workflows.' },
     { title: pipelineMode === 'journey' ? 'Customer Journey' : 'Your Sales Pipeline', subtitle: 'AI will suggest stages to track your progress.' },
-    { title: 'Noli CRM is Ready!', subtitle: `${aiPersonaName || 'Scout'} is set up and ready to help you grow.` },
-    { title: 'Connect Your Accounts', subtitle: `This is what lets ${aiPersonaName || 'Scout'} actually work for you. Email and contacts matter most.` },
+    { title: 'Noli CRM is Ready!', subtitle: `${aiPersonaName || 'Noli'} is set up and ready to help you grow.` },
+    { title: 'Connect Your Accounts', subtitle: `This is what lets ${aiPersonaName || 'Noli'} actually work for you. Email and contacts matter most.` },
     { title: 'Invite Your Team', subtitle: 'Add team members to your workspace.' },
     { title: 'Get Started', subtitle: 'Take your first actions.' },
   ]
@@ -491,6 +491,12 @@ export default function WelcomePage() {
   return (
     <div className="min-h-[calc(100vh-52px)] flex items-center justify-center p-6">
       <div className="w-full max-w-xl">
+        <div className="flex justify-end mb-2">
+          <a href="https://noliai.com/help/crm-first-steps" target="_blank" rel="noopener noreferrer"
+            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
+            Help
+          </a>
+        </div>
         {/* Progress */}
         <div className="flex items-center justify-center gap-1.5 mb-8">
           {steps.map((_, i) => (
@@ -569,11 +575,11 @@ export default function WelcomePage() {
           </div>
         )}
 
-        {/* Step 1: AI Persona */}
+        {/* Step 1: Chief of Staff persona */}
         {step === 1 && (
           <div className="space-y-5">
-            <Field label="Name your AI assistant" value={aiPersonaName} onChange={setAiPersonaName}
-              placeholder="e.g. Scout, Atlas, Sage" autoFocus />
+            <Field label="Chief of Staff name" value={aiPersonaName} onChange={setAiPersonaName}
+              placeholder="e.g. Noli, Atlas, Sage" autoFocus />
             <div>
               <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-2">Communication style</label>
               <div className="grid grid-cols-3 gap-2">
@@ -605,13 +611,13 @@ export default function WelcomePage() {
                 </div>
                 <div className="text-xs text-foreground/80 leading-relaxed">
                   {aiPersonaStyle === 'professional' && (
-                    <p><strong>{aiPersonaName || 'Scout'}</strong>: I've analyzed your pipeline. You have 3 deals that haven't been updated in over a week. I'd recommend following up on the Smith proposal first — it has the highest value.</p>
+                    <p><strong>{aiPersonaName || 'Noli'}</strong>: I've analyzed your pipeline. You have 3 deals that haven't been updated in over a week. I'd recommend following up on the Smith proposal first, it has the highest value.</p>
                   )}
                   {aiPersonaStyle === 'casual' && (
-                    <p><strong>{aiPersonaName || 'Scout'}</strong>: Hey! Looks like you've got a few deals that could use some love. The Smith proposal is the big one — maybe shoot them a quick check-in today?</p>
+                    <p><strong>{aiPersonaName || 'Noli'}</strong>: Hey! Looks like you've got a few deals that could use some love. The Smith proposal is the big one, maybe shoot them a quick check-in today?</p>
                   )}
                   {aiPersonaStyle === 'minimal' && (
-                    <p><strong>{aiPersonaName || 'Scout'}</strong>: 3 stale deals. Prioritize Smith proposal ($12k). Follow up today.</p>
+                    <p><strong>{aiPersonaName || 'Noli'}</strong>: 3 stale deals. Prioritize Smith proposal ($12k). Follow up today.</p>
                   )}
                 </div>
               </div>
@@ -773,7 +779,7 @@ export default function WelcomePage() {
             </div>
             <div>
               <p className="text-xl font-semibold">Noli CRM is ready{businessName ? `, ${businessName}` : ''}!</p>
-              <p className="text-sm text-muted-foreground mt-2">{aiPersonaName || 'Scout'} is configured and ready to help you grow your business.</p>
+              <p className="text-sm text-muted-foreground mt-2">{aiPersonaName || 'Noli'} is configured and ready to help you grow your business.</p>
             </div>
 
             {/* Setup Summary */}
@@ -786,7 +792,7 @@ export default function WelcomePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-3 text-emerald-500 shrink-0" />
-                  <span>AI assistant "{aiPersonaName}" ({aiPersonaStyle} style)</span>
+                  <span>Chief of Staff "{aiPersonaName}" ({aiPersonaStyle} style)</span>
                 </div>
                 {websiteUrl && (
                   <div className="flex items-center gap-2">
@@ -1152,8 +1158,8 @@ export default function WelcomePage() {
               <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1">Role for invited members</label>
               <select value={teamInviteRole} onChange={e => setTeamInviteRole(e.target.value)}
                 className="rounded-md border bg-background px-3 py-1.5 text-sm h-9 w-full">
-                <option value="member">Member — can use the CRM</option>
-                <option value="admin">Admin — can manage team and settings</option>
+                <option value="member">Member, can use the CRM</option>
+                <option value="admin">Admin, can manage team and settings</option>
               </select>
             </div>
             {invitingSent && (
@@ -1174,7 +1180,7 @@ export default function WelcomePage() {
                 based on what actually got connected, with a path back. */}
             <div className="max-w-sm mx-auto rounded-lg border bg-muted/30 p-3 space-y-1.5">
               {[
-                { ok: emailConnected, label: emailConnected ? 'Email connected. Replies and follow-ups can be drafted for you.' : `Email not connected. ${aiPersonaName || 'Scout'} cannot draft replies yet.` },
+                { ok: emailConnected, label: emailConnected ? 'Email connected. Replies and follow-ups can be drafted for you.' : `Email not connected. ${aiPersonaName || 'Noli'} cannot draft replies yet.` },
                 { ok: !!(wizardImportResult && wizardImportResult.imported > 0), label: wizardImportResult && wizardImportResult.imported > 0 ? `${wizardImportResult.imported} contacts imported. Your business is in the CRM.` : 'No contacts imported yet. The CRM is starting empty.' },
                 { ok: stripeConnected, label: stripeConnected ? 'Stripe connected. You can send invoices and get paid.' : 'Stripe not connected. Invoicing is off until you connect it.' },
               ].map((item, i) => (
@@ -1195,7 +1201,7 @@ export default function WelcomePage() {
             <div className="grid gap-2 max-w-sm mx-auto">
               {[
                 { href: '/backend/contacts', icon: Users, title: 'Add your first contact', desc: 'Or import from a spreadsheet' },
-                { href: '/backend/landing-pages/create', icon: FileText, title: 'Create a landing page', desc: `${aiPersonaName || 'Scout'} builds it in minutes` },
+                { href: '/backend/landing-pages/create', icon: FileText, title: 'Create a landing page', desc: `${aiPersonaName || 'Noli'} builds it in minutes` },
                 { href: '/backend/customers/deals/pipeline', icon: Kanban, title: pipelineMode === 'journey' ? 'View customer journey' : 'View your pipeline', desc: pipelineMode === 'journey' ? 'Track contacts through lifecycle stages' : 'Track deals from lead to close' },
                 { href: '/backend/sequences', icon: Sparkles, title: 'Set up an automation', desc: 'Browse pre-built email sequence recipes' },
               ].map(item => (

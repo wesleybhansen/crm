@@ -435,7 +435,7 @@ export function AiAssistantWidget() {
     setOpen(true)
   }
   const [expanded, setExpanded] = useState(false)
-  const [personaName, setPersonaName] = useState('Scout')
+  const [personaName, setPersonaName] = useState('Noli')
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -453,12 +453,12 @@ export function AiAssistantWidget() {
     fetch('/api/customers/business-profile', { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
-        const name = d.ok && d.data?.ai_persona_name ? d.data.ai_persona_name : 'Scout'
+        const name = d.ok && d.data?.ai_persona_name ? d.data.ai_persona_name : 'Noli'
         setPersonaName(name)
         setMessages([{ role: 'assistant', content: getGreeting(name) }])
       })
       .catch(() => {
-        setMessages([{ role: 'assistant', content: getGreeting('Scout') }])
+        setMessages([{ role: 'assistant', content: getGreeting('Noli') }])
       })
   }, [])
 

@@ -306,7 +306,7 @@ export async function GET(req: Request) {
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
     const persona = await getPersonaForOrg(knex, auth.orgId)
-    const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
+    const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Noli, a professional business assistant.'
 
     // On-demand brief for a specific contact
     if (contactId) {
@@ -558,7 +558,7 @@ export async function POST(req: Request) {
         }
 
         const persona = await getPersonaForOrg(knex, connection.organization_id)
-        const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Scout, a professional business assistant.'
+        const personaPrompt = persona ? buildPersonaPrompt(persona) : 'You are Noli, a professional business assistant.'
 
         // Collect every brief for an upcoming meeting (newly generated + cached)
         // so the owner email is a complete picture of the day.
