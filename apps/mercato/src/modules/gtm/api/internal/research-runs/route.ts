@@ -266,7 +266,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, sweep })
     }
 
-    if (body.op === 'plan' || body.op === 'create') {
+    if (body.op === 'plan' || body.op === 'create' || body.op === 'preview') {
       // Opaque 404 for malformed, missing, foreign, or soft-deleted plays.
       if (!isUuid(body.playId)) return opaqueNotFound()
       const play = await em.findOne(GtmPlay, {
@@ -304,10 +304,14 @@ export async function POST(req: Request) {
           console.error('[internal.gtm.research-runs] source quality history unavailable', error)
         }
       }
+      // A preview carries no limits of its own: it samples the play's own
+      // priced plan, capped to three rows inside lib/research/preview.ts, so
+      // the lane it shows is the lane a run would use.
+      const requestedLimits = 'limits' in body ? body.limits ?? null : null
       const plan = buildSourcePlan(
         play,
         sourceAdapterList(adapterContext),
-        body.limits ?? null,
+        requestedLimits,
         undefined,
         opportunityRouting,
       )
@@ -330,6 +334,125 @@ export async function POST(req: Request) {
         && !gtmConsumerOwnerProbeEnabled(body.noliUserId, plan.limits)
       ) {
         return consumerResearchHold()
+      }
+
+      if (body.op === 'preview') {
+        /*
+         * Dry lane: three real public rows from ONE lane of this exact priced
+         * plan. No run row, no candidates, no enrollment. It calls a
+         * provider, so it is gated three ways before any money moves: the
+         * play must be researchable (the plan above already proved that), the
+         * workspace must have a preview left today, and the ledger must have
+         * the credits. `quoteOnly` stops before the first of those spends
+         * anything, so the button can quote itself on hover.
+         */
+        const previewLib = await import('../../../lib/research/preview')
+        const settingsLib = await import('../../../lib/workspace-settings')
+        const { GtmWorkspace } = entities
+        const workspace = await em.findOne(GtmWorkspace, {
+          id: play.workspaceId,
+          organizationId,
+          tenantId,
+          deletedAt: null,
+        })
+        if (!workspace) return opaqueNotFound()
+
+        const batch = previewLib.choosePreviewLane(plan)
+        const adapter = batch ? sourceAdapterRegistry(adapterContext)[batch.adapter_id] : undefined
+        if (!batch || !adapter) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: 'This play has no source Noli can sample on its own right now',
+              code: 'no_previewable_lane',
+            },
+            { status: 422 },
+          )
+        }
+        const quote = previewLib.quotePreviewLane(adapter, batch, plan.query)
+
+        if (body.quoteOnly) {
+          return NextResponse.json({
+            ok: true,
+            quote,
+            quota: settingsLib.readPlayPreviewQuota(workspace),
+          })
+        }
+
+        const claim = await settingsLib.consumePlayPreview(
+          em as unknown as import('../../../lib/campaign/build').CampaignEm,
+          { organizationId, tenantId, userId, requestId },
+          workspace.id,
+        )
+        if (!claim.allowed) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: `Previews are limited to ${claim.quota.limit} per day for this workspace. Research the play to see the full list.`,
+              code: 'preview_limit_reached',
+              quota: claim.quota,
+              quote,
+            },
+            { status: 429 },
+          )
+        }
+
+        let ledger: GtmCreditLedger
+        try {
+          const { getLedger } = await import('../../../lib/credits/noli-core-ledger')
+          ledger = getLedger()
+        } catch (error) {
+          console.error('[internal.gtm.research-runs] credit ledger unavailable', error)
+          return NextResponse.json(
+            { ok: false, error: 'Provider billing is not configured' },
+            { status: 503 },
+          )
+        }
+
+        try {
+          const preview = await previewLib.previewLane({
+            em: em as unknown as import('../../../lib/research/preview').PreviewEm,
+            ledger,
+            adapters: sourceAdapterRegistry(adapterContext),
+            plan,
+            organizationId,
+            tenantId,
+            noliOrgId,
+            noliUserId: body.noliUserId,
+            workspaceId: workspace.id,
+            playId: play.id,
+            claim: { day: claim.quota.day, slot: claim.quota.used },
+          })
+          await em.transactional(async (tem) => {
+            const audit = tem.create(GtmAuditEvent, {
+              organizationId,
+              tenantId,
+              actor: 'user_id',
+              actorUserId: userId,
+              action: 'gtm.play.previewed',
+              objectType: 'gtm_play',
+              objectId: play.id,
+              requestId: requestId || null,
+              metadata: {
+                adapter_id: preview.adapterId,
+                status: preview.status,
+                rows: preview.rows.length,
+                charged_credits: preview.chargedCredits,
+                provider_operation_id: preview.providerOperationId,
+                preview_day: claim.quota.day,
+                preview_slot: claim.quota.used,
+              },
+            })
+            tem.persist(audit)
+          })
+          return NextResponse.json({ ok: true, preview, quota: claim.quota })
+        } catch (error) {
+          if (error instanceof previewLib.GtmPreviewError) {
+            const status = error.code === 'insufficient_credits' ? 402 : 422
+            return NextResponse.json({ ok: false, error: error.message, code: error.code, quota: claim.quota }, { status })
+          }
+          throw error
+        }
       }
 
       if (body.op === 'plan') {

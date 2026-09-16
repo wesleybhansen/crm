@@ -20,12 +20,19 @@ import { shapePlayDetail, isUuid } from '../../../lib/play-shape'
  * Opaque 404: a missing, foreign-org, soft-deleted, or malformed playId all
  * produce the identical response, so callers cannot probe other orgs' rows.
  *
- * One narrow write: op 'set-size-confirm-later' flips the single
- * `size_confirm_later` key on the play's provider_query (the per-play "team
- * size: confirm later" setting the qualifier reads). It needs gtm.edit, is
- * scoped exactly like the read, and touches no other provider_query key, so
- * the frozen sourcing criteria cannot be rewritten through this route. Every
- * other op is read-only.
+ * Two narrow writes, both gtm.edit and both scoped exactly like the read:
+ *
+ * - 'set-size-confirm-later' flips the single `size_confirm_later` key on the
+ *   play's provider_query (the per-play "team size: confirm later" setting
+ *   the qualifier reads). It touches no other provider_query key, so the
+ *   frozen sourcing criteria cannot be rewritten through this route.
+ * - 'archive' takes a play out of every list while KEEPING its runs,
+ *   candidates and campaigns (lib/play-archive.ts). It is the merge action
+ *   behind the hub's duplicate-play prompt; `keptPlayId` records which play
+ *   of the group survived. Idempotent: archiving an archived play reports
+ *   already_archived rather than failing a half-finished merge.
+ *
+ * Every other op is read-only.
  *
  * Public at the dispatcher level (requireAuth: false) - we authenticate with
  * the shared secret instead of a Clerk/JWT session, mirroring
@@ -90,12 +97,46 @@ export async function POST(req: Request) {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const { hasGtmFeature } = await import('../../../lib/authorize')
-    const writing = parsed.data.op === 'set-size-confirm-later'
+    const archiving = parsed.data.op === 'archive'
+    const writing = parsed.data.op === 'set-size-confirm-later' || archiving
     if (!(await hasGtmFeature(container, { organizationId, tenantId, userId }, writing ? 'gtm.edit' : 'gtm.view'))) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
     }
     const em = container.resolve('em') as EntityManager
     const { GtmPlay } = await import('../../../data/entities')
+
+    if (archiving) {
+      // Archiving is the one op that must also see an already-archived row,
+      // so it owns its own scoped lookup (inside archivePlay) instead of the
+      // live-only read below. A foreign or missing play is the same opaque
+      // 404 as everywhere else.
+      const { archivePlay } = await import('../../../lib/play-archive')
+      const { GtmCampaignError } = await import('../../../lib/campaign/build')
+      try {
+        const archived = await archivePlay(
+          em as unknown as import('../../../lib/campaign/build').CampaignEm,
+          {
+            organizationId,
+            tenantId,
+            userId,
+            requestId: req.headers.get('x-request-id'),
+          },
+          playId,
+          { reason: parsed.data.reason ?? null, keptPlayId: parsed.data.keptPlayId ?? null },
+        )
+        return NextResponse.json({
+          ok: true,
+          play: { id: archived.play.id, archived_at: archived.archivedAt.toISOString() },
+          already_archived: archived.alreadyArchived,
+        })
+      } catch (error) {
+        if (error instanceof GtmCampaignError) {
+          if (error.code === 'play_not_found') return opaqueNotFound()
+          return NextResponse.json({ ok: false, error: error.message, code: error.code }, { status: 422 })
+        }
+        throw error
+      }
+    }
 
     // 5. Self-scoped read: id AND organization_id AND tenant_id AND live.
     //    A foreign or soft-deleted row is indistinguishable from a missing one.

@@ -79,15 +79,21 @@ export const gtmOverviewBodySchema = z.object({
 // playId is intentionally NOT format-validated here: a malformed id must
 // produce the same opaque 404 as a missing/foreign row (checked in the route
 // via isUuid), never a distinguishable 400.
-// `op` is the only write this route accepts. It is an explicit allowlist of
-// one field on the play's provider_query ("team size: confirm later"), so a
-// caller can never rewrite the frozen sourcing criteria through this door.
+// `op` names the only two writes this route accepts. 'set-size-confirm-later'
+// is an explicit allowlist of one field on the play's provider_query ("team
+// size: confirm later"), so a caller can never rewrite the frozen sourcing
+// criteria through this door. 'archive' takes a play out of the lists while
+// keeping its runs and results (lib/play-archive.ts); it is the merge action
+// behind the duplicate-play prompt, and `keptPlayId` records which play of
+// the group survived.
 export const gtmPlayDetailBodySchema = z
   .object({
     noliUserId: z.string().trim().min(1).max(200),
     playId: z.string().trim().min(1).max(200),
-    op: z.enum(['detail', 'set-size-confirm-later']).optional(),
+    op: z.enum(['detail', 'set-size-confirm-later', 'archive']).optional(),
     sizeConfirmLater: z.boolean().optional(),
+    keptPlayId: z.string().trim().min(1).max(200).optional(),
+    reason: z.string().max(2000).optional().nullable(),
   })
   .refine(
     (value) => value.op !== 'set-size-confirm-later' || typeof value.sizeConfirmLater === 'boolean',
@@ -170,6 +176,18 @@ export const gtmResearchRunsBodySchema = z.discriminatedUnion('op', [
     op: z.literal('requalify'),
     noliUserId: idString,
     runId: idString,
+  }),
+  // Dry-lane preview (spec phase C): three real public rows from ONE lane of
+  // the play's priced plan, with no run row and no candidates written. It
+  // calls a provider, so it spends: the workspace's three-per-UTC-day cap is
+  // claimed before the call (lib/workspace-settings.ts) and the op is gated
+  // at gtm.launch like execute. `quoteOnly` prices the sample without calling
+  // anything, so the button can say "about $x" before the click.
+  z.object({
+    op: z.literal('preview'),
+    noliUserId: idString,
+    playId: idString,
+    quoteOnly: z.boolean().optional().default(false),
   }),
   // Tranche 4: retention sweep exposed as a service-caller op (no in-app
   // worker convention exists; see lib/retention/sweep.ts).
@@ -493,14 +511,23 @@ export const gtmCampaignsBodySchema = z.discriminatedUnion('op', [
     // returns the stored draft instead of making a second metered AI call.
     idempotency_key: idString,
   }),
-  // Workspace-level settings write (CAN-SPAM sender postal address). Length
-  // is bounded loosely here; the 300-char cap after trimming is enforced by
-  // lib/workspace-settings.ts with a typed error. Empty / null = unset.
+  // Workspace-level settings write. Every field is INDEPENDENTLY optional and
+  // an omitted field is left alone: a caller that only dismisses the duplicate
+  // prompt must not clear the CAN-SPAM postal address as a side effect, so the
+  // route distinguishes `undefined` (do not touch) from `null` (unset).
+  //
+  // - postal_address: the CAN-SPAM sender address. Length is bounded loosely
+  //   here; the 300-char cap after trimming is enforced by
+  //   lib/workspace-settings.ts with a typed error. Empty / null = unset.
+  // - duplicates_dismissed: the signature of the duplicate-play grouping the
+  //   customer has already declined to merge. Opaque to the server. Empty /
+  //   null re-arms the prompt.
   z.object({
     op: z.literal('update-workspace-settings'),
     noliUserId: idString,
     workspaceId: idString,
     postal_address: z.string().max(2000).optional().nullable(),
+    duplicates_dismissed: z.string().max(2000).optional().nullable(),
   }),
 ])
 

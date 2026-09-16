@@ -99,8 +99,9 @@ export async function POST(req: Request) {
       { fields: ['id', 'executionEligibility'] },
     )
 
-    const { readWorkspacePostalAddress } = await import('../../../lib/workspace-settings')
+    const { readDuplicateDismissal, readPlayPreviewQuota, readWorkspacePostalAddress } = await import('../../../lib/workspace-settings')
     const postalAddress = readWorkspacePostalAddress(workspace)
+    const previewQuota = readPlayPreviewQuota(workspace)
 
     return NextResponse.json({
       ok: true,
@@ -114,6 +115,13 @@ export async function POST(req: Request) {
             // campaign creation; it is never replaced with a Noli default.
             postal_address: postalAddress,
             postal_address_set: postalAddress != null,
+            // The duplicate-play grouping the customer already declined to
+            // merge. The hub compares its freshly computed signature to this
+            // and shows the prompt only when they differ.
+            duplicates_dismissed: readDuplicateDismissal(workspace),
+            // Dry-lane previews left today, so the card can say so before the
+            // click instead of failing after it.
+            preview_quota: previewQuota,
           }
         : null,
       plays: plays.map((play) => shapePlaySummary(play)),

@@ -131,7 +131,7 @@ const TABLES: Table[] = [
     schema: validators.gtmResearchRunsBodySchema,
     resolve: researchFeatureForOp,
     readOps: ['list', 'plan', 'status', 'summary'],
-    elevated: { execute: 'gtm.launch', 'retention-sweep': 'gtm.launch' },
+    elevated: { execute: 'gtm.launch', 'retention-sweep': 'gtm.launch', preview: 'gtm.launch' },
   },
   {
     name: 'auto-refill',

@@ -271,19 +271,50 @@ export async function POST(req: Request) {
 
     if (body.op === 'update-workspace-settings') {
       if (!isUuid(body.workspaceId)) return opaqueNotFound()
-      const { updateWorkspacePostalAddress } = await import('../../../lib/workspace-settings')
-      const result = await updateWorkspacePostalAddress(
-        em,
-        ctx,
-        body.workspaceId,
-        body.postal_address ?? null,
-      )
+      const settingsLib = await import('../../../lib/workspace-settings')
+      // Each setting is written only when the caller sent it. `undefined` is
+      // "leave it alone"; `null` is "unset it". Dismissing the duplicate-play
+      // prompt must never clear the CAN-SPAM postal address, which would fail
+      // the next campaign approval for no reason the customer can see.
+      let workspaceId = body.workspaceId
+      let postalAddress: string | null = null
+      let duplicatesDismissed: string | null = null
+      let touched = false
+      if (body.postal_address !== undefined) {
+        const result = await settingsLib.updateWorkspacePostalAddress(em, ctx, body.workspaceId, body.postal_address)
+        workspaceId = result.workspace.id
+        postalAddress = result.postalAddress
+        duplicatesDismissed = settingsLib.readDuplicateDismissal(result.workspace)
+        touched = true
+      }
+      if (body.duplicates_dismissed !== undefined) {
+        const result = await settingsLib.updateDuplicateDismissal(em, ctx, body.workspaceId, body.duplicates_dismissed)
+        workspaceId = result.workspace.id
+        postalAddress = settingsLib.readWorkspacePostalAddress(result.workspace)
+        duplicatesDismissed = result.signature
+        touched = true
+      }
+      if (!touched) {
+        // Nothing to write: read the current state back rather than silently
+        // clearing anything.
+        const { GtmWorkspace } = await import('../../../data/entities')
+        const workspace = await em.findOne(GtmWorkspace, {
+          id: body.workspaceId,
+          organizationId: ctx.organizationId,
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+        })
+        if (!workspace) return opaqueNotFound()
+        postalAddress = settingsLib.readWorkspacePostalAddress(workspace)
+        duplicatesDismissed = settingsLib.readDuplicateDismissal(workspace)
+      }
       return NextResponse.json({
         ok: true,
         workspace: {
-          id: result.workspace.id,
-          postal_address: result.postalAddress,
-          postal_address_set: result.postalAddress != null,
+          id: workspaceId,
+          postal_address: postalAddress,
+          postal_address_set: postalAddress != null,
+          duplicates_dismissed: duplicatesDismissed,
         },
       })
     }

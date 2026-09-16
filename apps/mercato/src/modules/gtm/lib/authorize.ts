@@ -77,9 +77,13 @@ export function handoffFeatureForOp(op: string): GtmFeature {
   return op === 'asset-request' ? 'gtm.approve' : 'gtm.edit'
 }
 
+/* 'preview' is a dry lane, not a read: it calls a real provider and settles a
+ * real charge, so it needs the same launch right a run needs. Pricing it
+ * without calling anything happens inside the same op behind `quoteOnly`,
+ * which keeps one door rather than two with different rights. */
 export function researchFeatureForOp(op: string): GtmFeature {
   if (RESEARCH_READ_OPS.has(op)) return 'gtm.view'
-  return op === 'execute' || op === 'retention-sweep' ? 'gtm.launch' : 'gtm.edit'
+  return op === 'execute' || op === 'retention-sweep' || op === 'preview' ? 'gtm.launch' : 'gtm.edit'
 }
 
 export function autoRefillFeatureForOp(op: string): GtmFeature {
