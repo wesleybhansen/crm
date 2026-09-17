@@ -9,6 +9,7 @@ import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
+import { isTenantDataDecryptError } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   applyJoinFilters,
@@ -804,6 +805,18 @@ export class HybridQueryEngine implements QueryEngine {
             )
             return { ...item, ...decrypted }
           } catch (err) {
+            // Same boundary rule as the SQL query engine: render the plain
+            // message, never the ciphertext.
+            if (isTenantDataDecryptError(err)) {
+              console.error('QueryIndex: undecryptable fields', {
+                entity,
+                fields: err.fields,
+                tenantId: err.tenantId,
+                stampedKeyId: err.stampedKeyId,
+                activeKeyId: err.activeKeyId,
+              })
+              return { ...item, ...err.partial }
+            }
             console.error('Error decrypting entity payload', err);
             return item
           }

@@ -56,7 +56,7 @@ export async function GET(req: Request, ctx: any) {
       const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
       for (const contact of contacts) {
         try {
-          const dec = await svc.decryptEntityPayload(
+          const { payload: dec } = await svc.decryptEntityPayloadForDisplay(
             'customers:customer_entity',
             {
               display_name: contact.display_name,

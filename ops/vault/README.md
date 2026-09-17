@@ -1,4 +1,20 @@
-# Production Vault operations
+# Production Vault operations — RETIRED 2026-09-16
+
+> **Vault is no longer the key source for tenant data.** The derived scheme is
+> primary: `TENANT_KMS_PROVIDER=derived` (the default) derives a per-tenant key
+> from `TENANT_DATA_ENCRYPTION_KEY`. A sealed Vault used to hand every tenant a
+> different key with no error, and its unseal shares lived on the same host, so
+> it bought no key separation. The `vault` and `vault-permissions` services sit
+> behind the `vault-retired` Compose profile and no longer start with `up -d`;
+> the systemd units in this directory must not be installed or enabled.
+>
+> Box steps for the retirement, including what to keep and for how long, are in
+> `Noli AI/Software Strategy/crm-vault-retirement-runbook.md`.
+>
+> Everything below describes the retired setup. It stays here so an existing
+> Vault install can still be read: set `TENANT_KMS_PROVIDER=vault` and start the
+> container explicitly with
+> `docker compose -f docker-compose.prod.yml --profile vault-retired up -d vault`.
 
 The production Compose stack runs a network-internal HashiCorp Vault instance with integrated Raft storage. CRM reads tenant DEKs from KV v2 through `VAULT_ADDR`, `VAULT_TOKEN`, and `VAULT_KV_PATH` in `.env.production`. Vault is not published on a host port.
 

@@ -284,7 +284,23 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       debug('⚪️ subscriber.skip', { reason: 'no-tenant', entityId })
       return
     }
-    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId)
+    // The ORM subscriber is the boundary every list and detail view reads
+    // through, so a single unreadable row must not 500 the page and must not
+    // paint ciphertext either. Undecryptable fields come back as the plain
+    // "could not be decrypted" message; the fault is logged with names only.
+    const { payload: decrypted, undecryptableFields } = await this.service.decryptEntityPayloadForDisplay(
+      entityId,
+      target,
+      scopedTenantId,
+      scopedOrgId,
+    )
+    if (undecryptableFields.length) {
+      console.error('[encryption] subscriber_decrypt_failed', {
+        entityId,
+        fields: undecryptableFields,
+        tenantId: scopedTenantId,
+      })
+    }
     Object.assign(target, decrypted)
     if (syncOriginal) {
       this.syncOriginalEntityData(target, resolvedMeta, em as any)

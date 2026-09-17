@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/core'
-import { encryptWithAesGcm, decryptWithAesGcm } from './aes'
-import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { encryptWithAesGcm, decryptWithAesGcm, isEncryptedEnvelope, keyIdFromEnvelope } from './aes'
+import { TenantDataEncryptionService, UNDECRYPTABLE_DISPLAY_TEXT } from './tenantDataEncryptionService'
 
 const serviceCache = new WeakMap<EntityManager, TenantDataEncryptionService>()
 
@@ -58,7 +58,17 @@ export async function decryptCustomFieldValue(
   const key = await resolveDekKey(service, tenantId, cache)
   if (!key) return value
   const decrypted = decryptWithAesGcm(value, key)
-  if (decrypted === null) return value
+  if (decrypted === null) {
+    // Not one of our envelopes: legacy plaintext, hand it back untouched.
+    if (!isEncryptedEnvelope(value)) return value
+    // An envelope that will not open. Custom field values land straight in
+    // list cells, so returning `value` here put ciphertext on the screen.
+    console.error('[encryption] custom_field_decrypt_failed', {
+      tenantId: tenantId ?? null,
+      stampedKeyId: keyIdFromEnvelope(value),
+    })
+    return UNDECRYPTABLE_DISPLAY_TEXT
+  }
   try {
     return JSON.parse(decrypted)
   } catch {

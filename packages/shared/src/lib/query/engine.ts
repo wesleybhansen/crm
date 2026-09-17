@@ -14,6 +14,7 @@ import {
 import { resolveSearchConfig } from '../search/config'
 import { tokenizeText } from '../search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
+import { isTenantDataDecryptError } from '../encryption/tenantDataEncryptionService'
 
 const entityTableCache = new Map<string, string>()
 
@@ -642,6 +643,19 @@ export class BasicQueryEngine implements QueryEngine {
             )
             return { ...item, ...decrypted }
           } catch (err) {
+            // A list must not hand back ciphertext. A decrypt fault carries the
+            // row as far as it got, with the unreadable fields replaced by the
+            // plain "could not be decrypted" text.
+            if (isTenantDataDecryptError(err)) {
+              console.error('QueryEngine: undecryptable fields', {
+                entity,
+                fields: err.fields,
+                tenantId: err.tenantId,
+                stampedKeyId: err.stampedKeyId,
+                activeKeyId: err.activeKeyId,
+              })
+              return { ...item, ...err.partial }
+            }
             console.error('QueryEngine: error decrypting entity payload', err);
             return item
           }

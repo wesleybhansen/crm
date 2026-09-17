@@ -1,6 +1,15 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
-import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup, isV1Version, keyIdFromVersion } from './aes'
+import {
+  TenantDataEncryptionError,
+  TenantDataEncryptionErrorCode,
+  decryptWithAesGcmStrict,
+  encryptWithAesGcm,
+  hashForLookup,
+  isEncryptedEnvelope,
+  keyIdForDek,
+  keyIdFromEnvelope,
+} from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
@@ -57,9 +66,63 @@ function findKey(obj: Record<string, unknown>, key: string): string | null {
 }
 
 function isEncryptedPayload(value: unknown): boolean {
-  if (typeof value !== 'string') return false
-  const parts = value.split(':')
-  return parts.length === 4 && isV1Version(parts[3])
+  return isEncryptedEnvelope(value)
+}
+
+/**
+ * What a list renders in place of a field it could not decrypt. Never the
+ * ciphertext: a customer looking at their own contact list must be told the
+ * record is broken, not shown base64 and left to guess.
+ */
+export const UNDECRYPTABLE_DISPLAY_TEXT = 'This record could not be decrypted. Contact support.'
+
+/**
+ * A field that is an envelope but would not open: wrong key, or a corrupt row.
+ *
+ * This used to be a `continue`, which put raw ciphertext on the screen and left
+ * no trace anywhere. It raises now. Names only — entity, field, tenant, the two
+ * key ids — never a value and never key material.
+ */
+export class TenantDataDecryptError extends Error {
+  readonly name = 'TenantDataDecryptError'
+  readonly entityId: string
+  readonly fields: string[]
+  readonly tenantId: string | null
+  readonly code: TenantDataEncryptionErrorCode
+  readonly stampedKeyId: string | null
+  readonly activeKeyId: string | null
+  /**
+   * The row as far as it could be decrypted, with every failed field replaced
+   * by UNDECRYPTABLE_DISPLAY_TEXT. A list boundary renders this instead of
+   * dropping the whole page.
+   */
+  readonly partial: Record<string, unknown>
+
+  constructor(args: {
+    entityId: string
+    fields: string[]
+    tenantId: string | null
+    code: TenantDataEncryptionErrorCode
+    stampedKeyId?: string | null
+    activeKeyId?: string | null
+    partial: Record<string, unknown>
+  }) {
+    super(
+      `Could not decrypt ${args.entityId} field(s) ${args.fields.join(', ')}`
+        + (args.stampedKeyId ? ` (envelope key id ${args.stampedKeyId}, active key id ${args.activeKeyId})` : ''),
+    )
+    this.entityId = args.entityId
+    this.fields = args.fields
+    this.tenantId = args.tenantId
+    this.code = args.code
+    this.stampedKeyId = args.stampedKeyId ?? null
+    this.activeKeyId = args.activeKeyId ?? null
+    this.partial = args.partial
+  }
+}
+
+export function isTenantDataDecryptError(err: unknown): err is TenantDataDecryptError {
+  return err instanceof TenantDataDecryptError || (err as { name?: string })?.name === 'TenantDataDecryptError'
 }
 
 export class TenantDataEncryptionService {
@@ -219,6 +282,15 @@ export class TenantDataEncryptionService {
       if (value === null || value === undefined) continue
        // Avoid double-encrypting already encrypted payloads
       if (isEncryptedPayload(value)) continue
+      // A row whose field we could not open was handed to the UI carrying the
+      // placeholder. If that entity is saved again, encrypting the placeholder
+      // would overwrite the only copy of the ciphertext and destroy any chance
+      // of recovering it once the right key is back. Leave the column alone.
+      if (value === UNDECRYPTABLE_DISPLAY_TEXT) {
+        console.error('[encryption] refused_to_overwrite_undecryptable', { field: rule.field, tenantId: dek.tenantId })
+        delete clone[key]
+        continue
+      }
       const serialized = typeof value === 'string' ? value : JSON.stringify(value)
       const payload = encryptWithAesGcm(serialized, dek.key)
       clone[key] = payload.value
@@ -231,36 +303,48 @@ export class TenantDataEncryptionService {
   }
 
   private decryptFields(
+    entityId: string,
     obj: Record<string, unknown>,
     fields: EncryptedFieldRule[],
     dek: TenantDek
   ): Record<string, unknown> {
     const clone: Record<string, unknown> = { ...obj }
-    const maybeDecrypt = (payload: string): string | null => {
-      const first = decryptWithAesGcm(payload, dek.key)
-      if (first === null) return null
-      // Handle accidental double-encryption: if the first pass still looks like a v1 payload, try once more.
-      const parts = first.split(':')
-      if (parts.length === 4 && isV1Version(parts[3])) {
-        const second = decryptWithAesGcm(first, dek.key)
-        return second ?? first
+    const failedFields: string[] = []
+    let firstError: TenantDataEncryptionError | null = null
+    let firstStampedKeyId: string | null = null
+
+    // Handle accidental double-encryption: if the first pass still looks like
+    // an envelope, open it once more.
+    const openOnce = (payload: string): string => {
+      const first = decryptWithAesGcmStrict(payload, dek.key)
+      if (!isEncryptedPayload(first)) return first
+      try {
+        return decryptWithAesGcmStrict(first, dek.key)
+      } catch {
+        return first
       }
-      return first
     }
+
     for (const rule of fields) {
       const key = findKey(clone, rule.field)
       if (!key) continue
       const value = clone[key]
       if (typeof value !== 'string') continue
-      const decrypted = maybeDecrypt(value)
-      if (decrypted === null) {
-        // An envelope we could not open is an operational fault (wrong key,
-        // corrupt row), not a legacy plaintext. Leaving the ciphertext in
-        // place is unavoidable here, but it must be loud: this line is the
-        // only signal that a key swap has happened.
-        if (isEncryptedPayload(value)) {
-          console.error('[encryption] decrypt_failed', { field: rule.field, tenantId: dek.tenantId, stampedKeyId: keyIdFromVersion(value.split(':')[3]) })
+      // A value that is not one of our envelopes is legacy plaintext written
+      // before this field was mapped. It is not a fault and must not raise.
+      if (!isEncryptedPayload(value)) continue
+      let decrypted: string
+      try {
+        decrypted = openOnce(value)
+      } catch (err) {
+        const typed = err as TenantDataEncryptionError
+        failedFields.push(rule.field)
+        if (!firstError) {
+          firstError = typed
+          firstStampedKeyId = typed?.stampedKeyId ?? keyIdFromEnvelope(value)
         }
+        // Never the ciphertext, never the value. A list boundary renders this.
+        clone[key] = UNDECRYPTABLE_DISPLAY_TEXT
         continue
       }
       try {
@@ -268,6 +352,26 @@ export class TenantDataEncryptionService {
       } catch {
         clone[key] = decrypted
       }
+    }
+
+    if (failedFields.length) {
+      console.error('[encryption] decrypt_failed', {
+        entityId,
+        fields: failedFields,
+        tenantId: dek.tenantId,
+        code: firstError?.code,
+        stampedKeyId: firstStampedKeyId,
+        activeKeyId: keyIdForDek(dek.key),
+      })
+      throw new TenantDataDecryptError({
+        entityId,
+        fields: failedFields,
+        tenantId: dek.tenantId ?? null,
+        code: firstError?.code ?? TenantDataEncryptionErrorCode.DECRYPT_INTERNAL,
+        stampedKeyId: firstStampedKeyId,
+        activeKeyId: keyIdForDek(dek.key),
+        partial: clone,
+      })
     }
     return clone
   }
@@ -317,6 +421,32 @@ export class TenantDataEncryptionService {
       return payload
     }
     debug('🔓 decrypt_entity', { entityId, tenantId, organizationId, fields: map.fields.length })
-    return this.decryptFields(payload, map.fields, dek)
+    return this.decryptFields(entityId, payload, map.fields, dek)
+  }
+
+  /**
+   * Decrypt for a surface that renders rows to a person.
+   *
+   * decryptEntityPayload raises on an envelope it cannot open, which is right
+   * for writers, CLIs and outbound paths: those must stop rather than act on a
+   * broken value. A list cannot stop, so this is the boundary for it. The
+   * failed fields come back as UNDECRYPTABLE_DISPLAY_TEXT, the rest of the row
+   * is intact, and the caller gets the field names so it can flag the row.
+   */
+  async decryptEntityPayloadForDisplay(
+    entityId: string,
+    payload: Record<string, unknown>,
+    tenantId: string | null | undefined,
+    organizationId?: string | null
+  ): Promise<{ payload: Record<string, unknown>; undecryptableFields: string[] }> {
+    try {
+      const decrypted = await this.decryptEntityPayload(entityId, payload, tenantId, organizationId)
+      return { payload: decrypted, undecryptableFields: [] }
+    } catch (err) {
+      if (isTenantDataDecryptError(err)) {
+        return { payload: err.partial, undecryptableFields: err.fields }
+      }
+      throw err
+    }
   }
 }

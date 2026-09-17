@@ -15,12 +15,18 @@ import { IntegrationCredentials } from '../data/entities'
 const ENCRYPTED_CREDENTIALS_BLOB_KEY = '__om_encrypted_credentials_blob_v1'
 const DERIVED_KEY_CONTEXT = 'integrations.credentials'
 
+/**
+ * Last-resort secret for the credentials blob, used only when the KMS is a
+ * noop (tenant data encryption switched off). Same precedence as the KMS:
+ * TENANT_DATA_ENCRYPTION_KEY, then the legacy fallback name. AUTH_SECRET and
+ * NEXTAUTH_SECRET were candidates here once and are not any more: a session
+ * secret rotates on a different schedule than a data key, and rotating it
+ * would silently make every stored credential unreadable.
+ */
 function resolveFallbackEncryptionSecret(): string {
   const candidates = [
-    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY,
     process.env.TENANT_DATA_ENCRYPTION_KEY,
-    process.env.AUTH_SECRET,
-    process.env.NEXTAUTH_SECRET,
+    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY,
   ]
 
   for (const value of candidates) {
@@ -33,7 +39,7 @@ function resolveFallbackEncryptionSecret(): string {
   // A constant in the source is not a secret: anyone with the repo and a DB
   // dump could decrypt every integration credential. Refuse instead.
   throw new Error(
-    '[integrations.credentials] No encryption secret configured (set TENANT_DATA_ENCRYPTION_FALLBACK_KEY); refusing to encrypt integration credentials with a source-visible fallback',
+    '[integrations.credentials] No encryption secret configured (set TENANT_DATA_ENCRYPTION_KEY); refusing to encrypt integration credentials with a source-visible fallback',
   )
 }
 

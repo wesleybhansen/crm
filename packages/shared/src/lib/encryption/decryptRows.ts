@@ -1,4 +1,4 @@
-import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { TenantDataEncryptionService, isTenantDataDecryptError } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { createKmsService } from './kms'
 
@@ -58,8 +58,24 @@ export async function decryptRowFields<T extends Record<string, any>>(
         if (typeof value === 'string') (row as Record<string, unknown>)[field] = value
       }
     } catch (err) {
-      // Leave this row's stored values alone, but never silently: a decrypt
-      // failure on a raw-read path is how a key swap hides for weeks.
+      // A decrypt failure on a raw-read path is how a key swap hides for weeks,
+      // so it is never silent. These rows go straight into list views, so the
+      // unreadable fields carry the plain message instead of the ciphertext
+      // they held a moment ago.
+      if (isTenantDataDecryptError(err)) {
+        console.error('[encryption] decrypt_rows_failed', {
+          entityKey,
+          tenantId,
+          fields: err.fields,
+          stampedKeyId: err.stampedKeyId,
+          activeKeyId: err.activeKeyId,
+        })
+        for (const field of fields) {
+          const value = (err.partial as Record<string, unknown>)?.[field]
+          if (typeof value === 'string') (row as Record<string, unknown>)[field] = value
+        }
+        continue
+      }
       console.error('[encryption] decrypt_rows_failed', { entityKey, tenantId, error: (err as Error)?.message || String(err) })
     }
   }

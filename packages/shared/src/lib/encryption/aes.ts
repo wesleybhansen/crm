@@ -17,10 +17,20 @@ export enum TenantDataEncryptionErrorCode {
 
 export class TenantDataEncryptionError extends Error {
   code: TenantDataEncryptionErrorCode
-  constructor(code: TenantDataEncryptionErrorCode, message: string) {
+  /** Key id stamped into the envelope (v2 only). Never the key itself. */
+  stampedKeyId?: string | null
+  /** Key id of the key the process is holding right now. Never the key itself. */
+  activeKeyId?: string | null
+  constructor(
+    code: TenantDataEncryptionErrorCode,
+    message: string,
+    details?: { stampedKeyId?: string | null; activeKeyId?: string | null },
+  ) {
     super(message)
     this.name = 'TenantDataEncryptionError'
     this.code = code
+    this.stampedKeyId = details?.stampedKeyId ?? null
+    this.activeKeyId = details?.activeKeyId ?? null
   }
 }
 
@@ -38,22 +48,94 @@ function logDebug(event: string, payload: Record<string, unknown>) {
   }
 }
 
-/* The version slot carries a short id of the key that produced the envelope:
- * `v1.<8 hex>`. Envelopes written before this stamp are plain `v1`. Without
- * the id, a wrong key (Vault sealed, secret rotated) decrypts to "auth tag
- * mismatch", which every caller treated as "leave the ciphertext in place",
- * so a key swap showed up as garbled names in the UI instead of an error. */
+/* ---------------------------------------------------------------------------
+ * Envelope format
+ *
+ *   v2 (written today): iv:ct:tag:v2:<keyId>   — five colon-separated parts
+ *   v1 (read only)    : iv:ct:tag:v1           — no key id at all
+ *                       iv:ct:tag:v1.<keyId>   — interim stamp, still read
+ *
+ * <keyId> is the first 8 hex characters of sha256 over the active key material.
+ * The per-tenant DEK is already derived from the root secret AND the tenant
+ * salt, so hashing the DEK fingerprints both without ever touching the secret.
+ *
+ * Why the id exists: without it a wrong key (Vault sealed, secret rotated)
+ * surfaces only as "auth tag mismatch", which every caller used to treat as
+ * "leave the ciphertext in place". A key swap then showed up as garbled names
+ * in the UI instead of an error. With the id, a mismatch is detected before any
+ * crypto runs and raises a typed WRONG_KEY error naming the two ids.
+ * ------------------------------------------------------------------------- */
+
+export const ENVELOPE_VERSION_V1 = 'v1'
+export const ENVELOPE_VERSION_V2 = 'v2'
+/** The version new envelopes are written with. */
+export const CURRENT_ENVELOPE_VERSION = ENVELOPE_VERSION_V2
+
+export type ParsedEnvelope = {
+  ivB64: string
+  ciphertextB64: string
+  tagB64: string
+  version: typeof ENVELOPE_VERSION_V1 | typeof ENVELOPE_VERSION_V2
+  /** null for a bare `v1` envelope written before key ids existed. */
+  keyId: string | null
+}
+
 export function keyIdForDek(dekBase64: string): string {
   return crypto.createHash('sha256').update(Buffer.from(dekBase64, 'base64')).digest('hex').slice(0, 8)
 }
 
-export function isV1Version(version: string | undefined): boolean {
-  return version === 'v1' || (typeof version === 'string' && version.startsWith('v1.'))
+const KEY_ID_RE = /^[0-9a-f]{8}$/
+
+/**
+ * Parse a stored value into its envelope parts, or null when it is not one of
+ * ours (legacy plaintext, a free-text field that happens to contain colons).
+ */
+export function parseEnvelope(value: unknown): ParsedEnvelope | null {
+  if (typeof value !== 'string' || !value) return null
+  const parts = value.split(':')
+  if (parts.length === 5) {
+    const [ivB64, ciphertextB64, tagB64, version, keyId] = parts
+    if (version !== ENVELOPE_VERSION_V2 || !KEY_ID_RE.test(keyId)) return null
+    return { ivB64, ciphertextB64, tagB64, version: ENVELOPE_VERSION_V2, keyId }
+  }
+  if (parts.length === 4) {
+    const [ivB64, ciphertextB64, tagB64, version] = parts
+    if (version === ENVELOPE_VERSION_V1) {
+      return { ivB64, ciphertextB64, tagB64, version: ENVELOPE_VERSION_V1, keyId: null }
+    }
+    if (version.startsWith('v1.')) {
+      const keyId = version.slice(3)
+      if (!KEY_ID_RE.test(keyId)) return null
+      return { ivB64, ciphertextB64, tagB64, version: ENVELOPE_VERSION_V1, keyId }
+    }
+    return null
+  }
+  return null
 }
 
+/** True when the stored value carries one of our envelopes (v1 or v2). */
+export function isEncryptedEnvelope(value: unknown): value is string {
+  return parseEnvelope(value) !== null
+}
+
+/** @deprecated Use isEncryptedEnvelope / parseEnvelope. Kept for callers that only see the version slot. */
+export function isV1Version(version: string | undefined): boolean {
+  return version === ENVELOPE_VERSION_V1 || (typeof version === 'string' && version.startsWith('v1.'))
+}
+
+/** Key id carried by an already-parsed version slot, or null. */
 export function keyIdFromVersion(version: string | undefined): string | null {
-  if (typeof version !== 'string' || !version.startsWith('v1.')) return null
-  return version.slice(3) || null
+  if (typeof version !== 'string') return null
+  if (version.startsWith('v1.')) {
+    const id = version.slice(3)
+    return KEY_ID_RE.test(id) ? id : null
+  }
+  return null
+}
+
+/** Key id stamped into a stored envelope, or null when it carries none. */
+export function keyIdFromEnvelope(value: unknown): string | null {
+  return parseEnvelope(value)?.keyId ?? null
 }
 
 export function encryptWithAesGcm(value: string, dekBase64: string): EncryptionPayload {
@@ -62,15 +144,15 @@ export function encryptWithAesGcm(value: string, dekBase64: string): EncryptionP
   const cipher = crypto.createCipheriv('aes-256-gcm', dek, iv)
   const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
   const tag = cipher.getAuthTag()
-  const version = `v1.${keyIdForDek(dekBase64)}`
   const payload = [
     iv.toString('base64'),
     ciphertext.toString('base64'),
     tag.toString('base64'),
-    version,
+    CURRENT_ENVELOPE_VERSION,
+    keyIdForDek(dekBase64),
   ].join(':')
-  logDebug('encrypt', { length: ciphertext.length })
-  return { value: payload, raw: payload, version: 'v1' }
+  logDebug('encrypt', { length: ciphertext.length, version: CURRENT_ENVELOPE_VERSION })
+  return { value: payload, raw: payload, version: CURRENT_ENVELOPE_VERSION }
 }
 
 function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buffer): string {
@@ -79,58 +161,36 @@ function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buff
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
 }
 
-export function decryptWithAesGcm(payload: string, dekBase64: string): string | null {
-  if (!payload) return null
-  const parts = payload.split(':')
-  if (parts.length !== 4) return null
-  const [ivB64, ciphertextB64, tagB64, version] = parts
-  if (!isV1Version(version)) return null
-  const stampedKeyId = keyIdFromVersion(version)
-  if (stampedKeyId && stampedKeyId !== keyIdForDek(dekBase64)) {
-    // A different key wrote this envelope. Say so; do not try and fail quietly.
-    console.error('[encryption] decrypt_key_mismatch', { stampedKeyId, currentKeyId: keyIdForDek(dekBase64) })
-    return null
-  }
-  const dek = Buffer.from(dekBase64, 'base64')
-  const iv = Buffer.from(ivB64, 'base64')
-  const ciphertext = Buffer.from(ciphertextB64, 'base64')
-  const tag = Buffer.from(tagB64, 'base64')
-  try {
-    const result = runAesGcmDecrypt(dek, iv, ciphertext, tag)
-    logDebug('decrypt', { iv: ivB64, tag: tagB64 })
-    return result
-  } catch (err) {
-    logDebug('decrypt_error', { message: (err as Error)?.message || String(err) })
-    return null
-  }
-}
-
-export function hashForLookup(value: string): string {
-  return crypto.createHash('sha256').update(value.toLowerCase().trim()).digest('hex')
-}
-
 /**
- * Strict variant of decryptWithAesGcm that throws typed TenantDataEncryptionError.
- * - Format mismatch (not iv:ct:tag:v1): throws AUTH_FAILED (treat as plaintext).
- * - Valid format but invalid buffer sizes (bad base64): throws MALFORMED_PAYLOAD.
- * - AES-GCM auth tag failure: throws AUTH_FAILED.
- * - Unexpected crypto error: throws DECRYPT_INTERNAL.
+ * Strict decrypt. Throws a typed TenantDataEncryptionError.
+ * - Not one of our envelopes: AUTH_FAILED (caller may treat it as plaintext).
+ * - v2 (or interim v1.<id>) whose key id is not the active key's: WRONG_KEY,
+ *   naming both ids and never the key material.
+ * - Bad base64 or impossible component sizes: MALFORMED_PAYLOAD.
+ * - AES-GCM tag rejection: AUTH_FAILED.
  */
 export function decryptWithAesGcmStrict(payload: string, dekBase64: string): string {
-  const parts = payload.split(':')
-  if (parts.length !== 4 || !isV1Version(parts[3])) {
+  const parsed = parseEnvelope(payload)
+  if (!parsed) {
     throw new TenantDataEncryptionError(
       TenantDataEncryptionErrorCode.AUTH_FAILED,
       'Value is not an encrypted payload (format mismatch)',
     )
   }
-  const [ivB64, ciphertextB64, tagB64] = parts as [string, string, string, string]
+  const activeKeyId = keyIdForDek(dekBase64)
+  if (parsed.keyId && parsed.keyId !== activeKeyId) {
+    throw new TenantDataEncryptionError(
+      TenantDataEncryptionErrorCode.WRONG_KEY,
+      `Envelope was written by key id ${parsed.keyId} but the active key id is ${activeKeyId}`,
+      { stampedKeyId: parsed.keyId, activeKeyId },
+    )
+  }
   let dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buffer
   try {
     dek = Buffer.from(dekBase64, 'base64')
-    iv = Buffer.from(ivB64, 'base64')
-    ciphertext = Buffer.from(ciphertextB64, 'base64')
-    tag = Buffer.from(tagB64, 'base64')
+    iv = Buffer.from(parsed.ivB64, 'base64')
+    ciphertext = Buffer.from(parsed.ciphertextB64, 'base64')
+    tag = Buffer.from(parsed.tagB64, 'base64')
   } catch {
     throw new TenantDataEncryptionError(
       TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD,
@@ -144,11 +204,40 @@ export function decryptWithAesGcmStrict(payload: string, dekBase64: string): str
     )
   }
   try {
-    return runAesGcmDecrypt(dek, iv, ciphertext, tag)
+    const result = runAesGcmDecrypt(dek, iv, ciphertext, tag)
+    logDebug('decrypt', { version: parsed.version, keyId: parsed.keyId })
+    return result
   } catch {
     throw new TenantDataEncryptionError(
       TenantDataEncryptionErrorCode.AUTH_FAILED,
       'AES-GCM authentication tag verification failed',
+      { stampedKeyId: parsed.keyId, activeKeyId },
     )
   }
+}
+
+/**
+ * Tolerant decrypt: null instead of a throw. A key-id mismatch is still logged
+ * loudly, because a silent null is how a key swap used to hide for weeks.
+ */
+export function decryptWithAesGcm(payload: string, dekBase64: string): string | null {
+  if (!payload) return null
+  try {
+    return decryptWithAesGcmStrict(payload, dekBase64)
+  } catch (err) {
+    const typed = err as TenantDataEncryptionError
+    if (typed?.code === TenantDataEncryptionErrorCode.WRONG_KEY) {
+      console.error('[encryption] decrypt_key_mismatch', {
+        stampedKeyId: typed.stampedKeyId,
+        activeKeyId: typed.activeKeyId,
+      })
+      return null
+    }
+    logDebug('decrypt_error', { code: typed?.code, message: typed?.message || String(err) })
+    return null
+  }
+}
+
+export function hashForLookup(value: string): string {
+  return crypto.createHash('sha256').update(value.toLowerCase().trim()).digest('hex')
 }

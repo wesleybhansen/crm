@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createHash } from 'node:crypto'
-import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { decryptWithAesGcm, isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/aes'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -386,7 +386,10 @@ export class WidgetDataService {
         let labelValue = row.label
         if (entityId && encryptionService?.isEnabled() && labelValue != null) {
           const rowOrgId = row.organization_id ?? organizationId ?? null
-          const decrypted = await encryptionService.decryptEntityPayload(
+          // A dashboard is a list surface: it renders the plain "could not be
+          // decrypted" text rather than failing the whole widget or, worse,
+          // painting ciphertext into a chart label.
+          const { payload: decrypted } = await encryptionService.decryptEntityPayloadForDisplay(
             entityId,
             { [config.labelColumn]: labelValue },
             this.scope.tenantId,
@@ -467,8 +470,9 @@ export class WidgetDataService {
   }
 
   private isEncryptedPayload(value: string): boolean {
-    const parts = value.split(':')
-    return parts.length === 4 && parts[3] === 'v1'
+    // Shared parser: the old private `parts[3] === 'v1'` test missed every
+    // key-stamped envelope, so widget labels came back as ciphertext.
+    return isEncryptedEnvelope(value)
   }
 
   private decryptWithDek(value: string, dek: string): string | null {

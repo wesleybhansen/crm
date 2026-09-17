@@ -44,7 +44,7 @@ async function decryptContactRows(em: EntityManager, rows: any[], tenantId: stri
     const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
     return await Promise.all(rows.map(async (r) => {
       try {
-        const dec = await svc.decryptEntityPayload('customers:customer_entity', { display_name: r.display_name, primary_email: r.primary_email }, tenantId, orgId)
+        const { payload: dec } = await svc.decryptEntityPayloadForDisplay('customers:customer_entity', { display_name: r.display_name, primary_email: r.primary_email }, tenantId, orgId)
         return { ...r, display_name: dec.display_name ?? r.display_name, primary_email: dec.primary_email ?? r.primary_email }
       } catch {
         return r
@@ -62,7 +62,7 @@ async function decryptDealRows(em: EntityManager, rows: any[], tenantId: string,
     const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
     return await Promise.all(rows.map(async (r) => {
       try {
-        const dec = await svc.decryptEntityPayload('customers:customer_deal', { title: r.title, description: r.description }, tenantId, orgId)
+        const { payload: dec } = await svc.decryptEntityPayloadForDisplay('customers:customer_deal', { title: r.title, description: r.description }, tenantId, orgId)
         return { ...r, title: dec.title ?? r.title, description: dec.description ?? r.description }
       } catch {
         return r

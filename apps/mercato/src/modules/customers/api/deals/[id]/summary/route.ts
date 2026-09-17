@@ -22,7 +22,7 @@ async function decryptDeal(em: EntityManager, deal: any, tenantId: string, orgId
   if (!deal || !isTenantDataEncryptionEnabled()) return deal
   try {
     const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
-    const dec = await svc.decryptEntityPayload('customers:customer_deal', { title: deal.title, description: deal.description }, tenantId, orgId)
+    const { payload: dec } = await svc.decryptEntityPayloadForDisplay('customers:customer_deal', { title: deal.title, description: deal.description }, tenantId, orgId)
     return { ...deal, title: dec.title ?? deal.title, description: dec.description ?? deal.description }
   } catch {
     return deal

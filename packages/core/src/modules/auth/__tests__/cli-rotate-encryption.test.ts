@@ -11,7 +11,9 @@ const execute = jest.fn()
 const find = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/aes', () => ({
-  isV1Version: (version: string | undefined) => version === 'v1' || (typeof version === 'string' && version.startsWith('v1.')),
+  // Keep the real envelope parser: a hand-rolled copy here drifted from the
+  // module and let the rotation re-encrypt already-encrypted rows.
+  ...jest.requireActual('@open-mercato/shared/lib/encryption/aes'),
   decryptWithAesGcm: jest.fn(),
 }))
 

@@ -48,7 +48,7 @@ export async function GET(_req: Request, ctx?: any) {
     const contacts = encryptionService
       ? await Promise.all(rawContacts.map(async (c: any) => {
           try {
-            const decrypted = await encryptionService.decryptEntityPayload(
+            const { payload: decrypted } = await encryptionService.decryptEntityPayloadForDisplay(
               'customers:customer_entity',
               { display_name: c.display_name, primary_email: c.primary_email },
               auth.tenantId, auth.orgId,

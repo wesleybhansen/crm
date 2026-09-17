@@ -1,5 +1,5 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
-import { isV1Version } from '@open-mercato/shared/lib/encryption/aes'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/aes'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { hash } from 'bcryptjs'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -257,13 +257,10 @@ const rotateEncryptionKey: ModuleCli = {
     const tableName = meta?.tableName || 'users'
     const schema = meta?.schema
     const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-    const isEncryptedPayload = (value: unknown): boolean => {
-      if (typeof value !== 'string') return false
-      const parts = value.split(':')
-      // Envelopes carry `v1` or `v1.<keyId>`; a private `=== 'v1'` test here
-      // made the rotation re-encrypt (and re-hash) already-encrypted rows.
-      return parts.length === 4 && isV1Version(parts[3])
-    }
+    // One shared parser. A private `=== 'v1'` test here once made the rotation
+    // re-encrypt (and re-hash) already-encrypted rows, and it would miss every
+    // v2 envelope now.
+    const isEncryptedPayload = isEncryptedEnvelope
     const printedDek = new Set<string>()
     const oldDekCache = new Map<string, TenantDek | null>()
     const processScope = async (scopeTenantId: string, scopeOrganizationId: string): Promise<number> => {

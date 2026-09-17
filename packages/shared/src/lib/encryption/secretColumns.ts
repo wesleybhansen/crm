@@ -1,4 +1,4 @@
-import { decryptWithAesGcm, encryptWithAesGcm, isV1Version } from './aes'
+import { decryptWithAesGcm, encryptWithAesGcm, isEncryptedEnvelope } from './aes'
 import { isTenantDataEncryptionEnabled } from './toggles'
 
 /**
@@ -21,11 +21,9 @@ export type TenantEncryptionLike = {
   getDek: (tenantId: string) => Promise<{ key: string } | null>
 }
 
-/** True when the stored string carries our `iv:ct:tag:v1[.keyId]` envelope. */
+/** True when the stored string carries our `iv:ct:tag:v2:<keyId>` envelope (or a legacy v1 one). */
 export function isSealedSecret(value: unknown): boolean {
-  if (typeof value !== 'string') return false
-  const parts = value.split(':')
-  return parts.length === 4 && isV1Version(parts[3])
+  return isEncryptedEnvelope(value)
 }
 
 /**

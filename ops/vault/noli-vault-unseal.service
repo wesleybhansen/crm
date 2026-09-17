@@ -1,3 +1,7 @@
+# RETIRED 2026-09-16. Vault is no longer the key source for tenant data; the
+# derived scheme is (TENANT_KMS_PROVIDER=derived). Do not install or enable this
+# unit. On the production box the running copy must be stopped and disabled:
+# see crm-vault-retirement-runbook.md.
 [Unit]
 Description=Unseal the Noli CRM Vault instance
 Requires=docker.service

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { generateDek, hashForLookup } from './aes'
+import { CURRENT_ENVELOPE_VERSION, generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
 
 export type TenantDek = {
@@ -86,26 +86,41 @@ function normalizeEnv(value: string | undefined): string {
 
 type DerivedSecret = { secret: string; source: 'explicit' | 'dev-default'; envName: string }
 
+/**
+ * The dedicated tenant-data key, in priority order.
+ *
+ * TENANT_DATA_ENCRYPTION_KEY is the variable to set. TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+ * is what production is running on today and stays supported so a deploy that
+ * has not set the new variable yet keeps reading the same key; it logs one
+ * startup warning naming the variable to set.
+ *
+ * AUTH_SECRET / NEXTAUTH_SECRET are deliberately NOT candidates. Deriving the
+ * data key from the session secret silently re-keys every encrypted row the day
+ * that secret rotates, and a session secret is handled far more casually than a
+ * data key. They were accepted here once; they never are again.
+ */
+export const TENANT_DATA_KEY_ENV = 'TENANT_DATA_ENCRYPTION_KEY'
+export const TENANT_DATA_FALLBACK_KEY_ENV = 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY'
+
+let loggedFallbackVariableWarning = false
+
 function resolveDerivedKeySecret(): DerivedSecret | null {
-  const dedicated: Array<{ value: string | null; envName: string }> = [
-    { value: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY' },
-    { value: process.env.TENANT_DATA_ENCRYPTION_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_KEY' },
+  const candidates: Array<{ value: string | null; envName: string }> = [
+    { value: process.env[TENANT_DATA_KEY_ENV] ?? null, envName: TENANT_DATA_KEY_ENV },
+    { value: process.env[TENANT_DATA_FALLBACK_KEY_ENV] ?? null, envName: TENANT_DATA_FALLBACK_KEY_ENV },
   ]
-  // When the derived KMS is the primary (TENANT_DATA_KMS=derived) the data key
-  // must come from a dedicated encryption secret. Deriving it from the session
-  // secret would silently re-key every row the day AUTH_SECRET rotates.
-  const candidates = derivedIsPrimary()
-    ? dedicated
-    : [
-        ...dedicated,
-        { value: process.env.AUTH_SECRET ?? null, envName: 'AUTH_SECRET' },
-        { value: process.env.NEXTAUTH_SECRET ?? null, envName: 'NEXTAUTH_SECRET' },
-      ]
   for (const raw of candidates) {
     const normalized = normalizeEnv(raw.value ?? undefined)
-    if (normalized) return { secret: normalized, source: 'explicit', envName: raw.envName }
+    if (!normalized) continue
+    if (raw.envName === TENANT_DATA_FALLBACK_KEY_ENV && !loggedFallbackVariableWarning && process.env.NODE_ENV !== 'test') {
+      loggedFallbackVariableWarning = true
+      console.warn(
+        `\u26a0\ufe0f [encryption][kms] Tenant data keys are derived from ${TENANT_DATA_FALLBACK_KEY_ENV}. ` +
+          `Set ${TENANT_DATA_KEY_ENV} to the dedicated data key; the fallback variable is kept only for the transition.`,
+      )
+    }
+    return { secret: normalized, source: 'explicit', envName: raw.envName }
   }
-  if (derivedIsPrimary()) return null
   if (process.env.NODE_ENV !== 'production') {
     return { secret: 'om-dev-tenant-encryption', source: 'dev-default', envName: 'DEV_DEFAULT' }
   }
@@ -286,91 +301,111 @@ export class HashicorpVaultKmsService implements KmsService {
   }
 }
 
-let loggedDerivedKeyFallbackBanner = false
+/* ---------------------------------------------------------------------------
+ * Key source
+ *
+ * TENANT_KMS_PROVIDER picks it. Default: `derived`.
+ *
+ *   derived (default) - per-tenant keys are PBKDF2-derived from
+ *                       TENANT_DATA_ENCRYPTION_KEY (or the legacy
+ *                       TENANT_DATA_ENCRYPTION_FALLBACK_KEY). One key source,
+ *                       one failure mode: the variable is missing, and the
+ *                       process refuses to start rather than quietly writing
+ *                       PII as plaintext.
+ *   vault             - opt in to HashiCorp Vault as the primary source, with
+ *                       the derived scheme as fallback.
+ *
+ * Vault used to be the unconditional primary. A restart leaves Vault sealed
+ * until somebody unseals it, and the old ordering treated a sealed Vault as
+ * "try the fallback", which silently moved every tenant onto a different key;
+ * the swap surfaced as garbled names, not an error. The unseal shares also live
+ * on the same host as Vault, so it bought no key separation. Retired as primary
+ * on 2026-09-16; the client code below stays compiled and reachable behind
+ * TENANT_KMS_PROVIDER=vault so an existing Vault install can still be read.
+ *
+ * TENANT_DATA_KMS is the previous name for this switch and is still honoured.
+ * ------------------------------------------------------------------------- */
+export type TenantKmsProvider = 'derived' | 'vault'
 
-function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
-  if (process.env.NODE_ENV === 'test' || loggedDerivedKeyFallbackBanner) return
-  loggedDerivedKeyFallbackBanner = true
-  const redBg = '\x1b[41m'
-  const white = '\x1b[97m'
-  const reset = '\x1b[0m'
-  const width = 110
-  const border = `${redBg}${white}${'━'.repeat(width)}${reset}`
-  const isProduction = process.env.NODE_ENV === 'production'
-  const sourceLine =
-    opts.source === 'explicit' ? `Source: ${opts.envName}` : 'Source: dev default secret (do NOT use in production)'
-  const body = [
-    '🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)',
-    sourceLine,
-    isProduction ? 'Secret: [redacted in production]' : `Secret: ${opts.secret}`,
-    'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
-  ]
-  console.warn(border)
-  for (const line of body) {
-    const padded = line.padEnd(width - 2, ' ')
-    console.warn(`${redBg}${white} ${padded} ${reset}`)
-  }
-  console.warn(border)
+export const TENANT_KMS_PROVIDER_ENV = 'TENANT_KMS_PROVIDER'
+export const LEGACY_TENANT_KMS_PROVIDER_ENV = 'TENANT_DATA_KMS'
+export const DEFAULT_TENANT_KMS_PROVIDER: TenantKmsProvider = 'derived'
+
+export function resolveTenantKmsProvider(): TenantKmsProvider {
+  const raw =
+    normalizeEnv(process.env[TENANT_KMS_PROVIDER_ENV]).toLowerCase()
+    || normalizeEnv(process.env[LEGACY_TENANT_KMS_PROVIDER_ENV]).toLowerCase()
+  if (raw === 'vault') return 'vault'
+  return DEFAULT_TENANT_KMS_PROVIDER
 }
 
-let loggedDerivedPrimary = false
+let loggedKmsBanner = false
 
-/* TENANT_DATA_KMS=derived makes the derived-key service the ONLY key source.
- * Why: with Vault as primary and derived as fallback, a sealed Vault (which is
- * what a restart produces until someone unseals it) silently switched every
- * tenant to a different key, and the swap surfaced only as garbled names. The
- * unseal shares live on the same host as Vault, so Vault was not buying key
- * separation either. Derived-primary has one key source, one failure mode
- * (the secret is missing, which refuses to start encrypting), and the key id
- * stamped into each envelope makes any future swap a detected error. */
-function derivedIsPrimary(): boolean {
-  return normalizeEnv(process.env.TENANT_DATA_KMS).toLowerCase() === 'derived'
+/** Test seam: let a suite observe the banner more than once. */
+export function resetKmsBannerForTests(): void {
+  loggedKmsBanner = false
+  loggedFallbackVariableWarning = false
+}
+
+function logKmsBanner(provider: TenantKmsProvider, derived: DerivedSecret | null): void {
+  if (loggedKmsBanner || process.env.NODE_ENV === 'test') return
+  loggedKmsBanner = true
+  const keySource = derived
+    ? derived.source === 'dev-default'
+      ? 'dev default secret (NOT for production)'
+      : derived.envName
+    : 'none'
+  // Never the key, never a hash of it: the scheme, the variable name, and
+  // whether envelopes carry a key id. That is everything an operator needs to
+  // tell "the deploy read my new variable" from "it did not".
+  const line =
+    `[encryption][kms] scheme=${provider} key_variable=${keySource} `
+    + `envelope=${CURRENT_ENVELOPE_VERSION} key_id=active`
+  if (derived?.source === 'dev-default') console.warn(`\u26a0\ufe0f ${line}`)
+  else console.info(`\ud83d\udd10 ${line}`)
 }
 
 export function createKmsService(): KmsService {
   if (!isTenantDataEncryptionEnabled()) return new NoopKmsService()
 
+  const provider = resolveTenantKmsProvider()
   const derived = resolveDerivedKeySecret()
-  if (derivedIsPrimary()) {
+
+  if (provider === 'derived') {
     if (!derived) {
-      // Fail closed. Encryption is on (isTenantDataEncryptionEnabled) and the
-      // operator chose the derived KMS, so a missing secret must not quietly
-      // turn every PII write into plaintext. Throwing here stops the process
-      // at boot, which is the loud failure this deserves.
-      throw new Error('TENANT_DATA_KMS=derived but no TENANT_DATA_ENCRYPTION_KEY (or _FALLBACK_KEY) is set; refusing to run with tenant data encryption silently disabled')
+      // Fail closed. Encryption is on and the derived scheme is the only key
+      // source, so a missing secret must not quietly turn every PII write into
+      // plaintext. Throwing stops the process at boot, which is the loud
+      // failure this deserves.
+      throw new Error(
+        `Tenant data encryption is enabled but neither ${TENANT_DATA_KEY_ENV} nor ${TENANT_DATA_FALLBACK_KEY_ENV} is set; `
+          + 'refusing to run with tenant data encryption silently disabled',
+      )
     }
-    if (!loggedDerivedPrimary) {
-      loggedDerivedPrimary = true
-      const weak = derived.envName === 'AUTH_SECRET' || derived.envName === 'NEXTAUTH_SECRET' || derived.source === 'dev-default'
-      const line = `[encryption][kms] derived-key KMS is primary (source: ${derived.envName})`
-      if (weak) console.error(`🚨 ${line}; the data key must not be the session secret. Set TENANT_DATA_ENCRYPTION_KEY.`)
-      else console.info(`🔐 ${line}`)
-    }
+    logKmsBanner(provider, derived)
     return new DerivedKmsService(derived.secret)
   }
 
+  // provider === 'vault' (explicit opt-in only)
+  logKmsBanner(provider, derived)
   const primary = new HashicorpVaultKmsService()
   const fallback = derived ? new DerivedKmsService(derived.secret) : null
-  const notifyFallback = derived
-    ? () => {
-        logDerivedKeyFallbackBanner(derived)
-      }
-    : undefined
 
   if (!primary.isHealthy()) {
     if (fallback) {
-      notifyFallback?.()
+      console.warn(
+        `\u26a0\ufe0f [encryption][kms] ${TENANT_KMS_PROVIDER_ENV}=vault but Vault is unhealthy or misconfigured; `
+          + `using derived keys from ${derived?.envName}`,
+      )
       return fallback
     }
     console.warn(
-      '⚠️ [encryption][kms] Vault not healthy or misconfigured (missing VAULT_ADDR/VAULT_TOKEN) and no fallback secret provided; falling back to noop KMS',
+      `\u26a0\ufe0f [encryption][kms] ${TENANT_KMS_PROVIDER_ENV}=vault, Vault is unhealthy and no derived secret is set; falling back to noop KMS`,
     )
     return new NoopKmsService()
   }
 
-  if (fallback) {
-    return new FallbackKmsService(primary, fallback, notifyFallback)
-  }
+  if (fallback) return new FallbackKmsService(primary, fallback)
 
   return primary
 }

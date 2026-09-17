@@ -1,4 +1,6 @@
 #!/bin/sh
+# RETIRED 2026-09-16: Vault is no longer the tenant-data key source.
+# Kept so an existing Vault install can still be read (TENANT_KMS_PROVIDER=vault).
 set -eu
 
 umask 077

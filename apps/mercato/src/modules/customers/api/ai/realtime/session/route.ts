@@ -20,7 +20,7 @@ async function decryptContactRows(rows: any[], tenantId: string, orgId: string):
     const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
     return await Promise.all(rows.map(async (r) => {
       try {
-        const dec = await svc.decryptEntityPayload('customers:customer_entity', { display_name: r.display_name, primary_email: r.primary_email }, tenantId, orgId)
+        const { payload: dec } = await svc.decryptEntityPayloadForDisplay('customers:customer_entity', { display_name: r.display_name, primary_email: r.primary_email }, tenantId, orgId)
         return { ...r, display_name: dec.display_name ?? r.display_name, primary_email: dec.primary_email ?? r.primary_email }
       } catch {
         return r

@@ -7,7 +7,8 @@ import {
   type ActionLogCreateInput,
   type ActionLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
-import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { TenantDataEncryptionService, UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/aes'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 
@@ -32,9 +33,11 @@ export class ActionLogService {
         const dek = await this.tenantEncryptionService.getDek(entry.tenantId ?? null)
         const deepDecrypt = (value: unknown): unknown => {
           if (!dek) return value
-          if (typeof value === 'string' && value.split(':').length === 4 && value.endsWith(':v1')) {
+          if (isEncryptedEnvelope(value)) {
             const decrypted = decryptWithAesGcm(value, dek.key)
-            if (decrypted === null) return value
+            // Audit entries are rendered as a list. An envelope that will not
+            // open shows the plain message, never the ciphertext.
+            if (decrypted === null) return UNDECRYPTABLE_DISPLAY_TEXT
             try { return JSON.parse(decrypted) } catch { return decrypted }
           }
           if (Array.isArray(value)) return value.map((item) => deepDecrypt(item))

@@ -30,15 +30,16 @@ This document outlines the data-encryption architecture so module owners can wir
 - **Auth adjustments** – `users` table gains `email_hash` (indexed) so login can query by hash even when `email` is encrypted.
 - **Tenant bootstrap** – tenant creation flow generates and stores a DEK via `kmsService.createTenantDek` with the `tenant_key_<tenantId>` prefix.
 - **Observability** – warning rows (or audit logs) emitted when KMS is unavailable; set `TENANT_DATA_ENCRYPTION_DEBUG=yes` to log map evaluation plus Vault KMS reads/writes.
-- **Fallback path** – if Vault is unhealthy, the runtime uses a derived-key KMS when a fallback secret is provided (`TENANT_DATA_ENCRYPTION_FALLBACK_KEY` → `TENANT_DATA_ENCRYPTION_KEY` → `AUTH_SECRET/NEXTAUTH_SECRET`, dev default last); without any secret in production it becomes a noop KMS (ciphertext left plaintext).
+- **Key source** – `TENANT_KMS_PROVIDER` selects it and defaults to `derived`: per-tenant keys are PBKDF2-derived from `TENANT_DATA_ENCRYPTION_KEY` (or the legacy `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`). `vault` is opt in only. Vault was primary once, and a sealed Vault silently moved every tenant onto a different key, so it is never consulted unless asked for by name. In production with neither key variable set the process refuses to boot instead of degrading to a noop KMS.
 
 ## Environment variables
 
 - `TENANT_DATA_ENCRYPTION` – master toggle (`yes` by default). Disables hooks when set to `no` but keeps validation in place.
 - `TENANT_DATA_ENCRYPTION_DEBUG` – `yes` to surface map evaluation decisions, Vault cache hits/misses, and fallback selection in logs.
-- `VAULT_ADDR`, `VAULT_TOKEN` – required for the HashiCorp Vault KMS provider.
+- `TENANT_KMS_PROVIDER` – `derived` (default) or `vault`. Legacy name: `TENANT_DATA_KMS`.
+- `TENANT_DATA_ENCRYPTION_KEY` – the tenant data key, then `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` as the legacy name for it. `AUTH_SECRET`/`NEXTAUTH_SECRET` are never accepted here.
+- `VAULT_ADDR`, `VAULT_TOKEN` – only read when `TENANT_KMS_PROVIDER=vault`.
 - `VAULT_KV_PATH` – KV v2 mount for tenant keys; defaults to `secret/data`.
-- Fallback secrets (used when Vault is down or missing): `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`, then `TENANT_DATA_ENCRYPTION_KEY`, then `AUTH_SECRET`/`NEXTAUTH_SECRET` in dev; production without any secret falls back to the noop KMS.
 
 ## Data flow
 

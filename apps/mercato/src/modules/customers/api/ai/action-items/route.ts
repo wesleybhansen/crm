@@ -235,7 +235,7 @@ export async function GET() {
         let title = deal.title || 'Untitled deal'
         if (encSvc) {
           try {
-            const dec = await encSvc.decryptEntityPayload(
+            const { payload: dec } = await encSvc.decryptEntityPayloadForDisplay(
               'customers:customer_deal',
               { title: deal.title },
               auth.tenantId,
@@ -415,7 +415,7 @@ export async function GET() {
         let displayName = c.display_name || 'Contact'
         if (encSvc) {
           try {
-            const dec = await encSvc.decryptEntityPayload(
+            const { payload: dec } = await encSvc.decryptEntityPayloadForDisplay(
               'customers:customer_entity',
               { display_name: c.display_name },
               auth.tenantId,
@@ -443,7 +443,7 @@ export async function GET() {
         let title = d.title || 'Deal'
         if (encSvc) {
           try {
-            const dec = await encSvc.decryptEntityPayload(
+            const { payload: dec } = await encSvc.decryptEntityPayloadForDisplay(
               'customers:customer_deal',
               { title: d.title },
               auth.tenantId,

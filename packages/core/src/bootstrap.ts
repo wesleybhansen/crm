@@ -131,7 +131,10 @@ export async function bootstrap(container: AwilixContainer) {
         console.warn('[encryption] Failed to register MikroORM encryption subscriber:', (err as Error)?.message || err)
       }
     } else if (isTenantDataEncryptionEnabled() && !kmsService.isHealthy()) {
-      console.warn('[encryption] Vault/KMS unhealthy - tenant data encryption is disabled until recovery')
+      // createKmsService() already printed the scheme/key-variable banner. This
+      // only fires for the opt-in Vault provider or a disabled toggle; the
+      // default derived scheme throws at boot rather than degrading silently.
+      console.warn('[encryption] KMS unhealthy - tenant data encryption is disabled until recovery')
     }
   } catch (err) {
     console.warn('[encryption] Failed to initialize tenant encryption service:', (err as Error)?.message || err)

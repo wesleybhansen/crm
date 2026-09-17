@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     if (isTenantDataEncryptionEnabled() && auth.tenantId) {
       try {
         const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
-        const dec = await svc.decryptEntityPayload(
+        const { payload: dec } = await svc.decryptEntityPayloadForDisplay(
           'customers:customer_entity',
           { display_name: entity.display_name, primary_email: entity.primary_email, primary_phone: entity.primary_phone },
           auth.tenantId,
