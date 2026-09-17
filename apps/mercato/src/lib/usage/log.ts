@@ -1,4 +1,16 @@
-import 'server-only'
+/*
+ * `server-only` resolves to a module that throws unconditionally unless the
+ * bundler runs with the `react-server` condition. Inside Next that is the
+ * intended guard against client imports; outside Next (the Mercato CLI, the
+ * queue workers, the MCP service) it is a false positive that crashes the
+ * process at startup. Same pattern as packages/shared/lib/noli/core-client.ts.
+ */
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('server-only');
+} catch {
+  // not running inside Next; nothing to guard
+}
 import { getNoliCoreClient } from '@open-mercato/shared/lib/noli/core-client'
 
 /**

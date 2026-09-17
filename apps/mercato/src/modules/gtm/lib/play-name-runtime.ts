@@ -35,8 +35,8 @@ export async function createPlayNamer(
   ctx: PlayNameSurfaceCtx,
   noliUserId: string | null,
 ): Promise<PlayNamer | null> {
-  const { checkCustomersAiAllowance } = await import('@/lib/usage/allowance')
-  const { meterCustomersAiStrict } = await import('@/lib/usage/meter')
+  const { checkCustomersAiAllowance } = await import('../../../lib/usage/allowance')
+  const { meterCustomersAiStrict } = await import('../../../lib/usage/meter')
   const gate = await checkCustomersAiAllowance(
     { orgId: ctx.organizationId },
     'google',
