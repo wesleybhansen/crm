@@ -193,7 +193,7 @@ export async function POST(req: Request) {
         id: emailId,
         tenant_id: tenantId,
         organization_id: orgId,
-        forwarded_by_address: 'scout@noliai.com',
+        forwarded_by_address: 'noli@noliai.com',
         to_address: c.primary_email,
         subject: `${MARKER} ${c.display_name || c.primary_email}`,
         status: 'processed',

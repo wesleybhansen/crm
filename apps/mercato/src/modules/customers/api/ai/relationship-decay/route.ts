@@ -80,7 +80,7 @@ async function createDecayProposal(
     id: emailId,
     tenant_id: tenantId,
     organization_id: orgId,
-    forwarded_by_address: 'scout@noliai.com',
+    forwarded_by_address: 'noli@noliai.com',
     to_address: alert.email,
     subject: title,
     status: 'processed',
