@@ -1,12 +1,12 @@
 // ORM-SKIP: AI generation/analysis — complex prompt construction, not CRUD
 
+import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
-import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { requireProcessAuth } from '@/lib/cron-auth'
@@ -339,17 +339,12 @@ export async function POST(req: Request) {
         const subject = `${periodLabel} Business Review — ${businessName}`
 
         // Send digest email to the user
-        const sendResult = await sendEmailByPurpose(
-          knex,
-          org.organization_id,
-          org.tenant_id,
-          'transactional',
-          {
-            to: emailConnection.email_address,
-            subject,
-            htmlBody: digestHtml,
-          },
-        )
+        // From Noli to its user: the platform sender, never the user's own mailbox.
+        const sendResult = await sendPlatformNotification({
+          to: emailConnection.email_address,
+          subject,
+          htmlBody: digestHtml,
+        })
 
         if (sendResult.ok) {
           results.push({ orgId: org.organization_id, status: 'sent' })

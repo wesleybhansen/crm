@@ -1,9 +1,9 @@
 // ORM-SKIP: complex multi-table JOINs — raw SQL more maintainable
 export const metadata = { path: '/team', GET: { requireAuth: true }, POST: { requireAuth: true } }
+import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getTeamAuth, isTeamManager } from './auth'
-import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import crypto from 'node:crypto'
 
 export async function GET() {
@@ -135,75 +135,15 @@ export async function POST(req: Request) {
     const inviteSubject = "You've been invited to join a team on Noli CRM"
 
     try {
-      // 1. Try user's connected Gmail
-      const gmailConn = await queryOne(
-        `SELECT id, access_token, refresh_token, token_expiry, email_address FROM email_connections
-         WHERE organization_id = $1 AND user_id = $2 AND provider = 'gmail' AND is_active = true LIMIT 1`,
-        [auth.orgId, auth.userId]
-      )
-      if (gmailConn?.access_token) {
-        const { sendViaGmail, refreshGmailToken } = await import('@/modules/email/lib/gmail-service')
-        let accessToken = await openSecretForTenant(null, auth.tenantId, gmailConn.access_token)
-        const gmailRefresh = await openSecretForTenant(null, auth.tenantId, gmailConn.refresh_token)
-        // Refresh if expired
-        if (gmailConn.token_expiry && new Date(gmailConn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && gmailRefresh) {
-          const refreshed = await refreshGmailToken(gmailRefresh)
-          accessToken = refreshed.accessToken
-          await query('UPDATE email_connections SET access_token = $1, token_expiry = $2 WHERE id = $3',
-            [await sealSecretForTenant(null, auth.tenantId, accessToken), new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(), gmailConn.id])
-        }
-        if (accessToken) {
-          await sendViaGmail(accessToken, gmailConn.email_address, normalizedEmail, inviteSubject, inviteHtml)
-          emailSent = true
-        }
-      }
-
-      // 2. Try user's connected Outlook
-      if (!emailSent) {
-        const outlookConn = await queryOne(
-          `SELECT id, access_token, refresh_token, token_expiry, email_address FROM email_connections
-           WHERE organization_id = $1 AND user_id = $2 AND provider = 'microsoft' AND is_active = true LIMIT 1`,
-          [auth.orgId, auth.userId]
-        )
-        if (outlookConn?.access_token) {
-          const { sendViaOutlook, refreshOutlookToken } = await import('@/modules/email/lib/outlook-service')
-          let accessToken = await openSecretForTenant(null, auth.tenantId, outlookConn.access_token)
-          const outlookRefresh = await openSecretForTenant(null, auth.tenantId, outlookConn.refresh_token)
-          if (outlookConn.token_expiry && new Date(outlookConn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && outlookRefresh) {
-            const refreshed = await refreshOutlookToken(outlookRefresh)
-            accessToken = refreshed.accessToken
-            await query('UPDATE email_connections SET access_token = $1, token_expiry = $2 WHERE id = $3',
-              [await sealSecretForTenant(null, auth.tenantId, accessToken), new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(), outlookConn.id])
-          }
-          if (accessToken) {
-            await sendViaOutlook(accessToken, outlookConn.email_address, normalizedEmail, inviteSubject, inviteHtml)
-            emailSent = true
-          }
-        }
-      }
-
-      // 3. Try ESP (Resend/SendGrid)
-      if (!emailSent) {
-        const espConn = await queryOne(
-          `SELECT provider, api_key, default_sender_email, default_sender_name FROM esp_connections WHERE organization_id = $1 AND is_active = true LIMIT 1`,
-          [auth.orgId]
-        )
-        const espApiKey = await openSecretForTenant(null, auth.tenantId, espConn?.api_key)
-        if (espConn?.provider === 'resend' && espApiKey) {
-          const fromEmail = espConn.default_sender_email || 'noreply@resend.dev'
-          const fromName = espConn.default_sender_name || 'Noli CRM'
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${espApiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: `${fromName} <${fromEmail}>`, to: [normalizedEmail], subject: inviteSubject, html: inviteHtml }),
-          })
-          emailSent = true
-        }
-      }
+      // A team invite is Noli inviting someone to Noli, so it comes from the platform sender. It used to
+      // go out from the inviter's personal Gmail or Outlook first.
+      const sent = await sendPlatformNotification({ to: normalizedEmail, subject: inviteSubject, htmlBody: inviteHtml })
+      if (sent.ok) emailSent = true
+      else console.error('[team.invite] platform send failed:', sent.error)
 
       // 4. No email method available
       if (!emailSent) {
-        emailWarning = 'Invite created, but no email could be sent. Connect your Gmail or Outlook in Settings to send invites automatically.'
+        emailWarning = 'Invite created, but the invite email could not be sent. Copy the invite link and share it directly.'
         console.log(`[team.invite] No email provider. Invite URL for ${normalizedEmail}: ${inviteUrl}`)
       }
     } catch (emailError) {

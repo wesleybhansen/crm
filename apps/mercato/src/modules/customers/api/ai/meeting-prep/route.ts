@@ -1,5 +1,6 @@
 // ORM-SKIP: AI generation/analysis — complex prompt construction, not CRUD
 
+import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -7,7 +8,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildPersonaPrompt, getPersonaForOrg } from '../persona'
-import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { listOpenCommitments, extractCommitmentsForContact, formatCommitmentsForBrief } from '../../../lib/commitments'
@@ -665,17 +665,12 @@ export async function POST(req: Request) {
         }
 
         const html = buildMeetingPrepEmailHtml(unEmailed)
-        const sendResult = await sendEmailByPurpose(
-          knex,
-          connection.organization_id,
-          connection.tenant_id,
-          'transactional',
-          {
-            to: emailConnection.email_address,
-            subject: `Today's meeting prep (${unEmailed.length})`,
-            htmlBody: html,
-          },
-        )
+        // From Noli to its user: the platform sender, never the user's own mailbox.
+        const sendResult = await sendPlatformNotification({
+          to: emailConnection.email_address,
+          subject: `Today's meeting prep (${unEmailed.length})`,
+          htmlBody: html,
+        })
 
         if (sendResult.ok) {
           emailed++

@@ -4,6 +4,7 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -17,7 +18,6 @@ import { loadAudiences, resolveSenderAudiences, scenarioAudienceMatches } from '
 import type { Audience } from '@/modules/customers/lib/audiences'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
-import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
@@ -698,7 +698,7 @@ function resolveFlagOutcome(matchedKeys: string[], scenarios: FlagScenario[]): {
   return { reasons, shouldPause: anyPause, noDraft: anyNoDraft }
 }
 
-// Email the org user a flag alert. Reuses sendEmailByPurpose('transactional')
+// Email the org user a flag alert from the platform sender (never their own mailbox)
 // (same user-notification path the CS engine + AI digest cron use) and sends to
 // the org's primary active email connection address. Best-effort: never throws.
 async function sendFlagAlert(
@@ -742,11 +742,9 @@ async function sendFlagAlert(
       </div>
     `.trim()
 
-    await sendEmailByPurpose(knex, orgId, tenantId, 'transactional', {
-      to: recipient.email_address,
-      subject,
-      htmlBody,
-    })
+    // From Noli to its user: the platform sender, never the user's own mailbox.
+    const sent = await sendPlatformNotification({ to: recipient.email_address, subject, htmlBody })
+    if (!sent.ok) console.error('[flag-alert] not sent', { orgId, error: sent.error })
   } catch (err) {
     console.error('[inbox.process] flag alert email failed', { orgId, err })
   }

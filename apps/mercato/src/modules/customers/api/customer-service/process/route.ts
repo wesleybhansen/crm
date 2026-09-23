@@ -4,6 +4,7 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -17,7 +18,6 @@ import { loadAudiences, resolveSenderAudiences, scenarioAudienceMatches } from '
 import type { Audience } from '@/modules/customers/lib/audiences'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
-import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { ingestImapConnection } from '@/modules/email/lib/inbox-ingest'
 import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -893,7 +893,7 @@ function resolveFlagOutcome(matchedKeys: string[], scenarios: FlagScenario[]): {
   return { reasons, shouldPause: anyPause, noDraft }
 }
 
-// Email the org user a flag alert. Reuses sendEmailByPurpose('transactional')
+// Email the org user a flag alert from the platform sender (never their own mailbox)
 // (same user-notification path the AI digest cron uses) and sends to the org's
 // primary active email connection address (the org owner's mailbox). No new env
 // var: APP_URL is already set for link building. Best-effort: never throws.
@@ -938,11 +938,9 @@ async function sendFlagAlert(
       </div>
     `.trim()
 
-    await sendEmailByPurpose(knex, orgId, tenantId, 'transactional', {
-      to: recipient.email_address,
-      subject,
-      htmlBody,
-    })
+    // From Noli to its user: the platform sender, never the user's own mailbox.
+    const sent = await sendPlatformNotification({ to: recipient.email_address, subject, htmlBody })
+    if (!sent.ok) console.error('[flag-alert] not sent', { orgId, error: sent.error })
   } catch (err) {
     console.error('[customer-service.process] flag alert email failed', { orgId, err })
   }

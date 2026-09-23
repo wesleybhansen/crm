@@ -4,10 +4,10 @@ export const metadata = { path: '/reminders/check', POST: { requireAuth: true } 
  * Standalone reminder processor — called from the dashboard on page load.
  * Processes due reminders and sends notifications via connected email or ESP.
  */
+import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/lib/db'
-import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 
 export async function POST() {
   const auth = await getAuthFromCookies()
@@ -74,56 +74,11 @@ export async function POST() {
         if (!userEmail) {
           console.log(`[reminders.check] No email for user ${userId}. Reminder: ${reminder.message}`)
         } else {
-          // Prefer ESP (Resend) for self-notifications — Gmail strips INBOX label on self-sent emails
-          const espConn = await queryOne(
-            `SELECT provider, api_key, default_sender_email FROM esp_connections WHERE organization_id = $1 AND is_active = true LIMIT 1`,
-            [auth.orgId]
-          )
-          const espApiKey = await openSecretForTenant(null, auth.tenantId, espConn?.api_key)
-          if (espConn?.provider === 'resend' && espApiKey) {
-            try {
-              const espRes = await fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${espApiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  from: espConn.default_sender_email || 'noreply@resend.dev',
-                  to: [userEmail], subject, html: bodyHtml,
-                }),
-              })
-              if (espRes.ok) sent = true
-              else console.error('[reminders.check] ESP error:', await espRes.text().catch(() => ''))
-            } catch (e) {
-              console.error('[reminders.check] ESP send failed:', e)
-            }
-          }
-
-          // Fallback to Gmail if ESP not available
-          if (!sent) {
-            try {
-              const { sendViaGmail, refreshGmailToken } = await import('@/modules/email/lib/gmail-service')
-              const conn = await queryOne(
-                `SELECT id, access_token, refresh_token, token_expiry, email_address FROM email_connections
-                 WHERE organization_id = $1 AND user_id = $2 AND provider = 'gmail' AND is_active = true LIMIT 1`,
-                [auth.orgId, userId]
-              )
-              if (conn?.access_token) {
-                let accessToken = await openSecretForTenant(null, auth.tenantId, conn.access_token)
-                const connRefresh = await openSecretForTenant(null, auth.tenantId, conn.refresh_token)
-                if (conn.token_expiry && new Date(conn.token_expiry) < new Date(Date.now() + 5 * 60 * 1000) && connRefresh) {
-                  const refreshed = await refreshGmailToken(connRefresh)
-                  accessToken = refreshed.accessToken
-                  await query('UPDATE email_connections SET access_token = $1, token_expiry = $2 WHERE id = $3',
-                    [await sealSecretForTenant(null, auth.tenantId, accessToken), new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(), conn.id])
-                }
-                if (accessToken) {
-                  await sendViaGmail(accessToken, conn.email_address, conn.email_address, subject, bodyHtml)
-                  sent = true
-                }
-              }
-            } catch (e) {
-              console.error('[reminders.check] Gmail send failed:', e)
-            }
-          }
+          // From Noli to its user: the platform sender, never the user's own mailbox (a self-sent Gmail
+          // reminder used to arrive "from" the user's personal address).
+          const res = await sendPlatformNotification({ to: userEmail, subject, htmlBody: bodyHtml })
+          if (res.ok) sent = true
+          else console.error('[reminders.check] reminder not sent:', res.error)
         }
 
         // Already marked as sent atomically. Don't revert on failure — prevents infinite retry loops.

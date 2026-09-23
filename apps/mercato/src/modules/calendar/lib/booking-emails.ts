@@ -3,6 +3,7 @@
  * Sends confirmation emails to guests and notification emails to booking page owners.
  */
 
+import { sendPlatformNotification, platformSenderAddress } from '@/modules/email/lib/platform-sender'
 import type { Knex } from 'knex'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 
@@ -313,12 +314,10 @@ export async function sendBookingNotificationToOwner(params: BookingEmailParams)
 
   const htmlBody = buildEmailWrapper(content)
 
-  // Send the email via personal connection (Gmail/Outlook) — same as guest confirmation
-  const result = await sendEmailByPurpose(knex, orgId, tenantId, 'inbox', {
-    to: ownerEmail,
-    subject,
-    htmlBody,
-  })
+  // A new-booking alert is Noli telling its user something, so it comes from the platform sender, never
+  // the owner's own mailbox. (The guest's confirmation above still goes from the business's mailbox.)
+  const sent = await sendPlatformNotification({ to: ownerEmail, subject, htmlBody })
+  const result = { ok: sent.ok, messageId: sent.messageId, error: sent.error, sentVia: 'platform', fromAddress: platformSenderAddress() }
 
   // Store in email_messages
   const crypto = require('crypto')

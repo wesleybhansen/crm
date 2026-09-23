@@ -1,10 +1,10 @@
+import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import type { Knex } from 'knex'
 import crypto from 'crypto'
 import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import type { FlagScenarioInput } from '@/modules/customers/lib/draft-reply'
 import { sendChatReply } from '@/modules/customers/lib/send-chat-reply'
 import { meterCustomersAi } from '@/lib/usage/meter'
-import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 
 // Brief acknowledgement posted to the live visitor when a flag scenario pauses
 // the reply for human review. No em dash; ends with a period.
@@ -92,11 +92,9 @@ async function sendChatFlagAlert(
       </div>
     `.trim()
 
-    await sendEmailByPurpose(knex, orgId, tenantId, 'transactional', {
-      to: recipient.email_address,
-      subject,
-      htmlBody,
-    })
+    // From Noli to its user: the platform sender, never the user's own mailbox.
+    const sent = await sendPlatformNotification({ to: recipient.email_address, subject, htmlBody })
+    if (!sent.ok) console.error('[flag-alert] not sent', { orgId, error: sent.error })
   } catch (err) {
     console.error('[cs-chat] flag alert email failed', { orgId, err })
   }
