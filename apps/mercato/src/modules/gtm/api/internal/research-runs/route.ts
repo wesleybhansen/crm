@@ -796,6 +796,30 @@ export async function POST(req: Request) {
     })
     if (!run) return opaqueNotFound()
 
+    // A finished run scored under an older rule revision is re-scored before
+    // it is shown, so a lead the current rules reject never still reads as
+    // accepted (2026-09-24 audit: 79 of 85 accepted opportunity leads were on
+    // old revisions). Stored output only: no provider call, no spend, manual
+    // decisions preserved. Best-effort: the status still returns on failure.
+    if (run.status === 'completed' || run.status === 'failed') {
+      const { FIT_SCORER_REVISION, FIT_SCORER_VERSION } = await import('../../../lib/research/qualify')
+      const execution = ((run.providerPlan ?? {}) as Record<string, unknown>).execution as Record<string, unknown> | undefined
+      const prior = (execution?.requalification ?? {}) as Record<string, unknown>
+      if (prior.scorer_version !== FIT_SCORER_VERSION || prior.scorer_revision !== FIT_SCORER_REVISION) {
+        try {
+          const { requalifyResearchRun } = await import('../../../lib/research/requalify')
+          await requalifyResearchRun({
+            em: em as unknown as import('../../../lib/research/requalify').RequalifyEm,
+            run,
+            actorUserId: userId,
+            requestId,
+          })
+        } catch (error) {
+          console.error('[internal.gtm.research-runs] automatic requalify failed', run.id, error)
+        }
+      }
+    }
+
     const scope = { organizationId, tenantId, researchRunId: run.id, deletedAt: null }
     const matchTotal = await em.count(GtmCandidateMatch, scope)
     const CountEntity = matchTotal > 0 ? GtmCandidateMatch : GtmCandidate
