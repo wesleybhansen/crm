@@ -978,7 +978,16 @@ export function assessOpportunityDestination(args: {
   if (validation === 'blocked') issues.push('destination_validation_blocked')
 
   const access = typeof identity.access_type === 'string' ? identity.access_type : null
-  if (access === 'approval_required') issues.push('destination_requires_approval')
+  // A post in a members-only Facebook group is a real person asking in public
+  // to that group's members: the owner can join and reply. It is shown as
+  // "join the group to reply" rather than rejected (2026-09-24 audit: 257 such
+  // posts rejected, including "I am looking for a realtor to list our home").
+  // Other approval-only destinations stay hard failures.
+  const joinableGroup = access === 'approval_required'
+    && typeof canonicalUrl === 'string'
+    && /^https:\/\/(www\.|m\.)?facebook\.com\/groups\//i.test(canonicalUrl)
+  if (joinableGroup) issues.push('destination_join_group_to_reply')
+  else if (access === 'approval_required') issues.push('destination_requires_approval')
   else if (access === 'unknown' || access == null) issues.push('destination_access_unknown')
   else if (access !== 'public' && access !== 'ticketed') issues.push('destination_not_public')
 

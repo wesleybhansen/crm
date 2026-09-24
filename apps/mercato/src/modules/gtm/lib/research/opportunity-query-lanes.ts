@@ -740,11 +740,35 @@ function marketName(geography: string): string {
   return geography.split(',')[0]?.trim() || geography
 }
 
+/* California cities map to the metro communities where their residents
+ * actually post (2026-09-24 audit: "Manhattan Beach, CA" searched
+ * r/ManhattanBeach and r/AskManhattanBeach, which barely exist, and never the
+ * Los Angeles communities). Only large, long-established subreddits are
+ * listed. The returned-content filter still requires each post to name the
+ * requested market, so a big metro community widens reach, not relevance. */
+const CA_METRO_SUBREDDITS: Array<{ cities: RegExp; subs: string[] }> = [
+  { cities: /^(los angeles|manhattan beach|hermosa beach|redondo beach|torrance|palos verdes( estates)?|rancho palos verdes|rolling hills( estates)?|el segundo|playa del rey|westchester|culver city|santa monica|venice|brentwood|pacific palisades|malibu|beverly hills|west hollywood|silver lake|los feliz|echo park|studio city|sherman oaks|encino|burbank|glendale|san pedro|gardena|hawthorne|lomita|carson|inglewood)$/i, subs: ['LosAngeles', 'AskLosAngeles'] },
+  { cities: /^(long beach|seal beach|lakewood|signal hill)$/i, subs: ['LongBeach', 'LosAngeles'] },
+  { cities: /^(pasadena|south pasadena|altadena|san marino|arcadia|la canada flintridge)$/i, subs: ['Pasadena', 'LosAngeles'] },
+  { cities: /^(irvine)$/i, subs: ['irvine', 'orangecounty'] },
+  { cities: /^(newport beach|costa mesa|huntington beach|laguna beach|laguna niguel|laguna hills|dana point|san clemente|mission viejo|lake forest|aliso viejo|ladera ranch|rancho santa margarita|coto de caza|tustin|orange|anaheim|anaheim hills|yorba linda|brea|fullerton|villa park|fountain valley|garden grove|santa ana|seal beach|corona del mar|san juan capistrano)$/i, subs: ['orangecounty'] },
+  { cities: /^(san diego|la jolla|del mar|solana beach|encinitas|carlsbad|oceanside|coronado|poway|chula vista|escondido|rancho bernardo|carmel valley|point loma|pacific beach|ocean beach|north park|la mesa|el cajon|santee|rancho santa fe|cardiff|leucadia|4s ranch|scripps ranch)$/i, subs: ['sandiego'] },
+  { cities: /^(san francisco)$/i, subs: ['sanfrancisco', 'bayarea'] },
+  { cities: /^(oakland|berkeley|alameda|piedmont)$/i, subs: ['oakland', 'bayarea'] },
+  { cities: /^(san jose|santa clara|sunnyvale|cupertino|campbell|los gatos|saratoga|mountain view|palo alto|menlo park|los altos|redwood city|san mateo|burlingame|fremont|walnut creek|lafayette|orinda|danville|pleasanton)$/i, subs: ['bayarea', 'SanJose'] },
+  { cities: /^(sacramento|west sacramento|elk grove|roseville|folsom|carmichael|rocklin|davis|granite bay|el dorado hills|fair oaks)$/i, subs: ['Sacramento'] },
+]
+
 export function realtorMarketSubreddits(geography: string): string[] {
   const compact = marketName(geography).replace(/[^a-z0-9]/gi, '')
   const state = geography.split(',')[1]?.replace(/[^a-z0-9]/gi, '') ?? ''
   if (!compact) return []
+  const californian = /^(ca|california)$/i.test(state)
+  const metro = californian
+    ? CA_METRO_SUBREDDITS.find((row) => row.cities.test(marketName(geography).trim()))?.subs ?? []
+    : []
   return unique([
+    ...metro,
     compact,
     `Ask${compact}`,
     state,
