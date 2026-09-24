@@ -422,6 +422,14 @@ export async function POST(req: Request) {
             workspaceId: workspace.id,
             playId: play.id,
             claim: { day: claim.quota.day, slot: claim.quota.used },
+            fitPlay: {
+              entityUnit: play.entityUnit ?? null,
+              geography: play.geography ?? null,
+              audience: play.audience ?? null,
+              signal: play.signal ?? null,
+              recencyWindow: play.recencyWindow ?? null,
+              providerQuery: play.providerQuery ?? null,
+            },
           })
           await em.transactional(async (tem) => {
             const audit = tem.create(GtmAuditEvent, {

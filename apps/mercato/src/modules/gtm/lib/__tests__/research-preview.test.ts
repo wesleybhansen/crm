@@ -6,6 +6,7 @@ import type { AdapterResult, Candidate, SourceAdapter, SourceSearchPlan } from '
 import {
   choosePreviewLane,
   previewLane,
+  PREVIEW_FETCH_CAP,
   PREVIEW_ROW_CAP,
   quotePreviewLane,
   shapePreviewRow,
@@ -226,10 +227,49 @@ describe('previewLane', () => {
     expect(result.rows).toHaveLength(PREVIEW_ROW_CAP)
     expect(result.rows.map((r) => r.title)).toEqual(['A', 'B', 'C'])
     expect(adapter.search).toHaveBeenCalledTimes(1)
-    expect(adapter.search.mock.calls[0][0].max_candidates).toBe(PREVIEW_ROW_CAP)
+    expect(adapter.search.mock.calls[0][0].max_candidates).toBe(PREVIEW_FETCH_CAP)
     // Nothing a run would persist.
     expect(em.table(GtmResearchRun)).toHaveLength(0)
     expect(em.table(GtmCandidate)).toHaveLength(0)
+  })
+
+  it('shows the best rows the fit rules accept, never raw provider order', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 1_000_000 })
+    const adapter = fakeAdapter('maps', {
+      status: 'ok',
+      data: ['Junk', 'Good', 'Best', 'Okay'].map((name) => row(name, `https://${name.toLowerCase()}.test`)),
+      receipt: {},
+      cost_units: 1,
+    })
+    const scores: Record<string, number> = { Junk: 10, Good: 70, Best: 95, Okay: 55 }
+    const scorer = {
+      score: (candidate: Pick<Candidate, 'entity_kind' | 'identity'>) => {
+        const fitScore = scores[String(candidate.identity.name)]
+        return {
+          fitScore,
+          verdict: fitScore < 40 ? 'rejected' as const : 'accepted' as const,
+          reason: 'test',
+          version: 'fit-v7' as const,
+          breakdown: { identity: 0, account: 0, persona: 0, geography: 0, evidence: 0 },
+          unknowns: [],
+          contradictions: [],
+        }
+      },
+    }
+    const result = await previewLane({ ...deps(em, ledger, { maps: adapter }, [batch('maps')]), fitPlay: { audience: 'x' }, scorer: scorer as never })
+    expect(result.rows.map((r) => r.title)).toEqual(['Best', 'Good', 'Okay'])
+  })
+
+  it('says so plainly when the sample found rows but none fit', async () => {
+    const em = new FakeEm()
+    const ledger = new FixtureLedger({ poolBalance: 1_000_000 })
+    const adapter = fakeAdapter('maps', { status: 'ok', data: [row('A', 'https://a.test'), row('B', 'https://b.test')], receipt: {}, cost_units: 1 })
+    const rejectAll = { score: () => ({ fitScore: 5, verdict: 'rejected' as const, reason: 'test', version: 'fit-v7' as const, breakdown: { identity: 0, account: 0, persona: 0, geography: 0, evidence: 0 }, unknowns: [], contradictions: [] }) }
+    const result = await previewLane({ ...deps(em, ledger, { maps: adapter }, [batch('maps')]), fitPlay: { audience: 'x' }, scorer: rejectAll as never })
+    expect(result.status).toBe('no_result')
+    expect(result.rows).toHaveLength(0)
+    expect(result.note).toContain('found 2 results, but none fit this play')
   })
 
   it('reserves, starts and settles through the ledger like a run does', async () => {

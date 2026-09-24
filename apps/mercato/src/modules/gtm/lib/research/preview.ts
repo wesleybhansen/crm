@@ -9,6 +9,7 @@ import {
 } from '../credits/markup'
 import { GtmCreditLedgerError, type GtmCreditLedger, type GtmSettleOutcome } from '../credits/ledger'
 import type { SourcePlanBatch, SourcePlanSuccess } from './plan'
+import { ruleBasedFitScorer, type FitPlayInput, type FitScorer } from './qualify'
 
 /*
  * Dry-lane preview (spec phase C, "dry-lane previews"): three real public
@@ -44,6 +45,12 @@ import type { SourcePlanBatch, SourcePlanSuccess } from './plan'
  */
 
 export const PREVIEW_ROW_CAP = 3
+// The sample fetches a few more rows than it shows and keeps the best the fit
+// rules accept, so the first thing a customer sees is not raw provider order
+// (2026-09-24 audit: with about 4% of opportunity rows accepted, three raw
+// rows were almost always competitors or junk). Most sources bill per search,
+// so ten rows cost about what three did; the quote below prices the ten.
+export const PREVIEW_FETCH_CAP = 10
 
 export type PreviewEm = {
   transactional<T>(cb: (tem: PreviewEm) => Promise<T>): Promise<T>
@@ -71,6 +78,8 @@ export type PreviewRow = {
 
 export type PreviewQuote = {
   adapterId: string
+  /** How many rows the sample fetches and scores; `rows` is how many it shows at most. */
+  sampled?: number
   /** What the sample search is quoted at, in Noli credits. */
   estimatedCredits: number
   /** The same figure in dollars, for the "about $x" line before the click. */
@@ -124,13 +133,14 @@ export function quotePreviewLane(
   markupMultiplier: number = defaultMarkupMultiplier(),
 ): PreviewQuote {
   const rows = Math.min(PREVIEW_ROW_CAP, batch.maxCandidates)
+  const sampled = Math.min(PREVIEW_FETCH_CAP, batch.maxCandidates)
   const quote = adapter.quote({
     signal_kind: batch.capability.signal_kind,
     entity_unit: batch.capability.entity_unit,
     geography: batch.capability.geography,
     query,
     provider_query: batch.providerQuery ?? undefined,
-    max_candidates: rows,
+    max_candidates: sampled,
   })
   // Never quote a sample above the full lane it is sampling.
   const estimatedCredits = Math.min(
@@ -142,6 +152,7 @@ export function quotePreviewLane(
     estimatedCredits,
     estimatedUsd: usdFromCredits(estimatedCredits),
     rows,
+    sampled,
   }
 }
 
@@ -200,6 +211,9 @@ export type PreviewLaneDeps = {
   claim: { day: string; slot: number }
   markupMultiplier?: number
   now?: () => Date
+  /** The play as the fit rules read it. When given, the sample shows only rows the rules do not reject, best first. */
+  fitPlay?: FitPlayInput | null
+  scorer?: FitScorer
 }
 
 export async function previewLane(deps: PreviewLaneDeps): Promise<PreviewLaneResult> {
@@ -230,7 +244,7 @@ export async function previewLane(deps: PreviewLaneDeps): Promise<PreviewLaneRes
       idempotencyKey,
       unitCostSnapshot: {
         unit: batch.billableUnit,
-        provider_units: quote.rows,
+        provider_units: quote.sampled ?? quote.rows,
         quoted_credits_per_unit: batch.quotedCreditsPerUnit,
         markup_multiplier: markup,
         price_version: batch.priceVersion,
@@ -243,7 +257,7 @@ export async function previewLane(deps: PreviewLaneDeps): Promise<PreviewLaneRes
         preview_day: deps.claim.day,
         preview_slot: deps.claim.slot,
         adapter_id: batch.adapter_id,
-        max_candidates: quote.rows,
+        max_candidates: quote.sampled ?? quote.rows,
         descriptor_hash: batch.descriptorHash,
       },
     })
@@ -337,7 +351,7 @@ export async function previewLane(deps: PreviewLaneDeps): Promise<PreviewLaneRes
     geography: batch.capability.geography,
     query: deps.plan.query,
     provider_query: batch.providerQuery ?? undefined,
-    max_candidates: quote.rows,
+    max_candidates: quote.sampled ?? quote.rows,
     max_charge_usd: providerSpendCapUsd(quote.estimatedCredits, markup),
   })
 
@@ -415,9 +429,19 @@ export async function previewLane(deps: PreviewLaneDeps): Promise<PreviewLaneRes
     await tem.flush()
   })
 
-  const rows = (Array.isArray(result.data) ? result.data : [])
+  const returned = Array.isArray(result.data) ? result.data : []
+  const scorer = deps.scorer ?? ruleBasedFitScorer
+  const ranked = deps.fitPlay
+    ? returned
+      .map((candidate) => ({ candidate, fit: scorer.score(candidate, { ...deps.fitPlay, referenceTime: observedAt }, candidate.evidence ?? []) }))
+      .filter((row) => row.fit.verdict !== 'rejected')
+      .sort((a, b) => b.fit.fitScore - a.fit.fitScore)
+      .map((row) => row.candidate)
+    : returned
+  const rows = ranked
     .slice(0, quote.rows)
     .map((candidate) => shapePreviewRow(candidate, batch.adapter_id, observedAt))
+  const screenedOut = returned.length > 0 && rows.length === 0
 
   const status: PreviewLaneResult['status'] = intended === 'mark_ambiguous'
     ? 'ambiguous'
@@ -438,7 +462,9 @@ export async function previewLane(deps: PreviewLaneDeps): Promise<PreviewLaneRes
     note: status === 'ok'
       ? null
       : status === 'no_result'
-        ? 'This source returned nothing for the sample. A full run searches more sources and more pages.'
+        ? screenedOut
+          ? `The sample found ${returned.length} ${returned.length === 1 ? 'result' : 'results'}, but none fit this play well enough to show you. A full run searches more sources and more pages.`
+          : 'This source returned nothing for the sample. A full run searches more sources and more pages.'
         : status === 'error'
           ? 'The source could not be reached for the sample. Nothing was charged for an empty result.'
           : 'The sample outcome is unconfirmed and has been parked for reconciliation. Noli will not retry it automatically.',
