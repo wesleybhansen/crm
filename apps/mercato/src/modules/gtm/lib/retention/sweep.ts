@@ -9,6 +9,7 @@ import {
   GtmEnrollment,
   GtmEvidence,
   GtmManualOutreachDraft,
+  GtmPostReply,
   GtmRenderedMessage,
 } from '../../data/entities'
 import { GLOBAL_SUPPRESSION_ORG_ID } from '../privacy/constants'
@@ -97,6 +98,7 @@ export type SweepResult = {
   postCampaignRenderedAnonymized: number
   // expired manual outreach drafts hard-deleted regardless of candidate state
   expiredManualDraftsDeleted: number
+  expiredPostRepliesDeleted: number
   // one audit event is written per swept (org, tenant) batch
   batches: number
 }
@@ -186,11 +188,14 @@ export async function sweepExpiredCandidates(
     postCampaignContactPointsAnonymized: 0,
     postCampaignRenderedAnonymized: 0,
     expiredManualDraftsDeleted: 0,
+    expiredPostRepliesDeleted: 0,
     batches: 0,
   }
 
   // Expired manual drafts first: independent of candidate state, bounded.
   result.expiredManualDraftsDeleted = await deleteExpiredManualDrafts(em, now, options)
+  // Drafted and posted replies to public posts: 90 days (privacy policy 4.7).
+  result.expiredPostRepliesDeleted = await deleteExpiredPostReplies(em, now, options)
 
   // Expired AND never promoted. Soft-deleted rows are already invisible to
   // the product; they still hard-delete here so PII does not outlive the
@@ -278,7 +283,13 @@ export async function sweepExpiredCandidates(
         tenantId,
         candidateId: { $in: ids },
       })
+      const postReplies = await tem.find(GtmPostReply, {
+        organizationId,
+        tenantId,
+        candidateId: { $in: ids },
+      })
 
+      for (const row of postReplies) tem.remove(row)
       for (const row of manualDrafts) tem.remove(row)
       for (const row of relations) tem.remove(row)
       for (const row of matches) tem.remove(row)
@@ -418,6 +429,41 @@ export async function sweepExpiredCandidates(
   }
 
   return result
+}
+
+async function deleteExpiredPostReplies(
+  em: RetentionEm,
+  now: Date,
+  options?: SweepOptions,
+): Promise<number> {
+  const where: Record<string, unknown> = { retentionExpiresAt: { $lte: now } }
+  if (options?.orgId) where.organizationId = options.orgId
+  const expired = await em.find(GtmPostReply, where, {
+    orderBy: { retentionExpiresAt: 'asc' },
+    limit: options?.manualDraftBatch ?? MANUAL_DRAFT_BATCH,
+  })
+  if (expired.length === 0) return 0
+  let deleted = 0
+  for (const batch of groupByScope(expired)) {
+    const { organizationId, tenantId } = batch[0]
+    await em.transactional(async (tem) => {
+      for (const row of batch) tem.remove(row)
+      tem.persist(
+        tem.create(GtmAuditEvent, {
+          organizationId,
+          tenantId,
+          actor: 'system',
+          action: 'gtm.post_reply.retention_sweep',
+          objectType: 'gtm_post_reply',
+          objectId: null,
+          metadata: { replies_deleted: batch.length, cutoff: now.toISOString() },
+        }),
+      )
+      await tem.flush()
+      deleted += batch.length
+    })
+  }
+  return deleted
 }
 
 async function deleteExpiredManualDrafts(

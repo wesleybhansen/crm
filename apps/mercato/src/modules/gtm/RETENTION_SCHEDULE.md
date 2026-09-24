@@ -25,6 +25,9 @@ What one run does (all idempotent, counts-only audit rows):
   several days rather than in one long transaction);
 - hard-deletes expired manual outreach drafts regardless of candidate state
   (bounded to `MANUAL_DRAFT_BATCH` rows per run);
+- hard-deletes drafted and posted replies to public posts (`gtm_post_replies`)
+  90 days after they were drafted, and with their candidate when it is swept
+  (privacy policy section 4.7);
 - skips every candidate covered by a non-completed legal-hold deletion
   request (`/internal/gtm/privacy` ops `set-legal-hold` / `clear-legal-hold`).
 
