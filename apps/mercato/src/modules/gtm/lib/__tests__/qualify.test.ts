@@ -2228,13 +2228,14 @@ describe('ruleBasedFitScorer', () => {
 
     expect(result.verdict).toBe('review')
     expect(result.reason).toBe(FIT_REASONS.criterionUnknown)
-    expect(result.unknowns).toEqual(['account.employee_range', 'geography.location'])
+    // The listing's own ZIP (92021) proves San Diego County (2026-09-24); size is still unproven.
+    expect(result.unknowns).toEqual(['account.employee_range'])
     expect(result.criteria).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'account.industry', status: 'pass' }),
         expect.objectContaining({
           id: 'geography.location',
-          status: 'unknown',
+          status: 'pass',
         }),
         expect.objectContaining({
           id: 'account.employee_range',
@@ -2478,6 +2479,19 @@ describe('criterion matching is token-based, not substring', () => {
   })
 
   it('uses a frozen Maps target only to prevent a false reject, never as result-level proof', () => {
+    // Without a ZIP the target alone proves nothing: unknown.
+    expect(
+      criterion(
+        {
+          ...base,
+          location: '13465 Camino Canada, El Cajon, CA',
+          provider_location: 'San Diego County,California,United States',
+        },
+        { locations: ['San Diego County, California'] },
+        'geography.location',
+      ),
+    ).toBe('unknown')
+    // The listing's own ZIP is result-level proof of the county (2026-09-24).
     expect(
       criterion(
         {
@@ -2488,7 +2502,7 @@ describe('criterion matching is token-based, not substring', () => {
         { locations: ['San Diego County, California'] },
         'geography.location',
       ),
-    ).toBe('unknown')
+    ).toBe('pass')
   })
 
   it('does not treat a different state as a match', () => {

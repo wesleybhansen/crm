@@ -87,7 +87,7 @@ export const FIT_SCORER_VERSION = 'fit-v7' as const
 // first-person intent are actionable under public-reply norms, geography is
 // derived from the play when the provider query has no locations, recency ages
 // platform publication time, and zero evaluated criteria can no longer accept.
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v44' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v45' as const
 
 /*
  * Fixed participation note for public posts and threads whose venue rules
@@ -152,10 +152,19 @@ export function sizeConfirmLaterEnabled(play: FitPlayInput): boolean {
  * criteria the provider could not answer are company size. Anything else
  * unknown (industry, title, keywords, geography) still means review.
  */
-function onlySizeUnknown(play: FitPlayInput, hardUnknownIds: string[]): boolean {
+function onlySizeUnknown(play: FitPlayInput, hardUnknownIds: string[], identity?: Record<string, unknown>): boolean {
   if (hardUnknownIds.length === 0) return false
-  if (!sizeConfirmLaterEnabled(play)) return false
+  // Google Maps never reports team size, so a listing can never prove it: for
+  // those rows size is always "confirm later", with or without the play's
+  // switch (2026-09-24 audit: 1 accepted of 994 Maps rows). The unknown stays
+  // on the row so the UI still says "Team size unknown".
+  if (!sizeConfirmLaterEnabled(play) && !isGoogleMapsListing(identity)) return false
   return hardUnknownIds.every((id) => id === SIZE_CONFIRM_LATER_CRITERION)
+}
+
+function isGoogleMapsListing(identity: Record<string, unknown> | undefined): boolean {
+  const urls = identity && Array.isArray(identity.urls) ? identity.urls : []
+  return urls.some((url) => typeof url === 'string' && /google\.com\/maps\/place/i.test(url))
 }
 
 const EMPTY_BREAKDOWN: FitBreakdown = {
@@ -1219,6 +1228,43 @@ function derivedPlayGeography(play: FitPlayInput): string | null {
  * each city with its state; a row satisfies the criterion by matching any of
  * them. Single cities and country-only values pass through unchanged.
  */
+/* Three-digit ZIP prefixes of US metros Noli markets to. A metro is only
+ * recognised from wording that names the metro itself (a hyphenated city
+ * pair, "metro", "area", "greater", a county or region name), never from a
+ * bare city, so "Minneapolis, MN" stays a city play. */
+const METRO_ZIP3: Array<{ name: string; pattern: RegExp; zip3: string[] }> = [
+  { name: 'the Minneapolis-Saint Paul metro', pattern: /\b(twin cities|minneapolis\s*[-–/&]\s*(saint|st\.?)\s*paul|minneapolis[^,]*\b(metro|area)|(saint|st\.?)\s*paul[^,]*\b(metro|area))\b/i, zip3: ['550', '551', '553', '554'] },
+  { name: 'the Phoenix metro', pattern: /\b(greater phoenix|phoenix[^,]*\b(metro|area|valley)|valley of the sun)\b/i, zip3: ['850', '852', '853'] },
+  { name: 'the San Diego metro', pattern: /\b(san diego county|greater san diego|san diego[^,]*\b(metro|area))\b/i, zip3: ['919', '920', '921'] },
+  { name: 'the Sacramento metro', pattern: /\b(greater sacramento|sacramento[^,]*\b(metro|area|county))\b/i, zip3: ['956', '957', '958'] },
+  { name: 'the Las Vegas metro', pattern: /\b(las vegas valley|clark county|greater las vegas|las vegas[^,]*\b(metro|area))\b/i, zip3: ['889', '890', '891'] },
+  { name: 'Orange County', pattern: /\borange county\b/i, zip3: ['926', '927', '928'] },
+  { name: 'the Los Angeles metro', pattern: /\b(los angeles county|greater los angeles|los angeles[^,]*\b(metro|area)|la county|south bay)\b/i, zip3: ['900', '901', '902', '903', '904', '905', '906', '907', '908', '910', '911', '912', '913', '914', '915', '916', '917', '918'] },
+  { name: 'the San Francisco Bay Area', pattern: /\b(bay area|san francisco[^,]*\b(metro|area))\b/i, zip3: ['940', '941', '943', '944', '945', '946', '947', '948', '949', '950', '951'] },
+  { name: 'the Houston metro', pattern: /\b(greater houston|houston[^,]*\b(metro|area))\b/i, zip3: ['770', '772', '773', '774', '775'] },
+  { name: 'the Dallas-Fort Worth metro', pattern: /\b(dfw|dallas\s*[-–/&]\s*(fort|ft\.?)\s*worth|dallas[^,]*\b(metro|area))\b/i, zip3: ['750', '751', '752', '753', '760', '761', '762'] },
+  { name: 'the Austin metro', pattern: /\b(greater austin|austin[^,]*\b(metro|area))\b/i, zip3: ['786', '787'] },
+  { name: 'Northern Virginia', pattern: /\b(northern virginia|nova)\b/i, zip3: ['201', '220', '221', '222', '223'] },
+  { name: 'the Richmond metro', pattern: /\b(greater richmond|richmond[^,]*\b(metro|area))\b/i, zip3: ['230', '231', '232'] },
+  { name: 'Fairfield County', pattern: /\bfairfield county\b/i, zip3: ['066', '068', '069'] },
+  { name: 'the Portland metro', pattern: /\b(greater portland|portland[^,]*\b(metro|area))\b/i, zip3: ['970', '971', '972', '986'] },
+  { name: 'the Denver metro', pattern: /\b(greater denver|front range|denver[^,]*\b(metro|area))\b/i, zip3: ['800', '801', '802', '803'] },
+  { name: 'the Tampa Bay area', pattern: /\b(tampa bay|greater tampa|tampa[^,]*\b(metro|area))\b/i, zip3: ['335', '336', '337', '346'] },
+]
+
+export function metroZipProof(expected: string[], observed: string[]): string | null {
+  const metros = METRO_ZIP3.filter((metro) => expected.some((value) => metro.pattern.test(value)))
+  if (!metros.length) return null
+  for (const value of observed) {
+    // The ZIP after a two-letter state ("..., MN 55422"), never a street number.
+    const zip = /\b[A-Z]{2}\s+(\d{5})(?:-\d{4})?\b/.exec(value)?.[1]
+    if (!zip) continue
+    const metro = metros.find((row) => row.zip3.includes(zip.slice(0, 3)))
+    if (metro) return `ZIP ${zip} is in ${metro.name}`
+  }
+  return null
+}
+
 export function expandLocationExpectations(values: string[]): string[] {
   const out: string[] = []
   const push = (value: string) => {
@@ -1632,6 +1678,25 @@ function evaluateCriterion(
       hard: definition.hard,
     }
   }
+  // A play drawn around a metro ("Minneapolis-Saint Paul, MN", "Orange County",
+  // "Phoenix metro") names the metro, but listings name their suburb: Golden
+  // Valley, Plymouth, Irvine. The listing's own ZIP code proves it is inside
+  // the metro (2026-09-24 audit: every Twin Cities suburb dentist sat in
+  // review on location). Plays that name a single city stay strict.
+  if (definition.id === 'geography.location' && !matches) {
+    const proof = metroZipProof(definition.expected, identityValues)
+    if (proof) {
+      return {
+        id: definition.id,
+        dimension: definition.dimension,
+        label: definition.label,
+        expected: definition.expected,
+        observed: [...observed, proof],
+        status: 'pass',
+        hard: definition.hard,
+      }
+    }
+  }
   // A Maps task targeted at a county can legitimately return an address that
   // names only a city inside that county. The target therefore prevents a
   // false hard rejection, but it cannot establish boundary membership: Maps
@@ -1778,7 +1843,7 @@ export const ruleBasedFitScorer: FitScorer = {
       // criterion failure both returned above, so nothing else blocks
       // acceptance here; the remaining guard is the review threshold.
       // `unknowns` still carries account.employee_range so the UI can flag it.
-      if (onlySizeUnknown(play, hardUnknownIds) && fitScore >= FIT_ACCEPT_THRESHOLD && avgConfidence >= 0.5) {
+      if (onlySizeUnknown(play, hardUnknownIds, identity) && fitScore >= FIT_ACCEPT_THRESHOLD && avgConfidence >= 0.5) {
         return result(
           fitScore,
           'accepted',

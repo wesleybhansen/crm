@@ -155,7 +155,7 @@ describe('requalifyResearchRun', () => {
       criteria: expect.arrayContaining([
         expect.objectContaining({ id: 'account.industry', status: 'pass' }),
         expect.objectContaining({ id: 'account.employee_range', status: 'unknown' }),
-        expect.objectContaining({ id: 'geography.location', status: 'unknown' }),
+        expect.objectContaining({ id: 'geography.location', status: 'pass' }), // the listing ZIP (92021) proves San Diego County
       ]),
     }))
     expect(vet.fitStatus).toBe('rejected')
