@@ -82,3 +82,29 @@ describe('Google Maps listings and team size', () => {
     expect(fit.verdict).not.toBe('accepted')
   })
 })
+
+describe('county plays from the listing ZIP (Census ZCTA-to-county file)', () => {
+  const { countyZipProof, countyKey } = jest.requireActual('../research/county-zip') as typeof import('../research/county-zip')
+
+  test('a suburb ZIP proves its own county, not a neighbouring one', () => {
+    expect(countyZipProof(['Hennepin County, MN', 'Ramsey County, MN'], ['5851 Duluth St, Golden Valley, MN 55422'])).toBe('ZIP 55422 is in Hennepin County, MN')
+    expect(countyZipProof(['Ramsey County, MN'], ['5851 Duluth St, Golden Valley, MN 55422'])).toBeNull()
+  })
+
+  test('the state disambiguates same-named counties; spelled-out states work', () => {
+    expect(countyZipProof(['Orange County, California'], ['1 Main St, Irvine, CA 92618'])).toBe('ZIP 92618 is in Orange County, CA')
+    expect(countyZipProof(['Orange County, FL'], ['1 Main St, Irvine, CA 92618'])).toBeNull()
+  })
+
+  test('only county-shaped expectations are read', () => {
+    expect(countyKey('Minneapolis, MN')).toBeNull()
+    expect(countyKey('Hennepin County, MN')).toBe('hennepin county|mn')
+  })
+
+  test('a county play accepts a suburb listing end to end', () => {
+    const countyPlay: FitPlayInput = { ...metroPlay, geography: 'Hennepin County, Minnesota', providerQuery: { ...metroPlay.providerQuery, locations: ['Hennepin County, MN', 'Ramsey County, MN'] } }
+    const fit = ruleBasedFitScorer.score(listing('Golden Valley', '5851 Duluth St, Golden Valley, MN 55422'), countyPlay, evidence)
+    expect(fit.criteria?.find((row) => row.id === 'geography.location')?.status).toBe('pass')
+    expect(fit.verdict).toBe('accepted')
+  })
+})

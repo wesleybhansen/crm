@@ -1,4 +1,5 @@
 import type { Candidate, CandidateEvidence } from '../adapters/types'
+import { countyZipProof } from './county-zip'
 import { isUsGeography } from '../eligibility'
 import { evidencePublishedAt } from './evidence-quality'
 import {
@@ -1684,7 +1685,7 @@ function evaluateCriterion(
   // the metro (2026-09-24 audit: every Twin Cities suburb dentist sat in
   // review on location). Plays that name a single city stay strict.
   if (definition.id === 'geography.location' && !matches) {
-    const proof = metroZipProof(definition.expected, identityValues)
+    const proof = metroZipProof(definition.expected, identityValues) ?? countyZipProof(definition.expected, identityValues)
     if (proof) {
       return {
         id: definition.id,
