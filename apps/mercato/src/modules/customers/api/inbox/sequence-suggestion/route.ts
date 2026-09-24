@@ -8,8 +8,8 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
-/* Self-recommending sequences: "this lead looks like a workshop inquiry —
- * start the workshop follow-up?" GET matches an inbox conversation against
+/* Self-recommending sequences: "this lead is asking about pricing, start the
+ * pricing follow-up?" GET matches an inbox conversation against
  * the org's active sequences (one cheap flash call, cached on the
  * conversation); POST enrolls on approval. Nothing enrolls without a human
  * click. */
@@ -85,7 +85,7 @@ ${sequences.map((s: any) => `- id: ${s.id} | name: ${s.name}${s.description ? ` 
 Inquiry:
 ${inquiry}
 
-Return ONLY JSON: {"sequenceId": "<id>" | null, "reason": "<one short sentence for the user, e.g. 'This looks like a workshop inquiry'>"}`
+Return ONLY JSON: {"sequenceId": "<id>" | null, "reason": "<one short sentence for the user, e.g. 'This person is asking about pricing'>"}`
 
     const aiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MATCH_MODEL}:generateContent`,
