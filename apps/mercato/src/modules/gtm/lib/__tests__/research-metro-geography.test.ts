@@ -136,3 +136,19 @@ describe('the play geography and country-wide plays', () => {
     expect(countryZipProof(['Kansas City, KS'], ['801 Sunshine Rd, Kansas City, KS 66115'])).toBeNull()
   })
 })
+
+describe('a Maps category covering a keyword phrase', () => {
+  const { categoryCoversKeyword } = jest.requireActual('../research/qualify') as typeof import('../research/qualify')
+  test('the broader category with the same head noun counts', () => {
+    expect(categoryCoversKeyword('Marketing agency', 'digital marketing agency')).toBe(true)
+    expect(categoryCoversKeyword('Real estate agency', 'real estate agent')).toBe(true)
+    expect(categoryCoversKeyword('Dentist', 'family dentistry')).toBe(true)
+  })
+  test('unrelated or narrower-sounding categories do not', () => {
+    expect(categoryCoversKeyword('Internet marketing service', 'creative agency')).toBe(false)
+    expect(categoryCoversKeyword('Internet marketing service', 'digital marketing agency')).toBe(false)
+    expect(categoryCoversKeyword('Oral and maxillofacial surgeon', 'dental clinic')).toBe(false)
+    expect(categoryCoversKeyword('Agency', 'digital marketing agency')).toBe(false)
+    expect(categoryCoversKeyword('Vending machine supplier', 'small batch food producer')).toBe(false)
+  })
+})

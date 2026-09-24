@@ -88,7 +88,7 @@ export const FIT_SCORER_VERSION = 'fit-v7' as const
 // first-person intent are actionable under public-reply norms, geography is
 // derived from the play when the provider query has no locations, recency ages
 // platform publication time, and zero evaluated criteria can no longer accept.
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v47' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v48' as const
 
 /*
  * Fixed participation note for public posts and threads whose venue rules
@@ -1315,10 +1315,44 @@ export function expandLocationExpectations(values: string[]): string[] {
  */
 const GOOGLE_MAPS_PLACE_URL = /google\.com\/maps\/place/i
 
+/* A Maps category is a broader label than an analyst's keyword phrase:
+ * "Marketing agency" for "digital marketing agency", "Real estate agency" for
+ * "real estate agent". The category covers the phrase when every one of its
+ * words is in the phrase and it keeps the phrase's head noun (the last word),
+ * with a few word families treated as one. An unrelated category ("Internet
+ * marketing service" for "creative agency") still fails, and the AI lead check
+ * screens every listing that passes. (2026-09-24 audit.) */
+const CATEGORY_STEMS: Record<string, string> = {
+  agency: 'agen', agencies: 'agen', agent: 'agen', agents: 'agen',
+  realty: 'realt', realtor: 'realt', realtors: 'realt',
+  dentist: 'dent', dentists: 'dent', dental: 'dent', dentistry: 'dent',
+  clinic: 'clinic', clinics: 'clinic', office: 'office', offices: 'office',
+  contractor: 'contract', contractors: 'contract', contracting: 'contract',
+  designer: 'design', designers: 'design', design: 'design',
+  consultant: 'consult', consultants: 'consult', consulting: 'consult', consultancy: 'consult',
+}
+function categoryStems(value: string): string[] {
+  return meaningfulTokens(value).map((token) => CATEGORY_STEMS[token] ?? token.replace(/s$/, ''))
+}
+export function categoryCoversKeyword(category: string, phrase: string): boolean {
+  const c = categoryStems(category)
+  const p = categoryStems(phrase)
+  if (c.length === 0 || p.length === 0) return false
+  // A one-word category must be a specific one (an alias group such as ~dentistry), never a bare 'Agency'.
+  if (c.length === 1 && p.length > 1 && !c[0].startsWith('~') && !['dent', 'realt'].includes(c[0])) return false
+  const head = p[p.length - 1]
+  return c.includes(head) && c.every((token) => p.includes(token))
+}
+
 export function reconcileListingCategory(identity: Record<string, unknown>, criteria: CriterionResult[]): void {
   if (!observedValues(identity, ['urls']).some((url) => GOOGLE_MAPS_PLACE_URL.test(url))) return
   const industry = criteria.find((row) => row.id === 'account.industry')
   const keywords = criteria.find((row) => row.id === 'account.keywords')
+  const category = typeof identity.industry === 'string' ? identity.industry : ''
+  if (keywords?.status === 'fail' && category && keywords.expected.some((phrase) => categoryCoversKeyword(category, phrase))) {
+    keywords.status = 'pass'
+    keywords.observed = [...keywords.observed, `listing category "${category}" covers a requested keyword`]
+  }
   if (!industry || industry.status !== 'fail' || keywords?.status !== 'pass') return
   industry.status = 'pass'
   industry.observed = [...industry.observed, 'listing category satisfies company_keywords']
