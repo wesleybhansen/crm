@@ -2126,6 +2126,8 @@ export default function AutomationsV2Page() {
       if (d.ok) {
         setBehaviorSuggestions(prev => prev.filter(x => x.id !== sug.id))
         loadRules()
+      } else if (d.error) {
+        alert(d.error)
       }
     } catch { /* ignore */ }
     setCreatingSuggestion(null)
@@ -2260,12 +2262,15 @@ export default function AutomationsV2Page() {
   async function handleToggle(rule: AutomationRule) {
     const newStatus = rule.status === 'active' ? 'paused' : 'active'
     try {
-      await fetch(`/api/sequences/automation-rules?id=${rule.id}`, {
+      const res = await fetch(`/api/sequences/automation-rules?id=${rule.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ status: newStatus }),
       })
+      // e.g. turning on an email automation with no email account connected
+      const d = await res.json().catch(() => null)
+      if (d && !d.ok && d.error) alert(d.error)
       loadRules()
     } catch {}
   }

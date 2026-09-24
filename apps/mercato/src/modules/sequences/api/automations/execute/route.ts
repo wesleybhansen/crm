@@ -86,7 +86,7 @@ export async function POST(req: Request) {
                   tenant_id: auth.tenantId,
                   organization_id: auth.orgId,
                   direction: 'outbound',
-                  from_address: process.env.EMAIL_FROM || 'noreply@localhost',
+                  from_address: sendResult.fromAddress || '',
                   to_address: contact.primary_email,
                   subject,
                   body_html: htmlBody,

@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { espOwnFromAddress } from '../../../../email/lib/routing-service'
 
 export const metadata = { path: '/reminders/process',
   POST: { requireAuth: false },
@@ -85,9 +86,10 @@ export async function POST(req: Request) {
         const apiKey = espConn?.provider === 'resend'
           ? await openSecretForTenant(null, espConn.tenant_id, espConn.api_key)
           : undefined
-        const fromAddress = espConn?.default_sender_email || process.env.EMAIL_FROM || 'noreply@localhost'
+        // The customer's own from address only; never Noli's EMAIL_FROM.
+        const fromAddress = espOwnFromAddress(espConn)
 
-        if (apiKey) {
+        if (apiKey && fromAddress) {
           try {
             const espRes = await fetch('https://api.resend.com/emails', {
               method: 'POST',

@@ -166,6 +166,32 @@ export async function hasSendingSetup(
   return (await resolveProviderForPurpose(knex, orgId, purpose)) !== null
 }
 
+/**
+ * A from address that belongs to the customer's own ESP setup (its default
+ * sender, else noreply@ its verified sending domain), or null. Direct-ESP
+ * senders use this instead of falling back to Noli's EMAIL_FROM; null means
+ * do not send.
+ */
+export function espOwnFromAddress(esp: Record<string, any> | null | undefined): string | null {
+  if (!esp) return null
+  const own = typeof esp.default_sender_email === 'string' ? esp.default_sender_email.trim() : ''
+  if (own && own.includes('@')) return own
+  const domain = typeof esp.sending_domain === 'string' ? esp.sending_domain.trim() : ''
+  return domain ? `noreply@${domain}` : null
+}
+
+/**
+ * The from address a purpose-routed send will use, or null when the org has
+ * no sending setup. Reads rows only (no sealed credentials opened).
+ */
+export async function resolveSenderAddress(
+  knex: Knex,
+  orgId: string,
+  purpose: EmailPurpose,
+): Promise<string | null> {
+  return (await resolveProviderForPurpose(knex, orgId, purpose))?.fromAddress ?? null
+}
+
 async function resolveProviderForPurpose(
   knex: Knex,
   orgId: string,
@@ -244,13 +270,13 @@ async function resolveProviderForPurpose(
   const defaultSender = await knex('esp_sender_addresses')
     .where('organization_id', orgId).where('is_default', true).first()
 
-  // Determine usable from address: sender addresses table → esp default → domain-based → env
-  const envFrom = process.env.EMAIL_FROM
-  const hasValidEnvFrom = envFrom && !envFrom.includes('localhost') && envFrom.includes('@')
+  // Usable from address: sender addresses table → esp default → the ESP's own
+  // sending domain. Never Noli's EMAIL_FROM (2026-09-24): a customer's ESP with
+  // no from address of the customer's own is not a sending setup, so the org
+  // counts as not connected (hasSendingSetup false, sends refused).
   const espFromAddr = defaultSender?.sender_email
     || esp?.default_sender_email
     || (esp?.sending_domain ? `noreply@${esp.sending_domain}` : null)
-    || (hasValidEnvFrom ? envFrom : null)
   const espFromName = defaultSender?.sender_name || esp?.default_sender_name || null
 
   // 3. ESP with a valid from address — best option for bulk/transactional

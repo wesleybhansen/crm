@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { refusalIfNotConnected } from '../../../email/lib/sending-readiness'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -32,6 +33,14 @@ export async function POST(req: Request) {
 
     if (!triggerStage || !actionType) {
       return NextResponse.json({ ok: false, error: 'triggerStage and actionType required' }, { status: 400 })
+    }
+
+    // Stage automations are created active: an email one needs the org's own
+    // sending setup or it would never send.
+    if (actionType === 'send_email') {
+      const refusal = await refusalIfNotConnected(knex, auth.orgId, 'marketing',
+        'Connect an email account in Settings before adding an email automation; nothing will be sent until then.')
+      if (refusal) return NextResponse.json(refusal, { status: 422 })
     }
 
     const id = require('crypto').randomUUID()

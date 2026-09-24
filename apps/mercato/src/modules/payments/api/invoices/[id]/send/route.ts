@@ -112,7 +112,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     </body></html>`
 
     let sentVia = 'resend'
-    let fromAddress = process.env.EMAIL_FROM || 'noreply@localhost'
+    let fromAddress = ''
     let externalMessageId: string | undefined
 
     const ccList = body.cc ? body.cc.split(',').map((s: string) => s.trim()).filter(Boolean) : []
@@ -132,6 +132,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     } else {
       return NextResponse.json({
         ok: false,
+        code: routerResult.code,
         error: routerResult.error || 'Email send failed',
       }, { status: 422 })
     }

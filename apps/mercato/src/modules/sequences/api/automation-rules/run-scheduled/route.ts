@@ -146,8 +146,7 @@ async function executeScheduledAction(
         }
       }
 
-      // Send via the org's own connection/ESP (no platform sender). Falls through
-      // to the queue below if the org has nothing connected.
+      // Send via the org's own connection/ESP only (no platform sender).
       const sendRes = await sendEmailByPurpose(knex, orgId, tenantId, 'automations', {
         to: contact.primary_email, subject, htmlBody: bodyHtml, contactId: context.contactId,
         fromName: actionConfig.fromName,
@@ -157,17 +156,10 @@ async function executeScheduledAction(
         return { success: true, detail: `Email sent via ${sendRes.sentVia}` }
       }
 
-      await knex('email_messages').insert({
-        id: require('crypto').randomUUID(),
-        tenant_id: tenantId, organization_id: orgId,
-        direction: 'outbound',
-        from_address: actionConfig.fromEmail || process.env.EMAIL_FROM || 'noreply@localhost',
-        to_address: contact.primary_email, subject, body_html: bodyHtml,
-        contact_id: context.contactId, status: 'queued',
-        tracking_id: require('crypto').randomUUID(), created_at: new Date(),
-      })
-      await logReviewSend()
-      return { success: true, detail: `Email queued to ${contact.primary_email}` }
+      // Not sent. This used to write a 'queued' row nothing ever sends and
+      // report success; record the real failure instead (the caller logs it to
+      // the rule's run history, and the router noted it on the contact).
+      return { success: false, detail: `Email failed: ${sendRes.error || 'Send failed'}` }
     }
 
     case 'create_task': {

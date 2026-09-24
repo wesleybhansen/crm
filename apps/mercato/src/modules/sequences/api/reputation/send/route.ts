@@ -94,7 +94,7 @@ export async function POST(req: Request) {
       contactId,
     })
     if (!result.ok) {
-      return NextResponse.json({ ok: false, error: result.error || 'Email send failed' }, { status: 502 })
+      return NextResponse.json({ ok: false, code: result.code, error: result.error || 'Email send failed' }, { status: result.code === 'email_not_connected' ? 422 : 502 })
     }
 
     await recordReviewRequest(knex, {

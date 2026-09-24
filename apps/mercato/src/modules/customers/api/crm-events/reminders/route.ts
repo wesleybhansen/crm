@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { espOwnFromAddress } from '../../../../email/lib/routing-service'
 
 
 // POST: Check and send pending reminders for all upcoming events
@@ -22,7 +23,9 @@ export async function POST(req: Request) {
     const resendKey = espConn?.provider === 'resend'
       ? await openSecretForTenant(null, espConn.tenant_id ?? auth.tenantId, espConn.api_key)
       : null
-    if (!resendKey) return NextResponse.json({ ok: true, data: { sent: 0, message: 'No ESP connected' } })
+    // The customer's own from address only; never Noli's EMAIL_FROM.
+    const espFrom = espOwnFromAddress(espConn)
+    if (!resendKey || !espFrom) return NextResponse.json({ ok: true, data: { sent: 0, message: 'No ESP connected' } })
 
     const now = new Date()
     const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000)
@@ -69,7 +72,7 @@ export async function POST(req: Request) {
       for (const attendee of attendees) {
         try {
           await resend.emails.send({
-            from: espConn?.default_sender_email || process.env.EMAIL_FROM || 'noreply@localhost',
+            from: espFrom,
             to: [attendee.attendee_email],
             subject: `Reminder: ${event.title} is ${timeLabel}`,
             html: `<div style="font-family:-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:32px">

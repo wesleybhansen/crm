@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { espOwnFromAddress } from '../../../email/lib/routing-service'
 import crypto from 'crypto'
 
 
@@ -198,13 +199,15 @@ export async function PUT(req: Request) {
       const resendKey = espConn?.provider === 'resend'
         ? await openSecretForTenant(null, espConn.tenant_id ?? auth.tenantId, espConn.api_key)
         : null
-      if (resendKey && event && attendees.length > 0) {
+      // The customer's own from address only; never Noli's EMAIL_FROM.
+      const espFrom = espOwnFromAddress(espConn)
+      if (resendKey && espFrom && event && attendees.length > 0) {
         try {
           const { Resend } = await import('resend')
           const resend = new Resend(resendKey)
           for (const att of attendees) {
             await resend.emails.send({
-              from: espConn?.default_sender_email || process.env.EMAIL_FROM || 'noreply@localhost',
+              from: espFrom,
               to: [att.attendee_email],
               subject: `Event Cancelled: ${event.title}`,
               html: `<div style="font-family:-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:32px">

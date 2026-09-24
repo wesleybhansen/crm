@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { refusalIfNotConnected } from '../../../../../email/lib/sending-readiness'
 
 
 // POST: Send email to all registered attendees of an event
@@ -31,6 +32,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .where('organization_id', auth.orgId)
 
     if (attendees.length === 0) return NextResponse.json({ ok: true, data: { sent: 0, message: 'No registered attendees' } })
+
+    // No sending setup: refuse up front instead of failing every attendee.
+    const refusal = await refusalIfNotConnected(knex, auth.orgId, 'marketing')
+    if (refusal) return NextResponse.json(refusal, { status: 422 })
 
     let sent = 0
 

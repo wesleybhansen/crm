@@ -5,13 +5,15 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromCookies()
   if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     const sequence = await knex('sequences')
       .where('id', params.id)
@@ -31,8 +33,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         'se.current_step_order',
         'se.enrolled_at',
         'se.completed_at',
-        'ce.display_name as contact_name',
-        'ce.primary_email as contact_email',
+        // Named as the sequences page reads them (it showed "Unknown" when these
+        // came back as contact_name/contact_email).
+        'ce.display_name as display_name',
+        'ce.primary_email as primary_email',
         // Why an active enrollment is not moving: set by the sequence processor
         // when a due email step found no sending setup (lib/email-step.ts).
         knex.raw(
@@ -43,6 +47,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         ),
       )
       .orderBy('se.enrolled_at', 'desc')
+
+    // Raw knex skips the decrypting subscriber: without this the list shows
+    // ciphertext for encrypted contacts.
+    await decryptRowFields(em, CONTACT_ENTITY_KEY, enrollments, ['display_name', 'primary_email'], auth.tenantId ?? null, auth.orgId)
 
     return NextResponse.json({ ok: true, data: enrollments })
   } catch {

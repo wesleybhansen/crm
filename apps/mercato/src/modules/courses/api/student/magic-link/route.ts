@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { espOwnFromAddress } from '../../../../email/lib/routing-service'
 import crypto from 'crypto'
 import { magicLinkExpiresAt, magicLinkTtlLabel } from '@/modules/courses/lib/magic-tokens'
 
@@ -65,12 +66,14 @@ export async function POST(req: Request) {
     const resendKey = espConn?.provider === 'resend'
       ? await openSecretForTenant(null, espConn.tenant_id, espConn.api_key)
       : null
-    if (resendKey) {
+    // The customer's own from address only; never Noli's EMAIL_FROM.
+    const espFrom = espOwnFromAddress(espConn)
+    if (resendKey && espFrom) {
       try {
         const { Resend } = await import('resend')
         const resend = new Resend(resendKey)
         await resend.emails.send({
-          from: espConn?.default_sender_email || process.env.EMAIL_FROM || 'noreply@localhost',
+          from: espFrom,
           to: [email.trim()],
           subject: 'Your Course Access Link',
           html: `

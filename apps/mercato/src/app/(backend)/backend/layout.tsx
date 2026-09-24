@@ -44,6 +44,7 @@ import { ComponentOverridesBootstrap } from '@/components/ComponentOverridesBoot
 import { AiAssistantWidget } from '@/components/AiAssistantWidget'
 import { FloatingAssistantButton } from '@/components/FloatingAssistantButton'
 import { BackgroundJobs } from '@/components/BackgroundJobs'
+import { EMAIL_NOT_CONNECTED_BANNER, getEmailSendingGap } from '@/modules/email/lib/sending-readiness'
 
 type NavItem = {
   href: string
@@ -343,6 +344,18 @@ export default async function BackendLayout({ children, params }: { children: Re
     }
   } catch {}
 
+  // Org-level email signal: an enabled feature that sends email (automations,
+  // sequences, form replies, booking confirmations) while the org has no
+  // sending setup would fail on every trigger. Say so on every page.
+  let emailSendingBlocked = false
+  try {
+    if (auth?.orgId) {
+      const gapContainer = await ensureContainer()
+      const gapKnex = (gapContainer.resolve('em') as EntityManager).getKnex()
+      emailSendingBlocked = (await getEmailSendingGap(gapKnex, auth.orgId)).blocked.length > 0
+    }
+  } catch {}
+
 
   const hiddenSidebarRaw = cookieStore.get('crm_hidden_sidebar')?.value || ''
   // In advanced mode, filter out framework / ops-only pages that don't
@@ -495,6 +508,12 @@ export default async function BackendLayout({ children, params }: { children: Re
               profileSectionTitle={translate('profile.page.title', 'Profile')}
               profilePathPrefixes={profilePathPrefixes}
             >
+              {emailSendingBlocked && (
+                <div role="status" className="mx-4 mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+                  {EMAIL_NOT_CONNECTED_BANNER.replace(' Connect it in Settings.', ' ')}
+                  <a href="/backend/settings-simple" className="font-medium underline">Connect it in Settings.</a>
+                </div>
+              )}
               <PageInjectionBoundary path={path} context={injectionContext}>
                 {children}
               </PageInjectionBoundary>

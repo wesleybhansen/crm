@@ -464,11 +464,19 @@ export async function POST(req: Request) {
               const eventTime = new Date(event.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
               const location = event.event_type === 'virtual' ? (event.virtual_link || 'Virtual') : (event.location_name || 'TBD')
               const emailHtml = `<div style="font-family:-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:32px"><h2 style="font-size:20px;margin:0 0 8px">You're in, ${attendeeName.split(' ')[0]}!</h2><p style="color:#475569;font-size:15px;line-height:1.6;margin-bottom:20px">Your payment is confirmed. You're registered for <strong>${event.title}</strong>.</p><div style="background:#f8fafc;border-radius:8px;padding:16px;margin-bottom:20px"><p style="margin:0 0 6px;font-size:14px"><strong>Date:</strong> ${eventDate}</p><p style="margin:0 0 6px;font-size:14px"><strong>Time:</strong> ${eventTime}</p><p style="margin:0;font-size:14px"><strong>Location:</strong> ${location}</p></div><p style="color:#94a3b8;font-size:12px">See you there!</p></div>`
+              // Send through the org's own routing (this used to only write a
+              // 'queued' row that nothing ever sent), and record what happened.
+              const subject = `You're registered: ${event.title}`
+              const sendResult = await sendEmailByPurpose(knex, meta.orgId || orgId!, meta.tenantId || tenantId!, 'transactional', {
+                to: attendeeEmail, subject, htmlBody: emailHtml, contactId: contactId || undefined,
+              }).catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : 'Send failed', fromAddress: undefined }))
               await knex('email_messages').insert({
                 id: require('crypto').randomUUID(), tenant_id: meta.tenantId || tenantId, organization_id: meta.orgId || orgId,
-                direction: 'outbound', from_address: process.env.EMAIL_FROM || 'noreply@localhost',
-                to_address: attendeeEmail, subject: `You're registered: ${event.title}`, body_html: emailHtml,
-                contact_id: contactId, status: 'queued', tracking_id: require('crypto').randomUUID(), created_at: new Date(),
+                direction: 'outbound', from_address: sendResult.fromAddress || '',
+                to_address: attendeeEmail, subject, body_html: emailHtml,
+                contact_id: contactId, status: sendResult.ok ? 'sent' : 'failed',
+                ...(sendResult.ok ? { sent_at: new Date() } : { metadata: JSON.stringify({ error: sendResult.error || 'Send failed' }) }),
+                tracking_id: require('crypto').randomUUID(), created_at: new Date(),
               }).catch(() => {})
             }
             console.log(`[stripe.webhook] Event registration: ${attendeeName} registered for event ${eventId} via payment`)

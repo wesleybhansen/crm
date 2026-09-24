@@ -4,6 +4,10 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { automationSendsEmail, refusalIfNotConnected } from '../../../email/lib/sending-readiness'
+
+const AUTOMATION_BLOCKED_MESSAGE =
+  'Connect an email account in Settings before turning on this automation; nothing will be sent until then. You can save it as paused meanwhile.'
 
 
 const TRIGGER_TYPES = [
@@ -80,6 +84,13 @@ export async function POST(req: Request) {
     const effectiveActionType = hasSteps ? (steps.find((s: any) => s.type === 'action')?.actionType || 'send_email') : actionType
     const effectiveActionConfig = hasSteps ? (steps.find((s: any) => s.type === 'action')?.actionConfig || {}) : (actionConfig || {})
 
+    // An active rule that emails contacts needs the org's own sending setup,
+    // or every run would fail. Refuse the activation (a paused/draft save is fine).
+    if (ruleStatus === 'active' && automationSendsEmail({ action_type: effectiveActionType, steps: hasSteps ? steps : null })) {
+      const refusal = await refusalIfNotConnected(knex, auth.orgId, 'automations', AUTOMATION_BLOCKED_MESSAGE)
+      if (refusal) return NextResponse.json(refusal, { status: 422 })
+    }
+
     const id = require('crypto').randomUUID()
     await knex('automation_rules').insert({
       id,
@@ -139,6 +150,20 @@ export async function PUT(req: Request) {
     if (body.isActive !== undefined) {
       update.is_active = body.isActive
       update.status = body.isActive ? 'active' : 'paused'
+    }
+
+    if (update.is_active === true) {
+      const existing = await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).first()
+      if (existing) {
+        const merged = {
+          action_type: update.action_type ?? existing.action_type,
+          steps: update.steps !== undefined ? update.steps : existing.steps,
+        }
+        if (automationSendsEmail(merged)) {
+          const refusal = await refusalIfNotConnected(knex, auth.orgId, 'automations', AUTOMATION_BLOCKED_MESSAGE)
+          if (refusal) return NextResponse.json(refusal, { status: 422 })
+        }
+      }
     }
 
     await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).update(update)

@@ -9,7 +9,7 @@ import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import {
   EMAIL_NOT_CONNECTED_CODE,
   EMAIL_NOT_CONNECTED_MESSAGE,
-  hasSendingSetup,
+  resolveSenderAddress,
 } from '../../lib/routing-service'
 import { signEmailToken } from '@/lib/email-token'
 import {
@@ -42,7 +42,8 @@ export async function POST(req: Request) {
     // No sending setup, no blast (2026-09-24): refuse before claiming, so the
     // blast stays a draft and no recipient or message row is written. Before,
     // every recipient failed one by one and the blast ended 'failed' with a 502.
-    if (!(await hasSendingSetup(knex, auth.orgId, 'marketing'))) {
+    const senderAddress = await resolveSenderAddress(knex, auth.orgId, 'marketing')
+    if (!senderAddress) {
       return NextResponse.json(
         { ok: false, code: EMAIL_NOT_CONNECTED_CODE, error: EMAIL_NOT_CONNECTED_MESSAGE },
         { status: 422 },
@@ -199,13 +200,15 @@ export async function POST(req: Request) {
         `</div>
 </body>`)
 
-      // Store message
+      // Store message, from the address this org's routing actually sends as
+      // (never Noli's EMAIL_FROM); corrected below from the send result.
+      const messageId = require('crypto').randomUUID()
       await knex('email_messages').insert({
-        id: require('crypto').randomUUID(),
+        id: messageId,
         tenant_id: tenantId,
         organization_id: auth.orgId,
         direction: 'outbound',
-        from_address: process.env.EMAIL_FROM || 'noreply@localhost',
+        from_address: senderAddress,
         to_address: toEmail,
         subject: personalizedSubject,
         body_html: html,
@@ -224,6 +227,11 @@ export async function POST(req: Request) {
           htmlBody: html,
           contactId: contact.id,
         })
+        await knex('email_messages').where('id', messageId).update({
+          status: result.ok ? 'sent' : 'failed',
+          ...(result.ok ? { sent_at: new Date() } : {}),
+          ...(result.fromAddress ? { from_address: result.fromAddress } : {}),
+        }).catch(() => {})
         if (result.ok) {
           sentCount++
           await knex('email_campaign_recipients')
@@ -255,6 +263,7 @@ export async function POST(req: Request) {
       } catch (err) {
         failedCount++
         console.error(`[campaign] Failed to send to ${toEmail}:`, err)
+        await knex('email_messages').where('id', messageId).update({ status: 'failed' }).catch(() => {})
         await knex('email_campaign_recipients')
           .where('campaign_id', blastId).where('contact_id', contact.id)
           .update({ status: 'failed' })

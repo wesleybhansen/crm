@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     if (result.ok) {
       return NextResponse.json({ ok: true, sentTo: toEmail })
     } else {
-      return NextResponse.json({ ok: false, error: result.error || 'Failed to send test' }, { status: 500 })
+      return NextResponse.json({ ok: false, code: result.code, error: result.error || 'Failed to send test' }, { status: result.code === 'email_not_connected' ? 422 : 500 })
     }
   } catch (error) {
     console.error('[campaigns.test]', error)

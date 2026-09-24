@@ -9,7 +9,9 @@ import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretC
 import { sendViaGmail, getGmailToken } from './gmail-service'
 import { sendViaOutlook, getOutlookToken } from './outlook-service'
 import { sendViaESP } from './esp-service'
-import type { EmailPurpose } from './routing-service'
+import { EMAIL_NOT_CONNECTED_CODE, type EmailPurpose } from './routing-service'
+import { EMAIL_NOT_SENT_NOT_CONNECTED } from './sending-readiness'
+import { logTimelineEvent } from '../../../lib/timeline'
 
 interface SendEmailParams {
   to: string
@@ -23,6 +25,8 @@ interface SendEmailParams {
 
 interface SendEmailResult {
   ok: boolean
+  /** 'email_not_connected' when the org has no sending setup for the purpose. */
+  code?: string
   messageId?: string
   sentVia?: string
   fromAddress?: string
@@ -326,7 +330,20 @@ export async function sendEmailByPurpose(
   const resolved = await getProviderForPurpose(knex, orgId, purpose)
 
   if (!resolved) {
-    return { ok: false, error: 'No email provider configured. Connect an email account or ESP in Settings.' }
+    // Never a fallback sender. Make the skip visible where the owner looks: the
+    // contact's timeline, when the send was for a contact.
+    if (params.contactId) {
+      await logTimelineEvent(knex, {
+        tenantId,
+        organizationId: orgId,
+        contactId: params.contactId,
+        eventType: 'email_not_sent',
+        title: `Email not sent: ${params.subject || '(no subject)'}`,
+        description: EMAIL_NOT_SENT_NOT_CONNECTED,
+        metadata: { purpose, reason: EMAIL_NOT_CONNECTED_CODE },
+      }).catch(() => {})
+    }
+    return { ok: false, code: EMAIL_NOT_CONNECTED_CODE, error: EMAIL_NOT_SENT_NOT_CONNECTED }
   }
 
   const { to, cc, bcc, subject, htmlBody, textBody, contactId } = params

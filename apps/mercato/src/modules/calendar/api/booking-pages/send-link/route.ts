@@ -143,7 +143,7 @@ export async function POST(req: Request, ctx: any) {
         tenant_id: auth.tenantId,
         organization_id: auth.orgId,
         direction: 'outbound',
-        from_address: result.fromAddress || process.env.EMAIL_FROM || 'noreply@localhost',
+        from_address: result.fromAddress || '',
         to_address: contact.primary_email,
         subject,
         body_html: htmlBody,
@@ -164,7 +164,7 @@ export async function POST(req: Request, ctx: any) {
     }
 
     if (!result.ok) {
-      return NextResponse.json({ ok: false, error: result.error || 'Failed to send email' }, { status: 500 })
+      return NextResponse.json({ ok: false, code: result.code, error: result.error || 'Failed to send email' }, { status: result.code === 'email_not_connected' ? 422 : 500 })
     }
 
     return NextResponse.json({

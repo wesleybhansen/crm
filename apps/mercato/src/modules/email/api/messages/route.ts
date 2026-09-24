@@ -102,7 +102,8 @@ export async function POST(req: Request, ctx: any) {
     } else {
       // No connected provider — do NOT fall back to a platform sender. All email
       // must go through the org's own connection/ESP.
-      fromAddress = process.env.EMAIL_FROM || 'noreply@localhost'
+      // Record who it would have been from: nobody. Never Noli's EMAIL_FROM.
+      fromAddress = ''
       status = 'failed'
       metadata = { error: routerResult.error || 'No email provider connected. Connect Gmail, Outlook, or an ESP in Settings.' }
     }
