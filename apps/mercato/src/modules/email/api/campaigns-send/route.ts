@@ -6,6 +6,11 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import {
+  EMAIL_NOT_CONNECTED_CODE,
+  EMAIL_NOT_CONNECTED_MESSAGE,
+  hasSendingSetup,
+} from '../../lib/routing-service'
 import { signEmailToken } from '@/lib/email-token'
 import {
   decryptRowFields,
@@ -33,6 +38,16 @@ export async function POST(req: Request) {
 
     if (!campaign) return NextResponse.json({ ok: false, error: 'Blast not found' }, { status: 404 })
     if (campaign.status !== 'draft') return NextResponse.json({ ok: false, error: 'Blast already sent' }, { status: 400 })
+
+    // No sending setup, no blast (2026-09-24): refuse before claiming, so the
+    // blast stays a draft and no recipient or message row is written. Before,
+    // every recipient failed one by one and the blast ended 'failed' with a 502.
+    if (!(await hasSendingSetup(knex, auth.orgId, 'marketing'))) {
+      return NextResponse.json(
+        { ok: false, code: EMAIL_NOT_CONNECTED_CODE, error: EMAIL_NOT_CONNECTED_MESSAGE },
+        { status: 422 },
+      )
+    }
 
     // Atomically claim the campaign before doing any sending. A double-click or a
     // retried request would otherwise both pass the status check above and send the

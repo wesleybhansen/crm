@@ -68,6 +68,15 @@ export async function seedMailbox(
   return connection
 }
 
+// Approval now refuses a campaign without a sender mailbox
+// ('email_not_connected' / 'sender_required'). Seeds the fixture mailbox once
+// and returns the settings block that selects it.
+export async function seedSenderSettings(em: FakeEm): Promise<{ mailbox_connection_id: string }> {
+  const existing = await em.findOne(EmailConnection, { id: MAILBOX })
+  if (!existing) await seedMailbox(em)
+  return { mailbox_connection_id: MAILBOX }
+}
+
 export type LaunchedFixture = {
   play: GtmPlay
   campaign: GtmCampaign

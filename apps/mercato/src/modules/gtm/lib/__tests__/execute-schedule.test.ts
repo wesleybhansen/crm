@@ -261,7 +261,7 @@ describe('materializeSendAttempts + launchCampaign (SPEC-066 section 6 rule 6)',
     ).rejects.toMatchObject({ code: 'version_invalidated' })
   })
 
-  it('refuses to launch when the frozen version has no sender mailbox', async () => {
+  it('a campaign with no sender mailbox can no longer be approved, so it never reaches launch', async () => {
     const em = new FakeEm()
     const play = await seedPlay(em)
     const run = await seedRun(em, play)
@@ -272,10 +272,33 @@ describe('materializeSendAttempts + launchCampaign (SPEC-066 section 6 rule 6)',
       name: 'No sender',
     })
     const draft = await computeDraftState(em, ctx, campaign)
+    await expect(approveCampaign(em, ctx, {
+      campaignId: campaign.id,
+      expectedContentHash: draft.contentHash,
+    })).rejects.toMatchObject({ code: 'email_not_connected' })
+    expect(campaign.status).toBe('draft')
+    expect(await em.find(GtmSendAttempt, {})).toHaveLength(0)
+  })
+
+  it('refuses to launch when the approved sender mailbox was disconnected after approval', async () => {
+    const em = new FakeEm()
+    const connection = await seedMailbox(em)
+    const play = await seedPlay(em)
+    const run = await seedRun(em, play)
+    await seedCandidate(em, run)
+    const { campaign } = await createCampaign(em, ctx, {
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      name: 'Sender disconnected',
+      settings: { mailbox_connection_id: MAILBOX },
+    })
+    const draft = await computeDraftState(em, ctx, campaign)
     const approved = await approveCampaign(em, ctx, {
       campaignId: campaign.id,
       expectedContentHash: draft.contentHash,
     })
+    connection.isActive = false
+    await em.flush()
     await expect(
       launchCampaign(em, ctx, { campaignId: campaign.id, expectedContentHash: approved.version.contentHash }, { clock: fixedClock(LAUNCH_ISO) }),
     ).rejects.toMatchObject({ code: 'no_sender' })

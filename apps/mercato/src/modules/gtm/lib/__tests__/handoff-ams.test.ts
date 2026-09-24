@@ -1,4 +1,5 @@
 import { FakeEm } from './support/fake-em'
+import { seedSenderSettings } from './support/execution-fixtures'
 import { WORKSPACE, ctx, seedCandidate, seedPlay, seedRun } from './support/campaign-fixtures'
 import { createCampaign, parseAssetRefs } from '../campaign/build'
 import { approveCampaign, computeDraftState, loadCampaign } from '../campaign/approve'
@@ -152,6 +153,7 @@ describe('asset references freeze into the approval snapshot', () => {
     const run = await seedRun(em, play)
     await seedCandidate(em, run)
     const { campaign } = await createCampaign(em, ctx, {
+      settings: await seedSenderSettings(em),
       workspaceId: WORKSPACE,
       playId: play.id,
       name: 'Asset campaign',

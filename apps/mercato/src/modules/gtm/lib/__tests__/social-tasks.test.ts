@@ -5,6 +5,7 @@ import {
   fixedClock,
   seedLaunchedCampaign,
   type LaunchedFixture,
+  seedSenderSettings,
 } from './support/execution-fixtures'
 import { createCampaign } from '../campaign/build'
 import { approveCampaign, computeDraftState, updateCampaignTemplate } from '../campaign/approve'
@@ -234,6 +235,7 @@ describe('manual social tasks (SPEC-066 section 10, Tranche 7)', () => {
     const run = await seedRun(em, play)
     await seedCandidate(em, run)
     const { campaign } = await createCampaign(em, ctx, {
+      settings: await seedSenderSettings(em),
       workspaceId: WORKSPACE,
       playId: play.id,
       name: 'X DM campaign',

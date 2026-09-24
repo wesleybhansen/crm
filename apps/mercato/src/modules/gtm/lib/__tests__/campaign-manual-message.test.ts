@@ -4,6 +4,7 @@ import { approveCampaign, computeDraftState } from '../campaign/approve'
 import { updateManualMessage } from '../campaign/manual-message'
 import { GtmAuditEvent } from '../../data/entities'
 import { FakeEm } from './support/fake-em'
+import { seedSenderSettings } from './support/execution-fixtures'
 import { ctx, seedCandidate, seedPlay, seedRun, WORKSPACE } from './support/campaign-fixtures'
 
 async function setup() {
@@ -12,6 +13,7 @@ async function setup() {
   const run = await seedRun(em, play)
   const candidate = await seedCandidate(em, run)
   const { campaign } = await createCampaign(em, ctx, {
+    settings: await seedSenderSettings(em),
     workspaceId: WORKSPACE,
     playId: play.id,
     name: 'Manual message fixture',

@@ -408,6 +408,26 @@ export async function computeDraftState(
 // Approval freeze
 // ---------------------------------------------------------------------------
 
+export const EMAIL_NOT_CONNECTED_MESSAGE =
+  'Connect an email account in Settings before approving; nothing will be sent until then.'
+
+// Throws 'email_not_connected' when the approving user has no active personal
+// mailbox (the only kind a campaign sender may be: draft-config requires
+// purpose null, owned by the acting user, active).
+async function assertApproverHasMailbox(em: CampaignEm, ctx: GtmCtx): Promise<void> {
+  const mailbox = await em.findOne(EmailConnection, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    userId: ctx.userId,
+    purpose: null,
+    isActive: true,
+    deletedAt: null,
+  })
+  if (!mailbox) {
+    throw new GtmCampaignError('email_not_connected', EMAIL_NOT_CONNECTED_MESSAGE)
+  }
+}
+
 export type ApproveCampaignResult = {
   campaign: GtmCampaign
   version: GtmCampaignVersion
@@ -561,6 +581,19 @@ export async function approveCampaign(
       throw new GtmCampaignError(
         'stale_draft',
         'The approved postal footer changed; reload and review the draft again',
+      )
+    }
+
+    // No-sender gate (2026-09-24): every campaign carries at least one
+    // automated email step, and launch refuses a version without a sender
+    // mailbox ('no_sender'). Approving one anyway produced an "approved"
+    // campaign that could never send. Refuse here instead, telling the owner
+    // exactly what to do; nothing is frozen or sent.
+    if (!draft.settings.mailbox_connection_id) {
+      await assertApproverHasMailbox(tem, ctx)
+      throw new GtmCampaignError(
+        'sender_required',
+        'Choose which connected email account sends this campaign before approving; nothing will be sent until then.',
       )
     }
 

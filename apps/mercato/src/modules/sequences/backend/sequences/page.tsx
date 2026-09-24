@@ -32,6 +32,7 @@ type Step = {
 type Enrollment = {
   id: string; contact_id: string; display_name: string; primary_email: string
   status: string; current_step_order: number; enrolled_at: string
+  waiting_reason?: string | null
 }
 
 const TRIGGER_TYPES = [
@@ -847,6 +848,18 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
           </div>
         </div>
 
+        {seq.email_sending_ready === false
+          && (seq.steps || []).some((s: any) => (s.step_type || s.stepType) === 'email') && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 mb-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+            <p className="font-medium">No email account connected, so nothing in this sequence will be sent.</p>
+            <p className="mt-1">
+              Connect an email account in{' '}
+              <a href="/backend/settings-simple" className="underline">Settings</a>.
+              Enrollments wait at their email step and continue on their own once it is connected.
+            </p>
+          </div>
+        )}
+
         {/* Trigger */}
         <div className="rounded-lg border bg-card p-4 mb-4">
           <p className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground mb-1">Trigger</p>
@@ -1005,6 +1018,9 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium">{enr.display_name || 'Unknown'}</p>
                     <p className="text-xs text-muted-foreground">{enr.primary_email || ''}</p>
+                    {enr.waiting_reason && (
+                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">{enr.waiting_reason}</p>
+                    )}
                   </div>
                   <Badge variant={statusVariant[enr.status] || 'secondary'}>{enr.status}</Badge>
                   <span className="text-xs text-muted-foreground tabular-nums">

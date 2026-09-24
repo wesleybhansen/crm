@@ -63,6 +63,12 @@ export class GtmCampaignError extends Error {
       | 'sample_unavailable'
       | 'postal_address_required'
       | 'sender_changed'
+      // Approval gate (2026-09-24): Noli never sends without the customer's
+      // own connected mailbox. 'email_not_connected' = the approver has no
+      // active personal mailbox at all; 'sender_required' = one exists but the
+      // campaign has not chosen which one sends. Both are 422 on the hub path.
+      | 'email_not_connected'
+      | 'sender_required'
       | 'message_review_required'
       | 'stale_draft'
       | 'daily_cap_exceeds_ceiling'

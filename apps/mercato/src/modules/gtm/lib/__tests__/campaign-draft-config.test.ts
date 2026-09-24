@@ -12,6 +12,7 @@ import {
   updateCampaignSettings,
 } from '../campaign/draft-config'
 import { FakeEm } from './support/fake-em'
+import { seedSenderSettings } from './support/execution-fixtures'
 import {
   ctx,
   ORG,
@@ -29,6 +30,7 @@ async function setup() {
   const run = await seedRun(em, play)
   const candidate = await seedCandidate(em, run)
   const { campaign } = await createCampaign(em, ctx, {
+    settings: await seedSenderSettings(em),
     workspaceId: WORKSPACE,
     playId: play.id,
     name: 'Editable campaign fixture',

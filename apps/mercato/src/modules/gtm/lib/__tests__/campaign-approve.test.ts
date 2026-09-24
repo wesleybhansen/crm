@@ -34,7 +34,7 @@ import {
   GtmStep,
   GtmSuppression,
 } from '../../data/entities'
-import { MAILBOX, seedMailbox } from './support/execution-fixtures'
+import { MAILBOX, seedMailbox, seedSenderSettings } from './support/execution-fixtures'
 
 async function setup(options: { candidates?: number; linkedin?: boolean } = {}) {
   const em = new FakeEm()
@@ -45,6 +45,7 @@ async function setup(options: { candidates?: number; linkedin?: boolean } = {}) 
     candidates.push(await seedCandidate(em, run))
   }
   const { campaign } = await createCampaign(em, ctx, {
+    settings: await seedSenderSettings(em),
     workspaceId: WORKSPACE,
     playId: play.id,
     name: 'Approval test',
@@ -52,6 +53,59 @@ async function setup(options: { candidates?: number; linkedin?: boolean } = {}) 
   })
   return { em, play, run, campaign, candidates }
 }
+
+describe('approval requires the customer\'s own connected mailbox (2026-09-24)', () => {
+  async function bare() {
+    const em = new FakeEm()
+    const play = await seedPlay(em)
+    const run = await seedRun(em, play)
+    await seedCandidate(em, run)
+    const { campaign } = await createCampaign(em, ctx, {
+      workspaceId: WORKSPACE,
+      playId: play.id,
+      name: 'No sender approval',
+      channelMix: { emails: 1, linkedin: false },
+    })
+    return { em, campaign }
+  }
+
+  it('refuses email_not_connected when the approver has no connected mailbox, freezing nothing', async () => {
+    const { em, campaign } = await bare()
+    const draft = await computeDraftState(em, ctx, campaign)
+    await expect(approveCampaign(em, ctx, {
+      campaignId: campaign.id,
+      expectedContentHash: draft.contentHash,
+    })).rejects.toMatchObject({
+      code: 'email_not_connected',
+      message: 'Connect an email account in Settings before approving; nothing will be sent until then.',
+    })
+    expect(em.table(GtmCampaignVersion)).toHaveLength(0)
+    expect(em.table(GtmEnrollment)).toHaveLength(0)
+    expect(em.table(GtmRenderedMessage)).toHaveLength(0)
+    expect(em.table(GtmCampaign)[0].status).toBe('draft')
+  })
+
+  it('an inactive mailbox does not count as connected', async () => {
+    const { em, campaign } = await bare()
+    await seedMailbox(em, { isActive: false })
+    const draft = await computeDraftState(em, ctx, campaign)
+    await expect(approveCampaign(em, ctx, {
+      campaignId: campaign.id,
+      expectedContentHash: draft.contentHash,
+    })).rejects.toMatchObject({ code: 'email_not_connected' })
+  })
+
+  it('refuses sender_required when a mailbox is connected but the campaign has not chosen it', async () => {
+    const { em, campaign } = await bare()
+    await seedMailbox(em)
+    const draft = await computeDraftState(em, ctx, campaign)
+    await expect(approveCampaign(em, ctx, {
+      campaignId: campaign.id,
+      expectedContentHash: draft.contentHash,
+    })).rejects.toMatchObject({ code: 'sender_required' })
+    expect(em.table(GtmCampaignVersion)).toHaveLength(0)
+  })
+})
 
 describe('approveCampaign (immutable freeze)', () => {
   it('creates the version, steps, enrollments, and frozen rendered rows in one pass', async () => {
@@ -161,7 +215,6 @@ describe('approveCampaign (immutable freeze)', () => {
 
   it('rejects an approval envelope that conflicts with the canonical mailbox policy', async () => {
     const { em, campaign } = await setup({ candidates: 1, linkedin: false })
-    await seedMailbox(em)
     campaign.settings = {
       ...(campaign.settings as Record<string, unknown>),
       mailbox_connection_id: MAILBOX,
@@ -286,6 +339,7 @@ describe('approveCampaign (immutable freeze)', () => {
     const run = await seedRun(em, play)
     await seedCandidate(em, run, { email: null })
     const { campaign } = await createCampaign(em, ctx, {
+      settings: await seedSenderSettings(em),
       workspaceId: WORKSPACE,
       playId: play.id,
       name: 'Empty',
@@ -480,6 +534,7 @@ describe('postal address approval gate (CAN-SPAM: sender is the org, not Noli)',
     const run = await seedRun(em, play)
     await seedCandidate(em, run)
     const { campaign } = await createCampaign(em, ctx, {
+      settings: await seedSenderSettings(em),
       workspaceId: WORKSPACE,
       playId: play.id,
       name: 'Postal gate test',
@@ -560,6 +615,7 @@ describe('draft-state determinism', () => {
     await seedCandidate(em, run, { fitStatus: 'rejected' })
     await seedCandidate(em, otherRun)
     const { campaign } = await createCampaign(em, ctx, {
+      settings: await seedSenderSettings(em),
       workspaceId: WORKSPACE,
       playId: play.id,
       name: 'Scoping',
@@ -599,6 +655,7 @@ describe('draft-state determinism', () => {
     em.persist(rejectedMatch)
     await em.flush()
     const { campaign } = await createCampaign(em, ctx, {
+      settings: await seedSenderSettings(em),
       workspaceId: WORKSPACE,
       playId: play.id,
       name: 'Contextual scoping',

@@ -1,4 +1,5 @@
 import { FakeEm } from './support/fake-em'
+import { seedSenderSettings } from './support/execution-fixtures'
 import { WORKSPACE, ctx, seedCandidate, seedPlay, seedRun } from './support/campaign-fixtures'
 import { createCampaign } from '../campaign/build'
 import { approveCampaign, computeDraftState } from '../campaign/approve'
@@ -143,6 +144,7 @@ describe('KB mirror handoff (SPEC-066 section 13)', () => {
     const run = await seedRun(em, play)
     await seedCandidate(em, run)
     const { campaign } = await createCampaign(em, ctx, {
+      settings: await seedSenderSettings(em),
       workspaceId: WORKSPACE,
       playId: play.id,
       name: 'Mirror summary campaign',

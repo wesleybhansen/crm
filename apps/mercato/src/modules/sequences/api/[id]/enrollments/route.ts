@@ -33,6 +33,14 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         'se.completed_at',
         'ce.display_name as contact_name',
         'ce.primary_email as contact_email',
+        // Why an active enrollment is not moving: set by the sequence processor
+        // when a due email step found no sending setup (lib/email-step.ts).
+        knex.raw(
+          "(SELECT sse.result->>'reason' FROM sequence_step_executions sse"
+          + " WHERE sse.enrollment_id = se.id AND sse.status = 'scheduled'"
+          + " AND sse.result->>'waiting' IS NOT NULL"
+          + ' ORDER BY sse.created_at DESC LIMIT 1) as waiting_reason',
+        ),
       )
       .orderBy('se.enrolled_at', 'desc')
 

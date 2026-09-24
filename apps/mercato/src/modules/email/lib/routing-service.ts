@@ -143,6 +143,29 @@ export async function getProviderForPurpose(
   return resolved
 }
 
+/**
+ * Customer-facing refusal used everywhere Noli would otherwise send on a
+ * customer's behalf without their own sending setup (2026-09-24 decision:
+ * never fall back to anything else; block and ask them to connect one).
+ */
+export const EMAIL_NOT_CONNECTED_CODE = 'email_not_connected'
+export const EMAIL_NOT_CONNECTED_MESSAGE =
+  'Connect an email account in Settings before sending; nothing will be sent until then.'
+
+/**
+ * True when the org has its own sending setup for this purpose (a connected
+ * mailbox or an ESP with a usable from address): exactly the condition under
+ * which sendEmailByPurpose can pick a provider. Reads rows only; never opens
+ * sealed credentials and never sends.
+ */
+export async function hasSendingSetup(
+  knex: Knex,
+  orgId: string,
+  purpose: EmailPurpose,
+): Promise<boolean> {
+  return (await resolveProviderForPurpose(knex, orgId, purpose)) !== null
+}
+
 async function resolveProviderForPurpose(
   knex: Knex,
   orgId: string,

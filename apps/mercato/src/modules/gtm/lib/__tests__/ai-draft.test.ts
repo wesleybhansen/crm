@@ -1,4 +1,5 @@
 import { FakeEm } from './support/fake-em'
+import { seedSenderSettings } from './support/execution-fixtures'
 import { FakeModel, jsonModel, throwingModel, makeMeterSpy } from './support/fake-model'
 import { ctx, seedCandidate, seedPlay, seedRun, WORKSPACE } from './support/campaign-fixtures'
 import { createCampaign } from '../campaign/build'
@@ -159,6 +160,7 @@ describe('regenerateMessageForCandidate (opt-in AI drafts, locked-voice gated)',
     const a = await seedCandidate(em, run, { name: 'Alpha One', email: 'alpha@fixture.example' })
     const b = await seedCandidate(em, run, { name: 'Beta Two', email: 'beta@fixture.example' })
     const { campaign } = await createCampaign(em, ctx, {
+      settings: await seedSenderSettings(em),
       workspaceId: WORKSPACE,
       playId: play.id,
       name: 'AI draft test',

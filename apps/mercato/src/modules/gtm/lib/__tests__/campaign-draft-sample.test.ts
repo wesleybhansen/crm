@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { FakeEm } from './support/fake-em'
+import { seedSenderSettings } from './support/execution-fixtures'
 import { ctx, OTHER_ORG, seedCandidate, seedPlay, seedRun, WORKSPACE } from './support/campaign-fixtures'
 import { createCampaign, GtmCampaignError } from '../campaign/build'
 import { approveCampaign, computeDraftState, updateCampaignTemplate } from '../campaign/approve'
@@ -28,6 +29,7 @@ async function setup(options: { candidates?: number; linkedin?: boolean } = {}) 
     candidates.push(await seedCandidate(em, run, { name: `Ada Lovelace ${i + 1}`, company: `Analytical Engines ${i + 1}` }))
   }
   const { campaign } = await createCampaign(em, ctx, {
+    settings: await seedSenderSettings(em),
     workspaceId: WORKSPACE,
     playId: play.id,
     name: 'Sample test',

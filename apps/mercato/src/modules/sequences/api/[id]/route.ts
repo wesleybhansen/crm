@@ -5,6 +5,8 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { EMAIL_NOT_CONNECTED_CODE, hasSendingSetup } from '../../../email/lib/routing-service'
+import { SEQUENCE_ACTIVATE_BLOCKED_MESSAGE } from '../../lib/email-step'
 
 const VALID_TRIGGER_TYPES = ['form_submit', 'tag_added', 'deal_stage_changed', 'manual', 'booking_created', 'invoice_paid'] as const
 const VALID_STEP_TYPES = ['email', 'sms', 'wait', 'condition'] as const
@@ -44,6 +46,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       )
 
     sequence.steps = steps
+    sequence.email_sending_ready = await hasSendingSetup(knex, auth.orgId, 'marketing')
     sequence.enrollment_stats = {
       total: Number(enrollmentStats.total),
       active: Number(enrollmentStats.active),
@@ -86,6 +89,22 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         // any status can go to archived
       } else if (!allowed.includes(status)) {
         return NextResponse.json({ ok: false, error: `Cannot transition from ${sequence.status} to ${status}` }, { status: 400 })
+      }
+    }
+
+    // Activation gate (2026-09-24): a sequence that sends email cannot go live
+    // without the org's own sending setup, or its enrollments would sit
+    // waiting and never send. Refuse and say exactly what to do.
+    if (status === 'active' && sequence.status !== 'active') {
+      const stepTypes: string[] = Array.isArray(steps)
+        ? steps.map((step: { stepType?: string }) => String(step?.stepType ?? ''))
+        : (await knex('sequence_steps').where('sequence_id', id).select('step_type'))
+            .map((row: { step_type: string }) => row.step_type)
+      if (stepTypes.includes('email') && !(await hasSendingSetup(knex, auth.orgId, 'marketing'))) {
+        return NextResponse.json(
+          { ok: false, code: EMAIL_NOT_CONNECTED_CODE, error: SEQUENCE_ACTIVATE_BLOCKED_MESSAGE },
+          { status: 422 },
+        )
       }
     }
 

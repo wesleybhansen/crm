@@ -3,7 +3,9 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { sendEmailByPurpose } from '../../../email/lib/email-router'
+import { hasSendingSetup } from '../../../email/lib/routing-service'
+import { runSequenceEmailStep } from '../../lib/email-step'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
@@ -197,42 +199,18 @@ export async function POST(req: Request) {
             .replace(/\{\{name\}\}/g, contact.display_name || '')
             .replace(/\{\{email\}\}/g, email)
 
-          const trackingId = require('crypto').randomUUID()
-
-          await knex('email_messages').insert({
-            id: require('crypto').randomUUID(),
-            tenant_id: execution.tenant_id,
-            organization_id: execution.organization_id,
-            direction: 'outbound',
-            from_address: 'pending@router',
-            to_address: email,
+          const outcome = await runSequenceEmailStep(knex, {
+            executionId: execution.execution_id,
+            organizationId: execution.organization_id,
+            tenantId: execution.tenant_id,
+            contactId: execution.contact_id,
+            to: email,
             subject,
-            body_html: bodyHtml,
-            contact_id: execution.contact_id,
-            status: 'queued',
-            tracking_id: trackingId,
-            created_at: now,
-          })
-
-          try {
-            const result = await sendEmailByPurpose(knex, execution.organization_id, execution.tenant_id, 'marketing', {
-              to: email,
-              subject,
-              htmlBody: bodyHtml,
-              contactId: execution.contact_id,
-            })
-            if (!result.ok) {
-              console.error(`[sequences.process] Failed to send email to ${email}:`, result.error)
-            }
-          } catch (sendErr) {
-            console.error(`[sequences.process] Failed to send email to ${email}:`, sendErr)
-          }
-
-          await knex('sequence_step_executions').where('id', execution.execution_id).update({
-            status: 'executed',
-            result: JSON.stringify({ sent_to: email, subject, tracking_id: trackingId }),
-            executed_at: now,
-          })
+            bodyHtml,
+          }, { hasSendingSetup, send: sendEmailByPurpose })
+          // No sending setup: the step stays scheduled with a visible waiting
+          // reason and the enrollment does not advance (lib/email-step.ts).
+          if (outcome === 'waiting') continue
         } else if (step.step_type === 'sms') {
           console.log(`[sequences.process] SMS step logged for contact ${execution.contact_id}: ${JSON.stringify(config)}`)
           await knex('sequence_step_executions').where('id', execution.execution_id).update({
