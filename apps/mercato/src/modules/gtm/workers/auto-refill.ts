@@ -159,6 +159,10 @@ export default async function handle(
     }, {
       adapters: sourceAdapterRegistry(),
       ledger: getLedger(),
+      leadCheck: async ({ run, play, noliUserId }) => {
+        const { runLeadCheck } = await import('../lib/research/judge-runner')
+        return runLeadCheck({ em, run, play, noliUserId })
+      },
     })
   } catch (error) {
     // Registry/ledger construction happens before a cycle claim and before a

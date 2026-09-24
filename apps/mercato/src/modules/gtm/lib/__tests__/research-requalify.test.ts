@@ -114,6 +114,18 @@ async function seed(em: FakeEm) {
 }
 
 describe('requalifyResearchRun', () => {
+  it('never resurrects a lead the AI lead check rejected', async () => {
+    const em = new FakeEm()
+    const { run, dental } = await seed(em)
+    dental.qualification = { judge: { verdict: 'reject', reason_code: 'ai_check_off_topic' } }
+    await em.flush()
+    await requalifyResearchRun({ em, run, actorUserId: USER })
+    const [stored] = await em.find(GtmCandidate, { id: dental.id })
+    expect(stored.fitStatus).toBe('rejected')
+    expect(stored.rejectReason).toBe('ai_check_off_topic')
+    expect((stored.qualification as Record<string, unknown>).judge).toMatchObject({ verdict: 'reject' })
+  })
+
   it('rescales stored Maps candidates without a provider call and preserves manual verdicts', async () => {
     const em = new FakeEm()
     const { run, dental, vet, manual } = await seed(em)

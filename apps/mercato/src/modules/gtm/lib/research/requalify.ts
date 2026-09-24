@@ -417,10 +417,16 @@ export async function requalifyResearchRun(input: {
         || candidate.entityKind === 'opportunity'
           ? candidate.entityKind
           : 'company'
-      const fit = scorer.score({
+      const ruleFit = scorer.score({
         entity_kind: entityKind,
         identity: identity as CandidateIdentity,
       }, play, usableEvidence)
+      // A post the AI lead check rejected stays rejected: re-scoring re-runs
+      // the rules, not the (metered) check, and must never resurrect it.
+      const priorJudge = (priorQualification?.judge ?? null) as Record<string, unknown> | null
+      const fit = priorJudge?.verdict === 'reject' && ruleFit.verdict !== 'rejected'
+        ? { ...ruleFit, verdict: 'rejected' as const, reason: String(priorJudge.reason_code ?? 'ai_check_rejected') }
+        : ruleFit
       candidate.identity = identity
       const qualification = {
         scorer_revision: FIT_SCORER_REVISION,
@@ -433,6 +439,7 @@ export async function requalifyResearchRun(input: {
         evidence_issues: storedEvidence.flatMap((row) =>
           Array.isArray(row.qualityIssues) ? row.qualityIssues : [],
         ),
+        ...(priorJudge ? { judge: priorJudge } : {}),
       }
       if (match) {
         match.fitStatus = fit.verdict

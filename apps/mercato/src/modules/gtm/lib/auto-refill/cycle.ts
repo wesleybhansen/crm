@@ -358,6 +358,8 @@ export async function processAutoRefillCycle(
     adapters: Record<string, SourceAdapter>
     ledger: GtmCreditLedger
     now?: () => Date
+    /** The AI lead check, billed to the represented user's allowance. Best-effort. */
+    leadCheck?: (input: { run: GtmResearchRun; play: { audience?: string | null; signal?: string | null; geography?: string | null }; noliUserId: string }) => Promise<unknown>
   },
 ): Promise<AutoRefillCycleOutcome> {
   const now = deps.now?.() ?? new Date()
@@ -601,6 +603,9 @@ export async function processAutoRefillCycle(
       noliUserId: input.representedNoliUserId,
       now: deps.now,
     })
+    if (deps.leadCheck) {
+      await deps.leadCheck({ run, play, noliUserId: input.representedNoliUserId }).catch(() => undefined)
+    }
     const finished = await finishCycle(em, policy.id, cycle.id, run, result, deps.now?.() ?? new Date())
     return {
       outcome: finished.status === 'completed'

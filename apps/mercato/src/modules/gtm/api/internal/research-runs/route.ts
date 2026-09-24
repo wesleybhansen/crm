@@ -743,6 +743,17 @@ export async function POST(req: Request) {
         noliUserId: body.noliUserId,
       })
 
+      // The AI lead check reads the post leads the rules kept and rejects the ones that are not a real
+      // person asking (billed to the customer's AI allowance; skipped, never failing, when unavailable).
+      const { runLeadCheck } = await import('../../../lib/research/judge-runner')
+      const leadCheck = await runLeadCheck({
+        em,
+        run,
+        play: { audience: play.audience ?? null, signal: play.signal ?? null, geography: play.geography ?? null },
+        noliUserId: body.noliUserId,
+        requestId: requestId || null,
+      })
+
       await em.transactional(async (tem) => {
         const audit = tem.create(GtmAuditEvent, {
           organizationId,
@@ -763,6 +774,9 @@ export async function POST(req: Request) {
             target_met: result.funnel.targetMet,
             stop_reason: result.funnel.stopReason,
             reconciliation_required: result.reconciliationRequired,
+            lead_check: leadCheck.status === 'checked'
+              ? { checked: leadCheck.checked, rejected: leadCheck.rejected }
+              : { skipped: leadCheck.reason },
           },
         })
         tem.persist(audit)
