@@ -1,5 +1,5 @@
 import type { Candidate, CandidateEvidence } from '../adapters/types'
-import { countyZipProof } from './county-zip'
+import { countyKey, countyZipProof } from './county-zip'
 import { isUsGeography } from '../eligibility'
 import { evidencePublishedAt } from './evidence-quality'
 import {
@@ -88,7 +88,7 @@ export const FIT_SCORER_VERSION = 'fit-v7' as const
 // first-person intent are actionable under public-reply norms, geography is
 // derived from the play when the provider query has no locations, recency ages
 // platform publication time, and zero evaluated criteria can no longer accept.
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v46' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v47' as const
 
 /*
  * Fixed participation note for public posts and threads whose venue rules
@@ -1253,6 +1253,20 @@ const METRO_ZIP3: Array<{ name: string; pattern: RegExp; zip3: string[] }> = [
   { name: 'the Tampa Bay area', pattern: /\b(tampa bay|greater tampa|tampa[^,]*\b(metro|area))\b/i, zip3: ['335', '336', '337', '346'] },
 ]
 
+function metroNamed(value: string): boolean {
+  return METRO_ZIP3.some((metro) => metro.pattern.test(value))
+}
+
+const COUNTRY_US = /^(united states( of america)?|usa?|u\.s\.a?\.?)$/i
+const US_STATE_ZIP = /\b(A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[AT]|W[AIVY])\s+\d{5}(?:-\d{4})?\b/
+
+/** A country-wide play ("United States") is proven by a US state and ZIP in the listing's address. */
+export function countryZipProof(expected: string[], observed: string[]): string | null {
+  if (!expected.some((value) => COUNTRY_US.test(value.trim()))) return null
+  const hit = observed.find((value) => US_STATE_ZIP.test(value))
+  return hit ? 'US street address with a state and ZIP' : null
+}
+
 export function metroZipProof(expected: string[], observed: string[]): string | null {
   const metros = METRO_ZIP3.filter((metro) => expected.some((value) => metro.pattern.test(value)))
   if (!metros.length) return null
@@ -1384,7 +1398,16 @@ function compileDefinitions(play: FitPlayInput, candidateKind: Candidate['entity
       fields: ['department', 'job_function'],
     })
   }
-  const locationExpectations = expandLocationExpectations(strings(query.locations))
+  // The play's own geography joins the provider locations when it draws a
+  // metro or a county ("Phoenix metro, Arizona" over a provider query of
+  // "Phoenix, Arizona"), so the listing-ZIP proof can see the boundary the
+  // customer actually asked for. Its words never match an address on their
+  // own ("metro" is in no address), so this cannot loosen a city play.
+  const playGeography = derivedPlayGeography(play)
+  const locationExpectations = expandLocationExpectations([
+    ...strings(query.locations),
+    ...(playGeography && strings(query.locations).length && (metroNamed(playGeography) || countyKey(playGeography)) ? [playGeography] : []),
+  ])
   if (locationExpectations.length) {
     definitions.push({
       id: 'geography.location',
@@ -1685,7 +1708,9 @@ function evaluateCriterion(
   // the metro (2026-09-24 audit: every Twin Cities suburb dentist sat in
   // review on location). Plays that name a single city stay strict.
   if (definition.id === 'geography.location' && !matches) {
-    const proof = metroZipProof(definition.expected, identityValues) ?? countyZipProof(definition.expected, identityValues)
+    const proof = metroZipProof(definition.expected, identityValues)
+      ?? countyZipProof(definition.expected, identityValues)
+      ?? countryZipProof(definition.expected, identityValues)
     if (proof) {
       return {
         id: definition.id,

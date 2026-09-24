@@ -108,3 +108,31 @@ describe('county plays from the listing ZIP (Census ZCTA-to-county file)', () =>
     expect(fit.verdict).toBe('accepted')
   })
 })
+
+describe('the play geography and country-wide plays', () => {
+  const phoenixListing = {
+    entity_kind: 'company' as const,
+    identity: {
+      name: 'Example Contractor', industry: 'General contractor', location: '227 S Smith Rd #103, Tempe, AZ 85288',
+      urls: ['https://www.google.com/maps/place/?q=place_id:TEST'], provider_location: 'Phoenix,Arizona,United States',
+    },
+  }
+  const base = { entityUnit: 'locations', audience: 'General contractors', referenceTime: new Date('2026-09-11T00:00:00Z') }
+
+  test('a "Phoenix metro" play accepts a Tempe listing even when the provider query names only Phoenix', () => {
+    const fit = ruleBasedFitScorer.score(phoenixListing, { ...base, geography: 'Phoenix metro, Arizona', providerQuery: { locations: ['Phoenix, Arizona'], company_keywords: ['general contractor'] } }, evidence)
+    expect(fit.criteria?.find((row) => row.id === 'geography.location')?.status).toBe('pass')
+  })
+
+  test('a plain "Phoenix, Arizona" play stays a city play', () => {
+    const fit = ruleBasedFitScorer.score(phoenixListing, { ...base, geography: 'Phoenix, Arizona', providerQuery: { locations: ['Phoenix, Arizona'], company_keywords: ['general contractor'] } }, evidence)
+    expect(fit.criteria?.find((row) => row.id === 'geography.location')?.status).not.toBe('pass')
+  })
+
+  test('a United States play is proven by any US state and ZIP', () => {
+    const { countryZipProof } = jest.requireActual('../research/qualify') as typeof import('../research/qualify')
+    expect(countryZipProof(['United States'], ['801 Sunshine Rd, Kansas City, KS 66115'])).toBe('US street address with a state and ZIP')
+    expect(countryZipProof(['United States'], ['10 Queen St W, Toronto, ON M5H 2M9'])).toBeNull()
+    expect(countryZipProof(['Kansas City, KS'], ['801 Sunshine Rd, Kansas City, KS 66115'])).toBeNull()
+  })
+})
