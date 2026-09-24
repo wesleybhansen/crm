@@ -23,8 +23,8 @@ export async function runLeadCheck(input: {
 }): Promise<LeadCheckOutcome> {
   if ((process.env.GTM_LEAD_CHECK_ENABLED ?? '').trim() === 'false') return { status: 'skipped', reason: 'disabled' }
   try {
-    const { checkCustomersAiAllowance } = await import('@/lib/usage/allowance')
-    const { meterCustomersAiStrict } = await import('@/lib/usage/meter')
+    const { checkCustomersAiAllowance } = await import('../../../../lib/usage/allowance')
+    const { meterCustomersAiStrict } = await import('../../../../lib/usage/meter')
     const gate = await checkCustomersAiAllowance({ orgId: input.run.organizationId }, 'google', { failureMode: 'closed' })
     if (!gate.allowed) return { status: 'skipped', reason: 'allowance' }
     const apiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
