@@ -27,6 +27,7 @@ describe('GTM internal route RBAC contract', () => {
       'manual-outreach',
       'overview',
       'plays',
+      'post-replies',
       'privacy',
       'reconciliation',
       'research-runs',

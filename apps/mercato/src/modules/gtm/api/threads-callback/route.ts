@@ -11,6 +11,7 @@ import {
   fetchThreadsProfile,
   sealThreadsToken,
   threadsAppConfig,
+  threadsRequestedScopes,
 } from '../../lib/adapters/threads/connection'
 import { threadsConnectionEnabled } from '../../lib/adapters/threads/keyword-search-opportunity-source'
 import {
@@ -86,7 +87,7 @@ export async function GET(req: Request) {
     const expiresAt = new Date(now.getTime() + longLived.expiresInSeconds * 1_000)
     // The granted scope set is not echoed by Meta on the token response. It is
     // recorded as requested; a later 403/10 from keyword search marks the row.
-    const scopes = ['threads_basic', 'threads_keyword_search']
+    const scopes = threadsRequestedScopes()
 
     const existing = await em.findOne(GtmSocialConnection, {
       organizationId: parsedState.organizationId,

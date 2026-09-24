@@ -197,6 +197,11 @@ const ROUTES: RouteCase[] = [
   },
   { name: 'overview', schema: 'gtmOverviewBodySchema' },
   {
+    name: 'post-replies',
+    schema: 'gtmPostRepliesBodySchema',
+    headers: { draft: { 'idempotency-key': 'reply-key-1' }, post: { 'idempotency-key': 'reply-key-2' } },
+  },
+  {
     name: 'plays',
     schema: 'gtmPlayDetailBodySchema',
     // The write op's refinement demands the flag the generator skips (optional).

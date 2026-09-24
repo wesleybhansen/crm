@@ -31,6 +31,26 @@ export const THREADS_LONG_LIVED_TOKEN_URL = 'https://graph.threads.net/access_to
 export const THREADS_REFRESH_TOKEN_URL = 'https://graph.threads.net/refresh_access_token'
 export const THREADS_GRAPH_URL = 'https://graph.threads.net/v1.0'
 export const THREADS_REQUIRED_SCOPES = ['threads_basic', 'threads_keyword_search'] as const
+// Posting a reply the owner approved needs both of these (Meta: "reply_to_id"
+// replies require threads_basic, threads_content_publish and
+// threads_manage_replies). They are requested only when replies are switched
+// on, because Meta rejects the whole authorize call if the app has not added
+// them yet, which would break the read-only connect that works today.
+export const THREADS_REPLY_SCOPES = ['threads_content_publish', 'threads_manage_replies'] as const
+export const THREADS_REPLIES_ENABLED_ENV = 'GTM_THREADS_REPLIES_ENABLED'
+
+export function threadsRepliesEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return (env[THREADS_REPLIES_ENABLED_ENV] ?? '').trim() === 'true'
+}
+
+/** The scopes Noli asks Meta for on connect, in the current configuration. */
+export function threadsRequestedScopes(env: Record<string, string | undefined> = process.env): string[] {
+  return threadsRepliesEnabled(env) ? [...THREADS_REQUIRED_SCOPES, ...THREADS_REPLY_SCOPES] : [...THREADS_REQUIRED_SCOPES]
+}
+
+export function connectionCanReply(scopes: readonly string[] | null | undefined): boolean {
+  return THREADS_REPLY_SCOPES.every((scope) => (scopes ?? []).includes(scope))
+}
 export const THREADS_QUERY_WINDOW_MS = 24 * 60 * 60 * 1_000
 // Meta allows 2,200 per rolling 24h. Noli reserves against a lower ceiling so
 // a customer's own manual use of the same account is never starved.
@@ -53,11 +73,11 @@ export function threadsAppConfig(env: ThreadsEnv = process.env): ThreadsAppConfi
   return { appId, appSecret }
 }
 
-export function threadsAuthorizeUrl(args: { appId: string; redirectUri: string; state: string }): string {
+export function threadsAuthorizeUrl(args: { appId: string; redirectUri: string; state: string; scopes?: readonly string[] }): string {
   const url = new URL(THREADS_AUTHORIZE_URL)
   url.searchParams.set('client_id', args.appId)
   url.searchParams.set('redirect_uri', args.redirectUri)
-  url.searchParams.set('scope', THREADS_REQUIRED_SCOPES.join(','))
+  url.searchParams.set('scope', (args.scopes ?? threadsRequestedScopes()).join(','))
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('state', args.state)
   return url.toString()

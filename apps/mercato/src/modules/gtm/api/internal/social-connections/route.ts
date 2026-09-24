@@ -8,9 +8,11 @@ import { gtmSocialConnectionsBodySchema } from '../../../data/validators'
 import { isUuid } from '../../../lib/play-shape'
 import {
   THREADS_PROVIDER,
-  THREADS_REQUIRED_SCOPES,
+  threadsRequestedScopes,
   threadsAppConfig,
   threadsAuthorizeUrl,
+  threadsRepliesEnabled,
+  connectionCanReply,
 } from '../../../lib/adapters/threads/connection'
 import {
   threadsConnectionEnabled,
@@ -100,6 +102,7 @@ export async function POST(req: Request) {
         ok: true,
         threads_available: threadsConnectionEnabled(),
         threads_search_approved: threadsKeywordSearchEnabled(),
+        threads_replies_available: threadsRepliesEnabled(),
         connections: rows.map((row) => ({
           id: row.id,
           provider: row.provider,
@@ -109,6 +112,7 @@ export async function POST(req: Request) {
           status_reason: row.statusReason ?? null,
           scopes: Array.isArray(row.scopes) ? row.scopes : [],
           keyword_search_granted: Array.isArray(row.scopes) && row.scopes.includes('threads_keyword_search'),
+          replies_granted: connectionCanReply(Array.isArray(row.scopes) ? row.scopes : []),
           token_expires_at: row.tokenExpiresAt ?? null,
           last_used_at: row.lastUsedAt ?? null,
           connected_at: row.createdAt,
@@ -143,7 +147,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         authorize_url: threadsAuthorizeUrl({ appId: app.appId, redirectUri: threadsCallbackUrl(), state }),
-        scopes: [...THREADS_REQUIRED_SCOPES],
+        scopes: threadsRequestedScopes(),
       })
     }
 

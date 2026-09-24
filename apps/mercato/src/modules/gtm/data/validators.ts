@@ -321,6 +321,26 @@ export const gtmManualOutreachBodySchema = z.discriminatedUnion('op', [
 
 export type GtmManualOutreachBody = z.infer<typeof gtmManualOutreachBodySchema>
 
+// Post replies: draft -> (edit) -> copy (any platform) or post (Threads only,
+// each post approved by the owner).
+export const gtmPostRepliesBodySchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('list'), noliUserId: idString, workspaceId: idString, playId: idString.optional() }),
+  z.object({
+    op: z.literal('draft'),
+    noliUserId: idString,
+    workspaceId: idString,
+    playId: idString,
+    candidateId: idString,
+    idempotency_key: idString,
+  }),
+  z.object({ op: z.literal('edit'), noliUserId: idString, replyId: idString, bodyText: z.string().max(2000), idempotency_key: idString.optional() }),
+  z.object({ op: z.literal('dismiss'), noliUserId: idString, replyId: idString, idempotency_key: idString.optional() }),
+  z.object({ op: z.literal('mark'), noliUserId: idString, replyId: idString, action: z.literal('copied'), idempotency_key: idString.optional() }),
+  z.object({ op: z.literal('post'), noliUserId: idString, replyId: idString, bodyText: z.string().max(2000).optional(), idempotency_key: idString }),
+])
+
+export type GtmPostRepliesBody = z.infer<typeof gtmPostRepliesBodySchema>
+
 // ---------------------------------------------------------------------------
 // Tranche 5: campaign drafting + immutable batch approval (SPEC-066
 // sections 4, 7, 8, 12)

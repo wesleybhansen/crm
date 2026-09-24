@@ -2312,3 +2312,92 @@ export class GtmSocialConnection {
   @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt?: Date | null
 }
+
+// A drafted public reply to a post lead (Reddit, Threads, Facebook, a forum).
+// The Chief of Staff drafts it from the post; the owner edits it. On every
+// platform the owner can copy it and reply themselves. On Threads, where Meta's
+// official API allows it, the owner can approve it and Noli posts it from their
+// own connected account (reply_to_id). One reply per lead per workspace.
+// Posting claims the row (draft -> posting) before Meta is called, so a double
+// click can never post twice; an outcome Noli cannot confirm is parked as
+// 'unknown' and never retried automatically.
+@Entity({ tableName: 'gtm_post_replies' })
+@Index({ name: 'gtm_post_replies_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'gtm_post_replies_posted_idx', properties: ['organizationId', 'tenantId', 'postedAt'] })
+@Unique({
+  name: 'gtm_post_replies_workspace_candidate_unique',
+  properties: ['organizationId', 'tenantId', 'workspaceId', 'candidateId'],
+})
+export class GtmPostReply {
+  [OptionalProps]?: 'id' | 'status' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => GtmWorkspace, { fieldName: 'workspace_id', mapToPk: true, deleteRule: 'cascade' })
+  workspaceId!: string
+
+  @ManyToOne(() => GtmPlay, { fieldName: 'play_id', mapToPk: true, deleteRule: 'cascade' })
+  playId!: string
+
+  @ManyToOne(() => GtmCandidate, { fieldName: 'candidate_id', mapToPk: true, deleteRule: 'cascade' })
+  candidateId!: string
+
+  // threads | reddit | facebook | x | other (display + which actions apply)
+  @Property({ type: 'text' })
+  platform!: string
+
+  // Meta's id of the Threads post being answered, from the official keyword
+  // search evidence. Only a row with this can be posted by Noli.
+  @Property({ name: 'provider_post_id', type: 'text', nullable: true })
+  providerPostId?: string | null
+
+  @Property({ name: 'post_url', type: 'text' })
+  postUrl!: string
+
+  @Property({ name: 'body_text', type: 'text' })
+  bodyText!: string
+
+  @Property({ type: 'text', nullable: true })
+  model?: string | null
+
+  // draft | copied | posting | posted | failed | unknown | dismissed
+  @Property({ type: 'text', default: 'draft' })
+  status: string = 'draft'
+
+  @Property({ name: 'connection_id', type: 'uuid', nullable: true })
+  connectionId?: string | null
+
+  @Property({ name: 'reply_media_id', type: 'text', nullable: true })
+  replyMediaId?: string | null
+
+  @Property({ name: 'reply_url', type: 'text', nullable: true })
+  replyUrl?: string | null
+
+  @Property({ name: 'failure_code', type: 'text', nullable: true })
+  failureCode?: string | null
+
+  @Property({ name: 'approved_by_user_id', type: 'uuid', nullable: true })
+  approvedByUserId?: string | null
+
+  @Property({ name: 'posted_at', type: 'timestamptz', nullable: true })
+  postedAt?: Date | null
+
+  @Property({ name: 'retention_expires_at', type: 'timestamptz' })
+  retentionExpiresAt!: Date
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null
+}
