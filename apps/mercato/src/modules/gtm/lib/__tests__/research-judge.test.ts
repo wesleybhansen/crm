@@ -88,4 +88,30 @@ describe('AI lead check', () => {
     const [row] = await em.find(GtmCandidateMatch, { researchRunId: fresh.run.id })
     expect(row.fitStatus).toBe('accepted')
   })
+  test('business listings get their own check: an association or university on an independent play is rejected', async () => {
+    const em = new FakeEm()
+    const play = await seedPlay(em)
+    const run = await seedRun(em, play)
+    const names = ['Uptown Dental', 'University of Minnesota School of Dentistry']
+    for (const [index, name] of names.entries()) {
+      const candidate = em.create(GtmCandidate, {
+        organizationId: ORG, tenantId: TENANT, researchRunId: run.id, workspaceId: run.workspaceId, entityKind: 'company',
+        identity: { name, industry: 'Dentist', location: '1406 W Lake St, Minneapolis, MN 55408', urls: ['https://www.google.com/maps/place/?q=place_id:X'] },
+        dedupeKey: `biz-${index}`, fitStatus: 'accepted',
+      })
+      em.persist(candidate)
+      em.persist(em.create(GtmCandidateMatch, {
+        organizationId: ORG, tenantId: TENANT, workspaceId: run.workspaceId, playId: play.id, researchRunId: run.id,
+        candidateId: candidate.id, fitStatus: 'accepted', fitScore: '90', qualification: {},
+      }))
+    }
+    await em.flush()
+    const model = reply([{ i: 1, keep: true, reason: 'kept' }, { i: 2, keep: false, reason: 'not_the_audience', note: 'university dental school' }])
+    const result = await judgeRunOpportunities({ em, run, play: { audience: 'Independent dental clinics in the Twin Cities' }, model })
+    expect(result).toMatchObject({ checked: 2, rejected: 1 })
+    expect(model.calls[0].system).toMatch(/business listings/)
+    expect(model.calls[0].prompt).toContain('category: Dentist')
+    const rejected = (await em.find(GtmCandidateMatch, { researchRunId: run.id })).filter((row) => row.fitStatus === 'rejected')
+    expect(rejected.map((row) => row.rejectReason)).toEqual(['ai_check_not_the_audience'])
+  })
 })

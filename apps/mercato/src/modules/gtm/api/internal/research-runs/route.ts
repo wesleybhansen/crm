@@ -743,8 +743,8 @@ export async function POST(req: Request) {
         noliUserId: body.noliUserId,
       })
 
-      // The AI lead check reads the post leads the rules kept and rejects the ones that are not a real
-      // person asking (billed to the customer's AI allowance; skipped, never failing, when unavailable).
+      // The AI lead check reads the post leads and business listings the rules kept and rejects the ones
+      // that do not fit (billed to the customer's AI allowance; skipped, never failing, when unavailable).
       const { runLeadCheck } = await import('../../../lib/research/judge-runner')
       const leadCheck = await runLeadCheck({
         em,
