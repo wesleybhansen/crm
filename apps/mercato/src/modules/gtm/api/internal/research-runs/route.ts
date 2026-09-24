@@ -464,12 +464,16 @@ export async function POST(req: Request) {
       }
 
       if (body.op === 'plan') {
-        // Priced plan only; no run row is created.
+        // Priced plan only; no run row is created. typical_credits is what runs
+        // like this were actually charged (history), shown beside the cap.
+        const { loadSpendHistory, typicalCredits } = await import('../../../lib/research/typical-spend')
+        const typical = typicalCredits(plan.adapterPlan, await loadSpendHistory(em as never))
         return NextResponse.json({
           ok: true,
           plan: {
             adapterPlan: plan.adapterPlan,
             estimated_credits: plan.estimatedCredits,
+            typical_credits: typical,
             planned_raw_capacity: plan.plannedRawCapacity,
             unsupportedDimensions: plan.unsupportedDimensions,
             limits: plan.limits,
