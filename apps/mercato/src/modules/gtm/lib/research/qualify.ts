@@ -88,7 +88,7 @@ export const FIT_SCORER_VERSION = 'fit-v7' as const
 // first-person intent are actionable under public-reply norms, geography is
 // derived from the play when the provider query has no locations, recency ages
 // platform publication time, and zero evaluated criteria can no longer accept.
-export const FIT_SCORER_REVISION = 'fit-v7-quality-v45' as const
+export const FIT_SCORER_REVISION = 'fit-v7-quality-v46' as const
 
 /*
  * Fixed participation note for public posts and threads whose venue rules
