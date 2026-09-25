@@ -14,6 +14,7 @@ import {
   ChevronDown, CheckSquare, Circle, Star, ToggleLeft as ToggleLeftIcon,
   Upload, SeparatorHorizontal, Copy, X, Loader2,
 } from 'lucide-react'
+import { defaultCrmMappingFor } from '../../../lib/field-defaults'
 
 // ── Template helper ──
 function getTemplateFields(templateId: string): { name: string; fields: any[]; settings: any } | null {
@@ -205,6 +206,8 @@ export default function FormBuilderPage() {
   const [publishing, setPublishing] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [showAddFieldMenu, setShowAddFieldMenu] = useState(false)
+  // Phone only: the form settings sit under the canvas as a collapsible section.
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false)
   const [formDescription, setFormDescription] = useState('')
   const [activeTab, setActiveTab] = useState<'builder' | 'responses' | 'published'>('builder')
   const [submissions, setSubmissions] = useState<any[]>([])
@@ -408,6 +411,8 @@ export default function FormBuilderPage() {
       required: false,
       width: 'full',
       options: defaults.options ? [...defaults.options] : undefined,
+      // An email field fills the contact's email unless another field already does.
+      crm_mapping: defaultCrmMappingFor(type, fields),
       order: fields.length,
     }
     const updated = [...fields, newField]
@@ -515,10 +520,10 @@ export default function FormBuilderPage() {
   const embedCode = publicUrl ? `<iframe src="${publicUrl}" width="100%" height="600" frameborder="0"></iframe>` : ''
 
   return (
-    <div className="flex flex-col h-screen bg-background">
+    <div className="flex flex-col min-h-screen md:h-screen md:min-h-0 bg-background">
       {/* ── Top Bar ── */}
-      <div className="flex items-center justify-between border-b px-4 h-14 shrink-0 bg-card">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 md:px-4 md:py-0 md:h-14 md:flex-nowrap shrink-0 bg-card">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3 min-w-0">
           <IconButton
             variant="ghost"
             size="sm"
@@ -536,13 +541,13 @@ export default function FormBuilderPage() {
               onChange={(e) => setFormName(e.target.value)}
               onBlur={handleNameSubmit}
               onKeyDown={(e) => { if (e.key === 'Enter') handleNameSubmit(); if (e.key === 'Escape') { setFormName(form.name); setEditingName(false) } }}
-              className="h-8 w-64 text-sm font-medium"
+              className="h-8 w-full max-w-64 text-sm font-medium"
               autoFocus
             />
           ) : (
             <button
               type="button"
-              className="text-sm font-medium hover:text-accent transition-colors px-1 py-0.5 rounded hover:bg-muted"
+              className="text-sm font-medium hover:text-accent transition-colors px-1 py-0.5 rounded hover:bg-muted truncate max-w-[12rem] md:max-w-xs text-left"
               onClick={() => { setEditingName(true); setTimeout(() => nameInputRef.current?.select(), 50) }}
             >
               {formName || 'Untitled Form'}
@@ -554,17 +559,17 @@ export default function FormBuilderPage() {
           </span>
 
           {/* Tab switcher */}
-          <div className="flex items-center ml-4 border rounded-lg overflow-hidden">
+          <div className="flex items-center md:ml-4 border rounded-lg overflow-hidden shrink-0">
             <button
               type="button"
-              className={`px-3 py-1 text-xs font-medium transition-colors ${activeTab === 'builder' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`px-3 py-2 md:py-1 text-xs font-medium whitespace-nowrap transition-colors ${activeTab === 'builder' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               onClick={() => setActiveTab('builder')}
             >
               Builder
             </button>
             <button
               type="button"
-              className={`px-3 py-1 text-xs font-medium transition-colors ${activeTab === 'responses' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`px-3 py-2 md:py-1 text-xs font-medium whitespace-nowrap transition-colors ${activeTab === 'responses' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               onClick={() => { setActiveTab('responses'); if (form) loadSubmissions(form.id) }}
             >
               Responses {form && form.submission_count > 0 ? `(${form.submission_count})` : ''}
@@ -572,7 +577,7 @@ export default function FormBuilderPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => setShowTheme(true)}>
             <Palette className="size-3.5 mr-1.5" /> Theme
           </Button>
@@ -595,7 +600,7 @@ export default function FormBuilderPage() {
 
       {/* ── Responses Tab ── */}
       {activeTab === 'responses' && (
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 md:overflow-y-auto p-4 md:p-6">
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -633,13 +638,13 @@ export default function FormBuilderPage() {
 
                   return (
                     <div key={sub.id} className="bg-card rounded-lg border p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 mb-3">
+                        <div className="flex flex-wrap items-center gap-x-2 min-w-0">
                           {sub.contact_name && (
                             <span className="text-sm font-medium">{sub.contact_name}</span>
                           )}
                           {sub.contact_email && (
-                            <span className="text-xs text-muted-foreground">{sub.contact_email}</span>
+                            <span className="text-xs text-muted-foreground break-all">{sub.contact_email}</span>
                           )}
                           {!sub.contact_name && !sub.contact_email && (
                             <span className="text-xs text-muted-foreground">Anonymous</span>
@@ -655,15 +660,15 @@ export default function FormBuilderPage() {
                           const display = Array.isArray(value) ? (value as string[]).join(', ') : String(value || '')
                           if (!display) return null
                           return (
-                            <div key={key} className="flex gap-3 text-sm">
-                              <span className="text-muted-foreground font-medium min-w-[120px] shrink-0">{label}</span>
-                              <span className="text-foreground break-words">{display}</span>
+                            <div key={key} className="flex flex-col sm:flex-row gap-0.5 sm:gap-3 text-sm">
+                              <span className="text-muted-foreground font-medium sm:min-w-[120px] shrink-0">{label}</span>
+                              <span className="text-foreground break-words min-w-0 [overflow-wrap:anywhere]">{display}</span>
                             </div>
                           )
                         })}
                       </div>
                       {sub.referrer && (
-                        <p className="text-[10px] text-muted-foreground/50 mt-2">Source: {sub.referrer}</p>
+                        <p className="text-[10px] text-muted-foreground/50 mt-2 break-all">Source: {sub.referrer}</p>
                       )}
                     </div>
                   )
@@ -675,9 +680,9 @@ export default function FormBuilderPage() {
       )}
 
       {/* ── Main Layout (Builder) ── */}
-      {activeTab === 'builder' && <div className="flex flex-1 overflow-hidden">
-        {/* ── Left Panel: Field Palette ── */}
-        <div className="w-56 border-r bg-card overflow-y-auto shrink-0 p-3">
+      {activeTab === 'builder' && <div className="flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
+        {/* ── Left Panel: Field Palette (desktop; on a phone the canvas "Add field" menu does this) ── */}
+        <div className="hidden md:block w-56 border-r bg-card overflow-y-auto shrink-0 p-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 px-1">Add Fields</p>
           {paletteGroups.map((group) => (
             <div key={group.label} className="mb-4">
@@ -700,7 +705,7 @@ export default function FormBuilderPage() {
         </div>
 
         {/* ── Center: Canvas ── */}
-        <div className="flex-1 overflow-y-auto p-6 bg-muted/30">
+        <div className="md:flex-1 md:overflow-y-auto p-3 md:p-6 bg-muted/30">
           <div className="max-w-xl mx-auto">
             {/* Form title & description (always visible) */}
             <div className="bg-card rounded-lg border p-5 mb-4">
@@ -732,7 +737,7 @@ export default function FormBuilderPage() {
                   <Plus className="size-5" />
                 </div>
                 <p className="text-sm text-muted-foreground mb-1">No fields yet</p>
-                <p className="text-xs text-muted-foreground/70">Click a field type on the left or use the button below to add fields.</p>
+                <p className="text-xs text-muted-foreground/70">Use the button below to add fields.</p>
               </div>
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -759,7 +764,7 @@ export default function FormBuilderPage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="text-muted-foreground"
+                className="text-muted-foreground h-10 md:h-8"
                 onClick={() => setShowAddFieldMenu(!showAddFieldMenu)}
               >
                 <Plus className="size-3.5 mr-1.5" /> Add field <ChevronDown className="size-3 ml-1.5" />
@@ -768,7 +773,7 @@ export default function FormBuilderPage() {
               {showAddFieldMenu && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowAddFieldMenu(false)} />
-                  <div className="absolute z-20 mt-1 left-1/2 -translate-x-1/2 w-56 bg-card rounded-lg border shadow-lg py-1 max-h-72 overflow-y-auto">
+                  <div className="absolute z-20 mt-1 left-1/2 -translate-x-1/2 w-56 max-w-[calc(100vw-2rem)] bg-card rounded-lg border shadow-lg py-1 max-h-72 overflow-y-auto text-left">
                     {paletteGroups.map((group) => (
                       <div key={group.label}>
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 px-3 pt-2 pb-1">{group.label}</p>
@@ -776,7 +781,7 @@ export default function FormBuilderPage() {
                           <button
                             key={item.type}
                             type="button"
-                            className="flex items-center gap-2.5 w-full px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left"
+                            className="flex items-center gap-2.5 w-full px-3 py-2.5 md:py-1.5 text-xs hover:bg-muted transition-colors text-left"
                             onClick={() => { addField(item.type); setShowAddFieldMenu(false) }}
                           >
                             <span className="text-muted-foreground">{item.icon}</span>
@@ -792,17 +797,40 @@ export default function FormBuilderPage() {
           </div>
         </div>
 
-        {/* ── Right Panel: Properties ── */}
-        <div className="w-72 border-l bg-card overflow-y-auto shrink-0">
+        {/* ── Right Panel: Properties ──
+            Desktop: a fixed column. Phone: a selected field opens as a bottom
+            sheet; the form settings are a collapsible section under the canvas. */}
+        {selectedField && (
+          <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setSelectedFieldId(null)} />
+        )}
+        <div className={selectedField
+          ? 'fixed inset-x-0 bottom-0 z-40 max-h-[80vh] overflow-y-auto rounded-t-xl border-t bg-card shadow-2xl md:static md:z-auto md:max-h-none md:rounded-none md:border-t-0 md:shadow-none md:w-72 md:border-l md:shrink-0'
+          : 'w-full border-t bg-card md:w-72 md:border-t-0 md:border-l md:overflow-y-auto md:shrink-0'}>
           {selectedField ? (
-            <FieldProperties
-              field={selectedField}
-              onChange={(patch) => updateField(selectedField.id, patch)}
-              onDelete={() => deleteField(selectedField.id)}
-            />
+            <>
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-card px-4 py-2 md:hidden">
+                <p className="text-sm font-medium">Edit field</p>
+                <Button type="button" variant="outline" size="sm" className="h-10" onClick={() => setSelectedFieldId(null)}>Done</Button>
+              </div>
+              <FieldProperties
+                field={selectedField}
+                onChange={(patch) => updateField(selectedField.id, patch)}
+                onDelete={() => deleteField(selectedField.id)}
+              />
+            </>
           ) : (
-            <div className="p-4 space-y-5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Form Settings</p>
+            <>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium md:hidden"
+              aria-expanded={mobileSettingsOpen}
+              onClick={() => setMobileSettingsOpen((open) => !open)}
+            >
+              Form settings
+              <ChevronDown className={`size-4 text-muted-foreground transition-transform ${mobileSettingsOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <div className={`p-4 space-y-5 ${mobileSettingsOpen ? 'block border-t md:border-t-0' : 'hidden'} md:block`}>
+              <p className="hidden md:block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Form Settings</p>
 
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Submit Button Text</label>
@@ -884,6 +912,7 @@ export default function FormBuilderPage() {
                 <p className="text-[10px] text-muted-foreground text-center">Click a field on the canvas to edit its properties</p>
               </div>
             </div>
+            </>
           )}
         </div>
       </div>}
@@ -1064,7 +1093,7 @@ function SortableField({
     >
       {/* Drag handle */}
       <div
-        className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing"
+        className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-100 md:opacity-0 md:group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none"
         {...attributes}
         {...listeners}
       >
@@ -1072,7 +1101,7 @@ function SortableField({
       </div>
 
       {/* Field preview */}
-      <div className="ml-5 mr-14">
+      <div className="ml-5 mr-20 md:mr-14 min-w-0">
         {field.type === 'section' ? (
           <h3 className="text-base font-semibold">{field.label}</h3>
         ) : field.type === 'page_break' ? (
@@ -1103,10 +1132,11 @@ function SortableField({
       </div>
 
       {/* Action buttons */}
-      <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute right-1 top-1 md:right-2 md:top-2 flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
         <IconButton
           variant="ghost"
           size="xs"
+          className="size-10 md:size-6"
           type="button"
           aria-label="Duplicate field"
           onClick={(e) => { e.stopPropagation(); onDuplicate(field.id) }}
@@ -1116,6 +1146,7 @@ function SortableField({
         <IconButton
           variant="ghost"
           size="xs"
+          className="size-10 md:size-6"
           type="button"
           aria-label="Delete field"
           onClick={(e) => { e.stopPropagation(); onDelete(field.id) }}

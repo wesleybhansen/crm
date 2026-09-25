@@ -129,7 +129,7 @@ const templates: Template[] = [
     fieldCount: 6,
     fields: [
       { type: 'short_text', label: 'Name', placeholder: 'Your name', required: false, width: 'half' },
-      { type: 'email', label: 'Email', placeholder: 'you@example.com', required: false, width: 'half' },
+      { type: 'email', label: 'Email', placeholder: 'you@example.com', required: false, width: 'half', crm_mapping: 'contact.email' },
       { type: 'rating', label: 'Overall Satisfaction', required: true, width: 'full' },
       { type: 'radio', label: 'Would you recommend us?', required: true, width: 'full', options: ['Definitely', 'Probably', 'Not sure', 'Probably not', 'Definitely not'] },
       { type: 'long_text', label: 'What did you like most?', placeholder: 'Tell us what went well...', required: false, width: 'full' },
@@ -287,25 +287,20 @@ export default function FormsListPage() {
     ? templates
     : templates.filter((t) => t.category === selectedCategory)
 
-  async function createFromTemplate(template: Template | null) {
+  // A blank form opens the builder as an unsaved draft (see the "Create a
+  // Form" button); only a chosen template is created up front.
+  async function createFromTemplate(template: Template) {
     if (creating) return
     setCreating(true)
     try {
       const uid = () => Math.random().toString(36).substring(2) + Date.now().toString(36)
-      const body = template
-        ? {
-            name: template.name,
-            fields: template.fields.map((f, i) => ({ ...f, id: uid(), order: i })),
-            settings: { submitLabel: 'Submit', successMessage: 'Thank you for your submission!', createContact: false, ...(template.settings || {}) },
-            theme: { primaryColor: '#2563eb', font: 'Inter', corners: 'rounded', background: '#ffffff' },
-            templateId: template.id,
-          }
-        : {
-            name: 'Untitled Form',
-            fields: [],
-            settings: { submitLabel: 'Submit', successMessage: 'Thank you for your submission!', createContact: false },
-            theme: { primaryColor: '#2563eb', font: 'Inter', corners: 'rounded', background: '#ffffff' },
-          }
+      const body = {
+        name: template.name,
+        fields: template.fields.map((f, i) => ({ ...f, id: uid(), order: i })),
+        settings: { submitLabel: 'Submit', successMessage: 'Thank you for your submission!', createContact: false, ...(template.settings || {}) },
+        theme: { primaryColor: '#2563eb', font: 'Inter', corners: 'rounded', background: '#ffffff' },
+        templateId: template.id,
+      }
 
       const res = await fetch('/api/forms', {
         method: 'POST',
@@ -431,21 +426,21 @@ export default function FormsListPage() {
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-xl font-semibold">Forms</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             disabled={creating}
-            onClick={() => createFromTemplate(null)}
-            className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
+            onClick={() => { window.location.href = '/backend/forms/builder' }}
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
           >
-            <Plus className="size-4" /> {creating ? 'Creating...' : 'Create a Form'}
+            <Plus className="size-4" /> Create a Form
           </button>
           {hasForms && (
-            <Button type="button" onClick={() => setShowTemplateModal(true)}>
+            <Button type="button" className="whitespace-nowrap" onClick={() => setShowTemplateModal(true)}>
               <Plus className="size-4 mr-2" /> From Template
             </Button>
           )}
@@ -559,61 +554,66 @@ export default function FormsListPage() {
             const publicUrl = `${window.location.origin}/api/forms/public/${form.slug}`
             const embedCode = `<iframe src="${publicUrl}" width="100%" height="600" frameborder="0" style="border:none;border-radius:8px"></iframe>`
             return (
-              <div key={form.id} className="px-5 py-5">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
-                    <ClipboardList className="size-5 text-accent" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <h3 className="text-sm font-medium truncate">{form.name}</h3>
-                      <Badge variant={statusVariants[form.status] || 'secondary'} className="shrink-0">
-                        {form.status}
-                      </Badge>
+              <div key={form.id} className="px-4 py-4 sm:px-5 sm:py-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                  <div className="flex items-center gap-3 min-w-0 flex-1 sm:gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                      <ClipboardList className="size-5 text-accent" />
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {form.submission_count} submission{form.submission_count !== 1 ? 's' : ''}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5 min-w-0">
+                        <h3 className="text-sm font-medium truncate min-w-0">{form.name}</h3>
+                        <Badge variant={statusVariants[form.status] || 'secondary'} className="shrink-0">
+                          {form.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {form.submission_count} submission{form.submission_count !== 1 ? 's' : ''}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button type="button" variant="ghost" size="sm" className="h-8 text-xs"
+                  <div className="flex flex-wrap items-center gap-1 sm:flex-nowrap sm:shrink-0">
+                    <Button type="button" variant="ghost" size="sm" className="h-10 sm:h-8 text-xs"
                       onClick={() => window.location.href = `/backend/forms/builder?id=${form.id}`}>
                       <Pencil className="size-3 mr-1" /> Edit
                     </Button>
                     {form.status === 'published' && (
                       <>
-                        <Button type="button" variant="ghost" size="sm" className="h-8 text-xs"
+                        <Button type="button" variant="ghost" size="sm" className="h-10 sm:h-8 text-xs"
                           onClick={() => window.open(publicUrl, '_blank')}>
                           <Eye className="size-3 mr-1" /> View
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-8 text-xs"
+                        <Button type="button" variant="ghost" size="sm" className="h-10 sm:h-8 text-xs"
                           onClick={() => copyText(publicUrl, `link-${form.id}`)}>
                           {copiedId === `link-${form.id}` ? <Check className="size-3 mr-1" /> : <Link2 className="size-3 mr-1" />}
                           {copiedId === `link-${form.id}` ? 'Copied!' : 'Link'}
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-8 text-xs"
+                        <Button type="button" variant="ghost" size="sm" className="h-10 sm:h-8 text-xs"
                           onClick={() => copyText(embedCode, `embed-${form.id}`)}>
                           {copiedId === `embed-${form.id}` ? <Check className="size-3 mr-1" /> : <Code className="size-3 mr-1" />}
                           {copiedId === `embed-${form.id}` ? 'Copied!' : 'Embed'}
                         </Button>
                       </>
                     )}
-                    <Button type="button" variant="ghost" size="sm" className="h-8 text-xs"
+                    <Button type="button" variant="ghost" size="sm" className="h-10 sm:h-8 text-xs"
                       onClick={() => window.location.href = `/backend/forms/builder?id=${form.id}&tab=responses`}>
                       <BarChart3 className="size-3 mr-1" /> Responses
                     </Button>
-                    <IconButton variant="ghost" size="xs" type="button" aria-label="More"
-                      onClick={() => setOpenMenuId(openMenuId === form.id ? null : form.id)}>
-                      <MoreHorizontal className="size-3.5" />
-                    </IconButton>
-                    {openMenuId === form.id && (
-                      <div className="absolute right-5 mt-24 w-36 rounded-md border bg-popover shadow-md z-10 py-1">
-                        <button type="button" className="flex items-center w-full px-3 py-1.5 text-xs hover:bg-muted gap-2"
-                          onClick={(e) => duplicateForm(form, e)}><Copy className="size-3" /> Duplicate</button>
-                        <button type="button" className="flex items-center w-full px-3 py-1.5 text-xs hover:bg-muted gap-2 text-destructive"
-                          onClick={(e) => deleteForm(form, e)}><Trash2 className="size-3" /> Delete</button>
-                      </div>
-                    )}
+                    <div className="relative">
+                      <IconButton variant="ghost" size="xs" type="button" aria-label={`More actions for ${form.name}`}
+                        className="size-10 sm:size-7"
+                        onClick={() => setOpenMenuId(openMenuId === form.id ? null : form.id)}>
+                        <MoreHorizontal className="size-3.5" />
+                      </IconButton>
+                      {openMenuId === form.id && (
+                        <div className="absolute right-0 top-full mt-1 w-36 rounded-md border bg-popover shadow-md z-10 py-1">
+                          <button type="button" className="flex items-center w-full px-3 py-2.5 sm:py-1.5 text-xs hover:bg-muted gap-2"
+                            onClick={(e) => duplicateForm(form, e)}><Copy className="size-3" /> Duplicate</button>
+                          <button type="button" className="flex items-center w-full px-3 py-2.5 sm:py-1.5 text-xs hover:bg-muted gap-2 text-destructive"
+                            onClick={(e) => deleteForm(form, e)}><Trash2 className="size-3" /> Delete</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
