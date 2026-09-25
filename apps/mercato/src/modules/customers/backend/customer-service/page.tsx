@@ -9,6 +9,7 @@ import { Headphones, Mail, Check, FileEdit, Send, Sparkles, BookOpen, MessageSqu
 import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
 import TwilioSmsGuide from '@/modules/customers/backend/components/TwilioSmsGuide'
 import CustomerServiceQueue from './CustomerServiceQueue'
+import { type CustomerServiceTab, customerServiceTabHref, parseCustomerServiceTab } from '../../lib/customerServiceTabs'
 
 type ReplyMode = 'draft' | 'auto' | 'hybrid'
 type FlagAction = 'pause' | 'auto_send'
@@ -58,7 +59,20 @@ type KnowledgeEntry = {
 export default function CustomerServiceSettingsPage() {
   // Queue is the default view; Settings holds the configuration UI; Accounts
   // holds the channel connections (support inbox, SMS number, website chat).
-  const [tab, setTab] = useState<'queue' | 'settings' | 'accounts'>('queue')
+  // The tab lives in the URL (?tab=) so links, the /queue shortcut and a
+  // reload all land on the same tab.
+  const [tab, setTabState] = useState<CustomerServiceTab>('queue')
+  useEffect(() => {
+    setTabState(parseCustomerServiceTab(window.location.search))
+    const onPop = () => setTabState(parseCustomerServiceTab(window.location.search))
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  const setTab = (next: CustomerServiceTab) => {
+    setTabState(next)
+    const { pathname, search, hash } = window.location
+    window.history.replaceState(window.history.state, '', customerServiceTabHref(pathname, search, hash, next))
+  }
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -716,7 +730,7 @@ export default function CustomerServiceSettingsPage() {
         Let Noli reply to incoming customer emails. Choose whether replies wait for your approval, send automatically, or send only when they are confident and safe.
       </p>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'queue' | 'settings' | 'accounts')}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as CustomerServiceTab)}>
         <TabsList className="mb-4">
           <TabsTrigger value="queue">Queue</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -727,7 +741,7 @@ export default function CustomerServiceSettingsPage() {
           {loading ? (
             <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">Loading...</div>
           ) : (
-            <CustomerServiceQueue needsSetup={needsSetup} onGoToSettings={() => setTab('settings')} />
+            <CustomerServiceQueue needsSetup={needsSetup} onGoToSetup={() => setTab('accounts')} />
           )}
         </TabsContent>
 
@@ -831,27 +845,29 @@ export default function CustomerServiceSettingsPage() {
                   const custom = isCustomScenario(s.key)
                   return (
                   <div key={s.key} className="px-4 py-3 space-y-2.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <label className="flex items-center gap-2.5 min-w-0 cursor-pointer">
+                    {/* Phone: name on its own line (never truncated), controls below. */}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                      <label className="flex items-center gap-2.5 min-w-0 min-h-10 sm:min-h-0 cursor-pointer">
                         <input type="checkbox" checked={s.enabled}
                           onChange={e => updateFlagScenario(s.key, { enabled: e.target.checked })}
                           className="size-4 rounded border-input accent-[#2563eb] shrink-0" />
-                        <span className="text-sm font-medium truncate">{s.label}</span>
+                        <span className="text-sm font-medium break-words min-w-0">{s.label}</span>
                         {custom && <Badge variant="secondary" className="shrink-0">Custom</Badge>}
                       </label>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-2 sm:shrink-0">
                         <select
                           value={s.action}
                           onChange={e => updateFlagScenario(s.key, { action: e.target.value as FlagAction })}
                           disabled={!s.enabled}
-                          className="shrink-0 rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                          aria-label={`What to do for ${s.label}`}
+                          className="flex-1 sm:flex-none min-w-0 min-h-10 sm:min-h-0 rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
                         >
                           <option value="pause">Pause for my review</option>
                           <option value="auto_send">Auto-send the reply</option>
                         </select>
                         {custom && (
                           <button type="button" onClick={() => removeCustomScenario(s.key)}
-                            className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Remove scenario">
+                            className="shrink-0 inline-flex items-center justify-center size-10 sm:size-auto sm:p-1 text-muted-foreground hover:text-[#b91c1c] transition" title="Remove scenario" aria-label={`Remove scenario ${s.label}`}>
                             <Trash2 className="size-4" />
                           </button>
                         )}
@@ -888,16 +904,17 @@ export default function CustomerServiceSettingsPage() {
                 <textarea value={newScenarioInstructions} onChange={e => setNewScenarioInstructions(e.target.value)}
                   placeholder="How should Noli respond in this scenario? (optional)"
                   className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-20" />
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <select
                     value={newScenarioAction}
                     onChange={e => setNewScenarioAction(e.target.value as FlagAction)}
-                    className="rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    aria-label="What to do for the new scenario"
+                    className="min-h-10 sm:min-h-0 rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                   >
                     <option value="pause">Pause for my review</option>
                     <option value="auto_send">Auto-send the reply</option>
                   </select>
-                  <Button type="button" size="sm" onClick={addCustomScenario} disabled={!newScenarioLabel.trim()}>
+                  <Button type="button" size="sm" onClick={addCustomScenario} disabled={!newScenarioLabel.trim()} className="min-h-10 sm:min-h-0">
                     <Plus className="size-3.5 mr-1" /> Add scenario
                   </Button>
                 </div>
@@ -990,7 +1007,7 @@ export default function CustomerServiceSettingsPage() {
                       )}
                     </div>
                     <button type="button" onClick={() => deleteKnowledge(entry.id)}
-                      className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Delete entry">
+                      className="shrink-0 inline-flex items-center justify-center size-10 sm:size-auto sm:p-1 text-muted-foreground hover:text-[#b91c1c] transition" title="Delete entry" aria-label={`Delete ${entry.title || 'entry'}`}>
                       <Trash2 className="size-4" />
                     </button>
                   </div>
@@ -1000,8 +1017,8 @@ export default function CustomerServiceSettingsPage() {
 
             {/* Add from Knowledge Base */}
             <div className="rounded-lg border mb-4">
-              <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
-                <div>
+              <div className="px-4 py-3 border-b flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div className="min-w-0">
                   <p className="text-sm font-medium flex items-center gap-2">
                     <BookOpen className="size-4 text-muted-foreground" /> Add from Knowledge Base
                   </p>
@@ -1010,7 +1027,7 @@ export default function CustomerServiceSettingsPage() {
                   </p>
                 </div>
                 {!kbPickerOpen && (
-                  <Button type="button" size="sm" variant="outline" onClick={openKbPicker} className="shrink-0">
+                  <Button type="button" size="sm" variant="outline" onClick={openKbPicker} className="shrink-0 self-start sm:self-auto min-h-10 sm:min-h-0">
                     <BookOpen className="size-3.5 mr-1" /> Browse Knowledge Base
                   </Button>
                 )}
@@ -1425,7 +1442,7 @@ export default function CustomerServiceSettingsPage() {
                           </Button>
                           <button type="button" onClick={() => deleteWidget(w.id)}
                             disabled={widgetBusy === w.id}
-                            className="shrink-0 text-muted-foreground hover:text-[#b91c1c] transition p-1" title="Delete widget">
+                            className="shrink-0 inline-flex items-center justify-center size-10 sm:size-auto sm:p-1 text-muted-foreground hover:text-[#b91c1c] transition" title="Delete widget" aria-label="Delete widget">
                             <Trash2 className="size-4" />
                           </button>
                         </div>

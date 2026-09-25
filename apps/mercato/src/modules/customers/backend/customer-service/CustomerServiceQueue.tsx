@@ -201,13 +201,15 @@ type QueueItem = {
 
 export type CustomerServiceQueueProps = {
   // When true, the queue shows a setup empty-state (no support inbox configured)
-  // with a button that jumps to Settings instead of the default "no drafts" state.
+  // with a button that jumps to Accounts (where the support inbox is connected)
+  // instead of the default "no drafts" state.
   needsSetup?: boolean
-  // Called when the user clicks the setup button in the empty-state.
-  onGoToSettings?: () => void
+  // Called when the user clicks the setup button in the empty-state. Without it
+  // the button opens the Accounts tab by URL.
+  onGoToSetup?: () => void
 }
 
-export default function CustomerServiceQueue({ needsSetup = false, onGoToSettings }: CustomerServiceQueueProps) {
+export default function CustomerServiceQueue({ needsSetup = false, onGoToSetup }: CustomerServiceQueueProps) {
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<QueueItem[]>([])
   // Edited reply bodies, keyed by item id.
@@ -290,7 +292,7 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
     )
   }
 
-  // No support inbox configured yet: guide the user to Settings.
+  // No support inbox configured yet: guide the user to Accounts.
   if (needsSetup && items.length === 0) {
     return (
       <div className="rounded-lg border px-4 py-12 text-center">
@@ -299,7 +301,8 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetting
         <p className="text-xs text-muted-foreground mb-4 max-w-sm mx-auto">
           Connect a support inbox so Noli can watch for incoming customer emails and draft replies for you.
         </p>
-        <Button type="button" size="sm" onClick={onGoToSettings}>
+        <Button type="button" size="sm" className="min-h-10 sm:min-h-0"
+          onClick={() => { if (onGoToSetup) onGoToSetup(); else window.location.href = '/backend/customer-service?tab=accounts' }}>
           <Settings className="size-3.5 mr-1" />
           Set up your customer service email
         </Button>
