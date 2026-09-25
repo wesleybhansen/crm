@@ -1,5 +1,6 @@
 import type { GeneratedSection, StyleDefinition, PageType } from './types'
 import { renderSection, escapeHtml as rEsc, getHeadline, getCtaText, downloadSvg, checkSvg } from './section-renderer'
+import { captureCopyFor, formCopyFor } from './capture-copy'
 
 export interface AssembleOptions {
   sections: GeneratedSection[]
@@ -13,12 +14,17 @@ export interface AssembleOptions {
   bookingPageSlug?: string | null
   productId?: string | null
   pageType?: string | null
+  /** Wizard sub-type (e.g. 'waitlist'); picks the lead-capture wording. */
+  subType?: string | null
   heroImageUrl?: string | null
   thankYouHeadline?: string | null
   thankYouMessage?: string | null
 }
 
-function esc(str: string): string {
+function esc(value: string | null | undefined): string {
+  // AI output can leave optional fields out; never let one missing field
+  // take down the whole render.
+  const str = value == null ? '' : String(value)
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
@@ -512,7 +518,7 @@ function checkoutScript(productId: string, slug: string): string {
     var fSid = data.funnel_sid || ''; var fStep = data.funnel_step || ''; var fSlug = data.funnel_slug || '';
     if (fSid && fSlug) {
       if (btn) btn.textContent = 'Adding to order...';
-      fetch('/api/funnels/public/' + fSlug + '/advance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sid: fSid, stepId: fStep, name: data.name || data.Name || '', email: data.email || data.Email || '' }) })
+      fetch('/api/landing_pages/funnels/public/' + fSlug + '/advance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sid: fSid, stepId: fStep, name: data.name || data.Name || '', email: data.email || data.Email || '' }) })
       .then(function(r) { return r.json(); })
       .then(function(r) { if (r.ok && r.redirectUrl) { window.location.href = r.redirectUrl; } else { alert(r.error || 'Something went wrong.'); submitting = false; if (btn) { btn.disabled = false; btn.textContent = 'Buy Now'; } } })
       .catch(function() { alert('Something went wrong.'); submitting = false; if (btn) { btn.disabled = false; btn.textContent = 'Buy Now'; } });
@@ -542,7 +548,7 @@ function _funnelAct(action){
   var loading = document.getElementById('funnel-loading');
   if (btns) btns.style.display = 'none';
   if (loading) loading.style.display = 'block';
-  fetch('/api/funnels/public/' + slug + '/upsell', {
+  fetch('/api/landing_pages/funnels/public/' + slug + '/upsell', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sid: sid, stepId: step, action: action })
   })
@@ -583,7 +589,7 @@ function funnelCheckoutScript(): string {
       if (btn) { btn.disabled = false; btn.textContent = 'Proceed to Payment'; }
       return;
     }
-    fetch('/api/funnels/public/' + slug + '/checkout', {
+    fetch('/api/landing_pages/funnels/public/' + slug + '/checkout', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sid: sid, stepId: step, name: data.name || '', email: data.email || '' })
     })
@@ -637,6 +643,10 @@ export interface SimplePageOptions {
   businessName?: string
   metaDescription?: string
   productId?: string | null
+  pageType?: string | null
+  subType?: string | null
+  thankYouHeadline?: string | null
+  thankYouMessage?: string | null
 }
 
 export function assembleSimplePage(options: SimplePageOptions): string {
@@ -645,6 +655,7 @@ export function assembleSimplePage(options: SimplePageOptions): string {
   const desc = metaDescription ? esc(metaDescription) : ''
   const brand = businessName ? esc(businessName) : ''
   const year = new Date().getFullYear()
+  const simpleCopy = formCopyFor(options.pageType, options.subType)
 
   const checkSvgLocal = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>'
 
@@ -746,8 +757,8 @@ export function assembleSimplePage(options: SimplePageOptions): string {
         </form>
         <p class="sp-trust"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>No spam. Unsubscribe anytime.</p>
         <div id="lp-success" class="sp-success">
-          <h3>Check your inbox!</h3>
-          <p>We'll be in touch soon.</p>
+          <h3>${esc(options.thankYouHeadline || simpleCopy.successHeadline)}</h3>
+          <p>${esc(options.thankYouMessage || simpleCopy.successMessage)}</p>
         </div>
       </div>
     </div>
@@ -786,7 +797,9 @@ function buildHero(heroSection: GeneratedSection | undefined, options: AssembleO
     'downsell': 'Limited Offer',
     'funnel-checkout': 'Secure Checkout',
   }
-  const eyebrowText = eyebrowMap[pageType] || ''
+  const captureCopy = captureCopyFor(options.subType)
+  const eyebrowText = pageType === 'capture-leads' ? captureCopy.eyebrow : (eyebrowMap[pageType] || '')
+  const eyebrowIcon = pageType === 'capture-leads' && !captureCopy.deliversDownload ? '' : `${downloadSvg} `
 
   // Build the right column content
   let rightCol = ''
@@ -804,7 +817,7 @@ function buildHero(heroSection: GeneratedSection | undefined, options: AssembleO
   <div class="lp-wide">
     <div class="lp-hero-grid lp-hero-2col">
       <div class="lp-hero-copy">
-        ${eyebrowText ? `<div class="lp-eyebrow reveal">${downloadSvg} ${eyebrowText}</div>` : ''}
+        ${eyebrowText ? `<div class="lp-eyebrow reveal">${eyebrowIcon}${esc(eyebrowText)}</div>` : ''}
         <h1 class="reveal reveal-d1">${h}</h1>
         ${sub ? `<p class="lp-hero-sub reveal reveal-d2">${sub}</p>` : ''}
         ${!heroFormHtml ? `<a href="#form" class="lp-btn reveal reveal-d3">${cta}</a>` : ''}
@@ -844,7 +857,7 @@ function buildHero(heroSection: GeneratedSection | undefined, options: AssembleO
   return `<section class="lp-hero">
   <div class="lp-wide" style="text-align:center">
     <div class="lp-hero-copy" style="max-width:1100px;margin:0 auto">
-      <div class="lp-eyebrow reveal" style="justify-content:center">${downloadSvg} ${eyebrowText || 'Free Resource'}</div>
+      ${eyebrowText ? `<div class="lp-eyebrow reveal" style="justify-content:center">${eyebrowIcon}${esc(eyebrowText)}</div>` : ''}
       <h1 class="reveal reveal-d1">${h}</h1>
       ${sub ? `<p class="lp-hero-sub reveal reveal-d2" style="max-width:750px;margin-left:auto;margin-right:auto">${sub}</p>` : ''}
       <a href="#form" class="lp-btn reveal reveal-d3">${cta}</a>
@@ -854,8 +867,12 @@ function buildHero(heroSection: GeneratedSection | undefined, options: AssembleO
 }
 
 // Inline form card for hero (no section wrapper, just the card)
-function heroFormCard(fields: AssembleOptions['formFields']): string {
+function heroFormCard(fields: AssembleOptions['formFields'], options: AssembleOptions, heroSection?: GeneratedSection): string {
   if (fields.length === 0) return ''
+  const copy = formCopyFor(options.pageType, options.subType)
+  // The AI's own hero button text is specific to the offer; fall back to the
+  // sub-type wording (never "Download Free Guide" on a waitlist).
+  const submitLabel = heroSection?.ctaText ? getCtaText(heroSection) : copy.submitLabel
   const inputs = fields.map(f => {
     const id = f.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '')
     const req = f.required ? ' required' : ''
@@ -868,17 +885,17 @@ function heroFormCard(fields: AssembleOptions['formFields']): string {
   }).join('\n        ')
 
   return `<div class="lp-form-wrap" id="form">
-      <h3 class="lp-form-title">Get your free copy</h3>
-      <p class="lp-form-sub">Enter your details and we'll send it straight to your inbox.</p>
+      <h3 class="lp-form-title">${esc(copy.formTitle)}</h3>
+      <p class="lp-form-sub">${esc(copy.formSub)}</p>
       <form id="lp-form">
         ${inputs}
-        <button type="submit" class="lp-fs">Download Free Guide</button>
+        <button type="submit" class="lp-fs">${esc(submitLabel)}</button>
       </form>
       <p class="lp-ft"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>No spam, ever. Unsubscribe anytime.</p>
       <div id="lp-success" class="lp-success">
         <div class="lp-success-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div>
-        <h3>Check your inbox!</h3>
-        <p>We'll be in touch soon.</p>
+        <h3>${esc(options.thankYouHeadline || copy.successHeadline)}</h3>
+        <p>${esc(options.thankYouMessage || copy.successMessage)}</p>
       </div>
     </div>`
 }
@@ -905,7 +922,7 @@ export function assemblePage(options: AssembleOptions): string {
 
   // Build hero separately (it needs form/image context)
   const heroSection = sections.find(s => s.type === 'hero')
-  const heroFormContent = formInHero ? heroFormCard(formFields) : ''
+  const heroFormContent = formInHero ? heroFormCard(formFields, options, heroSection) : ''
   const heroHtml = buildHero(heroSection, options, heroFormContent)
 
   // Render remaining sections (skip hero — we built it above). Sections whose

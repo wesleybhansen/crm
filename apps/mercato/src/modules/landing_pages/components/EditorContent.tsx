@@ -237,6 +237,11 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
           styleId: config.styleId,
           businessName: config.businessContext?.businessName || title,
           formFields: config.formFields || [],
+          pageType: config.pageType || undefined,
+          subType: config.subType || undefined,
+          heroImageUrl: config.heroImageUrl || undefined,
+          bookingPageSlug: config.bookingPageSlug || undefined,
+          productId: config.productId || undefined,
         }),
       })
       const data = await res.json()
@@ -255,18 +260,30 @@ export default function EditLandingPage({ pageId }: { pageId: string }) {
         body: JSON.stringify({ title, formFields, successMessage, redirectUrl }),
       })
       // Save sections
-      await fetch(`/api/landing_pages/pages/${pageId}/sections`, {
+      const res = await fetch(`/api/landing_pages/pages/${pageId}/sections`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ sections }),
       })
-    } catch {}
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        alert(data?.error || 'Could not save your changes. Please try again.')
+        setSaving(false)
+        return false
+      }
+    } catch {
+      alert('Could not save your changes. Please try again.')
+      setSaving(false)
+      return false
+    }
     setSaving(false)
+    return true
   }
 
   async function publishPage() {
     setPublishing(true)
     try {
-      await saveSections()
+      const saved = await saveSections()
+      if (!saved) { setPublishing(false); return }
       const res = await fetch(`/api/landing_pages/pages/${pageId}/publish`, {
         method: 'POST', credentials: 'include',
       })

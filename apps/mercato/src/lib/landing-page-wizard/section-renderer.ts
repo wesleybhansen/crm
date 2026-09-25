@@ -1,6 +1,9 @@
 import type { GeneratedSection, StyleTokens } from './types'
 
-function esc(str: string): string {
+function esc(value: string | null | undefined): string {
+  // AI output can leave optional fields out (a testimonial with no title, an
+  // item with no description); render them empty instead of throwing.
+  const str = value == null ? '' : String(value)
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 

@@ -6,6 +6,7 @@ import { query, queryOne } from '@/lib/db'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
+import { isWizardV2Config, renderWizardPageHtml, wizardFieldsToLandingFormFields, wizardSections } from '../../../../services/wizard-publish'
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -20,6 +21,88 @@ function convertWizardFieldsToFormFields(wizardFields: { label: string; type: st
     else if (f.type === 'tel' || f.label.toLowerCase().includes('phone')) crmMapping = 'primary_phone'
     return { id, label: f.label, type: f.type === 'tel' ? 'phone' : f.type, required: f.required, crmMapping }
   })
+}
+
+type PublishAuth = { tenantId?: string | null; orgId?: string | null }
+
+/**
+ * Keep the page's form records in step with the wizard's form fields.
+ *  - landing_page_forms: what the public submit endpoint reads. Required.
+ *  - forms: a copy listed under Forms. It is created as a DRAFT (never
+ *    silently published) and a failure here does not block the page.
+ * Returns the newly created Forms copy, so the UI can tell the user.
+ */
+async function syncWizardForms(opts: { page: any; config: Record<string, any>; pageId: string; auth: PublishAuth }) {
+  const { page, config, pageId, auth } = opts
+  const now = new Date()
+  let createdForm: { id: string; name: string; status: 'draft' } | null = null
+
+  const formFields = convertWizardFieldsToFormFields(config.formFields || [])
+  const formSettings: Record<string, unknown> = {
+    source: 'landing-page',
+    landingPageSlug: page.slug,
+    tags: ['landing-page:' + page.slug],
+    successMessage: 'Thank you! We\'ll be in touch.',
+    ...(config.pipelineStage ? { pipelineStage: config.pipelineStage } : {}),
+    ...(config.leadMagnet?.downloadUrl ? {
+      redirectUrl: config.leadMagnet.downloadUrl,
+      leadMagnet: config.leadMagnet,
+    } : {}),
+  }
+  const formName = page.title + ' Form'
+
+  try {
+    if (config.linkedFormId) {
+      // Update the existing copy; its draft/published status is the user's call.
+      await query(
+        'UPDATE forms SET name = $1, fields = $2, settings = $3, updated_at = $4 WHERE id = $5 AND organization_id = $6',
+        [formName, JSON.stringify(formFields), JSON.stringify(formSettings), now, config.linkedFormId, auth.orgId]
+      )
+    } else {
+      const formId = crypto.randomUUID()
+      const ownFormSlug = page.slug + '-form'
+      // Form slugs are public and unique across every organisation.
+      let formSlug = ownFormSlug
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const taken = await queryOne('SELECT id FROM forms WHERE slug = $1 LIMIT 1', [formSlug])
+        if (!taken) break
+        formSlug = `${ownFormSlug}-${crypto.randomBytes(3).toString('hex')}`
+      }
+      await query(
+        `INSERT INTO forms (id, tenant_id, organization_id, name, slug, fields, settings, status, is_active, created_at, updated_at, published_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', false, $8, $8, NULL)`,
+        [formId, auth.tenantId, auth.orgId, formName, formSlug, JSON.stringify(formFields), JSON.stringify(formSettings), now]
+      )
+      config.linkedFormId = formId
+      createdForm = { id: formId, name: formName, status: 'draft' }
+      await query('UPDATE landing_pages SET config = $1 WHERE id = $2', [JSON.stringify(config), pageId])
+    }
+  } catch (e) {
+    // The page's own form (below) is what takes submissions; the Forms copy is optional.
+    console.error('[pages.publish] Could not save the Forms copy of this page\'s form', { pageId }, e)
+    createdForm = null
+  }
+
+  // The form the public submit endpoint reads. tenant_id and organization_id
+  // are NOT NULL; leaving them out made every wizard publish fail.
+  const lpFormFields = wizardFieldsToLandingFormFields(config.formFields)
+  const successMessage = 'Thank you! We\'ll be in touch.'
+  const redirectUrl = config.leadMagnet?.downloadUrl || null
+  const existingLpForm = await queryOne('SELECT id FROM landing_page_forms WHERE landing_page_id = $1', [pageId])
+  if (existingLpForm) {
+    await query(
+      'UPDATE landing_page_forms SET fields = $1, success_message = $2, redirect_url = $3, updated_at = $4 WHERE id = $5',
+      [JSON.stringify(lpFormFields), successMessage, redirectUrl, now, existingLpForm.id]
+    )
+  } else {
+    await query(
+      `INSERT INTO landing_page_forms (id, tenant_id, organization_id, landing_page_id, name, fields, success_message, redirect_url, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'default', $5, $6, $7, $8, $8)`,
+      [crypto.randomUUID(), page.tenant_id || auth.tenantId, page.organization_id || auth.orgId, pageId, JSON.stringify(lpFormFields), successMessage, redirectUrl, now]
+    )
+  }
+
+  return createdForm
 }
 
 function renderSectionsToHtml(sections: any[], templateHtml: string, formAction: string, pageTitle: string): string {
@@ -86,127 +169,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let html: string | null = null
 
     // Wizard v2: section-based renderer with style tokens
-    if (config?.wizardVersion === 2 && config?.generatedSections && config?.styleId) {
+    let formNotice: { id: string; name: string; status: 'draft' } | null = null
+    if (isWizardV2Config(config) && wizardSections(config).length > 0) {
       try {
-        const { assemblePage, assembleSimplePage } = await import('@/lib/landing-page-wizard/page-assembler')
-        const { getStyleById } = await import('@/lib/landing-page-wizard/styles')
-        const style = getStyleById(config.styleId)
-        if (style) {
-          const isBookingPage = !!config.bookingPageSlug
-          const isUpsellOrDownsell = config.pageType === 'upsell' || config.pageType === 'downsell'
-
-          // Create/update forms record for pages that have forms (not booking, upsell, or downsell)
-          let v2FormAction = `${baseUrl}/api/landing_pages/public/${page.slug}/submit`
-
-          if (!isBookingPage && !isUpsellOrDownsell) {
-            const formFields = convertWizardFieldsToFormFields(config.formFields || [])
-            const formSettings: Record<string, unknown> = {
-              source: 'landing-page',
-              landingPageSlug: page.slug,
-              tags: ['landing-page:' + page.slug],
-              successMessage: 'Thank you! We\'ll be in touch.',
-              ...(config.pipelineStage ? { pipelineStage: config.pipelineStage } : {}),
-              ...(config.leadMagnet?.downloadUrl ? {
-                redirectUrl: config.leadMagnet.downloadUrl,
-                leadMagnet: config.leadMagnet,
-              } : {}),
-            }
-
-            if (config.linkedFormId) {
-              // Update existing form
-              await query(
-                'UPDATE forms SET name = $1, fields = $2, settings = $3, updated_at = $4 WHERE id = $5',
-                [page.title + ' Form', JSON.stringify(formFields), JSON.stringify(formSettings), new Date(), config.linkedFormId]
-              )
-            } else {
-              // Create new form
-              const formId = crypto.randomUUID()
-              const ownFormSlug = page.slug + '-form'
-              const existingForm = await queryOne('SELECT id FROM forms WHERE slug = $1 AND organization_id = $2', [ownFormSlug, auth.orgId])
-              // Form slugs are public and unique across every organisation.
-              let formSlug = ownFormSlug
-              if (!existingForm) {
-                for (let attempt = 0; attempt < 8; attempt++) {
-                  const taken = await queryOne('SELECT id FROM forms WHERE slug = $1 LIMIT 1', [formSlug])
-                  if (!taken) break
-                  formSlug = `${ownFormSlug}-${crypto.randomBytes(3).toString('hex')}`
-                }
-              }
-              const finalFormSlug = existingForm ? formSlug + '-' + Date.now() : formSlug
-
-              await query(
-                `INSERT INTO forms (id, tenant_id, organization_id, name, slug, fields, settings, status, is_active, created_at, updated_at, published_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'published', true, $8, $8, $8)`,
-                [formId, auth.tenantId, auth.orgId, page.title + ' Form', finalFormSlug, JSON.stringify(formFields), JSON.stringify(formSettings), new Date()]
-              )
-              config.linkedFormId = formId
-            }
-
-            // Update config with linkedFormId
-            await query('UPDATE landing_pages SET config = $1 WHERE id = $2', [JSON.stringify(config), id])
-
-            // Also create legacy landing_page_forms record for the submit endpoint
-            const existingLpForm = await queryOne('SELECT id FROM landing_page_forms WHERE landing_page_id = $1', [id])
-            const lpFormFields = (config.formFields || []).map((f: any) => {
-              const fieldId = f.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-              return { id: fieldId, name: fieldId, label: f.label, type: f.type, required: f.required }
-            })
-            const lpFormSettings = {
-              successMessage: 'Thank you! We\'ll be in touch.',
-              ...(config.leadMagnet?.downloadUrl ? { redirectUrl: config.leadMagnet.downloadUrl } : {}),
-            }
-            if (existingLpForm) {
-              await query(
-                'UPDATE landing_page_forms SET fields = $1, success_message = $2, redirect_url = $3, updated_at = $4 WHERE id = $5',
-                [JSON.stringify(lpFormFields), lpFormSettings.successMessage, lpFormSettings.redirectUrl || null, new Date(), existingLpForm.id]
-              )
-            } else {
-              await query(
-                `INSERT INTO landing_page_forms (id, landing_page_id, fields, success_message, redirect_url, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-                [crypto.randomUUID(), id, JSON.stringify(lpFormFields), lpFormSettings.successMessage, lpFormSettings.redirectUrl || null, new Date()]
-              )
-            }
-          }
-
-          if (config.simpleLayout) {
-            // Simple centered layout
-            const heroSection = config.generatedSections?.find((s: any) => s.type === 'hero')
-            html = assembleSimplePage({
-              style,
-              pageTitle: page.title,
-              headline: heroSection?.headline || page.title,
-              subtitle: heroSection?.subtitle || '',
-              bullets: heroSection?.bullets || [],
-              ctaText: heroSection?.ctaText || 'Get Started',
-              formFields: config.formFields || [],
-              formAction: v2FormAction,
-              slug: page.slug,
-              businessName: config.businessContext?.businessName,
-              metaDescription: config.metaDescription,
-              productId: config.productId || null,
-            })
-          } else {
-            html = assemblePage({
-              sections: config.generatedSections,
-              style,
-              pageTitle: page.title,
-              metaDescription: config.metaDescription,
-              formFields: config.formFields || [],
-              formAction: v2FormAction,
-              slug: page.slug,
-              businessName: config.businessContext?.businessName,
-              bookingPageSlug: config.bookingPageSlug || null,
-              productId: config.productId || null,
-              pageType: config.pageType || null,
-              heroImageUrl: config.heroImageUrl || null,
-              thankYouHeadline: config.thankYouHeadline || null,
-              thankYouMessage: config.thankYouMessage || null,
-            })
-          }
-        }
+        html = renderWizardPageHtml(config, { title: page.title, slug: page.slug }, formAction)
       } catch (e) {
-        console.error('[pages.publish] Wizard v2 rendering failed:', e)
+        console.error('[pages.publish] Wizard page rendering failed', {
+          pageId: id,
+          styleId: config.styleId ?? null,
+          pageType: config.pageType ?? null,
+          sectionTypes: wizardSections(config).map((s) => s.type),
+        }, e)
+        const reason = e instanceof Error ? e.message : String(e)
+        return NextResponse.json({ ok: false, error: `Could not build this page: ${reason}` }, { status: 422 })
+      }
+
+      const isBookingPage = !!config.bookingPageSlug
+      const isUpsellOrDownsell = config.pageType === 'upsell' || config.pageType === 'downsell'
+      if (!isBookingPage && !isUpsellOrDownsell) {
+        formNotice = await syncWizardForms({ page, config, pageId: id, auth })
       }
     }
 
@@ -265,7 +246,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       [html, 'published', new Date(), id]
     )
 
-    return NextResponse.json({ ok: true, data: { status: 'published' } })
+    return NextResponse.json({ ok: true, data: { status: 'published', ...(formNotice ? { createdForm: formNotice } : {}) } })
   } catch (error) {
     console.error('[pages.publish]', error)
     return NextResponse.json({ ok: false, error: 'Failed to publish' }, { status: 500 })

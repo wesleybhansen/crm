@@ -7,6 +7,7 @@ import { ArrowRight, Sparkles, ChevronDown, ChevronUp, Loader2, Link2 } from 'lu
 import { SUB_TYPES } from '../constants'
 import type { WizardActions } from '../hooks/useWizardState'
 import type { LeadMagnetConfig } from '../types'
+import { needsDownloadUrl } from '../capture-copy'
 
 interface Props {
   wizard: WizardActions
@@ -17,6 +18,9 @@ export function Step5CrmSettings({ wizard }: Props) {
   const { pageType, subType } = state
 
   const isLeadCapture = pageType === 'capture-leads'
+  // Only a guide or checklist hands over a file. A waitlist, newsletter or
+  // free trial has nothing to download, so it never asks for a URL.
+  const deliversDownload = needsDownloadUrl(pageType, subType)
   const isBookingPage = pageType === 'book-a-call'
   const subTypeLabel = SUB_TYPES[pageType || 'general']?.find((s) => s.id === subType)?.label || 'resource'
 
@@ -98,22 +102,24 @@ export function Step5CrmSettings({ wizard }: Props) {
   const downloadUrl = state.leadMagnet?.downloadUrl?.trim() || ''
   const hasValidUrl = /^https?:\/\/.+/i.test(downloadUrl) || (downloadUrl.includes('.') && downloadUrl.length > 4)
   const hasEmailFields = !!(state.leadMagnet?.emailSubject?.trim()) && !!(state.leadMagnet?.emailBody?.trim())
-  const canProceed = isBookingPage || !isLeadCapture || (hasValidUrl && hasEmailFields)
+  const canProceed = isBookingPage || !deliversDownload || (hasValidUrl && hasEmailFields)
 
   return (
     <div className="max-w-[520px] mx-auto px-6 py-12">
       <h1 className="text-xl font-semibold mb-1 text-center">
-        {isLeadCapture ? 'Delivery & Pipeline' : 'Pipeline Settings'}
+        {deliversDownload ? 'Delivery & Pipeline' : 'Pipeline Settings'}
       </h1>
       <p className="text-sm text-muted-foreground text-center mb-8">
-        {isLeadCapture
+        {deliversDownload
           ? 'Set up how your lead magnet gets delivered and where leads land in your pipeline.'
-          : 'Choose where new leads from this page land in your pipeline.'}
+          : isLeadCapture
+            ? 'Choose where new sign-ups from this page land in your pipeline.'
+            : 'Choose where new leads from this page land in your pipeline.'}
       </p>
 
       <div className="flex flex-col gap-6">
         {/* Lead Magnet Delivery (capture-leads only) */}
-        {isLeadCapture && (
+        {deliversDownload && (
           <div className="space-y-4">
             <h2 className="text-sm font-semibold">Lead Magnet Delivery</h2>
             <p className="text-xs text-muted-foreground -mt-2">
@@ -212,7 +218,7 @@ export function Step5CrmSettings({ wizard }: Props) {
         )}
 
         {/* Divider (only if both sections shown) */}
-        {isLeadCapture && !isBookingPage && (
+        {deliversDownload && !isBookingPage && (
           <div className="border-t border-border" />
         )}
 

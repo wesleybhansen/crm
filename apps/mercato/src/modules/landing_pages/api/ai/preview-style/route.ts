@@ -12,6 +12,7 @@ interface PreviewRequest {
   businessName?: string
   formFields?: { label: string; type: string; required: boolean }[]
   pageType?: string
+  subType?: string
   heroImageUrl?: string
   bookingPageSlug?: string
   productId?: string
@@ -55,6 +56,8 @@ export async function POST(req: Request) {
         formAction: '#',
         slug: 'preview',
         businessName,
+        pageType: body.pageType || null,
+        subType: body.subType || null,
       })
     } else {
       if (!sections) {
@@ -69,6 +72,7 @@ export async function POST(req: Request) {
         slug: 'preview',
         businessName,
         pageType: body.pageType || null,
+        subType: body.subType || null,
         heroImageUrl: body.heroImageUrl || null,
         bookingPageSlug: body.bookingPageSlug || null,
         productId: body.productId || null,

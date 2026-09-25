@@ -3,6 +3,12 @@ export const openApi = { summary: 'sections', methods: {} }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/lib/db'
+import {
+  editorSectionsToGeneratedSections,
+  generatedSectionsToEditorSections,
+  isWizardV2Config,
+  wizardSections,
+} from '../../../../services/wizard-publish'
 
 // Robust HTML section parser — splits the page body into top-level blocks
 function parseSections(html: string): Array<{ id: string; type: string; fields: Record<string, any>; html: string }> {
@@ -136,6 +142,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
     const config = typeof page.config === 'string' ? JSON.parse(page.config) : (page.config || {})
 
+    // AI wizard pages: the generated sections ARE the page. Hand them to the
+    // editor in its { id, type, fields } shape (there is no template HTML to parse).
+    if (isWizardV2Config(config) && wizardSections(config).length > 0) {
+      return NextResponse.json({ ok: true, data: { sections: generatedSectionsToEditorSections(wizardSections(config)), wizardData: config.wizardData || config } })
+    }
+
     // If sections already saved in config, return them
     if (config.sections && config.sections.length > 0) {
       return NextResponse.json({ ok: true, data: { sections: config.sections, wizardData: config.wizardData || config } })
@@ -167,7 +179,17 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     const body = await req.json()
     const config = typeof page.config === 'string' ? JSON.parse(page.config) : (page.config || {})
-    config.sections = body.sections || []
+    if (isWizardV2Config(config) && wizardSections(config).length > 0) {
+      // Wizard pages render from generatedSections; save the edits there so
+      // Publish uses them.
+      const nextSections = editorSectionsToGeneratedSections(body.sections)
+      if (nextSections.length === 0) {
+        return NextResponse.json({ ok: false, error: 'A page needs at least one section.' }, { status: 400 })
+      }
+      config.generatedSections = nextSections
+    } else {
+      config.sections = body.sections || []
+    }
 
     await query('UPDATE landing_pages SET config = $1, updated_at = $2 WHERE id = $3', [JSON.stringify(config), new Date(), id])
 

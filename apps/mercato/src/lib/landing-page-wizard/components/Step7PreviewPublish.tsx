@@ -5,6 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Globe, Monitor, Tablet, Smartphone, Loader2, Check, Sparkles, PanelRightClose, PanelRight, Download } from 'lucide-react'
 import type { WizardActions } from '../hooks/useWizardState'
+import { needsDownloadUrl } from '../capture-copy'
 
 interface Props {
   wizard: WizardActions
@@ -25,6 +26,8 @@ export function Step7PreviewPublish({ wizard }: Props) {
   const [publishing, setPublishing] = useState(false)
   const [published, setPublished] = useState(false)
   const [publishedUrl, setPublishedUrl] = useState('')
+  const [savedDraft, setSavedDraft] = useState<{ id: string; slug: string } | null>(null)
+  const [createdForm, setCreatedForm] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refineInput, setRefineInput] = useState('')
   const [refining, setRefining] = useState(false)
@@ -62,6 +65,7 @@ export function Step7PreviewPublish({ wizard }: Props) {
           businessName: state.businessContext.businessName,
           formFields: state.formFields,
           pageType: state.pageType,
+          subType: state.subType,
           heroImageUrl: state.heroImageUrl,
           bookingPageSlug: state.bookingPageSlug,
           productId: state.productId,
@@ -76,7 +80,7 @@ export function Step7PreviewPublish({ wizard }: Props) {
         setError(data.error || 'Failed to load preview')
       }
     } catch {
-      setError('Failed to load preview — please try again')
+      setError('Failed to load preview. Please try again.')
     }
   }
 
@@ -102,7 +106,7 @@ export function Step7PreviewPublish({ wizard }: Props) {
         setError(data.error || 'Refinement failed')
       }
     } catch {
-      setError('AI refinement failed — please try again')
+      setError('AI refinement failed. Please try again.')
     }
     setRefining(false)
   }
@@ -113,48 +117,66 @@ export function Step7PreviewPublish({ wizard }: Props) {
     setError(null)
 
     try {
-      const createRes = await fetch('/api/landing_pages/pages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          title: state.businessContext.businessName + ' - ' + (state.businessContext.offerAnswers.offerName || 'Landing Page'),
-          slug: state.slug,
-          config: {
-            wizardVersion: 2,
-            pageType: state.pageType,
-            subType: state.subType,
-            framework: state.framework,
-            businessContext: state.businessContext,
-            generatedSections: state.generatedSections,
-            styleId: state.styleId,
-            styleVariant: state.styleVariant,
-            formFields: state.formFields,
-            metaTitle: state.metaTitle,
-            metaDescription: state.metaDescription,
-            thankYouHeadline: state.thankYouHeadline,
-            thankYouMessage: state.thankYouMessage,
-            pipelineStage: state.pipelineStage,
-            bookingPageSlug: state.bookingPageSlug,
-            leadMagnet: state.leadMagnet,
-            productId: state.productId,
-            heroImageUrl: state.heroImageUrl,
-            simpleLayout: state.simpleLayout,
-          },
-        }),
-      })
-      const createData = await createRes.json()
-      if (!createData.ok) {
-        setError(createData.error || 'Failed to create page')
-        setPublishing(false)
-        return
+      const title = state.businessContext.businessName + ' - ' + (state.businessContext.offerAnswers.offerName || 'Landing Page')
+      const config = {
+        wizardVersion: 2,
+        pageType: state.pageType,
+        subType: state.subType,
+        framework: state.framework,
+        businessContext: state.businessContext,
+        generatedSections: state.generatedSections,
+        styleId: state.styleId,
+        styleVariant: state.styleVariant,
+        formFields: state.formFields,
+        metaTitle: state.metaTitle,
+        metaDescription: state.metaDescription,
+        thankYouHeadline: state.thankYouHeadline,
+        thankYouMessage: state.thankYouMessage,
+        pipelineStage: state.pipelineStage,
+        bookingPageSlug: state.bookingPageSlug,
+        // Only guides and checklists deliver a file; never redirect a waitlist to a download.
+        leadMagnet: needsDownloadUrl(state.pageType, state.subType) ? state.leadMagnet : null,
+        productId: state.productId,
+        heroImageUrl: state.heroImageUrl,
+        simpleLayout: state.simpleLayout,
       }
 
-      const pageId = createData.data?.id
-      if (!pageId) {
-        setError('Failed to create page — no ID returned')
-        setPublishing(false)
-        return
+      // A retry after a failed publish reuses the draft it already created
+      // (a second create would clash on the same page URL).
+      let pageId = savedDraft && savedDraft.slug === state.slug ? savedDraft.id : null
+      if (pageId) {
+        const updateRes = await fetch(`/api/landing_pages/pages/${pageId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ title, config }),
+        })
+        const updateData = await updateRes.json().catch(() => null)
+        if (!updateData?.ok) {
+          setError(updateData?.error || 'Failed to save page')
+          setPublishing(false)
+          return
+        }
+      } else {
+        const createRes = await fetch('/api/landing_pages/pages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ title, slug: state.slug, config }),
+        })
+        const createData = await createRes.json()
+        if (!createData.ok) {
+          setError(createData.error || 'Failed to create page')
+          setPublishing(false)
+          return
+        }
+        pageId = createData.data?.id
+        if (!pageId) {
+          setError('Failed to create page. No ID was returned.')
+          setPublishing(false)
+          return
+        }
+        setSavedDraft({ id: pageId, slug: state.slug })
       }
 
       const publishRes = await fetch(`/api/landing_pages/pages/${pageId}/publish`, {
@@ -168,11 +190,12 @@ export function Step7PreviewPublish({ wizard }: Props) {
         return
       }
 
+      setCreatedForm(publishData.data?.createdForm?.name || null)
       setPublished(true)
       setPublishedUrl(`/api/landing_pages/public/${state.slug}`)
       sessionStorage.removeItem('lp-wizard-state')
     } catch {
-      setError('Network error — please try again')
+      setError('Network error. Please try again.')
     }
     setPublishing(false)
   }
@@ -200,6 +223,12 @@ export function Step7PreviewPublish({ wizard }: Props) {
         </div>
         <h1 className="text-xl font-semibold mb-2">Page Published!</h1>
         <p className="text-sm text-muted-foreground mb-6">Your landing page is now live.</p>
+        {createdForm && (
+          <p className="text-sm text-muted-foreground mb-6 rounded-md border bg-muted/30 px-3 py-2 text-left">
+            We also saved a copy of this page&apos;s sign-up form under Forms as a draft (&ldquo;{createdForm}&rdquo;).
+            It stays private unless you publish it. Sign-ups from this page go to your contacts either way.
+          </p>
+        )}
         <div className="flex gap-3 justify-center">
           <Button onClick={() => window.open(publishedUrl, '_blank')} className="gap-1.5">
             <Globe className="size-4" />

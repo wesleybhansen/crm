@@ -42,6 +42,7 @@ export function Step6ChooseStyle({ wizard }: Props) {
           businessName: state.businessContext.businessName,
           formFields: state.formFields,
           pageType: state.pageType,
+          subType: state.subType,
           heroImageUrl: state.heroImageUrl,
           bookingPageSlug: state.bookingPageSlug,
           productId: state.productId,
