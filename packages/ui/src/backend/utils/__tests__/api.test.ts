@@ -133,6 +133,17 @@ describe('apiFetch', () => {
     expect(flash).not.toHaveBeenCalled()
   })
 
+  it('never replays a write after a 401 (the handler may have run)', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(createMockResponse(401, { error: 'Unauthorized' }))
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = fetchMock
+
+    const pending = apiFetch('/api/customers/people', { method: 'POST', body: '{}' })
+    const assertion = expect(pending).rejects.toBeInstanceOf(UnauthorizedError)
+    await jest.advanceTimersByTimeAsync(1500)
+    await assertion
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('sends a real sign-out through the session refresh route', async () => {
     const fetchMock = jest.fn().mockResolvedValue(createMockResponse(401, { error: 'Unauthorized' }))
     ;(window as unknown as Record<string, unknown>).__omOriginalFetch = fetchMock

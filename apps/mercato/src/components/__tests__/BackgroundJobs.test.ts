@@ -33,3 +33,15 @@ describe('claimReminderCheck', () => {
     expect(claimReminderCheck(1, throwing)).toBe(true)
   })
 })
+
+describe('claimReminderCheck after a clock step-back (2026-09-25 review, LOW)', () => {
+  it('treats a stamp from the future as stale', () => {
+    const store = new Map<string, string>()
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v) } }
+    const now = 1_700_000_000_000
+    expect(claimReminderCheck(now, storage)).toBe(true)
+    // The clock steps back an hour: the next check must still run.
+    expect(claimReminderCheck(now - 3_600_000, storage)).toBe(true)
+    expect(claimReminderCheck(now - 3_600_000 + 5_000, storage)).toBe(false)
+  })
+})

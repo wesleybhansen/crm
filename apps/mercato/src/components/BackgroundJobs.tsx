@@ -28,7 +28,10 @@ export function claimReminderCheck(now: number, storage: StorageLike | null = sa
   if (!storage) return true
   try {
     const last = Number(storage.getItem(LAST_REMINDER_CHECK_KEY) ?? 0)
-    if (Number.isFinite(last) && last > 0 && now - last < REMINDER_CHECK_INTERVAL_MS - 1_000) return false
+    // A stamp from the future (the clock stepped back) is stale, not a claim:
+    // it used to stall every tab's reminder check until the clock caught up.
+    const fresh = Number.isFinite(last) && last > 0 && last <= now + 1_000
+    if (fresh && now - last < REMINDER_CHECK_INTERVAL_MS - 1_000) return false
     storage.setItem(LAST_REMINDER_CHECK_KEY, String(now))
   } catch {
     // Storage blocked: fall through and run the check.

@@ -126,7 +126,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     } else if (currentStep.step_type === 'upsell' || currentStep.step_type === 'downsell') {
       // Render upsell/downsell page inline
       const product = currentStep.product_id
-        ? await knex('products').where('id', currentStep.product_id).first()
+        ? await knex('products').where('id', currentStep.product_id).where('organization_id', funnel.organization_id).first()
         : null
       const productName = product?.name || config.headline || 'Special Offer'
       const productPrice = product?.price || config.price || 0

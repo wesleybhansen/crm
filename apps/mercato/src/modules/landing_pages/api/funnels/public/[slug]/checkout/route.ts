@@ -10,6 +10,14 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+/** A product of the funnel's own organization and tenant, or null. */
+async function funnelProduct(knex: any, funnel: { organization_id: string; tenant_id?: string | null }, productId: unknown) {
+  if (typeof productId !== 'string' || !productId) return null
+  const query = knex('products').where('id', productId).where('organization_id', funnel.organization_id)
+  if (funnel.tenant_id) query.where('tenant_id', funnel.tenant_id)
+  return (await query.first()) ?? null
+}
+
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
@@ -29,14 +37,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const funnel = await knex('funnels').where('slug', slug).where('is_published', true).first()
     if (!funnel) return new Response('Funnel not found', { status: 404 })
 
-    const session = sid ? await knex('funnel_sessions').where('id', sid).first() : null
+    // Session, step and products are bound to THIS funnel and its owner: a
+    // step id or sid from another funnel (they leak through redirect query
+    // strings) must never render or price that funnel's checkout (2026-09-25
+    // review, M7).
+    const session = sid ? await knex('funnel_sessions').where('id', sid).where('funnel_id', funnel.id).first() : null
     const step = stepId
-      ? await knex('funnel_steps').where('id', stepId).first()
+      ? await knex('funnel_steps').where('id', stepId).where('funnel_id', funnel.id).first()
       : await knex('funnel_steps').where('funnel_id', funnel.id).where('step_type', 'checkout').orderBy('step_order').first()
     if (!step) return new Response('Checkout step not found', { status: 404 })
 
     const config = typeof step.config === 'string' ? JSON.parse(step.config) : (step.config || {})
-    const product = step.product_id ? await knex('products').where('id', step.product_id).first() : null
+    const product = step.product_id ? await funnelProduct(knex, funnel, step.product_id) : null
     const productName = product?.name || config.productName || 'Product'
     const productPrice = product?.price || config.price || 0
     const productDesc = product?.description || config.description || ''
@@ -45,7 +57,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const bumps = config.order_bumps || []
     let bumpHtml = ''
     for (const bump of bumps) {
-      const bumpProduct = bump.product_id ? await knex('products').where('id', bump.product_id).first() : null
+      const bumpProduct = bump.product_id ? await funnelProduct(knex, funnel, bump.product_id) : null
       const bName = bumpProduct?.name || bump.headline || 'Add-on'
       const bPrice = bumpProduct?.price || bump.price || 0
       const bDesc = bump.description || bumpProduct?.description || ''
@@ -179,8 +191,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       return NextResponse.json({ ok: false, error: 'Payment processing is not configured' }, { status: 400 })
     }
 
-    // Get product for this step
-    const product = step.product_id ? await knex('products').where('id', step.product_id).first() : null
+    // Get product for this step (the funnel owner's own product only)
+    const product = step.product_id ? await funnelProduct(knex, funnel, step.product_id) : null
     if (!product) return NextResponse.json({ ok: false, error: 'No product configured for this checkout step' }, { status: 400 })
 
     // Build line items
@@ -193,11 +205,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       quantity: 1,
     }]
 
-    // Add order bumps
-    const bumpIds = Array.isArray(bumpProductIds) ? bumpProductIds : []
+    // Add order bumps: only the bumps this step offers, each once, and only
+    // the funnel owner's own products. Any other product id from the request
+    // body is ignored (it used to be charged, at that product's price).
+    const offeredBumps = new Set(
+      (Array.isArray(config.order_bumps) ? config.order_bumps : [])
+        .map((bump: any) => (typeof bump?.product_id === 'string' ? bump.product_id : ''))
+        .filter(Boolean),
+    )
+    const bumpIds: string[] = Array.from(new Set(
+      (Array.isArray(bumpProductIds) ? bumpProductIds : [])
+        .filter((id: unknown): id is string => typeof id === 'string' && offeredBumps.has(id)),
+    ))
     for (const bumpProdId of bumpIds) {
-      if (!bumpProdId) continue
-      const bumpProduct = await knex('products').where('id', bumpProdId).first()
+      const bumpProduct = await funnelProduct(knex, funnel, bumpProdId)
       if (bumpProduct) {
         lineItems.push({
           price_data: {
@@ -210,8 +231,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       }
     }
 
-    // Update or create session
-    let session = sid ? await knex('funnel_sessions').where('id', sid).first() : null
+    // Update or create session (a sid from another funnel is not reused)
+    let session = sid ? await knex('funnel_sessions').where('id', sid).where('funnel_id', funnel.id).first() : null
     if (session) {
       await knex('funnel_sessions').where('id', session.id).update({ email: email.trim(), updated_at: new Date() })
     } else {
@@ -283,7 +304,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
     // Create bump orders too
     for (const bumpProdId of bumpIds) {
-      const bp = await knex('products').where('id', bumpProdId).first()
+      const bp = await funnelProduct(knex, funnel, bumpProdId)
       if (bp) {
         await knex('funnel_orders').insert({
           id: crypto.randomUUID(),

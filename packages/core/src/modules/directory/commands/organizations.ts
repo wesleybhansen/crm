@@ -2,7 +2,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
   assertActorManagesOrganization,
   assertActorManagesOrganizations,
-  requireSuperAdmin,
+  requireOwnTenantOrSuperAdmin,
 } from '@open-mercato/core/modules/auth/lib/organizationAuthority'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -283,10 +283,11 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const tenantId = requireTenantScope(authTenantId, parsed.tenantId ?? null)
 
     const parentId = parsed.parentId ?? null
-    // A customer may add sub-organisations under their own; only a super
-    // admin creates a new top-level organisation in the shared tenant.
+    // A customer may add sub-organisations under their own. A top-level
+    // organisation is allowed inside the actor's own tenant (one tenant per
+    // customer); requireTenantScope above already refused any other tenant.
     if (parentId) await assertActorManagesOrganization(ctx, parentId)
-    else await requireSuperAdmin(ctx, 'create a top-level organization')
+    else await requireOwnTenantOrSuperAdmin(ctx, tenantId, 'create a top-level organization in another workspace')
     if (parentId) {
       await ensureParentExists(em, tenantId, parentId)
     }
@@ -333,6 +334,15 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     })
 
     await rebuildHierarchyForTenant(em, tenantId)
+
+    // Encryption maps for the new organization: mapped entities fail closed
+    // without one (the service would otherwise self-heal on first write).
+    try {
+      const { ensureDefaultEncryptionMaps } = await import('@open-mercato/core/modules/auth/lib/provision-tenant')
+      await ensureDefaultEncryptionMaps(em.fork(), tenantId, recordId)
+    } catch (err) {
+      console.error('[directory.organizations.create] Encryption maps failed', err)
+    }
 
     // Default pipeline, stages, deal statuses and currencies so the new
     // workspace can create deals. Best-effort: never fails the create.
@@ -462,7 +472,9 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     // level is a super-admin act, like creating a top-level organisation.
     const existingParentId = existing.parentId ?? null
     const parentId = parsed.parentId === undefined ? existingParentId : (parsed.parentId ?? null)
-    if (!parentId && existingParentId) await requireSuperAdmin(ctx, 'move an organization to the top level')
+    if (!parentId && existingParentId) {
+      await requireOwnTenantOrSuperAdmin(ctx, tenantId, 'move an organization to the top level of another workspace')
+    }
     if (parentId) {
       if (parentId === parsed.id) throw new CrudHttpError(400, { error: 'Organization cannot be its own parent' })
       if (parentId !== existingParentId) await assertActorManagesOrganization(ctx, parentId)
@@ -681,9 +693,9 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     await assertActorManagesOrganization(ctx, String(existing.id))
 
     const parentId = existing.parentId ?? null
-    // Deleting a top-level organisation (a whole customer) is a super-admin
-    // act, mirroring create; its children would otherwise become top-level.
-    if (!parentId) await requireSuperAdmin(ctx, 'delete a top-level organization')
+    // A top-level organisation inside the actor's own tenant (one tenant per
+    // customer) is theirs to delete; any other tenant is a super-admin act.
+    if (!parentId) await requireOwnTenantOrSuperAdmin(ctx, tenantId, 'delete a top-level organization in another workspace')
     const childSnapshotsBefore = await loadChildParentSnapshots(
       em,
       tenantId,

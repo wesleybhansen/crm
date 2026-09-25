@@ -82,7 +82,7 @@ export async function ensureDefaultDealPipeline(
   let pipeline = pipelines.find((entry) => entry.isDefault) ?? pipelines[0] ?? null
   let pipelineCreated = false
   if (!pipeline) {
-    pipeline = em.create(CustomerPipeline, {
+    const fresh = em.create(CustomerPipeline, {
       tenantId,
       organizationId,
       name: DEFAULT_PIPELINE_NAME,
@@ -90,9 +90,21 @@ export async function ensureDefaultDealPipeline(
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    em.persist(pipeline)
-    await em.flush()
-    pipelineCreated = true
+    em.persist(fresh)
+    try {
+      await em.flush()
+      pipeline = fresh
+      pipelineCreated = true
+    } catch (err) {
+      // customer_pipelines_one_default_per_org: a concurrent call created the
+      // default first. Use the winner (it seeds its own stages).
+      const code = (err as { code?: string })?.code
+      if (code !== '23505' && !/unique|duplicate key/i.test(String(err))) throw err
+      em.clear()
+      const winner = await em.findOne(CustomerPipeline, { tenantId, organizationId, isDefault: true })
+      if (!winner) throw err
+      return { pipelineCreated: false, stagesCreated: 0 }
+    }
   } else {
     const stageCount = await em.count(CustomerPipelineStage, { tenantId, organizationId, pipelineId: pipeline.id })
     if (stageCount > 0) return { pipelineCreated, stagesCreated: 0 }

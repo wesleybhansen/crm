@@ -1,5 +1,5 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { requireSuperAdmin } from '@open-mercato/core/modules/auth/lib/organizationAuthority'
+import { requireOwnTenantOrSuperAdmin } from '@open-mercato/core/modules/auth/lib/organizationAuthority'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import {
   parseWithCustomFields,
@@ -89,13 +89,13 @@ export const roleCrudIndexer: CrudIndexerConfig = {
 const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.create',
   async execute(rawInput, ctx) {
-    // Roles are shared by every Noli customer in the one tenant (or global
-    // when tenantId is null), exactly like update/delete below: a customer
-    // could otherwise add roles to every other customer's role list, create
-    // global or foreign-tenant roles, and squat role names.
-    await requireSuperAdmin(ctx, 'create a role shared across the tenant')
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     const resolvedTenantId = parsed.tenantId === undefined ? ctx.auth?.tenantId ?? null : parsed.tenantId ?? null
+    // One tenant per customer: a customer's admin creates roles in its own
+    // tenant. A role in another tenant, or a global role (tenantId null), is
+    // a platform act and stays super-admin only (403 when the payload names
+    // another tenant).
+    await requireOwnTenantOrSuperAdmin(ctx, resolvedTenantId, 'create a role outside your own workspace')
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const role = await de.createOrmEntity({
       entity: Role,
@@ -206,7 +206,15 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    await requireSuperAdmin(ctx, 'change a role shared across the tenant')
+    {
+      const target = await em.findOne(Role, { id: parsed.id, deletedAt: null })
+      if (!target) throw new CrudHttpError(404, { error: 'Role not found' })
+      const currentTenantId = target.tenantId ? String(target.tenantId) : null
+      await requireOwnTenantOrSuperAdmin(ctx, currentTenantId, 'change a role outside your own workspace')
+      if (parsed.tenantId !== undefined && (parsed.tenantId ?? null) !== currentTenantId) {
+        await requireOwnTenantOrSuperAdmin(ctx, parsed.tenantId ?? null, 'move a role outside your own workspace')
+      }
+    }
     if (parsed.name !== undefined) {
       const current = await em.findOne(Role, { id: parsed.id, deletedAt: null })
       if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
@@ -362,7 +370,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const em = (ctx.container.resolve('em') as EntityManager)
     const role = await em.findOne(Role, { id, deletedAt: null })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
-    await requireSuperAdmin(ctx, 'delete a role shared across the tenant')
+    await requireOwnTenantOrSuperAdmin(ctx, role.tenantId ? String(role.tenantId) : null, 'delete a role outside your own workspace')
     const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
     if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
 

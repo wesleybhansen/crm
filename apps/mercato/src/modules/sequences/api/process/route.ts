@@ -185,6 +185,7 @@ export async function POST(req: Request) {
               result: JSON.stringify({ error: 'Contact has no email address' }),
               executed_at: now,
             })
+            await markEnrollmentFailed(knex, execution.enrollment_id)
             continue
           }
 
@@ -211,6 +212,15 @@ export async function POST(req: Request) {
           // No sending setup: the step stays scheduled with a visible waiting
           // reason and the enrollment does not advance (lib/email-step.ts).
           if (outcome === 'waiting') continue
+          // A failed send stops this enrollment where it is. It used to
+          // advance, so one dead token marched a contact through every
+          // remaining step and reported the sequence 'completed' without a
+          // single email sent (2026-09-25 review, M4).
+          if (outcome === 'failed') {
+            await markEnrollmentFailed(knex, execution.enrollment_id)
+            processed++
+            continue
+          }
         } else if (step.step_type === 'sms') {
           console.log(`[sequences.process] SMS step logged for contact ${execution.contact_id}: ${JSON.stringify(config)}`)
           await knex('sequence_step_executions').where('id', execution.execution_id).update({
@@ -484,6 +494,14 @@ export async function POST(req: Request) {
     console.error('[sequences.process]', error)
     return NextResponse.json({ ok: false, error: 'Failed to process sequences' }, { status: 500 })
   }
+}
+
+/** Stop an enrollment on a failed email step: never 'completed', never advanced. */
+async function markEnrollmentFailed(knex: any, enrollmentId: string): Promise<void> {
+  await knex('sequence_enrollments')
+    .where('id', enrollmentId)
+    .where('status', 'active')
+    .update({ status: 'failed', paused_at: new Date() })
 }
 
 export const openApi: OpenApiRouteDoc = {

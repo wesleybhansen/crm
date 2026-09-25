@@ -117,7 +117,9 @@ describe('reactivation drafts pass a fair-housing screen', () => {
     const json = await (await POST(request({ op: 'draft', kind: 'check_in' }))).json()
     expect(json.flagged).toHaveLength(1)
     expect(json.flagged[0].reason).toBe('fair_housing')
-    expect(json.flagged[0].advisory).toMatch(/quiet neighborhood/)
+    expect(json.flagged[0].advisory).toMatch(/perfect for families/)
+    // "quiet" describes noise, not who lives there (M9): not a finding.
+    expect(json.flagged[0].advisory).not.toMatch(/quiet neighborhood/)
     const action = k.inserts.find((i) => i.table === 'inbox_proposal_actions')!
     const meta = JSON.parse(action.data.metadata)
     expect(meta.fair_housing.blocked).toBe(true)
@@ -126,7 +128,7 @@ describe('reactivation drafts pass a fair-housing screen', () => {
     expect(proposal.data.summary).toMatch(/will not be sent/)
   })
 
-  it('approve dismisses a blocked note instead of approving it', async () => {
+  it('approve holds a failing note for the owner to edit, never dismisses or approves it (M9)', async () => {
     const blockedRow = {
       id: 'a-1',
       payload: JSON.stringify({ toName: 'Pat', subject: 'Hi', body: 'Great for families!' }),
@@ -135,9 +137,22 @@ describe('reactivation drafts pass a fair-housing screen', () => {
     const k = createKnex({ inbox_proposal_actions: [blockedRow] })
     useKnex(k)
     const json = await (await POST(request({ op: 'approve' }))).json()
-    expect(json.blocked).toEqual([{ actionId: 'a-1', reason: 'fair_housing', advisory: expect.any(String) }])
-    const dismiss = k.updates.find((u) => u.data.status === 'dismissed')
-    expect(dismiss?.data.execution_error).toBe('fair_housing')
+    expect(json.blocked).toEqual([{ actionId: 'a-1', reason: 'fair_housing', advisory: expect.any(String), editable: true }])
+    expect(k.updates.find((u) => u.data.status === 'dismissed')).toBeUndefined()
+  })
+
+  it('a note flagged at draft time and since edited clean is approved', async () => {
+    const edited = {
+      id: 'a-5',
+      payload: JSON.stringify({ toName: 'Pat', subject: 'Hi', body: 'Congrats on finishing your bachelor\'s degree! Acme Realty' }),
+      metadata: JSON.stringify({ fair_housing: { ok: false, blocked: true, advisory: 'old flag' } }),
+    }
+    const k = createKnex({ inbox_proposal_actions: [edited] })
+    useKnex(k)
+    const json = await (await POST(request({ op: 'approve' }))).json()
+    expect(json.blocked).toEqual([])
+    const approval = k.updates.find((u) => u.data.status === 'approved')
+    expect(approval).toBeDefined()
   })
 
   it('send-batch re-screens and refuses a failing note at send time', async () => {

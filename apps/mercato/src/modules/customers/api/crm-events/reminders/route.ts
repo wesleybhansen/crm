@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { espOwnFromAddress } from '../../../../email/lib/routing-service'
+import { decryptAttendeesForSend } from '@/modules/customers/lib/event-attendees'
 
 
 // POST: Check and send pending reminders for all upcoming events
@@ -57,9 +58,11 @@ export async function POST(req: Request) {
       if (!shouldSend24h && !shouldSend1h) continue
 
       // Get attendees
-      const attendees = await knex('event_attendees')
+      const storedAttendees = await knex('event_attendees')
         .where('event_id', event.id)
         .where('status', 'registered')
+      // Strict for a send: undecryptable registrations are skipped (M11).
+      const { rows: attendees } = await decryptAttendeesForSend(storedAttendees, event.tenant_id, event.organization_id)
 
       const eventDate = eventStart.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
       const eventTime = eventStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })

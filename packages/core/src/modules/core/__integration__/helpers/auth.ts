@@ -166,8 +166,19 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
     if (cookies.length > 0) {
       await page.context().addCookies(cookies);
     }
+    // The dashboard asks the intake gate and may then send a profile-less
+    // workspace to /backend/welcome. Wait for that answer (and any redirect)
+    // before the test acts, so a late redirect never closes a menu the test
+    // just opened (TC-AUTH-004).
+    const intakeGate = page
+      .waitForResponse((r) => r.url().includes('/api/onboarding/intake-gate'), { timeout: 8_000 })
+      .catch(() => null);
     await page.goto('/backend', { waitUntil: 'domcontentloaded' });
     if (await waitForBackend(8_000)) {
+      if (await intakeGate) {
+        await page.waitForTimeout(300);
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
+      }
       await settleBackendNavigation();
       return;
     }

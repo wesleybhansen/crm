@@ -21,6 +21,21 @@ export type WorkerRunnerOptions<T = unknown> = {
   strategy?: QueueStrategyType
 }
 
+/**
+ * MAINTENANCE=1 (tenant split cutover): workers must not write while
+ * organizations move between tenants (2026-09-25 review, M6). The flag is
+ * read from the environment the worker was started with, so a worker started
+ * during maintenance stays idle (jobs wait in the queue) until it is restarted
+ * without it. Same token rules as @open-mercato/shared parseBooleanToken; kept
+ * inline because this package does not depend on shared.
+ */
+const MAINTENANCE_TRUE_VALUES = new Set(['1', 'true', 'yes', 'y', 'on', 'enable', 'enabled'])
+
+export function isWorkerMaintenanceMode(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.MAINTENANCE
+  return typeof raw === 'string' && MAINTENANCE_TRUE_VALUES.has(raw.trim().toLowerCase())
+}
+
 const managedQueues = new Set<Queue<unknown>>()
 let shutdownHandlersRegistered = false
 let shutdownInProgress = false
@@ -117,6 +132,14 @@ export async function runWorker<T = unknown>(
   const strategy: QueueStrategyType = strategyOption
     ?? (process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local')
 
+  if (isWorkerMaintenanceMode()) {
+    console.warn(`[worker] MAINTENANCE is set: queue "${queueName}" is not processed until the worker restarts without it.`)
+    if (background) return
+    await new Promise(() => {
+      // Idle, never processing, until the process is restarted.
+    })
+  }
+
   console.log(`[worker] Starting worker for queue "${queueName}" (strategy: ${strategy})...`)
 
   const queue = createQueue<T>(queueName, strategy, {
@@ -130,8 +153,13 @@ export async function runWorker<T = unknown>(
     registerShutdownHandlers()
   }
 
-  // Start processing
-  await queue.process(handler)
+  // Start processing. A job picked up after MAINTENANCE was switched on in
+  // this process is failed back to the queue instead of run.
+  const guarded: JobHandler<T> = async (job, ctx) => {
+    if (isWorkerMaintenanceMode()) throw new Error('MAINTENANCE: job not processed during maintenance')
+    return handler(job, ctx)
+  }
+  await queue.process(guarded)
 
   console.log(`[worker] Worker running with concurrency ${concurrency}`)
 

@@ -1,7 +1,7 @@
-import { hashForLookup } from './aes'
 import { createKmsService } from './kms'
 import { LOOKUP_HASH_RULES } from './lookupHashRules'
-import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { contactLookupHasher } from './lookupKey'
+import { REQUIRED_ENCRYPTION_ENTITY_IDS, TenantDataEncryptionService } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 
 /**
@@ -17,9 +17,9 @@ import { isTenantDataEncryptionEnabled } from './toggles'
  * Columns the map does not list pass through untouched; envelopes are never
  * encrypted twice.
  *
- * Fails closed: with encryption on, a missing tenant or an unresolvable
- * EntityManager throws instead of handing back plaintext for the caller to
- * write. Every current call site already treats its raw write as best-effort
+ * Fails closed: with encryption on, a missing tenant, an unresolvable
+ * EntityManager, or (for an entity in DEFAULT_ENCRYPTION_MAPS) a missing map
+ * throws instead of handing back plaintext for the caller to write. Every current call site already treats its raw write as best-effort
  * and catches, so the failure mode is "not logged", never "logged in clear".
  *
  * Relative imports only: reachable from worker bundles.
@@ -46,12 +46,19 @@ export async function encryptRowForRawWrite<T extends Record<string, unknown>>(
   }
 
   const out: Record<string, unknown> = { ...row }
-  for (const rule of LOOKUP_HASH_RULES[entityId] ?? []) {
+  const rules = LOOKUP_HASH_RULES[entityId] ?? []
+  const hasher = rules.length ? await contactLookupHasher(tenantId) : null
+  for (const rule of rules) {
     if (!Object.prototype.hasOwnProperty.call(out, rule.sourceColumn)) continue
     const raw = out[rule.sourceColumn]
     const normalized = typeof raw === 'string' ? rule.normalize(raw) : ''
-    out[rule.targetColumn] = normalized ? hashForLookup(normalized) : null
+    out[rule.targetColumn] = hasher!.write(normalized)
   }
-  const encrypted = await service.encryptEntityPayload(entityId, out, tenantId, organizationId ?? null)
+  // An entity every tenant must encrypt throws on a map miss instead of
+  // handing plaintext back for the caller to write.
+  const encrypted = await service.encryptEntityPayload(entityId, out, tenantId, organizationId ?? null, {
+    em: manager,
+    requireMap: REQUIRED_ENCRYPTION_ENTITY_IDS.has(entityId),
+  })
   return encrypted as T
 }

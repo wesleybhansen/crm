@@ -13,7 +13,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { listOpenCommitments, extractCommitmentsForContact, formatCommitmentsForBrief } from '../../../lib/commitments'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { decryptRowFields, CONTACT_ENTITY_KEY, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
-import { whereContactEmailIn } from '../../../lib/contact-lookup'
+import { contactLookupForOrganization, contactLookupForTenant, whereContactEmailIn } from '../../../lib/contact-lookup'
 import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
@@ -381,6 +381,7 @@ export async function GET(req: Request) {
           .where('organization_id', auth.orgId)
           .whereNull('deleted_at'),
         attendeeEmails,
+        auth.tenantId ? await contactLookupForTenant(auth.tenantId) : await contactLookupForOrganization(knex, auth.orgId),
       )
         .select('id')
         .limit(3)
@@ -584,6 +585,9 @@ export async function POST(req: Request) {
               .where('organization_id', connection.organization_id)
               .whereNull('deleted_at'),
             attendeeEmails,
+            connection.tenant_id
+              ? await contactLookupForTenant(String(connection.tenant_id))
+              : await contactLookupForOrganization(knex, String(connection.organization_id)),
           )
             .select('id', 'display_name')
             .limit(3)

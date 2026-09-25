@@ -12,7 +12,7 @@ import {
   type PriceKindUpdateInput,
 } from '../data/validators'
 import { ensureTenantScope, extractUndoPayload } from './shared'
-import { requireSuperAdmin } from '../../auth/lib/organizationAuthority'
+import { requireOwnTenantOrSuperAdmin } from '../../auth/lib/organizationAuthority'
 import type { CatalogPriceDisplayMode } from '../data/types'
 
 type PriceKindSnapshot = {
@@ -66,9 +66,10 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
   async execute(input, ctx) {
     const parsed = priceKindCreateSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
-    // Price kinds are tenant-wide rows (organizationId null) that every Noli
-    // customer in the shared tenant uses; only a super admin may change them.
-    await requireSuperAdmin(ctx, 'create a tenant-wide price kind')
+    // Price kinds are tenant-wide rows (organizationId null). With one tenant
+    // per customer they belong to that customer alone: its admins manage
+    // them; any other tenant is a super-admin act.
+    await requireOwnTenantOrSuperAdmin(ctx, parsed.tenantId, 'create a price kind in another workspace')
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await em.findOne(CatalogPriceKind, {
@@ -146,7 +147,7 @@ const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId
     const record = await em.findOne(CatalogPriceKind, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price kind not found' })
     ensureTenantScope(ctx, record.tenantId)
-    await requireSuperAdmin(ctx, 'change a tenant-wide price kind')
+    await requireOwnTenantOrSuperAdmin(ctx, record.tenantId, 'change a price kind in another workspace')
 
     if (parsed.code && parsed.code !== record.code) {
       const conflict = await em.findOne(CatalogPriceKind, {
@@ -230,7 +231,7 @@ const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: str
     const record = await em.findOne(CatalogPriceKind, { id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price kind not found' })
     ensureTenantScope(ctx, record.tenantId)
-    await requireSuperAdmin(ctx, 'delete a tenant-wide price kind')
+    await requireOwnTenantOrSuperAdmin(ctx, record.tenantId, 'delete a price kind in another workspace')
 
     const usage = await em.count(CatalogProductPrice, { priceKind: record })
     if (usage > 0) {

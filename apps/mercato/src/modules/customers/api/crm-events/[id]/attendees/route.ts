@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { decryptAttendees } from '@/modules/customers/lib/event-attendees'
 
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -20,6 +21,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       .where('organization_id', auth.orgId)
       .orderBy('registered_at', 'desc')
       .limit(500)
+    await decryptAttendees(attendees, auth.tenantId ?? null, auth.orgId)
 
     return NextResponse.json({ ok: true, data: attendees })
   } catch (error) {
@@ -64,6 +66,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const updated = await knex('event_attendees').where('id', attendeeId).first()
+    if (updated) await decryptAttendees([updated], auth.tenantId ?? null, auth.orgId)
     return NextResponse.json({ ok: true, data: updated })
   } catch (error) {
     console.error('[crm-events.attendees.checkin]', error)

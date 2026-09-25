@@ -32,7 +32,10 @@ export type LaunchpadBriefing = {
 const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 
 export function decideIntakeGate(profile: IntakeProfile, launchpad: LaunchpadBriefing): IntakeGate {
-  if (profile?.onboarding_complete) return 'dashboard'
+  // Only an explicit `false` (or no profile at all) ever asked the intake
+  // before the gate existed; a profile whose flag is null is a finished,
+  // pre-flag workspace and must not be sent back to the wizard.
+  if (profile && profile.onboarding_complete !== false) return 'dashboard'
   // A server-side seed already told the CRM what the business does.
   if (profile && text(profile.seeded_by) && text(profile.business_description)) return 'dashboard'
   if (launchpad?.member) return launchpad.briefed ? 'dashboard' : 'awaiting_lab'

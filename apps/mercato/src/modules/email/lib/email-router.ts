@@ -6,6 +6,7 @@
 
 import type { Knex } from 'knex'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/aes'
 import { sendViaGmail, getGmailToken } from './gmail-service'
 import { sendViaOutlook, getOutlookToken } from './outlook-service'
 import { sendViaESP } from './esp-service'
@@ -46,6 +47,25 @@ interface SendEmailResult {
   error?: string
 }
 
+/**
+ * Strict decrypt at the send boundary (2026-09-25 review, LOW): read paths
+ * return ciphertext (or the undecryptable placeholder) when a tenant key is
+ * missing, which is right for a list but must never reach a recipient. Any
+ * address, subject or body still carrying an envelope or the placeholder is
+ * refused here, whatever path built it.
+ */
+const UNDECRYPTABLE_TEXT = 'This record could not be decrypted. Contact support.'
+export function undecryptedSendPart(parts: { to?: unknown; subject?: unknown; body?: unknown }): string | null {
+  for (const [name, value] of Object.entries(parts)) {
+    if (typeof value !== 'string' || !value) continue
+    if (value.includes(UNDECRYPTABLE_TEXT)) return name
+    const trimmed = value.trim()
+    if (isEncryptedEnvelope(trimmed)) return name
+  }
+  return null
+}
+const UNDECRYPTED_SEND_ERROR = 'Not sent: part of this message could not be decrypted. Contact support.'
+
 interface BulkSendResult {
   ok: boolean
   total: number
@@ -68,6 +88,9 @@ export async function sendEmailForOrg(
   params: SendEmailParams,
 ): Promise<SendEmailResult> {
   const { to, cc, bcc, subject, htmlBody, textBody, contactId, connectionId } = params
+  if (undecryptedSendPart({ to, subject, body: htmlBody })) {
+    return { ok: false, code: 'undecryptable', error: UNDECRYPTED_SEND_ERROR }
+  }
 
   // Find user's email connection — the pinned one, else primary, then any active
   const connectionQuery = knex('email_connections')
@@ -229,6 +252,15 @@ export async function sendBulkEmailForOrg(
   /** Who is sending; null for a system send. Decides the mailbox fallback. */
   actingUserId: string | null = null,
 ): Promise<BulkSendResult> {
+  if (undecryptedSendPart({ subject, body: htmlBody })) {
+    return { ok: false, total: recipients.length, sent: 0, failed: recipients.length, sentVia: 'none',
+      results: recipients.map((to) => ({ to, ok: false, error: UNDECRYPTED_SEND_ERROR })) }
+  }
+  const unreadable = recipients.filter((to) => undecryptedSendPart({ to }))
+  if (unreadable.length) {
+    console.error('[email-router] refused undecrypted recipients', { orgId, count: unreadable.length })
+    recipients = recipients.filter((to) => !undecryptedSendPart({ to }))
+  }
   // Check if org has an ESP connection
   const espConnection = await knex('esp_connections')
     .where('organization_id', orgId)
@@ -350,6 +382,11 @@ export async function sendEmailByPurpose(
     actingUserId?: string | null
   },
 ): Promise<SendEmailResult> {
+  const badPart = undecryptedSendPart({ to: params.to, subject: params.subject, body: params.htmlBody })
+  if (badPart) {
+    console.error('[email-router] refused an undecrypted send', { orgId, purpose, part: badPart })
+    return { ok: false, code: 'undecryptable', error: UNDECRYPTED_SEND_ERROR }
+  }
   const { getProviderForPurpose } = await import('./routing-service')
   const actingUserId = params.actingUserId ?? null
   const resolved = await getProviderForPurpose(knex, orgId, purpose, actingUserId)

@@ -87,6 +87,17 @@ describe('automation rules: an email automation cannot be switched on without se
     expect(writes).toHaveLength(0)
   })
 
+  it('refuses adding an email step to an already active rule (M4)', async () => {
+    existingRule = { id: 'rule-1', organization_id: 'org-1', action_type: 'add_tag', steps: null, is_active: true }
+    mockHasSendingSetup.mockResolvedValue(false)
+    const res = await put({ actionType: 'send_email', actionConfig: { subject: 'Hi' } })
+    expect(res.status).toBe(422)
+    expect(writes).toHaveLength(0)
+    // Editing an active rule that sends no email needs no sending setup.
+    const tag = await put({ name: 'Renamed' })
+    expect(tag.status).toBe(200)
+  })
+
   it('pausing never needs a sending setup, and activation works once connected', async () => {
     mockHasSendingSetup.mockResolvedValue(false)
     expect((await put({ status: 'paused' })).status).toBe(200)

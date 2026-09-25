@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { GtmResearchRun } from '../../data/entities'
 import type { JudgeEm, JudgePlay, JudgeRunResult } from './judge'
 
@@ -51,7 +52,13 @@ export async function runLeadCheck(input: {
       em: input.em as never,
       ctx,
       surface: 'lead_check',
-      operationKey: `gtm:lead-check:${input.run.id}`,
+      // One key per PASS, not per run: a later rescue, a re-run after a
+      // skipped first pass, or a second user's check makes fresh model calls
+      // that must each be metered. With the run id alone the meter numbered
+      // calls from 1 again and the canonical upsert dropped them as
+      // duplicates (Noli paid; 2026-09-25 review, H4). Retries of one metering
+      // write stay idempotent through the per-call suffix.
+      operationKey: `gtm:lead-check:${input.run.id}:pass:${randomUUID()}`,
       canonicalMeter: async (usage, invocationKey) => {
         await meterCustomersAiStrict({ orgId: input.run.organizationId }, {
           noliUserId: input.noliUserId,

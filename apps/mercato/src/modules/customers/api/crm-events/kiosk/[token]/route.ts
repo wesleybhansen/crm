@@ -20,6 +20,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 import { qrSvg } from '@/modules/customers/lib/kiosk-qr'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { attendeeEmailHashes, encryptAttendeeRow, whereAttendeeEmail } from '@/modules/customers/lib/event-attendees'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
@@ -235,9 +236,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const now = new Date()
 
     // Existing registration: mark checked in.
-    const existing = await knex('event_attendees')
-      .where('event_id', event.id)
-      .where('attendee_email', email)
+    const existing = await whereAttendeeEmail(knex('event_attendees').where('event_id', event.id), email, await attendeeEmailHashes(email, String(event.tenant_id)))
       .orderBy('registered_at', 'desc')
       .first()
 
@@ -257,7 +256,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
 
     // Walk-in: create the attendee, checked in immediately.
     const attendeeId = crypto.randomUUID()
-    await knex('event_attendees').insert({
+    await knex('event_attendees').insert(await encryptAttendeeRow({
       id: attendeeId,
       tenant_id: event.tenant_id,
       organization_id: event.organization_id,
@@ -271,7 +270,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       checkin_source: 'kiosk',
       registered_at: now,
       created_at: now,
-    })
+    }, String(event.tenant_id), String(event.organization_id)))
     await knex('events').where('id', event.id).increment('attendee_count', 1).catch(() => {})
 
     // Create/link CRM contact + timeline event (mirrors the public register

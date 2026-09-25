@@ -33,4 +33,14 @@ export const LOOKUP_HASH_RULES: Record<string, LookupHashRule[]> = {
       normalize: (v) => v.replace(/\D/g, ''),
     },
   ],
+  // Raw-knex table (no ORM entity): only raw writers use this rule.
+  'customers:event_attendee': [
+    {
+      source: 'attendeeEmail',
+      target: 'attendeeEmailHash',
+      sourceColumn: 'attendee_email',
+      targetColumn: 'attendee_email_hash',
+      normalize: (v) => v.toLowerCase().trim(),
+    },
+  ],
 }

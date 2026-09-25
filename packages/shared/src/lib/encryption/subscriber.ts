@@ -1,12 +1,12 @@
 import type { EntityMetadata, EventArgs, EventSubscriber, FlushEventArgs } from '@mikro-orm/core'
 import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
-import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { REQUIRED_ENCRYPTION_ENTITY_IDS, TenantDataEncryptionService } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
-import { hashForLookup } from './aes'
 import { LOOKUP_HASH_RULES } from './lookupHashRules'
+import { contactLookupHasher } from './lookupKey'
 import { SearchIndexTracker } from './searchIndexSync'
 
 type Scoped = {
@@ -178,16 +178,25 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     // encryption. Encrypted-at-rest values use a random IV and can never be
     // matched in SQL; these deterministic hashes are what webhook dedup, SMS
     // resolution and the receptionist match on instead of a decrypt-scan.
+    // Keyed per tenant (lookupKey.ts, 2026-09-25 review M10).
     const hashRules = LOOKUP_HASH_RULES[entityId]
     const hashUpdates: Record<string, unknown> = {}
     if (hashRules) {
+      const hasher = await contactLookupHasher(tenantId)
       for (const rule of hashRules) {
         const raw = (target as Record<string, unknown>)[rule.source]
         const normalized = typeof raw === 'string' ? rule.normalize(raw) : ''
-        hashUpdates[rule.target] = normalized ? hashForLookup(normalized) : null
+        hashUpdates[rule.target] = hasher.write(normalized)
       }
     }
-    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
+    // The flushing EntityManager's transaction is used for the map lookup
+    // (maps flushed earlier in the same transaction are visible), and an
+    // entity every tenant must encrypt fails closed on a map miss: the flush
+    // throws instead of writing the row in clear.
+    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId, {
+      em,
+      requireMap: REQUIRED_ENCRYPTION_ENTITY_IDS.has(entityId),
+    })
     const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
       ? resolvedMeta.properties
       : {}

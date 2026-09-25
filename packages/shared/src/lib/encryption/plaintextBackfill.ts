@@ -27,9 +27,9 @@ import {
   keyIdForDek,
   keyIdFromEnvelope,
 } from './aes'
-import { hashForLookup } from './aes'
 import type { TenantDek } from './kms'
 import { LOOKUP_HASH_RULES } from './lookupHashRules'
+import { contactLookupHasher } from './lookupKey'
 import type { EncryptedFieldRule } from './tenantDataEncryptionService'
 
 /** Same text as tenantDataEncryptionService.UNDECRYPTABLE_DISPLAY_TEXT (kept literal to avoid a runtime import cycle). */
@@ -46,6 +46,22 @@ export const CONTACT_BACKFILL_TABLES: readonly BackfillTable[] = [
   { entityId: 'customers:customer_activity', table: 'customer_activities' },
   { entityId: 'customers:customer_comment', table: 'customer_comments' },
   { entityId: 'customers:customer_address', table: 'customer_addresses' },
+]
+
+/**
+ * Mapped tables outside the contact graph (2026-09-25 review, H2/M11): user
+ * emails (six of nine production users were plaintext) and public event
+ * registrations. Same rules as the contact tables.
+ */
+export const NON_CONTACT_BACKFILL_TABLES: readonly BackfillTable[] = [
+  { entityId: 'auth:user', table: 'users' },
+  { entityId: 'customers:event_attendee', table: 'event_attendees' },
+]
+
+/** Every table the backfill knows. The default selection. */
+export const ENCRYPTED_BACKFILL_TABLES: readonly BackfillTable[] = [
+  ...CONTACT_BACKFILL_TABLES,
+  ...NON_CONTACT_BACKFILL_TABLES,
 ]
 
 export type BackfillRow = Record<string, unknown>
@@ -150,7 +166,7 @@ export type BackfillReport = {
 export type BackfillOptions = {
   dryRun: boolean
   batchSize?: number
-  /** Restrict to these table names (default: every CONTACT_BACKFILL_TABLES entry). */
+  /** Restrict to these table names (default: every ENCRYPTED_BACKFILL_TABLES entry). */
   tables?: string[]
   tenantId?: string | null
   organizationId?: string | null
@@ -273,10 +289,10 @@ export async function runPlaintextBackfill(
     throw new BackfillRefusedError('Tenant data encryption service is not enabled (KMS unhealthy). Refusing to run.')
   }
   const selected = options.tables?.length
-    ? CONTACT_BACKFILL_TABLES.filter((t) => options.tables!.includes(t.table))
-    : [...CONTACT_BACKFILL_TABLES]
+    ? ENCRYPTED_BACKFILL_TABLES.filter((t) => options.tables!.includes(t.table))
+    : [...ENCRYPTED_BACKFILL_TABLES]
   if (options.tables?.length && selected.length !== options.tables.length) {
-    const known = CONTACT_BACKFILL_TABLES.map((t) => t.table).join(', ')
+    const known = ENCRYPTED_BACKFILL_TABLES.map((t) => t.table).join(', ')
     throw new BackfillRefusedError(`Unknown table in --table. Known: ${known}`)
   }
   if (options.afterId && selected.length !== 1) {
@@ -417,17 +433,19 @@ export async function runPlaintextBackfill(
             write.hashes.set(rule.hashField, encrypted[rule.hashField])
           }
         }
+        const hasher = lookupRules.length ? await contactLookupHasher(tenantId, encryption) : null
         for (const rule of lookupRules) {
           const source = write.values.get(rule.sourceColumn)
           if (!source || row[rule.targetColumn] != null) continue
           const normalized = rule.normalize(source.before)
           if (!normalized) continue
-          const hash = hashForLookup(normalized)
+          // Keyed per tenant (lookupKey.ts); a holder of either format is the same person.
+          const hash = hasher!.write(normalized) as string
           if (rule.uniquePerOrg && row.deleted_at == null) {
             const claimKey = `${organizationId}|${rule.targetColumn}|${hash}`
             const { rows: holders } = await q.query(
-              `select id from ${ident(table)} where organization_id = $1 and ${ident(rule.targetColumn)} = $2 and deleted_at is null and id <> $3 limit 1`,
-              [organizationId, hash, id],
+              `select id from ${ident(table)} where organization_id = $1 and ${ident(rule.targetColumn)} = any($2::text[]) and deleted_at is null and id <> $3 limit 1`,
+              [organizationId, hasher!.candidates(normalized), id],
             )
             if (holders.length || claimedHashes.has(claimKey)) {
               if (countStats) bump(report.fields, statKey(rule.sourceColumn), 'hashDuplicate')

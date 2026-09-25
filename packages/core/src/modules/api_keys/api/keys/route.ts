@@ -289,8 +289,8 @@ const crud = makeCrudRoute<
           throw json({ error: translate('api_keys.errors.roleWrongTenant', `Role ${role.name} belongs to another tenant`, { role: role.name ?? value }) }, { status: 400 })
         }
         if (String(role.name ?? '').toLowerCase() === 'superadmin') {
-          // Every customer shares the tenant, so the tenant check above does not
-          // stop a member minting a platform-wide key.
+          // A superadmin-role key acts across every tenant (platform-wide),
+          // so the tenant check above is not enough: platform operators only.
           await requireSuperAdmin(ctx, 'create an API key with the superadmin role')
         }
         roleEntities.push(role)
@@ -335,10 +335,14 @@ const crud = makeCrudRoute<
       }
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
       if (!isSuperAdmin) {
-        // Every customer shares the tenant: a non-super-admin may delete only
-        // keys bound to an organisation it manages (never an org-less,
-        // tenant-level key, and never with an empty scope).
-        if (!record.organizationId || !Array.isArray(allowedIds) || !allowedIds.includes(record.organizationId)) {
+        // One tenant per customer: an org-less key of the caller's own tenant
+        // is that customer's tenant-level key, so its admin may delete it. A
+        // key with no tenant is platform-wide (super admins only), and an
+        // org-bound key must be in the caller's organisation scope.
+        if (!record.tenantId || record.tenantId !== auth.tenantId) {
+          throw json({ error: translate('api_keys.errors.forbidden', 'Forbidden') }, { status: 403 })
+        }
+        if (record.organizationId && (!Array.isArray(allowedIds) || !allowedIds.includes(record.organizationId))) {
           throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
         }
       } else if (record.organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {

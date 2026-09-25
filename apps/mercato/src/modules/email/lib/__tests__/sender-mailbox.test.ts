@@ -1,13 +1,13 @@
 /** @jest-environment node */
 import type { Knex } from 'knex'
 import {
-  EMAIL_NOT_CONNECTED_MESSAGE,
   OWN_MAILBOX_REQUIRED_MESSAGE,
   hasSendingSetup,
   resolveSenderAddress,
   resolveSenderMailbox,
 } from '../routing-service'
 import { sendBulkEmailForOrg, sendEmailByPurpose } from '../email-router'
+import { EMAIL_NOT_SENT_NOT_CONNECTED } from '../sending-readiness'
 
 type Row = Record<string, any>
 
@@ -136,8 +136,11 @@ describe('purpose routing uses the same rule', () => {
       to: 'lead@example.test', subject: 'Hi', htmlBody: '<p>Hi</p>', actingUserId: 'user-cam',
     })
     expect(res.ok).toBe(false)
+    expect(res.code).toBe('email_not_connected')
+    // The plain refusal, not the teammate-mailbox one (was a tautology:
+    // `expect(<constant>).toBeTruthy()`).
+    expect(res.error).toBe(EMAIL_NOT_SENT_NOT_CONNECTED)
     expect(res.error).not.toBe(OWN_MAILBOX_REQUIRED_MESSAGE)
-    expect(EMAIL_NOT_CONNECTED_MESSAGE).toBeTruthy()
   })
 })
 
@@ -147,5 +150,18 @@ describe('sendBulkEmailForOrg', () => {
     expect(res.ok).toBe(false)
     expect(res.sent).toBe(0)
     expect(res.results[0].error).toBe(OWN_MAILBOX_REQUIRED_MESSAGE)
+  })
+})
+
+describe('strict decrypt at the send boundary (2026-09-25 review, LOW)', () => {
+  it('refuses to send to ciphertext or the undecryptable placeholder', async () => {
+    const { undecryptedSendPart } = await import('../email-router')
+    expect(undecryptedSendPart({ to: 'aXY=:Y3Q=:dGFn:v2:0011aabb' })).toBe('to')
+    expect(undecryptedSendPart({ body: '<p>Hi This record could not be decrypted. Contact support.</p>' })).toBe('body')
+    expect(undecryptedSendPart({ to: 'ada@example.com', subject: 'Hi', body: '<p>Hi</p>' })).toBeNull()
+    const res = await sendEmailByPurpose(fakeKnex({ email_connections: [ANA] }), ORG, 'tenant-1', 'marketing', {
+      to: 'aXY=:Y3Q=:dGFn:v2:0011aabb', subject: 'Hi', htmlBody: '<p>Hi</p>', actingUserId: 'user-ana',
+    })
+    expect(res).toMatchObject({ ok: false, code: 'undecryptable' })
   })
 })

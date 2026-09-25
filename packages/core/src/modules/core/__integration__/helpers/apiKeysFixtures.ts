@@ -5,10 +5,11 @@ export async function createApiKeyFixture(
   request: APIRequestContext,
   token: string,
   name: string,
+  roles?: string[],
 ): Promise<{ id: string; secret: string }> {
   const response = await apiRequest(request, 'POST', '/api/api_keys/keys', {
     token,
-    data: { name },
+    data: roles?.length ? { name, roles } : { name },
   });
   expect(response.ok(), `Failed to create API key fixture: ${response.status()}`).toBeTruthy();
   const body = (await response.json()) as { id?: string; secret?: string };

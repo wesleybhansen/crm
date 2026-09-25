@@ -1,4 +1,4 @@
-import { metroZipProof, ruleBasedFitScorer, type FitPlayInput } from '../research/qualify'
+import { metroZipProof, ruleBasedFitScorer, statesNamed, type FitPlayInput } from '../research/qualify'
 
 /* 2026-09-24 audit: every Twin Cities suburb dentist sat in review on location
  * because the play named the metro and the listing named its suburb. */
@@ -150,5 +150,26 @@ describe('a Maps category covering a keyword phrase', () => {
     expect(categoryCoversKeyword('Oral and maxillofacial surgeon', 'dental clinic')).toBe(false)
     expect(categoryCoversKeyword('Agency', 'digital marketing agency')).toBe(false)
     expect(categoryCoversKeyword('Vending machine supplier', 'small batch food producer')).toBe(false)
+  })
+})
+
+describe('metro tables are state-aware (2026-09-25 review, LOW)', () => {
+  const proof = metroZipProof
+  it('a same-named place in another state is not the metro', () => {
+    expect(proof(['Orange County, FL'], ['123 Main St, Irvine, CA 92618'])).toBeNull()
+    expect(proof(['Portland, ME area'], ['1 Oak St, Portland, OR 97201'])).toBeNull()
+    expect(proof(['Greater Richmond, CA'], ['1 Elm St, Richmond, VA 23220'])).toBeNull()
+    expect(proof(['Fairfield County, Ohio'], ['1 Elm St, Stamford, CT 06901'])).toBeNull()
+  })
+  it('the metro still matches with its own state or none', () => {
+    expect(proof(['Orange County, CA'], ['123 Main St, Irvine, CA 92618'])).toMatch(/Orange County/)
+    expect(proof(['Orange County'], ['123 Main St, Irvine, CA 92618'])).toMatch(/Orange County/)
+    expect(proof(['Portland metro, OR'], ['1 Oak St, Vancouver, WA 98660'])).toMatch(/Portland/)
+    expect(proof(['LA County'], ['1 Main St, Torrance, CA 90501'])).toMatch(/Los Angeles/)
+  })
+  it('reads state codes after a comma and full names, West Virginia is not Virginia', () => {
+    expect([...statesNamed('Portland, ME')]).toEqual(['ME'])
+    expect([...statesNamed('Charleston, West Virginia')]).toEqual(['WV'])
+    expect(statesNamed('LA County').size).toBe(0)
   })
 })

@@ -5,6 +5,7 @@ import { encryptRowForRawWrite } from '../rawWrite'
 import { TenantDataEncryptionService } from '../tenantDataEncryptionService'
 import { createKmsService } from '../kms'
 import { decryptRowFields } from '../decryptRows'
+import { contactLookupHasher } from '../lookupKey'
 
 const MAPS = [
   { entity_id: 'customers:customer_activity', fields_json: [{ field: 'subject' }, { field: 'body' }] },
@@ -49,7 +50,13 @@ describe('encryptRowForRawWrite', () => {
   it('fills the contact lookup hashes the way the ORM subscriber does', async () => {
     const out = await encryptRowForRawWrite('customers:customer_entity', { primary_phone: '+1 (555) 010-0100' }, tenant, org, em)
     expect(isEncryptedEnvelope(out.primary_phone)).toBe(true)
-    expect(out.primary_phone_hash).toBe(hashForLookup('15550100100'))
+    // Keyed per tenant (M10): never the bare sha256, and different per tenant.
+    const expected = (await contactLookupHasher(tenant)).write('15550100100')
+    expect(out.primary_phone_hash).toBe(expected)
+    expect(String(out.primary_phone_hash).startsWith('k1:')).toBe(true)
+    expect(out.primary_phone_hash).not.toBe(hashForLookup('15550100100'))
+    const other = await encryptRowForRawWrite('customers:customer_entity', { primary_phone: '+1 (555) 010-0100' }, crypto.randomUUID(), org, em)
+    expect(other.primary_phone_hash).not.toBe(out.primary_phone_hash)
   })
 
   it('never encrypts an envelope twice', async () => {

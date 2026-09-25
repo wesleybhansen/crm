@@ -6,7 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { trackEngagement } from '@/modules/customers/lib/engagement-score'
 import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
-import { whereContactEmail } from '@/modules/customers/lib/contact-lookup'
+import { contactsByEmailAcrossTenants } from '@/modules/customers/lib/contact-lookup'
 
 export const metadata = { POST: { requireAuth: false } }
 
@@ -68,8 +68,8 @@ export async function POST(req: Request) {
     // legacy rows without one). Loaded once, used by every branch below.
     const matchContacts = async () =>
       (typeof email === 'string' && email
-        ? await whereContactEmail(knex('customer_entities'), email)
-            .select('id', 'tenant_id', 'organization_id', 'email_status')
+        // Lookup hashes are keyed per tenant: one arm per tenant.
+        ? await contactsByEmailAcrossTenants(knex, email, ['id', 'tenant_id', 'organization_id', 'email_status'])
         : []) as Array<{ id: string; tenant_id: string; organization_id: string; email_status: string | null }>
 
     const addUnsubscribe = async (contact: { id: string; tenant_id: string; organization_id: string }, reason: string) => {

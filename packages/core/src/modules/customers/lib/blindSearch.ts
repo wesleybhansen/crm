@@ -1,5 +1,5 @@
 import { resolveSearchKey } from '@open-mercato/shared/lib/encryption/searchKey'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { contactLookupHasher } from '@open-mercato/shared/lib/encryption/lookupKey'
 import { normalizeEmailForSearch } from '@open-mercato/shared/lib/encryption/searchTokens'
 import {
   searchBlindIndex,
@@ -149,18 +149,19 @@ export async function applyContactSearchFilters(
 /**
  * Which lookup hash a query can be matched on: a full email address, or a
  * phone-looking query (digits with the usual separators, at least 7 digits).
- * Digits are normalized the same way the stored hash is ("555-010-0011" and
- * "5550100011" both hash "5550100011").
+ * `value` is normalised exactly as the writers normalise before hashing
+ * (lookupHashRules: email lower + trim, phone digits only). The search
+ * folding (diacritics) only decides whether the query IS an address; hashing
+ * the folded form made a dead arm for addresses with diacritics.
  */
-export function lookupHashForQuery(query: string, opts: { emailOnly?: boolean } = {}): { column: 'primary_email_hash' | 'primary_phone_hash'; hash: string } | null {
+export function lookupHashForQuery(query: string, opts: { emailOnly?: boolean } = {}): { column: 'primary_email_hash' | 'primary_phone_hash'; value: string } | null {
   const raw = (query ?? '').trim()
   if (!raw) return null
-  const email = normalizeEmailForSearch(raw)
-  if (email) return { column: 'primary_email_hash', hash: hashForLookup(email) }
+  if (normalizeEmailForSearch(raw)) return { column: 'primary_email_hash', value: raw.toLowerCase() }
   if (opts.emailOnly) return null
   if (/^[+\d\s().\-/]+$/.test(raw)) {
     const digits = raw.replace(/\D/g, '')
-    if (digits.length >= 7) return { column: 'primary_phone_hash', hash: hashForLookup(digits) }
+    if (digits.length >= 7) return { column: 'primary_phone_hash', value: digits }
   }
   return null
 }
@@ -173,15 +174,19 @@ async function lookupHashIds(
   const knex = knexFrom(source)
   if (!target || !knex || !opts.tenantId || !opts.organizationIds.length) return []
   try {
+    // Keyed per tenant; the legacy unkeyed hash is matched too until the
+    // rehash rollout is done (lookupKey.ts).
+    const candidates = (await contactLookupHasher(opts.tenantId)).candidates(target.value)
+    if (!candidates.length) return []
     const res = await knex.raw(
       `select id from customer_entities
         where tenant_id = ?
           and organization_id = any(?::uuid[])
           and kind = ?
           and deleted_at is null
-          and ${target.column} = ?
+          and ${target.column} = any(?::text[])
         limit 50`,
-      [opts.tenantId, opts.organizationIds, opts.kind, target.hash],
+      [opts.tenantId, opts.organizationIds, opts.kind, candidates],
     )
     const rows = (res?.rows ?? res ?? []) as Array<{ id?: unknown }>
     return rows.map((r) => (typeof r?.id === 'string' ? r.id : null)).filter((id): id is string => !!id)

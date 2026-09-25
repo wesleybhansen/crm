@@ -13,6 +13,50 @@ import {
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
+import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
+
+/**
+ * Entities every tenant must encrypt (the maps provisioning writes for every
+ * tenant/org). A write of one of these with no resolvable map is refused
+ * instead of stored in clear: that is how six of nine production user emails
+ * ended up plaintext (a map lookup outside the provisioning transaction).
+ */
+export const REQUIRED_ENCRYPTION_ENTITY_IDS: ReadonlySet<string> = new Set(
+  DEFAULT_ENCRYPTION_MAPS.map((spec) => spec.entityId),
+)
+
+export class TenantDataEncryptionMapMissingError extends Error {
+  readonly name = 'TenantDataEncryptionMapMissingError'
+  constructor(
+    readonly entityId: string,
+    readonly tenantId: string | null,
+    readonly organizationId: string | null,
+    readonly reason: 'no-map' | 'no-dek',
+  ) {
+    super(
+      `[encryption] refusing to write ${entityId} in clear: ${reason === 'no-map' ? 'no encryption map' : 'no data key'}`
+        + ` for tenant ${tenantId ?? 'null'} / organization ${organizationId ?? 'null'}`,
+    )
+  }
+}
+
+/** Options for the write path. */
+export type EncryptWriteOptions = {
+  /**
+   * The EntityManager doing the write. Its transaction (if any) is used for
+   * the map lookup, so maps flushed earlier in the same, still uncommitted
+   * transaction are found (tenant provisioning creates them right before the
+   * first user row).
+   */
+  em?: unknown
+  /**
+   * Throw instead of returning plaintext when no map / no key resolves for an
+   * org-scoped row (organizationId set). Org-less rows pass through as before.
+   */
+  requireMap?: boolean
+}
+
+type MapLookupSource = { conn: any; trx: unknown | null }
 
 export type EncryptedFieldRule = {
   field: string
@@ -27,10 +71,33 @@ export type EncryptionMapRecord = {
 type MapCacheKey = {
   entityId: string
   tenantId: string | null
+  /** SIBLING_ORG: any active map of another organization in the same tenant. */
   organizationId: string | null
 }
 
+/**
+ * Last-resort candidate for an org-scoped row: a map of another organization
+ * in the same tenant. Maps are written per organization at provisioning, so a
+ * sub-organization (or one created by a path that wrote no maps) had none and
+ * its rows were stored in clear. With one tenant per customer the sibling map
+ * is that customer's own, and the key is per tenant either way.
+ */
+const SIBLING_ORG = '*'
+
 const MAP_MISS_TTL_MS = 5 * 60 * 1000
+
+/** Lookup order: the row's org map, the tenant map, the global map, then (org rows only) a sibling org's map. */
+function mapCandidates(key: MapCacheKey): MapCacheKey[] {
+  const out: MapCacheKey[] = [
+    key,
+    { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: null },
+    { entityId: key.entityId, tenantId: null, organizationId: null },
+  ]
+  if (key.tenantId && key.organizationId) {
+    out.push({ entityId: key.entityId, tenantId: key.tenantId, organizationId: SIBLING_ORG })
+  }
+  return out
+}
 
 function cacheKey(key: MapCacheKey): string {
   return [
@@ -178,10 +245,22 @@ export class TenantDataEncryptionService {
     return dek
   }
 
-  private async fetchMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
-    // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
-    const conn: any = (this.em as any)?.getConnection?.()
+  private lookupSource(em?: unknown): MapLookupSource | null {
+    const source: any = em ?? this.em
+    const conn: any = source?.getConnection?.()
     if (!conn || typeof conn.execute !== 'function') return null
+    let trx: unknown | null = null
+    try {
+      trx = typeof source?.getTransactionContext === 'function' ? source.getTransactionContext() ?? null : null
+    } catch {
+      trx = null
+    }
+    return { conn, trx }
+  }
+
+  private async fetchMap(key: MapCacheKey, lookup: MapLookupSource | null): Promise<EncryptionMapRecord | null> {
+    // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
+    if (!lookup) return null
     const sql = `
       select entity_id, fields_json
       from encryption_maps
@@ -192,7 +271,28 @@ export class TenantDataEncryptionService {
         and deleted_at is null
       limit 1
     `
-    const rows = await conn.execute(sql, [key.entityId, key.tenantId ?? null, key.organizationId ?? null])
+    const siblingSql = `
+      select entity_id, fields_json
+      from encryption_maps
+      where entity_id = ?
+        and tenant_id = ?
+        and organization_id is not null
+        and is_active = true
+        and deleted_at is null
+      order by created_at asc
+      limit 1
+    `
+    const sibling = key.organizationId === SIBLING_ORG
+    if (sibling && !key.tenantId) return null
+    const query = sibling ? siblingSql : sql
+    const params = sibling
+      ? [key.entityId, key.tenantId]
+      : [key.entityId, key.tenantId ?? null, key.organizationId ?? null]
+    // Inside a transaction the lookup must run on the transaction's own
+    // connection: a map flushed earlier in it is invisible to any other.
+    const rows = lookup.trx
+      ? await lookup.conn.execute(query, params, 'all', lookup.trx)
+      : await lookup.conn.execute(query, params)
     const row = Array.isArray(rows) && rows.length ? rows[0] : null
     if (!row) return null
     return {
@@ -205,7 +305,9 @@ export class TenantDataEncryptionService {
     }
   }
 
-  private async getMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
+  private async getMap(key: MapCacheKey, em?: unknown): Promise<EncryptionMapRecord | null> {
+    const lookup = this.lookupSource(em)
+    if (lookup?.trx) return this.getMapInTransaction(key, lookup)
     const shouldSkipLookup = (tag: string) => {
       const expiresAt = this.missCache.get(tag)
       if (!expiresAt) return false
@@ -217,11 +319,7 @@ export class TenantDataEncryptionService {
       this.missCache.set(tag, Date.now() + MAP_MISS_TTL_MS)
     }
 
-    const candidates: MapCacheKey[] = [
-      key,
-      { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: null },
-      { entityId: key.entityId, tenantId: null, organizationId: null },
-    ]
+    const candidates = mapCandidates(key)
     for (const candidate of candidates) {
       const tag = cacheKey(candidate)
       if (shouldSkipLookup(tag)) continue
@@ -236,7 +334,7 @@ export class TenantDataEncryptionService {
         const cached = await this.cache.get(tag)
         if (cached) return cached as EncryptionMapRecord
       }
-      const pending = this.fetchMap(candidate)
+      const pending = this.fetchMap(candidate, lookup)
       this.inflightMaps.set(tag, pending)
       const loaded = await pending
       this.inflightMaps.delete(tag)
@@ -253,6 +351,61 @@ export class TenantDataEncryptionService {
       this.memoryCache.set(tag, loaded)
       if (this.cache && typeof this.cache.set === 'function') {
         await this.cache.set(tag, loaded, { ttl: 300 })
+      }
+      return loaded
+    }
+    return null
+  }
+
+  /**
+   * Map lookup inside a transaction. Rows read here may be uncommitted (and
+   * may roll back), so nothing is cached from it: no recorded miss (a miss
+   * cached process-wide for five minutes left every user created in that
+   * window in plaintext) and no cached hit. A committed hit already in the
+   * memory cache is used as is.
+   */
+  private async getMapInTransaction(key: MapCacheKey, lookup: MapLookupSource): Promise<EncryptionMapRecord | null> {
+    const candidates = mapCandidates(key)
+    for (const candidate of candidates) {
+      const mem = this.memoryCache.get(cacheKey(candidate))
+      if (mem) return mem
+      const loaded = await this.fetchMap(candidate, lookup)
+      if (loaded) return loaded
+    }
+    return null
+  }
+
+  /** Insert the missing DEFAULT_ENCRYPTION_MAPS rows for one organization (idempotent per entity). */
+  private async ensureDefaultMaps(tenantId: string, organizationId: string, em?: unknown): Promise<void> {
+    const lookup = this.lookupSource(em)
+    if (!lookup) throw new TenantDataEncryptionMapMissingError('*', tenantId, organizationId, 'no-map')
+    for (const spec of DEFAULT_ENCRYPTION_MAPS) {
+      const sql = `
+        insert into encryption_maps (id, entity_id, tenant_id, organization_id, fields_json, is_active, created_at, updated_at)
+        select gen_random_uuid(), ?, ?, ?, ?::jsonb, true, now(), now()
+         where not exists (
+           select 1 from encryption_maps
+            where entity_id = ? and tenant_id = ? and organization_id = ? and deleted_at is null
+         )`
+      const params = [spec.entityId, tenantId, organizationId, JSON.stringify(spec.fields), spec.entityId, tenantId, organizationId]
+      if (lookup.trx) await lookup.conn.execute(sql, params, 'run', lookup.trx)
+      else await lookup.conn.execute(sql, params, 'run')
+    }
+    console.warn('[encryption] created missing default maps', { tenantId, organizationId })
+  }
+
+  /** Query every candidate again, ignoring cached misses; a hit replaces them. */
+  private async refreshMap(key: MapCacheKey, em?: unknown): Promise<EncryptionMapRecord | null> {
+    const lookup = this.lookupSource(em)
+    if (!lookup) return null
+    for (const candidate of mapCandidates(key)) {
+      const loaded = await this.fetchMap(candidate, lookup)
+      if (!loaded) continue
+      if (!lookup.trx) {
+        const tag = cacheKey(candidate)
+        this.missCache.delete(tag)
+        this.memoryCache.set(tag, loaded)
+        for (const other of mapCandidates(key)) this.missCache.delete(cacheKey(other))
       }
       return loaded
     }
@@ -395,7 +548,8 @@ export class TenantDataEncryptionService {
     entityId: string,
     payload: Record<string, unknown>,
     tenantId: string | null | undefined,
-    organizationId?: string | null
+    organizationId?: string | null,
+    options?: EncryptWriteOptions,
   ): Promise<Record<string, unknown>> {
     if (!this.isEnabled()) {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
@@ -404,11 +558,36 @@ export class TenantDataEncryptionService {
     const dek = await this.resolveDekForEncrypt(tenantId ?? null)
     if (!dek) {
       debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId })
+      if (options?.requireMap && tenantId && organizationId) {
+        throw new TenantDataEncryptionMapMissingError(entityId, tenantId ?? null, organizationId ?? null, 'no-dek')
+      }
       return payload
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    const mapKey = { entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }
+    let map = await this.getMap(mapKey, options?.em)
+    if ((!map || !map.fields?.length) && options?.requireMap && organizationId) {
+      // Before refusing the write, look again past the process-wide miss
+      // cache: a miss recorded before this tenant's maps were committed must
+      // not turn into five minutes of refused writes.
+      map = await this.refreshMap(mapKey, options?.em)
+      if ((!map || !map.fields?.length) && tenantId && REQUIRED_ENCRYPTION_ENTITY_IDS.has(entityId)) {
+        // Self-heal: an organization created by a path that wrote no maps gets
+        // the default maps now (in the caller's transaction), and the row is
+        // encrypted with them. Never a plaintext write; if this fails, the
+        // write fails.
+        await this.ensureDefaultMaps(tenantId, organizationId, options?.em)
+        map = await this.refreshMap(mapKey, options?.em)
+      }
+    }
     if (!map || !map.fields?.length) {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })
+      // Only org-scoped rows fail closed: an org-less (tenant-level) row has
+      // never had a map to be read back with, and refusing it would break
+      // tenant-level writes (audit log entries of role changes and the like).
+      if (options?.requireMap && organizationId) {
+        console.error('[encryption] encrypt_refused_no_map', { entityId, tenantId, organizationId })
+        throw new TenantDataEncryptionMapMissingError(entityId, tenantId ?? null, organizationId ?? null, 'no-map')
+      }
       return payload
     }
     debug('🔒 encrypt_entity', { entityId, tenantId, organizationId, fields: map.fields.length })

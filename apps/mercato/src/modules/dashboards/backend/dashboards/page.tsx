@@ -89,11 +89,21 @@ export default function SimpleDashboard() {
     // "About Your Business" intake. A profile a sibling app seeded (the
     // Launch Pad Lab or Noli onboarding) is already answered, and a Launch
     // Pad member who has not finished the Lab gets one line, not the intake.
-    fetch('/api/onboarding/intake-gate', { credentials: 'include' })
+    //
+    // The redirect is cancelled once this page unmounts or the browser starts
+    // leaving it (a link click, a typed URL, a test's page.goto): a late
+    // gate answer must never hijack a navigation already under way.
+    let leaving = false
+    const markLeaving = () => { leaving = true }
+    window.addEventListener('beforeunload', markLeaving)
+    window.addEventListener('pagehide', markLeaving)
+    const gateAbort = new AbortController()
+    fetch('/api/onboarding/intake-gate', { credentials: 'include', signal: gateAbort.signal })
       .then(r => r.json())
       .then(d => {
+        if (leaving) return
         const gate = d?.ok ? d.data?.gate : null
-        if (gate === 'intake') { window.location.href = '/backend/welcome'; return }
+        if (gate === 'intake') { window.location.replace('/backend/welcome'); return }
         if (gate === 'awaiting_lab') setAwaitingLab(true)
         setHasProfile(true)
       })
@@ -126,6 +136,13 @@ export default function SimpleDashboard() {
 
     // Background: process any due reminders
     fetch('/api/reminders/check', { method: 'POST', credentials: 'include' }).catch(() => {})
+
+    return () => {
+      leaving = true
+      gateAbort.abort()
+      window.removeEventListener('beforeunload', markLeaving)
+      window.removeEventListener('pagehide', markLeaving)
+    }
   }, [])
 
   const stats = data?.stats

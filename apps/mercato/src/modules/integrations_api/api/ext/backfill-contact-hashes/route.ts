@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { hashForLookup, isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/aes'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/aes'
+import { contactLookupHasher } from '@open-mercato/shared/lib/encryption/lookupKey'
 import {
   decryptRowFields,
   CONTACT_ENTITY_KEY,
@@ -53,6 +54,8 @@ export async function POST(_req: Request, ctx: any) {
       .select('id', 'primary_email', 'primary_phone')
       .limit(BATCH)
 
+    // Keyed per tenant (lookupKey.ts, 2026-09-25 review M10).
+    const hasher = await contactLookupHasher(String(auth.tenantId))
     let updated = 0
     let unreadable = 0
     for (const row of rows) {
@@ -65,13 +68,13 @@ export async function POST(_req: Request, ctx: any) {
         const email = String(row.primary_email || '')
         // A value that is still ciphertext after decryption is unreadable with
         // the current keys; hashing it would just poison the lookup column.
-        if (email && !isCiphertext(email)) patch.primary_email_hash = hashForLookup(email)
+        if (email && !isCiphertext(email)) patch.primary_email_hash = hasher.write(email.trim().toLowerCase())
         else unreadable += 1
       }
       if (stored.phone) {
         const digits = String(row.primary_phone || '').replace(/\D/g, '')
         if (digits && !isCiphertext(row.primary_phone)) {
-          patch.primary_phone_hash = hashForLookup(digits)
+          patch.primary_phone_hash = hasher.write(digits)
         }
       }
       if (Object.keys(patch).length) {

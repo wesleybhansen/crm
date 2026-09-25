@@ -165,9 +165,10 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     }
   }
   // A single 401 can be a race (a deploy, a session cookie being rotated).
-  // Ask once more before treating it as a real sign-out. The server rejected
-  // the first attempt before running the handler, so replaying is safe.
-  if (res.status === 401 && inBrowser && replayable && !onLoginPage && !onPortalRoute) {
+  // Ask once more before treating it as a real sign-out, for reads only: a
+  // handler may answer 401 after it has done work, so replaying a POST could
+  // run a write twice (2026-09-25 review, LOW).
+  if (res.status === 401 && inBrowser && idempotent && replayable && !onLoginPage && !onPortalRoute) {
     await sleep(UNAUTHORIZED_RECHECK_DELAY_MS)
     res = await baseFetch(input, mergedInit)
   }

@@ -240,6 +240,21 @@ describe('approveCampaign (immutable freeze)', () => {
     expect(em.table(GtmCampaignVersion)).toHaveLength(0)
   })
 
+  it('refuses a teammate approving a send from another member\'s mailbox (M1)', async () => {
+    const { em, campaign } = await setup()
+    const teammate = { ...ctx, userId: '99999999-9999-4999-8999-999999999999' }
+    const draft = await computeDraftState(em, teammate, campaign)
+    await expect(approveCampaign(em, teammate, {
+      campaignId: campaign.id,
+      expectedContentHash: draft.contentHash,
+    })).rejects.toMatchObject({ code: 'sender_changed', message: expect.stringContaining('Only the person whose email account sends') })
+    expect(em.table(GtmCampaignVersion)).toHaveLength(0)
+    // The mailbox owner can approve the same draft.
+    const own = await computeDraftState(em, ctx, campaign)
+    await approveCampaign(em, ctx, { campaignId: campaign.id, expectedContentHash: own.contentHash })
+    expect(em.table(GtmCampaignVersion)).toHaveLength(1)
+  })
+
   it('double-approve with the live hash returns the existing version idempotently', async () => {
     const { em, campaign } = await setup()
     const draft = await computeDraftState(em, ctx, campaign)

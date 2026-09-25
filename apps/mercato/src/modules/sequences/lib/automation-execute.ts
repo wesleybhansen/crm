@@ -421,11 +421,17 @@ async function executeAction(
 
       const enrollmentId = require('crypto').randomUUID()
       const now = new Date()
-      await knex('sequence_enrollments').insert({
-        id: enrollmentId, sequence_id: sequence.id,
-        contact_id: context.contactId, organization_id: orgId, tenant_id: tenantId,
-        status: 'active', current_step_order: 1, enrolled_at: now,
-      })
+      try {
+        await knex('sequence_enrollments').insert({
+          id: enrollmentId, sequence_id: sequence.id,
+          contact_id: context.contactId, organization_id: orgId, tenant_id: tenantId,
+          status: 'active', current_step_order: 1, enrolled_at: now,
+        })
+      } catch (err) {
+        // enrollments_seq_contact_idx: a concurrent run enrolled first.
+        if ((err as { code?: string })?.code === '23505') return { success: true, detail: 'Already enrolled in sequence' }
+        throw err
+      }
 
       const firstStep = await knex('sequence_steps')
         .where('sequence_id', sequence.id).where('step_order', 1).first()

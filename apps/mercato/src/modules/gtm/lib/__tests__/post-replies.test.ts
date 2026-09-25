@@ -7,6 +7,7 @@ import {
   postSourceFromCandidate,
   postThreadsReply,
   preparePostReply,
+  reconcileStalePostingReplies,
   replySafetyProblem,
   storePostReply,
   type PostReplyEm,
@@ -171,5 +172,44 @@ describe('post replies', () => {
       await em.nativeUpdate(GtmPostReply, { id: other.id }, { status: 'posted', updatedAt: new Date() })
     }
     await expect(postThreadsReply(em as unknown as PostReplyEm, ctx, { replyId: row.id }, { connection: connection(), fetchImpl: none, env: ON })).rejects.toMatchObject({ code: 'daily_cap_reached' })
+  })
+
+  test('a reply stuck in posting after a crash becomes unknown, never re-posted (M3)', async () => {
+    const em = new FakeEm()
+    const stuck = await draftedRow(em)
+    const fresh = await draftedRow(em)
+    const old = new Date(Date.now() - 30 * 60 * 1000)
+    await em.nativeUpdate(GtmPostReply, { id: stuck.id }, { status: 'posting', updatedAt: old })
+    await em.nativeUpdate(GtmPostReply, { id: fresh.id }, { status: 'posting', updatedAt: new Date() })
+    const moved = await reconcileStalePostingReplies(em as unknown as PostReplyEm, ctx)
+    expect(moved).toBe(1)
+    expect(await em.findOne(GtmPostReply, { id: stuck.id })).toMatchObject({ status: 'unknown', failureCode: 'posting_interrupted' })
+    // A claim still inside its request window is left alone.
+    expect((await em.findOne(GtmPostReply, { id: fresh.id }))?.status).toBe('posting')
+    // Posting it again is a no-op read, not a second public reply.
+    const none = graph([])
+    const result = await postThreadsReply(em as unknown as PostReplyEm, ctx, { replyId: stuck.id }, { connection: connection(), fetchImpl: none.fetchImpl, env: ON })
+    expect(result.status).toBe('unknown')
+    expect(none.calls).toHaveLength(0)
+  })
+
+  test('the steering screen reads areas, not ordinary words, and sees through look-alikes (M9)', () => {
+    expect(replySafetyProblem('Ask each agent for a rough estimate of net proceeds and an exclusive listing agreement term you can live with.')).toBeNull()
+    expect(replySafetyProblem('The church parking lot hosts a free document shred day on Saturdays.')).toBeNull()
+    expect(replySafetyProblem('That is a rough area, I would look elsewhere.')).toBe('fair_housing_steering')
+    expect(replySafetyProblem('It is an exclusive neighborhood.')).toBe('fair_housing_steering')
+    expect(replySafetyProblem('Great homes near the church.')).toBe('fair_housing_steering')
+    expect(replySafetyProblem('Very s\u0430fe street.')).toBe('fair_housing_steering')
+  })
+
+  test('a draft the screen refuses is recorded but not charged (M9)', async () => {
+    const em = new FakeEm()
+    const { play, candidate } = await postLead(em, 'threads')
+    const context = await preparePostReply(em, ctx, { workspaceId: play.workspaceId, playId: play.id, candidateId: candidate.id })
+    const metered: Array<Record<string, unknown>> = []
+    const model = new FakeModel(() => ({ text: JSON.stringify({ reply: 'Honestly the safest move is to buy in the good schools part of town, where young families live and prices hold up well over the long term for everyone.' }), model: 'fake-gemini', tokensIn: 900, tokensOut: 120 }))
+    await expect(draftPostReply({ model, meter: async (usage) => { metered.push(usage as unknown as Record<string, unknown>) } }, context)).rejects.toMatchObject({ code: 'draft_failed' })
+    expect(metered).toHaveLength(1)
+    expect(metered[0]).toMatchObject({ status: 'failed', tokensIn: 0, tokensOut: 0 })
   })
 })

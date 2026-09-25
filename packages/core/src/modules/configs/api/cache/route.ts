@@ -26,10 +26,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Every Noli customer shares one tenant, so the tenant cache holds every
-  // customer's entries (keys carry their organisation ids and queries), and
-  // clearing it clears it for all of them. Platform operators only.
-  if (!(await resolveIsSuperAdmin({ auth, container: await createRequestContainer() }))) {
+  // The cache is read and cleared per tenant (runWithCacheTenant below), and
+  // each customer has its own tenant, so a tenant admin manages only its own
+  // entries. A caller with no tenant would reach the global cache: platform
+  // operators only.
+  if (!auth.tenantId && !(await resolveIsSuperAdmin({ auth, container: await createRequestContainer() }))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -63,10 +64,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Every Noli customer shares one tenant, so the tenant cache holds every
-  // customer's entries (keys carry their organisation ids and queries), and
-  // clearing it clears it for all of them. Platform operators only.
-  if (!(await resolveIsSuperAdmin({ auth, container: await createRequestContainer() }))) {
+  // The cache is read and cleared per tenant (runWithCacheTenant below), and
+  // each customer has its own tenant, so a tenant admin manages only its own
+  // entries. A caller with no tenant would reach the global cache: platform
+  // operators only.
+  if (!auth.tenantId && !(await resolveIsSuperAdmin({ auth, container: await createRequestContainer() }))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

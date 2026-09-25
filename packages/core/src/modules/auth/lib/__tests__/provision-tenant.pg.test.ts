@@ -53,6 +53,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 const seedCalls: string[] = []
+let failDemoSeed = false
 const testModules: Module[] = [
   { id: 'auth', setup: { defaultRoleFeatures: { superadmin: ['directory.tenants.*'], admin: ['auth.*'], employee: ['auth.view'] } } } as Module,
   {
@@ -61,6 +62,7 @@ const testModules: Module[] = [
       defaultRoleFeatures: { admin: ['demo.*'] },
       seedDefaults: async ({ em, tenantId, organizationId }: any) => {
         seedCalls.push(`${tenantId}:${organizationId}`)
+        if (failDemoSeed) throw new Error('demo seed failed on purpose')
         // Idempotent structural default, like the real modules.
         await em.execute(
           `insert into demo_defaults (tenant_id, organization_id) values (?, ?) on conflict do nothing`,
@@ -97,6 +99,11 @@ d('one tenant per customer (Postgres)', () => {
     await conn.execute(`create table feature_toggle_overrides (id uuid primary key default gen_random_uuid(), toggle_id uuid not null,
       tenant_id uuid not null, value jsonb not null, created_at timestamptz not null, updated_at timestamptz not null,
       unique (toggle_id, tenant_id))`)
+    // Production unique index (auth Migration20260509120000): the loser of a
+    // parallel first sign-in of one Clerk user must hit it and join the winner.
+    // Before 2026-09-25 this test passed only because the email was written
+    // in plaintext (the H2 bug) and collided on the entity's email index.
+    await conn.execute(`create unique index if not exists users_clerk_user_id_unique on users (clerk_user_id) where clerk_user_id is not null`)
     await conn.execute(`create table demo_defaults (tenant_id uuid not null, organization_id uuid not null, primary key (tenant_id, organization_id))`)
     registerModules(testModules)
   })
@@ -206,6 +213,11 @@ d('one tenant per customer (Postgres)', () => {
     expect(await n(`select count(*)::int as n from tenants t where not exists (select 1 from organizations o where o.tenant_id = t.id) and t.id <> ?`, [shared])).toBe(0)
     expect(await n(`select seed_version as n from tenants where id = ?`, [tenantId])).toBe(CURRENT_TENANT_SEED_VERSION)
     for (const auth of auths) expect(auth!.roles).toEqual(['admin'])
+    // H2 (2026-09-25): the maps are flushed in the provisioning transaction,
+    // so every new user's email must be stored encrypted, never in clear.
+    const emails = (await q(`select email from users where tenant_id = ?`, [tenantId])).map((r: any) => String(r.email))
+    expect(emails).toHaveLength(5)
+    for (const email of emails) expect(email).not.toMatch(/@example\.com$/)
     // Every teammate's role is the tenant's own admin role.
     expect(await n(
       `select count(*)::int as n from user_roles ur join roles r on r.id = ur.role_id join users u on u.id = ur.user_id
@@ -228,6 +240,46 @@ d('one tenant per customer (Postgres)', () => {
     expect(await n(`select count(*)::int as n from tenants t where not exists (select 1 from organizations o where o.tenant_id = t.id) and t.id <> ?`, [shared])).toBe(0)
   })
 
+  it('a failing seed backs off instead of re-running on every sign-in; the admin ACL exists anyway (M5)', async () => {
+    process.env.CRM_TENANT_PER_CUSTOMER = '1'
+    const { resolveClerkUserToAuthContext, resetSeededTenantCacheForTests } = await import('@open-mercato/shared/lib/auth/clerk')
+    resetSeededTenantCacheForTests()
+    failDemoSeed = true
+    try {
+      noliOrgOf.set('clerk_seedfail', 'noli-org-seedfail')
+      const first = await resolveClerkUserToAuthContext('clerk_seedfail')
+      expect(first?.tenantId).toBeTruthy()
+      const tenantId = first!.tenantId as string
+      const callsFor = () => seedCalls.filter((c) => c.startsWith(`${tenantId}:`)).length
+      expect(callsFor()).toBe(1)
+      // The seed never finished, yet the first admin's role grants its features.
+      expect(await n(
+        `select count(*)::int as n from role_acls a join roles r on r.id = a.role_id
+          where r.tenant_id = ? and r.name = 'admin' and a.is_super_admin = false`, [tenantId],
+      )).toBe(1)
+      // Signing in again right away does not re-run the seed.
+      await resolveClerkUserToAuthContext('clerk_seedfail')
+      await resolveClerkUserToAuthContext('clerk_seedfail')
+      expect(callsFor()).toBe(1)
+    } finally {
+      failDemoSeed = false
+    }
+  })
+
+  it('createCustomerTenant writes the admin ACL inside the provisioning transaction (M5)', async () => {
+    const em = orm.em.fork() as EntityManager
+    let aclsInTx = -1
+    await em.transactional(async (tem) => {
+      const { tenant } = await createCustomerTenant(tem as EntityManager, { name: 'Tx ACL', noliOrgId: null, modules: testModules })
+      const rows = (await (tem as EntityManager).execute(
+        `select count(*)::int as n from role_acls a join roles r on r.id = a.role_id
+          where r.tenant_id = ? and r.name = 'admin' and a.is_super_admin = false`, [String(tenant.id)],
+      )) as Array<{ n: number }>
+      aclsInTx = Number(rows[0]?.n ?? 0)
+    })
+    expect(aclsInTx).toBe(1)
+  })
+
   it('maintenance mode: sign-in never provisions', async () => {
     process.env.CRM_TENANT_PER_CUSTOMER = '1'
     process.env.MAINTENANCE = '1'
@@ -241,12 +293,23 @@ d('one tenant per customer (Postgres)', () => {
     }
   })
 
-  it('flag off keeps the legacy shared tenant (NOLI_TENANT_ID)', async () => {
+  it('flag off never provisions a new workspace into a shared tenant (NOLI_TENANT_ID is ignored)', async () => {
     delete process.env.CRM_TENANT_PER_CUSTOMER
     const shared = process.env.NOLI_TENANT_ID!
     const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
     noliOrgOf.set('clerk_legacy', 'noli-org-legacy')
     const auth = await resolveClerkUserToAuthContext('clerk_legacy')
-    expect(auth?.tenantId).toBe(shared)
+    expect(auth).toBeNull()
+    expect(await n(`select count(*)::int as n from users where clerk_user_id = 'clerk_legacy'`)).toBe(0)
+    expect(await n(`select count(*)::int as n from users where tenant_id = ?`, [shared])).toBe(0)
+  })
+
+  it('flag off still lets a teammate join an existing organization', async () => {
+    delete process.env.CRM_TENANT_PER_CUSTOMER
+    const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
+    noliOrgOf.set('clerk_mate', 'noli-org-team')
+    const auth = await resolveClerkUserToAuthContext('clerk_mate')
+    expect(auth?.tenantId).toBeTruthy()
+    expect(auth?.tenantId).not.toBe(process.env.NOLI_TENANT_ID)
   })
 })
