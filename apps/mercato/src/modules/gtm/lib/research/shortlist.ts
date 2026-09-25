@@ -58,11 +58,47 @@ export type ShortlistEntry = {
     has_email: boolean
   }
   location: string | null
+  /** Checked on the prospect's own website against the member's criteria
+   *  (verify.ts). Only verified rows carry an earned score and confidence. */
+  verified: boolean
+  checks: Array<{ text: string; status: 'pass' | 'fail' | 'unknown'; quote: string | null }>
+  phone_source: 'site_and_listing' | 'site' | 'listing_only' | 'listing' | null
 }
 
 export type ShortlistPool = { viable: number; accepted: number; review: number; contactable: number }
 
-export type ShortlistResult = { pool: ShortlistPool; shortlist: ShortlistEntry[]; scan_capped: boolean }
+export type ShortlistResult = {
+  pool: ShortlistPool
+  shortlist: ShortlistEntry[]
+  scan_capped: boolean
+  /** Viable rows (within SHORTLIST_VERIFY_SCOPE, by rank) not yet checked on
+   *  their website. The Launch Pad delivers only when this is 0. */
+  unverified: number
+}
+
+/** How many of the best viable rows must be site-checked before delivery:
+ *  the whole over-sourced pool the hub asks for, bounded. */
+export const SHORTLIST_VERIFY_SCOPE = 80
+
+type StoredVerification = {
+  complete?: boolean
+  excluded?: boolean
+  grade?: number
+  summary?: string
+  checks?: Array<{ text?: string; status?: string; quote?: string | null; hard?: boolean }>
+  ownership?: { status?: string; evidence?: string | null }
+  site?: { pages?: string[] }
+  contact?: { phone?: string | null; phone_source?: string | null; person_name?: string | null; person_title?: string | null }
+}
+
+export function storedVerification(qualification: unknown): StoredVerification | null {
+  const v = (qualification as Record<string, unknown> | null)?.verification as StoredVerification | undefined
+  return v && v.complete === true ? v : null
+}
+
+function confidenceOf(score: number): ShortlistConfidence {
+  return score >= 80 ? 'high' : score >= 60 ? 'medium' : 'low'
+}
 
 export type ShortlistEm = {
   find<T extends object>(
@@ -183,7 +219,7 @@ export async function buildShortlist(
   const limit = Math.max(1, Math.min(SHORTLIST_MAX_LIMIT, Math.floor(args.limit ?? SHORTLIST_DEFAULT_LIMIT)))
   const scope = { organizationId: ctx.organizationId, tenantId: ctx.tenantId }
   const runIds = [...new Set(args.runIds)]
-  const empty: ShortlistResult = { pool: { viable: 0, accepted: 0, review: 0, contactable: 0 }, shortlist: [], scan_capped: false }
+  const empty: ShortlistResult = { pool: { viable: 0, accepted: 0, review: 0, contactable: 0 }, shortlist: [], scan_capped: false, unverified: 0 }
   if (runIds.length === 0) return empty
 
   const matches = await em.find(
@@ -216,7 +252,7 @@ export async function buildShortlist(
     evidenceByCandidate.set(row.candidateId, list)
   }
 
-  type Scored = { entry: Omit<ShortlistEntry, 'rank'>; key: string; ruleFit: number }
+  type Scored = { entry: Omit<ShortlistEntry, 'rank'>; key: string; ruleFit: number; tiebreak: number; rawScore: number }
   const scored: Scored[] = []
   for (const match of live) {
     const candidate = candidateById.get(match.candidateId)
@@ -238,12 +274,37 @@ export async function buildShortlist(
       namedPerson: Boolean(contact.person_name),
       contactRoute: Boolean(contact.website || contact.phone || contact.profile_url || contact.has_email),
     })
+    const verification = storedVerification(match.qualification)
     const rows = (evidenceByCandidate.get(candidate.id) ?? [])
       .filter((row) => row.researchRunId === match.researchRunId || !row.researchRunId)
       .filter((row) => row.qualityStatus !== 'invalid')
       .sort((a, b) => (b.observedAt?.getTime() ?? 0) - (a.observedAt?.getTime() ?? 0))
       .slice(0, EVIDENCE_PER_ROW)
+    const checks = (verification?.checks ?? []).map((c) => ({
+      text: str(c.text) ?? '',
+      status: (c.status === 'pass' || c.status === 'fail' ? c.status : 'unknown') as 'pass' | 'fail' | 'unknown',
+      quote: str(c.quote),
+    })).filter((c) => c.text)
+    const sitePage = verification?.site?.pages?.[0] ?? contact.website
+    const siteEvidence = checks
+      .filter((c) => c.status === 'pass' && c.quote)
+      .slice(0, 2)
+      .map((c) => ({ claim: `${c.text}. Their website: "${c.quote}"`, source_url: sitePage ?? null }))
+    const verifiedContact = verification
+      ? {
+          ...contact,
+          phone: str(verification.contact?.phone) ?? contact.phone,
+          person_name: contact.person_name ?? str(verification.contact?.person_name),
+          title: contact.title ?? str(verification.contact?.person_title),
+        }
+      : contact
+    // A verified row's score is its site-check grade; an unverified row keeps
+    // the rule/lead-check score for ORDER only and never an earned label.
+    const finalScore = verification ? Math.round(Math.max(0, Math.min(100, Number(verification.grade ?? 0)))) : score
+    const hardPasses = checks.filter((c) => c.status === 'pass').length
     scored.push({
+      rawScore: score,
+      tiebreak: hardPasses * 4 + (verifiedContact.person_name ? 2 : 0) + (verification?.contact?.phone_source === 'site_and_listing' ? 1 : 0),
       ruleFit: Number(match.fitScore ?? 0) || 0,
       key: shortlistDedupeKey(identity),
       entry: {
@@ -254,20 +315,29 @@ export async function buildShortlist(
         entity_kind: kind,
         name,
         fit_status: fitStatus,
-        confidence,
-        score,
-        why: whyOf(match),
-        evidence: rows.map((row) => ({ claim: row.claim, source_url: row.sourceUrl ?? null })),
-        contact,
+        confidence: verification ? confidenceOf(finalScore) : 'low',
+        score: finalScore,
+        why: (verification ? str(verification.summary) : null) ?? whyOf(match),
+        evidence: [...siteEvidence, ...rows.map((row) => ({ claim: row.claim, source_url: row.sourceUrl ?? null }))].slice(0, EVIDENCE_PER_ROW),
+        contact: verifiedContact,
         location: str(identity.location) ?? ([str(identity.city), str(identity.region)].filter(Boolean).join(', ') || null),
+        verified: Boolean(verification),
+        checks,
+        phone_source: verification
+          ? ((verification.contact?.phone_source as ShortlistEntry['phone_source']) ?? null)
+          : verifiedContact.phone ? 'listing' : null,
       },
     })
   }
 
-  // Best row per business, then best first; ties broken by accepted, then the
-  // rules' own fit score, and only then by name (a name-only tie-break
-  // delivered an alphabetical top 20 on a live run of equal scores).
-  scored.sort((a, b) => b.entry.score - a.entry.score
+  // Verified rows first (only they have earned a score), then best first.
+  // Ties break on what was checked (criteria passed on the site, a named
+  // person, a phone the site confirms), then acceptance, then the rules' own
+  // fit score, and only then by name: a name-only tie-break delivered an
+  // alphabetical "ranked" list on a live run of equal scores.
+  scored.sort((a, b) => Number(b.entry.verified) - Number(a.entry.verified)
+    || b.entry.score - a.entry.score
+    || b.tiebreak - a.tiebreak
     || (a.entry.fit_status === b.entry.fit_status ? 0 : a.entry.fit_status === 'accepted' ? -1 : 1)
     || b.ruleFit - a.ruleFit
     || a.entry.name.localeCompare(b.entry.name))
@@ -291,5 +361,38 @@ export async function buildShortlist(
     pool,
     shortlist: unique.slice(0, limit).map((row, index) => ({ rank: index + 1, ...row.entry })),
     scan_capped: matches.length >= SHORTLIST_MATCH_SCAN_LIMIT,
+    unverified: unverifiedToCheck(unique.map((row) => ({ matchId: row.entry.match_id, verified: row.entry.verified, rawScore: row.rawScore }))).length,
   }
+}
+
+/** The unverified rows the site check should read next, best rule score
+ *  first, within the verification scope. Pure. */
+export function unverifiedToCheck(rows: Array<{ matchId: string; verified: boolean; rawScore: number }>): string[] {
+  return rows
+    .filter((row) => !row.verified)
+    .sort((a, b) => b.rawScore - a.rawScore)
+    .slice(0, Math.max(0, SHORTLIST_VERIFY_SCOPE - rows.filter((row) => row.verified).length))
+    .map((row) => row.matchId)
+}
+
+/** Match ids to verify next for these runs, best rule score first. */
+export async function nextToVerify(
+  em: ShortlistEm,
+  ctx: { organizationId: string; tenantId: string },
+  args: { runIds: string[]; limit: number },
+): Promise<string[]> {
+  const scope = { organizationId: ctx.organizationId, tenantId: ctx.tenantId }
+  const matches = await em.find(
+    GtmCandidateMatch,
+    { ...scope, researchRunId: { $in: [...new Set(args.runIds)] }, deletedAt: null },
+    { orderBy: { createdAt: 'desc', id: 'desc' }, limit: SHORTLIST_MATCH_SCAN_LIMIT },
+  )
+  const latest = new Map<string, GtmCandidateMatch>()
+  for (const match of matches) if (!latest.has(match.candidateId)) latest.set(match.candidateId, match)
+  const live = [...latest.values()].filter((m) => m.fitStatus === 'accepted' || m.fitStatus === 'review')
+  return unverifiedToCheck(live.map((m) => ({
+    matchId: m.id,
+    verified: Boolean(storedVerification(m.qualification)),
+    rawScore: Number(m.fitScore ?? 0) + (m.fitStatus === 'accepted' ? 10 : 0),
+  }))).slice(0, Math.max(0, args.limit))
 }

@@ -235,6 +235,41 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, ...result })
     }
 
+    if (body.op === 'verify') {
+      // The Launch Pad shortlist check (lib/research/verify.ts): the next best
+      // unverified rows of these runs, read on their own websites against the
+      // member's criteria. Rows that fail a hard criterion leave the pool.
+      const runIds = (body.runIds ?? []).filter((id) => isUuid(id))
+      const { runVerifyForCustomer } = await import('../../../lib/research/verify-runner')
+      const { buildShortlist } = await import('../../../lib/research/shortlist')
+      const outcome = await runVerifyForCustomer({
+        em,
+        ctx: { organizationId, tenantId },
+        noliUserId: body.noliUserId,
+        runIds,
+        limit: body.limit ?? 10,
+        icp: body.icp ?? '',
+        criteria: body.criteria ?? null,
+      })
+      if (outcome.status !== 'checked') {
+        return NextResponse.json({ ok: false, error: 'Site check unavailable', code: `site_check_${outcome.reason}` }, { status: 503 })
+      }
+      const after = await buildShortlist(
+        em as unknown as import('../../../lib/research/shortlist').ShortlistEm,
+        { organizationId, tenantId },
+        { runIds, limit: 1 },
+      )
+      return NextResponse.json({
+        ok: true,
+        criteria: outcome.criteria,
+        checked: outcome.checked,
+        excluded: outcome.excluded,
+        failed: outcome.failed,
+        unverified: after.unverified,
+        pool: after.pool,
+      })
+    }
+
     if (body.op === 'detail') {
       // Full provenance for one person: every evidence row and contact point.
       // This is the customer's own sourced data, and it is what answers a

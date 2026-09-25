@@ -107,6 +107,7 @@ export const FIT_REASON_LABELS: Record<string, string> = {
   realtor_false_positive: 'Realtor noise, not a prospect',
   accepted_size_unconfirmed: 'Accepted, team size unconfirmed',
   listing_near_miss_ai_kept: 'Kept by the AI check: the listing category was not an exact keyword match',
+  site_check_excluded: 'Removed after checking their website: it fails one of your own requirements',
   size_unknown: 'Team size unknown',
   manual_review: 'Rejected by a reviewer',
   unspecified: 'No reason recorded',

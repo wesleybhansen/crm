@@ -432,11 +432,17 @@ export async function requalifyResearchRun(input: {
         && priorJudge.verdict === 'keep'
         && ruleFit.verdict === 'rejected'
         && isRescuableNearMiss({ rejectReason: ruleFit.reason, criteria: ruleFit.criteria, urls: (identity as Record<string, unknown>).urls })
-      const fit = priorJudge?.verdict === 'reject' && ruleFit.verdict !== 'rejected'
-        ? { ...ruleFit, verdict: 'rejected' as const, reason: String(priorJudge.reason_code ?? 'ai_check_rejected') }
-        : rescueHolds
-          ? { ...ruleFit, verdict: 'review' as const, reason: NEAR_MISS_REASON }
-          : ruleFit
+      // A row the site check removed (verify.ts: it failed the member's own
+      // hard criterion on its own website) stays removed, and every stored
+      // site check travels with the row.
+      const priorVerification = (priorQualification?.verification ?? null) as Record<string, unknown> | null
+      const fit = priorVerification?.excluded === true && ruleFit.verdict !== 'rejected'
+        ? { ...ruleFit, verdict: 'rejected' as const, reason: 'site_check_excluded' }
+        : priorJudge?.verdict === 'reject' && ruleFit.verdict !== 'rejected'
+          ? { ...ruleFit, verdict: 'rejected' as const, reason: String(priorJudge.reason_code ?? 'ai_check_rejected') }
+          : rescueHolds
+            ? { ...ruleFit, verdict: 'review' as const, reason: NEAR_MISS_REASON }
+            : ruleFit
       candidate.identity = identity
       const qualification = {
         scorer_revision: FIT_SCORER_REVISION,
@@ -450,6 +456,7 @@ export async function requalifyResearchRun(input: {
           Array.isArray(row.qualityIssues) ? row.qualityIssues : [],
         ),
         ...(priorJudge ? { judge: priorJudge } : {}),
+        ...(priorVerification ? { verification: priorVerification } : {}),
         ...(rescueHolds && priorQualification?.rescued_from ? { rescued_from: priorQualification.rescued_from } : {}),
       }
       if (match) {
