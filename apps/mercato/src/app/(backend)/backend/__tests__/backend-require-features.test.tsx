@@ -39,8 +39,19 @@ jest.mock('@open-mercato/shared/modules/registry', () => ({
 }))
 
 // Mock auth cookie reader
-jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromCookies: jest.fn(),
+jest.mock('@open-mercato/shared/lib/auth/server', () => {
+  const getAuthFromCookies = jest.fn()
+  return {
+    getAuthFromCookies,
+    resolveAuthFromCookies: jest.fn(async () => {
+      const auth = await getAuthFromCookies()
+      return auth ? { status: 'authenticated', auth } : { status: 'unauthenticated' }
+    }),
+  }
+})
+
+jest.mock('@/components/ReconnectingNotice', () => ({
+  ReconnectingNotice: () => React.createElement('div', { 'data-testid': 'reconnecting' }, 'Reconnecting'),
 }))
 
 // Mock DI container
@@ -108,6 +119,27 @@ describe('Backend requireFeatures guard', () => {
     await expect(
       BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) })
     ).rejects.toThrow(/REDIRECT \/api\/auth\/session\/refresh/)
+  })
+
+  it('shows a reconnecting state (not a sign-out) when sign-in cannot be checked', async () => {
+    const authModule = await import('@open-mercato/shared/lib/auth/server')
+    const mocked = authModule.resolveAuthFromCookies as jest.MockedFunction<typeof authModule.resolveAuthFromCookies>
+    mocked.mockResolvedValueOnce({ status: 'unavailable' })
+
+    const el = await BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) })
+    expect(el).toBeTruthy()
+    expect(redirect).not.toHaveBeenCalled()
+    expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
+  })
+
+  it('sends signed-in users without CRM access to the hub, not to sign in again', async () => {
+    const authModule = await import('@open-mercato/shared/lib/auth/server')
+    const mocked = authModule.resolveAuthFromCookies as jest.MockedFunction<typeof authModule.resolveAuthFromCookies>
+    mocked.mockResolvedValueOnce({ status: 'no-access' })
+
+    await expect(
+      BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) })
+    ).rejects.toThrow(/REDIRECT https:\/\/app\.noliai\.com\/$/)
   })
 
   it('renders access denied when RBAC denies required features', async () => {

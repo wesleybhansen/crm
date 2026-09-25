@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { findApi, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { modules } from '@/.mercato/generated/modules.generated'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
 
 // Ensure all package registrations are initialized for API routes
@@ -96,6 +96,15 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
     }
   }
   return normalized
+}
+
+function routeNeedsIdentity(methodMetadata: MethodMetadata | null): boolean {
+  if (!methodMetadata) return false
+  return Boolean(
+    methodMetadata.requireAuth ||
+      (methodMetadata.requireRoles?.length ?? 0) > 0 ||
+      (methodMetadata.requireFeatures?.length ?? 0) > 0,
+  )
 }
 
 async function checkAuthorization(
@@ -269,7 +278,8 @@ async function handleRequest(
     })
     return response
   }
-  const auth = await getAuthFromRequest(req)
+  const authResolution = await resolveAuthFromRequest(req)
+  const auth: AuthContext = authResolution.status === 'authenticated' ? authResolution.auth : null
   await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {
     ...receivedPayload,
     authenticated: !!auth,
@@ -278,6 +288,26 @@ async function handleRequest(
   })
 
   const methodMetadata = extractMethodMetadata(api.metadata, method)
+  // The session exists but couldn't be checked (database down, timeout).
+  // Answer 503 so the browser retries; a 401 here would sign the user out
+  // over a blip.
+  if (!auth && authResolution.status === 'unavailable' && routeNeedsIdentity(methodMetadata)) {
+    const response = NextResponse.json(
+      {
+        error: t('api.errors.authUnavailable', 'We could not reach the server to confirm your sign-in. Please try again in a moment.'),
+        retryable: true,
+      },
+      { status: 503, headers: { 'Retry-After': '5' } },
+    )
+    await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
+      ...receivedPayload,
+      status: response.status,
+      userId: null,
+      tenantId: null,
+      durationMs: Date.now() - startedAt,
+    })
+    return response
+  }
   const authError = await checkAuthorization(methodMetadata, auth, req)
   if (authError) {
     await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {

@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from 'react'
 import { Users, Kanban, FileText, Mail, LayoutDashboard, CreditCard, Settings, CalendarDays, BookOpen, GitBranch, GitMerge, Zap, ClipboardList, MessageCircle, Share2, CheckSquare, CalendarCheck, BarChart3, Wrench, Sparkles, Headphones, Star, Mic } from 'lucide-react'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
-import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { resolveAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import {
   buildAdminNav,
@@ -44,6 +44,7 @@ import { ComponentOverridesBootstrap } from '@/components/ComponentOverridesBoot
 import { AiAssistantWidget } from '@/components/AiAssistantWidget'
 import { FloatingAssistantButton } from '@/components/FloatingAssistantButton'
 import { BackgroundJobs } from '@/components/BackgroundJobs'
+import { ReconnectingNotice } from '@/components/ReconnectingNotice'
 import { EMAIL_NOT_CONNECTED_BANNER, getEmailSendingGap } from '@/modules/email/lib/sending-readiness'
 
 type NavItem = {
@@ -66,7 +67,12 @@ type NavGroup = {
 }
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params: Promise<{ slug?: string[] }> }) {
-  const auth = await getAuthFromCookies()
+  const authResolution = await resolveAuthFromCookies()
+  // The session exists but the server couldn't confirm it (database down,
+  // timeout, deploy in progress). Show a self-retrying notice instead of
+  // rendering the shell as signed out or bouncing to sign-in.
+  if (authResolution.status === 'unavailable') return <ReconnectingNotice />
+  const auth = authResolution.status === 'authenticated' ? authResolution.auth : null
   const cookieStore = await cookies()
   const headerStore = await headers()
   const rawSelectedOrg = cookieStore.get('om_selected_org')?.value

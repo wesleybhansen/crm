@@ -43,8 +43,22 @@ import type { AuthContext } from './server'
  */
 export async function resolveClerkUserToAuthContext(
   clerkUserId: string,
+  options?: {
+    /**
+     * When true, a failed lookup (database down, timeout, noli-core error)
+     * throws AuthUnavailableError instead of returning null, so interactive
+     * callers can show "reconnecting" rather than signing the user out.
+     * Definitive answers (no such user, not entitled) still return null.
+     */
+    throwOnUnavailable?: boolean
+  },
 ): Promise<AuthContext> {
   if (!clerkUserId) return null
+  const unavailable = async (err: unknown): Promise<never> => {
+    const { AuthUnavailableError } = await import('./errors')
+    throw new AuthUnavailableError('Sign-in check is temporarily unavailable', err)
+  }
+
 
   // 1. noli-core lookup + entitlement gate
   let noliUser:
@@ -69,6 +83,7 @@ export async function resolveClerkUserToAuthContext(
     noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
   } catch (err) {
     console.error('[clerk-auth] noli-core lookup failed:', err)
+    if (options?.throwOnUnavailable) return unavailable(err)
     return null
   }
 
@@ -162,6 +177,7 @@ export async function resolveClerkUserToAuthContext(
     }
   } catch (err) {
     console.error('[clerk-auth] Mercato user resolution failed:', err)
+    if (options?.throwOnUnavailable) return unavailable(err)
     return null
   }
 }
