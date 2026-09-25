@@ -6,7 +6,8 @@ import {
   parseJudgeResponse,
   rescuePromotes,
 } from '../research/judge'
-import { rescueNearMissesEnabled } from '../research/judge-runner'
+import { rescueNearMissesEnabled, rescueWanted } from '../research/judge-runner'
+import { gtmResearchRunsBodySchema } from '../../data/validators'
 import { FakeEm } from './support/fake-em'
 import { FakeModel } from './support/fake-model'
 import { ORG, TENANT, seedPlay, seedRun } from './support/campaign-fixtures'
@@ -74,6 +75,20 @@ describe('lead check fit rating', () => {
     expect(rescuePromotes({ keep: true, fit: 'possible' })).toBe(false)
     expect(rescuePromotes({ keep: true, fit: null })).toBe(false)
     expect(rescuePromotes({ keep: false, fit: 'strong' })).toBe(false)
+  })
+
+  test('the explicit rescue op forces the rescue; otherwise only the run limits decide', () => {
+    expect(rescueWanted(true, undefined)).toBe(true)
+    expect(rescueWanted(true, { rescueNearMisses: false })).toBe(true)
+    expect(rescueWanted(undefined, { rescueNearMisses: true })).toBe(true)
+    for (const forced of [undefined, false, 'true', 1]) expect(rescueWanted(forced, {})).toBe(false)
+  })
+
+  test('the rescue op takes a run id and nothing that could widen it', () => {
+    expect(gtmResearchRunsBodySchema.safeParse({ op: 'rescue', noliUserId: 'u1', runId: 'r1' }).success).toBe(true)
+    expect(gtmResearchRunsBodySchema.safeParse({ op: 'rescue', noliUserId: 'u1' }).success).toBe(false)
+    const parsed = gtmResearchRunsBodySchema.safeParse({ op: 'rescue', noliUserId: 'u1', runId: 'r1', limits: { rescueNearMisses: true } })
+    expect(parsed.success && 'limits' in parsed.data).toBe(false)
   })
 
   test('the rescue flag is read only as an explicit true on the run limits', () => {

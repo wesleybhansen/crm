@@ -49,6 +49,11 @@ import { usdFromCredits } from '../../../lib/credits/markup'
  *             { runId } or { playId } (= that play's most recent run)
  * - 'requalify' deterministically rescores stored output from the frozen run
  *               snapshot, with no provider or billing call
+ * - 'rescue'  (gtm.edit) runs the AI lead check's near-miss rescue on a
+ *             finished run: only never-checked Maps rows the rules rejected
+ *             solely on keyword/industry wording, only strong or likely keeps
+ *             move to review. No provider call; idempotent (checked rows are
+ *             never read twice). For runs that predate limits.rescueNearMisses.
  * - 'sweep-stale-runs' (gtm.launch) marks runs stuck in 'running' past a
  *               threshold as failed and parks their provider_started
  *               operations for reconciliation (lib/research/stale-runs.ts)
@@ -843,6 +848,55 @@ export async function POST(req: Request) {
       })
 
       return NextResponse.json({ ok: true, run: shapeRun(run), result: { ...result, after_lead_check: afterLeadCheck } })
+    }
+
+    if (body.op === 'rescue') {
+      const run = await em.findOne(GtmResearchRun, { id: body.runId, organizationId, tenantId, deletedAt: null })
+      if (!run) return opaqueNotFound()
+      if (run.status !== 'completed') {
+        return NextResponse.json({ ok: false, error: 'Only completed research runs can be rescued', code: 'run_not_completed' }, { status: 409 })
+      }
+      const play = await em.findOne(GtmPlay, { id: run.playId, organizationId, tenantId, deletedAt: null })
+      if (!play) return NextResponse.json({ ok: false, error: 'Play no longer available' }, { status: 422 })
+      const { runLeadCheck } = await import('../../../lib/research/judge-runner')
+      const leadCheck = await runLeadCheck({
+        em,
+        run,
+        play: { audience: play.audience ?? null, signal: play.signal ?? null, geography: play.geography ?? null },
+        noliUserId: body.noliUserId,
+        requestId: requestId || null,
+        rescueNearMisses: true,
+      })
+      const countScope = { organizationId, tenantId, researchRunId: run.id, deletedAt: null }
+      const [acceptedNow, reviewNow] = await Promise.all([
+        em.count(GtmCandidateMatch, { ...countScope, fitStatus: 'accepted' }),
+        em.count(GtmCandidateMatch, { ...countScope, fitStatus: 'review' }),
+      ])
+      const afterLeadCheck = {
+        accepted: acceptedNow,
+        review: reviewNow,
+        rescued: leadCheck.status === 'checked' ? leadCheck.rescued : 0,
+        lead_check: leadCheck.status === 'checked' ? 'checked' : leadCheck.reason,
+      }
+      await em.transactional(async (tem) => {
+        tem.persist(tem.create(GtmAuditEvent, {
+          organizationId,
+          tenantId,
+          actor: 'user_id',
+          actorUserId: userId,
+          action: 'gtm.research_run.rescued',
+          objectType: 'gtm_research_run',
+          objectId: run.id,
+          requestId: requestId || null,
+          metadata: afterLeadCheck,
+        }))
+      })
+      // A skipped check (allowance, AI unavailable) is a transient answer the
+      // caller retries; it must not read as "nothing to rescue".
+      if (leadCheck.status !== 'checked') {
+        return NextResponse.json({ ok: false, error: 'Lead check unavailable', code: `lead_check_${leadCheck.reason}`, after_lead_check: afterLeadCheck }, { status: 503 })
+      }
+      return NextResponse.json({ ok: true, run: shapeRun(run), result: { after_lead_check: afterLeadCheck } })
     }
 
     if (body.op === 'requalify') {

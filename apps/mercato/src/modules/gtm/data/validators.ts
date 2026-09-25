@@ -180,6 +180,15 @@ export const gtmResearchRunsBodySchema = z.discriminatedUnion('op', [
     noliUserId: idString,
     runId: idString,
   }),
+  // Near-miss rescue on a run that already finished: the AI lead check reads
+  // the run's never-checked Google Maps near misses (see lib/research/judge.ts)
+  // exactly as a run created with limits.rescueNearMisses does after execute.
+  // No provider call; the model call is metered to the customer's AI allowance.
+  z.object({
+    op: z.literal('rescue'),
+    noliUserId: idString,
+    runId: idString,
+  }),
   // Dry-lane preview (spec phase C): three real public rows from ONE lane of
   // the play's priced plan, with no run row and no candidates written. It
   // calls a provider, so it spends: the workspace's three-per-UTC-day cap is
