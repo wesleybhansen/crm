@@ -5,6 +5,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { automationSendsEmail, refusalIfNotConnected } from '../../../email/lib/sending-readiness'
+import { hasSendingSetup } from '../../../email/lib/routing-service'
+import { deleteAutomationRule } from '../../lib/automation-rule-delete'
 
 const AUTOMATION_BLOCKED_MESSAGE =
   'Connect an email account in Settings before turning on this automation; nothing will be sent until then. You can save it as paused meanwhile.'
@@ -25,6 +27,8 @@ const ACTION_TYPES = [
 ] as const
 
 const VALID_STATUSES = ['active', 'paused', 'error', 'draft'] as const
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -52,7 +56,10 @@ export async function GET(req: Request) {
     }
 
     const rules = await query
-    return NextResponse.json({ ok: true, data: rules })
+    // Lets the editor default a new email automation to paused (with the
+    // reason) instead of promising it will run. Best-effort: null = unknown.
+    const emailConnected = await hasSendingSetup(knex, auth.orgId, 'automations').catch(() => null)
+    return NextResponse.json({ ok: true, data: rules, meta: { emailConnected } })
   } catch (error) {
     console.error('[automation-rules] GET error', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
@@ -196,26 +203,14 @@ export async function DELETE(req: Request) {
       id = typeof body?.id === 'string' ? body.id : null
     }
     if (!id) return NextResponse.json({ ok: false, error: 'id query param required' }, { status: 400 })
+    if (!UUID_RE.test(id)) return NextResponse.json({ ok: false, error: 'Rule not found' }, { status: 404 })
 
-    const rule = await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).first()
-    if (!rule) return NextResponse.json({ ok: false, error: 'Rule not found' }, { status: 404 })
-
-    // Preserve rule name in logs before unlinking
-    await knex('automation_rule_logs')
-      .where('rule_id', id)
-      .update({ deleted_rule_name: rule.name })
-
-    // Unlink logs from the rule (soft-handle)
-    await knex('automation_rule_logs')
-      .where('rule_id', id)
-      .update({ rule_id: null })
-
-    // Delete the rule
-    await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).del()
+    const result = await deleteAutomationRule(knex, auth.orgId, id)
+    if (result.status === 'not_found') return NextResponse.json({ ok: false, error: 'Rule not found' }, { status: 404 })
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('[automation-rules] DELETE error', error)
-    return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: 'Could not delete this automation. Please try again.' }, { status: 500 })
   }
 }
 
