@@ -40,7 +40,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 jest.mock('stripe', () => ({
   __esModule: true,
-  default: class { checkout = { sessions: { create: (params: any) => stripeCreate(params) } } },
+  default: class {
+    checkout = { sessions: { create: (params: any) => stripeCreate(params) } }
+    accounts = { retrieve: async (id: string) => ({ id, charges_enabled: id !== 'acct_off' }) }
+  },
 }))
 
 import { GET as checkoutGet, POST as checkoutPost } from '../checkout/route'
@@ -74,8 +77,8 @@ beforeEach(() => {
   tables.funnel_orders = []
 })
 
-const post = (slug: string, body: unknown) =>
-  checkoutPost(new Request(`https://crm.test/api/landing_pages/funnels/public/${slug}/checkout`, { method: 'POST', body: JSON.stringify(body) }), { params: Promise.resolve({ slug }) })
+const post = (slug: string, body: unknown, ip = '192.0.2.1') =>
+  checkoutPost(new Request(`https://crm.test/api/landing_pages/funnels/public/${slug}/checkout`, { method: 'POST', headers: { 'x-forwarded-for': ip }, body: JSON.stringify(body) }), { params: Promise.resolve({ slug }) })
 
 describe('public funnel checkout scope', () => {
   it('a step of another funnel is not found, on GET and POST', async () => {
@@ -99,6 +102,22 @@ describe('public funnel checkout scope', () => {
     await post('alpha', { stepId: 'sa', sid: 'sid-b', email: 'v@x.test' })
     expect(tables.funnel_sessions.find((s) => s.id === 'sid-b')?.email).toBe('b@x.test')
     expect(tables.funnel_sessions.filter((s) => s.funnel_id === 'fa')).toHaveLength(1)
+  })
+
+  it("says the funnel isn't set up to take payments when the business account cannot charge", async () => {
+    tables.stripe_connections = [{ organization_id: ORG_A, is_active: true, stripe_account_id: 'acct_off' }]
+    const res = await post('alpha', { stepId: 'sa', email: 'v@x.test' }, '192.0.2.50')
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("This page isn't set up to take payments yet")
+    tables.stripe_connections = []
+    expect((await (await post('alpha', { stepId: 'sa', email: 'v@x.test' }, '192.0.2.50')).json()).error).toBe("This page isn't set up to take payments yet")
+    expect(stripeCreate).not.toHaveBeenCalled()
+  })
+
+  it('rate limits one visitor per funnel', async () => {
+    for (let i = 0; i < 10; i++) expect((await post('alpha', { stepId: 'sa', email: 'v@x.test' }, '192.0.2.99')).status).toBe(200)
+    expect((await post('alpha', { stepId: 'sa', email: 'v@x.test' }, '192.0.2.99')).status).toBe(429)
+    expect((await post('alpha', { stepId: 'sa', email: 'v@x.test' }, '192.0.2.100')).status).toBe(200)
   })
 
   it('advance refuses a session of another funnel', async () => {

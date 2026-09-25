@@ -84,13 +84,35 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
 
     // Determine which step to show
     let currentStep = steps[0]
+    // `step=thank_you` is where checkout and advance send a buyer when no step
+    // follows theirs (the Stripe success_url). It used to match nothing and
+    // fall back to the first step, so paying buyers landed back on the start.
+    const wantsThankYou = stepParam === 'thank_you'
     if (stepParam) {
-      const found = steps.find((s: any) => s.id === stepParam || String(s.step_order) === stepParam)
+      const found = wantsThankYou
+        ? steps.find((s: any) => s.step_type === 'thank_you')
+        : steps.find((s: any) => s.id === stepParam || String(s.step_order) === stepParam)
       if (found) currentStep = found
     }
 
+    // After a checkout the buyer's funnel session is the one in the success
+    // URL (bound to this funnel); otherwise the visitor cookie decides.
+    const sidSession = wantsThankYou && sidParam
+      ? await knex('funnel_sessions').where('id', sidParam).where('funnel_id', funnel.id).first()
+      : null
+    if (wantsThankYou && currentStep.step_type !== 'thank_you') {
+      const orders = sidSession
+        ? await knex('funnel_orders as fo')
+          .leftJoin('products as p', 'p.id', 'fo.product_id')
+          .where('fo.session_id', sidSession.id)
+          .select('fo.*', 'p.name as product_name')
+          .orderBy('fo.created_at')
+        : []
+      return new Response(renderThankYou('Thank you for your purchase!', sidSession, orders), { headers: { 'Content-Type': 'text/html' } })
+    }
+
     // Get or create session
-    const session = await getOrCreateSession(knex, funnel.id, funnel.organization_id, visitorId, currentStep.id)
+    const session = sidSession ?? await getOrCreateSession(knex, funnel.id, funnel.organization_id, visitorId, currentStep.id)
 
     // Update session's current step
     await knex('funnel_sessions').where('id', session.id).update({ current_step_id: currentStep.id, updated_at: new Date() })

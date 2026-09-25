@@ -80,6 +80,8 @@ type PublicEndpoint = {
  */
 export const PUBLIC_SANDBOX_ENDPOINTS: readonly PublicEndpoint[] = [
   { pattern: /^\/api\/landing_pages\/public\/[^/]+\/submit$/, methods: ['POST'], caller: 'landing page forms' },
+  { pattern: /^\/api\/landing_pages\/public\/[^/]+\/checkout$/, methods: ['POST'], caller: 'landing page buy buttons (Stripe Checkout on the business account)' },
+  { pattern: /^\/api\/payments\/public\/offers\/[^/]+\/checkout$/, methods: ['POST'], caller: 'marketing page buy buttons for an offer (Stripe Checkout on the business account)' },
   { pattern: /^\/api\/landing_pages\/funnels\/public\/[^/]+\/(?:advance|upsell|checkout)$/, methods: ['POST'], caller: 'funnel steps' },
   { pattern: /^\/api\/forms\/public\/[^/]+\/submit$/, methods: ['POST'], caller: 'hosted and embedded forms' },
   { pattern: /^\/api\/surveys\/public\/[^/]+\/submit$/, methods: ['POST'], caller: 'surveys' },
