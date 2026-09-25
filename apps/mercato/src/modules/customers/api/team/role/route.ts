@@ -4,11 +4,7 @@ import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getTeamAuth, isTeamManager } from '../auth'
 import crypto from 'node:crypto'
-
-const MEMBER_FEATURES = [
-  'customers.*', 'calendar.*', 'payments.view', 'payments.manage',
-  'courses.view', 'courses.manage', 'forms.view', 'forms.manage',
-]
+import { resolveTeamRoleId, TeamRoleConfigError, type TeamRoleName } from '../../../lib/team-roles'
 
 export async function PUT(req: Request) {
   const auth = await getTeamAuth()
@@ -26,6 +22,16 @@ export async function PUT(req: Request) {
       return NextResponse.json({ ok: false, error: 'userId and role ("admin" or "member") are required' }, { status: 400 })
     }
 
+    // Every Noli customer shares one tenant: the target must be a member of
+    // the caller's own workspace, or this rewrote another customer's roles.
+    const target = await queryOne(
+      `SELECT id FROM users WHERE id = $1 AND organization_id = $2 AND tenant_id = $3 AND deleted_at IS NULL`,
+      [userId, auth.orgId, auth.tenantId]
+    )
+    if (!target) {
+      return NextResponse.json({ ok: false, error: 'Team member not found' }, { status: 404 })
+    }
+
     const org = await queryOne(`SELECT owner_user_id FROM organizations WHERE id = $1`, [auth.orgId])
     if (org?.owner_user_id === userId) {
       return NextResponse.json({ ok: false, error: 'Cannot change the owner\'s role' }, { status: 403 })
@@ -35,17 +41,15 @@ export async function PUT(req: Request) {
       return NextResponse.json({ ok: false, error: 'Only the owner can promote members to admin' }, { status: 403 })
     }
 
-    let targetRole = await queryOne(
-      `SELECT id FROM roles WHERE tenant_id = $1 AND name = $2 AND deleted_at IS NULL`,
-      [auth.tenantId, role]
-    )
-    if (!targetRole) {
-      const roleId = crypto.randomUUID()
-      await query(
-        `INSERT INTO roles (id, tenant_id, name, created_at) VALUES ($1, $2, $3, now())`,
-        [roleId, auth.tenantId, role]
-      )
-      targetRole = { id: roleId }
+    let roleId: string
+    try {
+      roleId = await resolveTeamRoleId({ query, queryOne }, String(auth.tenantId), role as TeamRoleName)
+    } catch (err) {
+      if (err instanceof TeamRoleConfigError) {
+        console.error('[team.role] role configuration', err.message)
+        return NextResponse.json({ ok: false, error: err.message }, { status: 500 })
+      }
+      throw err
     }
 
     await query(
@@ -55,26 +59,8 @@ export async function PUT(req: Request) {
 
     await query(
       `INSERT INTO user_roles (id, user_id, role_id, created_at) VALUES ($1, $2, $3, now())`,
-      [crypto.randomUUID(), userId, targetRole.id]
+      [crypto.randomUUID(), userId, roleId]
     )
-
-    const existingAcl = await queryOne(
-      `SELECT id FROM role_acls WHERE role_id = $1 AND tenant_id = $2`,
-      [targetRole.id, auth.tenantId]
-    )
-    if (!existingAcl) {
-      if (role === 'admin') {
-        await query(
-          `INSERT INTO role_acls (id, role_id, tenant_id, is_super_admin, created_at) VALUES ($1, $2, $3, true, now())`,
-          [crypto.randomUUID(), targetRole.id, auth.tenantId]
-        )
-      } else {
-        await query(
-          `INSERT INTO role_acls (id, role_id, tenant_id, is_super_admin, features_json, created_at) VALUES ($1, $2, $3, false, $4, now())`,
-          [crypto.randomUUID(), targetRole.id, auth.tenantId, JSON.stringify(MEMBER_FEATURES)]
-        )
-      }
-    }
 
     return NextResponse.json({ ok: true })
   } catch (error) {

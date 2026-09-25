@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
+import { isPublicSlugTaken } from '@/lib/public-slug'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['calendar.view'] },
@@ -105,6 +106,10 @@ export async function POST(req: Request, ctx: any) {
     const body = await req.json()
     const { title, slug, description, durationMinutes, meetingType, meetingLocation, zoomLink, autoConfirm, reminderConfig, availability, timezone } = body
     if (!title || !slug) return NextResponse.json({ ok: false, error: 'title and slug required' }, { status: 400 })
+    // The public booking link resolves by slug alone: unique across every organisation.
+    if (await isPublicSlugTaken(knex, 'booking_pages', slug)) {
+      return NextResponse.json({ ok: false, error: 'That booking link is already taken' }, { status: 409 })
+    }
 
     let availabilityValue: Record<string, { start: string; end: string }>
     let timezoneValue: string

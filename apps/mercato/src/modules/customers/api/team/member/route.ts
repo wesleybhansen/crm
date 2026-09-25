@@ -24,6 +24,17 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ ok: false, error: 'You cannot remove yourself' }, { status: 400 })
     }
 
+    // Every Noli customer shares one tenant: only a member of the caller's
+    // own workspace may be removed (the role/ACL clean-up below used to run
+    // for any user id, stripping another customer's users of their access).
+    const target = await queryOne(
+      `SELECT id FROM users WHERE id = $1 AND organization_id = $2 AND tenant_id = $3 AND deleted_at IS NULL`,
+      [userId, auth.orgId, auth.tenantId]
+    )
+    if (!target) {
+      return NextResponse.json({ ok: false, error: 'Team member not found' }, { status: 404 })
+    }
+
     const org = await queryOne(`SELECT owner_user_id FROM organizations WHERE id = $1`, [auth.orgId])
     if (org?.owner_user_id === userId) {
       return NextResponse.json({ ok: false, error: 'Cannot remove the organization owner' }, { status: 403 })

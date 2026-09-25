@@ -70,7 +70,7 @@ export async function POST(req: Request) {
     let affiliateCode = generateAffiliateCode()
     let attempts = 0
     while (attempts < 10) {
-      const dup = await knex('affiliates').where('organization_id', auth.orgId).where('affiliate_code', affiliateCode).first()
+      const dup = await knex('affiliates').where('affiliate_code', affiliateCode).first() // codes resolve publicly: unique across every organisation
       if (!dup) break
       affiliateCode = generateAffiliateCode()
       attempts++

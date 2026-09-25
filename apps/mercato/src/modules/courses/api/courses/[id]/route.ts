@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { isPublicSlugTaken } from '@/lib/public-slug'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['courses.view'] },
@@ -54,7 +55,12 @@ export async function PUT(req: Request, ctx: any) {
     if (body.price !== undefined) update.price = body.price
     if (body.isFree !== undefined) update.is_free = body.isFree
     if (body.isPublished !== undefined) update.is_published = body.isPublished
-    if (body.slug !== undefined) update.slug = body.slug
+    if (body.slug !== undefined) {
+      if (body.slug && await isPublicSlugTaken(knex, 'courses', body.slug, { liveOnly: true, excludeId: id })) {
+        return NextResponse.json({ ok: false, error: 'That course link is already taken' }, { status: 409 })
+      }
+      update.slug = body.slug
+    }
     if (body.termsText !== undefined) update.terms_text = body.termsText
     if (body.landingCopy !== undefined) update.landing_copy = JSON.stringify(body.landingCopy)
     if (body.landingStyle !== undefined) update.landing_style = body.landingStyle

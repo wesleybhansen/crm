@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { updateLandingPageSchema } from '../../../data/validators'
 import { TemplateEngine } from '../../../services/template-engine'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { isPublicSlugTaken } from '@/lib/public-slug'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['landing_pages.view'] },
@@ -86,7 +87,7 @@ export async function PUT(req: Request, ctx: any) {
     if (!page) return NextResponse.json({ ok: false, error: 'Page not found' }, { status: 404 })
 
     if (parsed.slug && parsed.slug !== page.slug) {
-      const dup = await knex('landing_pages').where('slug', parsed.slug).where('organization_id', scope.orgId).whereNull('deleted_at').whereNot('id', id).first()
+      const dup = await isPublicSlugTaken(knex, 'landing_pages', parsed.slug, { liveOnly: true, excludeId: id })
       if (dup) return NextResponse.json({ ok: false, error: 'Slug already exists' }, { status: 409 })
     }
 

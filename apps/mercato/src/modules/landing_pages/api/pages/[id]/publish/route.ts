@@ -121,8 +121,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             } else {
               // Create new form
               const formId = crypto.randomUUID()
-              const formSlug = page.slug + '-form'
-              const existingForm = await queryOne('SELECT id FROM forms WHERE slug = $1 AND organization_id = $2', [formSlug, auth.orgId])
+              const ownFormSlug = page.slug + '-form'
+              const existingForm = await queryOne('SELECT id FROM forms WHERE slug = $1 AND organization_id = $2', [ownFormSlug, auth.orgId])
+              // Form slugs are public and unique across every organisation.
+              let formSlug = ownFormSlug
+              if (!existingForm) {
+                for (let attempt = 0; attempt < 8; attempt++) {
+                  const taken = await queryOne('SELECT id FROM forms WHERE slug = $1 LIMIT 1', [formSlug])
+                  if (!taken) break
+                  formSlug = `${ownFormSlug}-${crypto.randomBytes(3).toString('hex')}`
+                }
+              }
               const finalFormSlug = existingForm ? formSlug + '-' + Date.now() : formSlug
 
               await query(

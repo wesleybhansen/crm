@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { isPublicSlugTaken, uniquePublicSlug } from '@/lib/public-slug'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -85,20 +86,8 @@ export async function POST(req: Request, ctx: any) {
     const name = (body.name || '').trim()
     if (!name) return NextResponse.json({ ok: false, error: 'Name is required' }, { status: 400 })
 
-    let slug = body.slug ? slugify(body.slug) : slugify(name)
-    let attempt = 0
-    let candidateSlug = slug
-    while (true) {
-      const existing = await knex('forms')
-        .where('slug', candidateSlug)
-        .where('organization_id', scope.orgId)
-        .where('is_active', true)
-        .first()
-      if (!existing) break
-      attempt++
-      candidateSlug = `${slug}-${attempt}`
-    }
-    slug = candidateSlug
+    // Public form links resolve by slug alone: unique across every organisation.
+    const slug = await uniquePublicSlug(knex, 'forms', body.slug ? slugify(body.slug) : slugify(name))
 
     const id = require('crypto').randomUUID()
     const now = new Date()
@@ -150,12 +139,7 @@ export async function PUT(req: Request, ctx: any) {
     if (!form) return NextResponse.json({ ok: false, error: 'Form not found' }, { status: 404 })
 
     if (body.slug && body.slug !== form.slug) {
-      const dup = await knex('forms')
-        .where('slug', slugify(body.slug))
-        .where('organization_id', scope.orgId)
-        .where('is_active', true)
-        .whereNot('id', body.id)
-        .first()
+      const dup = await isPublicSlugTaken(knex, 'forms', slugify(body.slug), { excludeId: body.id })
       if (dup) return NextResponse.json({ ok: false, error: 'A form with this slug already exists' }, { status: 409 })
     }
 

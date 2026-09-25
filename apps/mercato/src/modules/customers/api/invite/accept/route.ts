@@ -5,11 +5,9 @@ import { query, queryOne } from '@/lib/db'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import crypto from 'node:crypto'
 import bcrypt from 'bcryptjs'
-
-const MEMBER_FEATURES = [
-  'customers.*', 'calendar.*', 'payments.view', 'payments.manage',
-  'courses.view', 'courses.manage', 'forms.view', 'forms.manage',
-]
+import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { isTeamRoleName, resolveTeamRoleId, TeamRoleConfigError } from '../../../lib/team-roles'
 
 export async function GET(req: Request) {
   try {
@@ -68,79 +66,63 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'This invite has expired or is no longer valid' }, { status: 400 })
     }
 
-    // Check if user already exists in this specific org
-    const existingInOrg = await queryOne(
-      `SELECT id FROM users WHERE email = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-      [invite.email, invite.organization_id]
+    // Every Noli customer shares ONE tenant, so an invite must never move an
+    // existing account between workspaces or tenants: that rewrote the
+    // user's tenant/organisation, reset their password and signed the token
+    // holder in as them. Existing accounts are matched by email hash (users
+    // emails are encrypted at rest) with a plaintext fallback for legacy rows.
+    const inviteEmail = String(invite.email ?? '').trim().toLowerCase()
+    const existingUser = await queryOne(
+      `SELECT id, tenant_id, organization_id FROM users
+       WHERE (email_hash = $1 OR lower(email) = $2) AND deleted_at IS NULL
+       LIMIT 1`,
+      [computeEmailHash(inviteEmail), inviteEmail]
     )
-    if (existingInOrg) {
-      return NextResponse.json({ ok: false, error: 'You are already a member of this workspace' }, { status: 409 })
+    if (existingUser) {
+      if (String(existingUser.organization_id ?? '') === String(invite.organization_id)) {
+        return NextResponse.json({ ok: false, error: 'You are already a member of this workspace' }, { status: 409 })
+      }
+      if (String(existingUser.tenant_id ?? '') !== String(invite.tenant_id)) {
+        return NextResponse.json(
+          { ok: false, error: 'This email already has an account on a different tenant. Sign in with that account or contact support to move it.' },
+          { status: 409 },
+        )
+      }
+      return NextResponse.json(
+        { ok: false, error: 'This email already has an account in another workspace. Sign in with that account or contact support to move it.' },
+        { status: 409 },
+      )
+    }
+
+    let roleId: string
+    try {
+      roleId = await resolveTeamRoleId({ query, queryOne }, String(invite.tenant_id), isTeamRoleName(invite.role) ? invite.role : 'member')
+    } catch (err) {
+      if (err instanceof TeamRoleConfigError) {
+        console.error('[invite.accept] role configuration', err.message)
+        return NextResponse.json({ ok: false, error: err.message }, { status: 500 })
+      }
+      throw err
     }
 
     const passwordHash = await bcrypt.hash(password, 10)
-    let userId: string
-
-    // Check if email exists globally (user has account in another org)
-    const existingUser = await queryOne(
-      `SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL`,
-      [invite.email]
+    const userId = crypto.randomUUID()
+    const encrypted = await encryptRowForRawWrite(
+      'auth:user',
+      { email: inviteEmail, email_hash: computeEmailHash(inviteEmail) },
+      String(invite.tenant_id),
+      String(invite.organization_id),
     )
-    if (existingUser) {
-      // User exists in another org — update their record to point to this org
-      // (In a multi-org model, we'd create a separate user record, but the email unique constraint prevents that)
-      // Instead, update the existing user's org to the invited one and update password
-      userId = existingUser.id
-      await query(
-        `UPDATE users SET tenant_id = $1, organization_id = $2, name = COALESCE(NULLIF($3, ''), name), password_hash = $4 WHERE id = $5`,
-        [invite.tenant_id, invite.organization_id, name.trim(), passwordHash, userId]
-      )
-    } else {
-      userId = crypto.randomUUID()
-      await query(
-        `INSERT INTO users (id, tenant_id, organization_id, email, name, password_hash, is_confirmed, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, true, now())`,
-        [userId, invite.tenant_id, invite.organization_id, invite.email, name.trim(), passwordHash]
-      )
-    }
-
-    // Clean up any existing role assignments for this user in case they're moving orgs
-    await query(`UPDATE user_roles SET deleted_at = now() WHERE user_id = $1 AND deleted_at IS NULL`, [userId])
-
-    let role = await queryOne(
-      `SELECT id FROM roles WHERE tenant_id = $1 AND name = $2 AND deleted_at IS NULL`,
-      [invite.tenant_id, invite.role]
+    await query(
+      `INSERT INTO users (id, tenant_id, organization_id, email, email_hash, name, password_hash, is_confirmed, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, now())`,
+      [userId, invite.tenant_id, invite.organization_id, encrypted.email, encrypted.email_hash ?? computeEmailHash(inviteEmail), name.trim(), passwordHash]
     )
-    if (!role) {
-      const roleId = crypto.randomUUID()
-      await query(
-        `INSERT INTO roles (id, tenant_id, name, created_at) VALUES ($1, $2, $3, now())`,
-        [roleId, invite.tenant_id, invite.role]
-      )
-      role = { id: roleId }
-    }
 
     await query(
       `INSERT INTO user_roles (id, user_id, role_id, created_at) VALUES ($1, $2, $3, now())`,
-      [crypto.randomUUID(), userId, role.id]
+      [crypto.randomUUID(), userId, roleId]
     )
-
-    const existingAcl = await queryOne(
-      `SELECT id FROM role_acls WHERE role_id = $1 AND tenant_id = $2`,
-      [role.id, invite.tenant_id]
-    )
-    if (!existingAcl) {
-      if (invite.role === 'admin') {
-        await query(
-          `INSERT INTO role_acls (id, role_id, tenant_id, is_super_admin, created_at) VALUES ($1, $2, $3, true, now())`,
-          [crypto.randomUUID(), role.id, invite.tenant_id]
-        )
-      } else {
-        await query(
-          `INSERT INTO role_acls (id, role_id, tenant_id, is_super_admin, features_json, created_at) VALUES ($1, $2, $3, false, $4, now())`,
-          [crypto.randomUUID(), role.id, invite.tenant_id, JSON.stringify(MEMBER_FEATURES)]
-        )
-      }
-    }
 
     await query(
       `UPDATE team_invites SET status = 'accepted', accepted_at = now() WHERE id = $1`,
@@ -151,7 +133,7 @@ export async function POST(req: Request) {
       sub: userId,
       tenantId: invite.tenant_id,
       orgId: invite.organization_id,
-      email: invite.email,
+      email: inviteEmail,
       roles: [invite.role],
     })
 

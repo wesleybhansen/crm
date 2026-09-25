@@ -2,6 +2,7 @@
 export const metadata = { path: '/chat/widgets', GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
+import { isPublicSlugTaken, uniquePublicSlug } from '@/lib/public-slug'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -69,14 +70,8 @@ export async function POST(req: Request) {
     // Generate slug from name if not provided
     let finalSlug = slug?.trim() ? slugify(slug.trim()) : slugify(name.trim())
 
-    // Check for slug uniqueness within the org
-    const existingSlug = await knex('chat_widgets')
-      .where('organization_id', auth.orgId)
-      .andWhere('slug', finalSlug)
-      .first()
-    if (existingSlug) {
-      finalSlug = `${finalSlug}-${crypto.randomUUID().substring(0, 6)}`
-    }
+    // The public chat page resolves by slug alone: unique across every organisation.
+    finalSlug = await uniquePublicSlug(knex, 'chat_widgets', finalSlug)
 
     const id = crypto.randomUUID()
     const row: Record<string, unknown> = {
@@ -151,7 +146,13 @@ export async function PUT(req: Request) {
     if (body.greetingMessage !== undefined) updates.greeting_message = body.greetingMessage
     if (body.config !== undefined) updates.config = JSON.stringify(body.config)
     if (body.isActive !== undefined) updates.is_active = body.isActive
-    if (body.slug !== undefined) updates.slug = slugify(body.slug)
+    if (body.slug !== undefined) {
+      const nextSlug = slugify(body.slug)
+      if (nextSlug && await isPublicSlugTaken(knex, 'chat_widgets', nextSlug, { excludeId: id })) {
+        return NextResponse.json({ ok: false, error: 'That link name is already taken' }, { status: 409 })
+      }
+      updates.slug = nextSlug
+    }
     if (body.description !== undefined) updates.description = body.description
     if (body.brandColor !== undefined) updates.brand_color = body.brandColor
     if (body.welcomeMessage !== undefined) updates.welcome_message = body.welcomeMessage

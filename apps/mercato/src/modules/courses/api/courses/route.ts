@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { isPublicSlugTaken } from '@/lib/public-slug'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['courses.view'] },
@@ -39,6 +40,10 @@ export async function POST(req: Request, ctx: any) {
     const { title, description, slug, price, isFree } = body
 
     if (!title || !slug) return NextResponse.json({ ok: false, error: 'title and slug required' }, { status: 400 })
+    // The public course page resolves by slug alone: unique across every organisation.
+    if (await isPublicSlugTaken(knex, 'courses', slug, { liveOnly: true })) {
+      return NextResponse.json({ ok: false, error: 'That course link is already taken' }, { status: 409 })
+    }
 
     const id = require('crypto').randomUUID()
     await knex('courses').insert({

@@ -5,6 +5,7 @@ import { createLandingPageSchema, listLandingPagesSchema } from '../../data/vali
 import { TemplateEngine } from '../../services/template-engine'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
+import { isPublicSlugTaken } from '@/lib/public-slug'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['landing_pages.view'] },
@@ -65,11 +66,8 @@ export async function POST(req: Request, ctx: any) {
     const body = await req.json()
     const parsed = createLandingPageSchema.parse(body)
 
-    const existing = await knex('landing_pages')
-      .where('slug', parsed.slug)
-      .where('organization_id', auth.orgId)
-      .whereNull('deleted_at')
-      .first()
+    // Public pages resolve by slug alone: unique across every organisation.
+    const existing = await isPublicSlugTaken(knex, 'landing_pages', parsed.slug, { liveOnly: true })
     if (existing) {
       return NextResponse.json({ ok: false, error: 'A page with this slug already exists' }, { status: 409 })
     }

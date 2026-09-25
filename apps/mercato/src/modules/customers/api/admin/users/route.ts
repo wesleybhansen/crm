@@ -3,6 +3,8 @@ export const metadata = { path: '/admin/users', GET: { requireAuth: true } }
 import { NextRequest, NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getAdminAuth } from '../auth'
+import { decryptRowFieldsByRowScope } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 
 export async function GET(request: NextRequest) {
   const admin = await getAdminAuth()
@@ -16,6 +18,7 @@ export async function GET(request: NextRequest) {
   let countSql = `SELECT COUNT(*)::int as total FROM users u WHERE u.deleted_at IS NULL`
   let sql = `
     SELECT u.id, u.name, u.email, u.created_at, u.last_login_at,
+      u.tenant_id as scope_tenant_id, u.organization_id as scope_org_id,
       o.name as org_name, bp.business_name,
       r.name as role_name
     FROM users u
@@ -28,10 +31,12 @@ export async function GET(request: NextRequest) {
   const params: (string | number)[] = []
 
   if (search) {
-    const searchClause = ` AND (u.name ILIKE $1 OR u.email ILIKE $1)`
+    // users.email is encrypted at rest, so an ILIKE on it matched ciphertext.
+    // Emails match exactly through the lookup hash; names still match loosely.
+    const searchClause = ` AND (u.name ILIKE $1 OR u.email_hash = $2)`
     countSql += searchClause
     sql += searchClause
-    params.push(`%${search}%`)
+    params.push(`%${search}%`, computeEmailHash(search))
   }
 
   sql += ` ORDER BY u.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`
@@ -44,9 +49,16 @@ export async function GET(request: NextRequest) {
     query(sql, params),
   ])
 
+  // Each row is decrypted with its own tenant/organisation key scope.
+  await decryptRowFieldsByRowScope(null, 'auth:user', rows, ['email'], {
+    tenantColumn: 'scope_tenant_id',
+    orgColumn: 'scope_org_id',
+  })
+  const data = rows.map(({ scope_tenant_id: _t, scope_org_id: _o, ...row }: Record<string, unknown>) => row)
+
   return NextResponse.json({
     ok: true,
-    data: rows,
+    data,
     pagination: {
       page,
       pageSize,

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { uniquePublicSlug } from '@/lib/public-slug'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['landing_pages.view'] },
@@ -87,14 +88,16 @@ export async function POST(req: Request, ctx: any) {
       return NextResponse.json({ ok: false, error: 'Name is required' }, { status: 400 })
     }
 
-    const slug = slugify(body.name)
-    const existing = await knex('funnels')
-      .where('slug', slug)
+    const baseSlug = slugify(body.name)
+    const ownDuplicate = await knex('funnels')
+      .where('slug', baseSlug)
       .where('organization_id', scope.orgId)
       .first()
-    if (existing) {
+    if (ownDuplicate) {
       return NextResponse.json({ ok: false, error: 'A funnel with this slug already exists' }, { status: 409 })
     }
+    // Public funnel links resolve by slug alone: unique across every organisation.
+    const slug = await uniquePublicSlug(knex, 'funnels', baseSlug)
 
     const id = require('crypto').randomUUID()
     const now = new Date()
