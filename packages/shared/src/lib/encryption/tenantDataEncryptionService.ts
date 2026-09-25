@@ -259,6 +259,21 @@ export class TenantDataEncryptionService {
     return null
   }
 
+  /**
+   * The encrypted-by-design fields for an entity in a tenant/org scope, resolved
+   * exactly as encryptEntityPayload resolves them (same precedence: org map,
+   * then tenant map, then global map; same caches). Empty when the scope has no
+   * active map, which means the runtime would not encrypt that entity either.
+   */
+  async resolveEncryptedFields(
+    entityId: string,
+    tenantId: string | null | undefined,
+    organizationId?: string | null,
+  ): Promise<EncryptedFieldRule[]> {
+    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    return map?.fields?.length ? map.fields.map((rule) => ({ ...rule })) : []
+  }
+
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
     const tag = cacheKey({ entityId, tenantId, organizationId })
     this.memoryCache.delete(tag)

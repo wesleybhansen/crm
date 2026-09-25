@@ -110,4 +110,14 @@ describe('envelope v2 with key id', () => {
     }
     expect(() => decryptWithAesGcmStrict('not-an-envelope', keyA)).toThrow(TenantDataEncryptionError)
   })
+
+  it('reads back an encrypted empty string (zero-length ciphertext is valid AES-GCM)', () => {
+    // The write path has always encrypted '' this way; rejecting it made every
+    // contact saved with an empty field show "could not be decrypted".
+    const env = encryptWithAesGcm('', keyA).value as string
+    expect(env.split(':')[1]).toBe('')
+    expect(isEncryptedEnvelope(env)).toBe(true)
+    expect(decryptWithAesGcmStrict(env, keyA)).toBe('')
+    expect(() => decryptWithAesGcmStrict(env, keyB)).toThrow(TenantDataEncryptionError)
+  })
 })

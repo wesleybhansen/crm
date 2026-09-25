@@ -1,0 +1,33 @@
+/** Deterministic lookup-hash columns maintained alongside encryption, keyed by
+ *  entity id. The hash is of the normalized plaintext; a cleared source field
+ *  clears its hash. `source`/`target` are ORM property names (camelCase);
+ *  `sourceColumn`/`targetColumn` are the database columns, for raw writers.
+ *
+ *  Shared by the ORM subscriber and encryptRowForRawWrite so both paths hash
+ *  the same way. Relative imports only (reachable from workers). */
+export type LookupHashRule = {
+  source: string
+  target: string
+  sourceColumn: string
+  targetColumn: string
+  normalize: (v: string) => string
+}
+
+export const LOOKUP_HASH_RULES: Record<string, LookupHashRule[]> = {
+  'customers:customer_entity': [
+    {
+      source: 'primaryEmail',
+      target: 'primaryEmailHash',
+      sourceColumn: 'primary_email',
+      targetColumn: 'primary_email_hash',
+      normalize: (v) => v.toLowerCase().trim(),
+    },
+    {
+      source: 'primaryPhone',
+      target: 'primaryPhoneHash',
+      sourceColumn: 'primary_phone',
+      targetColumn: 'primary_phone_hash',
+      normalize: (v) => v.replace(/\D/g, ''),
+    },
+  ],
+}

@@ -6,6 +6,7 @@ import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
 import { hashForLookup } from './aes'
+import { LOOKUP_HASH_RULES } from './lookupHashRules'
 
 type Scoped = {
   tenantId?: string | null
@@ -17,16 +18,6 @@ type Scoped = {
 }
 
 type Scope = { tenantId: string | null; organizationId: string | null }
-
-/** Deterministic lookup-hash columns maintained alongside encryption, keyed by
- *  entity id. The hash is of the normalized plaintext; a cleared source field
- *  clears its hash. */
-const LOOKUP_HASH_RULES: Record<string, Array<{ source: string; target: string; normalize: (v: string) => string }>> = {
-  'customers:customer_entity': [
-    { source: 'primaryEmail', target: 'primaryEmailHash', normalize: (v) => v.toLowerCase().trim() },
-    { source: 'primaryPhone', target: 'primaryPhoneHash', normalize: (v) => v.replace(/\D/g, '') },
-  ],
-}
 
 function resolveScope(entity: Scoped): Scope {
   const tenantId = entity.tenantId ?? entity.tenant_id ?? entity.tenant?.id ?? null

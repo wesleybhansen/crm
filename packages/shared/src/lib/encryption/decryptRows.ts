@@ -56,6 +56,13 @@ export async function decryptRowFields<T extends Record<string, any>>(
       for (const field of fields) {
         const value = (decrypted as Record<string, unknown>)?.[field]
         if (typeof value === 'string') (row as Record<string, unknown>)[field] = value
+        // The service JSON-parses what it decrypts, so a stored JSON body (form
+        // submission activity) or a digits-only phone comes back as an object
+        // or a number. A raw-read caller expects the column's text, and leaving
+        // the field alone would leave the ciphertext in the row.
+        else if (value !== null && value !== undefined && value !== payload[field]) {
+          (row as Record<string, unknown>)[field] = JSON.stringify(value)
+        }
       }
     } catch (err) {
       // A decrypt failure on a raw-read path is how a key swap hides for weeks,
@@ -85,6 +92,10 @@ export async function decryptRowFields<T extends Record<string, any>>(
 /** Contact fields encrypted at rest (`customers:customer_entity`). */
 export const CONTACT_ENTITY_KEY = 'customers:customer_entity'
 export const CONTACT_ENCRYPTED_FIELDS = ['display_name', 'primary_email', 'primary_phone'] as const
+
+/** Activity fields encrypted at rest (`customers:customer_activity`). */
+export const ACTIVITY_ENTITY_KEY = 'customers:customer_activity'
+export const ACTIVITY_ENCRYPTED_FIELDS = ['subject', 'body'] as const
 
 /** Deal fields encrypted at rest (`customers:customer_deal`). */
 export const DEAL_ENTITY_KEY = 'customers:customer_deal'

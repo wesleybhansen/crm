@@ -197,7 +197,11 @@ export function decryptWithAesGcmStrict(payload: string, dekBase64: string): str
       'Failed to decode base64 components',
     )
   }
-  if (iv.length !== 12 || tag.length !== 16 || ciphertext.length === 0) {
+  // A zero-length ciphertext is legitimate: it is how AES-GCM encrypts the
+  // empty string, and the write path has always encrypted '' that way. The
+  // 16-byte tag still authenticates it. Rejecting it here made every contact
+  // saved with an empty field unreadable ("could not be decrypted").
+  if (iv.length !== 12 || tag.length !== 16) {
     throw new TenantDataEncryptionError(
       TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD,
       'Invalid AES-GCM payload: unexpected IV, tag, or ciphertext size',
