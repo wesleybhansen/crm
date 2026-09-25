@@ -1239,3 +1239,41 @@ describe('buildSourcePlan pricing and limits', () => {
     if (!plan.ok) expect(plan.unsupportedDimensions[0]?.dimension).toBe('license')
   })
 })
+
+describe('national-scope Maps plays freeze their starting metros into the plan', () => {
+  const maps = (() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const m = require('../adapters/dataforseo/maps') as typeof import('../adapters/dataforseo/maps')
+    return {
+      m,
+      adapter: m.createDataForSeoMapsAdapter({ env: {
+        GTM_DATAFORSEO_ENABLED: 'true', GTM_DATAFORSEO_LOGIN: 'l', GTM_DATAFORSEO_PASSWORD: 'p', GTM_DATAFORSEO_CUSTOMER_USE_APPROVED: 'true',
+        GTM_DATAFORSEO_TERMS_VERSION: m.DATAFORSEO_REQUIRED_TERMS_VERSION, GTM_DATAFORSEO_PRICE_VERSION: m.DATAFORSEO_REQUIRED_PRICE_VERSION,
+        GTM_DATAFORSEO_RETENTION_DAYS: String(m.DATAFORSEO_REQUIRED_RETENTION_DAYS),
+      } }),
+    }
+  })()
+  const play = (locations: string[], geography: string): PlanPlayInput => ({
+    marketType: 'b2b', geography, signal: 'Listed on Google Maps', signalKind: 'local_business_listing', entityUnit: 'companies',
+    audience: 'Independent dental practices', providerQuery: { company_keywords: ['dentist'], locations },
+  })
+
+  it('Nationwide US: the plan records the metros and quotes one task per metro; the play text is untouched', () => {
+    const input = play(['United States'], 'United States')
+    const plan = buildSourcePlan(input, [maps.adapter], { targetAccepted: 20, maxRawCandidates: 100 })
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    const entry = plan.adapterPlan[0]
+    expect(entry.providerQuery?.search_metros).toEqual(maps.m.MAPS_NATIONAL_STARTING_METROS)
+    expect(entry.providerQuery?.locations).toEqual(['United States'])
+    expect(entry.providerUnits).toBe(maps.m.MAPS_NATIONAL_STARTING_METROS.length)
+    expect(input.providerQuery?.search_metros).toBeUndefined()
+  })
+
+  it('TX: the plan records the state\'s largest cities; a city play records none', () => {
+    const tx = buildSourcePlan(play(['TX'], 'Texas'), [maps.adapter], { targetAccepted: 20, maxRawCandidates: 100 })
+    expect(tx.ok && tx.adapterPlan[0].providerQuery?.search_metros).toEqual(maps.m.mapsStartingMetros(['TX']))
+    const city = buildSourcePlan(play(['Denver, CO'], 'Denver, CO'), [maps.adapter], { targetAccepted: 20, maxRawCandidates: 100 })
+    expect(city.ok && city.adapterPlan[0].providerQuery?.search_metros).toBeUndefined()
+  })
+})

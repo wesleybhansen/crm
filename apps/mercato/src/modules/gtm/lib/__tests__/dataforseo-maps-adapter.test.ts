@@ -10,6 +10,8 @@ import {
   listingDomain,
   listingPhone,
   listingWebsite,
+  mapsStartingMetros,
+  MAPS_NATIONAL_STARTING_METROS,
 } from '../adapters/dataforseo/maps'
 
 const approvedEnv = {
@@ -453,5 +455,75 @@ describe('listing contact routes (hostile inputs, both directions)', () => {
     'javascript:alert(1)', 'ftp://example.test/file', 'not a url', 'fosterdenver.com', null,
   ])('drops a non-website: %p', (value) => {
     expect(listingWebsite(value)).toBeNull()
+  })
+})
+
+
+describe('national- and state-scope Maps plays search starting metros (noli-platform #354)', () => {
+  const task = (location: string, n: number) => ({
+    status_code: 20000, cost: 0.002,
+    result: [{ datetime: '2026-09-25 10:00:00 +00:00', items: Array.from({ length: n }, (_, i) => ({
+      type: 'maps_search', title: `${location.split(',')[0]} Dental ${i}`, category: 'Dentist',
+      address: `${i} Main St, ${location.split(',')[0]}`, place_id: `${location}-${i}`, cid: `${location}-${i}`,
+      url: `https://${location.split(',')[0].toLowerCase().replace(/\s+/g, '')}${i}.example`,
+      address_info: { city: location.split(',')[0], region: location.split(',')[1], country_code: 'US' },
+    })) }],
+  })
+  function fakeFetch() {
+    const sent: Array<{ location_name: string; depth: number }> = []
+    const fetchImpl = async (_url: string, init: { body: string }) => {
+      const [body] = JSON.parse(init.body)
+      sent.push({ location_name: body.location_name, depth: body.depth })
+      const json = { status_code: 20000, cost: 0.002, tasks: [task(body.location_name, 3)] }
+      return new Response(JSON.stringify(json), { status: 200 })
+    }
+    return { fetchImpl: fetchImpl as never, sent }
+  }
+  const plan = (locations: string[]) => ({
+    signal_kind: 'local_business_listing', entity_unit: 'companies', geography: 'US',
+    query: 'independent dental practice', max_candidates: 100,
+    provider_query: { company_keywords: ['dentist'], locations },
+  })
+
+  it('"Nationwide US" is searched in the largest US metros, each a priced task the quote counts', async () => {
+    expect(mapsStartingMetros(['Nationwide US'])).toEqual(MAPS_NATIONAL_STARTING_METROS)
+    expect(mapsStartingMetros(['United States'])).toEqual(MAPS_NATIONAL_STARTING_METROS)
+    const { fetchImpl, sent } = fakeFetch()
+    const adapter = createDataForSeoMapsAdapter({ env: approvedEnv, fetchImpl })
+    expect(adapter.quote(plan(['Nationwide US'])).provider_units).toBe(MAPS_NATIONAL_STARTING_METROS.length)
+    const out = await adapter.search(plan(['Nationwide US']))
+    expect(sent.map((s) => s.location_name)).toEqual(MAPS_NATIONAL_STARTING_METROS)
+    expect(sent.every((s) => s.depth === 25)).toBe(true)
+    expect(out.status).toBe('ok')
+    expect(out.data).toHaveLength(12)
+    expect(out.cost_units).toBeCloseTo(4 * (0.002 / (DATAFORSEO_DEFAULT_USD_PER_100_RESULTS)), 5)
+    expect((out.receipt as Record<string, unknown>).searched_locations).toHaveLength(4)
+    expect(new Set(out.data!.map((row) => (row.identity as Record<string, unknown>).provider_location)).size).toBe(4)
+  })
+
+  it('a state scope ("TX") is searched in that state\'s largest cities', async () => {
+    expect(mapsStartingMetros(['TX'])).toEqual([
+      'Houston,Texas,United States', 'Dallas,Texas,United States', 'San Antonio,Texas,United States', 'Austin,Texas,United States',
+    ])
+    expect(mapsStartingMetros(['Colorado'])).toEqual(['Denver,Colorado,United States', 'Colorado Springs,Colorado,United States', 'Aurora,Colorado,United States'])
+    const { fetchImpl, sent } = fakeFetch()
+    const out = await createDataForSeoMapsAdapter({ env: approvedEnv, fetchImpl }).search(plan(['TX']))
+    expect(sent.map((s) => s.location_name)).toEqual(mapsStartingMetros(['TX']))
+    expect(out.data).toHaveLength(12)
+  })
+
+  it('a city, county or metro play, or a play with no location, is searched exactly as before', () => {
+    for (const place of ['Denver, CO', 'Denver metro, Colorado', 'Maricopa County, AZ', 'Austin, Texas']) {
+      expect(mapsStartingMetros([place])).toBeNull()
+    }
+    expect(mapsStartingMetros([])).toBeNull()
+    const adapter = createDataForSeoMapsAdapter({ env: approvedEnv })
+    expect(adapter.quote(plan(['Denver, CO'])).provider_units).toBe(1)
+  })
+
+  it('a frozen plan record wins over re-deriving, so quote, run and receipts read one list', () => {
+    const adapter = createDataForSeoMapsAdapter({ env: approvedEnv })
+    const frozen = { ...plan(['Nationwide US']), provider_query: { ...plan(['Nationwide US']).provider_query, search_metros: ['Phoenix,Arizona,United States', 'Houston,Texas,United States'] } }
+    expect(adapter.quote(frozen).provider_units).toBe(2)
   })
 })

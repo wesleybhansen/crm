@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { adapterAudienceRights, capabilityCovers, type AdapterDescriptor, type SourceAdapter } from '../adapters/types'
 import { creditsForUnits, defaultMarkupMultiplier } from '../credits/markup'
+import { DATAFORSEO_MAPS_ADAPTER_ID, planSearchMetros } from '../adapters/dataforseo/maps'
 import { computeGtmPolicy, policyInputFromPlay, type GtmPolicyResult } from '../policy'
 import { compileQualificationProfile, type QualificationProfile } from './qualify'
 import { buildOpportunityQueryLanes, opportunitySourceRouting } from './opportunity-query-lanes'
@@ -769,7 +770,12 @@ export function buildSourcePlan(
         priceVersion: descriptor.cost_model.price_version,
         termsVersion: descriptor.constraints.license.terms_version,
         descriptorHash: descriptorHash(descriptor),
-        providerQuery: plannedSource.providerQuery,
+        // A national- or state-scope Maps play is searched in starting metros
+        // (adapters/dataforseo/maps.ts); freeze them into the plan so the
+        // quote, the run and the receipts all read the same list.
+        providerQuery: descriptor.adapter_id === DATAFORSEO_MAPS_ADAPTER_ID && plannedSource.providerQuery
+          ? withSearchMetros(plannedSource.providerQuery)
+          : plannedSource.providerQuery,
         queryLaneId: plannedSource.queryLaneId,
         continuationPage: page,
         continuationOffset: pagination ? (page - 1) * pageSize : null,
@@ -832,4 +838,10 @@ export function buildSourcePlan(
     ...pricedPlan,
     planHash: immutableHash(pricedPlan),
   }
+}
+
+/** The provider query with its starting metros frozen in, when it has any. */
+function withSearchMetros(providerQuery: Record<string, unknown>): Record<string, unknown> {
+  const metros = planSearchMetros(providerQuery)
+  return metros ? { ...providerQuery, search_metros: metros } : providerQuery
 }
