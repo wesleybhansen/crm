@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { plural } from '../lib/plural'
 import {
   FlaskConical, Loader2, Plus, Trash2, Trophy, BarChart3, Globe, ChevronDown, ChevronUp, Code2, Pause, Play,
 } from 'lucide-react'
@@ -59,7 +60,7 @@ function ThirtyDayChart({ days }: { days: AnalyticsData['days'] }) {
         const sh = Math.round((t.submissions / maxViews) * height)
         return (
           <g key={t.day}>
-            <title>{`${t.day}: ${t.views} views, ${t.submissions} submissions`}</title>
+            <title>{`${t.day}: ${plural(t.views, 'view')}, ${plural(t.submissions, 'submission')}`}</title>
             <rect x={x} y={height - vh} width={barWidth} height={Math.max(vh, t.views > 0 ? 2 : 0)} rx={1} className="fill-blue-200 dark:fill-blue-900" />
             <rect x={x} y={height - sh} width={barWidth} height={Math.max(sh, t.submissions > 0 ? 2 : 0)} rx={1} className="fill-blue-600 dark:fill-blue-400" />
           </g>
@@ -264,8 +265,8 @@ export default function AbTestPanel({ pageId }: { pageId: string }) {
             <span className="text-[10px] text-muted-foreground">{controlWeight}% of traffic</span>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-            <span>{control.viewCount} views</span>
-            <span>{control.submissionCount} submissions</span>
+            <span>{plural(control.viewCount, 'view')}</span>
+            <span>{plural(control.submissionCount, 'submission')}</span>
             <span className="font-medium text-foreground">{pct(controlRate)} conversion</span>
           </div>
         </div>
@@ -293,8 +294,8 @@ export default function AbTestPanel({ pageId }: { pageId: string }) {
                 </span>
               </div>
               <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                <span>{views} views</span>
-                <span>{submissions} submissions</span>
+                <span>{plural(views, 'view')}</span>
+                <span>{plural(submissions, 'submission')}</span>
                 <span className="font-medium text-foreground">{pct(cr)} conversion</span>
               </div>
               {(variant.status === 'active' || variant.status === 'paused') && (
