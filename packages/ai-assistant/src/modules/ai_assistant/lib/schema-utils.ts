@@ -6,6 +6,32 @@ import { z, type ZodType } from 'zod'
 const safeSchemaCache = new WeakMap<ZodType, ZodType>()
 
 /**
+ * A tool's input as JSON Schema, from the CALLER's side (`io: 'input'`).
+ * The default (output) view marks every `.default()` field as required, so
+ * optional arguments such as `limit` or `eventLimit` turned into required
+ * ones in every MCP client (MCP sweep 2026-09-25).
+ */
+export function toolInputJsonSchema(schema: ZodType): Record<string, unknown> {
+  return z.toJSONSchema(schema, { unrepresentable: 'any', io: 'input' }) as Record<string, unknown>
+}
+
+/** toolInputJsonSchema for tool listings: never throws (an open object instead). */
+export function toolListingJsonSchema(schema: ZodType | undefined | null): Record<string, unknown> {
+  if (!schema) return { type: 'object', properties: {} }
+  try {
+    return toolInputJsonSchema(schema)
+  } catch {
+    return { type: 'object', properties: {}, additionalProperties: true }
+  }
+}
+
+/** Keep a JSON Schema description on the rebuilt Zod schema. */
+function withDescription(schema: ZodType, jsonSchema: Record<string, unknown>): ZodType {
+  const description = jsonSchema.description
+  return typeof description === 'string' && description ? schema.describe(description) : schema
+}
+
+/**
  * Convert a JSON Schema to a simple Zod schema.
  * This creates a schema that can be converted back to JSON Schema without errors.
  *
@@ -18,12 +44,19 @@ const safeSchemaCache = new WeakMap<ZodType, ZodType>()
  * - Enum values
  */
 export function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
+  return withDescription(jsonSchemaToZodInner(jsonSchema), jsonSchema)
+}
+
+function jsonSchemaToZodInner(jsonSchema: Record<string, unknown>): ZodType {
   const type = jsonSchema.type as string | undefined
 
   if (type === 'string') {
     return z.string()
   }
-  if (type === 'number' || type === 'integer') {
+  if (type === 'integer') {
+    return z.number().int()
+  }
+  if (type === 'number') {
     return z.number()
   }
   if (type === 'boolean') {
@@ -125,7 +158,7 @@ export function toSafeZodSchema(schema: ZodType): ZodType {
 
   try {
     // Use Zod 4's toJSONSchema with unrepresentable: 'any' to handle Date types
-    const jsonSchema = z.toJSONSchema(schema, { unrepresentable: 'any' }) as Record<string, unknown>
+    const jsonSchema = toolInputJsonSchema(schema)
 
     // Convert back to a simple Zod schema without Date types
     const safeSchema = jsonSchemaToZod(jsonSchema)

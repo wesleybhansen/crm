@@ -16,6 +16,7 @@ import { decryptRowFields, CONTACT_ENTITY_KEY, DEAL_ENTITY_KEY } from '@open-mer
 import { contactLookupForOrganization, contactLookupForTenant, whereContactEmailIn } from '../../../lib/contact-lookup'
 import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
+import { listContactNotes } from '../../../lib/contact-notes'
 
 export const metadata = { path: '/ai/meeting-prep',
   POST: { requireAuth: false },
@@ -152,14 +153,9 @@ async function loadContactData(knex: ReturnType<EntityManager['getKnex']>, orgId
   const interactions: Array<{ type: string; content: string; date: string }> = []
 
   try {
-    const notes = await knex('contact_notes')
-      .where('contact_id', contactId)
-      .where('organization_id', orgId)
-      .orderBy('created_at', 'desc')
-      .limit(5)
-      .select('content', 'created_at')
+    const notes = await listContactNotes(knex, null, contactId, { tenantId, organizationId: orgId }, 5)
     for (const note of notes) {
-      interactions.push({ type: 'note', content: note.content?.substring(0, 200) || '', date: note.created_at })
+      interactions.push({ type: 'note', content: note.content?.substring(0, 200) || '', date: note.created_at instanceof Date ? note.created_at.toISOString() : String(note.created_at) })
     }
   } catch {}
 

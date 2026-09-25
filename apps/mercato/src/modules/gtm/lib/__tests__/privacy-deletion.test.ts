@@ -152,8 +152,13 @@ describe('removal deletion hardening', () => {
 
     const ctx = { organizationId: ORG, tenantId: TENANT, userId: USER }
     const entities = { contact: FakeCustomerEntity as never, person: FakeCustomerPerson as never }
-    const completed = await completeCrmContactDeletion(em, ctx, entities, { requestId: tenantRequest.id }, { clock })
+    // The contact's notes, tasks, comments, activities and search entries are
+    // erased with it (MCP sweep 2026-09-25).
+    const purgeDependents = jest.fn(async (_ids: string[]) => ({ tasks: 1, notes: 2, comments: 1 }))
+    const completed = await completeCrmContactDeletion(em, ctx, entities, { requestId: tenantRequest.id }, { clock, purgeDependents })
     expect(completed).toMatchObject({ contactsAnonymized: 1, alreadyCompleted: false })
+    expect(purgeDependents).toHaveBeenCalledWith([CONTACT_ID])
+    expect(operation.receipt).toMatchObject({ dependents_purged: { tasks: 1, notes: 2, comments: 1 } })
     expect(operation.status).toBe('completed')
     expect(contact).toMatchObject({
       displayName: 'Removed contact',
@@ -173,8 +178,9 @@ describe('removal deletion hardening', () => {
       expect(JSON.stringify(row)).not.toContain('Synthetic Promoted')
     }
     // Idempotent: a second completion changes nothing.
-    const again = await completeCrmContactDeletion(em, ctx, entities, { requestId: tenantRequest.id }, { clock })
+    const again = await completeCrmContactDeletion(em, ctx, entities, { requestId: tenantRequest.id }, { clock, purgeDependents })
     expect(again).toMatchObject({ contactsAnonymized: 0, alreadyCompleted: true })
+    expect(purgeDependents).toHaveBeenCalledTimes(1)
     // Foreign scope is opaque.
     expect(
       await completeCrmContactDeletion(

@@ -8,7 +8,7 @@ import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
-import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
+import { jsonSchemaToZod, toSafeZodSchema, toolInputJsonSchema } from './schema-utils'
 import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -16,6 +16,8 @@ import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/c
 import { checkApiKeyScopes } from '@open-mercato/core/modules/api_keys/lib/apiKeyScopes'
 import { MCP_BOOTSTRAP_INSTRUCTIONS } from './agent-guide-tool'
 import { createRunOncePerOwner, listenBeforeOptionalStartupTask } from './optional-startup-task'
+import { isPlatformTransportKey, sessionAllowedForKey } from './session-scope'
+import { mcpContentForResult } from './tool-result'
 
 /**
  * Options for the HTTP MCP server.
@@ -26,16 +28,26 @@ export type McpHttpServerOptions = {
   port: number
 }
 
+/** The per-request context: the API key's own scope travels with it. */
+export type McpRequestContext = McpToolContext & {
+  isTransportKey?: boolean
+  keyTenantId?: string | null
+  keyOrganizationId?: string | null
+}
+
 /**
  * Resolve user context from session token.
- * Returns null if session token is invalid or expired.
+ * Returns null if session token is invalid or expired, and 'wrong-scope' when
+ * the session belongs to another tenant/organization than the calling API key.
  * Includes the decrypted API key secret for making authenticated API calls.
+ * Exported for tests.
  */
-async function resolveSessionContext(
+export async function resolveSessionContext(
   sessionToken: string,
-  baseContext: McpToolContext,
+  baseContext: McpRequestContext,
   debug?: boolean
-): Promise<McpToolContext | null> {
+): Promise<McpToolContext | null | 'wrong-scope'> {
+  const baseKeyScope = { tenantId: baseContext.keyTenantId ?? null, organizationId: baseContext.keyOrganizationId ?? null }
   try {
     const em = baseContext.container.resolve<EntityManager>('em')
     const rbacService = baseContext.container.resolve<RbacService>('rbacService')
@@ -50,6 +62,13 @@ async function resolveSessionContext(
     }
 
     const { key: sessionKey, secret: sessionSecret } = sessionResult
+
+    // A session must belong to the calling API key's own tenant/organization
+    // (except the platform assistant transport key). See session-scope.ts.
+    if (!sessionAllowedForKey(sessionKey, baseKeyScope, { transportKey: baseContext.isTransportKey === true })) {
+      console.error('[MCP HTTP] Session token refused: it belongs to another tenant or organization than the API key')
+      return 'wrong-scope'
+    }
 
     // Load ACL for the session user
     const userId = sessionKey.sessionUserId || sessionKey.createdBy
@@ -104,7 +123,7 @@ async function resolveSessionContext(
  */
 function createMcpServerForRequest(
   config: McpServerConfig,
-  toolContext: McpToolContext
+  toolContext: McpRequestContext
 ): McpServer {
   // Inject bootstrap instructions into the initialize response so compliant
   // MCP clients fold them into the agent system prompt automatically.
@@ -134,7 +153,7 @@ function createMcpServerForRequest(
     if (tool.inputSchema) {
       try {
         // Convert to JSON Schema first
-        const jsonSchema = z.toJSONSchema(tool.inputSchema, { unrepresentable: 'any' }) as Record<string, unknown>
+        const jsonSchema = toolInputJsonSchema(tool.inputSchema)
 
         // Inject _sessionToken into the JSON schema properties
         const properties = (jsonSchema.properties ?? {}) as Record<string, unknown>
@@ -192,6 +211,20 @@ function createMcpServerForRequest(
           let effectiveContext = toolContext
           if (sessionToken) {
             const sessionContext = await resolveSessionContext(sessionToken, toolContext, config.debug)
+            if (sessionContext === 'wrong-scope') {
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      error: 'This session token belongs to a different organization than your API key.',
+                      code: 'UNAUTHORIZED',
+                    }),
+                  },
+                ],
+                isError: true,
+              }
+            }
             if (sessionContext) {
               // Session context includes the decrypted API key secret
               effectiveContext = sessionContext
@@ -297,14 +330,8 @@ function createMcpServerForRequest(
             console.error(`[MCP HTTP] ✓ Tool success: ${tool.name}`, {
               resultPreview: JSON.stringify(result.result).slice(0, 200)
             })
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify(result.result, null, 2),
-                },
-              ],
-            }
+            // A `{ success: false }` result (e.g. call_api's downstream 4xx/5xx) is an error.
+            return mcpContentForResult(result.result)
           } catch (err) {
             console.error(`[MCP HTTP] ✗ Tool exception: ${tool.name}`, err)
             return {
@@ -510,7 +537,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
 
     // Create base tool context using API key's tenant/org scope
     // Session tokens can override with user-specific permissions
-    const toolContext: McpToolContext = {
+    const toolContext: McpRequestContext = {
       tenantId: apiKeyRecord.tenantId ?? null,
       organizationId: apiKeyRecord.organizationId ?? null,
       userId: apiKeyRecord.createdBy ?? null,
@@ -519,6 +546,10 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       isSuperAdmin: keyAcl.isSuperAdmin,
       apiKeySecret: providedApiKey,
       apiKeyScopes: (apiKeyRecord as unknown as { scopes?: string[] | null }).scopes ?? null,
+      // Which session tokens this key may present (session-scope.ts).
+      isTransportKey: isPlatformTransportKey(providedApiKey),
+      keyTenantId: apiKeyRecord.tenantId ?? null,
+      keyOrganizationId: apiKeyRecord.organizationId ?? null,
     }
 
     try {

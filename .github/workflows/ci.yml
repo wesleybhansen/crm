@@ -176,6 +176,7 @@ jobs:
           TENANT_SPLIT_TEMPLATE_DATABASE_URL: postgres://gtm:gtm@localhost:5432/gtm_test
         run: |
           yarn workspace @open-mercato/core test --runInBand --runTestsByPath src/modules/auth/lib/__tests__/provision-tenant.pg.test.ts
+          yarn workspace @open-mercato/core test --runInBand --runTestsByPath src/modules/customers/lib/__tests__/contactDataCleanup.pg.test.ts
           yarn workspace @open-mercato/shared test --runInBand --runTestsByPath src/lib/encryption/__tests__/tenantSplit.pg.test.ts
 
       - name: Run GTM deterministic and artifact-quality regressions

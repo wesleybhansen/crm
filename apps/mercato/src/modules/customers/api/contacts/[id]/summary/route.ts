@@ -123,9 +123,11 @@ export async function POST(
         .first()
         .catch(() => null),
       // Contact notes (our custom notes table)
+      // Legacy notes not yet merged into customer_comments (read above).
       knex('contact_notes')
         .where('contact_id', contactId)
         .where('organization_id', auth.orgId)
+        .whereNull('deleted_at')
         .orderBy('created_at', 'desc')
         .limit(10)
         .select('content', 'created_at')

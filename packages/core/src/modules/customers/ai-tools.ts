@@ -21,9 +21,10 @@ import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CustomerTask,
-  CustomerContactNote,
+  CustomerComment,
   CustomerReminder,
   CustomerBusinessProfile,
   CustomerContactEngagementScore,
@@ -182,9 +183,12 @@ Returns: { ok: true } on success.`,
 // Contact notes
 // ===========================================================================
 
+// Contact notes are customer comments: the table the contact page's Notes tab
+// reads. These tools used to read and write contact_notes, so a note written
+// over MCP never showed on the contact (MCP sweep 2026-09-25).
 const listNotesTool: AiToolDefinition = {
   name: 'customers_list_notes',
-  description: `List free-form notes attached to a contact.
+  description: `List free-form notes attached to a contact (the notes shown on its Notes tab).
 
 Returns: { total, notes: [{ id, contactId, content, authorUserId, createdAt }] }`,
   inputSchema: z.object({
@@ -196,23 +200,26 @@ Returns: { total, notes: [{ id, contactId, content, authorUserId, createdAt }] }
     const scope = requireScope(ctx)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const where = {
-      contactId: input.contactId,
+      entity: input.contactId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
     }
-    const notes = await em.find(CustomerContactNote, where, {
-      orderBy: { createdAt: 'DESC' },
-      limit: input.limit ?? 20,
-    })
-    const total = await em.count(CustomerContactNote, where)
+    const notes = await findWithDecryption(
+      em,
+      CustomerComment,
+      where,
+      { orderBy: { createdAt: 'DESC' }, limit: input.limit ?? 20 },
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
+    const total = await em.count(CustomerComment, where)
     return {
       total,
       notes: notes.map((n) => ({
         id: n.id,
-        contactId: n.contactId,
-        content: n.content,
-        authorUserId: n.authorUserId,
+        contactId: input.contactId,
+        content: n.body,
+        authorUserId: n.authorUserId ?? null,
         createdAt: n.createdAt.toISOString(),
       })),
     }
@@ -221,7 +228,7 @@ Returns: { total, notes: [{ id, contactId, content, authorUserId, createdAt }] }
 
 const createNoteTool: AiToolDefinition = {
   name: 'customers_create_note',
-  description: `Create a free-form note attached to a contact.
+  description: `Create a free-form note attached to a contact. It appears on the contact's Notes tab.
 
 Returns: { ok: true, noteId } on success.`,
   inputSchema: z.object({
@@ -232,17 +239,17 @@ Returns: { ok: true, noteId } on success.`,
   handler: async (input: { contactId: string; content: string }, ctx) => {
     const scope = requireScope(ctx)
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute<unknown, { noteId: string }>('customers.notes.create', {
+    const { result } = await commandBus.execute<unknown, { commentId: string }>('customers.comments.create', {
       input: {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-        contactId: input.contactId,
-        content: input.content,
-        authorUserId: ctx.userId,
+        entityId: input.contactId,
+        body: input.content,
+        ...(ctx.userId && /^[0-9a-f-]{36}$/i.test(ctx.userId) ? { authorUserId: ctx.userId } : {}),
       },
       ctx: commandCtx(ctx),
     })
-    return { ok: true, noteId: result.noteId }
+    return { ok: true, noteId: result.commentId }
   },
 }
 

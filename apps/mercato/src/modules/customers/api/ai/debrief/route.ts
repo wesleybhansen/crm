@@ -8,6 +8,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { logTimelineEvent } from '@/lib/timeline'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
+import { insertContactNote } from '../../../lib/contact-notes'
 
 /* Voice debrief: talk for 60 seconds after a call and it becomes records.
  * Takes a raw transcript (browser speech-to-text or typed), parses it into a
@@ -42,7 +43,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Debrief is too long. Keep it under a few minutes of talking.' }, { status: 400 })
     }
 
-    const knex = ((await createRequestContainer()).resolve('em') as EntityManager).getKnex()
+    const em = (await createRequestContainer()).resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     const contactId = body.contactId ? String(body.contactId) : null
     let contact: { id: string; display_name: string } | null = null
@@ -115,12 +117,13 @@ ${transcript}`
 
     // Call note
     const noteSummary = (plan.noteSummary ?? '').trim()
-    if (noteSummary && contact) {
-      await knex('contact_notes').insert({
-        tenant_id: auth.tenantId,
-        organization_id: auth.orgId,
-        contact_id: contact.id,
+    if (noteSummary && contact && auth.tenantId) {
+      await insertContactNote(knex, em, {
+        contactId: contact.id,
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
         content: `Call debrief: ${noteSummary}`,
+        authorUserId: auth.sub ?? null,
       })
       created.note = true
     }

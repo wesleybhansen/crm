@@ -268,9 +268,11 @@ export async function GET(
 
     // 9. Contact notes (contact_notes table — our custom notes)
     try {
+      // Legacy notes not yet merged into customer_comments (shown above).
       const notes = await knex('contact_notes')
         .where('contact_id', contactId)
         .where('organization_id', auth.orgId)
+        .whereNull('deleted_at')
         .orderBy('created_at', 'desc')
         .limit(30)
       for (const note of notes) {

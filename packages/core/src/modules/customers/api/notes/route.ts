@@ -2,9 +2,9 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerContactNote } from '../../data/entities'
+import { CustomerComment } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
-import { contactNoteCreateSchema, contactNoteUpdateSchema } from '../../data/validators'
+import { commentCreateSchema, commentUpdateSchema, contactNoteCreateSchema, contactNoteUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
 import { wrapCrudListForLegacyShape, withLegacyOk } from '../legacyShape'
@@ -26,6 +26,27 @@ const listSchema = z
   })
   .passthrough()
 
+/*
+ * Contact notes live in customer_comments (CustomerComment), the table the
+ * contact page's Notes tab reads. This route keeps its note-shaped API
+ * (contactId / content) for existing callers and maps it onto comments; notes
+ * written here used to land in contact_notes and never showed on the contact
+ * (MCP sweep 2026-09-25).
+ */
+function commentToNote(item: Record<string, any>): Record<string, any> {
+  if (!item || typeof item !== 'object') return item
+  return {
+    id: item.id,
+    tenant_id: item.tenant_id ?? item.tenantId ?? null,
+    organization_id: item.organization_id ?? item.organizationId ?? null,
+    contact_id: item.entity_id ?? item.entityId ?? null,
+    content: item.body ?? '',
+    author_user_id: item.author_user_id ?? item.authorUserId ?? null,
+    created_at: item.created_at ?? item.createdAt ?? null,
+    updated_at: item.updated_at ?? item.updatedAt ?? null,
+  }
+}
+
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.notes.view'] },
   POST: { requireAuth: true, requireFeatures: ['customers.notes.manage'] },
@@ -38,21 +59,24 @@ export const metadata = routeMetadata
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
-    entity: CustomerContactNote,
+    entity: CustomerComment,
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: {
+    entityType: E.customers.customer_comment,
+  },
   list: {
     schema: listSchema,
-    entityId: E.customers.customer_contact_note,
+    entityId: E.customers.customer_comment,
     fields: [
       'id',
       'tenant_id',
       'organization_id',
-      'contact_id',
-      'content',
+      'entity_id',
+      'body',
       'author_user_id',
       'created_at',
       'updated_at',
@@ -63,34 +87,48 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query: any) => {
       const filters: Record<string, any> = {}
-      if (query.contactId) filters.contact_id = { $eq: query.contactId }
+      if (query.contactId) filters.entity_id = { $eq: query.contactId }
       return filters
     },
+    transformItem: commentToNote,
   },
   actions: {
     create: {
-      commandId: 'customers.notes.create',
+      commandId: 'customers.comments.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        return contactNoteCreateSchema.parse(scoped)
+        const note = contactNoteCreateSchema.parse(scoped)
+        return commentCreateSchema.parse({
+          tenantId: note.tenantId,
+          organizationId: note.organizationId,
+          entityId: note.contactId,
+          body: note.content,
+          ...(note.authorUserId ? { authorUserId: note.authorUserId } : {}),
+        })
       },
-      response: ({ result }) => withLegacyOk({ id: result?.noteId ?? null }),
+      response: ({ result }) => withLegacyOk({ id: result?.commentId ?? null }),
       status: 201,
     },
     update: {
-      commandId: 'customers.notes.update',
+      commandId: 'customers.comments.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        return contactNoteUpdateSchema.parse(scoped)
+        const note = contactNoteUpdateSchema.parse(scoped)
+        return commentUpdateSchema.parse({
+          id: note.id,
+          tenantId: note.tenantId,
+          organizationId: note.organizationId,
+          ...(note.content !== undefined ? { body: note.content } : {}),
+        })
       },
       response: () => withLegacyOk({}),
     },
     delete: {
-      commandId: 'customers.notes.delete',
+      commandId: 'customers.comments.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

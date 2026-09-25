@@ -46,6 +46,8 @@ const ALLOWED: Record<string, string> = {
   'packages/core/src/modules/entities/cli.ts': 'decrypt-database / rotate-encryption-key read the stored envelopes by design',
   'packages/core/src/modules/customers/cli.ts': 'seed/stress CLIs generate rows, never read values for use',
   'packages/shared/src/lib/encryption/plaintextBackfill.ts': 'the backfill classifies stored values (envelope vs plaintext) by design',
+  'packages/core/src/modules/customers/lib/contactDataCleanup.ts':
+    'passes the already-encrypted comment row (row.body is ciphertext) to its insert; never reads a stored value',
   // The shared lookups: hash first, plaintext arm only for legacy hash-less rows.
   'apps/mercato/src/modules/customers/lib/contact-lookup.ts': 'the lookup helper: hash match plus the legacy plaintext arm',
   'apps/mercato/src/modules/customers/lib/dedup.ts': 'findOrMergeContact / findContactByPhone: hash, legacy arm, then decrypt-scan',

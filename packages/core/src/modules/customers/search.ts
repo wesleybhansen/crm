@@ -358,12 +358,15 @@ async function getLinkedTodo(ctx: SearchContext) {
 // URL and Formatting Helpers
 // =============================================================================
 
-function buildCustomerUrl(kind: string | null | undefined, id?: string | null): string | null {
+export function buildCustomerUrl(kind: string | null | undefined, id?: string | null): string | null {
   if (!id) return null
   const encoded = encodeURIComponent(id)
   if (kind === 'person') return `/backend/customers/people/${encoded}`
   if (kind === 'company') return `/backend/customers/companies/${encoded}`
-  return `/backend/customers/companies/${encoded}`
+  // Unknown kind means the parent contact could not be loaded (usually it was
+  // deleted). Guessing "company" sent a deleted person's note to
+  // /backend/customers/companies/<personId> (MCP sweep 2026-09-25): no link.
+  return null
 }
 
 function formatDealValue(record: Record<string, unknown>): string | undefined {

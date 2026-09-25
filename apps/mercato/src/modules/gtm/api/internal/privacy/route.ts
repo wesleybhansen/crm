@@ -99,11 +99,16 @@ export async function POST(req: Request) {
       const { CustomerEntity, CustomerPersonProfile } = await import(
         '@open-mercato/core/modules/customers/data/entities'
       )
+      const { purgeContactDependents } = await import('@open-mercato/core/modules/customers/lib/contactDependents')
       const result = await completeCrmContactDeletion(
         em,
         ctx,
         { contact: CustomerEntity as never, person: CustomerPersonProfile as never },
         { requestId: body.requestId },
+        {
+          purgeDependents: async (contactIds) =>
+            purgeContactDependents(em as never, contactIds, { tenantId: ctx.tenantId, organizationId: ctx.organizationId }),
+        },
       )
       if (!result) return notFound()
       if (result.request.legalHold && !result.alreadyCompleted) {
