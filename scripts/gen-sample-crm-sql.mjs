@@ -1,16 +1,22 @@
 /* Generates SQL to seed a cohesive sample CRM dataset into Wesley's Workspace.
  * No DB connection — just emits SQL to stdout. Pipe into psql:
- *   node scripts/gen-sample-crm-sql.mjs > /tmp/crm-seed.sql
+ *   SEED_ORG=<org> SEED_TENANT=<tenant> node scripts/gen-sample-crm-sql.mjs > /tmp/crm-seed.sql
  *   docker compose -f docker-compose.prod.yml exec -T postgres psql -U crm -d crm < /tmp/crm-seed.sql
  * Every row is source='noli-sample' (or tied to a sample entity) so it is
  * fully removable; the script DELETEs prior sample data first (idempotent).
  */
 import { randomUUID } from 'crypto'
 
-// Org is parametrized: SEED_ORG env overrides (both Wesley's orgs share this tenant).
-// weshansen123@yahoo.com test account => org f2d42b93 ("Wes").
-const ORG = process.env.SEED_ORG || 'f2d42b93-6890-4e25-9647-5aa85a03a765'
-const TEN = '22560ecc-ac23-466a-b047-0b8f23a259ff'
+// Dev/demo only. Org and tenant are required: every customer has its own
+// tenant now, so neither can be assumed.
+//   SEED_ORG=<org uuid> SEED_TENANT=<its tenant uuid> node scripts/gen-sample-crm-sql.mjs
+// (psql: select tenant_id from organizations where id = '<org uuid>')
+const ORG = (process.env.SEED_ORG || '').trim()
+const TEN = (process.env.SEED_TENANT || '').trim()
+if (!/^[0-9a-f-]{36}$/i.test(ORG) || !/^[0-9a-f-]{36}$/i.test(TEN)) {
+  console.error('Set SEED_ORG=<organization uuid> and SEED_TENANT=<its tenant uuid>')
+  process.exit(2)
+}
 const SRC = 'noli-sample'
 const CLEANUP_ONLY = process.env.CLEANUP_ONLY === '1'
 const out = []
