@@ -272,7 +272,7 @@ NO EMAIL PROVIDER CONNECTED. `
 `
     }
     if (!connectedProviders.length && !espConnection) {
-      instructions += `The user has no email providers connected. Emails will go to console only. Suggest they connect Gmail or Outlook in Settings.
+      instructions += `The user has no email providers connected. Emails will go to console only. Suggest they connect Gmail or Outlook in the Noli dashboard under Inbox > Connections.
 `
     }
 

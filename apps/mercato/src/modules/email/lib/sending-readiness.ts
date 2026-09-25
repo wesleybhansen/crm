@@ -19,14 +19,17 @@ import {
   hasSendingSetup,
   type EmailPurpose,
 } from './routing-service'
+import { EMAIL_CONNECT_LINK_TEXT } from './connect-url'
+
+export { EMAIL_CONNECT_LINK_TEXT, EMAIL_CONNECT_URL } from './connect-url'
 
 export const EMAIL_NOT_CONNECTED_BANNER =
-  "Email isn't connected, so Noli can't send your automations, form replies, booking confirmations or invoices. Connect it in Settings."
+  `Email isn't connected, so Noli can't send your automations, form replies, booking confirmations or invoices. ${EMAIL_CONNECT_LINK_TEXT}`
 
 // What an event-triggered send records (router error, contact timeline) when
 // it was skipped for lack of a sending setup.
 export const EMAIL_NOT_SENT_NOT_CONNECTED =
-  'Not sent: no email account is connected. Connect one in Settings.'
+  'Not sent: no email account is connected. Connect one in Inbox > Connections.'
 
 export type EmailNotConnectedBody = { ok: false; code: typeof EMAIL_NOT_CONNECTED_CODE; error: string }
 

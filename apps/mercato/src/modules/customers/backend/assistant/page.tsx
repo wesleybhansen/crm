@@ -430,7 +430,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         if (d.ok) {
           const via = d.data?.sentVia || 'unknown'
           if (via === 'console') {
-            return { ok: false, message: `Email drafted but could not be delivered — no email provider connected. Connect Gmail or Outlook in Settings.` }
+            return { ok: false, message: `Email drafted but could not be delivered. No email account is connected. Connect Gmail or Outlook in Inbox > Connections.` }
           }
           if (d.data?.fallback && d.data?.primaryProviderError) {
             return { ok: true, message: `Email sent to ${action.data.to} via ${via} (fallback). Gmail issue: ${d.data.primaryProviderError}` }
