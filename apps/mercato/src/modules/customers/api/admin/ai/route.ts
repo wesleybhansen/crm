@@ -3,6 +3,7 @@ export const metadata = { path: '/admin/ai', GET: { requireAuth: true }, PUT: { 
 import { NextRequest, NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getAdminAuth } from '../auth'
+import { readGlobalAiCap, writeGlobalAiCap } from '../platform-settings'
 
 export async function GET() {
   const admin = await getAdminAuth()
@@ -10,37 +11,40 @@ export async function GET() {
 
   const currentMonth = new Date().toISOString().slice(0, 7)
 
-  const [totalRow, capRow, orgs] = await Promise.all([
-    queryOne(
-      `SELECT COALESCE(SUM(call_count), 0)::int as total_calls FROM ai_usage WHERE month = $1`,
-      [currentMonth]
-    ),
-    queryOne(
-      `SELECT setting_value FROM platform_settings WHERE setting_key = 'global_ai_monthly_cap'`
-    ),
-    query(
-      `SELECT o.id as org_id, o.name as org_name, bp.business_name,
-        COALESCE(au.call_count, 0)::int as calls_used,
-        ais.setting_value as org_cap_override,
-        (SELECT COUNT(*) > 0 FROM ai_settings WHERE organization_id = o.id AND setting_key = 'user_ai_key') as has_byok
-      FROM organizations o
-      LEFT JOIN business_profiles bp ON bp.organization_id = o.id
-      LEFT JOIN ai_usage au ON au.organization_id = o.id AND au.month = $1
-      LEFT JOIN ai_settings ais ON ais.organization_id = o.id AND ais.setting_key = 'monthly_ai_cap'
-      WHERE o.deleted_at IS NULL
-      ORDER BY COALESCE(au.call_count, 0) DESC`,
-      [currentMonth]
-    ),
-  ])
+  try {
+    const [totalRow, globalCap, orgs] = await Promise.all([
+      queryOne(
+        `SELECT COALESCE(SUM(call_count), 0)::int as total_calls FROM ai_usage WHERE month = $1`,
+        [currentMonth]
+      ),
+      readGlobalAiCap(),
+      query(
+        `SELECT o.id as org_id, o.name as org_name, bp.business_name,
+          COALESCE(au.call_count, 0)::int as calls_used,
+          ais.setting_value as org_cap_override,
+          (SELECT COUNT(*) > 0 FROM ai_settings WHERE organization_id = o.id AND setting_key = 'user_ai_key') as has_byok
+        FROM organizations o
+        LEFT JOIN business_profiles bp ON bp.organization_id = o.id
+        LEFT JOIN ai_usage au ON au.organization_id = o.id AND au.month = $1
+        LEFT JOIN ai_settings ais ON ais.organization_id = o.id AND ais.setting_key = 'monthly_ai_cap'
+        WHERE o.deleted_at IS NULL
+        ORDER BY COALESCE(au.call_count, 0) DESC`,
+        [currentMonth]
+      ),
+    ])
 
-  return NextResponse.json({
-    ok: true,
-    data: {
-      globalCap: capRow?.setting_value ? parseInt(capRow.setting_value, 10) : null,
-      totalCalls: totalRow?.total_calls ?? 0,
-      orgs,
-    },
-  })
+    return NextResponse.json({
+      ok: true,
+      data: {
+        globalCap,
+        totalCalls: totalRow?.total_calls ?? 0,
+        orgs,
+      },
+    })
+  } catch (error) {
+    console.error('[admin.ai] failed', error)
+    return NextResponse.json({ ok: false, error: 'Failed to load AI usage' }, { status: 500 })
+  }
 }
 
 export async function PUT(request: NextRequest) {
@@ -55,10 +59,12 @@ export async function PUT(request: NextRequest) {
     if (typeof cap !== 'number' || cap < 0) {
       return NextResponse.json({ ok: false, error: 'Invalid cap value' }, { status: 400 })
     }
-    await query(
-      `UPDATE platform_settings SET setting_value = $1, updated_at = now() WHERE setting_key = 'global_ai_monthly_cap'`,
-      [String(cap)]
-    )
+    try {
+      await writeGlobalAiCap(cap)
+    } catch (error) {
+      console.error('[admin.ai] global cap update failed', error)
+      return NextResponse.json({ ok: false, error: 'Failed to save the cap' }, { status: 500 })
+    }
     return NextResponse.json({ ok: true })
   }
 
