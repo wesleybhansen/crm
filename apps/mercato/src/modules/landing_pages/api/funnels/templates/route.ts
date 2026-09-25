@@ -71,6 +71,34 @@ const FUNNEL_TEMPLATES: FunnelTemplate[] = [
   },
 ]
 
+const STARTER_PAGE_TYPES: Record<string, { pageType: string; subType: string; subtitle: string; ctaText: string }> = {
+  'lead-magnet': { pageType: 'capture-leads', subType: 'free-guide', subtitle: 'Describe your free resource here: what it is and what readers get from it.', ctaText: 'Send Me the Guide' },
+  booking: { pageType: 'book-a-call', subType: 'discovery-call', subtitle: 'Describe your call here: who it is for and what they walk away with.', ctaText: 'Book My Call' },
+  webinar: { pageType: 'promote-event', subType: 'webinar', subtitle: 'Describe your webinar here: the topic, the date and what attendees learn.', ctaText: 'Save My Seat' },
+  'info-product': { pageType: 'sell-digital', subType: 'course', subtitle: 'Describe your product here: what is inside and who it is for.', ctaText: 'Get Instant Access' },
+}
+
+/** Wizard config for a funnel template's page: one editable hero plus a sign-up form. */
+function funnelStarterPageConfig(step: FunnelTemplate['steps'][number]) {
+  const starter = STARTER_PAGE_TYPES[step.templateCategory || ''] || STARTER_PAGE_TYPES['lead-magnet']
+  return {
+    wizardVersion: 2,
+    pageType: starter.pageType,
+    subType: starter.subType,
+    framework: 'PAS',
+    businessContext: { businessName: '', targetAudience: '', tone: 'professional', offerAnswers: {} },
+    generatedSections: [
+      { type: 'hero', headline: step.pageTitle || step.name, subtitle: starter.subtitle, ctaText: starter.ctaText },
+    ],
+    styleId: 'minimal',
+    simpleLayout: true,
+    formFields: [
+      { label: 'Name', type: 'text', required: true },
+      { label: 'Email', type: 'email', required: true },
+    ],
+  }
+}
+
 export async function GET() {
   return NextResponse.json({ ok: true, data: FUNNEL_TEMPLATES })
 }
@@ -96,6 +124,8 @@ export async function POST(req: Request) {
       [funnelId, auth.tenantId, auth.orgId, template.name, slug, false, now, now]
     )
 
+    const createdPages: Array<{ id: string; title: string; status: 'draft' }> = []
+
     // Create steps and auto-create landing pages for page steps
     for (let i = 0; i < template.steps.length; i++) {
       const step = template.steps[i]
@@ -107,44 +137,17 @@ export async function POST(req: Request) {
         pageId = crypto.randomUUID()
         const pageSlug = `${slug}-${step.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${i}`
 
-        // Create page with v2 wizard config so it can be edited later
-        const pageConfig = {
-          wizardVersion: 2,
-          pageType: step.templateCategory === 'booking' ? 'book-a-call' : step.templateCategory === 'webinar' ? 'promote-event' : 'capture-leads',
-          subType: 'general',
-          framework: 'PAS',
-          businessContext: { businessName: '', targetAudience: '', tone: 'professional', offerAnswers: {} },
-          generatedSections: [],
-          styleId: 'bold',
-          formFields: [
-            { label: 'Name', type: 'text', required: true },
-            { label: 'Email', type: 'email', required: true },
-          ],
-        }
-
-        // Create a simple placeholder published HTML so the page is immediately accessible
-        const placeholderHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${step.pageTitle || step.name}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,system-ui,sans-serif;background:#f9fafb;color:#111;display:flex;justify-content:center;padding:48px 24px;min-height:100vh}
-.wrap{max-width:560px;width:100%;text-align:center}.wrap h1{font-size:28px;font-weight:700;margin-bottom:12px}.wrap p{color:#555;margin-bottom:32px;line-height:1.6}
-.form{background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.06)}.field{margin-bottom:16px;text-align:left}.field label{display:block;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
-.field input{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:15px}.btn{width:100%;padding:14px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer}.btn:hover{background:#1d4ed8}
-.success{display:none;padding:24px;text-align:center}.success.show{display:block}.success h3{margin-bottom:8px}</style></head>
-<body><div class="wrap"><h1>${step.pageTitle || step.name}</h1><p>Complete the form below to get started.</p>
-<div class="form"><form id="lp-form"><div class="field"><label>Name</label><input type="text" name="name" required placeholder="Your name"></div>
-<div class="field"><label>Email</label><input type="email" name="email" required placeholder="you@example.com"></div>
-<button type="submit" class="btn">Get Started</button></form>
-<div id="lp-success" class="success"><h3>Thank you!</h3><p>We'll be in touch soon.</p></div></div></div>
-<script>(function(){var f=document.getElementById('lp-form');if(!f)return;var s=false;f.addEventListener('submit',function(e){e.preventDefault();if(s)return;s=true;var d={};new FormData(f).forEach(function(v,k){d[k]=v});
-var p=new URLSearchParams(window.location.search);['utm_source','utm_medium','utm_campaign'].forEach(function(k){var v=p.get(k);if(v)d['_'+k]=v});if(document.referrer)d['_referrer']=document.referrer;
-var b=f.querySelector('[type=submit]');if(b){b.disabled=true;b.textContent='Sending...';}
-fetch(window.location.origin+'/api/landing-pages/public/${pageSlug}/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:d})})
-.then(function(r){return r.json()}).then(function(r){if(r.ok){f.style.display='none';var sv=document.getElementById('lp-success');if(sv){sv.classList.add('show');if(r.message)sv.querySelector('p').textContent=r.message;}}else{alert(r.error||'Something went wrong');s=false;if(b){b.disabled=false;b.textContent='Get Started';}}})
-.catch(function(){s=false;if(b){b.disabled=false;b.textContent='Try Again';}});})})()</script></body></html>`
+        // A DRAFT page with editable starter copy. Nothing goes live until the
+        // user edits and publishes it (a template used to publish a public
+        // "Free Resource" page with placeholder copy straight away).
+        const pageConfig = funnelStarterPageConfig(step)
+        const pageTitle = step.pageTitle || step.name
 
         await query(
           'INSERT INTO landing_pages (id, tenant_id, organization_id, title, slug, template_id, template_category, status, config, published_html, view_count, submission_count, created_at, updated_at, published_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',
-          [pageId, auth.tenantId, auth.orgId, step.pageTitle || step.name, pageSlug, step.templateId, step.templateCategory || null, 'published', JSON.stringify(pageConfig), placeholderHtml, 0, 0, now, now, now]
+          [pageId, auth.tenantId, auth.orgId, pageTitle, pageSlug, step.templateId, step.templateCategory || null, 'draft', JSON.stringify(pageConfig), null, 0, 0, now, now, null]
         )
+        createdPages.push({ id: pageId, title: pageTitle, status: 'draft' })
         // Create default form for the submit endpoint
         await query(
           'INSERT INTO landing_page_forms (id, tenant_id, organization_id, landing_page_id, name, fields, success_message, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
@@ -164,7 +167,7 @@ fetch(window.location.origin+'/api/landing-pages/public/${pageSlug}/submit',{met
     const funnel = await queryOne('SELECT * FROM funnels WHERE id = $1', [funnelId])
     const steps = await query('SELECT * FROM funnel_steps WHERE funnel_id = $1 ORDER BY step_order', [funnelId])
 
-    return NextResponse.json({ ok: true, data: { ...funnel, steps } }, { status: 201 })
+    return NextResponse.json({ ok: true, data: { ...funnel, steps, createdPages } }, { status: 201 })
   } catch (error) {
     console.error('[funnel-templates.install]', error)
     const msg = error instanceof Error ? error.message : 'Failed'

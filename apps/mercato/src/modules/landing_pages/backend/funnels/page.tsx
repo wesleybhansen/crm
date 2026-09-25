@@ -6,6 +6,7 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { plural } from '../../lib/plural'
 import {
   Plus, Trash2, ArrowRight, Globe, Copy, Check, X, Loader2, LayoutTemplate,
   ChevronUp, ChevronDown, GitMerge, ExternalLink,
@@ -73,6 +74,7 @@ export default function FunnelsPage() {
   const [funnelFilter, setFunnelFilter] = useState<'all' | 'published' | 'draft'>('all')
   const [funnelTemplates, setFunnelTemplates] = useState<Array<{ id: string; name: string; description: string; category: string; steps: any[] }>>([])
   const [installingTemplate, setInstallingTemplate] = useState<string | null>(null)
+  const [installNotice, setInstallNotice] = useState<string | null>(null)
   const [landingPages, setLandingPages] = useState<LandingPage[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -98,7 +100,9 @@ export default function FunnelsPage() {
   const loadLandingPages = useCallback(() => {
     fetch('/api/landing_pages/pages')
       .then((r) => r.json())
-      .then((d) => { if (d.ok) setLandingPages(d.data.filter((p: LandingPage) => p.status === 'published')) })
+      // Drafts are listed too (marked "(draft)"): a funnel template creates its
+      // pages as drafts, and the step has to show the page it is linked to.
+      .then((d) => { if (d.ok) setLandingPages((d.data || []).filter((p: LandingPage) => p.status !== 'archived')) })
       .catch(() => {})
   }, [])
 
@@ -116,6 +120,7 @@ export default function FunnelsPage() {
   }, [loadFunnels, loadLandingPages, loadProducts])
 
   function resetForm() {
+    setInstallNotice(null)
     setEditId(null)
     setName('')
     setSteps([
@@ -315,9 +320,9 @@ export default function FunnelsPage() {
   async function deleteFunnel(funnel: Funnel, e: React.MouseEvent) {
     e.stopPropagation()
     const impact = [
-      funnel.total_visits > 0 ? `${funnel.total_visits} visits` : null,
+      funnel.total_visits > 0 ? plural(funnel.total_visits, 'visit') : null,
       funnel.total_revenue > 0 ? `$${funnel.total_revenue.toFixed(2)} revenue` : null,
-      funnel.completed_sessions > 0 ? `${funnel.completed_sessions} completions` : null,
+      funnel.completed_sessions > 0 ? plural(funnel.completed_sessions, 'completion') : null,
     ].filter(Boolean).join(', ')
     const msg = `Delete "${funnel.name}"?${impact ? `\n\nThis funnel has: ${impact}` : ''}\n\nThis cannot be undone.`
     if (!confirm(msg)) return
@@ -351,6 +356,62 @@ export default function FunnelsPage() {
     upsell: 'bg-[rgba(124,58,237,.09)] text-[#6d28d9] border-[rgba(124,58,237,.24)] dark:bg-[rgba(139,92,246,.16)] dark:text-[#c4b5fd] dark:border-[rgba(139,92,246,.32)]',
     downsell: 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]',
     thank_you: 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]',
+  }
+
+  const visibleFunnels = funnels.filter(f => {
+    if (funnelSearch && !f.name.toLowerCase().includes(funnelSearch.toLowerCase())) return false
+    if (funnelFilter === 'published' && !f.is_published) return false
+    if (funnelFilter === 'draft' && f.is_published) return false
+    return true
+  })
+
+  function funnelStatusBadge(funnel: Funnel) {
+    return (
+      <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${
+        funnel.is_published
+          ? 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]'
+          : 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'
+      }`}>
+        {funnel.is_published && <Globe className="size-3 mr-1" />}
+        {funnel.is_published ? 'Published' : 'Draft'}
+      </span>
+    )
+  }
+
+  function conversionLabel(funnel: Funnel) {
+    const rate = Number(funnel.conversion_rate)
+    return Number.isFinite(rate) && funnel.total_visits > 0 ? `${rate}%` : '—'
+  }
+
+  // `touch`: the phone card layout, with 40px tap targets.
+  function renderFunnelActions(funnel: Funnel, touch: boolean) {
+    return (
+      <div className={touch ? 'flex flex-wrap items-center gap-1' : 'flex items-center justify-end gap-1'}>
+        <IconButton variant="ghost" size="sm" className={touch ? 'size-10' : undefined} type="button" aria-label="Copy URL" onClick={(e) => copyFunnelUrl(funnel, e)}>
+          {copiedId === funnel.id ? <Check className="size-4 text-[#047857] dark:text-[#34d399]" /> : <Copy className="size-4" />}
+        </IconButton>
+        <IconButton
+          variant="ghost" size="sm" className={touch ? 'size-10' : undefined} type="button"
+          aria-label={funnel.is_published ? 'Unpublish' : 'Publish'}
+          onClick={(e) => togglePublish(funnel, e)}
+        >
+          {funnel.is_published ? <ToggleRight className="size-4 text-[#047857] dark:text-[#34d399]" /> : <ToggleLeft className="size-4" />}
+        </IconButton>
+        <IconButton
+          variant="ghost" size="sm" className={touch ? 'size-10' : undefined} type="button"
+          aria-label={funnel.is_published ? 'View live' : 'Preview'}
+          onClick={(e) => { e.stopPropagation(); window.open(`/api/landing_pages/funnels/public/${funnel.slug}${funnel.is_published ? '' : '?preview=1'}`, '_blank') }}
+        >
+          <ExternalLink className="size-4" />
+        </IconButton>
+        <IconButton variant="ghost" size="sm" className={touch ? 'size-10' : undefined} type="button" aria-label="Duplicate" onClick={(e) => duplicateFunnel(funnel, e)}>
+          <Copy className="size-4" />
+        </IconButton>
+        <IconButton variant="ghost" size="sm" className={touch ? 'size-10' : undefined} type="button" aria-label="Delete" onClick={(e) => deleteFunnel(funnel, e)}>
+          <Trash2 className="size-4" />
+        </IconButton>
+      </div>
+    )
   }
 
   // LIST VIEW
@@ -401,7 +462,27 @@ export default function FunnelsPage() {
             </Button>
           </div>
         ) : (
-          <div className="rounded-lg border">
+<>
+            {/* Phone: one card per funnel (the table is wider than a phone). */}
+            <ul className="md:hidden flex flex-col gap-3">
+              {visibleFunnels.map((funnel) => (
+                <li key={funnel.id} className="rounded-lg border p-4">
+                  <button type="button" className="block w-full text-left" onClick={() => startEdit(funnel)}>
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-medium text-sm break-words min-w-0">{funnel.name}</p>
+                      {funnelStatusBadge(funnel)}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                      {plural(Number(funnel.step_count) || 0, 'step')} · {plural(Number(funnel.total_visits) || 0, 'visit')} · {conversionLabel(funnel)} conv.
+                      {funnel.total_revenue > 0 ? ` · $${funnel.total_revenue.toFixed(2)}` : ''}
+                    </p>
+                  </button>
+                  <div className="mt-2 -ml-2">{renderFunnelActions(funnel, true)}</div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="hidden md:block rounded-lg border overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/50">
@@ -415,12 +496,7 @@ export default function FunnelsPage() {
                 </tr>
               </thead>
               <tbody>
-                {funnels.filter(f => {
-                  if (funnelSearch && !f.name.toLowerCase().includes(funnelSearch.toLowerCase())) return false
-                  if (funnelFilter === 'published' && !f.is_published) return false
-                  if (funnelFilter === 'draft' && f.is_published) return false
-                  return true
-                }).map((funnel) => (
+                {visibleFunnels.map((funnel) => (
                   <tr
                     key={funnel.id}
                     className="border-b last:border-0 hover:bg-muted/30 cursor-pointer"
@@ -428,51 +504,17 @@ export default function FunnelsPage() {
                   >
                     <td className="px-4 py-3 font-medium text-sm">{funnel.name}</td>
                     <td className="px-4 py-3 text-sm text-center tabular-nums">{funnel.step_count}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${
-                        funnel.is_published
-                          ? 'bg-[rgba(16,185,129,.10)] text-[#047857] border-[rgba(16,185,129,.26)] dark:bg-[rgba(16,185,129,.14)] dark:text-[#34d399] dark:border-[rgba(16,185,129,.30)]'
-                          : 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'
-                      }`}>
-                        {funnel.is_published && <Globe className="size-3 mr-1" />}
-                        {funnel.is_published ? 'Published' : 'Draft'}
-                      </span>
-                    </td>
+                    <td className="px-4 py-3 text-center">{funnelStatusBadge(funnel)}</td>
                     <td className="px-4 py-3 text-sm text-right tabular-nums">{funnel.total_visits}</td>
-                    <td className="px-4 py-3 text-sm text-right tabular-nums">{funnel.conversion_rate}%</td>
+                    <td className="px-4 py-3 text-sm text-right tabular-nums">{conversionLabel(funnel)}</td>
                     <td className="px-4 py-3 text-sm text-right tabular-nums font-medium">{funnel.total_revenue > 0 ? `$${funnel.total_revenue.toFixed(2)}` : '—'}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <IconButton variant="ghost" size="sm" type="button" aria-label="Copy URL" onClick={(e) => copyFunnelUrl(funnel, e)}>
-                          {copiedId === funnel.id ? <Check className="size-4 text-[#047857] dark:text-[#34d399]" /> : <Copy className="size-4" />}
-                        </IconButton>
-                        <IconButton
-                          variant="ghost" size="sm" type="button"
-                          aria-label={funnel.is_published ? 'Unpublish' : 'Publish'}
-                          onClick={(e) => togglePublish(funnel, e)}
-                        >
-                          {funnel.is_published ? <ToggleRight className="size-4 text-[#047857] dark:text-[#34d399]" /> : <ToggleLeft className="size-4" />}
-                        </IconButton>
-                        <IconButton
-                          variant="ghost" size="sm" type="button"
-                          aria-label={funnel.is_published ? 'View live' : 'Preview'}
-                          onClick={(e) => { e.stopPropagation(); window.open(`/api/landing_pages/funnels/public/${funnel.slug}${funnel.is_published ? '' : '?preview=1'}`, '_blank') }}
-                        >
-                          <ExternalLink className="size-4" />
-                        </IconButton>
-                        <IconButton variant="ghost" size="sm" type="button" aria-label="Duplicate" onClick={(e) => duplicateFunnel(funnel, e)}>
-                          <Copy className="size-4" />
-                        </IconButton>
-                        <IconButton variant="ghost" size="sm" type="button" aria-label="Delete" onClick={(e) => deleteFunnel(funnel, e)}>
-                          <Trash2 className="size-4" />
-                        </IconButton>
-                      </div>
-                    </td>
+                    <td className="px-4 py-3 text-right">{renderFunnelActions(funnel, false)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
     )
@@ -513,7 +555,7 @@ export default function FunnelsPage() {
               <p className="text-sm font-semibold">{tmpl.name}</p>
               <p className="text-xs text-muted-foreground mt-1 flex-1">{tmpl.description}</p>
               <div className="flex items-center gap-2 mt-3">
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{tmpl.steps.length} steps</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{plural(tmpl.steps.length, 'step')}</span>
                 <span className="text-[10px] text-muted-foreground">{tmpl.category}</span>
               </div>
               <div className="flex items-center gap-1 mt-2 text-[10px] text-muted-foreground flex-wrap">
@@ -535,6 +577,11 @@ export default function FunnelsPage() {
                     const data = await res.json()
                     if (data.ok && data.data) {
                       loadFunnels()
+                      loadLandingPages()
+                      const created = Array.isArray(data.data.createdPages) ? data.data.createdPages.length : 0
+                      setInstallNotice(created > 0
+                        ? `We created ${created} draft ${created === 1 ? 'page' : 'pages'} for this funnel with starter copy. Edit and publish ${created === 1 ? 'it' : 'them'} before you publish the funnel. Nothing is live yet.`
+                        : null)
                       // Open the newly created funnel for editing
                       const funnel = data.data
                       setEditId(funnel.id)
@@ -577,6 +624,12 @@ export default function FunnelsPage() {
       >
         <ArrowLeft className="size-4" /> Back to Funnels
       </button>
+
+      {installNotice && (
+        <div role="status" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+          {installNotice}
+        </div>
+      )}
 
       <h1 className="text-xl font-semibold mb-6">
         {editId ? translate('funnels.edit.title', 'Edit Funnel') : translate('funnels.create.title', 'Create Funnel')}
@@ -649,6 +702,18 @@ export default function FunnelsPage() {
                             <option key={page.id} value={page.id}>{page.title}{page.status !== 'published' ? ' (draft)' : ''}</option>
                           ))}
                         </select>
+                        {(() => {
+                          const linked = step.pageId ? landingPages.find((p) => p.id === step.pageId) : null
+                          if (!linked) return null
+                          return (
+                            <p className="mt-1.5 text-xs text-muted-foreground">
+                              {linked.status !== 'published' && <>This page is a draft, so visitors can&apos;t see this step yet. </>}
+                              <a href={`/backend/landing-pages/edit?id=${linked.id}`} className="text-accent underline underline-offset-2">
+                                {linked.status !== 'published' ? 'Edit and publish the page' : 'Edit the page'}
+                              </a>
+                            </p>
+                          )
+                        })()}
                       </div>
                     )}
 
@@ -899,7 +964,7 @@ export default function FunnelsPage() {
                       Step {step.stepOrder}: {step.pageTitle || stepTypeLabels[step.stepType] || step.stepType}
                     </span>
                     <span className="text-muted-foreground tabular-nums">
-                      {step.visits} visits
+                      {plural(step.visits, 'visit')}
                       {step.dropOffRate > 0 && (
                         <span className="text-[#b91c1c] dark:text-[#f87171] ml-2">-{step.dropOffRate}%</span>
                       )}
