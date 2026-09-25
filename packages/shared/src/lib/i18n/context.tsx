@@ -1,6 +1,7 @@
 "use client"
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import type { Locale } from './config'
+import { formatIcuMessage } from './icu'
 
 export type Dict = Record<string, string>
 
@@ -34,16 +35,8 @@ function getI18nContext() {
 const I18nContext = getI18nContext()
 
 function format(template: string, params?: TranslateParams) {
-  if (!params) return template
-  return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (_, doubleKey, singleKey) => {
-    const key = doubleKey ?? singleKey
-    if (!key) return _
-    const value = params[key]
-    if (value === undefined) {
-      return doubleKey ? `{{${key}}}` : `{${key}}`
-    }
-    return String(value)
-  })
+  // ICU select/plural aware; unknown names stay as written.
+  return formatIcuMessage(template, params)
 }
 
 export function I18nProvider({ children, locale, dict }: { children: ReactNode; locale: Locale; dict: Dict }) {

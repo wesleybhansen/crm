@@ -1,16 +1,11 @@
 import type { Dict, TranslateFn, TranslateParams } from './context'
+import { formatIcuMessage } from './icu'
 
 export type TranslateWithFallbackFn = (key: string, fallback?: string, params?: TranslateParams) => string
 
 function format(template: string, params?: TranslateParams) {
-  if (!params) return template
-  return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (match, doubleKey, singleKey) => {
-    const key = doubleKey ?? singleKey
-    if (!key) return match
-    const value = params[key]
-    if (value === undefined) return match
-    return String(value)
-  })
+  // ICU select/plural aware; unknown names stay as written.
+  return formatIcuMessage(template, params)
 }
 
 export function createTranslator(dict: Dict): TranslateFn {

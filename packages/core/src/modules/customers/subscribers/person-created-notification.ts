@@ -83,7 +83,8 @@ export default async function handle(payload: PersonCreatedPayload, ctx: Resolve
         .first()
       if (srcTag?.label) {
         const cleaned = String(srcTag.label).replace(/^source:/, '')
-        sourceLabel = cleaned ? `from ${cleaned}` : ''
+        // "was added from manual" read oddly; say "manually" for that source.
+        sourceLabel = !cleaned ? '' : cleaned.toLowerCase() === 'manual' ? 'manually' : `from ${cleaned}`
       }
     } catch {}
 
