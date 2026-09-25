@@ -191,7 +191,7 @@ test.describe('TC-TENANT-001: two customers in two tenants are isolated', () => 
     test.skip(!inviteUrl, 'invite link not returned (an email provider sent it)');
     const token = new URL(inviteUrl!).searchParams.get('token');
     const accept = await request.post('/api/invite/accept', { data: { token, name: 'Invitee', password: 'Invitee-password-1!' } });
-    expect(accept.ok()).toBe(true);
+    expect(accept.ok(), `invite accept ${accept.status()}: ${await accept.text()}`).toBe(true);
     const cookie = accept.headers()['set-cookie'] ?? '';
     const jwt = /auth_token=([^;]+)/.exec(cookie)?.[1];
     expect(jwt).toBeTruthy();
