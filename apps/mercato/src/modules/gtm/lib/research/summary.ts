@@ -6,6 +6,7 @@ import {
 } from '../../data/entities'
 import { qualificationDiagnostics } from '../candidate-export'
 import { CREDITS_PER_CENT } from '../credits/markup'
+import { effectiveRunStatus } from './expire-quotes'
 
 /*
  * Read-only research-run summary for the hub's run detail / Opportunities
@@ -276,7 +277,7 @@ export async function summarizeResearchRun(
     run_id: run.id,
     play_id: run.playId,
     play_name: play?.name ?? play?.audience ?? null,
-    status: run.status,
+    status: effectiveRunStatus(run),
     started_at: startedAt,
     finished_at: finishedAt,
     elapsed_ms: elapsedMs,

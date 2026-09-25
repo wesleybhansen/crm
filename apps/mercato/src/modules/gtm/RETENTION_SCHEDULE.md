@@ -28,6 +28,11 @@ What one run does (all idempotent, counts-only audit rows):
 - hard-deletes drafted and posted replies to public posts (`gtm_post_replies`)
   90 days after they were drafted, and with their candidate when it is swept
   (privacy policy section 4.7);
+- moves research runs that were quoted (`priced`) but never started to
+  `expired` 3 days after the quote (`lib/research/expire-quotes.ts`), releasing
+  any reservation such a run still holds (none by construction: credits are
+  reserved only once a run starts); reads show `expired` as soon as the
+  window passes, even before the sweep writes it;
 - skips every candidate covered by a non-completed legal-hold deletion
   request (`/internal/gtm/privacy` ops `set-legal-hold` / `clear-legal-hold`).
 

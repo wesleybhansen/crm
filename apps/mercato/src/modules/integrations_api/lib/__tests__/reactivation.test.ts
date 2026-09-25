@@ -1,5 +1,7 @@
 import {
   MAX_DAILY_CAP,
+  REVIEW_LINK_MISSING_NOTICE,
+  applyReviewLink,
   buildReactivationPrompt,
   candidateReason,
   clampLimit,
@@ -9,6 +11,7 @@ import {
   isSuppressed,
   isUuid,
   parseDraft,
+  reviewLinkFromProfile,
   slotsLeftToday,
   utcDayStart,
 } from '../reactivation'
@@ -64,5 +67,82 @@ describe('reactivation rules', () => {
     expect(parseDraft('{"subject":"Hi — Ann","body":"Hello"}')).toEqual({ subject: 'Hi, Ann', body: 'Hello' })
     expect(parseDraft('{"subject":"Hi"}')).toBeNull()
     expect(parseDraft('not json')).toBeNull()
+  })
+})
+
+describe('review link for review_request notes', () => {
+  const LINK = 'https://g.page/r/CabcAcmeRealty/review'
+  const business = { name: 'Acme Realty', description: '' }
+
+  it('reads only a usable http(s) review link from the business profile', () => {
+    expect(reviewLinkFromProfile({ review_url: `  ${LINK}  ` })).toBe(LINK)
+    expect(reviewLinkFromProfile({ review_url: 'http://example.com/review' })).toBe('http://example.com/review')
+    expect(reviewLinkFromProfile({ review_url: '' })).toBeNull()
+    expect(reviewLinkFromProfile({ review_url: null })).toBeNull()
+    expect(reviewLinkFromProfile({})).toBeNull()
+    expect(reviewLinkFromProfile(null)).toBeNull()
+    expect(reviewLinkFromProfile({ review_url: 'javascript:alert(1)' })).toBeNull()
+    expect(reviewLinkFromProfile({ review_url: 'not a link' })).toBeNull()
+    expect(reviewLinkFromProfile({ review_url: 'https://localhost/review' })).toBeNull()
+    expect(reviewLinkFromProfile({ review_url: `https://example.com/${'a'.repeat(600)}` })).toBeNull()
+  })
+
+  it('tells the model to use the saved link, or to mention no link at all', () => {
+    const withLink = buildReactivationPrompt('review_request', { ...business, reviewUrl: LINK }, { name: 'Ann' })
+    expect(withLink).toContain(LINK)
+    expect(withLink).toMatch(/exact review link on its own line/)
+    const without = buildReactivationPrompt('review_request', { ...business, reviewUrl: null }, { name: 'Ann' })
+    expect(without).not.toMatch(/https?:\/\//)
+    expect(without).toMatch(/Do not include any link/)
+    // other kinds are untouched even when a link is saved
+    const checkIn = buildReactivationPrompt('check_in', { ...business, reviewUrl: LINK }, { name: 'Ann' })
+    expect(checkIn).not.toContain(LINK)
+    expect(checkIn).not.toMatch(/Do not include any link/)
+  })
+
+  it('keeps the saved link where the model placed it', () => {
+    const body = `Hi Ann,\n\nThank you again. Would you share a short review?\n${LINK}\n\nAcme Realty`
+    expect(applyReviewLink('review_request', { subject: 'Thank you', body }, LINK).body).toBe(body)
+  })
+
+  it('adds the saved link before the sign-off when the model left it out', () => {
+    const out = applyReviewLink(
+      'review_request',
+      { subject: 'Thank you', body: 'Hi Ann,\n\nWould you share a short review?\n\nAcme Realty' },
+      LINK,
+    )
+    expect(out.body).toBe(`Hi Ann,\n\nWould you share a short review?\n\nIf you are open to it, here is the link: ${LINK}\n\nAcme Realty`)
+  })
+
+  it('removes any link the model invented, keeping only the saved one', () => {
+    const out = applyReviewLink(
+      'review_request',
+      { subject: 'Thanks', body: `Hi Ann, review us at https://fake.example/reviews. Or here: ${LINK}.\n\nAcme Realty` },
+      LINK,
+    )
+    expect(out.body).not.toContain('fake.example')
+    expect(out.body).toContain(`${LINK}.`)
+  })
+
+  it('with no saved link the note carries no link at all', () => {
+    const out = applyReviewLink(
+      'review_request',
+      { subject: 'Thanks https://x.example', body: 'Hi Ann, would you leave a review at www.google.com/maps?\n\nAcme Realty' },
+      null,
+    )
+    expect(out.body).not.toMatch(/https?:|www\./)
+    expect(out.subject).not.toMatch(/https?:/)
+    expect(out.body).toContain('Acme Realty')
+  })
+
+  it('leaves check-ins and referral asks alone', () => {
+    const draft = { subject: 'Hi', body: 'See https://acme.example' }
+    expect(applyReviewLink('check_in', draft, null)).toBe(draft)
+    expect(applyReviewLink('referral_ask', draft, LINK)).toBe(draft)
+  })
+
+  it('the missing-link notice says where to add it', () => {
+    expect(REVIEW_LINK_MISSING_NOTICE).toMatch(/Reputation page/)
+    expect(REVIEW_LINK_MISSING_NOTICE).toMatch(/Google review link/)
   })
 })

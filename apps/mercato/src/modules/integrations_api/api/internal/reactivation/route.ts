@@ -14,7 +14,9 @@ import {
   REACTIVATION_KINDS,
   REACTIVATION_MARKER,
   REACTIVATION_SOURCE,
+  REVIEW_LINK_MISSING_NOTICE,
   WON_DEAL_MIN_AGE_DAYS,
+  applyReviewLink,
   buildReactivationPrompt,
   candidateReason,
   clampLimit,
@@ -23,6 +25,7 @@ import {
   isUuid,
   parseDraft,
   pastClientStageList,
+  reviewLinkFromProfile,
   screenReactivationDraft,
   slotsLeftToday,
   utcDayStart,
@@ -37,7 +40,10 @@ import {
  *   candidates  who qualifies (read only)
  *   draft       drafts personal notes as inbox proposals (never sends); each
  *               note passes the fair-housing screen, and one that fails is
- *               kept for the owner to see, with the reason, but never sendable
+ *               kept for the owner to see, with the reason, but never sendable.
+ *               A review_request note carries the business's saved review
+ *               link (Reputation page); with none saved it mentions no link
+ *               and the response and approval card say where to add one
  *   approve     the owner approved the initiative in the hub: pending drafts
  *               for it become sendable
  *   send-batch  sends approved drafts, at most the daily cap per UTC day,
@@ -227,7 +233,11 @@ async function opDraft(knex: Knex, em: EntityManager, auth: Auth, noliUserId: st
   const { eligible } = await findCandidates(knex, em, auth, new Date(), exclude)
   const picked = eligible.slice(0, limit)
   const bp = (await knex('business_profiles').where('organization_id', auth.orgId).first().catch(() => null)) as Row | null
-  const business = { name: bp?.business_name || 'our team', description: bp?.business_description || '' }
+  // select * (not review_url by name): the column comes from
+  // scripts/sql/reputation.sql and a missing column must not break drafting.
+  const reviewUrl = kind === 'review_request' ? reviewLinkFromProfile(bp) : null
+  const reviewLinkNotice = kind === 'review_request' && !reviewUrl ? REVIEW_LINK_MISSING_NOTICE : null
+  const business = { name: bp?.business_name || 'our team', description: bp?.business_description || '', reviewUrl }
 
   const created: string[] = []
   const flagged: Array<{ actionId: string; contactId: string; reason: string; advisory: string }> = []
@@ -235,11 +245,12 @@ async function opDraft(knex: Knex, em: EntityManager, auth: Auth, noliUserId: st
     await Promise.all(picked.slice(i, i + DRAFT_CONCURRENCY).map(async (contact) => {
       const contactId = String(contact.id)
       const name = String(contact.display_name || '').trim()
-      const { draft, tokensIn, tokensOut } = await generateDraft(apiKey, buildReactivationPrompt(kind, business, { name: name || 'there' }))
+      const { draft: generated, tokensIn, tokensOut } = await generateDraft(apiKey, buildReactivationPrompt(kind, business, { name: name || 'there' }))
       void meterCustomersAi({ orgId: auth.orgId }, {
         model: DRAFT_MODEL, tokensIn, tokensOut, feature: 'initiative-reactivation', byoKey: Boolean(gate.byoApiKey), noliUserId,
       })
-      if (!draft) return
+      if (!generated) return
+      const draft = applyReviewLink(kind, generated, reviewUrl)
       // Fair-housing screen at draft time. A failing note is still recorded so
       // the owner sees it and why, but it is marked blocked and approve/send
       // never let it out.
@@ -263,7 +274,7 @@ async function opDraft(knex: Knex, em: EntityManager, auth: Auth, noliUserId: st
           await trx('inbox_proposals').insert({
             id: proposalId, inbox_email_id: emailId, tenant_id: auth.tenantId, organization_id: auth.orgId,
             summary: screen.ok
-              ? `${REACTIVATION_MARKER} ${label} is a past client you have not written to in a while. Your Chief of Staff drafted a personal note.`
+              ? `${REACTIVATION_MARKER} ${label} is a past client you have not written to in a while. Your Chief of Staff drafted a personal note.${reviewLinkNotice ? ` ${reviewLinkNotice}` : ''}`
               : `${REACTIVATION_MARKER} ${label}: the drafted note was held and will not be sent. ${screen.advisory}`,
             participants: JSON.stringify([{ name, email: contact.primary_email }]),
             confidence: 0.75, category: 'inquiry', status: 'pending', is_active: true, created_at: now, updated_at: now,
@@ -275,10 +286,14 @@ async function opDraft(knex: Knex, em: EntityManager, auth: Auth, noliUserId: st
             payload: JSON.stringify({
               to: contact.primary_email, toName: name || null, subject: draft.subject, body: draft.body, contactId,
               context: screen.ok
-                ? 'Drafted by your Chief of Staff for a past-client initiative. Nothing is sent until you approve it.'
+                ? `Drafted by your Chief of Staff for a past-client initiative. Nothing is sent until you approve it.${reviewLinkNotice ? ` ${reviewLinkNotice}` : ''}`
                 : `Held, not sendable. ${screen.advisory}`,
+              ...(kind === 'review_request' ? { reviewLink: reviewUrl } : {}),
             }),
-            metadata: JSON.stringify({ feature_source: REACTIVATION_SOURCE, initiative_id: initiativeId, contact_id: contactId, kind, fair_housing: fairHousing }),
+            metadata: JSON.stringify({
+              feature_source: REACTIVATION_SOURCE, initiative_id: initiativeId, contact_id: contactId, kind, fair_housing: fairHousing,
+              ...(kind === 'review_request' ? { review_link: { included: Boolean(reviewUrl), notice: reviewLinkNotice } } : {}),
+            }),
             status: 'pending', confidence: 0.75, created_at: now, updated_at: now,
           })
         })
@@ -290,7 +305,15 @@ async function opDraft(knex: Knex, em: EntityManager, auth: Auth, noliUserId: st
       }
     }))
   }
-  return { status: 200, json: { ok: true, created, existing: already, flagged } }
+  // review_link tells the hub's approval card whether the notes carry the
+  // business's review link, and where to add one when they do not.
+  return {
+    status: 200,
+    json: {
+      ok: true, created, existing: already, flagged,
+      ...(kind === 'review_request' ? { review_link: { included: Boolean(reviewUrl), notice: reviewLinkNotice } } : {}),
+    },
+  }
 }
 
 async function opApprove(knex: Knex, auth: Auth, body: Row) {
