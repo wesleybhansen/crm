@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { toolListingJsonSchema } from '../../lib/schema-utils'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getToolRegistry } from '../../lib/tool-registry'
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       return {
         name: tool.name,
         description: tool.description,
-        inputSchema: zodToJsonSchema(tool.inputSchema as any) as Record<string, unknown>,
+        inputSchema: toolListingJsonSchema(tool.inputSchema),
         module: nameParts[0] || 'other',
       }
     })

@@ -49,6 +49,13 @@ import {
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  contactDependentIndexEntries,
+  findContactDependents,
+  restoreContactDependents,
+  softDeleteContactDependents,
+  type ContactDependentIds,
+} from '../lib/contactDependents'
 
 type PersonAddressSnapshot = {
   id: string
@@ -100,6 +107,8 @@ type PersonTodoSnapshot = {
 }
 
 type PersonSnapshot = {
+  /** Tasks, legacy notes and reminders the delete removed (restored by undo). */
+  dependents?: ContactDependentIds
   entity: {
     id: string
     organizationId: string
@@ -935,7 +944,12 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager)
       const snapshot = await loadPersonSnapshot(em, id)
-      return snapshot ? { before: snapshot } : {}
+      if (!snapshot) return {}
+      const dependents = await findContactDependents(em, id, {
+        tenantId: snapshot.entity.tenantId,
+        organizationId: snapshot.entity.organizationId,
+      })
+      return { before: { ...snapshot, dependents } }
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Person id required')
@@ -956,7 +970,13 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       em.remove(record)
       await em.flush()
 
-      const indexDeletes: QueryIndexEventEntry[] = []
+      // Tasks, legacy notes and reminders keyed by contact_id have no foreign
+      // key: soft-delete them with the contact (contactDependents.ts).
+      const dependentScope = { tenantId: record.tenantId, organizationId: record.organizationId }
+      const dependents = await findContactDependents(em, record.id, dependentScope)
+      await softDeleteContactDependents(em, dependents, dependentScope)
+
+      const indexDeletes: QueryIndexEventEntry[] = [...contactDependentIndexEntries(dependents, dependentScope)]
       const dealUpserts: QueryIndexEventEntry[] = []
       if (snapshot) {
         for (const activity of snapshot.activities ?? []) {
@@ -1307,6 +1327,10 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       if (Object.keys(resetValues).length) {
         await setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
+      // Bring back the tasks, legacy notes and reminders the delete removed.
+      const dependentScope = { tenantId: entity.tenantId, organizationId: entity.organizationId }
+      await restoreContactDependents(em, before.dependents, dependentScope)
+      await emitQueryIndexUpsertEvents(ctx, contactDependentIndexEntries(before.dependents, dependentScope))
       await emitQueryIndexUpsertEvents(ctx, upsertEntries)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
     },

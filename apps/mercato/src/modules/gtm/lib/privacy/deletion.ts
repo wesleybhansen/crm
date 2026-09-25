@@ -1120,7 +1120,12 @@ export async function completeCrmContactDeletion(
   ctx: { organizationId: string; tenantId: string; userId: string; requestId?: string | null },
   entities: CustomerContactEntities,
   input: { requestId: string },
-  deps: { clock?: Clock } = {},
+  deps: {
+    clock?: Clock
+    /** Hard-deletes the contacts' notes, tasks, reminders, comments,
+     *  activities and their search entries (purgeContactDependents). */
+    purgeDependents?: (contactIds: string[]) => Promise<Record<string, number>>
+  } = {},
 ): Promise<CrmContactDeletionResult | null> {
   const now = deps.clock?.now() ?? new Date()
   const request = await em.findOne(GtmDeletionRequest, {
@@ -1163,6 +1168,11 @@ export async function completeCrmContactDeletion(
       })
     : []
 
+  // Erase what hangs off the contacts first (idempotent: a retry after a
+  // failed transaction below finds nothing left to purge).
+  const dependentsPurged =
+    deps.purgeDependents && contacts.length ? await deps.purgeDependents(contacts.map((row) => row.id)) : null
+
   await em.transactional(async (tem) => {
     for (const contact of contacts) {
       contact.displayName = REMOVED_CONTACT_NAME
@@ -1196,6 +1206,7 @@ export async function completeCrmContactDeletion(
       completed_at: now.toISOString(),
       contacts_anonymized: contacts.length,
       person_profiles_anonymized: people.length,
+      ...(dependentsPurged ? { dependents_purged: dependentsPurged } : {}),
       completed_by_user_id: ctx.userId,
     }
     operation.completedAt = now

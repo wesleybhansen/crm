@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { findOrMergeContact } from '@/modules/customers/lib/dedup'
+import { insertContactNote } from '../../../../customers/lib/contact-notes'
 
 export const metadata = { POST: { requireAuth: false } }
 
@@ -455,10 +456,9 @@ export async function POST(req: Request) {
             const event = await knex('events').where('id', eventId).first()
             if (contactId) {
               await knex('event_attendees').where('id', attendeeId).update({ contact_id: contactId }).catch(() => {})
-              await knex('contact_notes').insert({
-                id: require('crypto').randomUUID(), tenant_id: meta.tenantId || tenantId, organization_id: meta.orgId || orgId,
-                contact_id: contactId, content: `Registered for event: ${event?.title || 'Unknown'} (paid)`,
-                created_at: new Date(), updated_at: new Date(),
+              await insertContactNote(knex, em, {
+                contactId, organizationId: meta.orgId || orgId, tenantId: meta.tenantId || tenantId,
+                content: `Registered for event: ${event?.title || 'Unknown'} (paid)`,
               }).catch(() => {})
             }
 

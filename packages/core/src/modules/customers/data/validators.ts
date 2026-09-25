@@ -153,7 +153,8 @@ export const activityUpdateSchema = z
 export const commentCreateSchema = scopedSchema.extend({
   entityId: uuid(),
   dealId: uuid().optional(),
-  body: z.string().min(1).max(8000),
+  // Contact notes (up to 50,000 characters) are comments too.
+  body: z.string().min(1).max(50_000),
   authorUserId: uuid().optional(),
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
   appearanceColor: z

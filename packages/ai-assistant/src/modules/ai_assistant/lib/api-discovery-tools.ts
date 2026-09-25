@@ -82,6 +82,7 @@ Workflow: discover_schema("Company") → understand fields → find_api("update 
             operationId: endpoint.operationId,
             method: endpoint.method,
             path: endpoint.path,
+            summary: endpoint.summary || undefined,
             description: endpoint.description || endpoint.summary,
             tags: endpoint.tags,
             parameters: endpoint.parameters.map((p) => ({
@@ -203,11 +204,18 @@ Confirm with user before POST/PUT/DELETE operations.`,
           const responseText = await response.text()
 
           if (!response.ok) {
+            // `success: false` makes the MCP servers flag this isError
+            // (tool-result.ts), with the status and the API's own message.
+            const details = tryParseJson(responseText)
+            const apiMessage =
+              details && typeof details === 'object' && typeof (details as { error?: unknown }).error === 'string'
+                ? `: ${(details as { error: string }).error}`
+                : ''
             return {
               success: false,
               statusCode: response.status,
-              error: `API error ${response.status}`,
-              details: tryParseJson(responseText),
+              error: `API error ${response.status}${apiMessage}`,
+              details,
             }
           }
 

@@ -190,21 +190,28 @@ async function parseApiEndpointsFromHttp(): Promise<ApiEndpoint[]> {
 }
 
 /**
- * Parse API endpoints - tries generated JSON first (CLI), then modules (Next.js), then HTTP.
+ * Parse API endpoints - tries the module registry first, then the generated
+ * JSON, then HTTP.
+ *
+ * The registry (populated in Next.js and by the CLI bootstrap that runs the
+ * MCP server) yields each route's real summary, description, request body
+ * schema and dispatcher path. The generated JSON is a static scrape of route
+ * files: it misses docs built by helpers (e.g. createCustomersCrudOpenApi),
+ * so every such endpoint read "POST operation for ..." with no body schema,
+ * and "create person" did not find the people endpoint (MCP sweep
+ * 2026-09-25). It stays as the fallback.
  */
 async function parseApiEndpoints(): Promise<ApiEndpoint[]> {
-  // Try generated JSON first (works in CLI context without Next.js)
-  const fromJson = await parseApiEndpointsFromGeneratedJson()
-  if (fromJson.length > 0) {
-    console.error(`[API Index] Loaded ${fromJson.length} endpoints from generated JSON`)
-    return fromJson
-  }
-
-  // Try loading from module registry (works in Next.js context)
   const fromModules = await parseApiEndpointsFromModules()
   if (fromModules.length > 0) {
     console.error(`[API Index] Loaded ${fromModules.length} endpoints from modules registry`)
     return fromModules
+  }
+
+  const fromJson = await parseApiEndpointsFromGeneratedJson()
+  if (fromJson.length > 0) {
+    console.error(`[API Index] Loaded ${fromJson.length} endpoints from generated JSON`)
+    return fromJson
   }
 
   // Fall back to HTTP fetch (requires running Next.js app)
@@ -215,7 +222,7 @@ async function parseApiEndpoints(): Promise<ApiEndpoint[]> {
 /**
  * Extract endpoints from OpenAPI document
  */
-function extractEndpoints(doc: OpenApiDocument): ApiEndpoint[] {
+export function extractEndpoints(doc: OpenApiDocument): ApiEndpoint[] {
   const endpoints: ApiEndpoint[] = []
   const validMethods = ['get', 'post', 'put', 'patch', 'delete']
 
@@ -373,15 +380,29 @@ export async function indexApiEndpoints(
 /**
  * Build searchable content from endpoint
  */
+/** Verbs people use for each method, so "create person" finds a POST. */
+const METHOD_VERBS: Record<string, string> = {
+  GET: 'get list read find show',
+  POST: 'create add new',
+  PUT: 'update edit change',
+  PATCH: 'update edit change',
+  DELETE: 'delete remove',
+}
+
 function buildSearchableContent(endpoint: ApiEndpoint): string {
+  const bodyFields = endpoint.requestBodySchema
+    ? Object.keys(((endpoint.requestBodySchema as { properties?: Record<string, unknown> }).properties) ?? {})
+    : []
   const parts = [
     endpoint.operationId,
     endpoint.method,
+    METHOD_VERBS[endpoint.method] ?? '',
     endpoint.path,
     endpoint.summary,
     endpoint.description,
     ...endpoint.tags,
     ...endpoint.parameters.map((p) => `${p.name} ${p.description}`),
+    ...bodyFields,
   ]
 
   return parts.filter(Boolean).join(' ')
@@ -443,7 +464,7 @@ export async function searchEndpoints(
 /**
  * Fallback in-memory search when hybrid search is not available.
  */
-function searchEndpointsFallback(
+export function searchEndpointsFallback(
   query: string,
   options: { limit?: number; method?: string } = {}
 ): ApiEndpoint[] {

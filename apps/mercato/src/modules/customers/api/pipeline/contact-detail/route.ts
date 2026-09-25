@@ -9,6 +9,7 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { decryptRowFields, PERSON_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { listContactNotes } from '../../../lib/contact-notes'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -56,10 +57,7 @@ export async function GET(req: Request) {
     if (person) await decryptRowFields(em, PERSON_ENTITY_KEY, [person], ['job_title'], auth.tenantId, auth.orgId)
 
     // Get notes
-    const notes = await knex('contact_notes')
-      .where({ contact_id: contactId, organization_id: auth.orgId })
-      .orderBy('created_at', 'desc')
-      .limit(5)
+    const notes = await listContactNotes(knex, em, contactId, { tenantId: auth.tenantId, organizationId: auth.orgId }, 5)
 
     // Get engagement score
     const engagement = await knex('contact_engagement_scores')

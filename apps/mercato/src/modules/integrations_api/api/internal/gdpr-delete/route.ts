@@ -85,6 +85,8 @@ const ORG_TABLES = [
   'customer_tag_assignments',
   'customer_deal_people',
   'customer_deal_companies',
+  // Reminders on contacts and tasks (org-scoped; the purge used to leave them).
+  'reminders',
   'tasks',
   'contact_notes',
   'customer_deals',

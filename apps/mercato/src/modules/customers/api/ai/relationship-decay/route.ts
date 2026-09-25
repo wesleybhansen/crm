@@ -12,6 +12,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 import { decryptRowFieldsByRowScope, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { countContactNotesSince } from '../../../lib/contact-notes'
 
 export const openApi: OpenApiRouteDoc = {
   summary: 'Relationship decay alerts',
@@ -170,13 +171,8 @@ async function detectDecayingRelationships(knex: any, orgId: string): Promise<De
     .select('contact_id')
     .count('* as cnt')
 
-  const noteCounts = await knex('contact_notes')
-    .whereIn('contact_id', contactIds)
-    .where('organization_id', orgId)
-    .where('created_at', '>=', ninetyDaysAgo)
-    .groupBy('contact_id')
-    .select('contact_id')
-    .count('* as cnt')
+  const noteCounts = Object.entries(await countContactNotesSince(knex, contactIds, orgId, ninetyDaysAgo))
+    .map(([contact_id, cnt]) => ({ contact_id, cnt }))
 
   const interactionMap: Record<string, number> = {}
   for (const row of emailCounts) {

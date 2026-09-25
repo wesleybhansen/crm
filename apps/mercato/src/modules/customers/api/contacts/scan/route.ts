@@ -10,6 +10,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
+import { insertContactNote } from '../../../lib/contact-notes'
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
@@ -141,7 +142,7 @@ export async function PUT(req: Request) {
         // Notes (title, company, website, address)
         const noteText = [c.title ? `Title: ${c.title}` : '', c.company ? `Company: ${c.company}` : '', c.website ? `Website: ${c.website}` : '', c.address ? `Address: ${c.address}` : '', c.notes || ''].filter(Boolean).join('\n')
         if (noteText) {
-          await knex('contact_notes').insert({ id: require('crypto').randomUUID(), tenant_id: auth.tenantId, organization_id: auth.orgId, contact_id: id, content: noteText, created_at: new Date(), updated_at: new Date() }).catch(() => {})
+          await insertContactNote(knex, em, { contactId: id, organizationId: auth.orgId, tenantId: auth.tenantId, content: noteText, authorUserId: auth.sub ?? null }).catch(() => {})
         }
 
         // Tags

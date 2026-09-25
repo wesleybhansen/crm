@@ -79,6 +79,9 @@ const ALLOWED: Record<string, string> = {
   'packages/core/src/modules/entities/cli.ts': 'decrypt-database writes plaintext on purpose',
   // `mercato customers seed-stresstest`: synthetic load-test rows, never customer data.
   'packages/core/src/modules/customers/cli.ts': 'seed-stresstest writes generated fixtures',
+  // Legacy-note merge: each customer_comments row comes out of the injected
+  // encryptComment (encryptEntityPayload with requireMap, fails closed).
+  'packages/core/src/modules/customers/lib/contactDataCleanup.ts': 'merged comment rows are encrypted by the injected fail-closed encryptor',
 }
 
 /** Text of the balanced (...) / {...} / [...] group that starts at `open`. */

@@ -4,7 +4,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { toolListingJsonSchema } from './schema-utils'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
@@ -12,6 +12,7 @@ import { authenticateMcpRequest, hasRequiredFeatures } from './auth'
 import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { mcpContentForResult } from './tool-result'
 
 /**
  * Create and configure an MCP server instance.
@@ -110,8 +111,8 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       tools: accessibleTools.map((tool) => ({
         name: tool.name,
         description: tool.description,
-        // Cast to any for Zod v4 compatibility with zod-to-json-schema
-        inputSchema: zodToJsonSchema(tool.inputSchema as any) as Record<string, unknown>,
+        // Caller-side (input) view: defaulted arguments stay optional.
+        inputSchema: toolListingJsonSchema(tool.inputSchema),
       })),
     }
   })
@@ -138,14 +139,8 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       }
     }
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result.result, null, 2),
-        },
-      ],
-    }
+    // A `{ success: false }` result (e.g. call_api's downstream 4xx/5xx) is an error.
+    return mcpContentForResult(result.result)
   })
 
   return server

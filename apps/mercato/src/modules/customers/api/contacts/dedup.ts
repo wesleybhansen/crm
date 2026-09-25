@@ -35,6 +35,12 @@ export async function mergeContacts(
       .where('organization_id', orgId)
       .update({ contact_id: primaryId, updated_at: now })
 
+    // 1b. customer_comments (the contact's notes): move to the kept contact
+    await trx('customer_comments')
+      .where('entity_id', secondaryId)
+      .where('organization_id', orgId)
+      .update({ entity_id: primaryId, updated_at: now })
+
     // 2. tasks: update contact_id
     await trx('tasks')
       .where('contact_id', secondaryId)

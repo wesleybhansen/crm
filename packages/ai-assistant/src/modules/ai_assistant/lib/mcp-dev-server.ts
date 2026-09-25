@@ -6,11 +6,12 @@ import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
-import { jsonSchemaToZod } from './schema-utils'
+import { jsonSchemaToZod, toolInputJsonSchema } from './schema-utils'
 import type { McpToolContext } from './types'
 import { secretEquals } from '@open-mercato/shared/lib/auth/secretEquals'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { mcpContentForResult } from './tool-result'
 
 const DEFAULT_PORT = 3001
 
@@ -125,7 +126,7 @@ function createDevMcpServer(
     let safeSchema: ZodType | undefined
     if (tool.inputSchema) {
       try {
-        const jsonSchema = z.toJSONSchema(tool.inputSchema, { unrepresentable: 'any' }) as Record<string, unknown>
+        const jsonSchema = toolInputJsonSchema(tool.inputSchema)
         const converted = jsonSchemaToZod(jsonSchema)
         safeSchema = (converted as z.ZodObject<any>).passthrough()
       } catch (error) {
@@ -167,14 +168,8 @@ function createDevMcpServer(
             }
           }
 
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(result.result, null, 2),
-              },
-            ],
-          }
+          // A `{ success: false }` result (e.g. call_api's downstream 4xx/5xx) is an error.
+          return mcpContentForResult(result.result)
         }
       )
     } catch (error) {
