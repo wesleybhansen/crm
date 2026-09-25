@@ -163,6 +163,21 @@ jobs:
       - name: Apply database migrations to the test Postgres
         run: yarn db:migrate
 
+      # Runs before the GTM suite so the split test clones a pristine,
+      # just-migrated template.
+      # One tenant per customer against the real migrated schema: the Clerk
+      # sign-in path with CRM_TENANT_PER_CUSTOMER=1 (own tenant per Noli org,
+      # encrypted user email, no shared-tenant fallback) and the tenant split
+      # end to end (verifier fails on plaintext in encrypted columns). Both
+      # suites work in throwaway schemas/databases and skip without the URL.
+      - name: Run tenant provisioning and split regressions (Postgres)
+        env:
+          TENANT_TEST_DATABASE_URL: postgres://gtm:gtm@localhost:5432/gtm_test
+          TENANT_SPLIT_TEMPLATE_DATABASE_URL: postgres://gtm:gtm@localhost:5432/gtm_test
+        run: |
+          yarn workspace @open-mercato/core test --runInBand --runTestsByPath src/modules/auth/lib/__tests__/provision-tenant.pg.test.ts
+          yarn workspace @open-mercato/shared test --runInBand --runTestsByPath src/lib/encryption/__tests__/tenantSplit.pg.test.ts
+
       - name: Run GTM deterministic and artifact-quality regressions
         run: yarn test:gtm-regression
 
@@ -172,6 +187,10 @@ jobs:
       WEBHOOK_ALLOW_PRIVATE_TARGETS: '1'
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
+      # TC-TENANT-001 signs up a second customer (its own tenant). The
+      # signup gate is invite-only; without this the spec cannot build
+      # tenant B (it now fails instead of skipping).
+      SIGNUP_INVITED_EMAILS: tenant-b@test.local
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
