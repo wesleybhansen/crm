@@ -279,7 +279,7 @@ export async function GET() {
     // 3. Contacts with no activity in 30+ days
     try {
       const [coldContacts] = await knex('customer_entities')
-        .where(w).whereNull('deleted_at')
+        .where(w).where('kind', 'person').whereNull('deleted_at')
         .where('status', 'active')
         .where('updated_at', '<', thirtyDaysAgo)
         .count('* as count')
@@ -312,7 +312,7 @@ export async function GET() {
 
     // 5. No contacts yet
     try {
-      const [contactCount] = await knex('customer_entities').where(w).whereNull('deleted_at').count('* as count')
+      const [contactCount] = await knex('customer_entities').where(w).where('kind', 'person').whereNull('deleted_at').count('* as count')
       if (Number(contactCount?.count || 0) === 0) {
         actionItems.push({
           type: 'getting-started',
@@ -327,8 +327,10 @@ export async function GET() {
     // Stats
     const stats: Record<string, any> = {}
 
+    // "Contacts" on the dashboard means people, like the Contacts list and
+    // Scout; companies are counted on their own tab (QA 2026-09-25 #9).
     try {
-      const [cs] = await knex('customer_entities').where(w).whereNull('deleted_at').select(
+      const [cs] = await knex('customer_entities').where(w).where('kind', 'person').whereNull('deleted_at').select(
         knex.raw('count(*) as total'),
         knex.raw('count(*) filter (where created_at >= ?) as last_7', [sevenDaysAgo]),
       )
@@ -378,7 +380,7 @@ export async function GET() {
       return arr
     }
     try {
-      const rows = await knex('customer_entities').where(w).whereNull('deleted_at').where('created_at', '>=', eightWeeksAgo)
+      const rows = await knex('customer_entities').where(w).where('kind', 'person').whereNull('deleted_at').where('created_at', '>=', eightWeeksAgo)
         .select(knex.raw("date_trunc('week', created_at) as wk"), knex.raw('count(*) as n')).groupBy('wk')
       if (stats.contacts) stats.contacts.series = toBuckets(rows)
     } catch {}

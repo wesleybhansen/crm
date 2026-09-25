@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptAliasedRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { buildAttentionItems } from '../../../lib/needs-attention'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -25,7 +26,8 @@ export async function GET(req: Request) {
       .whereIn('em.sentiment', ['negative', 'urgent'])
       .where('em.created_at', '>=', sevenDaysAgo)
       .orderBy('em.created_at', 'desc')
-      .limit(10)
+      // Read past the 10 shown: repeats and system mail are dropped below.
+      .limit(100)
       .select(
         'em.id',
         'em.subject',
@@ -38,16 +40,9 @@ export async function GET(req: Request) {
     // Raw join: open the contact name before it is shown.
     await decryptAliasedRowFields(null, CONTACT_ENTITY_KEY, alerts, { contact_name: 'display_name' }, auth.tenantId, auth.orgId)
 
-    const items = alerts.map(a => ({
-      id: a.id,
-      type: a.sentiment,
-      title: a.sentiment === 'urgent'
-        ? `Urgent: ${a.subject || 'No subject'}`
-        : `Negative: ${a.subject || 'No subject'}`,
-      description: `From ${a.contact_name || a.from_address}`,
-      contactId: a.contact_id,
-      timestamp: a.created_at,
-    }))
+    // Automated / Noli system mail is left out and repeats of one thread
+    // collapse to one row with a count (QA 2026-09-25 M7, #16).
+    const items = buildAttentionItems(alerts, 10)
 
     return NextResponse.json({ ok: true, data: items })
   } catch (error) {

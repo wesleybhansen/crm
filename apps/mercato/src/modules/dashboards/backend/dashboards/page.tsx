@@ -11,6 +11,8 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { contactInitials } from '@/lib/contact-initials'
+import { previewFirstNameTags } from '@/lib/template-preview'
 
 interface ActionItem { type: string; title: string; description: string; href: string; priority: number }
 interface DashboardData {
@@ -171,7 +173,7 @@ export default function SimpleDashboard() {
   }
 
   return (
-    <div className="p-3 sm:p-6 max-w-5xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-5xl mx-auto max-md:pb-24">
       {/* Header + Quick Actions */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
@@ -186,14 +188,14 @@ export default function SimpleDashboard() {
           {[
             { icon: UserPlus, label: 'Add Contact', href: '/backend/contacts' },
             { icon: FileText, label: 'Create Page', href: '/backend/landing-pages/create' },
-            { icon: DollarSign, label: 'New Deal', href: '/backend/customers/deals/pipeline' },
+            { icon: DollarSign, label: 'New Deal', href: '/backend/customers/deals/create' },
             { icon: Send, label: 'Send Email', href: '/backend/email' },
             { icon: Mic, label: 'Debrief a Call', href: '/backend/debrief' },
             { icon: BookOpen, label: 'Create Course', href: '/backend/courses' },
             { icon: CalendarPlus, label: 'New Booking', href: '/backend/calendar' },
             { icon: BarChart3, label: 'Reports', href: '/backend/reports' },
           ].map(a => (
-            <Button key={a.label} type="button" variant="outline" size="sm" onClick={() => window.location.href = a.href}>
+            <Button key={a.label} type="button" variant="outline" size="sm" className="max-sm:h-10" onClick={() => window.location.href = a.href}>
               <a.icon className="size-3.5 mr-1.5" /> {a.label}
             </Button>
           ))}
@@ -274,9 +276,9 @@ export default function SimpleDashboard() {
             </div>
             <div className="rounded-lg border bg-background/70 p-4">
               <p className="text-xs font-medium text-muted-foreground">{translate('noli.dashboard.firstValue.subject', 'Subject')}</p>
-              <p className="mt-1 text-sm font-semibold">{firstValue.subject}</p>
+              <p className="mt-1 text-sm font-semibold">{previewFirstNameTags(firstValue.subject)}</p>
               <p className={`mt-3 whitespace-pre-line text-sm leading-6 text-muted-foreground ${firstValueExpanded ? '' : 'line-clamp-3'}`}>
-                {firstValue.body}
+                {previewFirstNameTags(firstValue.body)}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -320,7 +322,7 @@ export default function SimpleDashboard() {
               return next
             })
           }}
-            className="p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition shrink-0" title="Dismiss">
+            className="p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition shrink-0" title="Dismiss" aria-label="Dismiss">
             <X className="size-3.5" />
           </button>
         </div>
@@ -357,7 +359,7 @@ export default function SimpleDashboard() {
                       return next
                     })
                   }}
-                    className="p-1.5 text-muted-foreground/30 hover:text-muted-foreground transition shrink-0" title="Dismiss">
+                    className="p-1.5 text-muted-foreground/30 hover:text-muted-foreground transition shrink-0" title="Dismiss" aria-label={`Dismiss ${item.title}`}>
                     <X className="size-3.5" />
                   </button>
                 </div>
@@ -499,7 +501,7 @@ function MeetingPrep() {
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">
-                    {b.upcomingEvent?.summary || 'Upcoming meeting'} — {b.contact.displayName}
+                    {b.upcomingEvent?.summary || 'Upcoming meeting'} with {b.contact.displayName}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">
                     {startLabel ? `${startLabel} · ` : ''}{b.contact.email}
@@ -531,7 +533,9 @@ function MeetingPrep() {
 }
 
 function NeedsAttention() {
-  const [alerts, setAlerts] = useState<Array<{ id: string; type: string; title: string; description: string; contactId: string; timestamp: string }>>([])
+  // The API drops automated / Noli system mail and collapses repeats of one
+  // thread into a single row with a count (QA 2026-09-25 M7, #16).
+  const [alerts, setAlerts] = useState<Array<{ id: string; type: string; title: string; description: string; contactId: string | null; timestamp: string; count?: number }>>([])
 
   useEffect(() => {
     fetch('/api/ai/needs-attention', { credentials: 'include' })
@@ -565,7 +569,7 @@ function NeedsAttention() {
                 ? 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] border-[rgba(239,68,68,.24)] dark:bg-[rgba(239,68,68,.13)] dark:text-[#f87171] dark:border-[rgba(239,68,68,.30)]'
                 : 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]'
             }`}>{alert.type}</Badge>
-            <a href="/backend/customer-service" className="text-xs text-accent hover:underline shrink-0 font-medium">View</a>
+            <a href="/backend/customer-service" aria-label={`View ${alert.title}`} className="text-xs text-accent hover:underline shrink-0 font-medium inline-flex items-center min-h-10 px-1">View</a>
           </div>
         ))}
       </div>
@@ -607,7 +611,7 @@ function HottestLeads() {
           <a key={lead.id} href="/backend/contacts"
             className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
             <div className="size-8 rounded-full bg-accent/10 flex items-center justify-center text-xs font-bold text-accent shrink-0">
-              {(lead.display_name || '?')[0].toUpperCase()}
+              {contactInitials(lead.display_name, 1)}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{lead.display_name}</p>
@@ -682,7 +686,7 @@ function RelationshipDecay() {
           <div key={alert.contactId} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
             <div className={`size-2 rounded-full shrink-0 ${alert.severity === 'red' ? 'bg-[#b91c1c] dark:bg-[#f87171]' : 'bg-[#b45309] dark:bg-[#fbbf24]'}`} />
             <div className="size-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground shrink-0">
-              {(alert.displayName || '?')[0].toUpperCase()}
+              {contactInitials(alert.displayName, 1)}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{alert.displayName}</p>
@@ -697,7 +701,7 @@ function RelationshipDecay() {
                 : 'bg-[rgba(217,119,6,.10)] text-[#b45309] border-[rgba(217,119,6,.26)] dark:bg-[rgba(245,158,11,.13)] dark:text-[#fbbf24] dark:border-[rgba(245,158,11,.30)]'
             }`}>{alert.severity === 'red' ? 'Fading' : 'Cooling'}</Badge>
             <a href={`/backend/email?compose=true&to=${encodeURIComponent(alert.email)}&subject=${encodeURIComponent('Checking in')}&contactId=${alert.contactId}&name=${encodeURIComponent(alert.displayName || '')}`}
-              className="text-xs text-accent hover:underline shrink-0 font-medium">Follow up</a>
+              className="text-xs text-accent hover:underline shrink-0 font-medium inline-flex items-center min-h-10 px-1">Follow up</a>
           </div>
         ))}
       </div>
