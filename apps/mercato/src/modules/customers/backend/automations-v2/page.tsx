@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import SequencesPage from '@/modules/sequences/backend/sequences/page'
+import { automationStatusHint, initialAutomationStatus } from '@/modules/sequences/lib/automation-status'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -75,8 +76,9 @@ const STAT_COLORS = {
 function Sparkline({ data, className = '' }: { data: number[]; className?: string }) {
   const w = 84, h = 26, max = Math.max(...data, 1), n = Math.max(data.length - 1, 1)
   const pts = data.map((v, i) => `${(2 + (i * (w - 4)) / n).toFixed(1)},${(h - 4 - (v * (h - 8)) / max).toFixed(1)}`).join(' ')
+  // Scales down with its container (max 84px) so it never runs over the icon.
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className={`shrink-0 ${className}`}>
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden className={`block h-[26px] w-full max-w-[84px] ${className}`}>
       <polygon points={`${pts} ${w - 2},${h} 2,${h}`} className="fill-current opacity-[.12]" />
       <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -103,11 +105,15 @@ function StatTile({ icon: Icon, label, value, color, series }: {
   const c = STAT_COLORS[color]
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className={`size-9 rounded-lg flex items-center justify-center ${c.tile}`}>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className={`size-9 shrink-0 rounded-lg flex items-center justify-center ${c.tile}`}>
           <Icon className={`size-4 ${c.icon}`} />
         </div>
-        {series && series.length > 0 && <Sparkline data={series} className={`${c.icon} opacity-90`} />}
+        {series && series.length > 0 && (
+          <div className="flex min-w-0 flex-1 justify-end">
+            <Sparkline data={series} className={`${c.icon} opacity-90`} />
+          </div>
+        )}
       </div>
       <p className="text-2xl font-bold tabular-nums tracking-tight">{value.toLocaleString()}</p>
       <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
@@ -366,7 +372,11 @@ function KebabMenu({ onEdit, onDuplicate, onHistory, onTest, onDelete }: {
       if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    document.addEventListener('touchstart', handleClick as unknown as EventListener)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('touchstart', handleClick as unknown as EventListener)
+    }
   }, [open])
 
   return (
@@ -375,8 +385,11 @@ function KebabMenu({ onEdit, onDuplicate, onHistory, onTest, onDelete }: {
         type="button"
         variant="ghost"
         size="sm"
+        className="size-10 md:size-7"
         onClick={(event) => { event.stopPropagation(); setOpen(prev => !prev) }}
         aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
         <MoreHorizontal className="size-4" />
       </IconButton>
@@ -540,10 +553,14 @@ function SentenceCard({
       onClick={onEdit}
       className="group rounded-lg border bg-card hover:border-primary/30 hover:shadow-sm transition-all cursor-pointer"
     >
-      {/* Sentence line */}
+      {/* Name + sentence line */}
       <div className="px-4 pt-3.5 pb-2">
         <div className="flex items-start gap-2">
           <span className={`mt-1.5 shrink-0 size-2 rounded-full ${statusColor(rule.status)}`} />
+          <div className="min-w-0 flex-1">
+          {rule.name && (
+            <p className="text-sm font-semibold leading-snug break-words mb-1">{rule.name}</p>
+          )}
           <div className="flex flex-wrap items-center gap-1.5 text-sm leading-relaxed min-w-0">
             <span className="text-muted-foreground font-medium">When</span>
             <Pill variant="trigger">{triggerLabel(rule.trigger_type)}</Pill>
@@ -583,11 +600,12 @@ function SentenceCard({
               </>
             )}
           </div>
+          </div>
         </div>
       </div>
 
       {/* Meta line */}
-      <div className="px-4 pb-3 flex items-center gap-3 text-xs text-muted-foreground pl-8">
+      <div className="px-4 pb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground pl-8">
         <Badge variant={statusBadgeVariant(rule.status)} className="gap-1">
           {rule.status === 'active' && <Play className="size-2.5" />}
           {rule.status === 'paused' && <Pause className="size-2.5" />}
@@ -599,7 +617,7 @@ function SentenceCard({
           className="flex items-center gap-1 hover:text-foreground transition-colors rounded px-1 -mx-1 hover:bg-muted/50"
           onClick={(event) => { event.stopPropagation(); onToggleHistory() }}
         >
-          <Zap className="size-3" /> {rule.execution_count} run{rule.execution_count !== 1 ? 's' : ''}
+          <Zap className="size-3" /> {Number(rule.execution_count) || 0} run{Number(rule.execution_count) === 1 ? '' : 's'}
           <ChevronDown className={`size-3 transition-transform ${historyExpanded ? 'rotate-180' : ''}`} />
         </button>
         {rule.last_executed_at && (
@@ -608,10 +626,11 @@ function SentenceCard({
           </span>
         )}
         <div className="flex-1" />
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+        {/* Always visible on touch screens; hover-reveal only where a pointer can hover. */}
+        <div className="flex items-center gap-1 transition-opacity opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100"
           onClick={(event) => event.stopPropagation()}>
           {rule.trigger_type === 'schedule' && onRunNow && (
-            <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[10px] font-medium" onClick={onRunNow}>
+            <Button type="button" variant="ghost" size="sm" className="h-10 md:h-6 px-2 text-[10px] font-medium" onClick={onRunNow}>
               <RotateCcw className="size-3 mr-1" /> Run Now
             </Button>
           )}
@@ -625,7 +644,8 @@ function SentenceCard({
           <Switch
             checked={rule.status === 'active'}
             onCheckedChange={() => onToggle()}
-            className="scale-75"
+            className="[@media(hover:hover)]:scale-75"
+            aria-label={rule.status === 'active' ? `Pause ${rule.name || 'automation'}` : `Turn on ${rule.name || 'automation'}`}
           />
         </div>
       </div>
@@ -1233,6 +1253,9 @@ function SlideOver({
   onSave,
   saving,
   rules,
+  emailConnected,
+  saveError,
+  onClearError,
 }: {
   open: boolean
   rule: Partial<AutomationRule> | null
@@ -1248,8 +1271,12 @@ function SlideOver({
   }) => void
   saving: boolean
   rules: AutomationRule[]
+  emailConnected: boolean | null
+  saveError: string | null
+  onClearError: () => void
 }) {
   const isEdit = rule?.id != null
+  const [formError, setFormError] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [selectedTrigger, setSelectedTrigger] = useState('contact_created')
@@ -1271,28 +1298,33 @@ function SlideOver({
       const ruleSteps = rule.steps
         ? (typeof rule.steps === 'string' ? JSON.parse(rule.steps as unknown as string) : rule.steps)
         : null
-      if (Array.isArray(ruleSteps) && ruleSteps.length > 0) {
-        setSteps(ruleSteps)
-      } else {
-        setSteps([{
+      const loadedSteps: StepItem[] = Array.isArray(ruleSteps) && ruleSteps.length > 0
+        ? ruleSteps
+        : [{
           type: 'action',
           actionType: rule.action_type ?? 'send_email',
           actionConfig: typeof rule.action_config === 'string' ? JSON.parse(rule.action_config) : (rule.action_config ?? {}),
-        }])
-      }
+        }]
+      setSteps(loadedSteps)
 
       setConditions(rule.conditions ?? [])
-      setStatus((rule.status as 'active' | 'paused') ?? 'active')
+      // A new email automation (template or AI draft) opens paused when email
+      // isn't connected, since the server would refuse to switch it on.
+      setStatus(initialAutomationStatus({ isNew: rule.id == null, requested: rule.status, steps: loadedSteps, emailConnected }))
     } else {
+      const blankSteps: StepItem[] = [{ type: 'action', actionType: 'send_email', actionConfig: {} }]
       setName('')
       setDescription('')
       setSelectedTrigger('contact_created')
       setTriggerConfig({})
-      setSteps([{ type: 'action', actionType: 'send_email', actionConfig: {} }])
+      setSteps(blankSteps)
       setConditions([])
-      setStatus('active')
+      setStatus(initialAutomationStatus({ isNew: true, requested: 'active', steps: blankSteps, emailConnected }))
     }
     setShowSlideOverChat(false)
+    setFormError(null)
+    // emailConnected is read once when the drawer opens; later changes must not reset the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, rule])
 
   // Cmd/Ctrl+Enter to save, Escape to close
@@ -1310,14 +1342,16 @@ function SlideOver({
   })
 
   function handleSave() {
+    onClearError()
     if (!name.trim()) {
-      alert('Please enter a name for this automation')
+      setFormError('Enter a name for this automation.')
       return
     }
     if (steps.filter(s => s.type === 'action').length === 0) {
-      alert('Please add at least one action step')
+      setFormError('Add at least one action step.')
       return
     }
+    setFormError(null)
     onSave({
       name: name.trim(),
       description: description.trim(),
@@ -1389,14 +1423,23 @@ function SlideOver({
           </div>
 
           {/* Status */}
-          <div className="flex items-center justify-between py-3 border-t">
-            <div>
+          <div className="flex items-center justify-between gap-3 py-3 border-t">
+            <div className="min-w-0">
               <label className="text-xs font-semibold block">Status<InfoTip text="Active automations run immediately. Pause to temporarily disable without deleting." /></label>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                {status === 'active' ? 'Automation will run immediately' : 'Automation is paused'}
-              </p>
+              {(() => {
+                const hint = automationStatusHint({ status, steps, emailConnected })
+                return (
+                  <p className={`text-[11px] mt-0.5 ${hint.warning ? 'text-[#b45309] dark:text-[#fbbf24]' : 'text-muted-foreground'}`}>
+                    {hint.text}
+                    {hint.warning && (
+                      <>{' '}<a href="/backend/settings-simple" className="underline">Open Settings</a></>
+                    )}
+                  </p>
+                )
+              })()}
             </div>
-            <Switch checked={status === 'active'} onCheckedChange={(checked) => setStatus(checked ? 'active' : 'paused')} />
+            <Switch checked={status === 'active'} onCheckedChange={(checked) => setStatus(checked ? 'active' : 'paused')}
+              aria-label={status === 'active' ? 'Pause this automation' : 'Turn this automation on'} className="shrink-0" />
           </div>
         </div>
 
@@ -1415,6 +1458,12 @@ function SlideOver({
             conditions,
           } as Partial<AutomationRule>}
         />
+
+        {(formError || saveError) && (
+          <div role="alert" className="mx-6 mb-0 mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100">
+            {formError || saveError}
+          </div>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t shrink-0">
@@ -1578,7 +1627,7 @@ function TemplateGallery({
                               <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{template.description}</p>
                             </div>
                             <Button type="button" variant="outline" size="sm"
-                              className="shrink-0 self-center opacity-0 group-hover:opacity-100 transition-opacity h-7 text-xs"
+                              className="shrink-0 self-center transition-opacity h-7 text-xs opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"
                               onClick={() => onUseTemplate(template)}>
                               Use
                             </Button>
@@ -1618,7 +1667,7 @@ function TemplateGallery({
                               <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{template.description}</p>
                             </div>
                             <Button type="button" variant="outline" size="sm"
-                              className="shrink-0 self-center opacity-0 group-hover:opacity-100 transition-opacity h-7 text-xs"
+                              className="shrink-0 self-center transition-opacity h-7 text-xs opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"
                               onClick={() => onUseTemplate(template)}>
                               Use
                             </Button>
@@ -2018,7 +2067,24 @@ export default function AutomationsV2Page() {
   // Automation consolidation (T4): one home for both automation surfaces.
   // "Workflows" = the trigger-based rules below; "Sequences" = the drip
   // engine, rendered via its embedded mode.
-  const [surface, setSurface] = useState<'workflows' | 'sequences'>('workflows')
+  // Kept in the URL (?tab=sequences) so reload and back return to the same tab;
+  // an open sequence (?sequence=<id>) also implies the Sequences tab.
+  const [surface, setSurfaceState] = useState<'workflows' | 'sequences'>('workflows')
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('tab') === 'sequences' || params.get('sequence')) setSurfaceState('sequences')
+    } catch { /* ignore */ }
+  }, [])
+  function setSurface(next: 'workflows' | 'sequences') {
+    setSurfaceState(next)
+    try {
+      const url = new URL(window.location.href)
+      if (next === 'sequences') url.searchParams.set('tab', 'sequences')
+      else { url.searchParams.delete('tab'); url.searchParams.delete('sequence') }
+      window.history.replaceState(window.history.state, '', url.toString())
+    } catch { /* ignore */ }
+  }
   const [rules, setRules] = useState<AutomationRule[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -2034,6 +2100,14 @@ export default function AutomationsV2Page() {
 
   // Delete confirmation
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // Inline messages (instead of native alert()): refusals such as 422
+  // email_not_connected, save errors, run results.
+  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [emailConnected, setEmailConnected] = useState<boolean | null>(null)
 
   // AI Wizard state
   const [showAiWizard, setShowAiWizard] = useState(false)
@@ -2077,7 +2151,12 @@ export default function AutomationsV2Page() {
     setLoading(true)
     fetch('/api/sequences/automation-rules', { credentials: 'include' })
       .then(response => response.json())
-      .then(data => { if (data.ok) setRules(data.data?.items ?? data.data ?? []) })
+      .then(data => {
+        if (data.ok) {
+          setRules(data.data?.items ?? data.data ?? [])
+          if (typeof data.meta?.emailConnected === 'boolean') setEmailConnected(data.meta.emailConnected)
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -2125,11 +2204,14 @@ export default function AutomationsV2Page() {
       const d = await res.json()
       if (d.ok) {
         setBehaviorSuggestions(prev => prev.filter(x => x.id !== sug.id))
+        setNotice(null)
         loadRules()
-      } else if (d.error) {
-        alert(d.error)
+      } else {
+        setNotice({ tone: 'error', text: d.error || 'Could not create this automation.' })
       }
-    } catch { /* ignore */ }
+    } catch {
+      setNotice({ tone: 'error', text: 'Could not create this automation. Check your connection and try again.' })
+    }
     setCreatingSuggestion(null)
   }
 
@@ -2191,11 +2273,13 @@ export default function AutomationsV2Page() {
   // Handlers
   function openCreate() {
     setEditingRule(null)
+    setSaveError(null)
     setSlideOverOpen(true)
   }
 
   function openEdit(rule: AutomationRule) {
     setEditingRule(rule)
+    setSaveError(null)
     setSlideOverOpen(true)
   }
 
@@ -2210,6 +2294,7 @@ export default function AutomationsV2Page() {
     conditions: Array<{ field: string; operator: string; value?: any }>; status: string
   }) {
     setSaving(true)
+    setSaveError(null)
     try {
       const isEdit = editingRule?.id != null
       const url = isEdit ? `/api/sequences/automation-rules?id=${editingRule!.id}` : '/api/sequences/automation-rules'
@@ -2245,16 +2330,17 @@ export default function AutomationsV2Page() {
         credentials: 'include',
         body: JSON.stringify(bodyPayload),
       })
-      const result = await response.json()
-      if (result.ok) {
+      const result = await response.json().catch(() => null)
+      if (result?.ok) {
         setSlideOverOpen(false)
         setEditingRule(null)
         loadRules()
       } else {
-        alert(`Failed to save: ${result.error || 'Unknown error'}`)
+        // e.g. 422 email_not_connected when saving an active email automation
+        setSaveError(result?.error || 'Could not save this automation.')
       }
     } catch (err) {
-      alert(`Error saving automation: ${err instanceof Error ? err.message : String(err)}`)
+      setSaveError(`Could not save this automation: ${err instanceof Error ? err.message : String(err)}`)
     }
     setSaving(false)
   }
@@ -2270,9 +2356,12 @@ export default function AutomationsV2Page() {
       })
       // e.g. turning on an email automation with no email account connected
       const d = await res.json().catch(() => null)
-      if (d && !d.ok && d.error) alert(d.error)
+      if (d?.ok) setNotice(null)
+      else setNotice({ tone: 'error', text: d?.error ? `${rule.name ? `"${rule.name}": ` : ''}${d.error}` : 'Could not change this automation.' })
       loadRules()
-    } catch {}
+    } catch {
+      setNotice({ tone: 'error', text: 'Could not change this automation. Check your connection and try again.' })
+    }
   }
 
   async function handleDuplicate(rule: AutomationRule) {
@@ -2282,7 +2371,7 @@ export default function AutomationsV2Page() {
       const ruleSteps = rule.steps
         ? (typeof rule.steps === 'string' ? JSON.parse(rule.steps as unknown as string) : rule.steps)
         : null
-      await fetch('/api/sequences/automation-rules', {
+      const res = await fetch('/api/sequences/automation-rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2298,8 +2387,12 @@ export default function AutomationsV2Page() {
           status: 'paused',
         }),
       })
+      const d = await res.json().catch(() => null)
+      if (!d?.ok) setNotice({ tone: 'error', text: d?.error || 'Could not duplicate this automation.' })
       loadRules()
-    } catch {}
+    } catch {
+      setNotice({ tone: 'error', text: 'Could not duplicate this automation. Check your connection and try again.' })
+    }
   }
 
   async function handleRunNow(ruleId: string) {
@@ -2310,30 +2403,51 @@ export default function AutomationsV2Page() {
         credentials: 'include',
         body: JSON.stringify({ ruleId }),
       })
-      const result = await response.json()
-      if (result.ok) {
+      const result = await response.json().catch(() => null)
+      if (result?.ok) {
         const ruleResult = result.data?.results?.[0]
         if (ruleResult) {
-          alert(`Scheduled automation ran: ${ruleResult.targetsFound} target(s) found, ${ruleResult.executed} executed`)
+          const found = Number(ruleResult.targetsFound) || 0
+          const ran = Number(ruleResult.executed) || 0
+          setNotice({ tone: 'success', text: `Scheduled automation ran: ${found} ${found === 1 ? 'match' : 'matches'} found, ${ran} run.` })
         }
         loadRules()
+      } else {
+        setNotice({ tone: 'error', text: result?.error || 'Could not run this scheduled automation.' })
       }
     } catch {
-      alert('Failed to run scheduled automation')
+      setNotice({ tone: 'error', text: 'Could not run this scheduled automation. Check your connection and try again.' })
     }
   }
 
   async function handleDelete(ruleId: string) {
+    setDeleteError(null)
     setDeletingId(ruleId)
   }
 
-  async function confirmDelete() {
-    if (!deletingId) return
-    try {
-      await fetch(`/api/sequences/automation-rules?id=${deletingId}`, { method: 'DELETE', credentials: 'include' })
-      loadRules()
-    } catch {}
+  function closeDeleteDialog() {
     setDeletingId(null)
+    setDeleteError(null)
+  }
+
+  async function confirmDelete() {
+    if (!deletingId || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/sequences/automation-rules?id=${encodeURIComponent(deletingId)}`, { method: 'DELETE', credentials: 'include' })
+      const d = await res.json().catch(() => null)
+      if (res.ok && d?.ok) {
+        closeDeleteDialog()
+        loadRules()
+      } else {
+        // Keep the dialog open and say so: the rule is still there.
+        setDeleteError(d?.error || 'Could not delete this automation. Please try again.')
+      }
+    } catch {
+      setDeleteError('Could not delete this automation. Check your connection and try again.')
+    }
+    setDeleting(false)
   }
 
   function openTestModal(ruleId: string) {
@@ -2568,17 +2682,17 @@ export default function AutomationsV2Page() {
   ]
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+      {/* Header: buttons wrap under the title on narrow screens (never widen the page) */}
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div className="min-w-0">
           <h1 className="text-lg font-semibold">Automations</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             {surface === 'workflows' ? 'Automate repetitive tasks with trigger-based rules' : 'Multi-step email and SMS drips that nurture contacts over time'}
           </p>
         </div>
         {surface === 'workflows' && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => setShowHelpChat(true)}>
               <MessageCircle className="size-3.5 mr-1.5" /> Need Help?
             </Button>
@@ -2602,6 +2716,7 @@ export default function AutomationsV2Page() {
             key={key}
             type="button"
             onClick={() => setSurface(key)}
+            aria-pressed={surface === key}
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
               surface === key ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -2614,17 +2729,33 @@ export default function AutomationsV2Page() {
       {surface === 'sequences' && <SequencesPage embedded />}
 
       {surface === 'workflows' && (<>
+      {notice && (
+        <div role={notice.tone === 'error' ? 'alert' : 'status'}
+          className={`flex items-start gap-3 rounded-lg border p-3 mb-4 text-sm ${notice.tone === 'error'
+            ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100'
+            : 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100'}`}>
+          <p className="flex-1 min-w-0 break-words">
+            {notice.text}
+            {notice.tone === 'error' && /email/i.test(notice.text) && (
+              <>{' '}<a href="/backend/settings-simple" className="underline">Open Settings</a></>
+            )}
+          </p>
+          <IconButton type="button" variant="ghost" size="sm" onClick={() => setNotice(null)} aria-label="Dismiss message" className="shrink-0 -my-1">
+            <X className="size-3.5" />
+          </IconButton>
+        </div>
+      )}
       {/* Stat tiles (real data from the loaded rules) */}
       {!loading && rules.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
           <StatTile icon={Zap} label="Automations" value={counts.all} color="violet" series={weeklyCounts(rules.map(r => r.created_at))} />
           <StatTile icon={Play} label="Active" value={counts.active} color="green" />
           <StatTile icon={Pause} label="Paused" value={counts.paused} color="amber" />
-          <StatTile icon={History} label="Total runs" value={rules.reduce((s, r) => s + (r.execution_count || 0), 0)} color="blue" />
+          <StatTile icon={History} label="Total runs" value={rules.reduce((s, r) => s + (Number(r.execution_count) || 0), 0)} color="blue" />
         </div>
       )}
       {/* Status tabs */}
-      <div className="flex items-center gap-1 mb-4 border-b">
+      <div className="flex items-center gap-1 mb-4 border-b overflow-x-auto">
         {statusTabs.map(tab => (
           <Button
             key={tab.key}
@@ -2686,7 +2817,7 @@ export default function AutomationsV2Page() {
         </div>
       ) : rules.length === 0 ? (
         /* Empty state - no automations at all */
-        <div className="rounded-xl border p-16 text-center">
+        <div className="rounded-xl border px-4 py-12 sm:p-16 text-center">
           <div className="size-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
             <Zap className="size-7 text-primary" />
           </div>
@@ -2694,7 +2825,7 @@ export default function AutomationsV2Page() {
           <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-6">
             Save time by letting automations handle routine work like sending emails, tagging contacts, and creating tasks.
           </p>
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <Button type="button" size="sm" onClick={openTemplateGallery}>
               <LayoutGrid className="size-3.5 mr-1.5" /> Browse Templates
             </Button>
@@ -2735,23 +2866,30 @@ export default function AutomationsV2Page() {
       {/* Delete confirmation dialog */}
       {deletingId && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]" onClick={() => setDeletingId(null)} />
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-card rounded-xl border shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-150">
+          <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]" onClick={closeDeleteDialog} />
+          <div role="alertdialog" aria-modal="true" aria-labelledby="delete-automation-title" className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[calc(100%-2rem)] max-w-sm bg-card rounded-xl border shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-start gap-3 mb-4">
               <div className="size-10 rounded-full bg-[rgba(239,68,68,.10)] dark:bg-[rgba(239,68,68,.13)] flex items-center justify-center shrink-0">
                 <Trash2 className="size-5 text-[#b91c1c] dark:text-[#f87171]" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold">Delete automation?</h3>
+                <h3 id="delete-automation-title" className="text-sm font-semibold">
+                  Delete {(() => { const r = rules.find(x => x.id === deletingId); return r?.name ? `"${r.name}"` : 'automation' })()}?
+                </h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  This will permanently delete this automation rule and all its execution history. This action cannot be undone.
+                  This permanently deletes this automation. It will stop running and this cannot be undone.
                 </p>
               </div>
             </div>
+            {deleteError && (
+              <p role="alert" className="mb-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100">
+                {deleteError}
+              </p>
+            )}
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setDeletingId(null)}>Cancel</Button>
-              <Button type="button" variant="destructive" size="sm" onClick={confirmDelete}>
-                <Trash2 className="size-3 mr-1.5" /> Delete
+              <Button type="button" variant="outline" size="sm" onClick={closeDeleteDialog}>Cancel</Button>
+              <Button type="button" variant="destructive" size="sm" onClick={confirmDelete} disabled={deleting}>
+                {deleting ? <Loader2 className="size-3 mr-1.5 animate-spin" /> : <Trash2 className="size-3 mr-1.5" />} Delete
               </Button>
             </div>
           </div>
@@ -2772,10 +2910,13 @@ export default function AutomationsV2Page() {
       <SlideOver
         open={slideOverOpen}
         rule={editingRule}
-        onClose={() => { setSlideOverOpen(false); setEditingRule(null) }}
+        onClose={() => { setSlideOverOpen(false); setEditingRule(null); setSaveError(null) }}
         onSave={handleSave}
         saving={saving}
         rules={rules}
+        emailConnected={emailConnected}
+        saveError={saveError}
+        onClearError={() => setSaveError(null)}
       />
 
       {/* AI Wizard Modal */}
@@ -2957,6 +3098,7 @@ export default function AutomationsV2Page() {
                           ? ` (${testSelectedContact.primary_email})` : ''}
                       </span>
                       <button type="button" onClick={() => { setTestSelectedContact(null); setTestContactSearch(''); setTestResults(null) }}
+                        aria-label="Clear selected contact"
                         className="text-muted-foreground hover:text-foreground shrink-0">
                         <X className="size-3.5" />
                       </button>
