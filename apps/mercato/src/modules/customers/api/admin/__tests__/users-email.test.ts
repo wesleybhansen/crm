@@ -34,5 +34,9 @@ describe('GET /admin/users', () => {
     })
     expect(json.data[0].email).toBe('plain-for-t1')
     expect(json.data[0]).not.toHaveProperty('scope_tenant_id')
+    // One tenant per customer: the platform view shows each user's tenant, and
+    // a role name only counts when the role belongs to that tenant.
+    expect(String(sql)).toContain('u.tenant_id, u.organization_id')
+    expect(String(sql)).toContain('r.tenant_id = u.tenant_id')
   })
 })
