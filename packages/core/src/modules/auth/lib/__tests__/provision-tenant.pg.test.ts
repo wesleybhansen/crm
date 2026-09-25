@@ -53,6 +53,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 const seedCalls: string[] = []
+let failDemoSeed = false
 const testModules: Module[] = [
   { id: 'auth', setup: { defaultRoleFeatures: { superadmin: ['directory.tenants.*'], admin: ['auth.*'], employee: ['auth.view'] } } } as Module,
   {
@@ -61,6 +62,7 @@ const testModules: Module[] = [
       defaultRoleFeatures: { admin: ['demo.*'] },
       seedDefaults: async ({ em, tenantId, organizationId }: any) => {
         seedCalls.push(`${tenantId}:${organizationId}`)
+        if (failDemoSeed) throw new Error('demo seed failed on purpose')
         // Idempotent structural default, like the real modules.
         await em.execute(
           `insert into demo_defaults (tenant_id, organization_id) values (?, ?) on conflict do nothing`,
@@ -236,6 +238,46 @@ d('one tenant per customer (Postgres)', () => {
     expect(s1?.userId).toBe(s2?.userId)
     expect(await n(`select count(*)::int as n from users where clerk_user_id = 'clerk_solo'`)).toBe(1)
     expect(await n(`select count(*)::int as n from tenants t where not exists (select 1 from organizations o where o.tenant_id = t.id) and t.id <> ?`, [shared])).toBe(0)
+  })
+
+  it('a failing seed backs off instead of re-running on every sign-in; the admin ACL exists anyway (M5)', async () => {
+    process.env.CRM_TENANT_PER_CUSTOMER = '1'
+    const { resolveClerkUserToAuthContext, resetSeededTenantCacheForTests } = await import('@open-mercato/shared/lib/auth/clerk')
+    resetSeededTenantCacheForTests()
+    failDemoSeed = true
+    try {
+      noliOrgOf.set('clerk_seedfail', 'noli-org-seedfail')
+      const first = await resolveClerkUserToAuthContext('clerk_seedfail')
+      expect(first?.tenantId).toBeTruthy()
+      const tenantId = first!.tenantId as string
+      const callsFor = () => seedCalls.filter((c) => c.startsWith(`${tenantId}:`)).length
+      expect(callsFor()).toBe(1)
+      // The seed never finished, yet the first admin's role grants its features.
+      expect(await n(
+        `select count(*)::int as n from role_acls a join roles r on r.id = a.role_id
+          where r.tenant_id = ? and r.name = 'admin' and a.is_super_admin = false`, [tenantId],
+      )).toBe(1)
+      // Signing in again right away does not re-run the seed.
+      await resolveClerkUserToAuthContext('clerk_seedfail')
+      await resolveClerkUserToAuthContext('clerk_seedfail')
+      expect(callsFor()).toBe(1)
+    } finally {
+      failDemoSeed = false
+    }
+  })
+
+  it('createCustomerTenant writes the admin ACL inside the provisioning transaction (M5)', async () => {
+    const em = orm.em.fork() as EntityManager
+    let aclsInTx = -1
+    await em.transactional(async (tem) => {
+      const { tenant } = await createCustomerTenant(tem as EntityManager, { name: 'Tx ACL', noliOrgId: null, modules: testModules })
+      const rows = (await (tem as EntityManager).execute(
+        `select count(*)::int as n from role_acls a join roles r on r.id = a.role_id
+          where r.tenant_id = ? and r.name = 'admin' and a.is_super_admin = false`, [String(tenant.id)],
+      )) as Array<{ n: number }>
+      aclsInTx = Number(rows[0]?.n ?? 0)
+    })
+    expect(aclsInTx).toBe(1)
   })
 
   it('maintenance mode: sign-in never provisions', async () => {

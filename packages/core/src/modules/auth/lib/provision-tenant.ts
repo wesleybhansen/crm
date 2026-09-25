@@ -8,7 +8,7 @@ import { DEFAULT_ENCRYPTION_MAPS } from '../../entities/lib/encryptionDefaults'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { templateTenantId as envTemplateTenantId } from '@open-mercato/shared/lib/runtime/tenancy'
-import { seedTenantBaseline } from './setup-app'
+import { ensureDefaultRoleAcls, seedTenantBaseline } from './setup-app'
 
 /**
  * One tenant per Noli customer.
@@ -40,6 +40,13 @@ export const DEFAULT_TENANT_ROLE_NAMES = ['superadmin', 'admin', 'employee'] as 
 export type CreateCustomerTenantInput = {
   name: string
   noliOrgId: string | null
+  /**
+   * Enabled modules. When given, the default role ACLs (admin, employee;
+   * never super-admin) are written in the same transaction as the roles, so
+   * a seed that fails after commit can never leave the first admin with a
+   * role that grants nothing (2026-09-25 review, M5).
+   */
+  modules?: Module[]
 }
 
 export async function createCustomerTenant(
@@ -71,8 +78,13 @@ export async function createCustomerTenant(
   tem.persist(organization)
   await tem.flush()
   // The admin role must exist before the user is granted it in the same
-  // transaction; ACLs follow in ensureTenantSeeded after commit.
+  // transaction, and so must its ACL: a role with no ACL grants nothing.
+  // ensureTenantSeeded re-applies the ACLs after commit (idempotent).
   await ensureTenantRoles(tem, String(tenant.id))
+  if (input.modules?.length) {
+    await ensureDefaultRoleAcls(tem, String(tenant.id), input.modules, { includeSuperadminRole: false })
+    await tem.flush()
+  }
   return { tenant, organization }
 }
 

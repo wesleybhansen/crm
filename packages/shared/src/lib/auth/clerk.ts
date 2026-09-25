@@ -22,9 +22,30 @@ import { isMaintenanceMode, isTenantPerCustomerEnabled } from '../runtime/tenanc
 /** Tenants this process has already confirmed as seeded (per-customer mode). */
 const seededTenants = new Set<string>()
 
+/**
+ * Failed seeding attempts, per tenant: when the next attempt may run and how
+ * many have failed in a row. Without this, one throwing seedDefaults re-ran
+ * the whole seed on every request of that tenant, under the advisory lock
+ * (waits of up to 120 s), forever (2026-09-25 review, M5). Backoff doubles
+ * from 30 s to 30 min; a success clears it.
+ */
+const seedFailures = new Map<string, { nextAttemptAt: number; failures: number }>()
+const SEED_BACKOFF_BASE_MS = 30_000
+const SEED_BACKOFF_MAX_MS = 30 * 60_000
+
+export function seedBackoffMs(failures: number): number {
+  return Math.min(SEED_BACKOFF_MAX_MS, SEED_BACKOFF_BASE_MS * 2 ** Math.max(0, failures - 1))
+}
+
+function recordSeedFailure(tenantId: string, now: number = Date.now()): void {
+  const failures = (seedFailures.get(tenantId)?.failures ?? 0) + 1
+  seedFailures.set(tenantId, { failures, nextAttemptAt: now + seedBackoffMs(failures) })
+}
+
 /** Test seam. */
 export function resetSeededTenantCacheForTests(): void {
   seededTenants.clear()
+  seedFailures.clear()
 }
 
 /**
@@ -228,6 +249,8 @@ async function ensureTenantSeededOnce(
   organizationId: string,
 ): Promise<void> {
   if (seededTenants.has(tenantId)) return
+  const backoff = seedFailures.get(tenantId)
+  if (backoff && backoff.nextAttemptAt > Date.now()) return
   try {
     const { ensureTenantSeeded, tenantNeedsSeeding } = await import(
       '@open-mercato/core/modules/auth/lib/provision-tenant'
@@ -249,9 +272,15 @@ async function ensureTenantSeededOnce(
       modules,
       container: container as never,
     })
-    if (result.failures.length === 0) seededTenants.add(tenantId)
-    else console.error(`[clerk-auth] tenant ${tenantId} seeding incomplete: ${result.failures.map((f) => f.step).join(', ')}`)
+    if (result.failures.length === 0) {
+      seededTenants.add(tenantId)
+      seedFailures.delete(tenantId)
+    } else {
+      recordSeedFailure(tenantId)
+      console.error(`[clerk-auth] tenant ${tenantId} seeding incomplete: ${result.failures.map((f) => f.step).join(', ')}`)
+    }
   } catch (err) {
+    recordSeedFailure(tenantId)
     console.error(`[clerk-auth] tenant ${tenantId} seeding failed:`, (err as Error)?.message ?? err)
   }
 }
@@ -312,6 +341,7 @@ async function provisionMercatoUserForClerk(
       '@open-mercato/core/modules/auth/lib/emailHash'
     )
     const perCustomer = isTenantPerCustomerEnabled()
+    const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
     const { createCustomerTenant, ensureTenantRoles } = perCustomer
       ? await import('@open-mercato/core/modules/auth/lib/provision-tenant')
       : { createCustomerTenant: null, ensureTenantRoles: null }
@@ -370,9 +400,16 @@ async function provisionMercatoUserForClerk(
       if (!organization && perCustomer && createCustomerTenant) {
         // Own tenant for a new customer: tenant + org (+ default roles) in
         // this transaction, so a failure or a lost race leaves nothing.
+        let tenantModules: ReturnType<typeof getModules> = []
+        try {
+          tenantModules = getModules()
+        } catch {
+          tenantModules = []
+        }
         const createdTenant = await createCustomerTenant(typedTem, {
           name: displayName,
           noliOrgId: noliOrgId ?? null,
+          modules: tenantModules,
         })
         organization = createdTenant.organization
         orgTenant = createdTenant.tenant
