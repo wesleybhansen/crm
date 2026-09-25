@@ -7,6 +7,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { geminiGenerationConfig, geminiUsage } from '@/lib/ai/gemini'
 import {
   CANDIDATE_PREVIEW,
+  FAIR_HOUSING_REASON,
   MAX_DAILY_CAP,
   MAX_DRAFTS_PER_CALL,
   QUIET_DAYS,
@@ -22,6 +23,7 @@ import {
   isUuid,
   parseDraft,
   pastClientStageList,
+  screenReactivationDraft,
   slotsLeftToday,
   utcDayStart,
   type ReactivationKind,
@@ -33,7 +35,9 @@ import {
  * reactivation initiative. The Noli hub calls it with the shared
  * NOLI_INTERNAL_SERVICE_SECRET. Ops:
  *   candidates  who qualifies (read only)
- *   draft       drafts personal notes as inbox proposals (never sends)
+ *   draft       drafts personal notes as inbox proposals (never sends); each
+ *               note passes the fair-housing screen, and one that fails is
+ *               kept for the owner to see, with the reason, but never sendable
  *   approve     the owner approved the initiative in the hub: pending drafts
  *               for it become sendable
  *   send-batch  sends approved drafts, at most the daily cap per UTC day,
@@ -226,6 +230,7 @@ async function opDraft(knex: Knex, em: EntityManager, auth: Auth, noliUserId: st
   const business = { name: bp?.business_name || 'our team', description: bp?.business_description || '' }
 
   const created: string[] = []
+  const flagged: Array<{ actionId: string; contactId: string; reason: string; advisory: string }> = []
   for (let i = 0; i < picked.length; i += DRAFT_CONCURRENCY) {
     await Promise.all(picked.slice(i, i + DRAFT_CONCURRENCY).map(async (contact) => {
       const contactId = String(contact.id)
@@ -235,6 +240,13 @@ async function opDraft(knex: Knex, em: EntityManager, auth: Auth, noliUserId: st
         model: DRAFT_MODEL, tokensIn, tokensOut, feature: 'initiative-reactivation', byoKey: Boolean(gate.byoApiKey), noliUserId,
       })
       if (!draft) return
+      // Fair-housing screen at draft time. A failing note is still recorded so
+      // the owner sees it and why, but it is marked blocked and approve/send
+      // never let it out.
+      const screen = screenReactivationDraft(draft, name)
+      const fairHousing = screen.ok
+        ? { ok: true }
+        : { ok: false, blocked: true, findings: screen.findings, advisory: screen.advisory }
       const now = new Date()
       const emailId = deterministicId(initiativeId, contactId, 'email')
       const proposalId = deterministicId(initiativeId, contactId, 'proposal')
@@ -250,7 +262,9 @@ async function opDraft(knex: Knex, em: EntityManager, auth: Auth, noliUserId: st
           })
           await trx('inbox_proposals').insert({
             id: proposalId, inbox_email_id: emailId, tenant_id: auth.tenantId, organization_id: auth.orgId,
-            summary: `${REACTIVATION_MARKER} ${label} is a past client you have not written to in a while. Your Chief of Staff drafted a personal note.`,
+            summary: screen.ok
+              ? `${REACTIVATION_MARKER} ${label} is a past client you have not written to in a while. Your Chief of Staff drafted a personal note.`
+              : `${REACTIVATION_MARKER} ${label}: the drafted note was held and will not be sent. ${screen.advisory}`,
             participants: JSON.stringify([{ name, email: contact.primary_email }]),
             confidence: 0.75, category: 'inquiry', status: 'pending', is_active: true, created_at: now, updated_at: now,
           })
@@ -260,20 +274,23 @@ async function opDraft(knex: Knex, em: EntityManager, auth: Auth, noliUserId: st
             description: `Personal note to past client ${label}`,
             payload: JSON.stringify({
               to: contact.primary_email, toName: name || null, subject: draft.subject, body: draft.body, contactId,
-              context: 'Drafted by your Chief of Staff for a past-client initiative. Nothing is sent until you approve it.',
+              context: screen.ok
+                ? 'Drafted by your Chief of Staff for a past-client initiative. Nothing is sent until you approve it.'
+                : `Held, not sendable. ${screen.advisory}`,
             }),
-            metadata: JSON.stringify({ feature_source: REACTIVATION_SOURCE, initiative_id: initiativeId, contact_id: contactId, kind }),
+            metadata: JSON.stringify({ feature_source: REACTIVATION_SOURCE, initiative_id: initiativeId, contact_id: contactId, kind, fair_housing: fairHousing }),
             status: 'pending', confidence: 0.75, created_at: now, updated_at: now,
           })
         })
         created.push(actionId)
+        if (!screen.ok) flagged.push({ actionId, contactId, reason: FAIR_HOUSING_REASON, advisory: screen.advisory })
       } catch (err) {
         // 23505: a concurrent call for the same initiative already drafted this contact.
         if ((err as { code?: string })?.code !== '23505') throw err
       }
     }))
   }
-  return { status: 200, json: { ok: true, created, existing: already } }
+  return { status: 200, json: { ok: true, created, existing: already, flagged } }
 }
 
 async function opApprove(knex: Knex, auth: Auth, body: Row) {
@@ -282,8 +299,32 @@ async function opApprove(knex: Knex, auth: Auth, body: Row) {
   const approvalId = typeof body.approvalId === 'string' ? body.approvalId.slice(0, 80) : null
   const exclude = Array.isArray(body.excludeActionIds) ? body.excludeActionIds.filter(isUuid) : []
   const now = new Date()
+  // A note that fails the fair-housing screen (flagged at draft time, or
+  // failing a re-check now) is never approved: it is dismissed with the reason
+  // so it cannot be sent and does not hold its contact forever.
+  let pendingQuery = reactivationActions(knex, auth).whereRaw(`metadata->>'initiative_id' = ?`, [initiativeId]).where('status', 'pending')
+  if (exclude.length) pendingQuery = pendingQuery.whereNotIn('id', exclude)
+  const pending = (await pendingQuery.select('id', 'payload', 'metadata')) as Row[]
+  const blocked: Array<{ actionId: string; reason: string; advisory: string }> = []
+  for (const row of pending) {
+    const payload = parseJson(row.payload)
+    const meta = parseJson(row.metadata)
+    const screen = screenReactivationDraft(payload, typeof payload.toName === 'string' ? payload.toName : null)
+    const flaggedAtDraft = meta.fair_housing && (meta.fair_housing as Row).blocked === true
+    if (screen.ok && !flaggedAtDraft) continue
+    const advisory = !screen.ok ? screen.advisory : String((meta.fair_housing as Row).advisory || 'Fair Housing review needed.')
+    await reactivationActions(knex, auth).where('id', row.id).where('status', 'pending').update({
+      status: 'dismissed',
+      execution_error: FAIR_HOUSING_REASON,
+      metadata: knex.raw(`metadata || ?::jsonb`, [JSON.stringify({ fair_housing: { ok: false, blocked: true, advisory } })]),
+      updated_at: now,
+    })
+    blocked.push({ actionId: String(row.id), reason: FAIR_HOUSING_REASON, advisory })
+  }
+  const blockedIds = blocked.map((b) => b.actionId)
   let query = reactivationActions(knex, auth).whereRaw(`metadata->>'initiative_id' = ?`, [initiativeId]).where('status', 'pending')
   if (exclude.length) query = query.whereNotIn('id', exclude)
+  if (blockedIds.length) query = query.whereNotIn('id', blockedIds)
   const approved = await query.update({
     status: 'approved',
     metadata: knex.raw(`metadata || ?::jsonb`, [JSON.stringify({ approval_id: approvalId, approved_at: now.toISOString() })]),
@@ -293,7 +334,7 @@ async function opApprove(knex: Knex, auth: Auth, body: Row) {
     await reactivationActions(knex, auth).whereRaw(`metadata->>'initiative_id' = ?`, [initiativeId])
       .where('status', 'pending').whereIn('id', exclude).update({ status: 'dismissed', execution_error: 'declined', updated_at: now })
   }
-  return { status: 200, json: { ok: true, approved: Number(approved) || 0 } }
+  return { status: 200, json: { ok: true, approved: Number(approved) || 0, blocked } }
 }
 
 async function opSendBatch(knex: Knex, em: EntityManager, auth: Auth, body: Row) {
@@ -342,6 +383,14 @@ async function opSendBatch(knex: Knex, em: EntityManager, auth: Auth, body: Row)
     if (!rows.length) { await refuse(action, contactId, 'contact_unreadable'); continue }
     const email = String(rows[0].primary_email || '').trim()
     if (isSuppressed(email, rows[0].stored_email, lists)) { await refuse(action, contactId, 'opted_out'); continue }
+    // Fair-housing screen again at send time (defense in depth: a row approved
+    // before this screen existed, or changed after drafting, never goes out).
+    const meta = parseJson(action.metadata)
+    const screen = screenReactivationDraft(payload, rows[0].display_name || (typeof payload.toName === 'string' ? payload.toName : null))
+    if (!screen.ok || (meta.fair_housing && (meta.fair_housing as Row).blocked === true)) {
+      await refuse(action, contactId, FAIR_HOUSING_REASON)
+      continue
+    }
     const recent = await knex('email_messages').where('organization_id', auth.orgId).where('contact_id', contactId)
       .where('direction', 'outbound').where('created_at', '>', new Date(now.getTime() - 7 * DAY_MS)).first('id')
     if (recent) { await refuse(action, contactId, 'contacted_recently'); continue }
