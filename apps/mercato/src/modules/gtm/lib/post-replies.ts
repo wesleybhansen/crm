@@ -399,6 +399,51 @@ export async function markPostReplyCopied(em: CampaignEm, ctx: GtmCtx, input: { 
   return rowShape(row)
 }
 
+/** A 'posting' claim older than this outlived any request that could still
+ *  finish it (two Graph calls, four publish tries, a permalink read). */
+export const POST_REPLY_STALE_POSTING_MS = 10 * 60 * 1000
+
+/**
+ * A request that crashed (deploy, OOM, timeout) between claiming a reply and
+ * recording Meta's answer left it in 'posting' forever: not editable, not
+ * dismissable, and counted against the daily cap (2026-09-25 review, M3).
+ * Such a reply may or may not be public, so it becomes 'unknown' (the owner
+ * checks it on Threads; it is never re-posted automatically). Runs lazily for
+ * one organisation, on list and before a post.
+ */
+export async function reconcileStalePostingReplies(
+  em: PostReplyEm,
+  ctx: GtmCtx,
+  now: Date = new Date(),
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - POST_REPLY_STALE_POSTING_MS)
+  const stale = await em.find(GtmPostReply, {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    status: 'posting',
+    updatedAt: { $lt: cutoff },
+    deletedAt: null,
+  }, { limit: 50 })
+  let reconciled = 0
+  for (const row of stale) {
+    const moved = await em.nativeUpdate(GtmPostReply, {
+      id: row.id,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      status: 'posting',
+      updatedAt: { $lt: cutoff },
+    }, { status: 'unknown', failureCode: 'posting_interrupted', updatedAt: now })
+    if (!moved) continue
+    reconciled += 1
+    const fresh = await findReply(em, ctx, row.id)
+    await em.transactional(async (tem) => {
+      audit(tem, ctx, 'unknown', fresh, { status: 'unknown', failure_code: 'posting_interrupted' })
+      await tem.flush()
+    })
+  }
+  return reconciled
+}
+
 export async function listPostReplies(
   em: CampaignEm,
   ctx: GtmCtx,
@@ -485,6 +530,7 @@ export async function postThreadsReply(
   const problem = replySafetyProblem(text)
   if (problem) throw new GtmPostReplyError('unsafe_reply', safetyMessage(problem))
 
+  await reconcileStalePostingReplies(em, ctx)
   const since = new Date(Date.now() - 86_400_000)
   const today = await em.count(GtmPostReply, {
     organizationId: ctx.organizationId,

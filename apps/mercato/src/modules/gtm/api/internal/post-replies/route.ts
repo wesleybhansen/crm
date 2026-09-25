@@ -70,6 +70,7 @@ export async function POST(req: Request) {
 
     if (body.op === 'list') {
       if (!isUuid(body.workspaceId) || (body.playId && !isUuid(body.playId))) return opaqueNotFound()
+      await replies.reconcileStalePostingReplies(em, ctx)
       const rows = await replies.listPostReplies(em, ctx, { workspaceId: body.workspaceId, playId: body.playId ?? null })
       return NextResponse.json({ ok: true, replies: rows, posting_available: threadsRepliesEnabled(), daily_cap: replies.POST_REPLY_DAILY_CAP })
     }

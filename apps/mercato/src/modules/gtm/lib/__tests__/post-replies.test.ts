@@ -7,6 +7,7 @@ import {
   postSourceFromCandidate,
   postThreadsReply,
   preparePostReply,
+  reconcileStalePostingReplies,
   replySafetyProblem,
   storePostReply,
   type PostReplyEm,
@@ -171,5 +172,24 @@ describe('post replies', () => {
       await em.nativeUpdate(GtmPostReply, { id: other.id }, { status: 'posted', updatedAt: new Date() })
     }
     await expect(postThreadsReply(em as unknown as PostReplyEm, ctx, { replyId: row.id }, { connection: connection(), fetchImpl: none, env: ON })).rejects.toMatchObject({ code: 'daily_cap_reached' })
+  })
+
+  test('a reply stuck in posting after a crash becomes unknown, never re-posted (M3)', async () => {
+    const em = new FakeEm()
+    const stuck = await draftedRow(em)
+    const fresh = await draftedRow(em)
+    const old = new Date(Date.now() - 30 * 60 * 1000)
+    await em.nativeUpdate(GtmPostReply, { id: stuck.id }, { status: 'posting', updatedAt: old })
+    await em.nativeUpdate(GtmPostReply, { id: fresh.id }, { status: 'posting', updatedAt: new Date() })
+    const moved = await reconcileStalePostingReplies(em as unknown as PostReplyEm, ctx)
+    expect(moved).toBe(1)
+    expect(await em.findOne(GtmPostReply, { id: stuck.id })).toMatchObject({ status: 'unknown', failureCode: 'posting_interrupted' })
+    // A claim still inside its request window is left alone.
+    expect((await em.findOne(GtmPostReply, { id: fresh.id }))?.status).toBe('posting')
+    // Posting it again is a no-op read, not a second public reply.
+    const none = graph([])
+    const result = await postThreadsReply(em as unknown as PostReplyEm, ctx, { replyId: stuck.id }, { connection: connection(), fetchImpl: none.fetchImpl, env: ON })
+    expect(result.status).toBe('unknown')
+    expect(none.calls).toHaveLength(0)
   })
 })
