@@ -137,6 +137,10 @@ describe('summarizeResearchRun (internal research-runs op summary)', () => {
       // per-operation ceil: 5000 -> 2, 2500 -> 1
       spent_cents: 3,
       cost_per_accepted_cents: 2,
+      // The same figures in tokens (ledger credits), the only unit members see.
+      projected_credits: 12_500,
+      spent_credits: 7_500,
+      credits_per_accepted: 3_750,
       qualification_rate: 0.2,
     })
     expect(summary!.started_at).toEqual(new Date('2026-09-01T10:00:00.000Z'))
@@ -189,6 +193,8 @@ describe('summarizeResearchRun (internal research-runs op summary)', () => {
       projected_cost_cents: 1,
       spent_cents: null,
       cost_per_accepted_cents: null,
+      spent_credits: null,
+      credits_per_accepted: null,
       qualification_rate: null,
       top_filters: [],
       sources_searched: [{ source: 'fixture-source', searched: false, found: 0 }],
@@ -227,6 +233,8 @@ describe('summarizeResearchRun (internal research-runs op summary)', () => {
       accepted: 0,
       spent_cents: 3,
       cost_per_accepted_cents: null,
+      spent_credits: 7_500,
+      credits_per_accepted: null,
       qualification_rate: 0,
     })
   })

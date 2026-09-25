@@ -74,6 +74,13 @@ export type ResearchRunSummary = {
   typical_cost_cents: number | null
   spent_cents: number | null
   cost_per_accepted_cents: number | null
+  /* The same figures in AI tokens (ledger credits), which is the only unit a
+   * member sees (Wesley's rule 2026-09-25: no action is priced in money).
+   * The cents fields stay for older clients and our own accounting. */
+  projected_credits: number | null
+  typical_credits: number | null
+  spent_credits: number | null
+  credits_per_accepted: number | null
   qualification_rate: number | null
   top_filters: ResearchSummaryFilter[]
 }
@@ -192,6 +199,22 @@ export function sourcesSearchedFromPlan(
   return order.map((source) => bySource.get(source)!)
 }
 
+// Settled spend in ledger credits (tokens): the charged batches when the
+// execution recorded them, else the run's reconciled total.
+function settledSpendCredits(run: GtmResearchRun): number | null {
+  if (run.status !== 'completed' && run.status !== 'failed') return null
+  if (run.reconciledCredits == null) return null
+  const execution = asRecord((run.providerPlan ?? {}).execution)
+  const batches = Array.isArray(execution?.batches) ? (execution!.batches as ExecutionBatch[]) : []
+  const charged = batches.filter(
+    (batch) =>
+      (batch.ledger_status === 'charged' || batch.ledger_status === 'partially_charged')
+      && (asNumber(batch.charged_credits) ?? 0) > 0,
+  )
+  if (charged.length > 0) return charged.reduce((sum, batch) => sum + (asNumber(batch.charged_credits) ?? 0), 0)
+  return Number(run.reconciledCredits)
+}
+
 // Settled spend: per-operation ceil when the execution recorded batch-level
 // charges (the ledger rounds each operation), else the run's reconciled total.
 function settledSpendCents(run: GtmResearchRun): number | null {
@@ -261,6 +284,7 @@ export async function summarizeResearchRun(
   const typicalCredits = asNumber(asRecord(providerPlan.typical)?.credits)
   const typicalCents = typicalCredits != null ? centsFromCredits(typicalCredits) : null
   const spentCents = settledSpendCents(run)
+  const spentCredits = settledSpendCredits(run)
   const accepted = diagnostics.accepted
 
   const startedAt = run.startedAt ?? null
@@ -292,6 +316,10 @@ export async function summarizeResearchRun(
     spent_cents: spentCents,
     cost_per_accepted_cents:
       spentCents != null && accepted > 0 ? Math.round(spentCents / accepted) : null,
+    projected_credits: run.estimatedCredits != null ? Math.round(Number(run.estimatedCredits)) : null,
+    typical_credits: typicalCredits != null ? Math.round(typicalCredits) : null,
+    spent_credits: spentCredits != null ? Math.round(spentCredits) : null,
+    credits_per_accepted: spentCredits != null && accepted > 0 ? Math.round(spentCredits / accepted) : null,
     qualification_rate: found > 0 ? Math.min(1, accepted / found) : null,
     top_filters: topFilters,
   }
