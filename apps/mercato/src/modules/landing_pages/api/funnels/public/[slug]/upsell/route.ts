@@ -62,7 +62,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         .first()
       if (existingOrder) {
         const advanceStep = step.on_accept_step_id
-          ? await knex('funnel_steps').where('id', step.on_accept_step_id).first()
+          ? await knex('funnel_steps').where('id', step.on_accept_step_id).where('funnel_id', funnel.id).first()
           : await knex('funnel_steps').where('funnel_id', funnel.id).where('step_order', '>', step.step_order).orderBy('step_order').first()
         const redirectUrl = advanceStep
           ? `${baseUrl}/api/landing_pages/funnels/public/${slug}?step=${advanceStep.id}&sid=${session.id}`
@@ -70,7 +70,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         return NextResponse.json({ ok: true, redirectUrl, alreadyCharged: true })
       }
 
-      const product = step.product_id ? await knex('products').where('id', step.product_id).first() : null
+      const product = step.product_id
+        ? await knex('products').where('id', step.product_id).where('organization_id', funnel.organization_id).first()
+        : null
       const config = typeof step.config === 'string' ? JSON.parse(step.config) : (step.config || {})
       const amount = product ? Math.round(Number(product.price) * 100) : Math.round(Number(config.price || 0) * 100)
       const currency = (product?.currency || 'usd').toLowerCase()
@@ -146,7 +148,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
         // Fall through to decline path
         const declineStep = step.on_decline_step_id
-          ? await knex('funnel_steps').where('id', step.on_decline_step_id).first()
+          ? await knex('funnel_steps').where('id', step.on_decline_step_id).where('funnel_id', funnel.id).first()
           : await knex('funnel_steps').where('funnel_id', funnel.id).where('step_order', '>', step.step_order).orderBy('step_order').first()
 
         const redirectUrl = declineStep
@@ -160,9 +162,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     // Determine next step based on action and branching
     let nextStep
     if (action === 'accept' && step.on_accept_step_id) {
-      nextStep = await knex('funnel_steps').where('id', step.on_accept_step_id).first()
+      nextStep = await knex('funnel_steps').where('id', step.on_accept_step_id).where('funnel_id', funnel.id).first()
     } else if (action === 'decline' && step.on_decline_step_id) {
-      nextStep = await knex('funnel_steps').where('id', step.on_decline_step_id).first()
+      nextStep = await knex('funnel_steps').where('id', step.on_decline_step_id).where('funnel_id', funnel.id).first()
     }
 
     // Fallback: next step by order

@@ -19,10 +19,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    const funnel = await knex('funnels').where('slug', slug).first()
+    const funnel = await knex('funnels').where('slug', slug).where('is_published', true).first()
     if (!funnel) return NextResponse.json({ ok: false, error: 'Funnel not found' }, { status: 404 })
 
-    const session = sid ? await knex('funnel_sessions').where('id', sid).first() : null
+    // Session and step are bound to THIS funnel (2026-09-25 review, M7): a
+    // sid from another funnel must not be advanced or have its email set.
+    const session = sid ? await knex('funnel_sessions').where('id', sid).where('funnel_id', funnel.id).first() : null
     if (!session) return NextResponse.json({ ok: false, error: 'Session not found' }, { status: 404 })
 
     // Update session with captured email/name
@@ -32,8 +34,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
     // Find current step
     const currentStep = stepId
-      ? await knex('funnel_steps').where('id', stepId).first()
-      : await knex('funnel_steps').where('id', session.current_step_id).first()
+      ? await knex('funnel_steps').where('id', stepId).where('funnel_id', funnel.id).first()
+      : await knex('funnel_steps').where('id', session.current_step_id).where('funnel_id', funnel.id).first()
 
     if (!currentStep) return NextResponse.json({ ok: false, error: 'Current step not found' }, { status: 404 })
 
