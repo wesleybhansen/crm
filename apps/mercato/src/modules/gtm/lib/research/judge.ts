@@ -203,8 +203,36 @@ export async function judgeRunOpportunities(input: {
   const { em, run } = input
   const now = input.now ?? (() => new Date())
   const scope = { organizationId: run.organizationId, tenantId: run.tenantId, researchRunId: run.id, deletedAt: null }
+  // Matches a human already decided (a review override: accept, reject or
+  // send to review) are never re-judged. The AI check must not overturn a
+  // human decision, and requalify makes a judge rejection sticky
+  // (2026-09-25 review, M2).
+  const humanDecided = async (list: GtmCandidateMatch[]): Promise<Set<string>> => {
+    if (!list.length) return new Set()
+    const overrides = await em.find(GtmAuditEvent, {
+      organizationId: run.organizationId,
+      tenantId: run.tenantId,
+      action: 'gtm.candidate_match.review_override',
+      objectType: 'gtm_candidate_match',
+      objectId: { $in: list.map((match) => match.id) },
+    })
+    const decided = new Set(overrides.map((row) => row.objectId))
+    // A candidate-level override (older review path) decides its matches too.
+    const candidateOverrides = await em.find(GtmAuditEvent, {
+      organizationId: run.organizationId,
+      tenantId: run.tenantId,
+      action: 'gtm.candidate.review_override',
+      objectType: 'gtm_candidate',
+      objectId: { $in: [...new Set(list.map((match) => match.candidateId))] },
+    })
+    const decidedCandidates = new Set(candidateOverrides.map((row) => row.objectId))
+    for (const match of list) if (decidedCandidates.has(match.candidateId)) decided.add(match.id)
+    return decided
+  }
   const matches = await em.find(GtmCandidateMatch, { ...scope, fitStatus: { $in: ['accepted', 'review'] } })
-  const pending = matches.filter((match) => !(match.qualification as Record<string, unknown> | null)?.judge)
+  const unjudged = matches.filter((match) => !(match.qualification as Record<string, unknown> | null)?.judge)
+  const decidedPending = await humanDecided(unjudged)
+  const pending = unjudged.filter((match) => !decidedPending.has(match.id))
 
   // Near misses: rejected by the rules on the keyword/industry match only,
   // never checked before, never decided by a human.
@@ -212,17 +240,8 @@ export async function judgeRunOpportunities(input: {
   if (input.rescueNearMisses === true) {
     const rejected = await em.find(GtmCandidateMatch, { ...scope, fitStatus: 'rejected', rejectReason: FIT_REASONS.criterionMismatch })
     const unchecked = rejected.filter((match) => !(match.qualification as Record<string, unknown> | null)?.judge)
-    if (unchecked.length) {
-      const overrides = await em.find(GtmAuditEvent, {
-        organizationId: run.organizationId,
-        tenantId: run.tenantId,
-        action: 'gtm.candidate_match.review_override',
-        objectType: 'gtm_candidate_match',
-        objectId: { $in: unchecked.map((match) => match.id) },
-      })
-      const decided = new Set(overrides.map((row) => row.objectId))
-      nearMisses = unchecked.filter((match) => !decided.has(match.id))
-    }
+    const decided = await humanDecided(unchecked)
+    nearMisses = unchecked.filter((match) => !decided.has(match.id))
   }
   const result: JudgeRunResult = { checked: 0, rejected: 0, kept: 0, skipped: 0, failed: false, rescued: 0 }
   if (!pending.length && !nearMisses.length) return result

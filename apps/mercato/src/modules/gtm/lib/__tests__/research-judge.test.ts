@@ -57,6 +57,28 @@ describe('AI lead check', () => {
     expect(await em.find(GtmAuditEvent, { action: 'gtm.research_run.lead_check' })).toHaveLength(1)
   })
 
+  test('never overturns a human decision: a manually accepted match is not re-judged (M2)', async () => {
+    const em = new FakeEm()
+    const { run, matches } = await postLeads(em, [
+      { text: '[WTS] ASUS Zenbook for 4500 AED, DM me' },
+      { text: 'Another laptop for sale, DM me' },
+    ])
+    // The owner accepted the first row by hand (review override audit).
+    em.persist(em.create(GtmAuditEvent, {
+      organizationId: ORG, tenantId: TENANT, actor: 'user_id', actorUserId: 'owner',
+      action: 'gtm.candidate_match.review_override', objectType: 'gtm_candidate_match', objectId: matches[0].id,
+      metadata: { verdict: 'accepted' },
+    }))
+    await em.flush()
+    const model = reply([{ i: 1, keep: false, reason: 'seller_or_promotion', note: 'laptop for sale' }])
+    const result = await judgeRunOpportunities({ em, run, play: { audience: 'Home sellers' }, model })
+    expect(result).toMatchObject({ checked: 1, rejected: 1 })
+    const stored = new Map((await em.find(GtmCandidateMatch, { researchRunId: run.id })).map((row) => [row.id, row]))
+    expect(stored.get(matches[0].id)?.fitStatus).toBe('accepted')
+    expect((stored.get(matches[0].id)?.qualification as Record<string, unknown>).judge).toBeUndefined()
+    expect(stored.get(matches[1].id)?.fitStatus).toBe('rejected')
+  })
+
   test('the prompt protects homeowners selling their own home', () => {
     const request = buildJudgeRequest({ audience: 'Home sellers' }, [{ matchId: 'm', text: 'Selling our home by owner', url: null }])
     expect(request.system).toMatch(/THEIR OWN home/)
