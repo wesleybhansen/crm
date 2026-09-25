@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs'
 import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { isTeamRoleName, resolveTeamRoleId, TeamRoleConfigError } from '../../../lib/team-roles'
+import { isTenantPerCustomerEnabled } from '@open-mercato/shared/lib/runtime/tenancy'
 
 export async function GET(req: Request) {
   try {
@@ -92,6 +93,37 @@ export async function POST(req: Request) {
         { ok: false, error: 'This email already has an account in another workspace. Sign in with that account or contact support to move it.' },
         { status: 409 },
       )
+    }
+
+    // The invite joins the inviter's workspace, and so the tenant that
+    // workspace lives in today. An invite whose stored tenant no longer
+    // matches its organization (minted before a tenant move) is refused
+    // rather than creating a user in the wrong tenant.
+    const orgRow = await queryOne(
+      `SELECT tenant_id FROM organizations WHERE id = $1 AND deleted_at IS NULL`,
+      [invite.organization_id],
+    )
+    if (!orgRow || String(orgRow.tenant_id) !== String(invite.tenant_id)) {
+      return NextResponse.json({ ok: false, error: 'This invite is no longer valid. Ask for a new invite.' }, { status: 400 })
+    }
+
+    if (isTenantPerCustomerEnabled()) {
+      // Roles and ACLs come from the tenant's seeding, never from here.
+      try {
+        const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+        const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
+        const { ensureTenantSeeded } = await import('@open-mercato/core/modules/auth/lib/provision-tenant')
+        const container = await createRequestContainer()
+        await ensureTenantSeeded(container.resolve('em') as any, {
+          tenantId: String(invite.tenant_id),
+          organizationId: String(invite.organization_id),
+          modules: getModules(),
+          container: container as any,
+        })
+      } catch (err) {
+        console.error('[invite.accept] tenant seeding', err instanceof Error ? err.message : err)
+        return NextResponse.json({ ok: false, error: 'The workspace is not ready yet. Please try again shortly.' }, { status: 503 })
+      }
     }
 
     let roleId: string

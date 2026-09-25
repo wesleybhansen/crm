@@ -6,14 +6,16 @@
  * REMOVE block at the bottom shows the one cleanup query set.
  *
  * Run on the box:
- *   docker compose -f docker-compose.prod.yml exec app npx tsx scripts/seed-sample-crm-data.ts
+ *   docker compose -f docker-compose.prod.yml exec -e SEED_ORG=<org uuid> app npx tsx scripts/seed-sample-crm-data.ts
  */
 import { Pool } from 'pg'
 import { randomUUID } from 'crypto'
 
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://crm:crm_dev_2026@localhost:5432/crm'
-const ORG_ID = '9ab0d20b-830d-42e2-9833-fb33731564f5'      // Wesley's Workspace
-const TENANT_ID = '22560ecc-ac23-466a-b047-0b8f23a259ff'
+// Dev/demo only. The org is required (SEED_ORG=<uuid>); its tenant is read from
+// the database, never hard-coded: every customer has its own tenant now.
+const ORG_ID = (process.env.SEED_ORG || '').trim()
+let TENANT_ID = ''
 const SRC = 'noli-sample'
 const pool = new Pool({ connectionString: DATABASE_URL, max: 4 })
 
@@ -23,6 +25,10 @@ const daysAhead = (d: number) => new Date(now.getTime() + d * 86400_000)
 const pick = <T,>(a: T[], i: number) => a[i % a.length]
 
 async function main() {
+  if (!/^[0-9a-f-]{36}$/i.test(ORG_ID)) throw new Error('Set SEED_ORG=<organization uuid> (the sample data goes into that org and its tenant)')
+  const org = await pool.query(`select tenant_id::text as tenant_id from organizations where id = $1 and deleted_at is null`, [ORG_ID])
+  if (!org.rows[0]) throw new Error(`organization ${ORG_ID} not found`)
+  TENANT_ID = org.rows[0].tenant_id
   // ── 0. Clean prior sample data (FK-safe order) ──────────────────────────
   await cleanup()
 

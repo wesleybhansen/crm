@@ -334,26 +334,52 @@ export async function setupInitialTenant(
     throw new Error('SETUP_FAILED')
   }
 
-  if (!reusedExistingUser) {
-    await rebuildHierarchyForTenant(em, tenantId)
-  }
-
   const resolvedModules = options.modules ?? tryGetModules()
-  await ensureDefaultRoleAcls(em, tenantId, resolvedModules, { includeSuperadminRole })
-  await deactivateDemoSuperAdminIfSelfOnboardingEnabled(em)
-
-  // Call module onTenantCreated hooks
-  for (const mod of resolvedModules) {
-    if (mod.setup?.onTenantCreated) {
-      await mod.setup.onTenantCreated({ em, tenantId, organizationId })
-    }
-  }
+  await seedTenantBaseline(em, {
+    tenantId,
+    organizationId,
+    modules: resolvedModules,
+    includeSuperadminRole,
+    rebuildHierarchy: !reusedExistingUser,
+    beforeHooks: () => deactivateDemoSuperAdminIfSelfOnboardingEnabled(em),
+  })
 
   return {
     tenantId,
     organizationId,
     users: userSnapshots,
     reusedExistingUser,
+  }
+}
+
+export type SeedTenantBaselineOptions = {
+  tenantId: string
+  organizationId: string | null
+  modules: Module[]
+  includeSuperadminRole?: boolean
+  rebuildHierarchy?: boolean
+  /** Runs after the role ACLs and before the module onTenantCreated hooks. */
+  beforeHooks?: () => Promise<void>
+}
+
+/**
+ * The tenant set-up steps shared by setupInitialTenant (first install, self
+ * sign-up) and ensureTenantSeeded (one tenant per Noli customer): organization
+ * hierarchy, default role ACLs from every module's defaultRoleFeatures, and the
+ * modules' onTenantCreated hooks. Every step is idempotent.
+ */
+export async function seedTenantBaseline(em: EntityManager, options: SeedTenantBaselineOptions): Promise<void> {
+  const { tenantId, organizationId, modules } = options
+  if (options.rebuildHierarchy !== false) {
+    await rebuildHierarchyForTenant(em, tenantId)
+  }
+  await ensureDefaultRoleAcls(em, tenantId, modules, { includeSuperadminRole: options.includeSuperadminRole ?? true })
+  if (options.beforeHooks) await options.beforeHooks()
+  // Call module onTenantCreated hooks
+  for (const mod of modules) {
+    if (mod.setup?.onTenantCreated) {
+      await mod.setup.onTenantCreated({ em, tenantId, organizationId: organizationId as string })
+    }
   }
 }
 

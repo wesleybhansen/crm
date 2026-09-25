@@ -21,6 +21,7 @@ import { enforceApiKeyRateLimit, applyRateLimitHeaders } from '@open-mercato/cor
 import { checkApiKeyScopes } from '@open-mercato/core/modules/api_keys/lib/apiKeyScopes'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
+import { isBlockedByMaintenance, MAINTENANCE_RETRY_AFTER_SECONDS } from '@open-mercato/shared/lib/runtime/tenancy'
 
 type MethodMetadata = {
   requireAuth?: boolean
@@ -247,6 +248,14 @@ async function handleRequest(
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>
 ): Promise<Response> {
+  // Maintenance window (tenant split cutover): refuse every write before any
+  // auth, provisioning or handler runs. Reads keep working.
+  if (isBlockedByMaintenance(method)) {
+    return NextResponse.json(
+      { error: 'The CRM is briefly down for maintenance. Please try again in a few minutes.' },
+      { status: 503, headers: { 'Retry-After': String(MAINTENANCE_RETRY_AFTER_SECONDS) } },
+    )
+  }
   const startedAt = Date.now()
   const requestId = buildRequestId(req)
   const { t } = await resolveTranslations()

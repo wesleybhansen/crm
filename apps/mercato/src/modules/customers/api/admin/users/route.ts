@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
   let countSql = `SELECT COUNT(*)::int as total FROM users u WHERE u.deleted_at IS NULL`
   let sql = `
     SELECT u.id, u.name, u.email, u.created_at, u.last_login_at,
+      u.tenant_id, u.organization_id,
       u.tenant_id as scope_tenant_id, u.organization_id as scope_org_id,
       o.name as org_name, bp.business_name,
       r.name as role_name
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
     LEFT JOIN organizations o ON o.id = u.organization_id
     LEFT JOIN business_profiles bp ON bp.organization_id = u.organization_id
     LEFT JOIN user_roles ur ON ur.user_id = u.id AND ur.deleted_at IS NULL
-    LEFT JOIN roles r ON r.id = ur.role_id
+    LEFT JOIN roles r ON r.id = ur.role_id AND r.tenant_id = u.tenant_id
     WHERE u.deleted_at IS NULL
   `
   const params: (string | number)[] = []

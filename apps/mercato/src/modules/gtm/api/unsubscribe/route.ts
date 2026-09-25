@@ -77,9 +77,23 @@ export async function POST(req: Request) {
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
-    const em = container.resolve('em') as EntityManager as unknown as ExecutionEm
+    const baseEm = container.resolve('em') as EntityManager
+    const em = baseEm as unknown as ExecutionEm
     const { applyUnsubscribe } = await import('../../lib/unsubscribe')
-    const result = await applyUnsubscribe(em, payload)
+    // A link mailed before the organization moved to its own tenant (tenant
+    // split) carries the old tenant id: resolve it to the org's tenant today,
+    // or the suppression would be written under a tenant the org has left.
+    let scope = payload
+    if (payload.version === 'v2') {
+      const { resolveCurrentTenantForOrganization } = await import('@open-mercato/core/modules/directory/lib/tenantMoves')
+      const tenantId = await resolveCurrentTenantForOrganization(
+        (sql, params) => baseEm.getConnection().execute(sql, params as any[]) as Promise<Array<Record<string, unknown>>>,
+        payload.organizationId,
+        payload.tenantId,
+      )
+      scope = { ...payload, tenantId }
+    }
+    const result = await applyUnsubscribe(em, scope)
     if (!result.enrollmentFound) {
       // Opaque: a forged-but-signed token for a purged enrollment gets the
       // same shape as success (nothing to learn from the response).

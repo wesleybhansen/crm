@@ -4,6 +4,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '../data/entities'
 import { hashApiKey, verifyApiKey } from './apiKeyService'
+import { previousTenantIdsForOrganization } from '../../directory/lib/tenantMoves'
 
 const PLATFORM_AUTO_V2_PREFIX = 'platform-auto:v2:'
 const PLATFORM_AUTO_LEGACY_PREFIX = 'platform-auto:'
@@ -210,19 +211,37 @@ export async function provisionPlatformAutoApiKey(
       ) {
         throw new Error('Latest platform-auto credential version is revoked')
       }
-      const derived = derivePlatformAutoApiKeySecret({
-        derivationSecret: input.derivationSecret,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-        noliUserId: input.noliUserId,
-        sourceFingerprint,
-        version: latest.parsed.version,
-      })
-      if (
-        latest.record.keyPrefix !== derived.prefix ||
-        !(await verifyApiKey(derived.secret, latest.record.keyHash))
-      ) {
-        throw new Error('Credential derivation secret does not match the stored key')
+      const deriveFor = (tenantId: string | null) =>
+        derivePlatformAutoApiKeySecret({
+          derivationSecret: input.derivationSecret,
+          tenantId,
+          organizationId: input.organizationId,
+          noliUserId: input.noliUserId,
+          sourceFingerprint,
+          version: latest.parsed.version,
+        })
+      const matches = async (candidate: { secret: string; prefix: string }) =>
+        latest.record.keyPrefix === candidate.prefix && (await verifyApiKey(candidate.secret, latest.record.keyHash))
+      let derived = deriveFor(input.tenantId)
+      if (!(await matches(derived))) {
+        // The org moved to its own tenant (tenant split) after this credential
+        // was minted: it was derived from the org's previous tenant id. Reuse
+        // it (the COS holds it); the next version bump derives from the
+        // current tenant.
+        let recovered = false
+        const previous = await previousTenantIdsForOrganization(
+          async (sql, params) => (await tx.execute(sql, params as any[])) as Array<Record<string, unknown>>,
+          input.organizationId,
+        )
+        for (const tenantId of previous) {
+          const candidate = deriveFor(tenantId)
+          if (await matches(candidate)) {
+            derived = candidate
+            recovered = true
+            break
+          }
+        }
+        if (!recovered) throw new Error('Credential derivation secret does not match the stored key')
       }
 
       // Re-provisioning also refreshes the user's current CRM roles without

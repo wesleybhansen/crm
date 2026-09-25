@@ -17,6 +17,15 @@ try {
 }
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from './server'
+import { isMaintenanceMode, isTenantPerCustomerEnabled } from '../runtime/tenancy'
+
+/** Tenants this process has already confirmed as seeded (per-customer mode). */
+const seededTenants = new Set<string>()
+
+/** Test seam. */
+export function resetSeededTenantCacheForTests(): void {
+  seededTenants.clear()
+}
 
 /**
  * Resolve a Clerk session id to a Mercato AuthContext.
@@ -33,10 +42,14 @@ import type { AuthContext } from './server'
  *      Phase A4; this path catches any other pre-existing user once they
  *      first sign in).
  *   4. Auto-provisioning: if no Mercato User row exists at all, create one
- *      inside the shared Noli tenant — Organization + User (with encrypted
- *      email + emailHash) + UserRole(admin) in a single transaction. This
- *      is what makes customer #2 actually able to use CRM after they sign
- *      up at app.noliai.com and buy a CRM-included plan.
+ *      — Organization + User (with encrypted email + emailHash) +
+ *      UserRole(admin) in a single transaction. This is what makes
+ *      customer #2 actually able to use CRM after they sign up at
+ *      app.noliai.com and buy a CRM-included plan.
+ *      CRM_TENANT_PER_CUSTOMER=1: a new Noli org gets its own tenant (and so
+ *      its own data key), created in the same transaction, and the tenant is
+ *      seeded after commit (ensureTenantSeeded; retried on later sign-ins
+ *      until it succeeds). Off: every org joins the one shared tenant.
  *
  * Returns null on any failure (no noli-core user, not entitled, provisioning
  * error). Caller's responsibility is to translate null to 401.
@@ -79,6 +92,8 @@ export async function resolveClerkUserToAuthContext(
     )
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
+    const perCustomer = isTenantPerCustomerEnabled()
+    const maintenance = isMaintenanceMode()
     const { User, UserRole } = await import(
       '@open-mercato/core/modules/auth/data/entities'
     )
@@ -92,13 +107,26 @@ export async function resolveClerkUserToAuthContext(
     let user = await em.findOne(User, { clerkUserId })
 
     // 3. Email-fallback: stamp clerk_user_id onto a pre-Clerk legacy row.
-    if (!user && noliUser.email) {
+    //    Per-customer tenants: only a row inside the tenant of the user's own
+    //    Noli org may be claimed; a same-email row in another customer's
+    //    tenant is never taken over.
+    if (!user && noliUser.email && !maintenance) {
       const emailHash = computeEmailHash(noliUser.email)
-      const byHash = await em.findOne(User, {
-        emailHash,
-        clerkUserId: null,
-        deletedAt: null,
-      })
+      let scopeTenantId: string | null | undefined = undefined
+      if (perCustomer) {
+        const linked = noliOrgId
+          ? await em.findOne(Organization, { noliOrgId, deletedAt: null }, { populate: ['tenant'] })
+          : null
+        scopeTenantId = linked?.tenant?.id ? String(linked.tenant.id) : null
+      }
+      const byHash = scopeTenantId === null
+        ? null
+        : await em.findOne(User, {
+            emailHash,
+            clerkUserId: null,
+            deletedAt: null,
+            ...(scopeTenantId ? { tenantId: scopeTenantId } : {}),
+          })
       if (byHash) {
         byHash.clerkUserId = clerkUserId
         await em.persistAndFlush(byHash)
@@ -110,6 +138,11 @@ export async function resolveClerkUserToAuthContext(
     //    team's shared Mercato org (by noli-core org link) if one exists, else
     //    creates it.
     if (!user) {
+      if (maintenance) {
+        // Maintenance window (tenant split): nothing may be created while
+        // organizations are moving between tenants.
+        return null
+      }
       const provisioned = (await provisionMercatoUserForClerk(
         em,
         noliUser,
@@ -123,7 +156,7 @@ export async function resolveClerkUserToAuthContext(
         return null
       }
       user = provisioned
-    } else if (noliOrgId && user.organizationId) {
+    } else if (noliOrgId && user.organizationId && !maintenance) {
       // Lazy backfill: link a pre-multi-tenancy Mercato org to its noli-core
       // org the first time its owner signs in, so invited teammates can find
       // and join this existing org. (Existing orgs are single-user = the owner.)
@@ -136,6 +169,13 @@ export async function resolveClerkUserToAuthContext(
           // Unique-violation if that noli org already links elsewhere — ignore.
         }
       }
+    }
+
+    // 4b. Per-customer tenants: make sure the tenant is seeded. Normally a
+    //     no-op (cached per process); heals a sign-in that crashed between
+    //     provisioning and seeding. Never blocks the sign-in on failure.
+    if (perCustomer && !maintenance && user.tenantId && user.organizationId) {
+      await ensureTenantSeededOnce(em, container, String(user.tenantId), String(user.organizationId))
     }
 
     // 5. Resolve role names for downstream requireRoles checks.
@@ -166,6 +206,41 @@ export async function resolveClerkUserToAuthContext(
   }
 }
 
+async function ensureTenantSeededOnce(
+  em: EntityManager,
+  container: unknown,
+  tenantId: string,
+  organizationId: string,
+): Promise<void> {
+  if (seededTenants.has(tenantId)) return
+  try {
+    const { ensureTenantSeeded, tenantNeedsSeeding } = await import(
+      '@open-mercato/core/modules/auth/lib/provision-tenant'
+    )
+    if (!(await tenantNeedsSeeding(em, tenantId))) {
+      seededTenants.add(tenantId)
+      return
+    }
+    const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
+    let modules: ReturnType<typeof getModules> = []
+    try {
+      modules = getModules()
+    } catch {
+      modules = []
+    }
+    const result = await ensureTenantSeeded(em, {
+      tenantId,
+      organizationId,
+      modules,
+      container: container as never,
+    })
+    if (result.failures.length === 0) seededTenants.add(tenantId)
+    else console.error(`[clerk-auth] tenant ${tenantId} seeding incomplete: ${result.failures.map((f) => f.step).join(', ')}`)
+  } catch (err) {
+    console.error(`[clerk-auth] tenant ${tenantId} seeding failed:`, (err as Error)?.message ?? err)
+  }
+}
+
 /**
  * Auto-provision a brand-new Mercato User for a Clerk identity that has a
  * valid noli-core 'crm' entitlement. Creates a fresh Organization (one
@@ -174,11 +249,13 @@ export async function resolveClerkUserToAuthContext(
  * grants the admin role within the tenant.
  *
  * Pattern adapted from setupInitialTenant in
- * packages/core/src/modules/auth/lib/setup-app.ts but trimmed to
- * insert-into-existing-tenant (the Noli tenant seeded by the same
- * migration). Tenant resolved from NOLI_TENANT_ID env var, falling back
- * to the first non-deleted tenant by created_at (matches the migration's
- * "first tenant" convention).
+ * packages/core/src/modules/auth/lib/setup-app.ts.
+ *
+ * CRM_TENANT_PER_CUSTOMER=1: a new org is created with its own tenant
+ * (createCustomerTenant, same transaction) and there is no shared-tenant
+ * fallback of any kind.
+ * Off (legacy, deprecated): insert into the shared Noli tenant resolved from
+ * NOLI_TENANT_ID, falling back to the first non-deleted tenant by created_at.
  *
  * Returns null on any error so the caller falls through to 401 rather
  * than partially-provisioning a user.
@@ -219,23 +296,32 @@ async function provisionMercatoUserForClerk(
     const { computeEmailHash } = await import(
       '@open-mercato/core/modules/auth/lib/emailHash'
     )
+    const perCustomer = isTenantPerCustomerEnabled()
+    const { createCustomerTenant, ensureTenantRoles } = perCustomer
+      ? await import('@open-mercato/core/modules/auth/lib/provision-tenant')
+      : { createCustomerTenant: null, ensureTenantRoles: null }
 
-    const envTenantId = process.env.NOLI_TENANT_ID?.trim() || null
-    let tenant = envTenantId
-      ? await em.findOne(Tenant, { id: envTenantId, deletedAt: null })
-      : null
-    if (!tenant) {
-      tenant = await em.findOne(
-        Tenant,
-        { deletedAt: null },
-        { orderBy: { createdAt: 'asc' } },
-      )
-    }
-    if (!tenant) {
-      console.error(
-        '[clerk-auth] No Noli tenant found — Migration20260509120000 may not have run',
-      )
-      return null
+    // Legacy shared tenant (flag off only). Deprecated: removed once every
+    // customer has its own tenant.
+    let tenant: InstanceType<typeof Tenant> | null = null
+    if (!perCustomer) {
+      const envTenantId = process.env.NOLI_TENANT_ID?.trim() || null
+      tenant = envTenantId
+        ? await em.findOne(Tenant, { id: envTenantId, deletedAt: null })
+        : null
+      if (!tenant) {
+        tenant = await em.findOne(
+          Tenant,
+          { deletedAt: null },
+          { orderBy: { createdAt: 'asc' } },
+        )
+      }
+      if (!tenant) {
+        console.error(
+          '[clerk-auth] No Noli tenant found — Migration20260509120000 may not have run',
+        )
+        return null
+      }
     }
 
     const displayName =
@@ -250,6 +336,7 @@ async function provisionMercatoUserForClerk(
     for (let attempt = 0; attempt < 2; attempt++) {
      try {
       await em.transactional(async (tem) => {
+      const typedTem = tem as unknown as EntityManager
       // a. Find the team's shared Mercato org by its noli-core link, or create
       //    it. All members of one noli-core org share ONE Mercato org (so they
       //    see the same contacts/deals/pipelines). The org's tenant governs the
@@ -261,11 +348,22 @@ async function provisionMercatoUserForClerk(
             { populate: ['tenant'] },
           )
         : null
-      const orgTenant = organization?.tenant ?? tenant
+      let orgTenant = organization?.tenant ?? tenant
+      if (!organization && perCustomer && createCustomerTenant) {
+        // Own tenant for a new customer: tenant + org (+ default roles) in
+        // this transaction, so a failure or a lost race leaves nothing.
+        const createdTenant = await createCustomerTenant(typedTem, {
+          name: displayName,
+          noliOrgId: noliOrgId ?? null,
+        })
+        organization = createdTenant.organization
+        orgTenant = createdTenant.tenant
+      }
+      if (!orgTenant) throw new Error('CRM tenant could not be resolved')
       if (!organization) {
         organization = tem.create(Organization, {
           name: displayName,
-          tenant,
+          tenant: orgTenant,
           noliOrgId: noliOrgId ?? null,
           isActive: true,
           depth: 0,
@@ -350,11 +448,15 @@ async function provisionMercatoUserForClerk(
       await tem.flush()
 
       // e. Grant the admin role (v1: every member of a team's CRM is an org
-      //    admin since CRM data is team-shared). Prefer tenant-scoped Role;
-      //    fall back to global Role with tenantId=NULL.
-      const adminRole =
-        (await tem.findOne(Role, { name: 'admin', tenantId: orgTenant.id })) ??
-        (await tem.findOne(Role, { name: 'admin', tenantId: null }))
+      //    admin since CRM data is team-shared). Prefer tenant-scoped Role.
+      //    Per-customer tenants never fall back to a global (tenantId=NULL)
+      //    role: the tenant's own role is created here if it is missing.
+      //    Legacy mode keeps the global fallback.
+      const adminRole = perCustomer && ensureTenantRoles
+        ? (await tem.findOne(Role, { name: 'admin', tenantId: orgTenant.id })) ??
+          (await ensureTenantRoles(typedTem, String(orgTenant.id), ['admin']))[0]
+        : (await tem.findOne(Role, { name: 'admin', tenantId: orgTenant.id })) ??
+          (await tem.findOne(Role, { name: 'admin', tenantId: null }))
       if (adminRole) {
         tem.persist(
           tem.create(UserRole, {
@@ -380,6 +482,13 @@ async function provisionMercatoUserForClerk(
         (code === '23505' || /unique|duplicate key/i.test(String(txErr)))
       ) {
         em.clear()
+        if (perCustomer) {
+          // A parallel first sign-in of the same Clerk user won the race
+          // (users.clerk_user_id is unique): use its row, do not create a
+          // second tenant.
+          const winner = await em.findOne(User, { clerkUserId })
+          if (winner) return winner
+        }
         continue
       }
       throw txErr

@@ -19,7 +19,7 @@ export async function GET() {
       `SELECT setting_value FROM platform_settings WHERE setting_key = 'global_ai_monthly_cap'`
     ),
     query(
-      `SELECT o.id as org_id, o.name as org_name, bp.business_name,
+      `SELECT o.id as org_id, o.tenant_id, o.name as org_name, bp.business_name,
         COALESCE(au.call_count, 0)::int as calls_used,
         ais.setting_value as org_cap_override,
         (SELECT COUNT(*) > 0 FROM ai_settings WHERE organization_id = o.id AND setting_key = 'user_ai_key') as has_byok

@@ -12,9 +12,12 @@ import { Migration } from '@mikro-orm/migrations';
  * to run on the existing prod box where Wesley's tenant was created
  * during the original Mercato `setupInitialTenant()` flow.
  *
- * After running, capture the Noli tenant id with:
- *   SELECT id, name FROM tenants ORDER BY created_at ASC LIMIT 1;
- * and put it in `.env.production` as NOLI_TENANT_ID.
+ * DEPRECATED (2026-09): one tenant per customer. With CRM_TENANT_PER_CUSTOMER=1
+ * sign-in creates a tenant per Noli organization and never reads
+ * NOLI_TENANT_ID or the "first tenant"; scripts/split-tenants.ts moved the
+ * customers out of this shared tenant. Remove NOLI_TENANT_ID from
+ * `.env.production` once the flag is on. (Historical: this tenant's id used
+ * to be captured with `SELECT id FROM tenants ORDER BY created_at LIMIT 1`.)
  */
 export class Migration20260509120000 extends Migration {
 

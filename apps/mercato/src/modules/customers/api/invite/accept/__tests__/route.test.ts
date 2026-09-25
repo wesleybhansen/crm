@@ -22,6 +22,8 @@ type World = {
   invite: Record<string, unknown> | null
   existingUser: Record<string, unknown> | null
   roles: Record<string, { id: string; aclSuper: boolean | null }>
+  /** Tenant the invite's organization lives in today (defaults to the invite's). */
+  orgTenant?: string | null
 }
 
 const mockQuery = jest.mocked(query)
@@ -31,6 +33,10 @@ function install(world: World) {
   mockQueryOne.mockImplementation(async (sql: string, params?: unknown[]) => {
     if (sql.includes('FROM team_invites')) return world.invite
     if (sql.includes('FROM users')) return world.existingUser
+    if (sql.includes('FROM organizations')) {
+      const tenant = world.orgTenant === undefined ? world.invite?.tenant_id : world.orgTenant
+      return tenant ? { tenant_id: tenant } : null
+    }
     if (sql.includes('FROM roles')) {
       const role = world.roles[String(params?.[1])]
       return role ? { id: role.id } : null
@@ -127,5 +133,17 @@ describe('POST /invite/accept (shared tenant)', () => {
     expect(res.status).toBe(409)
     expect(res.headers.get('set-cookie')).toBeNull()
     expect(allSql().some((s) => s.includes('UPDATE users') || s.includes('user_roles'))).toBe(false)
+  })
+
+  it('refuses an invite whose organization has moved to another tenant since it was sent', async () => {
+    install({
+      invite: invite('admin'),
+      existingUser: null,
+      roles: { admin: { id: 'role-admin', aclSuper: false } },
+      orgTenant: '33333333-0000-4000-8000-000000000000',
+    })
+    const res = await POST(request(body))
+    expect(res.status).toBe(400)
+    expect(allSql().some((s) => s.includes('INSERT INTO users') || s.includes('user_roles'))).toBe(false)
   })
 })

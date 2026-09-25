@@ -10,7 +10,8 @@ export async function GET() {
 
   const currentMonth = new Date().toISOString().slice(0, 7)
 
-  const [orgsRow, usersRow, aiRow, activeRow, capRow] = await Promise.all([
+  const [tenantsRow, orgsRow, usersRow, aiRow, activeRow, capRow] = await Promise.all([
+    queryOne(`SELECT COUNT(*)::int as total FROM tenants WHERE deleted_at IS NULL`),
     queryOne(`SELECT COUNT(*)::int as total FROM organizations WHERE deleted_at IS NULL`),
     queryOne(`SELECT COUNT(*)::int as total FROM users WHERE deleted_at IS NULL`),
     queryOne(`SELECT COALESCE(SUM(call_count), 0)::int as total FROM ai_usage WHERE month = $1`, [currentMonth]),
@@ -21,6 +22,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     data: {
+      totalTenants: tenantsRow?.total ?? 0,
       totalOrgs: orgsRow?.total ?? 0,
       totalUsers: usersRow?.total ?? 0,
       aiCallsThisMonth: aiRow?.total ?? 0,

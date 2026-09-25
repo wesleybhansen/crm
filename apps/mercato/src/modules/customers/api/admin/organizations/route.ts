@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const currentMonth = new Date().toISOString().slice(0, 7)
 
   let sql = `
-    SELECT o.id, o.name, o.max_seats, o.created_at,
+    SELECT o.id, o.tenant_id, o.name, o.max_seats, o.created_at,
       bp.business_name,
       u_owner.name as owner_name, u_owner.email as owner_email,
       u_owner.tenant_id as owner_tenant_id, u_owner.organization_id as owner_org_id,

@@ -418,3 +418,29 @@ describe('platform-auto CRM credentials', () => {
     expect(isLegacyPlatformAutoKeyUsable(Date.now(), 'not-a-date')).toBe(false)
   })
 })
+
+describe('platform-auto credentials after a tenant move', () => {
+  it('reuses a credential derived from the org\'s previous tenant, and only a recorded one', async () => {
+    const { em, execute } = createMockEm()
+    const oldTenant = '44444444-4444-4444-8444-444444444444'
+    const minted = await provisionPlatformAutoApiKey(em, provisionInput({ tenantId: oldTenant }))
+    // The split rewrote the row's tenant; the stored hash still matches the old derivation.
+    minted.record.tenantId = tenantId
+    ;(execute as jest.Mock).mockImplementation(async (sql: string) => {
+      if (sql.includes('to_regclass')) return [{ t: 'organization_tenant_moves' }]
+      if (sql.includes('from organization_tenant_moves')) return [{ from_tenant_id: oldTenant }]
+      return undefined
+    })
+    const again = await provisionPlatformAutoApiKey(em, provisionInput())
+    expect(again.reused).toBe(true)
+    expect(again.secret).toBe(minted.secret)
+
+    // Without a recorded move the mismatch is still refused.
+    ;(execute as jest.Mock).mockImplementation(async (sql: string) => {
+      if (sql.includes('to_regclass')) return [{ t: 'organization_tenant_moves' }]
+      if (sql.includes('from organization_tenant_moves')) return []
+      return undefined
+    })
+    await expect(provisionPlatformAutoApiKey(em, provisionInput())).rejects.toThrow('does not match the stored key')
+  })
+})
