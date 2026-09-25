@@ -367,7 +367,7 @@ export default function FormsListPage() {
           </div>
         )}
 
-        <div className="flex items-center justify-center gap-1.5 mb-6">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 mb-6">
           {(Object.keys(categoryLabels) as TemplateCategory[]).map((cat) => (
             <Button
               key={cat}
