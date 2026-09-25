@@ -1238,28 +1238,70 @@ function derivedPlayGeography(play: FitPlayInput): string | null {
  * recognised from wording that names the metro itself (a hyphenated city
  * pair, "metro", "area", "greater", a county or region name), never from a
  * bare city, so "Minneapolis, MN" stays a city play. */
-const METRO_ZIP3: Array<{ name: string; pattern: RegExp; zip3: string[] }> = [
-  { name: 'the Minneapolis-Saint Paul metro', pattern: /\b(twin cities|minneapolis\s*[-–/&]\s*(saint|st\.?)\s*paul|minneapolis[^,]*\b(metro|area)|(saint|st\.?)\s*paul[^,]*\b(metro|area))\b/i, zip3: ['550', '551', '553', '554'] },
-  { name: 'the Phoenix metro', pattern: /\b(greater phoenix|phoenix[^,]*\b(metro|area|valley)|valley of the sun)\b/i, zip3: ['850', '852', '853'] },
-  { name: 'the San Diego metro', pattern: /\b(san diego county|greater san diego|san diego[^,]*\b(metro|area))\b/i, zip3: ['919', '920', '921'] },
-  { name: 'the Sacramento metro', pattern: /\b(greater sacramento|sacramento[^,]*\b(metro|area|county))\b/i, zip3: ['956', '957', '958'] },
-  { name: 'the Las Vegas metro', pattern: /\b(las vegas valley|clark county|greater las vegas|las vegas[^,]*\b(metro|area))\b/i, zip3: ['889', '890', '891'] },
-  { name: 'Orange County', pattern: /\borange county\b/i, zip3: ['926', '927', '928'] },
-  { name: 'the Los Angeles metro', pattern: /\b(los angeles county|greater los angeles|los angeles[^,]*\b(metro|area)|la county|south bay)\b/i, zip3: ['900', '901', '902', '903', '904', '905', '906', '907', '908', '910', '911', '912', '913', '914', '915', '916', '917', '918'] },
-  { name: 'the San Francisco Bay Area', pattern: /\b(bay area|san francisco[^,]*\b(metro|area))\b/i, zip3: ['940', '941', '943', '944', '945', '946', '947', '948', '949', '950', '951'] },
-  { name: 'the Houston metro', pattern: /\b(greater houston|houston[^,]*\b(metro|area))\b/i, zip3: ['770', '772', '773', '774', '775'] },
-  { name: 'the Dallas-Fort Worth metro', pattern: /\b(dfw|dallas\s*[-–/&]\s*(fort|ft\.?)\s*worth|dallas[^,]*\b(metro|area))\b/i, zip3: ['750', '751', '752', '753', '760', '761', '762'] },
-  { name: 'the Austin metro', pattern: /\b(greater austin|austin[^,]*\b(metro|area))\b/i, zip3: ['786', '787'] },
-  { name: 'Northern Virginia', pattern: /\b(northern virginia|nova)\b/i, zip3: ['201', '220', '221', '222', '223'] },
-  { name: 'the Richmond metro', pattern: /\b(greater richmond|richmond[^,]*\b(metro|area))\b/i, zip3: ['230', '231', '232'] },
-  { name: 'Fairfield County', pattern: /\bfairfield county\b/i, zip3: ['066', '068', '069'] },
-  { name: 'the Portland metro', pattern: /\b(greater portland|portland[^,]*\b(metro|area))\b/i, zip3: ['970', '971', '972', '986'] },
-  { name: 'the Denver metro', pattern: /\b(greater denver|front range|denver[^,]*\b(metro|area))\b/i, zip3: ['800', '801', '802', '803'] },
-  { name: 'the Tampa Bay area', pattern: /\b(tampa bay|greater tampa|tampa[^,]*\b(metro|area))\b/i, zip3: ['335', '336', '337', '346'] },
+const METRO_ZIP3: Array<{ name: string; pattern: RegExp; zip3: string[]; states: string[] }> = [
+  { name: 'the Minneapolis-Saint Paul metro', pattern: /\b(twin cities|minneapolis\s*[-–/&]\s*(saint|st\.?)\s*paul|minneapolis[^,]*\b(metro|area)|(saint|st\.?)\s*paul[^,]*\b(metro|area))\b/i, zip3: ['550', '551', '553', '554'], states: ['MN', 'WI'] },
+  { name: 'the Phoenix metro', pattern: /\b(greater phoenix|phoenix[^,]*\b(metro|area|valley)|valley of the sun)\b/i, zip3: ['850', '852', '853'], states: ['AZ'] },
+  { name: 'the San Diego metro', pattern: /\b(san diego county|greater san diego|san diego[^,]*\b(metro|area))\b/i, zip3: ['919', '920', '921'], states: ['CA'] },
+  { name: 'the Sacramento metro', pattern: /\b(greater sacramento|sacramento[^,]*\b(metro|area|county))\b/i, zip3: ['956', '957', '958'], states: ['CA'] },
+  { name: 'the Las Vegas metro', pattern: /\b(las vegas valley|clark county|greater las vegas|las vegas[^,]*\b(metro|area))\b/i, zip3: ['889', '890', '891'], states: ['NV'] },
+  { name: 'Orange County', pattern: /\borange county\b/i, zip3: ['926', '927', '928'], states: ['CA'] },
+  { name: 'the Los Angeles metro', pattern: /\b(los angeles county|greater los angeles|los angeles[^,]*\b(metro|area)|la county|south bay)\b/i, zip3: ['900', '901', '902', '903', '904', '905', '906', '907', '908', '910', '911', '912', '913', '914', '915', '916', '917', '918'], states: ['CA'] },
+  { name: 'the San Francisco Bay Area', pattern: /\b(bay area|san francisco[^,]*\b(metro|area))\b/i, zip3: ['940', '941', '943', '944', '945', '946', '947', '948', '949', '950', '951'], states: ['CA'] },
+  { name: 'the Houston metro', pattern: /\b(greater houston|houston[^,]*\b(metro|area))\b/i, zip3: ['770', '772', '773', '774', '775'], states: ['TX'] },
+  { name: 'the Dallas-Fort Worth metro', pattern: /\b(dfw|dallas\s*[-–/&]\s*(fort|ft\.?)\s*worth|dallas[^,]*\b(metro|area))\b/i, zip3: ['750', '751', '752', '753', '760', '761', '762'], states: ['TX'] },
+  { name: 'the Austin metro', pattern: /\b(greater austin|austin[^,]*\b(metro|area))\b/i, zip3: ['786', '787'], states: ['TX'] },
+  { name: 'Northern Virginia', pattern: /\b(northern virginia|nova)\b/i, zip3: ['201', '220', '221', '222', '223'], states: ['VA'] },
+  { name: 'the Richmond metro', pattern: /\b(greater richmond|richmond[^,]*\b(metro|area))\b/i, zip3: ['230', '231', '232'], states: ['VA'] },
+  { name: 'Fairfield County', pattern: /\bfairfield county\b/i, zip3: ['066', '068', '069'], states: ['CT'] },
+  { name: 'the Portland metro', pattern: /\b(greater portland|portland[^,]*\b(metro|area))\b/i, zip3: ['970', '971', '972', '986'], states: ['OR', 'WA'] },
+  { name: 'the Denver metro', pattern: /\b(greater denver|front range|denver[^,]*\b(metro|area))\b/i, zip3: ['800', '801', '802', '803'], states: ['CO'] },
+  { name: 'the Tampa Bay area', pattern: /\b(tampa bay|greater tampa|tampa[^,]*\b(metro|area))\b/i, zip3: ['335', '336', '337', '346'], states: ['FL'] },
 ]
 
+const STATE_NAMES: Record<string, string> = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO', connecticut: 'CT',
+  delaware: 'DE', florida: 'FL', georgia: 'GA', hawaii: 'HI', idaho: 'ID', illinois: 'IL', indiana: 'IN', iowa: 'IA',
+  kansas: 'KS', kentucky: 'KY', louisiana: 'LA', maine: 'ME', maryland: 'MD', massachusetts: 'MA', michigan: 'MI',
+  minnesota: 'MN', mississippi: 'MS', missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV', 'new hampshire': 'NH',
+  'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND', ohio: 'OH',
+  oklahoma: 'OK', oregon: 'OR', pennsylvania: 'PA', 'rhode island': 'RI', 'south carolina': 'SC', 'south dakota': 'SD',
+  tennessee: 'TN', texas: 'TX', utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA', 'west virginia': 'WV',
+  wisconsin: 'WI', wyoming: 'WY',
+}
+// A two-letter state only after a comma ("Portland, ME"): bare capitals
+// collide with names ("LA County").
+const STATE_CODE = /,\s*(A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[AT]|W[AIVY])\b/g
+
+/** US states a location string names ("Portland, ME", "Orange County, Florida"). */
+export function statesNamed(value: string): Set<string> {
+  const out = new Set<string>()
+  for (const m of value.matchAll(STATE_CODE)) out.add(m[1]!)
+  let lower = value.toLowerCase()
+  // Longest names first, removed once counted: "West Virginia" is not also Virginia.
+  for (const name of Object.keys(STATE_NAMES).sort((a, b) => b.length - a.length)) {
+    const re = new RegExp(`\\b${name}\\b`, 'g')
+    if (re.test(lower)) {
+      out.add(STATE_NAMES[name]!)
+      lower = lower.replace(re, ' ')
+    }
+  }
+  return out
+}
+
+/**
+ * A metro pattern matches a play location only when the location names none
+ * of the US states, or names the metro's own state: "Orange County, FL",
+ * "Portland, ME", "Richmond, CA" and "Fairfield County, OH" are different
+ * places than the table's metros (2026-09-25 review, LOW).
+ */
+function metroMatches(metro: { pattern: RegExp; states: string[] }, value: string): boolean {
+  if (!metro.pattern.test(value)) return false
+  const named = statesNamed(value)
+  return named.size === 0 || metro.states.some((state) => named.has(state))
+}
+
 function metroNamed(value: string): boolean {
-  return METRO_ZIP3.some((metro) => metro.pattern.test(value))
+  return METRO_ZIP3.some((metro) => metroMatches(metro, value))
 }
 
 const COUNTRY_US = /^(united states( of america)?|usa?|u\.s\.a?\.?)$/i
@@ -1273,7 +1315,7 @@ export function countryZipProof(expected: string[], observed: string[]): string 
 }
 
 export function metroZipProof(expected: string[], observed: string[]): string | null {
-  const metros = METRO_ZIP3.filter((metro) => expected.some((value) => metro.pattern.test(value)))
+  const metros = METRO_ZIP3.filter((metro) => expected.some((value) => metroMatches(metro, value)))
   if (!metros.length) return null
   for (const value of observed) {
     // The ZIP after a two-letter state ("..., MN 55422"), never a street number.

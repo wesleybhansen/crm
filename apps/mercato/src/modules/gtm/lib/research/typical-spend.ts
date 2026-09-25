@@ -88,16 +88,19 @@ export function spendHistoryFromRows(rows: Row[]): SpendHistory {
   return { ratios, overall: runs >= MIN_RUNS * 2 && quoted > 0 ? charged / quoted : null }
 }
 
+// Completed runs only: a failed run stops early and charges a fraction of its
+// quote, which dragged the ratio down and understated "usually about"
+// (2026-09-25 review, LOW).
 export const SPEND_HISTORY_SQL = `
 with q as (
   select r.id, y->>'adapter_id' as adapter, sum((y->>'estimatedCredits')::numeric) as quoted
   from gtm_research_runs r, jsonb_array_elements(r.provider_plan->'adapterPlan') y
-  where r.status in ('completed', 'failed') and r.deleted_at is null and r.created_at > now() - interval '${TYPICAL_WINDOW_DAYS} days'
+  where r.status = 'completed' and r.deleted_at is null and r.created_at > now() - interval '${TYPICAL_WINDOW_DAYS} days'
   group by 1, 2
 ), c as (
   select r.id, x->>'adapter_id' as adapter, sum(coalesce((x->>'charged_credits')::numeric, 0)) as charged
   from gtm_research_runs r, jsonb_array_elements(r.provider_plan->'execution'->'batches') x
-  where r.status in ('completed', 'failed') and r.deleted_at is null and r.created_at > now() - interval '${TYPICAL_WINDOW_DAYS} days'
+  where r.status = 'completed' and r.deleted_at is null and r.created_at > now() - interval '${TYPICAL_WINDOW_DAYS} days'
   group by 1, 2
 )
 select q.adapter, count(*) as runs, sum(coalesce(c.charged, 0)) as charged, sum(q.quoted) as quoted
