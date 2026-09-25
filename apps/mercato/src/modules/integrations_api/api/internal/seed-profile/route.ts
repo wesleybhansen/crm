@@ -8,11 +8,18 @@ import {
   gtmIcpStarter,
   gtmVoiceStarter,
   isLegacyNoliFirstValueTemplate,
-  NOLI_FIRST_VALUE_TEMPLATE_MARKER,
   NOLI_FIRST_VALUE_TEMPLATE_NAME,
   type NoliOnboardingSeed,
 } from '../../../lib/onboarding-seed'
 import { seedCompletesIntake, seededByFor } from '../../../lib/intake-gate'
+import {
+  incomingIdealClients,
+  isLabSource,
+  isUneditedSeedTemplate,
+  LAB_IDEA_FIELDS,
+  renderFingerprintedFirstValueHtml,
+  shouldWriteField,
+} from '../../../lib/lab-refresh'
 
 /*
  * Internal connectivity endpoint (Noli U-1: one scan, five configured products).
@@ -152,7 +159,10 @@ export async function POST(req: Request) {
   if (!noliUserId) {
     return NextResponse.json({ ok: false, error: 'noliUserId required' }, { status: 400 })
   }
-  const onboardingSeed = buildNoliOnboardingSeed(body)
+  // The Launch Pad's Ideation Lab is authoritative for the idea fields;
+  // every other source only fills blanks (see lib/lab-refresh.ts).
+  const labAuthoritative = isLabSource(body.source)
+  const onboardingSeed = buildNoliOnboardingSeed({ ...body, idealClients: incomingIdealClients(body) })
 
   try {
     // 3. noli-core user → Clerk id → Mercato auth context (provisions user+org
@@ -194,12 +204,12 @@ export async function POST(req: Request) {
     // hub has given it a business name and a pipeline, landing the member on
     // the dashboard instead. The wizard stays reachable by URL.
     const put = (key: string, existingVal: unknown, incoming: unknown) => {
-      if (!has(existingVal) && has(incoming)) input[key] = incoming
+      if (shouldWriteField(key, existingVal, incoming, labAuthoritative)) input[key] = incoming
     }
     put('businessName', existing?.businessName, str(body.businessName, 200))
     put('businessType', existing?.businessType, str(body.businessType, 40))
     put('businessDescription', existing?.businessDescription, str(body.businessDescription, 600))
-    put('idealClients', existing?.idealClients, str(body.idealClients, 1200))
+    put('idealClients', existing?.idealClients, str(incomingIdealClients(body), 1200))
     put('websiteUrl', existing?.websiteUrl, str(body.websiteUrl, 300))
     put('detectedServices', existing?.detectedServices, arr(body.detectedServices, 10))
     put(
@@ -228,13 +238,27 @@ export async function POST(req: Request) {
       input.onboardingComplete = true
       input.seededBy = seededByFor(body.source)
     }
+    // A new Lab idea replaced the old one: show the member the refreshed
+    // "set up from your profile" summary again, even if they dismissed the
+    // old one.
+    const ideaReplaced = labAuthoritative && Boolean(existing) && LAB_IDEA_FIELDS.some(
+      (f) => f in input && has((existing as unknown as Record<string, unknown>)[f]),
+    )
+    if (ideaReplaced) {
+      input.seededBy = seededByFor(body.source)
+      input.seededReviewedAt = null
+    }
 
     // U-52: the audit's drafted follow-up email becomes a real, reusable
     // email template (idempotent by name; never duplicates).
     let templateCreated = false
     let templateUpdated = false
     let templateReady = false
-    const firstValueDraft = buildCrmFirstValueDraft(onboardingSeed)
+    const firstValueDraft = buildCrmFirstValueDraft(
+      labAuthoritative && !onboardingSeed.businessName && existing?.businessName
+        ? { ...onboardingSeed, businessName: existing.businessName }
+        : onboardingSeed,
+    )
     const hasFirstValueContext = Boolean(
       onboardingSeed.businessName || onboardingSeed.businessDescription || onboardingSeed.idealClients,
     )
@@ -248,16 +272,21 @@ export async function POST(req: Request) {
           name,
           deletedAt: null,
         })
-        const esc = (value: string) =>
-          value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        const bodyHtml = [
-          NOLI_FIRST_VALUE_TEMPLATE_MARKER,
-          ...firstValueDraft.body
-            .split(/\n{2,}/)
-            .map((paragraph) => `<p>${esc(paragraph).replace(/\n/g, '<br>')}</p>`),
-        ].join('\n')
+        const bodyHtml = renderFingerprintedFirstValueHtml(firstValueDraft)
+        // The draft as the profile stood before this seed: a template that
+        // still matches it exactly was never edited by the member.
+        const priorSeed = existing
+          ? buildNoliOnboardingSeed({
+              businessName: existing.businessName ?? '',
+              businessDescription: existing.businessDescription ?? '',
+              idealClients: existing.idealClients ?? '',
+            })
+          : null
         if (prior) {
-          if (isLegacyNoliFirstValueTemplate(prior.subject, prior.bodyHtml)) {
+          const refreshForLab = labAuthoritative
+            && prior.bodyHtml !== bodyHtml
+            && isUneditedSeedTemplate({ subject: prior.subject, bodyHtml: prior.bodyHtml }, priorSeed)
+          if (refreshForLab || isLegacyNoliFirstValueTemplate(prior.subject, prior.bodyHtml)) {
             prior.subject = firstValueDraft.subject
             prior.bodyHtml = bodyHtml
             await em.flush()
