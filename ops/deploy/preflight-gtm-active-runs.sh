@@ -10,8 +10,8 @@
 # that is mid-execute still loses its in-flight provider call. Wait for this
 # to pass (runs finish in minutes), then deploy.
 #
-# Also check /proc/loadavg and `systemctl list-units "crm-*"` first: never
-# overlap builds, and always pass BOTH compose files (the Vault overlay).
+# ops/deploy/deploy-crm.sh runs this for you (along with the busy-box check,
+# both compose files and the cached build); run it alone only to look.
 #
 # Usage:  sh ops/deploy/preflight-gtm-active-runs.sh [minutes]   (default 60)
 # Exit:   0 = no active runs, 1 = active runs (do not deploy), 2 = query failed.

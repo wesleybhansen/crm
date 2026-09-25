@@ -71,7 +71,7 @@
     "i18n:check": "tsx scripts/i18n-check-sync.ts && tsx scripts/i18n-check-usage.ts",
     "i18n:fix": "tsx scripts/i18n-check-sync.ts --fix",
     "check:dep-versions": "tsx scripts/check-dep-versions.ts",
-    "check:deployment-security": "node --test scripts/check-deployment-security.test.mjs && node scripts/check-deployment-security.mjs",
+    "check:deployment-security": "node --test scripts/check-deployment-security.test.mjs ops/deploy/deploy-crm.test.mjs && node scripts/check-deployment-security.mjs",
     "check:org-filter": "node scripts/check-org-filter.mjs",
     "check:landing-page-images": "tsx scripts/check-landing-page-image-assets.ts",
     "template:sync": "tsx scripts/template-sync.ts",
