@@ -64,6 +64,19 @@ describe('shortlist rank score', () => {
     expect(rankScore({ ...base, judged: false, judgeFit: null }).score).toBe(50)
     expect(rankScore({ ...base, namedPerson: true, fitStatus: 'accepted', fitScore: 100 }).score).toBe(100)
     expect(rankScore({ ...base, fitScore: Number.NaN, judgeFit: 'possible', contactRoute: false })).toEqual({ score: 0, confidence: 'low' })
+
+  })
+
+  test('a keep from the lead check that predates fit ratings scores as a likely fit, not as nothing', () => {
+    // The 2026-09-25 live shape: accepted on exact keywords, kept by lead-check-v1 before it rated fits.
+    const legacyAccepted = { fitScore: 100, fitStatus: 'accepted' as const, judged: true, judgeFit: null, namedPerson: false, contactRoute: true }
+    expect(rankScore(legacyAccepted)).toEqual({ score: 80, confidence: 'high' })
+    // It outranks a rescued near miss rated strong on a weaker rule score (the live 78)...
+    const rescuedStrong = { fitScore: 56, fitStatus: 'review' as const, judged: true, judgeFit: 'strong', namedPerson: false, contactRoute: true }
+    expect(rankScore(legacyAccepted).score).toBeGreaterThan(rankScore(rescuedStrong).score)
+    // ...and never outranks the same row rated strong, nor gains over an explicit possible.
+    expect(rankScore({ ...legacyAccepted, judgeFit: 'strong' }).score).toBeGreaterThan(rankScore(legacyAccepted).score)
+    expect(rankScore({ ...legacyAccepted, judgeFit: 'possible' }).score).toBeLessThan(rankScore(legacyAccepted).score)
   })
 
   test('the same business from two lanes is one prospect', () => {
