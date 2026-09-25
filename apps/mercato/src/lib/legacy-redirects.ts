@@ -18,6 +18,8 @@ export const PRODUCTS_HOME = '/backend/payments'
 export const TASKS_HOME = '/backend/contacts?tab=tasks'
 /** Import is a pop-up on the Contacts page; ?import=1 opens it. */
 export const CONTACT_IMPORT_HOME = '/backend/contacts?import=1'
+/** The review queue is the Customer Service page's Queue tab. */
+export const CUSTOMER_SERVICE_QUEUE_HOME = '/backend/customer-service?tab=queue'
 
 export function legacyBackendRedirects(): LegacyRedirect[] {
   return [
@@ -29,5 +31,7 @@ export function legacyBackendRedirects(): LegacyRedirect[] {
     // read as a person id ("Invalid person id").
     { source: '/backend/todos', destination: TASKS_HOME, permanent: false },
     { source: '/backend/customers/people/import', destination: CONTACT_IMPORT_HOME, permanent: false },
+    // QA 2026-09-25 (email batch): /queue 404'd; the queue is a Customer Service tab.
+    { source: '/queue', destination: CUSTOMER_SERVICE_QUEUE_HOME, permanent: false },
   ]
 }
