@@ -315,6 +315,7 @@ export function ProfileDropdown({
         aria-haspopup="menu"
         data-testid="profile-dropdown-trigger"
         title={email || t('ui.userMenu.userFallback', 'User')}
+        aria-label={t('ui.userMenu.open', 'Open account menu')}
       >
         <User className="size-4" />
       </IconButton>
