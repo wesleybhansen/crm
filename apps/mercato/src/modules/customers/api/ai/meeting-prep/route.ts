@@ -12,7 +12,8 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { listOpenCommitments, extractCommitmentsForContact, formatCommitmentsForBrief } from '../../../lib/commitments'
 import { requireProcessAuth } from '@/lib/cron-auth'
-import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { decryptRowFields, CONTACT_ENTITY_KEY, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { whereContactEmailIn } from '../../../lib/contact-lookup'
 import { openSecretForTenant, sealSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
@@ -196,6 +197,8 @@ async function loadContactData(knex: ReturnType<EntityManager['getKnex']>, orgId
       .whereNull('cd.deleted_at')
       .select('cd.title', 'cd.value_amount', 'cd.status', 'cd.pipeline_stage', 'cd.ai_summary')
       .limit(5)
+    // Raw join: open the deal titles before they reach the brief prompt/email.
+    await decryptRowFields(null, DEAL_ENTITY_KEY, rows, ['title'], tenantId, orgId)
     deals = rows.map((d: any) => ({
       title: d.title,
       value: Number(d.value_amount || 0),
@@ -372,10 +375,13 @@ export async function GET(req: Request) {
 
       if (attendeeEmails.length === 0) continue
 
-      const matchingContacts = await knex('customer_entities')
-        .where('organization_id', auth.orgId)
-        .whereNull('deleted_at')
-        .whereRaw('lower(primary_email) = ANY(?)', [attendeeEmails])
+      // primary_email is encrypted at rest: match on the lookup hash.
+      const matchingContacts = await whereContactEmailIn(
+        knex('customer_entities')
+          .where('organization_id', auth.orgId)
+          .whereNull('deleted_at'),
+        attendeeEmails,
+      )
         .select('id')
         .limit(3)
 
@@ -571,12 +577,17 @@ export async function POST(req: Request) {
             .map(a => a.email?.toLowerCase())
             .filter(Boolean)
 
-          const matchingContacts = await knex('customer_entities')
-            .where('organization_id', connection.organization_id)
-            .whereNull('deleted_at')
-            .whereRaw('lower(primary_email) = ANY(?)', [attendeeEmails])
+          // primary_email is encrypted at rest: match on the lookup hash, and
+          // open display_name before it goes into the owner email.
+          const matchingContacts = await whereContactEmailIn(
+            knex('customer_entities')
+              .where('organization_id', connection.organization_id)
+              .whereNull('deleted_at'),
+            attendeeEmails,
+          )
             .select('id', 'display_name')
             .limit(3)
+          await decryptRowFields(null, CONTACT_ENTITY_KEY, matchingContacts, ['display_name'], connection.tenant_id, connection.organization_id)
 
           for (const mc of matchingContacts) {
             const eventStart = event.start.dateTime || event.start.date

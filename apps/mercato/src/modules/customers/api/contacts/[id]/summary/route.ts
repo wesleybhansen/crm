@@ -8,7 +8,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import {
+  decryptRowFields,
+  CONTACT_ENTITY_KEY,
+  COMMENT_ENTITY_KEY,
+  DEAL_ENTITY_KEY,
+} from '@open-mercato/shared/lib/encryption/decryptRows'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 // GET — load saved summary (no generation)
@@ -177,6 +182,13 @@ export async function POST(
         .orderBy('cd.created_at', 'desc')
         .limit(5)
         .catch(() => []),
+    ])
+
+    // Raw reads: open comment bodies and deal titles before they reach the
+    // prompt (they were sent as ciphertext).
+    await Promise.all([
+      decryptRowFields(null, COMMENT_ENTITY_KEY, comments as any[], ['body'], auth.tenantId, auth.orgId),
+      decryptRowFields(null, DEAL_ENTITY_KEY, deals as any[], ['title'], auth.tenantId, auth.orgId),
     ])
 
     const engagementScore = engagementRow?.score ?? 0

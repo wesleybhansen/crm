@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { decryptAliasedRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -34,6 +35,8 @@ export async function GET(req: Request) {
         'em.created_at',
         'ce.display_name as contact_name'
       )
+    // Raw join: open the contact name before it is shown.
+    await decryptAliasedRowFields(null, CONTACT_ENTITY_KEY, alerts, { contact_name: 'display_name' }, auth.tenantId, auth.orgId)
 
     const items = alerts.map(a => ({
       id: a.id,

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { splitCsvLine } from '@/lib/csv'
 import { contactSourceLabel } from '@/modules/customers/lib/contactSourceLabel'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -477,8 +478,9 @@ export default function ContactsPage() {
         else if (Array.isArray(d.data)) items = d.data
         else if (Array.isArray(d.items)) items = d.items
         else if (Array.isArray(d)) items = d
-        // Filter out contacts with encrypted display names
-        items = items.filter(c => c.display_name && !/^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:v\d+$/.test(c.display_name))
+        // Filter out companies whose name is still ciphertext (any envelope
+        // version, same parser as the server; the old regex knew only v1).
+        items = items.filter(c => c.display_name && !isEncryptedEnvelope(c.display_name))
         if (items.length > 0) setAllCompaniesForLink(items)
       }).catch(() => {})
   }

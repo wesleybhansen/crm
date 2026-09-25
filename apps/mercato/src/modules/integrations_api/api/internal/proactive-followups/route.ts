@@ -4,6 +4,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { geminiGenerationConfig, geminiUsage } from '@/lib/ai/gemini'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 /*
  * Internal server-to-server endpoint (Noli U-53: CRM follow-up execution).
@@ -123,7 +126,7 @@ export async function POST(req: Request) {
 
     // Neglected contacts: have an email, created 2-90 days ago, no outbound
     // email in 14 days, and no recent proactive proposal already covering them.
-    const candidates = (await knex('customer_entities as ce')
+    const pool = (await knex('customer_entities as ce')
       .where('ce.organization_id', orgId)
       .whereNull('ce.deleted_at')
       .whereNotNull('ce.primary_email')
@@ -135,15 +138,8 @@ export async function POST(req: Request) {
           .where('em.direction', 'outbound')
           .where('em.created_at', '>', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)),
       )
-      .whereNotExists(
-        knex('inbox_proposals as ip')
-          .whereRaw('ip.organization_id = ce.organization_id')
-          .where('ip.summary', 'like', `${MARKER}%`)
-          .whereRaw("ip.participants::text ilike '%' || ce.primary_email || '%'")
-          .where('ip.created_at', '>', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)),
-      )
       .orderBy('ce.created_at', 'desc')
-      .limit(2)
+      .limit(25)
       .select('ce.id', 'ce.display_name', 'ce.primary_email', 'ce.source', 'ce.created_at')) as Array<{
       id: string
       display_name: string | null
@@ -151,6 +147,30 @@ export async function POST(req: Request) {
       source: string | null
       created_at: Date | string
     }>
+    // display_name / primary_email are encrypted at rest. Decrypt before they
+    // reach the model, the draft's recipient and the proposal text (they used
+    // to go out as ciphertext), and drop any row that would not open.
+    await decryptRowFields(container.resolve('em'), CONTACT_ENTITY_KEY, pool, ['display_name', 'primary_email'], tenantId, orgId)
+    for (const c of pool) {
+      if (c.display_name === UNDECRYPTABLE_DISPLAY_TEXT || isEncryptedEnvelope(c.display_name)) c.display_name = null
+    }
+    const readable = pool.filter((c) =>
+      typeof c.primary_email === 'string'
+      && c.primary_email.includes('@')
+      && !isEncryptedEnvelope(c.primary_email))
+    // "No recent proactive proposal already covering them". This compared the
+    // stored (encrypted) email inside SQL, so it never matched and the same
+    // contacts were re-proposed every run. Compare on the decrypted address.
+    const recentParticipants = (await knex('inbox_proposals')
+      .where('organization_id', orgId)
+      .where('summary', 'like', `${MARKER}%`)
+      .where('created_at', '>', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000))
+      .select('participants')) as Array<{ participants: unknown }>
+    const covered = recentParticipants
+      .map((p) => (typeof p.participants === 'string' ? p.participants : JSON.stringify(p.participants ?? '')).toLowerCase())
+    const candidates = readable
+      .filter((c) => !covered.some((text) => text.includes(c.primary_email.toLowerCase())))
+      .slice(0, 2)
     if (candidates.length === 0) return NextResponse.json({ ok: true, drafted: 0 })
 
     // Voice material from the U-1 business profile.

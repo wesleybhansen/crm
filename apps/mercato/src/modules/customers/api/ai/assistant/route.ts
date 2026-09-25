@@ -498,12 +498,14 @@ async function searchCrmData(knex: any, orgId: string, tenantId: string, em: Ent
         sections.push('- ' + parts.join(' | '))
 
         // Get deals for this contact
-        const deals = await knex('customer_deal_people as cdp')
+        const rawContactDeals = await knex('customer_deal_people as cdp')
           .join('customer_deals as cd', 'cd.id', 'cdp.deal_id')
           .where('cdp.person_entity_id', c.id)
           .where('cd.organization_id', orgId).whereNull('cd.deleted_at')
           .select('cd.title', 'cd.status', 'cd.value_amount', 'cd.pipeline_stage')
           .limit(5).catch(() => [])
+        // Raw join: open the deal titles before they go into Scout's context.
+        const deals = await decryptDealRows(em, rawContactDeals, tenantId, orgId)
         if (deals.length > 0) {
           sections.push('  Deals: ' + deals.map((d: any) =>
             `"${d.title}" ${d.pipeline_stage || d.status || 'open'}${d.value_amount ? ` ($${Number(d.value_amount).toFixed(0)})` : ''}`

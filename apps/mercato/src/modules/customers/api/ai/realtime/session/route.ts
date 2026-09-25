@@ -11,6 +11,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { decryptRowFields, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 async function decryptContactRows(rows: any[], tenantId: string, orgId: string): Promise<any[]> {
   if (!rows.length || !isTenantDataEncryptionEnabled()) return rows
@@ -164,6 +165,8 @@ When editing/deleting, use the id= values from the CRM DATA section below. You c
       'SELECT id, title, pipeline_stage, value_amount, status FROM customer_deals WHERE organization_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 10',
       [orgId]
     )
+    // Raw read: open deal titles before they go into the voice agent's context.
+    await decryptRowFields(null, DEAL_ENTITY_KEY, recentDeals as any[], ['title'], auth.tenantId, auth.orgId)
 
     const recentEvents = await query(
       'SELECT id, title, event_type, status, start_time, end_time FROM events WHERE organization_id = $1 AND deleted_at IS NULL ORDER BY start_time DESC LIMIT 10',

@@ -6,7 +6,14 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { decryptRowFields, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import {
+  decryptRowFields,
+  ACTIVITY_ENTITY_KEY,
+  COMMENT_ENTITY_KEY,
+  DEAL_ENTITY_KEY,
+} from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 
 type TimelineEvent = {
@@ -18,9 +25,11 @@ type TimelineEvent = {
   metadata?: Record<string, unknown>
 }
 
+/** A value that could not be read: still an envelope (any version, via the
+ *  shared parser) or the placeholder decryptRowFields leaves on a failure.
+ *  The private regex that used to live here knew only `...:v1`. */
 function isEncrypted(val: any): boolean {
-  if (typeof val !== 'string') return false
-  return /^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:v\d+$/.test(val)
+  return isEncryptedEnvelope(val) || val === UNDECRYPTABLE_DISPLAY_TEXT
 }
 
 function cleanStr(val: any): string | undefined {
@@ -66,6 +75,8 @@ export async function GET(
         .where('organization_id', auth.orgId)
         .orderBy('created_at', 'desc')
         .limit(50)
+      // Raw read: subject is encrypted at rest. Decrypt, then show.
+      await decryptRowFields(em, ACTIVITY_ENTITY_KEY, activities, ['subject'], auth.tenantId, auth.orgId)
       for (const activity of activities) {
         const title = cleanStr(activity.subject) || 'Activity recorded'
         if (isEncrypted(title)) continue
@@ -86,6 +97,7 @@ export async function GET(
         .whereNull('deleted_at')
         .orderBy('created_at', 'desc')
         .limit(50)
+      await decryptRowFields(em, COMMENT_ENTITY_KEY, comments, ['body'], auth.tenantId, auth.orgId)
       for (const comment of comments) {
         if (isEncrypted(comment.body)) continue
         const preview = comment.body?.length > 80 ? comment.body.substring(0, 80) + '...' : comment.body

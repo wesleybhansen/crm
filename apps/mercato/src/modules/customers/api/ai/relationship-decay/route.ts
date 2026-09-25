@@ -11,6 +11,7 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
+import { decryptRowFieldsByRowScope, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 export const openApi: OpenApiRouteDoc = {
   summary: 'Relationship decay alerts',
@@ -144,6 +145,8 @@ async function detectDecayingRelationships(knex: any, orgId: string): Promise<De
     .whereNull('ce.deleted_at')
     .select(
       'ce.id as contact_id',
+      'ce.tenant_id',
+      'ce.organization_id',
       'ce.display_name',
       'ce.primary_email',
       'ces.score',
@@ -151,6 +154,10 @@ async function detectDecayingRelationships(knex: any, orgId: string): Promise<De
     )
 
   if (scoredContacts.length === 0) return []
+  // Raw join: open name/email before they reach the response, the proposal's
+  // to_address/subject/participants and the drafting prompt. Each row in its
+  // own tenant scope (this also runs from the all-orgs cron).
+  await decryptRowFieldsByRowScope(null, CONTACT_ENTITY_KEY, scoredContacts, ['display_name', 'primary_email'])
 
   const contactIds = scoredContacts.map((c: any) => c.contact_id)
 

@@ -10,6 +10,12 @@ import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import {
+  decryptRowFields,
+  ACTIVITY_ENTITY_KEY,
+  COMMENT_ENTITY_KEY,
+  CONTACT_ENTITY_KEY,
+} from '@open-mercato/shared/lib/encryption/decryptRows'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
@@ -128,6 +134,14 @@ export async function POST(
         .limit(15)
         .select('activity_type', 'subject', 'body', 'occurred_at', 'created_at')
         .catch(() => []),
+    ])
+
+    // Raw reads: open the encrypted names, notes and activity text before
+    // they go into the prompt (it used to be fed ciphertext).
+    await Promise.all([
+      decryptRowFields(em, CONTACT_ENTITY_KEY, people as any[], ['display_name'], auth.tenantId, auth.orgId),
+      decryptRowFields(em, COMMENT_ENTITY_KEY, comments as any[], ['body'], auth.tenantId, auth.orgId),
+      decryptRowFields(em, ACTIVITY_ENTITY_KEY, activities as any[], ['subject', 'body'], auth.tenantId, auth.orgId),
     ])
 
     const value = deal.value_amount ? `${deal.value_currency || 'USD'} ${Number(deal.value_amount).toFixed(0)}` : 'no value set'

@@ -5,6 +5,9 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 // Send invoice via email to contact — uses connected email provider first, falls back to Resend
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -22,10 +25,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!invoice) return NextResponse.json({ ok: false, error: 'Invoice not found' }, { status: 404 })
 
     // Get contact email
-    let email = null
+    // primary_email is encrypted at rest: decrypt before it becomes a
+    // recipient (it used to go out as the ciphertext). A value that still
+    // looks like an envelope could not be opened and is never used.
+    let email: string | null = null
     if (invoice.contact_id) {
-      const contact = await knex('customer_entities').where('id', invoice.contact_id).first()
-      email = contact?.primary_email
+      const contact = await knex('customer_entities')
+        .where('id', invoice.contact_id)
+        .where('organization_id', auth.orgId)
+        .select('id', 'primary_email')
+        .first()
+      if (contact) {
+        await decryptRowFields(container.resolve('em'), CONTACT_ENTITY_KEY, [contact], ['primary_email'], tenantId, auth.orgId)
+        const value = typeof contact.primary_email === 'string' ? contact.primary_email : null
+        email = value && !isEncryptedEnvelope(value) && value !== UNDECRYPTABLE_DISPLAY_TEXT ? value : null
+      }
     }
 
     const body = await req.json().catch(() => ({}))

@@ -2,6 +2,7 @@ import type { Knex } from 'knex'
 import { cookies } from 'next/headers'
 import crypto from 'crypto'
 import { computeCommission } from './commission'
+import { whereContactEmail } from '../../lib/contact-lookup'
 
 export async function attributeReferral(
   knex: Knex,
@@ -70,8 +71,9 @@ export async function attributeReferral(
     }
 
     // Find the contact by email
-    const contact = await knex('customer_entities')
-      .where('primary_email', contactEmail)
+    // Lookup hash, not the stored (encrypted) address: the plaintext equality
+    // never matched an encrypted contact, so conversions lost their contact.
+    const contact = await whereContactEmail(knex('customer_entities'), contactEmail)
       .where('organization_id', orgId)
       .whereNull('deleted_at')
       .first()

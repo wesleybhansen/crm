@@ -4,12 +4,15 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { decryptRowFields, CONTACT_ENTITY_KEY, PERSON_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
-// Detect encrypted field values (format: base64:base64:base64:v1)
+// A value that is still unreadable after decryption: an envelope of any
+// version (shared parser; the old private regex knew only v1) or the
+// placeholder decryptRowFields leaves when a field would not open.
 function isEncrypted(val: any): boolean {
-  if (typeof val !== 'string') return false
-  return /^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:v\d+$/.test(val)
+  return isEncryptedEnvelope(val) || val === UNDECRYPTABLE_DISPLAY_TEXT
 }
 
 function clean(val: any): string | null {
@@ -35,6 +38,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (!person) {
       return NextResponse.json({ ok: true, data: { person: null, colleagues: [] } })
     }
+    await decryptRowFields(em, PERSON_ENTITY_KEY, [person], ['job_title', 'department'], auth.tenantId, auth.orgId)
 
     let companyName: string | null = null
     let companyId: string | null = null
@@ -65,6 +69,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           .whereIn('id', colleagueIds)
           .where('organization_id', auth.orgId)
           .whereNull('deleted_at')
+        await decryptRowFields(em, CONTACT_ENTITY_KEY, colleagueEntities, ['display_name', 'primary_email'], auth.tenantId, auth.orgId)
 
         colleagues = colleagueEntities
           .filter((e: any) => !isEncrypted(e.display_name))

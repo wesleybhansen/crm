@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { findContactByPhone } from '@/modules/customers/lib/dedup'
 
 export const metadata = { path: '/sms/webhook', POST: { requireAuth: false } }
 
@@ -53,7 +54,8 @@ export async function POST(req: Request) {
     }
 
     const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const em = container.resolve('em') as EntityManager
+    const knex = em.getKnex()
 
     // Look up which org owns this phone number
     const twilioConnection = await knex('twilio_connections')
@@ -82,12 +84,16 @@ export async function POST(req: Request) {
     const orgId = twilioConnection.organization_id
     const tenantId = twilioConnection.tenant_id
 
-    // Find the contact by phone number within the (verified) org
-    const contact = await knex('customer_entities')
-      .where('primary_phone', from)
-      .where('organization_id', orgId)
-      .whereNull('deleted_at')
-      .first()
+    // Find the contact by phone number within the (verified) org. primary_phone
+    // is encrypted at rest, so the plaintext equality never matched: use the
+    // shared lookup (hash, then decrypt-scan) which also returns the decrypted
+    // display name for the inbox.
+    const found = orgId && tenantId && from
+      ? await findContactByPhone(knex, orgId, tenantId, from, em).catch(() => ({ existing: null }))
+      : { existing: null }
+    const contact = found.existing
+      ? { ...found.existing, tenant_id: tenantId, organization_id: orgId }
+      : null
 
     // Idempotency: Twilio retries inbound webhooks on timeout/5xx. Skip if we
     // already stored this MessageSid so a retry doesn't duplicate the message

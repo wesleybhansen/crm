@@ -111,12 +111,10 @@ Sentiment:`
         await knex('email_messages').where('id', email.id).update({ sentiment })
 
         // If negative or urgent, log as a priority action item
+        // Ids only: the contact name is encrypted at rest (the raw read logged
+        // ciphertext) and names/subjects are PII that do not belong in logs.
         if (sentiment === 'negative' || sentiment === 'urgent') {
-          const contact = email.contact_id
-            ? await knex('customer_entities').where('id', email.contact_id).first()
-            : null
-
-          console.log(`[sentiment] ${sentiment.toUpperCase()}: email from ${contact?.display_name || email.from_address} — "${email.subject}"`)
+          console.log(`[sentiment] ${sentiment.toUpperCase()}: email ${email.id} contact ${email.contact_id ?? 'none'}`)
         }
 
         processed++

@@ -1,7 +1,9 @@
 /**
  * Cross-entry duplicate detection and merge for CRM contacts.
  *
- * findOrMergeContact — checks if a contact with the same primary_email already exists.
+ * (An uncalled findOrMergeContact that compared LOWER(primary_email), which
+ * can never match ciphertext, was removed on 2026-09-24; the live lookup is
+ * customers/lib/dedup.ts.)
  * mergeContacts     — moves all related records from secondary to primary, then soft-deletes secondary.
  */
 
@@ -9,33 +11,6 @@ import type { Knex } from 'knex'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
 import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-
-type FindResult =
-  | { existing: true; contactId: string }
-  | { existing: false }
-
-export async function findOrMergeContact(
-  knex: Knex,
-  orgId: string,
-  tenantId: string,
-  email: string,
-  name?: string,
-  phone?: string,
-): Promise<FindResult> {
-  if (!email) return { existing: false }
-
-  const existing = await knex('customer_entities')
-    .whereRaw('LOWER(primary_email) = ?', [email.toLowerCase()])
-    .where('organization_id', orgId)
-    .whereNull('deleted_at')
-    .first()
-
-  if (existing) {
-    return { existing: true, contactId: existing.id }
-  }
-
-  return { existing: false }
-}
 
 type MergeResult = { merged: true; primaryId: string; secondaryId: string }
 

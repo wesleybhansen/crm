@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findContactByPhone } from '@/modules/customers/lib/dedup'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
 /* Internal receptionist endpoint for the Noli AI Receptionist (phone answering).
  *
@@ -94,14 +95,21 @@ export async function POST(req: Request) {
       // The SQL digit comparison below only works on plaintext. primary_phone is
       // encrypted at rest on the ORM write path, so callers stored that way were
       // never recognised and the receptionist treated them as strangers.
+      // Legacy arm only (rows with no primary_phone_hash, i.e. plaintext
+      // written before the hash existed); everything else goes through the
+      // hash / decrypt lookup below. display_name may be encrypted either way.
       let row = await knex('customer_entities')
         .where('organization_id', String(auth.orgId))
         .where('tenant_id', String(auth.tenantId))
         .where('status', 'active')
+        .whereNull('primary_phone_hash')
         .whereNotNull('primary_phone')
         .whereRaw("regexp_replace(primary_phone, '\\D', '', 'g') like ?", [`%${last10}`])
         .select('id', 'display_name', 'lifecycle_stage')
         .first()
+      if (row) {
+        await decryptRowFields(em, CONTACT_ENTITY_KEY, [row], ['display_name'], String(auth.tenantId), String(auth.orgId))
+      }
       if (!row) {
         const found = await findContactByPhone(knex, String(auth.orgId), String(auth.tenantId), phone, em)
         if (found.existing) {

@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
+import { whereContactEmail } from '@/modules/customers/lib/contact-lookup'
 
 export const metadata = { path: '/surveys/public/[slug]/submit', POST: { requireAuth: false, rateLimit: { points: 10, duration: 60, blockDuration: 300, keyPrefix: 'surveys-public-submit' } } }
 
@@ -44,8 +45,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     // Try to match contact by email
     let contactId: string | null = null
     if (respondentEmail) {
-      const contact = await knex('customer_entities')
-        .where('primary_email', respondentEmail)
+      // Lookup hash: primary_email is ciphertext for encrypted contacts.
+      const contact = await whereContactEmail(knex('customer_entities'), respondentEmail)
         .where('organization_id', survey.organization_id)
         .whereNull('deleted_at')
         .first()

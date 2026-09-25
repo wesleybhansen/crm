@@ -5,6 +5,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerEntity } from '../../../data/entities'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const querySchema = z.object({
@@ -46,10 +48,15 @@ export async function GET(req: Request) {
   }
 
   const qb = em.createQueryBuilder(CustomerEntity, 'person')
-  qb.select(['person.id', 'person.displayName'])
+  qb.select(['person.id', 'person.displayName', 'person.tenantId', 'person.organizationId'])
   qb.where({ kind: 'person', deletedAt: null })
-  qb.andWhere('person.primary_phone is not null')
-  qb.andWhere("regexp_replace(person.primary_phone, '\\D', '', 'g') = ?", [parse.data.digits])
+  // primary_phone is encrypted at rest, so a regexp over the stored value
+  // never matched an encrypted contact. Match the digits lookup hash; the
+  // plaintext arm only covers legacy rows that have no hash yet.
+  qb.andWhere(
+    "(person.primary_phone_hash = ? or (person.primary_phone_hash is null and person.primary_phone is not null and regexp_replace(person.primary_phone, '\\D', '', 'g') = ?))",
+    [hashForLookup(parse.data.digits), parse.data.digits],
+  )
   if (auth.tenantId) {
     qb.andWhere({ tenantId: auth.tenantId })
   }
@@ -61,10 +68,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ match: null })
   }
 
+  // Decrypt the name if the entity came back with its stored value (a no-op
+  // when the ORM subscriber already opened it).
+  const row = { display_name: match.displayName as string | null }
+  await decryptRowFields(em, CONTACT_ENTITY_KEY, [row], ['display_name'], match.tenantId ?? auth.tenantId ?? null, match.organizationId ?? null)
+
   return NextResponse.json({
     match: {
       id: match.id,
-      displayName: match.displayName,
+      displayName: row.display_name,
     },
   })
 }

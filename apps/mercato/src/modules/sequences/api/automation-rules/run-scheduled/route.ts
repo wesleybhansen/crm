@@ -6,7 +6,35 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
-import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import {
+  decryptRowFields,
+  decryptAliasedRowFields,
+  CONTACT_ENTITY_KEY,
+  DEAL_ENTITY_KEY,
+} from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+
+/** Deal titles and contact names are encrypted at rest; `reference` becomes a
+ *  task title and a log line, so decrypt it and never let ciphertext through. */
+async function decryptReferences(
+  rows: Array<Record<string, any>>,
+  entityKey: string,
+  aliases: Record<string, string>,
+  fallback: string,
+  tenantId: string,
+  orgId: string,
+): Promise<Array<Record<string, any>>> {
+  await decryptAliasedRowFields(null, entityKey, rows, aliases, tenantId, orgId)
+  for (const row of rows) {
+    for (const alias of Object.keys(aliases)) {
+      if (isEncryptedEnvelope(row[alias]) || row[alias] === UNDECRYPTABLE_DISPLAY_TEXT) {
+        row[alias] = alias === 'reference' ? fallback : null
+      }
+    }
+  }
+  return rows
+}
 import {
   buildSenderContext,
   htmlifyIfPlainText,
@@ -31,6 +59,7 @@ import {
 async function getScheduleTargets(
   knex: any,
   orgId: string,
+  tenantId: string,
   config: Record<string, any>,
 ): Promise<Array<Record<string, any>>> {
   const scheduleType = config.scheduleType || 'manual'
@@ -48,22 +77,26 @@ async function getScheduleTargets(
 
     case 'stale_deals': {
       const days = config.staleDays || 7
-      return knex('customer_deals')
+      const deals = await knex('customer_deals')
         .where('organization_id', orgId)
         .where('status', 'open')
         .whereRaw("updated_at < NOW() - make_interval(days => ?)", [days])
         .select('id', 'title as reference', 'value_amount', 'updated_at')
         .limit(100)
+      return decryptReferences(deals, DEAL_ENTITY_KEY, { reference: 'title' }, 'Deal', tenantId, orgId)
     }
 
     case 'inactive_contacts': {
       const days = config.inactiveDays || 30
-      return knex('customer_entities')
+      const contacts = await knex('customer_entities')
         .where('organization_id', orgId)
         .whereNull('deleted_at')
         .whereRaw("updated_at < NOW() - make_interval(days => ?)", [days])
         .select('id', 'display_name as reference', 'primary_email', 'updated_at')
         .limit(100)
+      return decryptReferences(
+        contacts, CONTACT_ENTITY_KEY, { reference: 'display_name', primary_email: 'primary_email' }, 'Contact', tenantId, orgId,
+      )
     }
 
     case 'daily_summary': {
@@ -269,7 +302,7 @@ export async function POST(req: Request) {
       }
 
       try {
-        const targets = await getScheduleTargets(knex, auth.orgId, triggerConfig)
+        const targets = await getScheduleTargets(knex, auth.orgId, auth.tenantId, triggerConfig)
 
         // Parse the rule steps or fall back to single action
         const steps = typeof rule.steps === 'string' ? JSON.parse(rule.steps) : rule.steps

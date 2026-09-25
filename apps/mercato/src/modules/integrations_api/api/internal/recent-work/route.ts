@@ -2,6 +2,19 @@ import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { classifyRecentWorkIdentity, summarizeRecentWorkPartitions } from '../../../lib/recent-work-health'
+import { decryptRowFieldsByRowScope, ACTIVITY_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+
+/** Activity subjects are encrypted at rest and these are raw reads: decrypt in
+ *  each row's own scope, and drop (never show) anything that stays unreadable. */
+async function decryptActivitySubjects(rows: Array<Record<string, any>>): Promise<Array<Record<string, any>>> {
+  await decryptRowFieldsByRowScope(null, ACTIVITY_ENTITY_KEY, rows, ['subject'])
+  for (const row of rows) {
+    if (isEncryptedEnvelope(row.subject) || row.subject === UNDECRYPTABLE_DISPLAY_TEXT) row.subject = null
+  }
+  return rows
+}
 
 /*
  * Internal server-to-server endpoint (Noli U-2 work feed). Returns the CRM's
@@ -159,7 +172,8 @@ export async function POST(req: Request) {
           .where('created_at', '>=', since)
           .orderBy('created_at', 'desc')
           .limit(8)
-          .select('id', 'subject', 'created_at'),
+          .select('id', 'tenant_id', 'organization_id', 'subject', 'created_at')
+          .then((rows: any[]) => decryptActivitySubjects(rows)),
         knex('landing_pages')
           .where('organization_id', orgId)
           .where('status', 'published')
@@ -173,7 +187,8 @@ export async function POST(req: Request) {
           .where('created_at', '>=', since)
           .orderBy('created_at', 'desc')
           .limit(8)
-          .select('id', 'subject', 'created_at'),
+          .select('id', 'tenant_id', 'organization_id', 'subject', 'created_at')
+          .then((rows: any[]) => decryptActivitySubjects(rows)),
         knex('bookings')
           .where('organization_id', orgId)
           .where('status', 'pending')

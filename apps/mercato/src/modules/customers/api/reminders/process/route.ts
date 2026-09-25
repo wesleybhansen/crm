@@ -7,6 +7,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { espOwnFromAddress } from '../../../../email/lib/routing-service'
+import { reminderEntityLabel } from '../../../lib/reminder-entity-label'
 
 export const metadata = { path: '/reminders/process',
   POST: { requireAuth: false },
@@ -48,12 +49,11 @@ export async function POST(req: Request) {
         let entityUrl = ''
 
         if (reminder.entity_type === 'contact') {
-          const contact = await knex('customer_entities').where('id', reminder.entity_id).select('display_name').first()
-          entityLabel = contact?.display_name || 'Contact'
+          // Encrypted at rest: decrypt in the reminder's own org/tenant scope.
+          entityLabel = await reminderEntityLabel(knex, 'contact', reminder.entity_id, reminder.organization_id)
           entityUrl = `/backend/customers/people/${reminder.entity_id}`
         } else if (reminder.entity_type === 'deal') {
-          const deal = await knex('customer_deals').where('id', reminder.entity_id).select('title').first()
-          entityLabel = deal?.title || 'Deal'
+          entityLabel = await reminderEntityLabel(knex, 'deal', reminder.entity_id, reminder.organization_id)
           entityUrl = `/backend/customers/deals/${reminder.entity_id}`
         } else if (reminder.entity_type === 'task') {
           const task = await knex('tasks').where('id', reminder.entity_id).select('title').first()

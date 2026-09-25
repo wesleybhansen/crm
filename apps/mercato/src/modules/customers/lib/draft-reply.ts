@@ -1,5 +1,6 @@
 import type { Knex } from 'knex'
 import { composeReplyPromptV1 } from './reply-prompt-contract'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 /**
@@ -222,6 +223,9 @@ async function buildContactInfo(knex: Knex, orgId: string, contactId?: string | 
     .where('organization_id', orgId)
     .first()
   if (!contact) return ''
+  // Raw read: open name/email/phone before they go into the prompt (the
+  // drafter was being given ciphertext). Scoped to the row's own tenant.
+  await decryptRowFields(null, CONTACT_ENTITY_KEY, [contact], ['display_name', 'primary_email', 'primary_phone'], contact.tenant_id, orgId)
   return `Contact: ${contact.display_name || 'Unknown'}${contact.primary_email ? `, Email: ${contact.primary_email}` : ''}${contact.primary_phone ? `, Phone: ${contact.primary_phone}` : ''}${contact.lifecycle_stage ? `, Stage: ${contact.lifecycle_stage}` : ''}`
 }
 

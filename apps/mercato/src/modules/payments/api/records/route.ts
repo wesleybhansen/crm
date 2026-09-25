@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { decryptRowsForDisplay } from '@/modules/customers/lib/display-decrypt'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['payments.view'] },
@@ -59,6 +61,8 @@ export async function GET(req: Request, ctx: any) {
       .orderBy('pr.created_at', 'desc')
       .limit(pageSize)
       .offset((page - 1) * pageSize)
+    // Joined contact name is encrypted at rest; this raw read skips the subscriber.
+    await decryptRowsForDisplay(em, CONTACT_ENTITY_KEY, records, { contact_name: 'display_name' }, auth.tenantId, auth.orgId)
 
     // Parse metadata and build display-friendly records
     const enriched = records.map((r: any) => {

@@ -4,6 +4,13 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  decryptAliasedRowFields,
+  CONTACT_ENTITY_KEY,
+  PERSON_ENTITY_KEY,
+} from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 
 // GET: Get people linked to a company, or get company for a person
@@ -20,21 +27,33 @@ export async function GET(req: Request) {
 
     if (companyEntityId) {
       // Get all people linked to this company
-      const isEncrypted = (val: any) => typeof val === 'string' && /^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:v\d+$/.test(val)
+      // Unreadable after decryption: an envelope of any version (shared
+      // parser; the old private regex knew only v1) or the failure placeholder.
+      const isEncrypted = (val: any) => isEncryptedEnvelope(val) || val === UNDECRYPTABLE_DISPLAY_TEXT
       const people = await knex('customer_people as cp')
         .join('customer_entities as ce', 'ce.id', 'cp.entity_id')
         .where('cp.company_entity_id', companyEntityId)
         .where('cp.organization_id', auth.orgId)
         .whereNull('ce.deleted_at')
         .select('ce.id as entityId', 'ce.display_name', 'ce.primary_email', 'ce.primary_phone', 'cp.job_title')
-        .orderBy('ce.display_name')
+
+      // Raw join: every one of these columns is encrypted at rest. Decrypt,
+      // then sort by name in memory (ORDER BY on ciphertext is random).
+      await decryptAliasedRowFields(
+        em, CONTACT_ENTITY_KEY, people,
+        { display_name: 'display_name', primary_email: 'primary_email', primary_phone: 'primary_phone' },
+        auth.tenantId, auth.orgId,
+      )
+      await decryptAliasedRowFields(em, PERSON_ENTITY_KEY, people, { job_title: 'job_title' }, auth.tenantId, auth.orgId)
 
       const cleaned = people.map((p: any) => ({
         ...p,
         display_name: isEncrypted(p.display_name) ? 'Contact' : p.display_name,
         primary_email: isEncrypted(p.primary_email) ? null : p.primary_email,
+        primary_phone: isEncrypted(p.primary_phone) ? null : p.primary_phone,
         job_title: isEncrypted(p.job_title) ? null : p.job_title,
       }))
+      cleaned.sort((a: any, b: any) => String(a.display_name ?? '').localeCompare(String(b.display_name ?? ''), undefined, { sensitivity: 'base' }))
 
       return NextResponse.json({ ok: true, data: cleaned })
     }

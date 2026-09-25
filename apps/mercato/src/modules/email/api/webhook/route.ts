@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { trackEngagement } from '@/modules/customers/lib/engagement-score'
 import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
+import { whereContactEmail } from '@/modules/customers/lib/contact-lookup'
 
 export const metadata = { POST: { requireAuth: false } }
 
@@ -61,41 +62,56 @@ export async function POST(req: Request) {
 
     const email = data.to?.[0] || data.email
 
+    // primary_email is encrypted at rest, so a `where('primary_email', email)`
+    // never matched an encrypted contact: bounced and complaining addresses
+    // kept being mailed. Match on the lookup hash (plaintext arm only for
+    // legacy rows without one). Loaded once, used by every branch below.
+    const matchContacts = async () =>
+      (typeof email === 'string' && email
+        ? await whereContactEmail(knex('customer_entities'), email)
+            .select('id', 'tenant_id', 'organization_id', 'email_status')
+        : []) as Array<{ id: string; tenant_id: string; organization_id: string; email_status: string | null }>
+
+    const addUnsubscribe = async (contact: { id: string; tenant_id: string; organization_id: string }, reason: string) => {
+      const existing = await knex('email_unsubscribes')
+        .where('email', email)
+        .where('organization_id', contact.organization_id)
+        .first()
+      if (!existing) {
+        await knex('email_unsubscribes').insert({
+          id: require('crypto').randomUUID(),
+          tenant_id: contact.tenant_id,
+          organization_id: contact.organization_id,
+          email,
+          contact_id: contact.id,
+          reason,
+          created_at: new Date(),
+        })
+      }
+    }
+
     if (type === 'email.bounced') {
       const bounceType = data.bounce?.type // 'hard' or 'soft'
-      console.log(`[email.webhook] Bounce (${bounceType}): ${email}`)
+      // No address in the log: it is contact PII.
+      console.log(`[email.webhook] Bounce (${bounceType})`)
+      const contacts = await matchContacts()
 
       if (bounceType === 'hard') {
-        // Hard bounce: suppress contact (never email again)
-        await knex('customer_entities')
-          .where('primary_email', email)
-          .update({ email_status: 'hard_bounced', updated_at: new Date() })
-
-        // Also add to unsubscribe list
-        const contacts = await knex('customer_entities').where('primary_email', email)
-        for (const contact of contacts) {
-          const existing = await knex('email_unsubscribes')
-            .where('email', email)
-            .where('organization_id', contact.organization_id)
-            .first()
-          if (!existing) {
-            await knex('email_unsubscribes').insert({
-              id: require('crypto').randomUUID(),
-              tenant_id: contact.tenant_id,
-              organization_id: contact.organization_id,
-              email,
-              contact_id: contact.id,
-              reason: 'hard_bounce',
-              created_at: new Date(),
-            })
-          }
+        // Hard bounce: suppress contact (never email again) and unsubscribe.
+        if (contacts.length) {
+          await knex('customer_entities')
+            .whereIn('id', contacts.map((c) => c.id))
+            .update({ email_status: 'hard_bounced', updated_at: new Date() })
         }
+        for (const contact of contacts) await addUnsubscribe(contact, 'hard_bounce')
       } else {
         // Soft bounce: mark but don't suppress yet
-        await knex('customer_entities')
-          .where('primary_email', email)
-          .whereNot('email_status', 'hard_bounced')
-          .update({ email_status: 'soft_bounced', updated_at: new Date() })
+        const soft = contacts.filter((c) => c.email_status !== 'hard_bounced').map((c) => c.id)
+        if (soft.length) {
+          await knex('customer_entities')
+            .whereIn('id', soft)
+            .update({ email_status: 'soft_bounced', updated_at: new Date() })
+        }
       }
 
       // Update the specific message status
@@ -106,8 +122,7 @@ export async function POST(req: Request) {
       }
 
       // Dispatch webhook to external subscribers (e.g., AMS)
-      const contacts = await knex('customer_entities').where('primary_email', email).select('organization_id')
-      const orgIds = [...new Set(contacts.map((c: { organization_id: string }) => c.organization_id))]
+      const orgIds = [...new Set(contacts.map((c) => c.organization_id))]
       for (const orgId of orgIds) {
         dispatchWebhook(knex, orgId, 'email.bounced', {
           emailId: data.email_id || null,
@@ -118,30 +133,16 @@ export async function POST(req: Request) {
     }
 
     if (type === 'email.complained') {
-      console.log(`[email.webhook] Spam complaint: ${email}`)
+      console.log('[email.webhook] Spam complaint')
 
       // Auto-unsubscribe the contact
-      const contacts = await knex('customer_entities').where('primary_email', email)
+      const contacts = await matchContacts()
       for (const contact of contacts) {
         await knex('customer_entities')
           .where('id', contact.id)
           .update({ email_status: 'complained', updated_at: new Date() })
 
-        const existing = await knex('email_unsubscribes')
-          .where('email', email)
-          .where('organization_id', contact.organization_id)
-          .first()
-        if (!existing) {
-          await knex('email_unsubscribes').insert({
-            id: require('crypto').randomUUID(),
-            tenant_id: contact.tenant_id,
-            organization_id: contact.organization_id,
-            email,
-            contact_id: contact.id,
-            reason: 'spam_complaint',
-            created_at: new Date(),
-          })
-        }
+        await addUnsubscribe(contact, 'spam_complaint')
 
         // Track negative engagement
         trackEngagement(knex, contact.organization_id, contact.tenant_id, contact.id, 'email_unsubscribed').catch(() => {})

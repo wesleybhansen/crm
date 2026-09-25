@@ -5,6 +5,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 
 export const metadata = {
   path: '/ext/deals',
@@ -99,11 +101,20 @@ export async function PUT(req: Request, ctx: any) {
       try {
         const bus = container.resolve('eventBus') as any
         if (bus?.emitEvent) {
+          // deal.title is encrypted at rest and this is a raw read; the event
+          // feeds notifications and outbound webhooks (deal-stage-webhook
+          // sends it as `name`), so decrypt it and never ship ciphertext.
+          const { DEAL_ENTITY_KEY } = await import('@open-mercato/shared/lib/encryption/decryptRows')
+          const { UNDECRYPTABLE_DISPLAY_TEXT } = await import('@open-mercato/shared/lib/encryption/tenantDataEncryptionService')
+          const titled: { title: unknown } = { title: deal.title }
+          await decryptRowFields(em, DEAL_ENTITY_KEY, [titled], ['title'], auth.tenantId, auth.orgId)
+          const title = typeof titled.title === 'string' && !isEncryptedEnvelope(titled.title)
+            && titled.title !== UNDECRYPTABLE_DISPLAY_TEXT ? titled.title : null
           await bus.emitEvent('customers.deal.stage_changed', {
             id,
             organizationId: auth.orgId,
             tenantId: auth.tenantId,
-            title: deal.title,
+            title,
             stage: pipeline_stage,
             previousStage: deal.pipeline_stage,
             status: status ?? deal.status,
@@ -135,12 +146,15 @@ export async function PUT(req: Request, ctx: any) {
           .whereNull('ce.deleted_at')
           .select('ce.id', 'ce.primary_email')
           .limit(10)
+        // primary_email is encrypted at rest; the referral fallback compares
+        // it with referred_email, so it must be the plaintext address.
+        await decryptRowFields(em, CONTACT_ENTITY_KEY, people, ['primary_email'], auth.tenantId, auth.orgId)
         // One deal pays ONE commission: stop at the first linked contact whose
         // referral actually converts (else a multi-contact deal pays 2-3x).
         for (const person of people) {
           const converted = await attributeDealWin(knex, auth.orgId, auth.tenantId, {
             contactId: person.id,
-            email: person.primary_email || null,
+            email: person.primary_email && !isEncryptedEnvelope(person.primary_email) ? person.primary_email : null,
             dealValue,
           })
           if (converted) break

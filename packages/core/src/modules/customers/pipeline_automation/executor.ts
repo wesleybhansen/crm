@@ -1,5 +1,8 @@
 import type { Knex } from 'knex'
 import type { EntityType, ActionType } from './triggers'
+import { decryptRowFields, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 export type PipelineAutomationRunOutcome =
   | 'applied'
@@ -13,6 +16,8 @@ export type ExecutorContext = {
   organizationId: string
   tenantId: string
   bus?: { emitEvent?: (id: string, payload: any, opts?: any) => Promise<void> } | null
+  /** EntityManager for decrypting raw reads; resolved from the request container when absent. */
+  em?: unknown
 }
 
 export type ApplyResult = {
@@ -157,11 +162,21 @@ export async function applyDealAction(
     })
 
   if (ctx.bus?.emitEvent) {
+    // deal.title is encrypted at rest and was read raw above. The event feeds
+    // notifications and the outbound deal-stage webhook (sent as `name`), so
+    // decrypt it and send nothing rather than ciphertext.
+    const titled: { title: unknown } = { title: deal.title }
+    try {
+      await decryptRowFields(ctx.em ?? null, DEAL_ENTITY_KEY, [titled], ['title'], ctx.tenantId, ctx.organizationId)
+    } catch { /* fall through to the readability check */ }
+    const title = typeof titled.title === 'string' && !isEncryptedEnvelope(titled.title) && titled.title !== UNDECRYPTABLE_DISPLAY_TEXT
+      ? titled.title
+      : null
     await ctx.bus.emitEvent('customers.deal.stage_changed', {
       id: args.dealId,
       organizationId: ctx.organizationId,
       tenantId: ctx.tenantId,
-      title: deal.title,
+      title,
       stage: stageRow?.name ?? null,
       previousStage: deal.pipeline_stage,
     }, { persistent: true }).catch(() => {})

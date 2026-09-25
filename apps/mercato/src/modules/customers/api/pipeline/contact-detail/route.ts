@@ -7,6 +7,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { decryptRowFields, PERSON_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -50,6 +52,8 @@ export async function GET(req: Request) {
     const person = await knex('customer_people')
       .where({ entity_id: contactId, organization_id: auth.orgId })
       .first()
+    // job_title is encrypted at rest; this raw read skips the subscriber.
+    if (person) await decryptRowFields(em, PERSON_ENTITY_KEY, [person], ['job_title'], auth.tenantId, auth.orgId)
 
     // Get notes
     const notes = await knex('contact_notes')
@@ -72,7 +76,7 @@ export async function GET(req: Request) {
         lifecycleStage: entity.lifecycle_stage,
         source: entity.source,
         createdAt: entity.created_at,
-        jobTitle: person?.job_title || null,
+        jobTitle: person?.job_title && !isEncryptedEnvelope(person.job_title) ? person.job_title : null,
         notes: notes.map((n: any) => ({ id: n.id, content: n.content, created_at: n.created_at })),
         engagementScore: engagement?.score ?? null,
       },

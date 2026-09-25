@@ -648,6 +648,9 @@ async function handleSmsConversation(
   let contact: any = null
   if (contactId) {
     contact = await knex('customer_entities').where('id', contactId).where('organization_id', orgId).first()
+    // Raw read: open phone/email/name before they are used as the SMS
+    // recipient, the audience match and the draft's greeting.
+    if (contact) await decryptRowFields(null, CONTACT_ENTITY_KEY, [contact], ['primary_phone', 'primary_email', 'display_name'], tenantId, orgId)
     if (!toPhone) toPhone = normalizeE164(contact?.primary_phone)
   }
   if (!toPhone) { await markDrafted(knex, conv.id, orgId); return 'skipped' }

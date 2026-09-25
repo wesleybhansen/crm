@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { decryptRowsForDisplay } from '@/modules/customers/lib/display-decrypt'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -60,6 +62,12 @@ export async function GET(req: Request, ctx: any) {
       .orderBy('fs.created_at', 'desc')
       .limit(pageSize)
       .offset((page - 1) * pageSize)
+    // Joined contact name/email are encrypted at rest; this raw read skips the subscriber.
+    await decryptRowsForDisplay(
+      em, CONTACT_ENTITY_KEY, submissions,
+      { contact_name: 'display_name', contact_email: 'primary_email' },
+      scope.tenantId, scope.orgId,
+    )
 
     return NextResponse.json({
       ok: true,

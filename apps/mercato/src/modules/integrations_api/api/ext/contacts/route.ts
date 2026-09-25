@@ -6,6 +6,10 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { whereContactEmail } from '@/modules/customers/lib/contact-lookup'
+import { decryptRowsForDisplay } from '@/modules/customers/lib/display-decrypt'
+import { CONTACT_SEARCH_CANDIDATE_LIMIT, contactMatchesSearch } from '@/modules/customers/lib/contact-search'
 
 export const metadata = {
   path: '/ext/contacts',
@@ -17,6 +21,24 @@ function getScope(ctx: any) {
   const auth = ctx?.auth
   if (!auth?.tenantId || !auth?.orgId) return null
   return { tenantId: auth.tenantId, orgId: auth.orgId, userId: auth.sub }
+}
+
+/**
+ * display_name/primary_email/primary_phone/description/next_interaction_name are encrypted at rest for contacts
+ * written through the ORM path. This route reads via raw knex, which skips the
+ * subscriber that decrypts them. Unreadable fields come back as null, never
+ * ciphertext.
+ */
+async function decryptContactsForResponse(em: EntityManager, contacts: any[], tenantId: string, orgId: string) {
+  if (!contacts.length || !isTenantDataEncryptionEnabled() || !tenantId) return
+  await decryptRowsForDisplay(
+    em, CONTACT_ENTITY_KEY, contacts,
+    {
+      display_name: 'display_name', primary_email: 'primary_email', primary_phone: 'primary_phone',
+      description: 'description', next_interaction_name: 'next_interaction_name',
+    },
+    tenantId, orgId,
+  )
 }
 
 export async function GET(req: Request, ctx: any) {
@@ -38,49 +60,41 @@ export async function GET(req: Request, ctx: any) {
       .where('organization_id', scope.orgId)
       .whereNull('deleted_at')
 
-    if (search) {
-      query = query.where(function() {
-        this.where('display_name', 'ilike', `%${search}%`).orWhere('primary_email', 'ilike', `%${search}%`)
-      })
-    }
     if (status) query = query.where('status', status)
 
-    const [{ count }] = await query.clone().count()
-    const contacts = await query.select('*').orderBy('created_at', 'desc').limit(pageSize).offset((page - 1) * pageSize)
-
-    // display_name/primary_email/primary_phone are encrypted at rest for contacts
-    // written through the ORM path. This route reads via raw knex, which skips the
-    // subscriber that decrypts them, so without this some rows come back as
-    // `iv:ct:tag:v1` ciphertext while others look fine.
-    if (isTenantDataEncryptionEnabled() && scope.tenantId) {
-      const svc = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
-      for (const contact of contacts) {
-        try {
-          const { payload: dec } = await svc.decryptEntityPayloadForDisplay(
-            'customers:customer_entity',
-            {
-              display_name: contact.display_name,
-              primary_email: contact.primary_email,
-              primary_phone: contact.primary_phone,
-            },
-            scope.tenantId,
-            scope.orgId,
-          )
-          contact.display_name = dec.display_name ?? contact.display_name
-          contact.primary_email = dec.primary_email ?? contact.primary_email
-          contact.primary_phone = dec.primary_phone ?? contact.primary_phone
-        } catch {
-          /* leave the stored value alone: one unreadable row must not fail the page */
-        }
-      }
+    // Name and email are encrypted at rest, so SQL ILIKE can never match an
+    // encrypted row. With a search term, load the org's recent contacts
+    // (bounded), decrypt, filter and paginate in memory.
+    let count: number | string
+    let contacts: any[]
+    let searchTruncated = false
+    if (search) {
+      const candidates = await query.clone().select('*').orderBy('created_at', 'desc').limit(CONTACT_SEARCH_CANDIDATE_LIMIT)
+      searchTruncated = candidates.length >= CONTACT_SEARCH_CANDIDATE_LIMIT
+      await decryptContactsForResponse(em, candidates, scope.tenantId, scope.orgId)
+      const matches = candidates.filter((c: any) => contactMatchesSearch(c, search))
+      count = matches.length
+      contacts = matches.slice((page - 1) * pageSize, page * pageSize)
+    } else {
+      ;[{ count }] = await query.clone().count() as any
+      contacts = await query.select('*').orderBy('created_at', 'desc').limit(pageSize).offset((page - 1) * pageSize)
+      await decryptContactsForResponse(em, contacts, scope.tenantId, scope.orgId)
     }
 
-    return NextResponse.json({ ok: true, data: contacts, pagination: { page, pageSize, total: Number(count) } })
+    return NextResponse.json({
+      ok: true,
+      data: contacts,
+      pagination: { page, pageSize, total: Number(count) },
+      ...(searchTruncated ? { searchScope: `most recent ${CONTACT_SEARCH_CANDIDATE_LIMIT} contacts` } : {}),
+    })
   } catch (error) {
     console.error('[ext.contacts.list]', error)
     return NextResponse.json({ ok: false, error: 'Failed to list contacts' }, { status: 500 })
   }
 }
+
+/** Contact columns encrypted at rest that this API returns. */
+const EXT_CONTACT_FIELDS = ['display_name', 'primary_email', 'primary_phone', 'description', 'next_interaction_name'] as const
 
 export async function POST(req: Request, ctx: any) {
   const scope = getScope(ctx)
@@ -96,13 +110,18 @@ export async function POST(req: Request, ctx: any) {
       return NextResponse.json({ ok: false, error: 'displayName or email required' }, { status: 400 })
     }
 
+    // Dedupe on the email lookup hash: primary_email is ciphertext for every
+    // contact written through the encrypting path, so the old plaintext
+    // equality never matched and each retry created a duplicate.
     if (email) {
-      const existing = await knex('customer_entities')
-        .where('primary_email', email)
+      const existing = await whereContactEmail(knex('customer_entities'), email)
         .where('organization_id', scope.orgId)
         .whereNull('deleted_at')
         .first()
-      if (existing) return NextResponse.json({ ok: true, data: existing, existed: true })
+      if (existing) {
+        await decryptRowFields(em, CONTACT_ENTITY_KEY, [existing], EXT_CONTACT_FIELDS, scope.tenantId, scope.orgId)
+        return NextResponse.json({ ok: true, data: existing, existed: true })
+      }
     }
 
     // Marketing attribution (pushed by the Noli AMS): keep the human channel
@@ -140,6 +159,7 @@ export async function POST(req: Request, ctx: any) {
     } catch {}
 
     const contact = await knex('customer_entities').where('id', id).first()
+    if (contact) await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], EXT_CONTACT_FIELDS, scope.tenantId, scope.orgId)
     return NextResponse.json({ ok: true, data: contact, existed: false }, { status: 201 })
   } catch (error) {
     console.error('[ext.contacts.create]', error)

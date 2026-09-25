@@ -1,5 +1,6 @@
 import { applyTaskTemplate } from '@/modules/customers/api/task-templates/apply/route'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import {
   buildSenderContext,
   htmlifyIfPlainText,
@@ -239,7 +240,10 @@ async function executeAction(
         contactEmail = contact?.primary_email || null
         contactName = contact?.display_name || ''
       }
-      if (!contactEmail || contactEmail.includes(':v1')) return { success: false, detail: 'Contact has no valid email' }
+      // Shared envelope parser: the old ':v1' substring test missed v2 envelopes.
+      if (!contactEmail || !String(contactEmail).includes('@') || isEncryptedEnvelope(contactEmail)) {
+        return { success: false, detail: 'Contact has no valid email' }
+      }
 
       const firstName = (contactName || '').split(' ')[0] || 'there'
       const rawSubject = actionConfig.subject || 'Automated notification'
@@ -476,8 +480,24 @@ async function executeAction(
       if (!context.contactId) return { success: false, detail: 'No contactId in context' }
       if (!actionConfig.surveyId) return { success: false, detail: 'surveyId required' }
 
-      const contact = await knex('customer_entities').where('id', context.contactId).first()
-      if (!contact?.primary_email) return { success: false, detail: 'Contact has no email' }
+      // primary_email / display_name are encrypted at rest: decrypt before
+      // they become the recipient and the greeting (the survey used to be
+      // addressed to the ciphertext).
+      const contact = await knex('customer_entities')
+        .where('id', context.contactId)
+        .where('organization_id', orgId)
+        .select('id', 'primary_email', 'display_name')
+        .first()
+      if (contact) {
+        const { decryptRowFields, CONTACT_ENTITY_KEY } = await import('@open-mercato/shared/lib/encryption/decryptRows')
+        const surveyEm = knex.client?.em
+          || (await (await import('@open-mercato/shared/lib/di/container')).createRequestContainer()).resolve('em')
+        await decryptRowFields(surveyEm, CONTACT_ENTITY_KEY, [contact], ['primary_email', 'display_name'], tenantId, orgId)
+        if (isEncryptedEnvelope(contact.display_name)) contact.display_name = ''
+      }
+      if (!contact?.primary_email || isEncryptedEnvelope(contact.primary_email) || !String(contact.primary_email).includes('@')) {
+        return { success: false, detail: 'Contact has no email' }
+      }
 
       const survey = await knex('surveys').where('id', actionConfig.surveyId).where('organization_id', orgId).first()
       if (!survey) return { success: false, detail: 'Survey not found' }

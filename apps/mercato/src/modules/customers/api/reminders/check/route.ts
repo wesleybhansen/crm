@@ -8,6 +8,9 @@ import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/lib/db'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { reminderEntityLabel } from '@/modules/customers/lib/reminder-entity-label'
 
 export async function POST() {
   const auth = await getAuthFromCookies()
@@ -39,12 +42,10 @@ export async function POST() {
       try {
         // Build context
         let entityLabel = reminder.entity_type
-        if (reminder.entity_type === 'contact') {
-          const contact = await queryOne('SELECT display_name FROM customer_entities WHERE id = $1', [reminder.entity_id])
-          entityLabel = contact?.display_name || 'Contact'
-        } else if (reminder.entity_type === 'deal') {
-          const deal = await queryOne('SELECT title FROM customer_deals WHERE id = $1', [reminder.entity_id])
-          entityLabel = deal?.title || 'Deal'
+        if (reminder.entity_type === 'contact' || reminder.entity_type === 'deal') {
+          // Names/titles are encrypted at rest: decrypt, scoped to this org.
+          const em = (await createRequestContainer()).resolve('em') as EntityManager
+          entityLabel = await reminderEntityLabel(em.getKnex(), reminder.entity_type, reminder.entity_id, auth.orgId, em)
         } else if (reminder.entity_type === 'task') {
           const task = await queryOne('SELECT title FROM tasks WHERE id = $1', [reminder.entity_id])
           entityLabel = task?.title || 'Task'
