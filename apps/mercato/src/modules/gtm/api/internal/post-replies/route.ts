@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { internalServiceBearerAuthorized } from '../../../lib/authorize'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -122,7 +123,12 @@ export async function POST(req: Request) {
     }
     const apiKey = gate.byoApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
     if (!apiKey) return NextResponse.json({ ok: false, error: 'AI is not configured', code: 'ai_unconfigured' }, { status: 400 })
-    const operationKey = `gtm:post-reply:${ctx.organizationId}:${body.idempotency_key}`
+    // One key per drafting pass. A stored draft is replayed above without a
+    // model call, so reaching this point always means fresh model calls; a
+    // retry after draft_failed with the same idempotency_key used to reuse
+    // the key and its calls were dropped as duplicates by the canonical meter
+    // (2026-09-25 review, H4).
+    const operationKey = `gtm:post-reply:${ctx.organizationId}:${body.idempotency_key}:pass:${randomUUID()}`
     const canonicalMeter = async (usage: {
       model: string
       tokensIn: number
