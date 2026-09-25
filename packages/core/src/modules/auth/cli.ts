@@ -405,6 +405,8 @@ const addOrganization: ModuleCli = {
     const org = em.create(Organization, { name, tenant })
     await em.persistAndFlush(org)
     await rebuildHierarchyForTenant(em, String(tenant.id))
+    const { ensureCustomerDealDefaults } = await import('@open-mercato/core/modules/customers/lib/dealDefaults')
+    await ensureCustomerDealDefaults(em.fork(), { tenantId: String(tenant.id), organizationId: String(org.id) })
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
 }
