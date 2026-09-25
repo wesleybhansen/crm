@@ -342,6 +342,16 @@ function normalizeHexColor(value: string | null | undefined): string | null {
   return /^#([0-9a-f]{6})$/.test(trimmed) ? trimmed : null
 }
 
+export function companySourceFromInput(source: string | null | undefined, ctx: any): string {
+  const explicit = normalizeOptionalString(source)
+  if (explicit) return explicit
+  if (ctx?.auth?.isApiKey) {
+    const keyName = normalizeOptionalString(ctx?.auth?.keyName)
+    return keyName ? `api:${keyName}` : 'api'
+  }
+  return 'manual'
+}
+
 const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: string; companyId: string }> = {
   id: 'customers.companies.create',
   async execute(rawInput, ctx) {
@@ -365,7 +375,9 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       primaryPhone: parsed.primaryPhone ?? null,
       status: parsed.status ?? null,
       lifecycleStage: parsed.lifecycleStage ?? null,
-      source: parsed.source ?? null,
+      // Same attribution rule as people (QA 2026-09-25 #18): no explicit
+      // source means it was added by hand, or via the API for API keys.
+      source: companySourceFromInput(parsed.source, ctx),
       nextInteractionAt: parsed.nextInteraction?.at ?? null,
       nextInteractionName,
       nextInteractionRefId,

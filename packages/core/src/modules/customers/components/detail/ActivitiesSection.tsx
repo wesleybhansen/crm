@@ -58,7 +58,7 @@ export function ActivitiesSection({
   const dictionaryQuery = useCustomerDictionary('activity-types', scopeVersion)
   const dictionaryMap = dictionaryQuery.data?.map ?? {}
   const customFieldResources = useCustomFieldDisplay(E.customers.customer_activity)
-  const customFieldEmptyLabel = t('customers.people.detail.noValue', 'Not provided')
+  const customFieldEmptyLabel = t('customers.people.detail.noValue', 'Not set')
 
   const translate = React.useCallback(
     (key: string, fallback: string) => {
