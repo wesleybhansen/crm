@@ -273,10 +273,21 @@ export type GtmDecisionMakersBody = z.infer<typeof gtmDecisionMakersBodySchema>
 
 export const gtmCandidatesBodySchema = z.object({
   noliUserId: idString,
-  op: z.enum(['list', 'review', 'detail', 'export', 'shortlist']).optional().default('list'),
-  // shortlist op: the runs whose current rows are ranked, and how many to return.
+  op: z.enum(['list', 'review', 'detail', 'export', 'shortlist', 'verify']).optional().default('list'),
+  // shortlist + verify ops: the runs whose current rows are ranked or checked,
+  // and how many to return or check.
   runIds: z.array(idString).min(1).max(50).optional(),
   limit: z.number().int().min(1).max(50).optional(),
+  // verify op: the member's ideal customer (from the Lab), and the criteria a
+  // previous verify call derived from it, so every row of a run is checked
+  // against the same list.
+  icp: z.string().trim().max(3000).optional(),
+  criteria: z.array(z.object({
+    id: z.string().trim().max(8),
+    text: z.string().trim().min(1).max(200),
+    hard: z.boolean(),
+    ownership: z.boolean(),
+  })).max(6).optional(),
   // list filters
   runId: idString.optional(),
   playId: idString.optional(),
@@ -291,9 +302,9 @@ export const gtmCandidatesBodySchema = z.object({
   // audited export operation; caller-supplied body copies are stripped.
   idempotency_key: idString.optional(),
 }).superRefine((body, issue) => {
-  if (body.op === 'shortlist') {
+  if (body.op === 'shortlist' || body.op === 'verify') {
     if (!body.runIds?.length) {
-      issue.addIssue({ code: z.ZodIssueCode.custom, path: ['runIds'], message: 'runIds is required for shortlist' })
+      issue.addIssue({ code: z.ZodIssueCode.custom, path: ['runIds'], message: `runIds is required for ${body.op}` })
     }
     return
   }

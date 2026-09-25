@@ -10,6 +10,7 @@ type Row = {
   score?: number
   identity?: Record<string, unknown>
   judge?: Record<string, unknown>
+  verification?: Record<string, unknown>
   email?: boolean
   createdAt?: Date
   runIndex?: number
@@ -34,7 +35,7 @@ async function seed(em: FakeEm, rows: Row[], options: { outreachMode?: string; r
     const match = em.create(GtmCandidateMatch, {
       organizationId: ORG, tenantId: TENANT, workspaceId: run.workspaceId, playId: play.id, researchRunId: run.id,
       candidateId: candidate.id, fitStatus: row.status, fitScore: String(row.score ?? 70),
-      qualification: { reason: 'meets_fit_rules', ...(row.judge ? { judge: row.judge } : {}) },
+      qualification: { reason: 'meets_fit_rules', ...(row.judge ? { judge: row.judge } : {}), ...(row.verification ? { verification: row.verification } : {}) },
       ...(row.createdAt ? { createdAt: row.createdAt } : {}),
     })
     em.persist(match)
@@ -111,7 +112,9 @@ describe('buildShortlist', () => {
       run_id: runs[0].id,
       entity_kind: 'company',
       fit_status: 'review',
-      confidence: 'high',
+      // Not yet checked on its website: ordered, but no earned label.
+      confidence: 'low',
+      verified: false,
       why: 'commercial mechanical subcontractor',
       location: '1 Main St, Denver, CO',
       contact: { person_name: null, website: 'https://cmc.example/', phone: '+1 303-555-0100', has_email: true },
@@ -120,6 +123,38 @@ describe('buildShortlist', () => {
     expect(JSON.stringify(result)).not.toContain('@fixture.example')
     // A reason, never a raw criterion id.
     expect(result.shortlist[2].why).toBe('Meets every fit rule')
+  })
+
+  test('site-checked rows rank first on their earned grade; the site phone and quotes replace the listing\'s', async () => {
+    const em = new FakeEm()
+    const verification = (grade: number, extra: Record<string, unknown> = {}) => ({
+      version: 'site-check-v1', complete: true, excluded: false, grade, summary: `graded ${grade}`,
+      checks: [{ text: 'Independently owned', hard: true, status: 'pass', quote: 'Owned by Dr. Ruiz since 2024' }],
+      site: { pages: ['https://site.example/about'] },
+      contact: { phone: '+16025550142', phone_source: 'site', person_name: 'Dr. Ana Ruiz', person_title: 'Owner' },
+      ...extra,
+    })
+    const { runs } = await seed(em, [
+      { name: 'Unchecked but high rule score', status: 'accepted', score: 100, judge: { verdict: 'keep', fit: 'strong' } },
+      { name: 'Checked 72', status: 'review', score: 60, verification: verification(72) },
+      { name: 'Checked 91', status: 'review', score: 40, identity: { phone: '+1 928-492-3378' }, verification: verification(91) },
+      { name: 'Checked 72 with less confirmed', status: 'review', score: 60, verification: verification(72, { checks: [], contact: {} }) },
+      { name: 'Incomplete check', status: 'review', score: 65, verification: { ...verification(99), complete: false } },
+    ])
+    const result = await buildShortlist(em, { organizationId: ORG, tenantId: TENANT }, { runIds: [runs[0].id] })
+    expect(result.shortlist.map((row) => [row.name, row.verified, row.confidence, row.score])).toEqual([
+      ['Checked 91', true, 'high', 91],
+      ['Checked 72', true, 'medium', 72],
+      ['Checked 72 with less confirmed', true, 'medium', 72],
+      ['Unchecked but high rule score', false, 'low', expect.any(Number)],
+      ['Incomplete check', false, 'low', expect.any(Number)],
+    ])
+    expect(result.unverified).toBe(2)
+    const top = result.shortlist[0]
+    expect(top.contact).toEqual(expect.objectContaining({ phone: '+16025550142', person_name: 'Dr. Ana Ruiz', title: 'Owner' }))
+    expect(top.phone_source).toBe('site')
+    expect(top.evidence[0]).toEqual({ claim: 'Independently owned. Their website: "Owned by Dr. Ruiz since 2024"', source_url: 'https://site.example/about' })
+    expect(top.why).toBe('graded 91')
   })
 
   test('limit caps the list, not the pool; a manual-only play never reports an email', async () => {

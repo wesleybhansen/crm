@@ -175,7 +175,7 @@ const ROUTES: RouteCase[] = [
   {
     name: 'candidates',
     schema: 'gtmCandidatesBodySchema',
-    overrides: { export: { workspaceId: UUID, playId: UUID }, shortlist: { runIds: [UUID] } },
+    overrides: { export: { workspaceId: UUID, playId: UUID }, shortlist: { runIds: [UUID] }, verify: { runIds: [UUID] } },
     headers: { export: { 'idempotency-key': 'export-key-1' } },
   },
   { name: 'chat', schema: 'gtmChatBodySchema' },
