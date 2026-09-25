@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isPublicSlugTaken } from '@/lib/public-slug'
+import { countCourseLessons, publishBlockReason, COURSE_NEEDS_LESSONS_CODE } from '../../../lib/publish-readiness'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['courses.view'] },
@@ -108,7 +109,19 @@ export async function PUT(req: Request, ctx: any) {
       }
     }
 
+    // Publishing needs at least one saved lesson (counted after the module and
+    // lesson writes above, so a course built and published in one save passes).
+    // The other edits in this request still save; only the publish is refused.
+    let publishBlocked: string | null = null
+    if (update.is_published === true) {
+      publishBlocked = publishBlockReason(await countCourseLessons(knex, id))
+      if (publishBlocked) delete update.is_published
+    }
+
     await knex('courses').where('id', id).where('organization_id', auth.orgId).update(update)
+    if (publishBlocked) {
+      return NextResponse.json({ ok: false, error: publishBlocked, code: COURSE_NEEDS_LESSONS_CODE }, { status: 422 })
+    }
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('[courses.update]', error)
