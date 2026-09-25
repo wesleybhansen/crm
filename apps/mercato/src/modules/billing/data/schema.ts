@@ -1,4 +1,4 @@
-import { Entity, Property, PrimaryKey, Index } from '@mikro-orm/core'
+import { Entity, Property, PrimaryKey, Index, Unique } from '@mikro-orm/core'
 import { randomUUID as uuid } from 'node:crypto'
 
 @Entity({ tableName: 'credit_balances' })
@@ -52,6 +52,7 @@ export class CreditTransaction {
 }
 
 @Entity({ tableName: 'credit_packages' })
+@Unique({ name: 'credit_packages_name_unique', properties: ['name'] })
 export class CreditPackage {
   @PrimaryKey({ type: 'uuid' })
   id: string = uuid()

@@ -1,10 +1,11 @@
 import { cookies, headers } from 'next/headers'
+import type { Metadata } from 'next'
 import Script from 'next/script'
 import { createElement, type ReactNode } from 'react'
 import { Users, Kanban, FileText, Mail, LayoutDashboard, CreditCard, Settings, CalendarDays, BookOpen, GitBranch, GitMerge, Zap, ClipboardList, MessageCircle, Share2, CheckSquare, CalendarCheck, BarChart3, Wrench, Sparkles, Headphones, Star, Mic } from 'lucide-react'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
-import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { resolveAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import {
   buildAdminNav,
@@ -44,7 +45,8 @@ import { ComponentOverridesBootstrap } from '@/components/ComponentOverridesBoot
 import { AiAssistantWidget } from '@/components/AiAssistantWidget'
 import { FloatingAssistantButton } from '@/components/FloatingAssistantButton'
 import { BackgroundJobs } from '@/components/BackgroundJobs'
-import { EMAIL_NOT_CONNECTED_BANNER, getEmailSendingGap } from '@/modules/email/lib/sending-readiness'
+import { ReconnectingNotice } from '@/components/ReconnectingNotice'
+import { EMAIL_CONNECT_LINK_TEXT, EMAIL_CONNECT_URL, EMAIL_NOT_CONNECTED_BANNER, getEmailSendingGap } from '@/modules/email/lib/sending-readiness'
 
 type NavItem = {
   href: string
@@ -66,7 +68,12 @@ type NavGroup = {
 }
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params: Promise<{ slug?: string[] }> }) {
-  const auth = await getAuthFromCookies()
+  const authResolution = await resolveAuthFromCookies()
+  // The session exists but the server couldn't confirm it (database down,
+  // timeout, deploy in progress). Show a self-retrying notice instead of
+  // rendering the shell as signed out or bouncing to sign-in.
+  if (authResolution.status === 'unavailable') return <ReconnectingNotice />
+  const auth = authResolution.status === 'authenticated' ? authResolution.auth : null
   const cookieStore = await cookies()
   const headerStore = await headers()
   const rawSelectedOrg = cookieStore.get('om_selected_org')?.value
@@ -412,9 +419,22 @@ export default async function BackendLayout({ children, params }: { children: Re
   const allEntries: NavEntry[] = groups.flatMap((group) =>
     group.items.map((item) => ({ ...item, group: group.name })),
   )
-  const current = allEntries.find((item) => path.startsWith(item.href))
-  const currentTitle = current?.title || ''
+  // Longest matching nav href wins, on a path-segment boundary, so a short
+  // href such as /backend never claims every page as "Dashboard".
+  const navPath = (href: string) => href.split('?')[0].replace(/\/+$/, '')
+  const current = allEntries
+    .filter((item) => {
+      const base = navPath(item.href)
+      return base.length > 0 && (path === base || path.startsWith(`${base}/`))
+    })
+    .sort((a, b) => navPath(b.href).length - navPath(a.href).length)[0]
   const match = findBackendMatch(modules, path)
+  // The page's own title first (same value ApplyBreadcrumb sets after
+  // hydration, so the header does not flicker), then the nav entry's.
+  const routeTitle = match?.route.titleKey
+    ? translate(match.route.titleKey, match.route.title || match.route.titleKey)
+    : match?.route.title
+  const currentTitle = routeTitle || current?.title || ''
   const rawBreadcrumb = match?.route.breadcrumb
   const breadcrumb = rawBreadcrumb?.map((item) => {
     const fallback = item.label
@@ -510,8 +530,8 @@ export default async function BackendLayout({ children, params }: { children: Re
             >
               {emailSendingBlocked && (
                 <div role="status" className="mx-4 mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
-                  {EMAIL_NOT_CONNECTED_BANNER.replace(' Connect it in Settings.', ' ')}
-                  <a href="/backend/settings-simple" className="font-medium underline">Connect it in Settings.</a>
+                  {EMAIL_NOT_CONNECTED_BANNER.replace(` ${EMAIL_CONNECT_LINK_TEXT}`, ' ')}
+                  <a href={EMAIL_CONNECT_URL} className="font-medium underline">{EMAIL_CONNECT_LINK_TEXT}</a>
                 </div>
               )}
               <PageInjectionBoundary path={path} context={injectionContext}>
@@ -526,6 +546,12 @@ export default async function BackendLayout({ children, params }: { children: Re
     </div>
   )
 }
+export const metadata: Metadata = {
+  // Every backend tab reads "<Page> | Noli CRM"; pages without a title of
+  // their own fall back to "Noli CRM".
+  title: { default: 'Noli CRM', template: '%s | Noli CRM' },
+}
+
 export const dynamic = 'force-dynamic'
 
 function adoptSidebarDefaults(groups: NavGroup[]): NavGroup[] {

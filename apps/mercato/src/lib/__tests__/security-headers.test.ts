@@ -1,5 +1,9 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import {
   applyBrowserSecurityHeaders,
+  CRM_CSP_DIRECTIVES,
+  crmContentSecurityPolicy,
   browserSecurityHeaderRules,
   COMPANY_LEGAL_REDIRECTS,
   DEFAULT_BROWSER_HEADER_SOURCE,
@@ -117,5 +121,61 @@ describe('CRM browser security headers', () => {
     applyBrowserSecurityHeaders(customerDomain, '/', { includeHsts: false })
     expect(customerDomain.has('Strict-Transport-Security')).toBe(false)
     expect(customerDomain.get('X-Frame-Options')).toBe('DENY')
+  })
+
+  describe('Content-Security-Policy', () => {
+    const directive = (name: string): readonly string[] => {
+      const entry = CRM_CSP_DIRECTIVES.find(([key]) => key === name)
+      if (!entry) throw new Error(`missing CSP directive ${name}`)
+      return entry[1]
+    }
+
+    test('nginx sends exactly the policy defined in code', () => {
+      const nginx = readFileSync(path.resolve(__dirname, '../../../../../nginx.conf'), 'utf8')
+      const match = nginx.match(/add_header Content-Security-Policy(?:-Report-Only)? "([^"]*)" always;/)
+      expect(match?.[1]).toBe(crmContentSecurityPolicy())
+    })
+
+    test('allows Clerk sign-in on the custom Frontend API domain', () => {
+      expect(directive('script-src')).toEqual(expect.arrayContaining([
+        'https://clerk.noliai.com',
+        'https://challenges.cloudflare.com',
+      ]))
+      expect(directive('connect-src')).toContain('https://*.noliai.com')
+      expect(directive('frame-src')).toContain('https://challenges.cloudflare.com')
+      expect(directive('img-src')).toContain('https:')
+      expect(directive('worker-src')).toContain('blob:')
+    })
+
+    test('allows the Fontshare and Google font stylesheets and files', () => {
+      expect(directive('style-src')).toEqual(expect.arrayContaining([
+        'https://api.fontshare.com',
+        'https://fonts.googleapis.com',
+      ]))
+      expect(directive('font-src')).toEqual(expect.arrayContaining([
+        'https://cdn.fontshare.com',
+        'https://fonts.gstatic.com',
+      ]))
+    })
+
+    test('allows Stripe.js, PostHog and course video embeds', () => {
+      expect(directive('script-src')).toEqual(expect.arrayContaining(['https://js.stripe.com', 'https://*.posthog.com']))
+      expect(directive('connect-src')).toEqual(expect.arrayContaining(['https://api.stripe.com', 'https://*.posthog.com']))
+      expect(directive('frame-src')).toEqual(expect.arrayContaining([
+        'https://js.stripe.com',
+        'https://hooks.stripe.com',
+        'https://www.youtube.com',
+        'https://player.vimeo.com',
+        'https://www.loom.com',
+      ]))
+    })
+
+    test('keeps plugins and base-tag hijacks blocked and each directive listed once', () => {
+      expect(directive('object-src')).toEqual(["'none'"])
+      expect(directive('base-uri')).toEqual(["'self'"])
+      const names = CRM_CSP_DIRECTIVES.map(([name]) => name)
+      expect(new Set(names).size).toBe(names.length)
+      expect(crmContentSecurityPolicy()).not.toMatch(/"/)
+    })
   })
 })

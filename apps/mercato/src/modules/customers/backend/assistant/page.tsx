@@ -5,6 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Mic, MicOff, Send, Trash2, Volume2, Loader2, Check, X, AlertCircle, Sparkles, Plus, Archive, MessageSquare, BarChart3, CalendarDays, CheckSquare, Flame, Pencil } from 'lucide-react'
 import { READ_ONLY_TOOLS } from '@/modules/customers/lib/crm-tool-catalog'
 import { runAutomationAction } from '@/modules/customers/lib/assistant-automation-action'
+import { fetchListForAssistant, fetchJsonForAssistant, upcomingOnly } from '@/modules/customers/lib/assistant-read-result'
 
 // Types
 interface Message {
@@ -430,7 +431,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         if (d.ok) {
           const via = d.data?.sentVia || 'unknown'
           if (via === 'console') {
-            return { ok: false, message: `Email drafted but could not be delivered — no email provider connected. Connect Gmail or Outlook in Settings.` }
+            return { ok: false, message: `Email drafted but could not be delivered. No email account is connected. Connect Gmail or Outlook in Inbox > Connections.` }
           }
           if (d.data?.fallback && d.data?.primaryProviderError) {
             return { ok: true, message: `Email sent to ${action.data.to} via ${via} (fallback). Gmail issue: ${d.data.primaryProviderError}` }
@@ -976,24 +977,25 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return { ok: true, message: `${c.display_name || 'Unknown'} (${c.primary_email || 'no email'}). Stage: ${c.lifecycle_stage || 'prospect'}. Source: ${c.source || 'unknown'}.` }
       }
       case 'get_today_tasks': {
-        const res = await fetch('/api/customers/tasks?filter=today', { credentials: 'include' })
-        const d = await res.json()
-        if (!d.ok || !d.data?.length) return { ok: true, message: 'No tasks due today.' }
-        const list = d.data.slice(0, 5).map((t: any) => t.title).join(', ')
-        return { ok: true, message: `${d.data.length} task(s) due today: ${list}` }
+        const r = await fetchListForAssistant('/api/customers/tasks?filter=today', 'your tasks')
+        if (!r.ok) return r.failure
+        if (!r.items.length) return { ok: true, message: 'No tasks due today.' }
+        const list = r.items.slice(0, 5).map((t: any) => t.title).join(', ')
+        return { ok: true, message: `${r.items.length} task(s) due today: ${list}` }
       }
       case 'get_upcoming_events': {
-        const res = await fetch('/api/crm-events?upcoming=true', { credentials: 'include' })
-        const d = await res.json()
-        if (!d.ok || !d.data?.length) return { ok: true, message: 'No upcoming events.' }
-        const list = d.data.slice(0, 5).map((e: any) => `${e.title} (${new Date(e.start_date).toLocaleDateString()})`).join(', ')
-        return { ok: true, message: `${d.data.length} upcoming event(s): ${list}` }
+        const r = await fetchListForAssistant('/api/crm-events?upcoming=true', 'your events')
+        if (!r.ok) return r.failure
+        const upcoming = upcomingOnly(r.items)
+        if (!upcoming.length) return { ok: true, message: 'No upcoming events.' }
+        const list = upcoming.slice(0, 5).map((e: any) => `${e.title} (${new Date(e.start_time).toLocaleDateString()})`).join(', ')
+        return { ok: true, message: `${upcoming.length} upcoming event(s): ${list}` }
       }
       case 'get_inbox_summary': {
-        const res = await fetch('/api/inbox', { credentials: 'include' })
-        const d = await res.json()
-        const unread = d.data?.filter((m: any) => (m.unreadCount || m.unread_count) > 0).length || 0
-        return { ok: true, message: `Inbox: ${unread} unread conversation(s), ${d.data?.length || 0} total.` }
+        const r = await fetchListForAssistant('/api/inbox', 'your inbox')
+        if (!r.ok) return r.failure
+        const unread = r.items.filter((m: any) => (m.unreadCount || m.unread_count) > 0).length
+        return { ok: true, message: `Inbox: ${unread} unread conversation(s), ${r.items.length} total.` }
       }
       case 'get_revenue_summary': {
         const res = await fetch('/api/reports', { credentials: 'include' })
@@ -1003,38 +1005,37 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return { ok: true, message: `Revenue this month: $${(rev?.thisMonth || 0).toLocaleString()}. Last month: $${(rev?.lastMonth || 0).toLocaleString()}. Total: $${(rev?.total || 0).toLocaleString()}. Bookings this month: ${d.data.bookingStats?.thisMonth || 0}.` }
       }
       case 'list_sequences': {
-        const res = await fetch('/api/sequences', { credentials: 'include' })
-        const d = await res.json()
-        if (!d.ok || !d.data?.length) return { ok: true, message: 'No sequences found.' }
-        const list = d.data.slice(0, 5).map((s: any) => `${s.name} (${s.is_active ? 'active' : 'inactive'})`).join(', ')
-        return { ok: true, message: `${d.data.length} sequence(s): ${list}` }
+        const r = await fetchListForAssistant('/api/sequences', 'your sequences')
+        if (!r.ok) return r.failure
+        if (!r.items.length) return { ok: true, message: 'No sequences found.' }
+        const list = r.items.slice(0, 5).map((s: any) => `${s.name} (${s.is_active ? 'active' : 'inactive'})`).join(', ')
+        return { ok: true, message: `${r.items.length} sequence(s): ${list}` }
       }
       case 'list_landing_pages': {
-        const res = await fetch('/api/landing_pages/pages', { credentials: 'include' })
-        const d = await res.json()
-        if (!d.ok || !d.data?.length) return { ok: true, message: 'No landing pages found.' }
-        const list = d.data.slice(0, 5).map((p: any) => `${p.title} (${p.view_count || 0} views, ${p.submission_count || 0} leads)`).join(', ')
-        return { ok: true, message: `${d.data.length} page(s): ${list}` }
+        const r = await fetchListForAssistant('/api/landing_pages/pages', 'your landing pages')
+        if (!r.ok) return r.failure
+        if (!r.items.length) return { ok: true, message: 'No landing pages found.' }
+        const list = r.items.slice(0, 5).map((p: any) => `${p.title} (${p.view_count || 0} views, ${p.submission_count || 0} leads)`).join(', ')
+        return { ok: true, message: `${r.items.length} page(s): ${list}` }
       }
       case 'list_email_lists': {
-        const res = await fetch('/api/email/lists', { credentials: 'include' })
-        const d = await res.json()
-        if (!d.ok || !d.data?.length) return { ok: true, message: 'No email lists found.' }
-        const list = d.data.slice(0, 5).map((l: any) => `${l.name} (${l.member_count || 0} members)`).join(', ')
-        return { ok: true, message: `${d.data.length} list(s): ${list}` }
+        const r = await fetchListForAssistant('/api/email/lists', 'your email lists')
+        if (!r.ok) return r.failure
+        if (!r.items.length) return { ok: true, message: 'No email lists found.' }
+        const list = r.items.slice(0, 5).map((l: any) => `${l.name} (${l.member_count || 0} members)`).join(', ')
+        return { ok: true, message: `${r.items.length} list(s): ${list}` }
       }
       case 'list_products': {
-        const res = await fetch('/api/payments/products', { credentials: 'include' })
-        const d = await res.json()
-        if (!d.ok || !d.data?.length) return { ok: true, message: 'No products found.' }
-        const list = d.data.map((p: any) => `${p.name} — $${Number(p.price || 0).toFixed(2)} (${p.billing_type === 'recurring' ? 'recurring' : 'one-time'})`).join('; ')
-        return { ok: true, message: `${d.data.length} product(s): ${list}` }
+        const r = await fetchListForAssistant('/api/payments/products', 'your products')
+        if (!r.ok) return r.failure
+        if (!r.items.length) return { ok: true, message: 'No products found.' }
+        const list = r.items.map((p: any) => `${p.name} — $${Number(p.price || 0).toFixed(2)} (${p.billing_type === 'recurring' ? 'recurring' : 'one-time'})`).join('; ')
+        return { ok: true, message: `${r.items.length} product(s): ${list}` }
       }
       case 'list_recent_activity': {
-        const res = await fetch('/api/ai/action-items', { credentials: 'include' })
-        const d = await res.json()
-        if (!d.ok) return { ok: true, message: 'No recent activity.' }
-        const stats = d.data?.stats
+        const r = await fetchJsonForAssistant('/api/ai/action-items', 'recent activity')
+        if (!r.ok) return r.failure
+        const stats = r.body.data?.stats
         return { ok: true, message: `Recent: ${stats?.contacts?.last7Days || 0} new contacts this week, ${stats?.deals?.wonThisWeek || 0} deals won, ${stats?.inbox?.unread || 0} unread inbox items, ${stats?.landingPages?.submissions || 0} form submissions.` }
       }
       // ===== GROUPED MANAGEMENT TOOLS =====
@@ -1214,25 +1215,44 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
           const editD = await editRes.json()
           return editD.ok !== false ? { ok: true, message: 'Event updated' } : { ok: false, message: editD.error || 'Failed to update event' }
         }
-        if (sub === 'publish') { await fetch(`/api/crm-events?id=${eventId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status: 'published' }) }); return { ok: true, message: 'Event published' } }
-        if (sub === 'delete') { await fetch(`/api/crm-events?id=${eventId}`, { method: 'DELETE', credentials: 'include' }); return { ok: true, message: 'Event deleted' } }
-        if (sub === 'cancel') { await fetch(`/api/crm-events?id=${eventId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status: 'cancelled' }) }); return { ok: true, message: 'Event cancelled' } }
+        if (sub === 'publish' || sub === 'delete' || sub === 'cancel') {
+          const res = await fetch(`/api/crm-events?id=${eventId}`, sub === 'delete'
+            ? { method: 'DELETE', credentials: 'include' }
+            : { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status: sub === 'publish' ? 'published' : 'cancelled' }) })
+          const d = await res.json().catch(() => null)
+          if (!res.ok || d?.ok === false) return { ok: false, message: `Could not ${sub} the event right now${d?.error && d.error !== 'Failed' ? `: ${d.error}` : ''}.` }
+          return { ok: true, message: sub === 'publish' ? 'Event published' : sub === 'delete' ? 'Event deleted' : 'Event cancelled' }
+        }
         if (sub === 'email_attendees') { const res = await fetch(`/api/crm-events/${eventId}/email`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ subject: action.data.title || 'Event Update', body: action.data.message || '' }) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Email sent to all attendees' } : { ok: false, message: d.error || 'Failed' } }
-        if (sub === 'get_attendees') { const res = await fetch(`/api/crm-events/${eventId}/attendees`, { credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: `${d.data?.length || 0} attendee(s): ${(d.data || []).slice(0, 5).map((a: any) => a.name || a.email).join(', ')}` } : { ok: true, message: 'Could not load attendees' } }
+        if (sub === 'get_attendees') {
+          const r = await fetchListForAssistant(`/api/crm-events/${eventId}/attendees`, 'the attendee list')
+          if (!r.ok) return r.failure
+          return { ok: true, message: r.items.length ? `${r.items.length} attendee(s): ${r.items.slice(0, 5).map((a: any) => a.attendee_name || a.attendee_email).join(', ')}` : 'No attendees yet.' }
+        }
         return { ok: false, message: `Unknown event action: ${sub}` }
       }
       case 'manage_booking': {
         const { action: sub } = action.data
-        if (sub === 'confirm') { await fetch(`/api/bookings`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: action.data.bookingId, status: 'confirmed' }) }); return { ok: true, message: 'Booking confirmed' } }
-        if (sub === 'cancel') { await fetch(`/api/bookings`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: action.data.bookingId, status: 'cancelled' }) }); return { ok: true, message: 'Booking cancelled' } }
-        if (sub === 'delete') { await fetch(`/api/bookings`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: action.data.bookingId }) }); return { ok: true, message: 'Booking deleted' } }
+        if (sub === 'confirm' || sub === 'cancel' || sub === 'delete') {
+          const res = await fetch('/api/calendar/bookings', sub === 'delete'
+            ? { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: action.data.bookingId }) }
+            : { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: action.data.bookingId, status: sub === 'confirm' ? 'confirmed' : 'cancelled' }) })
+          const d = await res.json().catch(() => null)
+          if (!res.ok || d?.ok === false) return { ok: false, message: `Could not ${sub} the booking${d?.error && d.error !== 'Failed' ? `: ${d.error}` : ' right now'}.` }
+          return { ok: true, message: sub === 'confirm' ? 'Booking confirmed' : sub === 'cancel' ? 'Booking cancelled' : 'Booking deleted' }
+        }
         if (sub === 'edit_page') { await fetch(`/api/booking-pages`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: action.data.pageId, title: action.data.title }) }); return { ok: true, message: 'Booking page updated' } }
         if (sub === 'delete_page') { await fetch(`/api/booking-pages`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: action.data.pageId }) }); return { ok: true, message: 'Booking page deleted' } }
         return { ok: false, message: `Unknown booking action: ${sub}` }
       }
       case 'manage_calendar': {
         const { action: sub } = action.data
-        if (sub === 'get_today' || sub === 'get_week') { const res = await fetch('/api/bookings', { credentials: 'include' }); const d = await res.json(); const items = d.ok ? d.data || [] : []; return { ok: true, message: items.length ? `${items.length} booking(s): ${items.slice(0, 5).map((b: any) => `${b.title || 'Booking'} at ${new Date(b.start_time).toLocaleString()}`).join('; ')}` : 'No bookings found' } }
+        if (sub === 'get_today' || sub === 'get_week') {
+          const r = await fetchListForAssistant('/api/calendar/bookings', 'your calendar')
+          if (!r.ok) return r.failure
+          const items = r.items
+          return { ok: true, message: items.length ? `${items.length} upcoming booking(s): ${items.slice(0, 5).map((b: any) => `${b.guest_name || b.title || 'Booking'} at ${new Date(b.start_time).toLocaleString()}`).join('; ')}` : 'No upcoming bookings on the calendar.' }
+        }
         if (sub === 'block_time') {
           let blockRaw = action.data.date || new Date().toISOString()
           if (blockRaw && !blockRaw.endsWith('Z') && !blockRaw.match(/[+-]\d{2}:\d{2}$/)) {
@@ -1241,7 +1261,9 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
           const blockStart = new Date(blockRaw).toISOString()
           const blockDuration = action.data.duration || 60
           const blockEnd = new Date(new Date(blockStart).getTime() + blockDuration * 60 * 1000).toISOString()
-          await fetch('/api/events/block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ start: blockStart, end: blockEnd, title: action.data.reason || 'Blocked' }) })
+          const blockRes = await fetch('/api/calendar/events/block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ start: blockStart, end: blockEnd, title: action.data.reason || 'Blocked' }) })
+          const blockData = await blockRes.json().catch(() => null)
+          if (!blockRes.ok || blockData?.ok === false) return { ok: false, message: `Could not block the time right now${blockData?.error ? `: ${blockData.error}` : ''}.` }
           return { ok: true, message: 'Time blocked on calendar' }
         }
         return { ok: false, message: `Unknown calendar action: ${sub}` }

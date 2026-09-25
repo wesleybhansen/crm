@@ -184,6 +184,8 @@ const crmMappingOptions = [
   { value: 'deal.value', label: 'Deal Value' },
 ]
 
+const DEFAULT_THEME: FormTheme = { primaryColor: '#2563eb', font: 'Inter', corners: 'rounded', background: '#ffffff' }
+
 const fontOptions = ['Inter', 'DM Sans', 'Georgia', 'Merriweather', 'Poppins', 'Space Grotesk']
 
 // ── Main Component ──
@@ -221,6 +223,8 @@ export default function FormBuilderPage() {
   // ── Load submissions ──
 
   const loadSubmissions = useCallback(async (formId: string) => {
+    // A new form that hasn't been saved yet has no id and no responses.
+    if (!formId) { setSubmissions([]); return }
     setLoadingSubmissions(true)
     try {
       const res = await fetch(`/api/forms/${formId}/submissions?pageSize=100`, { credentials: 'include' })
@@ -233,6 +237,7 @@ export default function FormBuilderPage() {
   // ── Load form ──
 
   const initRef = useRef(false)
+  const templateIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (initRef.current) return
@@ -265,36 +270,30 @@ export default function FormBuilderPage() {
             window.location.href = '/backend/forms'
           }
         } else {
-          // Create a new form (blank or from template)
+          // New form (blank or from template). Nothing is written until the
+          // user makes a change or publishes: opening the builder must never
+          // create a record on its own (a reload or retried request used to
+          // leave stray "Untitled Form" rows behind).
           const templateData = templateId ? getTemplateFields(templateId) : null
-          const body = templateData
-            ? { name: templateData.name, fields: templateData.fields, settings: templateData.settings, theme: { primaryColor: '#2563eb', font: 'Inter', corners: 'rounded', background: '#ffffff' }, templateId }
-            : { name: 'Untitled Form', fields: [], settings: { submitLabel: 'Submit', successMessage: 'Thank you for your submission!', createContact: false }, theme: { primaryColor: '#2563eb', font: 'Inter', corners: 'rounded', background: '#ffffff' } }
-
-          const res = await fetch('/api/forms', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(body),
-          })
-          const d = await res.json()
-          if (d.ok && d.data) {
-            // Update URL with the new form ID without reloading
-            window.history.replaceState({}, '', `/backend/forms/builder?id=${d.data.id}`)
-            const raw = d.data
-            const parsedFields = typeof raw.fields === 'string' ? JSON.parse(raw.fields) : (raw.fields || [])
-            const parsedTheme = typeof raw.theme === 'string' ? JSON.parse(raw.theme) : (raw.theme || {})
-            const parsedSettings = typeof raw.settings === 'string' ? JSON.parse(raw.settings) : (raw.settings || {})
-            const loadedForm = { ...raw, fields: parsedFields, theme: parsedTheme, settings: parsedSettings } as Form
-            setForm(loadedForm)
-            setFields(parsedFields)
-            setFormName(loadedForm.name)
-            setFormDescription(loadedForm.description || '')
-            setTheme({ primaryColor: '#2563eb', font: 'Inter', corners: 'rounded', background: '#ffffff', ...parsedTheme })
-          } else {
-            alert(`Failed to create form: ${d.error || 'Unknown error'}`)
-            window.location.href = '/backend/forms'
+          templateIdRef.current = templateData ? templateId : null
+          const draft: Form = {
+            id: '',
+            name: templateData?.name || 'Untitled Form',
+            slug: '',
+            description: '',
+            status: 'draft',
+            submission_count: 0,
+            fields: templateData?.fields || [],
+            theme: { ...DEFAULT_THEME },
+            settings: templateData?.settings || { submitLabel: 'Submit', successMessage: 'Thank you for your submission!', createContact: false },
+            created_at: '',
+            updated_at: '',
           }
+          setForm(draft)
+          setFields(draft.fields)
+          setFormName(draft.name)
+          setFormDescription('')
+          setTheme({ ...DEFAULT_THEME })
         }
       } catch (err) {
         alert(`Error: ${err instanceof Error ? err.message : String(err)}`)
@@ -305,6 +304,60 @@ export default function FormBuilderPage() {
     init()
   }, [])
 
+  // ── Create on first save ──
+
+  // Creates the form the first time the user changes or publishes a new
+  // draft. Concurrent callers share one request, so a burst of edits (or a
+  // retried save) can never create two forms.
+  const createPromiseRef = useRef<Promise<Form | null> | null>(null)
+
+  const ensureCreated = useCallback(async (): Promise<Form | null> => {
+    if (!form) return null
+    if (form.id) return form
+    if (createPromiseRef.current) return createPromiseRef.current
+    const draft = form
+    const promise = (async (): Promise<Form | null> => {
+      try {
+        const res = await fetch('/api/forms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            name: formName.trim() || draft.name || 'Untitled Form',
+            description: formDescription || undefined,
+            fields: fields.map((f, i) => ({ ...f, order: i })),
+            settings: draft.settings,
+            theme,
+            templateId: templateIdRef.current || undefined,
+          }),
+        })
+        const d = await res.json()
+        if (!d.ok || !d.data) {
+          alert(`Failed to save form: ${d.error || 'Unknown error'}`)
+          createPromiseRef.current = null
+          return null
+        }
+        const raw = d.data
+        const created = {
+          ...raw,
+          fields: typeof raw.fields === 'string' ? JSON.parse(raw.fields) : (raw.fields || []),
+          theme: typeof raw.theme === 'string' ? JSON.parse(raw.theme) : (raw.theme || {}),
+          settings: typeof raw.settings === 'string' ? JSON.parse(raw.settings) : (raw.settings || {}),
+        } as Form
+        // Point the URL at the saved form so a reload opens it, not a new draft.
+        window.history.replaceState({}, '', `/backend/forms/builder?id=${created.id}`)
+        setForm(created)
+        return created
+      } catch (err) {
+        alert(`Failed to save form: ${err instanceof Error ? err.message : String(err)}`)
+        createPromiseRef.current = null
+        return null
+      }
+    })()
+    createPromiseRef.current = promise
+    return promise
+  }, [form, formName, formDescription, fields, theme])
+
   // ── Auto-save ──
 
   const triggerSave = useCallback((updatedFields?: FormField[], updatedName?: string, updatedTheme?: FormTheme, updatedDescription?: string, updatedSettings?: Form['settings']) => {
@@ -313,7 +366,9 @@ export default function FormBuilderPage() {
     saveTimer.current = setTimeout(async () => {
       setSaving(true)
       try {
-        const res = await fetch(`/api/forms/${form.id}`, { credentials: 'include',
+        const target = form.id ? form : await ensureCreated()
+        if (!target) { setSaving(false); return }
+        const res = await fetch(`/api/forms/${target.id}`, { credentials: 'include',
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -339,7 +394,7 @@ export default function FormBuilderPage() {
       } catch { /* silent */ }
       setSaving(false)
     }, 1500)
-  }, [form, fields, formName, formDescription, theme])
+  }, [form, fields, formName, formDescription, theme, ensureCreated])
 
   // ── Field operations ──
 
@@ -418,7 +473,9 @@ export default function FormBuilderPage() {
     if (!form) return
     setPublishing(true)
     try {
-      const res = await fetch(`/api/forms/${form.id}`, { credentials: 'include',
+      const target = form.id ? form : await ensureCreated()
+      if (!target) { setPublishing(false); return }
+      const res = await fetch(`/api/forms/${target.id}`, { credentials: 'include',
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'published' }),
@@ -493,7 +550,7 @@ export default function FormBuilderPage() {
           )}
 
           <span className="text-xs text-muted-foreground">
-            {saving ? 'Saving...' : lastSaved ? `Saved ${lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+            {saving ? 'Saving...' : lastSaved ? `Saved ${lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : !form.id ? 'Not saved yet' : ''}
           </span>
 
           {/* Tab switcher */}

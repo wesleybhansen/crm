@@ -8,7 +8,9 @@ jest.mock('../../FlashMessages', () => ({
 import { flash } from '../../FlashMessages'
 import {
   ForbiddenError,
+  UnauthorizedError,
   apiFetch,
+  isReplayableRequest,
 } from '../../utils/api'
 
 function createMockResponse(
@@ -64,7 +66,7 @@ describe('apiFetch', () => {
 
     await expect(apiFetch('/api/private')).rejects.toBeInstanceOf(ForbiddenError)
     expect(flash).toHaveBeenCalledWith(
-      'Insufficient permissions. Redirecting to login…',
+      "You don't have permission to do that. Ask your workspace admin for access.",
       'warning',
     )
   })
@@ -91,5 +93,63 @@ describe('apiFetch', () => {
     const result = await apiFetch('/api/private')
     expect(result).toBe(response)
     expect(flash).not.toHaveBeenCalled()
+  })
+
+  it('retries a read through a server blip and tells the user it is reconnecting', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(createMockResponse(503, { error: 'unavailable', retryable: true }))
+      .mockResolvedValueOnce(createMockResponse(200, { ok: true }))
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = fetchMock
+
+    const pending = apiFetch('/api/customers/people')
+    await jest.advanceTimersByTimeAsync(2000)
+    const result = await pending
+    expect(result.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(flash).toHaveBeenCalledWith('Having trouble reaching the server. Reconnecting…', 'warning')
+  })
+
+  it('never replays a write after a server error', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(createMockResponse(503, { error: 'unavailable' }))
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = fetchMock
+
+    const result = await apiFetch('/api/customers/people', { method: 'POST', body: '{}' })
+    expect(result.status).toBe(503)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('checks a 401 once more before treating it as a sign-out', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(createMockResponse(401, { error: 'Unauthorized' }))
+      .mockResolvedValueOnce(createMockResponse(200, { ok: true }))
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = fetchMock
+
+    const pending = apiFetch('/api/customers/people')
+    await jest.advanceTimersByTimeAsync(1500)
+    const result = await pending
+    expect(result.status).toBe(200)
+    expect(flash).not.toHaveBeenCalled()
+  })
+
+  it('sends a real sign-out through the session refresh route', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(createMockResponse(401, { error: 'Unauthorized' }))
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = fetchMock
+
+    const pending = apiFetch('/api/customers/people')
+    const assertion = expect(pending).rejects.toBeInstanceOf(UnauthorizedError)
+    await jest.advanceTimersByTimeAsync(1500)
+    await assertion
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(flash).toHaveBeenCalledWith('Session expired. Redirecting to sign in…', 'warning')
+  })
+
+  it('knows which request bodies can be sent twice', () => {
+    expect(isReplayableRequest('/api/x')).toBe(true)
+    expect(isReplayableRequest('/api/x', { method: 'POST', body: '{}' })).toBe(true)
+    expect(isReplayableRequest('/api/x', { method: 'POST', body: new FormData() })).toBe(true)
+    const streamLike = { getReader: () => null }
+    expect(isReplayableRequest('/api/x', { method: 'POST', body: streamLike as unknown as BodyInit })).toBe(false)
   })
 })

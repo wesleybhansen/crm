@@ -7,6 +7,7 @@ import {
   trailingSlashRedirectPath,
   trustedRequestHost,
 } from '@/lib/security-headers'
+import { sameOriginPath } from '@/lib/auth-redirects'
 
 // Note: Do NOT import bootstrap here — proxy runs in Edge runtime which
 // cannot use Node.js modules like MikroORM. Bootstrap is called in
@@ -33,6 +34,15 @@ const isPublicPage = createRouteMatcher([
   '/landing',
   '/terms',
   '/privacy',
+  // Public visitor surfaces with their own auth (or none):
+  //   /course/{slug} redirects to the public course page; /course/{slug}/learn
+  //   is the student area, gated by the student magic-link session, not Clerk.
+  '/course/(.*)',
+  //   /p/{slug} and /f/{slug} redirect to the public landing page and funnel APIs.
+  '/p/(.*)',
+  '/f/(.*)',
+  //   Message links sent by email; the token in the URL is the credential.
+  '/messages/view/(.*)',
 ])
 
 function lpAppHost(): string {
@@ -146,6 +156,26 @@ async function handleProxyRequest(req: NextRequest, resolveUserId: () => Promise
   requestHeaders.set('x-next-url', req.nextUrl.pathname)
   const passThrough = NextResponse.next({ request: { headers: requestHeaders } })
   applyBrowserSecurityHeaders(passThrough.headers, req.nextUrl.pathname, { includeHsts: ownHost })
+
+  // 3a. The legacy /login page is not how Noli users sign in. Anyone who
+  //     lands there (an old bookmark, a stale redirect) goes to the hub
+  //     sign-in instead, returning to the page they asked for.
+  if (
+    req.nextUrl.pathname === '/login' &&
+    process.env.CLERK_SECRET_KEY &&
+    process.env.OM_TEST_MODE !== '1'
+  ) {
+    const proto = req.headers.get('x-forwarded-proto') ?? 'https'
+    const host = trustedRequestHost(req.headers, req.nextUrl.host)
+    const origin = `${proto}://${host}`
+    const signInUrl = new URL(HUB_SIGN_IN_URL)
+    signInUrl.searchParams.set('redirect_url', `${origin}${sameOriginPath(req.nextUrl.searchParams.get('redirect'))}`)
+    return withBrowserSecurityHeaders(
+      NextResponse.redirect(signInUrl),
+      req.nextUrl.pathname,
+      ownHost,
+    )
+  }
 
   // 3. Public-page allowlist — auth UI orphans and legal pages.
   if (isPublicPage(req)) return passThrough

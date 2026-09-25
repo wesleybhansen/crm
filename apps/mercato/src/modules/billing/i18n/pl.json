@@ -1,10 +1,12 @@
 {
   "billing.balance.addCredits": "Add Credits",
   "billing.balance.lowBalance": "Low balance — add credits to keep sending",
+  "billing.balance.lowBalanceExplained": "Niskie saldo. Kredyty pokrywają e-maile, SMS-y i AI rozliczane za użycie.",
   "billing.balance.title": "Credit Balance",
   "billing.flash.purchaseFailed": "Failed to purchase credits",
   "billing.flash.purchased": "Credits added to your account",
   "billing.nav.title": "Billing",
+  "billing.packages.contactSupport": "Aby dodać kredyty, napisz na",
   "billing.packages.growth": "Growth",
   "billing.packages.pro": "Pro",
   "billing.packages.starter": "Starter",

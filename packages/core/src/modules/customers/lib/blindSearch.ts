@@ -1,4 +1,6 @@
 import { resolveSearchKey } from '@open-mercato/shared/lib/encryption/searchKey'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { normalizeEmailForSearch } from '@open-mercato/shared/lib/encryption/searchTokens'
 import {
   searchBlindIndex,
   searchSqlFromKnex,
@@ -132,7 +134,59 @@ export async function applyContactSearchFilters(
       console.error('[customers.search] blind_search_failed', { code: (err as { code?: string })?.code ?? 'error' })
       ids = []
     }
+    // A whole email address or a phone number also matches on the row's own
+    // lookup hash (primary_email_hash / primary_phone_hash). Those hashes are
+    // written on every save and were backfilled, so an exact duplicate check
+    // or a digits-only phone search still finds a contact whose blind-index
+    // tokens are missing (rows written before the index existed).
+    const hashIds = await lookupHashIds(em, { tenantId, organizationIds, kind, query: lookup.query, emailOnly: !!lookup.fields })
+    if (hashIds.length) ids = Array.from(new Set([...ids, ...hashIds]))
     restrictFiltersToIds(filters, ids)
   }
   return true
+}
+
+/**
+ * Which lookup hash a query can be matched on: a full email address, or a
+ * phone-looking query (digits with the usual separators, at least 7 digits).
+ * Digits are normalized the same way the stored hash is ("555-010-0011" and
+ * "5550100011" both hash "5550100011").
+ */
+export function lookupHashForQuery(query: string, opts: { emailOnly?: boolean } = {}): { column: 'primary_email_hash' | 'primary_phone_hash'; hash: string } | null {
+  const raw = (query ?? '').trim()
+  if (!raw) return null
+  const email = normalizeEmailForSearch(raw)
+  if (email) return { column: 'primary_email_hash', hash: hashForLookup(email) }
+  if (opts.emailOnly) return null
+  if (/^[+\d\s().\-/]+$/.test(raw)) {
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length >= 7) return { column: 'primary_phone_hash', hash: hashForLookup(digits) }
+  }
+  return null
+}
+
+async function lookupHashIds(
+  source: unknown,
+  opts: { tenantId: string | null; organizationIds: string[]; kind: 'person' | 'company'; query: string; emailOnly?: boolean },
+): Promise<string[]> {
+  const target = lookupHashForQuery(opts.query, { emailOnly: opts.emailOnly })
+  const knex = knexFrom(source)
+  if (!target || !knex || !opts.tenantId || !opts.organizationIds.length) return []
+  try {
+    const res = await knex.raw(
+      `select id from customer_entities
+        where tenant_id = ?
+          and organization_id = any(?::uuid[])
+          and kind = ?
+          and deleted_at is null
+          and ${target.column} = ?
+        limit 50`,
+      [opts.tenantId, opts.organizationIds, opts.kind, target.hash],
+    )
+    const rows = (res?.rows ?? res ?? []) as Array<{ id?: unknown }>
+    return rows.map((r) => (typeof r?.id === 'string' ? r.id : null)).filter((id): id is string => !!id)
+  } catch (err) {
+    console.error('[customers.search] lookup_hash_failed', { code: (err as { code?: string })?.code ?? 'error' })
+    return []
+  }
 }

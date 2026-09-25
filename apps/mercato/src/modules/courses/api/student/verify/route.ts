@@ -101,9 +101,18 @@ document.getElementById('email').addEventListener('keydown',function(e){if(e.key
       .first()
 
     const origin = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const redirectUrl = enrollment ? `${origin}/course/${enrollment.slug}/learn` : `${origin}/course/dashboard`
-
-    const response = NextResponse.redirect(redirectUrl)
+    // No active enrollment in a published course: there is no course page to
+    // open, so say so plainly instead of redirecting to a page that doesn't exist.
+    const response = enrollment
+      ? NextResponse.redirect(`${origin}/course/${enrollment.slug}/learn`)
+      : new NextResponse(
+          `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>No active course</title>
+<style>body{font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;background:#f8fafc}
+.card{background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.06);max-width:420px;width:100%;padding:40px 32px;text-align:center}
+h1{font-size:20px;color:#0f172a;margin:0 0 8px}p{color:#64748b;font-size:15px;line-height:1.6;margin:0}</style></head>
+<body><div class="card"><h1>No active course</h1><p>You're signed in as ${escapeHtml(magicToken.email)}, but there's no active course for this email right now. If you just enrolled, give it a minute and try again, or contact the course owner.</p></div></body></html>`,
+          { status: 200, headers: { 'Content-Type': 'text/html' } },
+        )
     response.cookies.set('course_session', sessionToken, {
       path: '/',
       maxAge: 7 * 24 * 60 * 60, // 7 days

@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { CreditCard, Plus, ArrowUpRight, ArrowDownRight, TrendingDown, Receipt } from 'lucide-react'
+import { CreditCard, ArrowUpRight, ArrowDownRight, TrendingDown, Receipt } from 'lucide-react'
 
 // House palette for tinted-icon stat tiles (matches the CRM dashboard).
 const STAT_COLORS = {
@@ -122,8 +121,10 @@ export default function BillingPage() {
 
       {/* Balance + usage stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        {/* Only warn once the workspace actually spends credits. A brand new
+            workspace at $0 has nothing to run low on. */}
         <StatTile icon={CreditCard} label="Current balance" value={`$${balance.toFixed(2)}`} color="green"
-          note={balance < 5 ? translate('billing.balance.lowBalance', 'Low balance, add credits to keep sending') : undefined} />
+          note={balance < 5 && usageTotal > 0 ? translate('billing.balance.lowBalanceExplained', 'Low balance. Credits pay for usage-based email, SMS and AI.') : undefined} />
         <StatTile icon={TrendingDown} label={haveAllTx ? 'Credits used, last 8 weeks' : 'Used in recent transactions'}
           value={`$${usageTotal.toFixed(2)}`} color="amber" series={usageWeekly} />
         <StatTile icon={Receipt} label="Transactions" value={String(txTotal ?? transactions.length)} color="blue" series={txWeekly} />
@@ -133,18 +134,26 @@ export default function BillingPage() {
       <h2 className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground mb-3">
         {translate('billing.packages.title', 'Credit Packages')}
       </h2>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      {/* Buying credits is not self-serve yet (there is no checkout for credit
+          packages), so the cards say how to add credits instead of showing a
+          Buy button that does nothing. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3">
         {packages.map((pkg) => (
-          <div key={pkg.id} className="rounded-[14px] border border-border bg-card p-5 hover:border-accent/50 transition cursor-pointer">
+          <div key={pkg.id} className="rounded-[14px] border border-border bg-card p-5">
             <p className="font-semibold text-lg text-foreground">{pkg.name}</p>
             <p className="text-2xl font-bold tabular-nums mt-2">${parseFloat(pkg.price).toFixed(2)}</p>
             <p className="text-sm text-muted-foreground mt-1">${parseFloat(pkg.credit_amount).toFixed(2)} in credits</p>
-            <Button type="button" size="sm" className="mt-4 w-full">
-              <Plus className="size-3 mr-1" /> Buy
-            </Button>
           </div>
         ))}
       </div>
+      {packages.length > 0 && (
+        <p className="text-sm text-muted-foreground mb-8">
+          {translate('billing.packages.contactSupport', 'To add credits, email')}{' '}
+          <a href="mailto:support@noliai.com?subject=Add%20credits" className="inline-flex items-center min-h-10 font-medium text-foreground underline">
+            support@noliai.com
+          </a>
+        </p>
+      )}
 
       {/* Transaction History */}
       <h2 className="font-mono text-[10px] uppercase tracking-[.09em] text-muted-foreground mb-3">

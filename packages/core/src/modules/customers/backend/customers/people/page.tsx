@@ -127,6 +127,13 @@ export default function CustomersPeoplePage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  // The list query waits for typing to pause (QA 2026-09-25 #10); the
+  // load effect's cancelled flag already drops out-of-order responses.
+  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => window.clearTimeout(timer)
+  }, [search])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -305,7 +312,7 @@ export default function CustomersPeoplePage() {
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
-    if (search.trim()) params.set('search', search.trim())
+    if (debouncedSearch) params.set('search', debouncedSearch)
     const status = filterValues.status
     if (typeof status === 'string' && status.trim()) params.set('status', status)
     const source = filterValues.source
@@ -365,7 +372,7 @@ export default function CustomersPeoplePage() {
       }
     })
     return params.toString()
-  }, [filterValues, page, pageSize, search, tagLabelToId])
+  }, [filterValues, page, pageSize, debouncedSearch, tagLabelToId])
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
   const exportConfig = React.useMemo(() => ({

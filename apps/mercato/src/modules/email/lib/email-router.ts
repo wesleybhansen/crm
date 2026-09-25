@@ -82,7 +82,7 @@ export async function sendEmailForOrg(
   if (!connection) {
     return {
       ok: false,
-      error: 'No email account connected. Connect Gmail or Outlook in Settings.',
+      error: 'No email account connected. Connect Gmail or Outlook in Inbox > Connections.',
     }
   }
 

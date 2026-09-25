@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EMAIL_CONNECT_URL } from '@/modules/email/lib/connect-url'
 import { X, Send, Sparkles, Loader2, FileText, Mail, AlertTriangle, Clock } from 'lucide-react'
 
 interface EmailConnection {
@@ -185,8 +186,8 @@ export function EmailComposeModal({ contactName, contactEmail, contactId, initia
                 <div className="px-5 py-2 border-b bg-amber-50 dark:bg-amber-900/10 flex items-center gap-2 text-xs">
                   <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                   <span className="text-amber-700 dark:text-amber-400">No email account connected.</span>
-                  <button type="button" onClick={() => { window.location.href = '/backend/settings-simple' }}
-                    className="text-accent hover:underline font-medium">Connect in Settings</button>
+                  <button type="button" onClick={() => { window.location.href = EMAIL_CONNECT_URL }}
+                    className="text-accent hover:underline font-medium">Connect in Inbox &gt; Connections</button>
                 </div>
               )
             )}

@@ -2,7 +2,9 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { findFrontendMatch } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/.mercato/generated/modules.generated'
-import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { resolveAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { buildHubHomeUrl } from '@open-mercato/shared/lib/auth/errors'
+import { ReconnectingNotice } from '@/components/ReconnectingNotice'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -69,8 +71,14 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
 
   // Staff auth gate
   if (match.route.requireAuth) {
-    const auth = await getAuthFromCookies()
-    if (!auth) redirect('/api/auth/session/refresh?redirect=' + encodeURIComponent(pathname))
+    const resolution = await resolveAuthFromCookies()
+    // A temporary failure (database down, timeout) is not a sign-out.
+    if (resolution.status === 'unavailable') return <ReconnectingNotice />
+    if (resolution.status === 'no-access') redirect(buildHubHomeUrl())
+    if (resolution.status !== 'authenticated') {
+      redirect('/api/auth/session/refresh?redirect=' + encodeURIComponent(pathname))
+    }
+    const auth = resolution.auth
     const required = match.route.requireRoles || []
     if (required.length) {
       const roles = auth.roles || []

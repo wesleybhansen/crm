@@ -36,21 +36,78 @@ function sanitizeRedirect(param: string | null, baseUrl: string): string {
   return '/'
 }
 
+function reconnectingPage(retryUrl: string): Response {
+  // A temporary failure (database down, timeout) is not a sign-out. Show a
+  // small page that retries on its own instead of the sign-in screen.
+  const safeUrl = retryUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="5;url=${safeUrl}">
+<title>Reconnecting | Noli CRM</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:16px;background:#fafafa;color:#111}
+main{max-width:420px;text-align:center}h1{font-size:20px;margin:0 0 8px}p{color:#555;line-height:1.5;margin:0 0 16px}
+a{display:inline-block;min-height:40px;line-height:40px;padding:0 16px;border-radius:8px;background:#111;color:#fff;text-decoration:none}</style>
+</head><body><main><h1>Reconnecting&hellip;</h1>
+<p>We're having trouble reaching the server. You're still signed in. This page will try again in a few seconds.</p>
+<a href="${safeUrl}">Try again now</a></main></body></html>`
+  return new Response(html, {
+    status: 503,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'retry-after': '5', 'cache-control': 'no-store' },
+  })
+}
+
+async function signedOutRedirect(req: Request, redirectTo: string): Promise<Response> {
+  const { isHubSignInEnabled, buildHubSignInUrl } = await import('@open-mercato/shared/lib/auth/errors')
+  // Noli signs people in on the hub. The legacy /login page is only for
+  // deployments without Clerk (local dev, tests).
+  if (isHubSignInEnabled()) {
+    return NextResponse.redirect(buildHubSignInUrl(toAbsoluteUrl(req, redirectTo)))
+  }
+  return NextResponse.redirect(toAbsoluteUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const baseUrl = process.env.APP_URL || `${url.protocol}//${url.host}`
   const redirectTo = sanitizeRedirect(url.searchParams.get('redirect'), baseUrl)
+  const retryUrl = toAbsoluteUrl(req, '/api/auth/session/refresh?redirect=' + encodeURIComponent(redirectTo))
+
+  // 1. Legacy session_token cookie (pre-Clerk sessions).
   const token = parseCookie(req, 'session_token')
-  if (!token) return NextResponse.redirect(toAbsoluteUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
-  const c = await createRequestContainer()
-  const auth = c.resolve<AuthService>('authService')
-  const ctx = await auth.refreshFromSessionToken(token)
-  if (!ctx) return NextResponse.redirect(toAbsoluteUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
-  const { user, roles } = ctx
-  const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
-  const res = NextResponse.redirect(toAbsoluteUrl(req, redirectTo))
-  res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
-  return res
+  if (token) {
+    try {
+      const c = await createRequestContainer()
+      const auth = c.resolve<AuthService>('authService')
+      const ctx = await auth.refreshFromSessionToken(token)
+      if (ctx) {
+        const { user, roles } = ctx
+        const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
+        const res = NextResponse.redirect(toAbsoluteUrl(req, redirectTo))
+        res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+        return res
+      }
+    } catch (error) {
+      console.error('[auth/session/refresh] session refresh failed, showing reconnecting page:', error)
+      return reconnectingPage(retryUrl)
+    }
+  }
+
+  // 2. Clerk session (the normal Noli path). Tell a real sign-out apart
+  //    from a temporary failure before sending anyone to sign in.
+  const { resolveAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+  const resolution = await resolveAuthFromRequest(req)
+  if (resolution.status === 'authenticated') {
+    return NextResponse.redirect(toAbsoluteUrl(req, redirectTo))
+  }
+  if (resolution.status === 'unavailable') {
+    return reconnectingPage(retryUrl)
+  }
+  if (resolution.status === 'no-access') {
+    const { buildHubHomeUrl } = await import('@open-mercato/shared/lib/auth/errors')
+    return NextResponse.redirect(buildHubHomeUrl())
+  }
+  return signedOutRedirect(req, redirectTo)
 }
 
 export async function POST(req: Request) {
@@ -148,7 +205,8 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Exchanges an existing `session_token` cookie for a fresh JWT auth cookie and redirects the browser.',
       query: refreshQuerySchema,
       responses: [
-        { status: 302, description: 'Redirect to target location when session is valid', mediaType: 'text/html' },
+        { status: 302, description: 'Redirect to target location when session is valid, or to sign in when it is not', mediaType: 'text/html' },
+        { status: 503, description: 'Sign-in could not be checked right now; a self-retrying page is returned', mediaType: 'text/html' },
       ],
     },
     POST: {

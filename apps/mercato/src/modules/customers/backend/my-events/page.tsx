@@ -66,6 +66,8 @@ const TIMEZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'Ame
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'pick' | 'templates' | 'create' | 'attendees'>('list')
   const [editingEvent, setEditingEvent] = useState<Event | null>(null)
   const [attendeesEvent, setAttendeesEvent] = useState<Event | null>(null)
@@ -130,9 +132,13 @@ export default function EventsPage() {
   function loadEvents() {
     setLoading(true)
     fetch('/api/crm-events', { credentials: 'include' })
-      .then(r => r.json())
-      .then(d => { if (d.ok) setEvents(d.data || []); setLoading(false) })
-      .catch(() => setLoading(false))
+      .then(async r => {
+        const d = await r.json().catch(() => null)
+        if (r.ok && d?.ok) { setEvents(d.data || []); setLoadError(null) }
+        else setLoadError('We could not load your events. Please try again in a moment.')
+      })
+      .catch(() => setLoadError('We could not load your events. Check your connection and try again.'))
+      .finally(() => setLoading(false))
   }
 
   function resetForm() {
@@ -142,6 +148,7 @@ export default function EventsPage() {
     setRegistrationFields([]); setLandingCopy(null); setLandingStyle('warm'); setGeneratingCopy(false)
     setIsRecurring(false); setRecurrenceFreq('weekly'); setRecurrenceUntil('')
     setReminderConfirm(true); setReminder24h(true); setReminder1h(false); setPreapprovedEmails(''); setEditingEvent(null); setCreateStep(0)
+    setSaveError(null)
   }
 
   function editEvent(ev: Event) {
@@ -197,6 +204,7 @@ export default function EventsPage() {
     if (!isFree && price && (isNaN(parseFloat(price)) || parseFloat(price) <= 0)) return showToast('Price must be greater than 0')
     if (isRecurring && recurrenceUntil && new Date(recurrenceUntil) <= new Date(startDate)) return showToast('Recurring end date must be after start date')
     setSaving(true)
+    setSaveError(null)
     const reminderConfig = [
       ...(reminderConfirm ? [{ type: 'confirmation', sendAt: 'on_register' }] : []),
       ...(reminder24h ? [{ type: 'reminder', sendBefore: '24h' }] : []),
@@ -218,32 +226,49 @@ export default function EventsPage() {
       const url = editingEvent ? `/api/crm-events?id=${editingEvent.id}` : '/api/crm-events'
       const method = editingEvent ? 'PUT' : 'POST'
       const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) })
-      const d = await res.json()
-      if (d.ok || res.ok) { resetForm(); setView('list'); loadEvents(); showToast(editingEvent ? 'Event updated' : 'Event created') }
-      else showToast(d.error || 'Failed to save')
-    } catch { showToast('Failed to save event') }
+      const d = await res.json().catch(() => null)
+      if (res.ok && d?.ok !== false) { resetForm(); setView('list'); loadEvents(); showToast(editingEvent ? 'Event updated' : 'Event created') }
+      else setSaveError(d?.error ? `Could not save the event: ${d.error}` : 'Could not save the event. Please try again.')
+    } catch { setSaveError('Could not save the event. Check your connection and try again.') }
     setSaving(false)
   }
 
+  // Returns true when the request succeeded; shows a toast when it did not.
+  async function mutateEvent(url: string, init: RequestInit, failMessage: string): Promise<boolean> {
+    try {
+      const res = await fetch(url, { credentials: 'include', ...init })
+      const d = await res.json().catch(() => null)
+      if (res.ok && d?.ok !== false) return true
+      showToast(d?.error && d.error !== 'Failed' ? `${failMessage}: ${d.error}` : failMessage)
+    } catch {
+      showToast(failMessage)
+    }
+    return false
+  }
+
   async function publishEvent(ev: Event) {
-    await fetch(`/api/crm-events?id=${ev.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ isPublished: ev.status !== 'published' }) })
+    const publishing = ev.status !== 'published'
+    const ok = await mutateEvent(`/api/crm-events?id=${ev.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isPublished: publishing }) }, publishing ? 'Could not publish the event' : 'Could not unpublish the event')
     loadEvents()
+    if (ok) showToast(publishing ? 'Event published' : 'Event unpublished')
   }
 
   async function cancelEvent(ev: Event) {
     if (!confirm(`Cancel "${ev.title}"?`)) return
     const sendEmail = ev.attendee_count > 0 ? confirm(`Send cancellation email to ${ev.attendee_count} attendee${ev.attendee_count > 1 ? 's' : ''}?`) : false
-    await fetch(`/api/crm-events?id=${ev.id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+    const ok = await mutateEvent(`/api/crm-events?id=${ev.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'cancelled', sendCancellationEmail: sendEmail }),
-    })
-    loadEvents(); showToast(sendEmail ? 'Event cancelled — emails sent' : 'Event cancelled')
+    }, 'Could not cancel the event')
+    loadEvents()
+    if (ok) showToast(sendEmail ? 'Event cancelled. Emails sent.' : 'Event cancelled')
   }
 
   async function deleteEvent(ev: Event) {
     if (!confirm(`Delete "${ev.title}"? This cannot be undone.`)) return
-    await fetch(`/api/crm-events?id=${ev.id}`, { method: 'DELETE', credentials: 'include' })
-    loadEvents(); showToast('Event deleted')
+    const ok = await mutateEvent(`/api/crm-events?id=${ev.id}`, { method: 'DELETE' }, 'Could not delete the event')
+    loadEvents()
+    if (ok) showToast('Event deleted')
   }
 
   function copyLink(ev: Event) {
@@ -900,6 +925,12 @@ export default function EventsPage() {
                 <p><span className="font-medium">Registration Fields:</span> {registrationFields.length} custom field{registrationFields.length !== 1 ? 's' : ''}</p>
               </div>
             </div>
+            {saveError && (
+              <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+                <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+                <span>{saveError}</span>
+              </div>
+            )}
             <div className="flex justify-between pt-2">
               <Button type="button" variant="outline" onClick={() => { setView('list'); resetForm() }}>Cancel</Button>
               <div className="flex gap-2">
@@ -908,11 +939,10 @@ export default function EventsPage() {
                   Save as Draft
                 </Button>
                 <Button type="button" onClick={async () => {
-                  if (!title.trim() || !startDate) { showToast('Title and start date required'); return }
+                  if (!title.trim() || !startDate) { setSaveError('Add a title and a start date before publishing.'); return }
                   setSaving(true)
+                  setSaveError(null)
                   const effectiveEndDate = endDate || startDate
-                  if (!title.trim() || !startDate) { showToast('Title and start date required'); return }
-                  setSaving(true)
                   const reminderConfig = [
                     ...(reminderConfirm ? [{ type: 'confirmation', sendAt: 'on_register' }] : []),
                     ...(reminder24h ? [{ type: 'reminder', sendBefore: '24h' }] : []),
@@ -935,9 +965,10 @@ export default function EventsPage() {
                     const url = editingEvent ? `/api/crm-events?id=${editingEvent.id}` : '/api/crm-events'
                     const method = editingEvent ? 'PUT' : 'POST'
                     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) })
-                    if (res.ok) { resetForm(); setView('list'); loadEvents(); showToast('Event published') }
-                    else { const d = await res.json(); showToast(d.error || 'Failed') }
-                  } catch { showToast('Failed to publish') }
+                    const d = await res.json().catch(() => null)
+                    if (res.ok && d?.ok !== false) { resetForm(); setView('list'); loadEvents(); showToast('Event published') }
+                    else setSaveError(d?.error ? `Could not publish the event: ${d.error}` : 'Could not publish the event. Please try again.')
+                  } catch { setSaveError('Could not publish the event. Check your connection and try again.') }
                   setSaving(false)
                 }} disabled={saving}>
                   {saving ? <><Loader2 className="size-4 mr-1.5 animate-spin" /> Publishing...</> : 'Publish Event'}
@@ -946,6 +977,11 @@ export default function EventsPage() {
             </div>
           </>)}
         </div>
+        {toast && (
+          <div className="fixed bottom-6 right-6 bg-foreground text-background px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg z-50">
+            {toast}
+          </div>
+        )}
       </div>
     )
   }
@@ -956,7 +992,9 @@ export default function EventsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold">Events</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{activeEvents.length} upcoming event{activeEvents.length !== 1 ? 's' : ''}</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {loading ? 'Loading events' : loadError ? 'Events unavailable' : `${activeEvents.length} upcoming event${activeEvents.length !== 1 ? 's' : ''}`}
+          </p>
         </div>
         <Button type="button" onClick={() => setView('pick')}>
           <Plus className="size-4 mr-2" /> New Event
@@ -965,14 +1003,27 @@ export default function EventsPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+      ) : loadError ? (
+        <div role="alert" className="flex flex-col items-center gap-4 rounded-xl border border-red-200 bg-red-50/60 px-6 py-12 text-center dark:border-red-900/60 dark:bg-red-950/30">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300">
+            <AlertTriangle className="size-7" />
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <h2 className="text-lg font-semibold">Events did not load</h2>
+            <p className="max-w-sm text-sm text-muted-foreground">{loadError}</p>
+          </div>
+          <Button type="button" variant="outline" onClick={loadEvents}><RefreshCw className="size-4 mr-2" /> Try again</Button>
+        </div>
       ) : activeEvents.length === 0 && pastEvents.length === 0 ? (
-        <div className="rounded-xl border border-muted-foreground/20 p-12 text-center">
-          <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-accent/10 text-accent mb-4">
+        <div className="flex flex-col items-center gap-4 rounded-xl border border-muted-foreground/20 px-6 py-12 text-center">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-accent/10 text-accent">
             <CalendarCheck className="size-7" />
           </div>
-          <h2 className="text-lg font-semibold mb-2">Create your first event</h2>
-          <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-6">Host workshops, webinars, meetups, and more. Create a landing page and start collecting registrations.</p>
-          <Button type="button" onClick={() => setView('pick')}><Plus className="size-4 mr-2" /> Get Started</Button>
+          <div className="flex flex-col items-center gap-2">
+            <h2 className="text-lg font-semibold">Create your first event</h2>
+            <p className="max-w-sm text-sm text-muted-foreground">Host workshops, webinars, meetups, and more. Create a landing page and start collecting registrations.</p>
+          </div>
+          <Button type="button" className="mt-2" onClick={() => setView('pick')}><Plus className="size-4 mr-2" /> Get Started</Button>
         </div>
       ) : (
         <div className="space-y-6">

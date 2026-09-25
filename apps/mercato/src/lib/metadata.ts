@@ -17,6 +17,10 @@ export async function resolveLocalizedTitleMetadata(input: {
   titleKey?: string | null
   fallback?: string
 }): Promise<Metadata> {
+  // A route with no title of its own inherits the layout's title (the
+  // backend layout supplies "Noli CRM" and the "<Page> | Noli CRM"
+  // template), so the tab never reads "Noli CRM | Noli CRM".
+  if (!input.title && !input.titleKey && !input.fallback) return {}
   const { t } = await resolveTranslations()
   const fallbackTitle = input.title || input.fallback || 'Noli CRM'
   return {

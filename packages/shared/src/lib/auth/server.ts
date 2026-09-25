@@ -181,58 +181,108 @@ function extractApiKey(req: Request): string | null {
   return null
 }
 
+type ClerkAuthOutcome =
+  /** No Clerk session on this request (or Clerk isn't configured here). */
+  | { kind: 'none' }
+  /** Clerk session resolved to a CRM user. */
+  | { kind: 'ok'; auth: NonNullable<AuthContext> }
+  /** Valid Clerk session, but no CRM access (not entitled / not provisioned). */
+  | { kind: 'no-access' }
+  /** Clerk session present, but the CRM user lookup failed (DB down, timeout). */
+  | { kind: 'unavailable'; error: unknown }
+
 // Clerk session resolver loaded on demand. Keeps the dynamic import out of
 // the hot path when CLERK_SECRET_KEY isn't configured (dev/test) and avoids
 // pulling @clerk/nextjs into the shared package's static graph.
-async function tryClerkAuth(): Promise<AuthContext> {
-  if (!process.env.CLERK_SECRET_KEY) return null
+async function resolveClerkOutcome(): Promise<ClerkAuthOutcome> {
+  if (!process.env.CLERK_SECRET_KEY) return { kind: 'none' }
+  let clerkUserId: string | null = null
   try {
     const { auth } = await import('@clerk/nextjs/server')
-    const { userId: clerkUserId } = await auth()
-    if (!clerkUserId) return null
-    const { resolveClerkUserToAuthContext } = await import('./clerk')
-    return await resolveClerkUserToAuthContext(clerkUserId)
+    clerkUserId = (await auth()).userId ?? null
   } catch {
     // Clerk middleware didn't run for this request, or @clerk/nextjs not
     // installed in this environment. Caller falls through to legacy paths.
-    return null
+    return { kind: 'none' }
+  }
+  if (!clerkUserId) return { kind: 'none' }
+  try {
+    const { resolveClerkUserToAuthContext } = await import('./clerk')
+    const resolved = await resolveClerkUserToAuthContext(clerkUserId, { throwOnUnavailable: true })
+    return resolved ? { kind: 'ok', auth: resolved } : { kind: 'no-access' }
+  } catch (error) {
+    const { isAuthUnavailableError } = await import('./errors')
+    if (isAuthUnavailableError(error)) return { kind: 'unavailable', error }
+    console.error('[auth] Clerk session resolution failed:', error)
+    return { kind: 'unavailable', error }
   }
 }
 
-export async function getAuthFromCookies(): Promise<AuthContext> {
+/**
+ * The full answer to "who is this?", for callers that must tell a real
+ * sign-out apart from a temporary failure:
+ *  - `authenticated`: signed in, `auth` is set.
+ *  - `unauthenticated`: no session at all, send them to sign in.
+ *  - `no-access`: signed in to Noli but without CRM access; sending them to
+ *    sign in again would loop, send them to the hub instead.
+ *  - `unavailable`: the session exists but could not be checked right now
+ *    (database down, timeout). Show a reconnecting state; never sign out.
+ *
+ * `getAuthFromCookies` / `getAuthFromRequest` keep returning null for every
+ * non-authenticated case, so existing callers are unchanged.
+ */
+export type AuthResolution =
+  | { status: 'authenticated'; auth: NonNullable<AuthContext> }
+  | { status: 'unauthenticated' }
+  | { status: 'no-access' }
+  | { status: 'unavailable' }
+
+export async function resolveAuthFromCookies(): Promise<AuthResolution> {
+  const clerk = await resolveClerkOutcome()
+  const cookieStore = await cookies()
+  const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
+  const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
   // 1. Clerk session — production-Clerk cookie on .noliai.com.
-  const clerkAuth = await tryClerkAuth()
-  if (clerkAuth) {
-    const cookieStore = await cookies()
-    const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
-    const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
-    return applySuperAdminScope(clerkAuth, tenantCookie, orgCookie)
+  if (clerk.kind === 'ok') {
+    const scoped = applySuperAdminScope(clerk.auth, tenantCookie, orgCookie)
+    if (scoped) return { status: 'authenticated', auth: scoped }
   }
 
   // 2. Legacy JWT cookie (kept until Phase G removes it).
-  const cookieStore = await cookies()
   const token = cookieStore.get('auth_token')?.value
-  if (!token) return null
-  try {
-    const payload = verifyJwt(token) as AuthContext
-    if (!payload) return null
-    if ((payload as any).type === 'customer') return null
-    const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
-    const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
-    return applySuperAdminScope(payload, tenantCookie, orgCookie)
-  } catch {
-    return null
+  if (token) {
+    try {
+      const payload = verifyJwt(token) as AuthContext
+      if (payload && (payload as any).type !== 'customer') {
+        const scoped = applySuperAdminScope(payload, tenantCookie, orgCookie)
+        if (scoped) return { status: 'authenticated', auth: scoped }
+      }
+    } catch {
+      // fall through
+    }
   }
+
+  if (clerk.kind === 'unavailable') return { status: 'unavailable' }
+  if (clerk.kind === 'no-access') return { status: 'no-access' }
+  return { status: 'unauthenticated' }
 }
 
-export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
+export async function getAuthFromCookies(): Promise<AuthContext> {
+  const resolution = await resolveAuthFromCookies()
+  return resolution.status === 'authenticated' ? resolution.auth : null
+}
+
+export async function resolveAuthFromRequest(req: Request): Promise<AuthResolution> {
   const cookieHeader = req.headers.get('cookie') || ''
   const tenantCookie = readCookieFromHeader(cookieHeader, TENANT_COOKIE_NAME)
   const orgCookie = readCookieFromHeader(cookieHeader, ORGANIZATION_COOKIE_NAME)
 
   // 1. Clerk session — primary identity path post-Phase-1.4.
-  const clerkAuth = await tryClerkAuth()
-  if (clerkAuth) return applySuperAdminScope(clerkAuth, tenantCookie, orgCookie)
+  const clerk = await resolveClerkOutcome()
+  if (clerk.kind === 'ok') {
+    const scoped = applySuperAdminScope(clerk.auth, tenantCookie, orgCookie)
+    if (scoped) return { status: 'authenticated', auth: scoped }
+  }
 
   // 2. Legacy JWT (Bearer or auth_token cookie). Kept until Phase G drops
   //    the deprecated /api/auth/login + signup + reset routes.
@@ -246,8 +296,11 @@ export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
   if (token) {
     try {
       const payload = verifyJwt(token) as AuthContext
-      if (payload && (payload as any).type === 'customer') return null
-      if (payload) return applySuperAdminScope(payload, tenantCookie, orgCookie)
+      if (payload && (payload as any).type === 'customer') return { status: 'unauthenticated' }
+      if (payload) {
+        const scoped = applySuperAdminScope(payload, tenantCookie, orgCookie)
+        if (scoped) return { status: 'authenticated', auth: scoped }
+      }
     } catch {
       // fall back to API key detection
     }
@@ -255,8 +308,18 @@ export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
 
   // 3. API key (MCP, integrations, programmatic clients) — unchanged.
   const apiKey = extractApiKey(req)
-  if (!apiKey) return null
-  const apiAuth = await resolveApiKeyAuth(apiKey)
-  if (!apiAuth) return null
-  return applySuperAdminScope(apiAuth, tenantCookie, orgCookie)
+  if (apiKey) {
+    const apiAuth = await resolveApiKeyAuth(apiKey)
+    const scoped = apiAuth ? applySuperAdminScope(apiAuth, tenantCookie, orgCookie) : null
+    if (scoped) return { status: 'authenticated', auth: scoped }
+  }
+
+  if (clerk.kind === 'unavailable') return { status: 'unavailable' }
+  if (clerk.kind === 'no-access') return { status: 'no-access' }
+  return { status: 'unauthenticated' }
+}
+
+export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
+  const resolution = await resolveAuthFromRequest(req)
+  return resolution.status === 'authenticated' ? resolution.auth : null
 }

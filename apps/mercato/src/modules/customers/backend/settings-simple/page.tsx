@@ -6,6 +6,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Settings, Monitor, Key, User, Moon, Sun, Check, Mail, X as XIcon, Server, Send, CreditCard, Phone, Sparkles, Briefcase, Smile, Minus, Kanban, Users as UsersIcon, GripVertical, Pencil, Trash2, Plus, ChevronUp, ChevronDown, BookOpen, LayoutDashboard, EyeOff, Eye, Zap, ArrowRight } from 'lucide-react'
 import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
+import { EMAIL_CONNECT_URL } from '@/modules/email/lib/connect-url'
 
 export default function SimpleSettingsPage() {
   const [mode, setMode] = useState('simple')
@@ -1054,8 +1055,31 @@ export default function SimpleSettingsPage() {
         </div>
       </section>
 
-      {/* Email mailbox (IMAP/SMTP), Inbox Intelligence, Email Routing, and SMS
-          now live in the Inbox page's Settings tab (/backend/email). */}
+      {/* Personal mailboxes (Gmail, Outlook, IMAP/SMTP) are connected in the
+          Noli dashboard's Inbox > Connections tab. Many "connect an email
+          account in Settings" messages land here, so point the way. */}
+      <section className="mb-8">
+        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <Mail className="size-4 text-muted-foreground" /> Email account
+        </h2>
+        <div className="rounded-lg border divide-y">
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium flex items-center gap-2">
+                {emailConnections.length > 0 ? (
+                  <>{emailConnections.find(c => c.is_primary)?.email_address || emailConnections[0].email_address} <Badge variant="green">Connected</Badge></>
+                ) : 'No email account connected'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Noli sends your emails, automations and invoices from your own Gmail, Outlook or other mailbox. Connect or change it in Inbox &gt; Connections.
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => { window.location.href = EMAIL_CONNECT_URL }}>
+              {emailConnections.length > 0 ? 'Manage' : 'Connect email'} <ArrowRight className="size-3 ml-1" />
+            </Button>
+          </div>
+        </div>
+      </section>
 
       {/* Bulk Email (ESP) */}
       <section className="mb-8">

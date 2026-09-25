@@ -253,17 +253,30 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
       loadCourse()
       return
     }
+    // A course needs at least one lesson before it can go live (the server
+    // enforces the same rule).
+    const lessonCount = modules.reduce((sum, m) => sum + m.lessons.length, 0)
+    if (lessonCount === 0) {
+      alert('Add at least one lesson before publishing. Your course page will list your lessons, so it needs something to show.')
+      return
+    }
     // Publish: save everything including landing copy
     setPublishing(true)
-    await fetch(`/api/courses/courses/${course.id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({
-        title: editTitle, description: editDesc, slug: editSlug,
-        price: editIsFree ? null : editPrice, isFree: editIsFree,
-        termsText: editTerms || null, modules, isPublished: true,
-        landingCopy: landingCopy || undefined,
-      }),
-    })
+    try {
+      const res = await fetch(`/api/courses/courses/${course.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          title: editTitle, description: editDesc, slug: editSlug,
+          price: editIsFree ? null : editPrice, isFree: editIsFree,
+          termsText: editTerms || null, modules, isPublished: true,
+          landingCopy: landingCopy || undefined,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!data?.ok) alert(data?.error || 'Failed to publish. Please try again.')
+    } catch {
+      alert('Failed to publish. Check your connection and try again.')
+    }
     setPublishing(false)
     loadCourse()
   }
@@ -406,7 +419,7 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
             <div className="text-center py-12 text-sm text-muted-foreground">
               <Users className="size-8 mx-auto text-muted-foreground/30 mb-3" />
               <p>No students enrolled yet.</p>
-              {course.is_published && <p className="text-xs mt-1">Share your course page: <a href={`/api/courses/public/${course.slug}`} target="_blank" className="text-accent underline">/course/{course.slug}</a></p>}
+              {course.is_published && <p className="text-xs mt-1">Share your course page: <a href={`/course/${course.slug}`} target="_blank" rel="noopener noreferrer" className="text-accent underline">/course/{course.slug}</a></p>}
             </div>
           ) : (
             <div className="bg-card rounded-lg border overflow-x-auto">
@@ -699,7 +712,7 @@ export default function CourseEditorPage({ params }: { params: { id: string } })
             <h4 className="text-xs font-semibold mb-2">How It Works</h4>
             <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
               <li>Get your API key from your Personal Knowledge Base settings</li>
-              <li>Paste it above and click "Test & Save"</li>
+              <li>Paste it above and click "Connect & Test" (or "Recheck" once connected)</li>
               <li>When creating a course with AI, select PKB documents as source material</li>
               <li>AI uses your documents as the foundation for course content</li>
             </ol>

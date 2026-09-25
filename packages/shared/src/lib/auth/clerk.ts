@@ -56,8 +56,21 @@ export function resetSeededTenantCacheForTests(): void {
  */
 export async function resolveClerkUserToAuthContext(
   clerkUserId: string,
+  options?: {
+    /**
+     * When true, a failed lookup (database down, timeout, noli-core error)
+     * throws AuthUnavailableError instead of returning null, so interactive
+     * callers can show "reconnecting" rather than signing the user out.
+     * Definitive answers (no such user, not entitled) still return null.
+     */
+    throwOnUnavailable?: boolean
+  },
 ): Promise<AuthContext> {
   if (!clerkUserId) return null
+  const unavailable = async (err: unknown): Promise<never> => {
+    const { AuthUnavailableError } = await import('./errors')
+    throw new AuthUnavailableError('Sign-in check is temporarily unavailable', err)
+  }
 
   // 1. noli-core lookup + entitlement gate
   let noliUser:
@@ -82,6 +95,7 @@ export async function resolveClerkUserToAuthContext(
     noliOrgId = await findPrimaryOrgIdForUser(noliUser.id)
   } catch (err) {
     console.error('[clerk-auth] noli-core lookup failed:', err)
+    if (options?.throwOnUnavailable) return unavailable(err)
     return null
   }
 
@@ -202,6 +216,7 @@ export async function resolveClerkUserToAuthContext(
     }
   } catch (err) {
     console.error('[clerk-auth] Mercato user resolution failed:', err)
+    if (options?.throwOnUnavailable) return unavailable(err)
     return null
   }
 }
@@ -329,6 +344,8 @@ async function provisionMercatoUserForClerk(
       noliUser.email
 
     let createdUser: unknown = null
+    // Set when this sign-in created the workspace; seeded after commit below.
+    let newOrgScope = null as { tenantId: string; organizationId: string } | null
 
     // Retry once at the transaction boundary: if a teammate's concurrent first
     // sign-in raced us on the unique noli_org_id, reset the EM and retry — the
@@ -337,6 +354,7 @@ async function provisionMercatoUserForClerk(
      try {
       await em.transactional(async (tem) => {
       const typedTem = tem as unknown as EntityManager
+      newOrgScope = null
       // a. Find the team's shared Mercato org by its noli-core link, or create
       //    it. All members of one noli-core org share ONE Mercato org (so they
       //    see the same contacts/deals/pipelines). The org's tenant governs the
@@ -358,6 +376,7 @@ async function provisionMercatoUserForClerk(
         })
         organization = createdTenant.organization
         orgTenant = createdTenant.tenant
+        newOrgScope = { tenantId: String(createdTenant.tenant.id), organizationId: String(createdTenant.organization.id) }
       }
       if (!orgTenant) throw new Error('CRM tenant could not be resolved')
       if (!organization) {
@@ -375,6 +394,7 @@ async function provisionMercatoUserForClerk(
         })
         tem.persist(organization)
         await tem.flush()
+        newOrgScope = { tenantId: String(orgTenant.id), organizationId: String(organization.id) }
       }
 
       // b. EncryptionMap rows for (orgTenant, org). Idempotent — only creates
@@ -493,6 +513,19 @@ async function provisionMercatoUserForClerk(
       }
       throw txErr
      }
+    }
+
+    // Default pipeline, stages, deal statuses and currencies for a new
+    // workspace. After commit and best-effort: it must never fail sign-in.
+    if (newOrgScope) {
+      try {
+        const { ensureCustomerDealDefaults } = await import(
+          '@open-mercato/core/modules/customers/lib/dealDefaults'
+        )
+        await ensureCustomerDealDefaults(em.fork() as EntityManager, newOrgScope)
+      } catch (seedErr) {
+        console.error('[clerk-auth] Deal defaults seeding failed (sign-in continues):', seedErr)
+      }
     }
 
     console.info(

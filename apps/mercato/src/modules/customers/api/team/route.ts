@@ -4,6 +4,8 @@ import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getTeamAuth, isTeamManager } from './auth'
+import { decryptRowFields } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import crypto from 'node:crypto'
 
 export async function GET() {
@@ -22,6 +24,9 @@ export async function GET() {
        ORDER BY u.created_at ASC`,
       [auth.tenantId, auth.orgId]
     )
+    // users.email is encrypted at rest per workspace. This raw read bypasses the
+    // ORM decryption, so without this the Team list showed the ciphertext.
+    await decryptRowFields(null, 'auth:user', members, ['email'], auth.tenantId, auth.orgId)
 
     const invites = await query(
       `SELECT ti.id, ti.email, ti.role, ti.created_at, ti.expires_at, u.name as invited_by_name
@@ -102,8 +107,9 @@ export async function POST(req: Request) {
     }
 
     const existingUser = await queryOne(
-      `SELECT id FROM users WHERE email = $1 AND organization_id = $2 AND deleted_at IS NULL`,
-      [normalizedEmail, auth.orgId]
+      // users.email is ciphertext at rest, so match on the lookup hash as well.
+      `SELECT id FROM users WHERE (email = $1 OR email_hash = $3) AND organization_id = $2 AND deleted_at IS NULL`,
+      [normalizedEmail, auth.orgId, computeEmailHash(normalizedEmail)]
     )
     if (existingUser) {
       return NextResponse.json({ ok: false, error: 'This person is already a team member' }, { status: 409 })

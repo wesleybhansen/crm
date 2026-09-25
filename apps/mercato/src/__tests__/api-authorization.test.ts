@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromRequest, resolveAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { Module, HttpMethod, ModuleApiRouteFile } from '@open-mercato/shared/modules/registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -13,9 +13,16 @@ jest.mock('@/bootstrap', () => ({
 import { GET, POST, PUT, PATCH, DELETE } from '@/app/api/[...slug]/route'
 
 // Mock the auth module
-jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: jest.fn()
-}))
+jest.mock('@open-mercato/shared/lib/auth/server', () => {
+  const getAuthFromRequest = jest.fn()
+  return {
+    getAuthFromRequest,
+    resolveAuthFromRequest: jest.fn(async (req: Request) => {
+      const auth = await getAuthFromRequest(req)
+      return auth ? { status: 'authenticated', auth } : { status: 'unauthenticated' }
+    }),
+  }
+})
 
 // Mock DI container to provide rbacService
 const mockRbac = {
@@ -96,7 +103,35 @@ registerModules(getMockedModules() as any)
 
 const mockGetAuthFromRequest = getAuthFromRequest as jest.MockedFunction<typeof getAuthFromRequest>
 
+const mockResolveAuthFromRequest = resolveAuthFromRequest as jest.MockedFunction<typeof resolveAuthFromRequest>
+
 describe('API Route Authorization', () => {
+  describe('when the sign-in check is temporarily unavailable', () => {
+    it('answers 503 (retry) instead of 401 (signed out) for protected routes', async () => {
+      mockResolveAuthFromRequest.mockResolvedValueOnce({ status: 'unavailable' })
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+      expect(response.status).toBe(503)
+      expect(response.headers.get('Retry-After')).toBe('5')
+      const body = await response.json()
+      expect(body.retryable).toBe(true)
+    })
+
+    it('still serves public routes', async () => {
+      mockResolveAuthFromRequest.mockResolvedValueOnce({ status: 'unavailable' })
+      const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'PUT' })
+      const response = await PUT(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+      expect(response.status).toBe(200)
+    })
+
+    it('answers 401 when the session is really gone', async () => {
+      mockResolveAuthFromRequest.mockResolvedValueOnce({ status: 'unauthenticated' })
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+      expect(response.status).toBe(401)
+    })
+  })
+
   let consoleWarnSpy: jest.SpyInstance
 
   beforeAll(() => {

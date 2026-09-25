@@ -334,6 +334,15 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
     await rebuildHierarchyForTenant(em, tenantId)
 
+    // Default pipeline, stages, deal statuses and currencies so the new
+    // workspace can create deals. Best-effort: never fails the create.
+    try {
+      const { ensureCustomerDealDefaults } = await import('@open-mercato/core/modules/customers/lib/dealDefaults')
+      await ensureCustomerDealDefaults(em.fork(), { tenantId, organizationId: recordId })
+    } catch (err) {
+      console.error('[directory.organizations.create] Deal defaults seeding failed', err)
+    }
+
     const identifiers = { id: recordId, organizationId: recordId, tenantId }
     await emitCrudSideEffects({
       dataEngine: de,

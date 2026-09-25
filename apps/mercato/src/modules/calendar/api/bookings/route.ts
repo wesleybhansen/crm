@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOrMergeContact } from '@/modules/customers/lib/dedup'
+import { canTransitionBookingStatus } from '../../lib/booking-status'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['calendar.view'] },
@@ -29,7 +30,10 @@ export async function GET(req: Request, ctx: any) {
 
     const bookings = await query
     return NextResponse.json({ ok: true, data: bookings })
-  } catch { return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 }) }
+  } catch (error) {
+    console.error('[calendar.bookings.list]', error)
+    return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
+  }
 }
 
 export async function POST(req: Request) {
@@ -309,13 +313,7 @@ export async function PUT(req: Request, ctx: any) {
 
     const updates: Record<string, unknown> = {}
     if (status !== undefined && status !== existing.status) {
-      const validTransitions = [
-        { from: 'confirmed', to: 'cancelled' },
-        { from: 'pending', to: 'confirmed' },
-        { from: 'pending', to: 'cancelled' },
-      ]
-      const isValid = validTransitions.some(t => t.from === existing.status && t.to === status)
-      if (!isValid) {
+      if (!canTransitionBookingStatus(existing.status, status)) {
         return NextResponse.json({ ok: false, error: `Cannot transition from '${existing.status}' to '${status}'` }, { status: 400 })
       }
       updates.status = status
@@ -337,7 +335,10 @@ export async function PUT(req: Request, ctx: any) {
     }
 
     return NextResponse.json({ ok: true, hasGoogleEvent: !!existing.google_calendar_event_id })
-  } catch { return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 }) }
+  } catch (error) {
+    console.error('[calendar.bookings.update]', error)
+    return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
+  }
 }
 
 export async function DELETE(req: Request, ctx: any) {
@@ -389,7 +390,10 @@ export async function DELETE(req: Request, ctx: any) {
     }
     await knex('bookings').where('id', id).where('organization_id', auth.orgId).del()
     return NextResponse.json({ ok: true })
-  } catch { return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 }) }
+  } catch (error) {
+    console.error('[calendar.bookings.delete]', error)
+    return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
+  }
 }
 
 export const openApi: OpenApiRouteDoc = {

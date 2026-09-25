@@ -26,6 +26,7 @@ import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
 import { UmesDevToolsPanel } from './devtools'
+import { buildHeaderBreadcrumb } from './headerBreadcrumb'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -86,6 +87,11 @@ export type AppShellProps = {
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
+
+// Layout effects run before every passive effect in the commit, so the shell
+// can reset its header before a page's ApplyBreadcrumb (a passive effect in a
+// child) sets the page's own title. Falls back to useEffect on the server.
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? React.useEffect : React.useLayoutEffect
 
 type SidebarCustomizationDraft = {
   order: string[]
@@ -314,12 +320,18 @@ export function ApplyBreadcrumb({ breadcrumb, title, titleKey }: { breadcrumb?: 
     if (translated && translated !== titleKey) return translated
     return title
   }, [titleKey, title, t])
+  // pathname is a dependency so the page's trail is re-applied after the
+  // shell clears the header on every client-side navigation.
+  const pathname = usePathname()
   React.useEffect(() => {
     ctx?.setBreadcrumb(resolvedBreadcrumb)
     if (resolvedTitle !== undefined) ctx?.setTitle(resolvedTitle)
-  }, [ctx, resolvedBreadcrumb, resolvedTitle])
+  }, [ctx, resolvedBreadcrumb, resolvedTitle, pathname])
   return null
 }
+
+const FOOTER_LINK_CLASS =
+  'inline-flex min-h-10 items-center px-2 transition hover:text-foreground sm:min-h-0 sm:px-0'
 
 const DefaultIcon = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -748,15 +760,18 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setOpenGroups((prev) => (prev[key] === false ? { ...prev, [key]: true } : prev))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, navGroups])
-  // Keep header state in sync with props (server-side updates)
-  React.useEffect(() => {
+  // Keep header state in sync with props (server-side updates). A layout
+  // effect, so a page's ApplyBreadcrumb (which runs after it) wins on mount;
+  // before this, the shell's mount effect overwrote the page title and pages
+  // like Billing showed only "Dashboard".
+  useIsomorphicLayoutEffect(() => {
     setHeaderTitle(currentTitle)
     setHeaderBreadcrumb(breadcrumb)
   }, [currentTitle, breadcrumb])
   // Clear breadcrumb on client-side navigation so stale state doesn't persist;
   // the new page's ApplyBreadcrumb (if any) will set the correct values
   const prevPathname = React.useRef(pathname)
-  React.useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (pathname !== prevPathname.current) {
       prevPathname.current = pathname
       setHeaderTitle(undefined)
@@ -912,7 +927,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
           <Link
             href="/backend"
-            className={`flex items-center gap-2.5 ${compact ? 'justify-center px-2' : 'px-2'} h-[33px] rounded-md text-[13.5px] font-medium text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground transition-colors`}
+            className={`flex items-center gap-2.5 ${compact ? 'justify-center px-2' : 'px-2'} h-10 lg:h-[33px] rounded-md text-[13.5px] font-medium text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground transition-colors`}
             aria-label={t('backend.nav.backToMain', 'Back')}
           >
             <span className="flex items-center justify-center shrink-0 opacity-70 [&_svg]:h-[15px] [&_svg]:w-[15px]">{BackArrowIcon}</span>
@@ -942,7 +957,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               )))
               const showChildren = childItems.length > 0 && isOnItemBranch
               const isActive = isOnItemBranch || hasActiveChild
-              const base = compact ? 'w-10 h-[33px] justify-center' : 'h-[33px] gap-2.5'
+              const base = compact ? 'w-10 h-10 lg:h-[33px] justify-center' : 'h-10 lg:h-[33px] gap-2.5'
               const spacingStyle = !compact
                 ? {
                     paddingLeft: `${8 + depth * 16}px`,
@@ -1293,7 +1308,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                     key={i.href}
                                     href={i.href}
                                     data-menu-item-id={i.href}
-                                    className={`relative flex items-center gap-2.5 rounded-md ${compact ? 'px-2 justify-center' : 'px-3'} h-[33px] text-[13.5px] font-medium transition-colors ${isActive ? 'bg-foreground/[.04] dark:bg-white/[.05] text-foreground' : 'text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground'}`}
+                                    className={`relative flex items-center gap-2.5 rounded-md ${compact ? 'px-2 justify-center' : 'px-3'} h-10 lg:h-[33px] text-[13.5px] font-medium transition-colors ${isActive ? 'bg-foreground/[.04] dark:bg-white/[.05] text-foreground' : 'text-muted-foreground hover:bg-foreground/[.04] dark:hover:bg-white/[.05] hover:text-foreground'}`}
                                   >
                                     {isActive ? (
                                       <span className="absolute left-0 top-[7px] bottom-[7px] w-[2.5px] rounded-full bg-primary" />
@@ -1327,7 +1342,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                 const showChildren = !!pathname && childItems.length > 0 && pathname.startsWith(i.href)
                                 const hasActiveChild = !!(pathname && childItems.some((c) => pathname.startsWith(c.href)))
                                 const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
-                                const base = compact ? 'w-10 h-[33px] justify-center' : 'px-2 h-[33px] gap-2.5'
+                                const base = compact ? 'w-10 h-10 lg:h-[33px] justify-center' : 'px-2 h-10 lg:h-[33px] gap-2.5'
                                 return (
                                   <React.Fragment key={i.href}>
                                     <Link
@@ -1352,7 +1367,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                       <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
                                         {childItems.map((c) => {
                                           const childActive = pathname?.startsWith(c.href)
-                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 h-[33px] gap-2.5'
+                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 h-10 lg:h-[33px] gap-2.5'
                                           return (
                                             <Link
                                               key={c.href}
@@ -1397,7 +1412,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                     <Link
                       href="/backend/settings"
                       className={`relative text-[13.5px] font-medium rounded-md inline-flex items-center transition-colors w-full ${
-                        compact ? 'w-10 h-[33px] justify-center' : 'px-2 h-[33px] gap-2.5'
+                        compact ? 'w-10 h-10 lg:h-[33px] justify-center' : 'px-2 h-10 lg:h-[33px] gap-2.5'
                       } ${
                         pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')
                           ? 'bg-foreground/[.04] dark:bg-white/[.05] text-foreground'
@@ -1517,7 +1532,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <header className="border-b border-border bg-background/60 backdrop-blur px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
-            <IconButton variant="ghost" size="sm" className="lg:hidden size-[33px] rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
+            <IconButton variant="ghost" size="sm" className="lg:hidden size-10 rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </IconButton>
             {/* Desktop collapse toggle */}
@@ -1536,20 +1551,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             </IconButton>
             {/* Header breadcrumb: always starts with Dashboard */}
             {(() => {
-              const dashboardLabel = t('dashboard.title')
-              const root: Breadcrumb = [{ label: dashboardLabel, href: '/backend' }]
-              let rest: Breadcrumb = []
-              if (headerBreadcrumb && headerBreadcrumb.length) {
-                const first = headerBreadcrumb[0]
-                const dup = first && (first.href === '/backend' || first.label === dashboardLabel || first.label?.toLowerCase() === 'dashboard')
-                rest = dup ? headerBreadcrumb.slice(1) : headerBreadcrumb
-              } else if (headerTitle) {
-                rest = [{ label: headerTitle }]
-              }
-              const items = [...root, ...rest]
+              const items = buildHeaderBreadcrumb({
+                dashboardLabel: t('dashboard.title'),
+                breadcrumb: headerBreadcrumb,
+                title: headerTitle,
+              })
               const lastIndex = items.length - 1
               return (
-                <nav className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[.09em] min-w-0">
+                <nav aria-label={t('appShell.breadcrumb', 'Breadcrumb')} className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[.09em] min-w-0">
                   {items.map((b, i) => {
                     const isLast = i === lastIndex
                     const hiddenOnMobile = !isLast ? 'hidden md:inline' : ''
@@ -1570,7 +1579,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               )
             })()}
           </div>
-          <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
+          {/* Below lg every header control gets a 40px tap target; desktop keeps its compact 33px icons. */}
+          <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0 max-lg:[&_button]:min-h-10 max-lg:[&_button]:min-w-10 max-lg:[&_[data-slot=icon-button]]:min-h-10 max-lg:[&_[data-slot=icon-button]]:min-w-10">
             <StatusBadgeInjectionSpot
               spotId={GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID}
               context={injectionContext}
@@ -1588,7 +1598,10 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           </div>
         </header>
         <ProgressTopBar t={t} className="sticky top-0 z-10" />
-        <main className="flex-1 p-4 lg:p-6">
+        {/* Extra bottom room below lg and a wide right gutter on the footer
+            keep the fixed AI assistant button (bottom-right, 48px) from
+            covering the last row of content and the footer links. */}
+        <main className="flex-1 p-4 pb-16 lg:p-6">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
@@ -1603,22 +1616,26 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           {children}
           <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 pl-4 pr-20 py-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
           {version ? (
             <span className="text-xs text-muted-foreground">
               {t('appShell.version', { version })}
             </span>
           ) : null}
-          <nav className="flex items-center gap-3 text-xs text-muted-foreground">
-            <a href="https://noliai.com/help/crm-first-steps" target="_blank" rel="noopener noreferrer" className="transition hover:text-foreground">
+          {/* Plain anchors straight to noliai.com: a next/link to /terms or
+              /privacy prefetched a cross-origin redirect, which the browser
+              blocks (a CORS console error on every page). Below sm each link
+              is a 40px tap target. */}
+          <nav aria-label={t('appShell.footerLinks', 'Legal and help')} className="flex items-center gap-1 sm:gap-3 text-xs text-muted-foreground">
+            <a href="https://noliai.com/help/crm-first-steps" target="_blank" rel="noopener noreferrer" className={FOOTER_LINK_CLASS}>
               {t('common.help', 'Help')}
             </a>
-            <Link href="/terms" className="transition hover:text-foreground">
+            <a href="https://noliai.com/terms" className={FOOTER_LINK_CLASS}>
               {t('common.terms')}
-            </Link>
-            <Link href="/privacy" className="transition hover:text-foreground">
+            </a>
+            <a href="https://noliai.com/privacy" className={FOOTER_LINK_CLASS}>
               {t('common.privacy')}
-            </Link>
+            </a>
           </nav>
         </footer>
       </div>
@@ -1633,7 +1650,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 <Image src="/noli-logo.svg" alt={resolvedProductName} width={28} height={28} className="h-[26px] w-[26px] rounded-lg" />
                 {resolvedProductName}
               </Link>
-              <IconButton variant="ghost" size="sm" className="size-[33px] rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>
+              <IconButton variant="ghost" size="sm" className="size-10 rounded-[10px] text-muted-foreground hover:bg-foreground/[.04] hover:text-foreground dark:hover:bg-white/[.05]" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>
             </div>
             {mobileSidebarSlot && (
               <div className="shrink-0 border-b px-3 py-2">

@@ -50,7 +50,9 @@ export async function GET(req: Request, ctx: any) {
     const hrs = totalMin >= 60 ? `${(totalMin / 60).toFixed(1)} hours` : `${totalMin || totalLessons * 10} min`
     const enrolled = Number(count)
     const biz = profile?.business_name || ''
-    const bizDesc = profile?.business_description || ''
+    // No instructor bio field exists yet. The business description is written
+    // for the owner ("You provide...") and read as a wrong-voice bio on the
+    // public page, so the instructor block shows the name only.
     const style = course.landing_style || 'warm'
 
     // Select CSS and font based on landing style
@@ -153,7 +155,7 @@ ${highlights.length > 0 ? `<section class="highlights"><div class="container">
 </div></section>` : ''}
 
 <section class="curriculum" id="${bullets.length === 0 ? 'learn' : 'curriculum'}"><div class="container">
-  <div class="curriculum-header reveal"><h2>Full curriculum.</h2><p>${modules.length} modules · ${totalLessons} lessons · ${hrs} of content</p></div>
+  <div class="curriculum-header reveal"><h2>Full curriculum.</h2><p>${modules.length} ${modules.length === 1 ? 'module' : 'modules'} · ${totalLessons} ${totalLessons === 1 ? 'lesson' : 'lessons'} · ${hrs} of content</p></div>
   <div class="curriculum-list">
     ${modules.map((m: any, mi: number) => `<div class="module-item reveal${mi === 0 ? ' active' : ''}">
       <button class="module-header" onclick="toggleModule(this)">
@@ -197,7 +199,6 @@ ${biz ? `<section class="instructor" id="instructor"><div class="container">
     <div>
       <div class="instructor-name">${e(biz)}</div>
       <div class="instructor-title">Your Instructor</div>
-      ${bizDesc ? `<p class="instructor-bio">${e(bizDesc.substring(0, 500))}</p>` : ''}
     </div>
   </div>
 </div></section>` : ''}
@@ -221,8 +222,8 @@ ${faq.length > 0 ? `<section class="faq" id="faq"><div class="container">
     <div class="pricing-price">${price}</div>
     <div class="pricing-desc">${isFree ? 'No credit card required' : 'One-time payment · Lifetime access'}</div>
     <ul class="pricing-features">
-      <li><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>${totalLessons} lessons across ${modules.length} modules</li>
-      <li><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>${hrs} of content</li>
+      ${totalLessons > 0 ? `<li><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>${totalLessons} ${totalLessons === 1 ? 'lesson' : 'lessons'} across ${modules.length} ${modules.length === 1 ? 'module' : 'modules'}</li>
+      <li><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>${hrs} of content</li>` : ''}
       <li><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Lifetime access to all materials</li>
       <li><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Progress tracking & completion</li>
     </ul>

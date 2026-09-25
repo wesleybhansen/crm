@@ -289,4 +289,54 @@ describe('AppShell', () => {
       expect(screen.getByRole('link', { name: 'Calendar Entity' })).toBeInTheDocument()
     })
   })
+
+  const headerTrail = () => {
+    const nav = screen.getAllByRole('navigation').find((candidate) => candidate.closest('header'))
+    return nav?.textContent ?? ''
+  }
+
+  it('lets the page title from ApplyBreadcrumb win over the shell title on first load', async () => {
+    mockPathname = '/backend/billing'
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups} currentTitle="">
+        <ApplyBreadcrumb title="Billing" />
+        <div>Billing content</div>
+      </AppShell>,
+      { dict },
+    )
+    await waitFor(() => {
+      expect(headerTrail()).toBe('Dashboard/Billing')
+    })
+  })
+
+  it('never repeats Dashboard in the trail on the dashboard', async () => {
+    mockPathname = '/backend/dashboards'
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups} currentTitle="Dashboard">
+        <ApplyBreadcrumb title="Dashboard" />
+        <div>Dashboard content</div>
+      </AppShell>,
+      { dict },
+    )
+    await waitFor(() => {
+      expect(screen.getByText('Dashboard content')).toBeInTheDocument()
+    })
+    expect(headerTrail()).toBe('Dashboard')
+  })
+
+  it('links Terms and Privacy straight to noliai.com as plain anchors', () => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <div>Page</div>
+      </AppShell>,
+      { dict },
+    )
+    const footer = document.querySelector('footer')!
+    const hrefs = Array.from(footer.querySelectorAll('a')).map((a) => a.getAttribute('href'))
+    expect(hrefs).toEqual([
+      'https://noliai.com/help/crm-first-steps',
+      'https://noliai.com/terms',
+      'https://noliai.com/privacy',
+    ])
+  })
 })

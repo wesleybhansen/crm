@@ -1,4 +1,4 @@
-// ORM-SKIP: events/event_attendees tables do not exist on prod — feature unused
+// ORM-SKIP: events/event_attendees are raw-knex tables (no mercato entity), created by customers Migration20260925161500
 
 import { NextResponse } from 'next/server'
 import { createPersonContact } from '@/modules/customers/lib/contact-write'

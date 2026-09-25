@@ -3,7 +3,6 @@ import { createRequestContainer, type AppContainer } from '@open-mercato/shared/
 import { cf } from '@open-mercato/shared/modules/dsl'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
@@ -22,10 +21,10 @@ import {
   CustomerActivity,
   CustomerAddress,
   CustomerComment,
-  CustomerPipeline,
-  CustomerPipelineStage,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
+import { DEAL_STATUS_DEFAULTS, PIPELINE_STAGE_DEFAULTS } from './lib/dealDefaultsData'
+import { ensureCurrencyDictionary, ensureCustomerDealDefaults, ensureDefaultDealPipeline } from './lib/dealDefaults'
 
 type SeedArgs = {
   tenantId: string
@@ -41,25 +40,6 @@ type DictionaryDefault = {
 
 type CustomFieldValuesPayload = Parameters<DataEngine['setCustomFields']>[0]['values']
 type ProgressBarHandle = ReturnType<typeof createProgressBar>
-
-const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
-  { value: 'open', label: 'Open', color: '#2563eb', icon: 'lucide:circle' },
-  { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'lucide:check-circle' },
-  { value: 'win', label: 'Win', color: '#22c55e', icon: 'lucide:trophy' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
-  { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
-]
-
-const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
-  { value: 'opportunity', label: 'Opportunity', color: '#38bdf8', icon: 'lucide:target' },
-  { value: 'marketing_qualified_lead', label: 'Marketing Qualified Lead', color: '#a855f7', icon: 'lucide:sparkles' },
-  { value: 'sales_qualified_lead', label: 'Sales Qualified Lead', color: '#f97316', icon: 'lucide:users' },
-  { value: 'offering', label: 'Offering', color: '#22c55e', icon: 'lucide:package' },
-  { value: 'negotiations', label: 'Negotiations', color: '#facc15', icon: 'lucide:handshake' },
-  { value: 'win', label: 'Win', color: '#16a34a', icon: 'lucide:award' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
-  { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'lucide:alert-circle' },
-]
 
 const ENTITY_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'customer', label: 'Customer', color: '#16a34a', icon: 'lucide:handshake' },
@@ -125,7 +105,6 @@ const INDUSTRY_DEFAULTS: DictionaryDefault[] = [
   { value: 'Media', label: 'Media' },
 ]
 
-const PRIORITY_CURRENCIES = ['EUR', 'USD', 'GBP', 'PLN']
 
 type ExampleAddress = {
   name?: string
@@ -1148,113 +1127,8 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
   }
 }
 
-function resolveCurrencyCodes(): string[] {
-  const normalizedPriority = PRIORITY_CURRENCIES.map((code) => code.toUpperCase())
-  const intlWithSupportedValues = Intl as typeof Intl & {
-    supportedValuesOf?: (input: 'currency') => string[]
-  }
-  const supported: string[] =
-    typeof intlWithSupportedValues.supportedValuesOf === 'function'
-      ? intlWithSupportedValues.supportedValuesOf('currency')
-      : []
-  const normalizedSupported = supported
-    .map((code) => code.toUpperCase())
-    .filter((code) => /^[A-Z]{3}$/.test(code))
-  const uniqueSupported: string[] = []
-  const seen = new Set<string>(normalizedPriority)
-  for (const code of normalizedSupported) {
-    if (seen.has(code)) continue
-    seen.add(code)
-    uniqueSupported.push(code)
-  }
-  if (!uniqueSupported.length) {
-    console.warn('[customers.cli] Intl.supportedValuesOf("currency") unavailable; seeding minimal currency list.')
-    return normalizedPriority
-  }
-  uniqueSupported.sort((a, b) => a.localeCompare(b))
-  return [...normalizedPriority, ...uniqueSupported]
-}
-
-function resolveCurrencyLabel(code: string): string {
-  try {
-    const intlWithDisplayNames = Intl as typeof Intl & {
-      DisplayNames?: new (locales: string[], options: { type: 'currency' }) => {
-        of(value: string): string | undefined
-      }
-    }
-    if (typeof intlWithDisplayNames.DisplayNames === 'function') {
-      const displayNames = new intlWithDisplayNames.DisplayNames(['en'], { type: 'currency' })
-      const label = displayNames.of(code)
-      if (typeof label === 'string' && label.trim().length) {
-        return `${code} – ${label}`
-      }
-    }
-  } catch (err) {
-    console.warn('[customers.cli] Unable to resolve currency label for', code, err)
-  }
-  return code
-}
-
-async function seedCurrencyDictionary(em: EntityManager, { tenantId, organizationId }: SeedArgs) {
-  let dictionary = await em.findOne(Dictionary, {
-    tenantId,
-    organizationId,
-    key: 'currency',
-    deletedAt: null,
-  })
-  if (!dictionary) {
-    dictionary = em.create(Dictionary, {
-      key: 'currency',
-      name: 'Currencies',
-      description: 'ISO 4217 currencies',
-      tenantId,
-      organizationId,
-      isSystem: true,
-      isActive: true,
-      managerVisibility: 'default' satisfies DictionaryManagerVisibility,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(dictionary)
-    await em.flush()
-  }
-
-  const existingEntries = await em.find(DictionaryEntry, {
-    dictionary,
-    tenantId,
-    organizationId,
-  })
-  const existingMap = new Map<string, DictionaryEntry>()
-  existingEntries.forEach((entry) => existingMap.set(entry.value.toUpperCase(), entry))
-
-  const currencyCodes = resolveCurrencyCodes()
-  for (const code of currencyCodes) {
-    const upper = code.toUpperCase()
-    const normalizedValue = upper.toLowerCase()
-    const label = resolveCurrencyLabel(upper)
-    const current = existingMap.get(upper)
-    if (current) {
-      if (current.label !== label) {
-        current.label = label
-        current.updatedAt = new Date()
-        em.persist(current)
-      }
-      continue
-    }
-    const entry = em.create(DictionaryEntry, {
-      dictionary,
-      tenantId,
-      organizationId,
-      value: upper,
-      normalizedValue,
-      label,
-      color: null,
-      icon: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(entry)
-  }
+async function seedCurrencyDictionary(em: EntityManager, scope: SeedArgs) {
+  await ensureCurrencyDictionary(em, scope)
 }
 
 async function seedCustomerExamples(
@@ -2796,30 +2670,8 @@ const seedStressTest: ModuleCli = {
   },
 }
 
-async function seedDefaultPipeline(em: EntityManager, { tenantId, organizationId }: SeedArgs): Promise<void> {
-  const existing = await em.findOne(CustomerPipeline, { tenantId, organizationId, isDefault: true })
-  if (existing) return
-
-  const pipeline = em.create(CustomerPipeline, {
-    tenantId,
-    organizationId,
-    name: 'Default Pipeline',
-    isDefault: true,
-  })
-  em.persist(pipeline)
-  await em.flush()
-
-  for (let i = 0; i < PIPELINE_STAGE_DEFAULTS.length; i++) {
-    const entry = PIPELINE_STAGE_DEFAULTS[i]
-    em.persist(em.create(CustomerPipelineStage, {
-      tenantId,
-      organizationId,
-      pipelineId: pipeline.id,
-      label: entry.label,
-      order: i,
-    }))
-  }
-  await em.flush()
+async function seedDefaultPipeline(em: EntityManager, scope: SeedArgs): Promise<void> {
+  await ensureDefaultDealPipeline(em, scope)
 }
 
 export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedCurrencyDictionary, seedDefaultPipeline }
@@ -2847,7 +2699,53 @@ const seedPipelineAutomation: ModuleCli = {
   },
 }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, seedPipelineAutomation]
+/**
+ * Seeds the deal defaults (default pipeline + stages, deal statuses, currency
+ * dictionary) for one organization, or for every organization with --all.
+ * Idempotent: organizations that already have them are left unchanged.
+ *   mercato customers seed-deal-defaults --tenant <tenantId> --org <organizationId>
+ *   mercato customers seed-deal-defaults --all
+ */
+const seedDealDefaults: ModuleCli = {
+  command: 'seed-deal-defaults',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const all = args.all !== undefined && parseBooleanToken(String(args.all)) !== false
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+    if (!all && (!tenantId || !organizationId)) {
+      console.error('Usage: mercato customers seed-deal-defaults --tenant <tenantId> --org <organizationId> | --all')
+      return
+    }
+    const { resolve } = await createRequestContainer()
+    const em = resolve<EntityManager>('em')
+    const scopes: SeedArgs[] = all
+      ? (await em.getConnection().execute<Array<{ id: string; tenant_id: string }>>(
+          'select id, tenant_id from organizations where deleted_at is null order by created_at asc',
+        )).map((row) => ({ tenantId: String(row.tenant_id), organizationId: String(row.id) }))
+      : [{ tenantId, organizationId }]
+    let changed = 0
+    let failed = 0
+    for (const scope of scopes) {
+      try {
+        const result = await ensureCustomerDealDefaults(em.fork(), scope)
+        const touched =
+          result.pipelineCreated || result.stagesCreated > 0 || result.dealStatusesCreated > 0 ||
+          result.currencyDictionaryCreated || result.currenciesCreated > 0
+        if (touched) {
+          changed += 1
+          console.log('Deal defaults seeded for organization', scope.organizationId, result)
+        }
+      } catch (err) {
+        failed += 1
+        console.error('Failed to seed deal defaults for organization', scope.organizationId, err)
+      }
+    }
+    console.log(`Deal defaults checked for ${scopes.length} organization(s): ${changed} updated, ${failed} failed.`)
+  },
+}
+
+const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, seedPipelineAutomation, seedDealDefaults]
 
 export default customersCliCommands
 const CUSTOMER_CUSTOM_FIELD_SETS = [

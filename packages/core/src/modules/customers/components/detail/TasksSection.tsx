@@ -313,13 +313,14 @@ export function TasksSection({
                       timestamp={task.createdAt}
                       fallbackTimestampLabel={createdLabel}
                     />
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <div className="flex items-center gap-1 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
                         onClick={() => openEditDialog(task)}
                         disabled={isMutating}
+                        aria-label={t('ui.forms.actions.edit', 'Edit')}
                       >
                         {isMutating && editingTask?.id === task.id && dialogMode === 'edit' ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -333,6 +334,7 @@ export function TasksSection({
                         size="icon"
                         onClick={() => handleDelete(task)}
                         disabled={isMutating}
+                        aria-label={t('ui.forms.actions.delete', 'Delete')}
                       >
                         {isMutating ? <Loader2 className="h-4 w-4 animate-spin text-destructive" /> : <Trash2 className="h-4 w-4" />}
                       </Button>

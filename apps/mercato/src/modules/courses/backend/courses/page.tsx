@@ -268,10 +268,17 @@ export default function CoursesPage() {
 
   async function togglePublish(course: Course, e: React.MouseEvent) {
     e.stopPropagation()
-    await fetch(`/api/courses/courses/${course.id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ isPublished: !course.is_published }),
-    })
+    try {
+      const res = await fetch(`/api/courses/courses/${course.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ isPublished: !course.is_published }),
+      })
+      const data = await res.json().catch(() => null)
+      // The server refuses to publish a course with no lessons and says why.
+      if (!data?.ok) alert(data?.error || 'Failed to update the course. Please try again.')
+    } catch {
+      alert('Failed to update the course. Check your connection and try again.')
+    }
     loadCourses()
   }
 
@@ -775,17 +782,21 @@ export default function CoursesPage() {
       {loading ? (
         <div className="flex items-center justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
       ) : courses.length === 0 && showMode === 'none' ? (
-        <div className="rounded-xl border border-muted-foreground/20 p-12 text-center">
-          <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-accent/10 text-accent mb-4">
+        <div className="rounded-xl border border-muted-foreground/20 px-6 py-10 sm:p-12 flex flex-col items-center text-center gap-2">
+          <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-accent/10 text-accent mb-2">
             <BookOpen className="size-7" />
           </div>
-          <h2 className="text-lg font-semibold mb-2">Create your first course</h2>
-          <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-6">
+          <h2 className="text-lg font-semibold">Create your first course</h2>
+          <p className="text-sm text-muted-foreground max-w-sm">
             Build online courses with AI assistance, add videos and resources, and sell them to your audience.
           </p>
-          <Button type="button" onClick={() => setShowMode('select')}>
-            <Plus className="size-4 mr-2" /> Get Started
-          </Button>
+          {/* Spacing comes from the flex gap and this wrapper, not paragraph
+              margins, so the button never touches the text on phones. */}
+          <div className="pt-4">
+            <Button type="button" onClick={() => setShowMode('select')}>
+              <Plus className="size-4 mr-2" /> Get Started
+            </Button>
+          </div>
         </div>
       ) : courses.length > 0 && (
         <>

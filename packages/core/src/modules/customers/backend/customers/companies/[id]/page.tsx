@@ -579,7 +579,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       label: t('customers.companies.detail.fields.displayName', 'Display name'),
       value: company.displayName,
       placeholder: t('customers.companies.form.displayName.placeholder', 'Enter company name'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       validator: validators.displayName,
       onSave: updateDisplayName,
     },
@@ -589,7 +589,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       label: t('customers.companies.detail.fields.legalName', 'Legal name'),
       value: profile?.legalName ?? null,
       placeholder: t('customers.companies.detail.fields.legalNamePlaceholder', 'Add legal name'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       onSave: (value) => updateProfileField('legalName', value),
     },
     {
@@ -598,7 +598,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       label: t('customers.companies.detail.fields.brandName', 'Brand name'),
       value: profile?.brandName ?? null,
       placeholder: t('customers.companies.detail.fields.brandNamePlaceholder', 'Add brand name'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       onSave: (value) => updateProfileField('brandName', value),
     },
     {
@@ -607,7 +607,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       label: t('customers.companies.detail.fields.description', 'Description'),
       value: company.description ?? null,
       placeholder: t('customers.companies.detail.fields.descriptionPlaceholder', 'Describe the company'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       gridClassName: 'sm:col-span-2 xl:col-span-3',
       renderDisplay: renderMultilineMarkdownDisplay,
       onSave: async (next) => {
@@ -625,12 +625,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       key: 'lifecycleStage',
       kind: 'custom',
       label: t('customers.companies.detail.fields.lifecycleStage', 'Lifecycle stage'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       render: () => (
         <InlineDictionaryEditor
           label={t('customers.companies.detail.fields.lifecycleStage', 'Lifecycle stage')}
           value={company.lifecycleStage ?? null}
-          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not set')}
           kind="lifecycle-stages"
           onSave={(next) => updateCompanyField('lifecycleStage', next)}
           selectClassName="h-9 w-full rounded border px-3 text-sm"
@@ -643,12 +643,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       key: 'source',
       kind: 'custom',
       label: t('customers.companies.detail.fields.source', 'Source'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       render: () => (
         <InlineDictionaryEditor
           label={t('customers.companies.detail.fields.source', 'Source')}
           value={company.source ?? null}
-          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not set')}
           kind="sources"
           onSave={(next) => updateCompanyField('source', next)}
           selectClassName="h-9 w-full rounded border px-3 text-sm"
@@ -663,19 +663,19 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       label: t('customers.companies.detail.fields.domain', 'Domain'),
       value: profile?.domain ?? null,
       placeholder: t('customers.companies.detail.fields.domainPlaceholder', 'example.com'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       onSave: (value) => updateProfileField('domain', value),
     },
     {
       key: 'industry',
       kind: 'custom',
       label: t('customers.companies.detail.fields.industry', 'Industry'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       render: () => (
         <InlineDictionaryEditor
           label={t('customers.companies.detail.fields.industry', 'Industry')}
           value={profile?.industry ?? null}
-          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not set')}
           kind="industries"
           onSave={(next) => updateProfileField('industry', next)}
           selectClassName="h-9 w-full rounded border px-3 text-sm"
@@ -690,20 +690,20 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       label: t('customers.companies.detail.fields.sizeBucket', 'Company size'),
       value: profile?.sizeBucket ?? null,
       placeholder: t('customers.companies.detail.fields.sizeBucketPlaceholder', 'Add size bucket'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       onSave: (value) => updateProfileField('sizeBucket', value),
     },
     {
       key: 'annualRevenue',
       kind: 'custom',
       label: t('customers.companies.detail.fields.annualRevenue', 'Annual revenue'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       render: () => (
         <AnnualRevenueField
           label={t('customers.companies.detail.fields.annualRevenue', 'Annual revenue')}
           amount={profile?.annualRevenue ?? null}
           currency={annualRevenueCurrency}
-          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not set')}
           validator={validators.annualRevenue}
           onSave={handleAnnualRevenueChange}
         />
@@ -715,7 +715,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       label: t('customers.companies.detail.fields.website', 'Website'),
       value: profile?.websiteUrl ?? null,
       placeholder: t('customers.companies.detail.fields.websitePlaceholder', 'https://example.com'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not set'),
       inputType: 'url',
       validator: validators.website,
       onSave: (value) => updateProfileField('websiteUrl', value),
@@ -724,7 +724,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
 
   return (
     <Page>
-      <PageBody>
+      <PageBody className="max-md:pb-24">
         <div className="space-y-8">
           <CompanyHighlights
             company={company}

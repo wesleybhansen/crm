@@ -123,9 +123,6 @@ export default function PaymentsPage() {
   const [stripeConnection, setStripeConnection] = useState<StripeConnection | null>(null)
   const [stripeLoading, setStripeLoading] = useState(true)
   const [disconnecting, setDisconnecting] = useState(false)
-  const [showManualConnect, setShowManualConnect] = useState(false)
-  const [manualAccountId, setManualAccountId] = useState('')
-  const [manualConnecting, setManualConnecting] = useState(false)
   const [stripeMessage, setStripeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Refund state
@@ -265,31 +262,6 @@ export default function PaymentsPage() {
       setStripeMessage({ type: 'error', text: 'Failed to disconnect Stripe.' })
     }
     setDisconnecting(false)
-  }
-
-  async function manualConnect() {
-    if (!manualAccountId.trim()) return
-    setManualConnecting(true)
-    try {
-      const res = await fetch('/api/payments/stripe/connect-oauth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ stripeAccountId: manualAccountId.trim() }),
-      })
-      const data = await res.json()
-      if (data.ok) {
-        setManualAccountId('')
-        setShowManualConnect(false)
-        setStripeMessage({ type: 'success', text: 'Stripe account connected manually!' })
-        loadStripeConnection()
-      } else {
-        setStripeMessage({ type: 'error', text: data.error || 'Failed to connect.' })
-      }
-    } catch {
-      setStripeMessage({ type: 'error', text: 'Failed to connect.' })
-    }
-    setManualConnecting(false)
   }
 
   function loadContacts() {
@@ -642,7 +614,8 @@ export default function PaymentsPage() {
   }
 
   return (
-    <div className="p-3 sm:p-6 max-w-4xl mx-auto">
+    // Phone: every action button gets at least a 40px tap target.
+    <div className="p-3 sm:p-6 max-w-4xl mx-auto max-sm:[&_button]:min-h-10">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-lg font-semibold">Payments</h1>
         {tab !== 'history' && (
@@ -713,31 +686,6 @@ export default function PaymentsPage() {
                   <Plug className="size-3.5 mr-1.5" /> Connect Stripe
                 </Button>
               </div>
-            </div>
-            <div className="mt-3 pt-3 border-t">
-              {showManualConnect ? (
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={manualAccountId}
-                    onChange={e => setManualAccountId(e.target.value)}
-                    placeholder="acct_1234567890"
-                    className="h-8 text-xs flex-1 max-w-xs font-mono"
-                    onKeyDown={e => { if (e.key === 'Enter') manualConnect() }}
-                  />
-                  <Button type="button" variant="outline" size="sm" onClick={manualConnect}
-                    disabled={manualConnecting || !manualAccountId.trim()}>
-                    {manualConnecting ? <Loader2 className="size-3 animate-spin" /> : 'Save'}
-                  </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => { setShowManualConnect(false); setManualAccountId('') }}>
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setShowManualConnect(true)}
-                  className="text-xs text-muted-foreground hover:text-foreground transition">
-                  Or enter a Stripe account ID manually (for development/testing)
-                </button>
-              )}
             </div>
           </div>
         )}

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 import { browserSecurityHeaderRules } from "./src/lib/security-headers";
+import { legacyBackendRedirects } from "./src/lib/legacy-redirects";
 
 const nextConfig: NextConfig = {
   output: 'standalone',
@@ -25,6 +26,9 @@ const nextConfig: NextConfig = {
   ],
   async headers() {
     return browserSecurityHeaderRules()
+  },
+  async redirects() {
+    return legacyBackendRedirects()
   },
 }
 
