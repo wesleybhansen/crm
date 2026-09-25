@@ -127,10 +127,12 @@ export async function PUT(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
     const url = new URL(req.url)
-    const id = url.searchParams.get('id')
+    const body = await req.json().catch(() => ({}))
+    // The id travels in the query string; a body id is accepted too (older
+    // callers such as the assistant sent { id, is_active } in the body).
+    const id = url.searchParams.get('id') || (typeof body?.id === 'string' ? body.id : null)
     if (!id) return NextResponse.json({ ok: false, error: 'id query param required' }, { status: 400 })
 
-    const body = await req.json()
     const update: Record<string, any> = { updated_at: new Date() }
 
     if (body.name !== undefined) update.name = body.name.trim()
@@ -147,27 +149,33 @@ export async function PUT(req: Request) {
       update.status = body.status
       update.is_active = body.status === 'active'
     }
-    if (body.isActive !== undefined) {
-      update.is_active = body.isActive
-      update.status = body.isActive ? 'active' : 'paused'
+    // isActive, or its snake_case alias is_active: a toggle that was silently
+    // ignored used to report success while changing nothing.
+    const isActive = body.isActive !== undefined ? body.isActive : body.is_active
+    if (isActive !== undefined) {
+      if (typeof isActive !== 'boolean') {
+        return NextResponse.json({ ok: false, error: 'isActive must be true or false' }, { status: 400 })
+      }
+      update.is_active = isActive
+      update.status = isActive ? 'active' : 'paused'
     }
 
+    const existing = await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).first()
+    if (!existing) return NextResponse.json({ ok: false, error: 'Automation not found' }, { status: 404 })
+
     if (update.is_active === true) {
-      const existing = await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).first()
-      if (existing) {
-        const merged = {
-          action_type: update.action_type ?? existing.action_type,
-          steps: update.steps !== undefined ? update.steps : existing.steps,
-        }
-        if (automationSendsEmail(merged)) {
-          const refusal = await refusalIfNotConnected(knex, auth.orgId, 'automations', AUTOMATION_BLOCKED_MESSAGE)
-          if (refusal) return NextResponse.json(refusal, { status: 422 })
-        }
+      const merged = {
+        action_type: update.action_type ?? existing.action_type,
+        steps: update.steps !== undefined ? update.steps : existing.steps,
+      }
+      if (automationSendsEmail(merged)) {
+        const refusal = await refusalIfNotConnected(knex, auth.orgId, 'automations', AUTOMATION_BLOCKED_MESSAGE)
+        if (refusal) return NextResponse.json(refusal, { status: 422 })
       }
     }
 
     await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).update(update)
-    const rule = await knex('automation_rules').where('id', id).first()
+    const rule = await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).first()
     return NextResponse.json({ ok: true, data: rule })
   } catch (error) {
     console.error('[automation-rules] PUT error', error)
@@ -182,7 +190,11 @@ export async function DELETE(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
     const url = new URL(req.url)
-    const id = url.searchParams.get('id')
+    let id = url.searchParams.get('id')
+    if (!id) {
+      const body = await req.json().catch(() => null)
+      id = typeof body?.id === 'string' ? body.id : null
+    }
     if (!id) return NextResponse.json({ ok: false, error: 'id query param required' }, { status: 400 })
 
     const rule = await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).first()

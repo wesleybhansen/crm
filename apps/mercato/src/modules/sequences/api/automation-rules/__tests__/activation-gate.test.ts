@@ -94,3 +94,44 @@ describe('automation rules: an email automation cannot be switched on without se
     expect((await put({ status: 'active' })).status).toBe(200)
   })
 })
+
+describe('automation rules: toggles do what they say', () => {
+  function putNoQuery(body: Record<string, unknown>) {
+    return PUT(new Request('https://crm.example.test/api/sequences/automation-rules', { method: 'PUT', body: JSON.stringify(body) }))
+  }
+
+  it('honours { id, is_active } in the body (the assistant shape) and writes the toggle', async () => {
+    mockHasSendingSetup.mockResolvedValue(true)
+    const res = await putNoQuery({ id: 'rule-1', is_active: false })
+    expect(res.status).toBe(200)
+    expect(writes[0].payload).toMatchObject({ is_active: false, status: 'paused' })
+  })
+
+  it('switching on via is_active goes through the email_not_connected gate', async () => {
+    mockHasSendingSetup.mockResolvedValue(false)
+    const res = await put({ is_active: true })
+    expect(res.status).toBe(422)
+    expect((await res.json()).code).toBe('email_not_connected')
+    expect(writes).toHaveLength(0)
+  })
+
+  it('isActive true writes active once connected', async () => {
+    mockHasSendingSetup.mockResolvedValue(true)
+    const res = await put({ isActive: true })
+    expect(res.status).toBe(200)
+    expect(writes[0].payload).toMatchObject({ is_active: true, status: 'active' })
+  })
+
+  it('an unknown rule is a 404, not a silent success', async () => {
+    existingRule = undefined
+    const res = await put({ isActive: false })
+    expect(res.status).toBe(404)
+    expect(writes).toHaveLength(0)
+  })
+
+  it('a non-boolean toggle is rejected', async () => {
+    const res = await put({ is_active: 'yes' })
+    expect(res.status).toBe(400)
+    expect(writes).toHaveLength(0)
+  })
+})

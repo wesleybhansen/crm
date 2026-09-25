@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Mic, MicOff, Send, Trash2, Volume2, Loader2, Check, X, AlertCircle, Sparkles, Plus, Archive, MessageSquare, BarChart3, CalendarDays, CheckSquare, Flame, Pencil } from 'lucide-react'
 import { READ_ONLY_TOOLS } from '@/modules/customers/lib/crm-tool-catalog'
+import { runAutomationAction } from '@/modules/customers/lib/assistant-automation-action'
 
 // Types
 interface Message {
@@ -1300,14 +1301,7 @@ async function executeCrmAction(action: CrmAction): Promise<{ ok: boolean; messa
         return { ok: false, message: `Unknown affiliate action: ${sub}` }
       }
       case 'manage_automation_advanced': {
-        const { action: sub, ruleId } = action.data
-        if (sub === 'enable') { await fetch('/api/sequences/automation-rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId, is_active: true }) }); return { ok: true, message: 'Automation enabled' } }
-        if (sub === 'disable') { await fetch('/api/sequences/automation-rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId, is_active: false }) }); return { ok: true, message: 'Automation disabled' } }
-        if (sub === 'delete') { await fetch('/api/sequences/automation-rules', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId }) }); return { ok: true, message: 'Automation deleted' } }
-        if (sub === 'test') { const res = await fetch('/api/sequences/automation-rules/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ ruleId }) }); const d = await res.json(); return d.ok ? { ok: true, message: 'Automation test executed' } : { ok: false, message: d.error || 'Test failed' } }
-        if (sub === 'get_logs') { const res = await fetch(`/api/sequences/automation-rules/${ruleId}/logs`, { credentials: 'include' }); const d = await res.json(); return d.ok ? { ok: true, message: `${d.data?.length || 0} execution(s) logged` } : { ok: true, message: 'No logs found' } }
-        if (sub === 'edit') { await fetch('/api/sequences/automation-rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: ruleId, name: action.data.name }) }); return { ok: true, message: 'Automation updated' } }
-        return { ok: false, message: `Unknown automation action: ${sub}` }
+        return runAutomationAction(action.data || {})
       }
       case 'update_settings': {
         const { action: sub } = action.data
