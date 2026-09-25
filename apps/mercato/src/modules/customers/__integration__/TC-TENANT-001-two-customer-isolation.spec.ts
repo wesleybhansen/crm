@@ -89,8 +89,10 @@ test.describe('TC-TENANT-001: two customers in two tenants are isolated', () => 
     personA = await createPersonFixture(request, tokenA, { firstName: 'Iso', lastName: nameA, displayName: `Iso ${nameA}` });
     personB = await createPersonFixture(request, tokenB, { firstName: 'Iso', lastName: nameB, displayName: `Iso ${nameB}` });
     dealA = await createDealFixture(request, tokenA, { title: `Deal ${nameA}` });
-    keyA = await createApiKeyFixture(request, tokenA, `iso-a-${suffix}`);
-    keyB = await createApiKeyFixture(request, tokenB, `iso-b-${suffix}`);
+    // A key with no role grants nothing (every read would be a 403): give
+    // each key its own tenant's admin role.
+    keyA = await createApiKeyFixture(request, tokenA, `iso-a-${suffix}`, ['admin']);
+    keyB = await createApiKeyFixture(request, tokenB, `iso-b-${suffix}`, ['admin']);
     for (const [token, name, setSlug] of [
       [tokenA, nameA, (s: string) => { formSlugA = s }],
       [tokenB, nameB, (s: string) => { formSlugB = s }],
@@ -177,7 +179,11 @@ test.describe('TC-TENANT-001: two customers in two tenants are isolated', () => 
 
   test('an invite from B joins B\'s tenant', async ({ request }) => {
     const email = `iso-invitee-${suffix}@test.local`;
-    const invite = await apiRequest(request, 'POST', '/api/team', { token: tokenB, data: { email, role: 'member' } });
+    // The team routes read the session cookie, not a bearer token.
+    const invite = await request.post('/api/team', {
+      headers: { cookie: `auth_token=${tokenB}`, 'content-type': 'application/json' },
+      data: { email, role: 'member' },
+    });
     expect(invite.ok(), `invite status ${invite.status()}`).toBe(true);
     const body = (await readJsonSafe(invite)) as any;
     const inviteUrl: string | undefined = body?.data?.inviteUrl;
