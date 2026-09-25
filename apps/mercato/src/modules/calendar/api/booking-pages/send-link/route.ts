@@ -130,6 +130,7 @@ export async function POST(req: Request, ctx: any) {
 
     // Send the email
     const result = await sendEmailByPurpose(knex, auth.orgId, auth.tenantId, 'transactional', {
+      actingUserId: auth.sub || null,
       to: contact.primary_email,
       subject,
       htmlBody,

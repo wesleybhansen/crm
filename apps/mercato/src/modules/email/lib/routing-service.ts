@@ -119,8 +119,9 @@ export async function getProviderForPurpose(
   knex: Knex,
   orgId: string,
   purpose: EmailPurpose,
+  actingUserId: string | null = null,
 ): Promise<ResolvedProvider | null> {
-  const resolved = await resolveProviderForPurpose(knex, orgId, purpose)
+  const resolved = await resolveProviderForPurpose(knex, orgId, purpose, actingUserId)
   if (!resolved) return null
   // Callers use `connection` / `espConnection` for credentials, so the sealed
   // columns have to be opened here rather than at every send site.
@@ -153,6 +154,103 @@ export const EMAIL_NOT_CONNECTED_MESSAGE =
   'Connect an email account in Settings before sending; nothing will be sent until then.'
 
 /**
+ * Refusal when the org has mailboxes, but none the send may use: the acting
+ * user has no mailbox of their own and nothing is designated for the org.
+ */
+export const OWN_MAILBOX_REQUIRED_MESSAGE =
+  'Connect your own email account in Settings, or ask an admin to set a shared sending account.'
+
+export type SenderMailboxResolution =
+  | { connection: Record<string, any>; via: 'own' | 'designated' | 'support' | 'sole_owner' }
+  | { connection: null; reason: 'no_mailbox' | 'no_own_mailbox' }
+
+/**
+ * Which connected mailbox (Gmail / Outlook / SMTP) a send may go out from.
+ * Mail never leaves from a teammate's personal address (2026-09-24):
+ *
+ * 1. An acting user (someone clicked send / approve) sends from their OWN
+ *    active mailbox.
+ * 2. Otherwise only a mailbox the org explicitly designated: an email_routing
+ *    row for the purpose (Settings > Email routing) or, when allowed, the
+ *    dedicated Customer Service mailbox (purpose 'customer_service'), which is
+ *    shared by design. `is_primary` is NOT a designation: it is set per user
+ *    automatically on each user's first mailbox.
+ * 3. A system send (no acting user: sequences, automations, crons) in an org
+ *    whose active mailboxes all belong to ONE person uses that person's
+ *    mailbox: it is the org's own sender, not a teammate's.
+ * 4. Anything else is refused (OWN_MAILBOX_REQUIRED_MESSAGE when mailboxes
+ *    exist, EMAIL_NOT_CONNECTED_MESSAGE when none do). ESPs are org-level and
+ *    are handled by the purpose routing before this is reached.
+ *
+ * Reads rows only; never opens sealed credentials.
+ */
+export async function resolveSenderMailbox(
+  knex: Knex,
+  orgId: string,
+  actingUserId: string | null | undefined,
+  options: { routingPurpose?: EmailPurpose; allowSupportMailbox?: boolean } = {},
+): Promise<SenderMailboxResolution> {
+  if (actingUserId) {
+    const mine: Array<Record<string, any>> = await knex('email_connections')
+      .where('organization_id', orgId)
+      .where('user_id', actingUserId)
+      .where('is_active', true)
+      .orderBy('is_primary', 'desc')
+      .select('*')
+    // Personal mailbox (purpose null) before a support mailbox the user set up.
+    const own = mine.find((c) => c.purpose == null) ?? mine[0]
+    if (own) return { connection: own, via: 'own' }
+  }
+
+  if (options.routingPurpose) {
+    const routing = await knex('email_routing')
+      .where('organization_id', orgId)
+      .where('purpose', options.routingPurpose)
+      .where('provider_type', 'connection')
+      .first()
+    if (routing) {
+      const conn = await knex('email_connections')
+        .where('id', routing.provider_id)
+        .where('organization_id', orgId)
+        .where('is_active', true)
+        .first()
+      if (conn) return { connection: conn, via: 'designated' }
+    }
+  }
+
+  if (options.allowSupportMailbox) {
+    const support = await knex('email_connections')
+      .where('organization_id', orgId)
+      .where('purpose', 'customer_service')
+      .where('is_active', true)
+      .first()
+    if (support) return { connection: support, via: 'support' }
+  }
+
+  const active: Array<Record<string, any>> = await knex('email_connections')
+    .where('organization_id', orgId)
+    .where('is_active', true)
+    .orderBy('is_primary', 'desc')
+    .select('*')
+  if (active.length === 0) return { connection: null, reason: 'no_mailbox' }
+
+  if (!actingUserId) {
+    const owners = new Set(active.map((c) => c.user_id ?? null))
+    if (owners.size === 1) {
+      // Prefer the personal mailbox over a support mailbox.
+      const personal = active.find((c) => c.purpose == null) ?? active[0]
+      return { connection: personal, via: 'sole_owner' }
+    }
+  }
+  return { connection: null, reason: 'no_own_mailbox' }
+}
+
+/** The customer-facing refusal for a failed resolveSenderMailbox. */
+export function senderMailboxRefusal(reason: 'no_mailbox' | 'no_own_mailbox'): string {
+  return reason === 'no_own_mailbox' ? OWN_MAILBOX_REQUIRED_MESSAGE : EMAIL_NOT_CONNECTED_MESSAGE
+}
+
+/**
  * True when the org has its own sending setup for this purpose (a connected
  * mailbox or an ESP with a usable from address): exactly the condition under
  * which sendEmailByPurpose can pick a provider. Reads rows only; never opens
@@ -162,8 +260,9 @@ export async function hasSendingSetup(
   knex: Knex,
   orgId: string,
   purpose: EmailPurpose,
+  actingUserId: string | null = null,
 ): Promise<boolean> {
-  return (await resolveProviderForPurpose(knex, orgId, purpose)) !== null
+  return (await resolveProviderForPurpose(knex, orgId, purpose, actingUserId)) !== null
 }
 
 /**
@@ -188,14 +287,16 @@ export async function resolveSenderAddress(
   knex: Knex,
   orgId: string,
   purpose: EmailPurpose,
+  actingUserId: string | null = null,
 ): Promise<string | null> {
-  return (await resolveProviderForPurpose(knex, orgId, purpose))?.fromAddress ?? null
+  return (await resolveProviderForPurpose(knex, orgId, purpose, actingUserId))?.fromAddress ?? null
 }
 
 async function resolveProviderForPurpose(
   knex: Knex,
   orgId: string,
   purpose: EmailPurpose,
+  actingUserId: string | null = null,
 ): Promise<ResolvedProvider | null> {
   // 1. Check configured routing
   const routing = await knex('email_routing')
@@ -249,10 +350,12 @@ async function resolveProviderForPurpose(
   }
 
   // 2. For inbox, must be a receivable connection (no ESP fallback)
+  // Mailbox fallbacks follow resolveSenderMailbox: the acting user's own
+  // mailbox, or (system sends) the org's only mailbox owner. Never the first
+  // mailbox of whichever teammate happens to sort first.
   if (purpose === 'inbox') {
-    const conn = await knex('email_connections')
-      .where('organization_id', orgId).where('is_active', true)
-      .orderBy('is_primary', 'desc').first()
+    const picked = await resolveSenderMailbox(knex, orgId, actingUserId)
+    const conn = picked.connection
     if (conn) {
       return { type: 'connection', provider: conn.provider, fromName: null, fromAddress: conn.email_address, connection: conn }
     }
@@ -262,9 +365,6 @@ async function resolveProviderForPurpose(
   // Look up what's available
   const esp = await knex('esp_connections')
     .where('organization_id', orgId).where('is_active', true).first()
-  const conn = await knex('email_connections')
-    .where('organization_id', orgId).where('is_active', true)
-    .orderBy('is_primary', 'desc').first()
 
   // Check for default sender address from the new table
   const defaultSender = await knex('esp_sender_addresses')
@@ -284,7 +384,8 @@ async function resolveProviderForPurpose(
     return { type: 'esp', provider: esp.provider, fromName: espFromName, fromAddress: espFromAddr, espConnection: esp }
   }
 
-  // 4. Connected email — always has a real from address
+  // 4. A mailbox this send may use (see resolveSenderMailbox)
+  const conn = (await resolveSenderMailbox(knex, orgId, actingUserId)).connection
   if (conn) {
     return { type: 'connection', provider: conn.provider, fromName: null, fromAddress: conn.email_address, connection: conn }
   }

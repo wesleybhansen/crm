@@ -119,6 +119,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const bccList = body.bcc ? body.bcc.split(',').map((s: string) => s.trim()).filter(Boolean) : []
 
     const routerResult = await sendEmailByPurpose(knex, auth.orgId, auth.tenantId || '', 'invoices', {
+      actingUserId: auth.sub || null,
       to: email,
       subject,
       htmlBody: emailHtml,

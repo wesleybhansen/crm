@@ -335,6 +335,9 @@ export async function POST(req: Request) {
                 contactId,
                 // Personal inbox = 1:1 mail; no tracking/unsubscribe injection.
                 skipTracking: true,
+                // Reply from the mailbox that received the message (its owner),
+                // never a teammate's.
+                sentByUserId: ownerUserId,
               })
 
               if (sendResult.ok) {

@@ -53,6 +53,7 @@ export async function POST(req: Request) {
       .replace(/\{\{email\}\}/g, toEmail)
 
     const result = await sendEmailByPurpose(knex, auth.orgId, auth.tenantId, 'marketing', {
+      actingUserId: auth.sub || null,
       to: toEmail,
       subject: `[TEST] ${subjectLine}`,
       htmlBody: bodyHtml,

@@ -48,6 +48,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       try {
         const result = await sendEmailByPurpose(knex, auth.orgId, tenantId, 'marketing', {
+          actingUserId: auth.sub || null,
           to: att.attendee_email,
           subject,
           htmlBody: html,

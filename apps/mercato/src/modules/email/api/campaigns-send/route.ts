@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     // No sending setup, no blast (2026-09-24): refuse before claiming, so the
     // blast stays a draft and no recipient or message row is written. Before,
     // every recipient failed one by one and the blast ended 'failed' with a 502.
-    const senderAddress = await resolveSenderAddress(knex, auth.orgId, 'marketing')
+    const senderAddress = await resolveSenderAddress(knex, auth.orgId, 'marketing', auth.sub || null)
     if (!senderAddress) {
       return NextResponse.json(
         { ok: false, code: EMAIL_NOT_CONNECTED_CODE, error: EMAIL_NOT_CONNECTED_MESSAGE },
@@ -222,6 +222,7 @@ export async function POST(req: Request) {
       // Send via email router
       try {
         const result = await sendEmailByPurpose(knex, auth.orgId, tenantId, 'marketing', {
+          actingUserId: auth.sub || null,
           to: toEmail,
           subject: personalizedSubject,
           htmlBody: html,

@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import { sendEmailForOrg } from '@/modules/email/lib/email-router'
 import { EmailSenderService } from '@/modules/email/services/email-sender'
 import { upsertInboxConversation } from '@/lib/inbox-conversation'
+import { resolveSenderMailbox, senderMailboxRefusal } from '../../email/lib/routing-service'
 
 /**
  * Shared "send a drafted customer-service reply for the org" logic. Factored out
@@ -56,18 +57,20 @@ export async function sendReply(
     return { ok: false, error: 'Draft is missing a recipient or body', status: 400 }
   }
 
-  // Resolve a sending user: owner of the org's primary/first active email
-  // connection. sendEmailForOrg routes through that user's provider.
-  const connection = await knex('email_connections')
-    .where('organization_id', orgId)
-    .where('is_active', true)
-    .orderBy('is_primary', 'desc')
-    .first()
+  // Resolve the mailbox this reply may go out from (resolveSenderMailbox): the
+  // acting user's own mailbox; else one the org designated (inbox routing, or
+  // the shared Customer Service mailbox); else, for an unattended send, the
+  // org's only mailbox owner. Never a teammate's personal address.
+  const picked = await resolveSenderMailbox(knex, orgId, input.sentByUserId ?? null, {
+    routingPurpose: 'inbox',
+    allowSupportMailbox: true,
+  })
+  const connection = picked.connection
 
   if (!connection) {
     return {
       ok: false,
-      error: 'No email account connected. Connect Gmail, Outlook, or an ESP in Settings.',
+      error: senderMailboxRefusal(picked.connection === null ? picked.reason : 'no_mailbox'),
       status: 400,
     }
   }
@@ -92,6 +95,7 @@ export async function sendReply(
     htmlBody: trackedHtml,
     textBody: bodyText,
     contactId: contactId || undefined,
+    connectionId: connection.id,
   })
 
   if (!routerResult.ok) {

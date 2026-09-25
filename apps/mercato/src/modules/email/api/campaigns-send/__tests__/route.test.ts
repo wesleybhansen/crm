@@ -77,7 +77,7 @@ describe('POST /api/email/campaigns-send sending pre-check', () => {
       code: 'email_not_connected',
       error: 'Connect an email account in Settings before sending; nothing will be sent until then.',
     })
-    expect(mockResolveSender).toHaveBeenCalledWith(expect.anything(), 'org-1', 'marketing')
+    expect(mockResolveSender).toHaveBeenCalledWith(expect.anything(), 'org-1', 'marketing', 'user-1')
     expect(mockSend).not.toHaveBeenCalled()
     expect(writes).toHaveLength(0)
   })

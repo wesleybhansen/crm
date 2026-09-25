@@ -9,7 +9,14 @@ import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretC
 import { sendViaGmail, getGmailToken } from './gmail-service'
 import { sendViaOutlook, getOutlookToken } from './outlook-service'
 import { sendViaESP } from './esp-service'
-import { EMAIL_NOT_CONNECTED_CODE, type EmailPurpose } from './routing-service'
+import {
+  EMAIL_NOT_CONNECTED_CODE,
+  OWN_MAILBOX_REQUIRED_MESSAGE,
+  resolveSenderMailbox,
+  senderMailboxRefusal,
+  type EmailPurpose,
+} from './routing-service'
+
 import { EMAIL_NOT_SENT_NOT_CONNECTED } from './sending-readiness'
 import { logTimelineEvent } from '../../../lib/timeline'
 
@@ -21,6 +28,12 @@ interface SendEmailParams {
   htmlBody: string
   textBody?: string
   contactId?: string
+  /**
+   * Pin the exact mailbox (an email_connections id that must belong to
+   * `userId`). Used when the sender was resolved as an org-designated or
+   * support mailbox rather than the user's own primary.
+   */
+  connectionId?: string
 }
 
 interface SendEmailResult {
@@ -54,15 +67,15 @@ export async function sendEmailForOrg(
   userId: string,
   params: SendEmailParams,
 ): Promise<SendEmailResult> {
-  const { to, cc, bcc, subject, htmlBody, textBody, contactId } = params
+  const { to, cc, bcc, subject, htmlBody, textBody, contactId, connectionId } = params
 
-  // Find user's email connection — prefer primary, then any active
-  const connection = await knex('email_connections')
+  // Find user's email connection — the pinned one, else primary, then any active
+  const connectionQuery = knex('email_connections')
     .where('organization_id', orgId)
     .where('user_id', userId)
     .where('is_active', true)
-    .orderBy('is_primary', 'desc')
-    .first()
+  if (connectionId) connectionQuery.where('id', connectionId)
+  const connection = await connectionQuery.orderBy('is_primary', 'desc').first()
 
   console.log('[email-router] Looking up connection for orgId:', orgId, 'userId:', userId, 'found:', connection?.provider || 'NONE', 'active:', connection?.is_active)
 
@@ -213,6 +226,8 @@ export async function sendBulkEmailForOrg(
   recipients: string[],
   subject: string,
   htmlBody: string,
+  /** Who is sending; null for a system send. Decides the mailbox fallback. */
+  actingUserId: string | null = null,
 ): Promise<BulkSendResult> {
   // Check if org has an ESP connection
   const espConnection = await knex('esp_connections')
@@ -256,22 +271,22 @@ export async function sendBulkEmailForOrg(
     }
   }
 
-  // No ESP — fall back to user's personal email connection
-  // Find any active connection for the org (prefer primary)
-  const connection = await knex('email_connections')
-    .where('organization_id', orgId)
-    .where('is_active', true)
-    .orderBy('is_primary', 'desc')
-    .first()
+  // No ESP: fall back to a mailbox this send may use: the acting user's own,
+  // an org-designated marketing mailbox, or (system sends) the org's only
+  // mailbox owner. Never a teammate's personal address.
+  const picked = await resolveSenderMailbox(knex, orgId, actingUserId, { routingPurpose: 'marketing' })
+  const connection = picked.connection
 
   if (!connection) {
+    const error = senderMailboxRefusal(picked.connection === null ? picked.reason : 'no_mailbox')
     return {
       ok: false,
       total: recipients.length,
       sent: 0,
       failed: recipients.length,
-      results: recipients.map(to => ({ to, ok: false, error: 'No email connection configured' })),
+      results: recipients.map(to => ({ to, ok: false, error })),
       sentVia: 'none',
+      warning: error,
     }
   }
 
@@ -285,6 +300,7 @@ export async function sendBulkEmailForOrg(
         to,
         subject,
         htmlBody,
+        connectionId: connection.id,
       })
 
       if (sendResult.ok) {
@@ -324,12 +340,38 @@ export async function sendEmailByPurpose(
   orgId: string,
   tenantId: string,
   purpose: EmailPurpose,
-  params: SendEmailParams & { fromName?: string },
+  params: SendEmailParams & {
+    fromName?: string
+    /**
+     * The user who triggered this send (clicked send, approved), or null for a
+     * system send (sequences, automations, crons). With a user, a mailbox
+     * fallback uses only that user's own mailbox; see resolveSenderMailbox.
+     */
+    actingUserId?: string | null
+  },
 ): Promise<SendEmailResult> {
   const { getProviderForPurpose } = await import('./routing-service')
-  const resolved = await getProviderForPurpose(knex, orgId, purpose)
+  const actingUserId = params.actingUserId ?? null
+  const resolved = await getProviderForPurpose(knex, orgId, purpose, actingUserId)
 
   if (!resolved) {
+    // Mailboxes exist but none this send may use: say so plainly rather than
+    // "not connected", which would confuse a teammate whose colleague is.
+    const picked = await resolveSenderMailbox(knex, orgId, actingUserId).catch(() => null)
+    if (picked && picked.connection === null && picked.reason === 'no_own_mailbox') {
+      if (params.contactId) {
+        await logTimelineEvent(knex, {
+          tenantId,
+          organizationId: orgId,
+          contactId: params.contactId,
+          eventType: 'email_not_sent',
+          title: `Email not sent: ${params.subject || '(no subject)'}`,
+          description: `Not sent: ${OWN_MAILBOX_REQUIRED_MESSAGE}`,
+          metadata: { purpose, reason: EMAIL_NOT_CONNECTED_CODE },
+        }).catch(() => {})
+      }
+      return { ok: false, code: EMAIL_NOT_CONNECTED_CODE, error: OWN_MAILBOX_REQUIRED_MESSAGE }
+    }
     // Never a fallback sender. Make the skip visible where the owner looks: the
     // contact's timeline, when the send was for a contact.
     if (params.contactId) {

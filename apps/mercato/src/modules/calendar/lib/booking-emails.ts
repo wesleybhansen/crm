@@ -164,7 +164,10 @@ export async function sendBookingConfirmationToGuest(params: BookingEmailParams)
   const htmlBody = buildEmailWrapper(content)
 
   // Send the email via personal connection (Gmail/Outlook) so it comes from the business owner
+  // The booking page's host is the acting user: the confirmation goes from the
+  // host's own mailbox (or the org's designated one), never a teammate's.
   const result = await sendEmailByPurpose(knex, orgId, tenantId, 'inbox', {
+    actingUserId: ownerUserId || null,
     to: booking.guest_email,
     subject,
     htmlBody,
