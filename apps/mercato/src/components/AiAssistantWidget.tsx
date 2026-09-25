@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { X, Send, Loader2, Sparkles, Check, XCircle, Trash2, Maximize2, Minimize2, BarChart3, Calendar, CheckSquare, Zap, Mic, HelpCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { SCOUT_WIDGET_ATTR, useOverlayOpen } from './overlayDetection'
 
 type CrmAction = {
   type: string
@@ -405,6 +406,9 @@ function MarkdownText({ text, onNavigate }: { text: string; onNavigate: (path: s
 export function AiAssistantWidget() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  // Hide the floating button while a drawer or dialog is open, so it never
+  // covers that drawer's own controls.
+  const overlayOpen = useOverlayOpen()
   // Mutual exclusion with the NotificationBell panel — the two floating
   // surfaces cover the same corner and shouldn't overlap. Opening either
   // dispatches a global event that closes the other.
@@ -591,9 +595,10 @@ export function AiAssistantWidget() {
   return (
     <>
       {/* Toggle button */}
-      {!open && (
+      {!open && !overlayOpen && (
         <button
           type="button"
+          {...{ [SCOUT_WIDGET_ATTR]: '' }}
           onClick={openScout}
           className="fixed bottom-5 right-5 z-50 w-12 h-12 rounded-full bg-accent text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center"
           aria-label={`Open ${personaName}`}
@@ -605,7 +610,7 @@ export function AiAssistantWidget() {
 
       {/* Chat panel */}
       {open && (
-        <div className={`fixed bottom-5 right-5 z-50 ${panelSize} rounded-2xl border bg-background shadow-2xl flex flex-col overflow-hidden transition-all duration-200`}>
+        <div {...{ [SCOUT_WIDGET_ATTR]: '' }} className={`fixed bottom-5 right-5 z-50 ${panelSize} rounded-2xl border bg-background shadow-2xl flex flex-col overflow-hidden transition-all duration-200`}>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b bg-card shrink-0">
             <div className="flex items-center gap-2">
