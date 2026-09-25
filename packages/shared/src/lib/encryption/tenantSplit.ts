@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { keyIdForDek } from './aes'
 import { parseEnvelope } from './envelopeFormat'
+import { ENCRYPTED_BACKFILL_TABLES } from './plaintextBackfill'
 import {
   addRekeyCounts,
   buildRoleIdMap,
@@ -158,6 +159,63 @@ export type VerificationReport = {
   apiKeyProblems: Array<{ apiKeyId: string; problem: string }>
   crossTenantReferences: Array<{ table: string; column: string; refTable: string; rows: number }>
   unscopedTables: string[]
+  /**
+   * Non-envelope values in encrypted-by-design columns of the moved rows.
+   * Fatal: a split that "verifies OK" over plaintext PII is how six of nine
+   * production user emails went unnoticed. Run the plaintext backfill first.
+   */
+  plaintextMappedValues: Array<{ table: string; column: string; count: number }>
+}
+
+/** Same literal as tenantDataEncryptionService.UNDECRYPTABLE_DISPLAY_TEXT (no runtime import cycle). */
+const UNDECRYPTABLE_TEXT = 'This record could not be decrypted. Contact support.'
+
+/**
+ * Count values that are not envelopes in every column an active encryption
+ * map lists for the backfill tables (users, event registrations and the
+ * contact graph), for the given organizations. Counts only, never a value.
+ */
+export async function countPlaintextMappedValues(
+  q: SplitQuery,
+  schema: { tables: Map<string, TableInfo> },
+  orgIds: string[],
+): Promise<Array<{ table: string; column: string; count: number }>> {
+  const out: Array<{ table: string; column: string; count: number }> = []
+  if (!orgIds.length) return out
+  for (const { entityId, table } of ENCRYPTED_BACKFILL_TABLES) {
+    const info = schema.tables.get(table)
+    if (!info) continue
+    const columns = new Set(info.columns.map((c) => c.column))
+    if (!columns.has('organization_id')) continue
+    const maps = await q.query<{ fields_json: unknown }>(
+      `select fields_json from encryption_maps where entity_id = $1 and is_active = true and deleted_at is null
+          and (organization_id is null or organization_id = any($2::uuid[]))`,
+      [entityId, orgIds],
+    )
+    const fields = new Set<string>()
+    for (const row of maps.rows) {
+      let list = row.fields_json
+      if (typeof list === 'string') { try { list = JSON.parse(list) } catch { list = [] } }
+      for (const rule of Array.isArray(list) ? (list as Array<{ field?: unknown }>) : []) {
+        if (typeof rule?.field === 'string' && columns.has(rule.field)) fields.add(rule.field)
+      }
+    }
+    for (const column of fields) {
+      const res = await q.query<{ v: unknown }>(
+        `select t.${qi(column)} as v from ${qi(table)} t
+          where t.organization_id = any($1::uuid[]) and t.${qi(column)} is not null
+            and t.${qi(column)}::text <> '' and t.${qi(column)}::text <> $2`,
+        [orgIds, UNDECRYPTABLE_TEXT],
+      )
+      let n = 0
+      for (const row of res.rows) {
+        const value = row.v
+        if (typeof value === 'string' ? !parseEnvelope(value) : true) n++
+      }
+      if (n) out.push({ table, column, count: n })
+    }
+  }
+  return out
 }
 
 export type SplitReport = {
@@ -849,6 +907,7 @@ export async function verifyOrganization(
     apiKeyProblems: [],
     crossTenantReferences: [],
     unscopedTables: [],
+    plaintextMappedValues: [],
   }
   const newKeyId = keyIdForDek(opts.newKey)
   const users = (await q.query<{ id: string; tenant_id: string | null }>(
@@ -953,7 +1012,10 @@ export async function verifyOrganization(
     if (n) v.crossTenantReferences.push({ table: fk.table, column: fk.column, refTable: fk.refTable, rows: n })
   }
 
+  v.plaintextMappedValues = await countPlaintextMappedValues(q, schema, orgIds)
+
   v.ok =
+    v.plaintextMappedValues.length === 0 &&
     v.wrongTenantRows.length === 0 &&
     v.oldKeyIdEnvelopes.length === 0 &&
     v.newKeyUndecryptable.length === 0 &&
@@ -1198,6 +1260,7 @@ export function formatSplitReport(report: SplitReport): string[] {
         + ` new-key-undecryptable=${v.newKeyUndecryptable.map((t) => `${t.table}.${t.column}:${t.count}`).join(',') || 0}`)
       if (v.foreignEnvelopes.length) lines.push(`    foreign-key envelopes (unreadable before the move too): ${v.foreignEnvelopes.map((t) => `${t.table}.${t.column}:${t.count}`).join(',')}`)
       if (v.v1Envelopes.length) lines.push(`    v1 envelopes left (did not open with the old key): ${v.v1Envelopes.map((t) => `${t.table}.${t.column}:${t.count}`).join(',')}`)
+      if (v.plaintextMappedValues.length) lines.push(`    plaintext in encrypted columns (run the plaintext backfill): ${v.plaintextMappedValues.map((t) => `${t.table}.${t.column}:${t.count}`).join(',')}`)
       for (const p of v.userProblems) lines.push(`    user ${p.userId}: ${p.problem}`)
       for (const p of v.apiKeyProblems) lines.push(`    api key ${p.apiKeyId}: ${p.problem}`)
       for (const p of v.crossTenantReferences) lines.push(`    ${p.table}.${p.column} -> ${p.refTable} in the old tenant: ${p.rows}`)

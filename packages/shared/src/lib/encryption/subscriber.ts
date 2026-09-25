@@ -1,7 +1,7 @@
 import type { EntityMetadata, EventArgs, EventSubscriber, FlushEventArgs } from '@mikro-orm/core'
 import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
-import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { REQUIRED_ENCRYPTION_ENTITY_IDS, TenantDataEncryptionService } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
@@ -187,7 +187,14 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
         hashUpdates[rule.target] = normalized ? hashForLookup(normalized) : null
       }
     }
-    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
+    // The flushing EntityManager's transaction is used for the map lookup
+    // (maps flushed earlier in the same transaction are visible), and an
+    // entity every tenant must encrypt fails closed on a map miss: the flush
+    // throws instead of writing the row in clear.
+    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId, {
+      em,
+      requireMap: REQUIRED_ENCRYPTION_ENTITY_IDS.has(entityId),
+    })
     const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
       ? resolvedMeta.properties
       : {}

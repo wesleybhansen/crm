@@ -1,6 +1,7 @@
 /**
  * Encrypt contact rows (and their person/company/deal/activity/comment/address
- * rows) whose encrypted-by-design fields are still plaintext.
+ * rows), user emails (users) and event registrations (event_attendees) whose
+ * encrypted-by-design fields are still plaintext.
  *
  * Bundled by the Dockerfile builder stage into /app/scripts/reencrypt-plaintext-contacts.cjs
  * in the runner image (the mercato CLI cannot run there). Relative imports only.
@@ -20,7 +21,7 @@ import { TenantDataEncryptionService } from '../packages/shared/src/lib/encrypti
 import {
   BackfillRefusedError,
   BackfillVerificationError,
-  CONTACT_BACKFILL_TABLES,
+  ENCRYPTED_BACKFILL_TABLES,
   assertBackfillEnvironment,
   assertSafeToWrite,
   formatBackfillReport,
@@ -81,7 +82,7 @@ export function parseArgs(argv: string[]): Args {
   if (!Number.isFinite(args.batchSize) || args.batchSize < 1 || args.batchSize > 5000) {
     throw new BackfillRefusedError('--batch-size must be 1..5000')
   }
-  const known = new Set(CONTACT_BACKFILL_TABLES.map((t) => t.table))
+  const known = new Set(ENCRYPTED_BACKFILL_TABLES.map((t) => t.table))
   for (const t of args.tables) if (!known.has(t)) throw new BackfillRefusedError(`Unknown --table ${t}`)
   return args
 }
@@ -167,7 +168,7 @@ async function main(): Promise<number> {
       afterId: args.afterId,
       collectRowIds: args.showIds,
     }
-    console.log(`[reencrypt] mode=${args.execute ? 'EXECUTE' : 'dry-run'} tables=${(args.tables.length ? args.tables : CONTACT_BACKFILL_TABLES.map((t) => t.table)).join(',')} tenant=${args.tenantId ?? 'all'} org=${args.organizationId ?? 'all'} batch=${args.batchSize}`)
+    console.log(`[reencrypt] mode=${args.execute ? 'EXECUTE' : 'dry-run'} tables=${(args.tables.length ? args.tables : ENCRYPTED_BACKFILL_TABLES.map((t) => t.table)).join(',')} tenant=${args.tenantId ?? 'all'} org=${args.organizationId ?? 'all'} batch=${args.batchSize}`)
 
     // Always a full read-only pass first; a real run only proceeds if it is clean.
     const preflight = await runPlaintextBackfill(db, service, { ...common, dryRun: true, log: args.execute ? undefined : (l) => console.log(l) })

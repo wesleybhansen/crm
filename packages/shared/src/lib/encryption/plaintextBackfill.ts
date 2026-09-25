@@ -48,6 +48,22 @@ export const CONTACT_BACKFILL_TABLES: readonly BackfillTable[] = [
   { entityId: 'customers:customer_address', table: 'customer_addresses' },
 ]
 
+/**
+ * Mapped tables outside the contact graph (2026-09-25 review, H2/M11): user
+ * emails (six of nine production users were plaintext) and public event
+ * registrations. Same rules as the contact tables.
+ */
+export const NON_CONTACT_BACKFILL_TABLES: readonly BackfillTable[] = [
+  { entityId: 'auth:user', table: 'users' },
+  { entityId: 'customers:event_attendee', table: 'event_attendees' },
+]
+
+/** Every table the backfill knows. The default selection. */
+export const ENCRYPTED_BACKFILL_TABLES: readonly BackfillTable[] = [
+  ...CONTACT_BACKFILL_TABLES,
+  ...NON_CONTACT_BACKFILL_TABLES,
+]
+
 export type BackfillRow = Record<string, unknown>
 
 /** One statement runner. `$1..$n` placeholders (node-postgres style). */
@@ -150,7 +166,7 @@ export type BackfillReport = {
 export type BackfillOptions = {
   dryRun: boolean
   batchSize?: number
-  /** Restrict to these table names (default: every CONTACT_BACKFILL_TABLES entry). */
+  /** Restrict to these table names (default: every ENCRYPTED_BACKFILL_TABLES entry). */
   tables?: string[]
   tenantId?: string | null
   organizationId?: string | null
@@ -273,10 +289,10 @@ export async function runPlaintextBackfill(
     throw new BackfillRefusedError('Tenant data encryption service is not enabled (KMS unhealthy). Refusing to run.')
   }
   const selected = options.tables?.length
-    ? CONTACT_BACKFILL_TABLES.filter((t) => options.tables!.includes(t.table))
-    : [...CONTACT_BACKFILL_TABLES]
+    ? ENCRYPTED_BACKFILL_TABLES.filter((t) => options.tables!.includes(t.table))
+    : [...ENCRYPTED_BACKFILL_TABLES]
   if (options.tables?.length && selected.length !== options.tables.length) {
-    const known = CONTACT_BACKFILL_TABLES.map((t) => t.table).join(', ')
+    const known = ENCRYPTED_BACKFILL_TABLES.map((t) => t.table).join(', ')
     throw new BackfillRefusedError(`Unknown table in --table. Known: ${known}`)
   }
   if (options.afterId && selected.length !== 1) {
