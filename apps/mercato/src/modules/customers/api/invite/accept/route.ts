@@ -1,5 +1,8 @@
 // ORM-SKIP: security-critical auth flow — raw SQL conversion deferred for safety
-export const metadata = { path: '/invite/accept', GET: { requireAuth: true }, POST: { requireAuth: true } }
+// Public: the invitee is not signed in yet (it has no account); the single-
+// use invite token is the credential. requireAuth: true (since 2026-04-10)
+// made every invite link a 401, so no invite could ever be accepted.
+export const metadata = { path: '/invite/accept', GET: { requireAuth: false }, POST: { requireAuth: false } }
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
