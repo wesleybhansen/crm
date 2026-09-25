@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { INTEGRATIONS_HOME } from '../../../lib/legacy-redirects'
 
 export const metadata = {
   event: 'data_sync.run.failed',
@@ -53,9 +54,9 @@ export default async function handle(payload: SyncRunFailedPayload, ctx: Resolve
       bodyVariables: { integrationName: integrationLabel, error: errorSnippet },
       sourceEntityType: 'data_sync:run',
       sourceEntityId: payload.runId,
-      linkHref: payload.integrationId
-        ? `/backend/integrations/${payload.integrationId}`
-        : '/backend/integrations',
+      // The integrations module is not enabled in this app, so its pages 404.
+      // Connections are managed in Settings.
+      linkHref: INTEGRATIONS_HOME,
       groupKey: payload.integrationId ? `sync-failed-${payload.integrationId}` : `sync-failed-${payload.runId}`,
     })
 

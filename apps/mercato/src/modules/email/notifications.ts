@@ -1,4 +1,5 @@
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import { INTEGRATIONS_HOME } from '../../lib/legacy-redirects'
 
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
@@ -13,11 +14,11 @@ export const notificationTypes: NotificationTypeDefinition[] = [
         id: 'view',
         labelKey: 'common.view',
         variant: 'outline',
-        href: '/backend/integrations',
+        href: INTEGRATIONS_HOME,
         icon: 'external-link',
       },
     ],
-    linkHref: '/backend/integrations',
+    linkHref: INTEGRATIONS_HOME,
     expiresAfterHours: 72,
   },
 ]
