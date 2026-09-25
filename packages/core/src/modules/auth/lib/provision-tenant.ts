@@ -81,6 +81,7 @@ export async function createCustomerTenant(
   // transaction, and so must its ACL: a role with no ACL grants nothing.
   // ensureTenantSeeded re-applies the ACLs after commit (idempotent).
   await ensureTenantRoles(tem, String(tenant.id))
+  await ensureDefaultEncryptionMaps(tem, String(tenant.id), String(organization.id))
   if (input.modules?.length) {
     await ensureDefaultRoleAcls(tem, String(tenant.id), input.modules, { includeSuperadminRole: false })
     await tem.flush()
@@ -149,7 +150,13 @@ export async function tenantNeedsSeeding(em: EntityManager, tenantId: string): P
   return version !== null && version < CURRENT_TENANT_SEED_VERSION
 }
 
-async function ensureEncryptionMaps(tem: EntityManager, tenantId: string, organizationId: string): Promise<void> {
+/**
+ * The default encryption maps for one organization (idempotent). Every path
+ * that creates a tenant or an organization calls this, so a new workspace
+ * never writes a mapped entity without a map (2026-09-25: encryption fails
+ * closed on a missing map).
+ */
+export async function ensureDefaultEncryptionMaps(tem: EntityManager, tenantId: string, organizationId: string): Promise<void> {
   if (!isTenantDataEncryptionEnabled()) return
   for (const spec of DEFAULT_ENCRYPTION_MAPS) {
     const existing = await tem.findOne(EncryptionMap, {
@@ -276,7 +283,7 @@ export async function ensureTenantSeeded(
     // 2. encryption maps, before anything that writes encrypted rows.
     await work.transactional(async (tem) => {
       await ensureTenantRoles(tem as EntityManager, tenantId)
-      await ensureEncryptionMaps(tem as EntityManager, tenantId, organizationId)
+      await ensureDefaultEncryptionMaps(tem as EntityManager, tenantId, organizationId)
     })
     // 3. Role ACLs, hierarchy and onTenantCreated hooks. A customer tenant
     //    never gets a super-admin ACL: that flag reaches across tenants.

@@ -375,6 +375,25 @@ export class TenantDataEncryptionService {
     return null
   }
 
+  /** Insert the missing DEFAULT_ENCRYPTION_MAPS rows for one organization (idempotent per entity). */
+  private async ensureDefaultMaps(tenantId: string, organizationId: string, em?: unknown): Promise<void> {
+    const lookup = this.lookupSource(em)
+    if (!lookup) throw new TenantDataEncryptionMapMissingError('*', tenantId, organizationId, 'no-map')
+    for (const spec of DEFAULT_ENCRYPTION_MAPS) {
+      const sql = `
+        insert into encryption_maps (id, entity_id, tenant_id, organization_id, fields_json, is_active, created_at, updated_at)
+        select gen_random_uuid(), ?, ?, ?, ?::jsonb, true, now(), now()
+         where not exists (
+           select 1 from encryption_maps
+            where entity_id = ? and tenant_id = ? and organization_id = ? and deleted_at is null
+         )`
+      const params = [spec.entityId, tenantId, organizationId, JSON.stringify(spec.fields), spec.entityId, tenantId, organizationId]
+      if (lookup.trx) await lookup.conn.execute(sql, params, 'run', lookup.trx)
+      else await lookup.conn.execute(sql, params, 'run')
+    }
+    console.warn('[encryption] created missing default maps', { tenantId, organizationId })
+  }
+
   /** Query every candidate again, ignoring cached misses; a hit replaces them. */
   private async refreshMap(key: MapCacheKey, em?: unknown): Promise<EncryptionMapRecord | null> {
     const lookup = this.lookupSource(em)
@@ -551,6 +570,14 @@ export class TenantDataEncryptionService {
       // cache: a miss recorded before this tenant's maps were committed must
       // not turn into five minutes of refused writes.
       map = await this.refreshMap(mapKey, options?.em)
+      if ((!map || !map.fields?.length) && tenantId && REQUIRED_ENCRYPTION_ENTITY_IDS.has(entityId)) {
+        // Self-heal: an organization created by a path that wrote no maps gets
+        // the default maps now (in the caller's transaction), and the row is
+        // encrypted with them. Never a plaintext write; if this fails, the
+        // write fails.
+        await this.ensureDefaultMaps(tenantId, organizationId, options?.em)
+        map = await this.refreshMap(mapKey, options?.em)
+      }
     }
     if (!map || !map.fields?.length) {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })

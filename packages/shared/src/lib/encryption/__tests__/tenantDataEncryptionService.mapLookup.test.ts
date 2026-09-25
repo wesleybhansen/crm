@@ -98,11 +98,37 @@ describe('fail closed for entities every tenant must encrypt', () => {
     expect(REQUIRED_ENCRYPTION_ENTITY_IDS.has('customers:customer_entity')).toBe(true)
   })
 
-  it('throws instead of returning plaintext when requireMap is set and no map resolves', async () => {
+  it('throws instead of returning plaintext when requireMap is set and no map can be resolved or created', async () => {
     const service = new TenantDataEncryptionService(emptyEm as any, { kms: createKmsService() })
     await expect(
       service.encryptEntityPayload('auth:user', { email: 'ada@example.com' }, crypto.randomUUID(), crypto.randomUUID(), { requireMap: true }),
     ).rejects.toBeInstanceOf(TenantDataEncryptionMapMissingError)
+  })
+
+  it('self-heals: creates the missing default maps, then encrypts (never plaintext)', async () => {
+    const tenant = crypto.randomUUID()
+    const org = crypto.randomUUID()
+    const maps: Array<{ entity_id: string; tenant_id: string; organization_id: string; fields_json: unknown }> = []
+    const em = {
+      getTransactionContext: () => undefined,
+      getConnection: () => ({
+        async execute(sql: string, params: unknown[]) {
+          if (/insert into encryption_maps/.test(sql)) {
+            const [entityId, t, o, fields] = params as [string, string, string, string]
+            if (!maps.some((m) => m.entity_id === entityId && m.tenant_id === t && m.organization_id === o)) {
+              maps.push({ entity_id: entityId, tenant_id: t, organization_id: o, fields_json: JSON.parse(fields) })
+            }
+            return []
+          }
+          if (/organization_id is not null/.test(sql)) return []
+          return maps.filter((m) => m.entity_id === params[0] && m.tenant_id === params[1] && m.organization_id === params[2])
+        },
+      }),
+    }
+    const service = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+    const out = await service.encryptEntityPayload('auth:user', { email: 'ada@example.com' }, tenant, org, { requireMap: true })
+    expect(isEncryptedEnvelope(out.email)).toBe(true)
+    expect(maps.some((m) => m.entity_id === 'customers:customer_entity')).toBe(true)
   })
 
   it('still passes an unmapped, optional entity through', async () => {

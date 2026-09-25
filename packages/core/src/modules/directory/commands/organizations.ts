@@ -335,6 +335,15 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
     await rebuildHierarchyForTenant(em, tenantId)
 
+    // Encryption maps for the new organization: mapped entities fail closed
+    // without one (the service would otherwise self-heal on first write).
+    try {
+      const { ensureDefaultEncryptionMaps } = await import('@open-mercato/core/modules/auth/lib/provision-tenant')
+      await ensureDefaultEncryptionMaps(em.fork(), tenantId, recordId)
+    } catch (err) {
+      console.error('[directory.organizations.create] Encryption maps failed', err)
+    }
+
     // Default pipeline, stages, deal statuses and currencies so the new
     // workspace can create deals. Best-effort: never fails the create.
     try {
