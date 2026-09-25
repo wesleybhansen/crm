@@ -5,6 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Plus, Send, Mail, X, Loader2, Users, Eye, FlaskConical, Sparkles, LayoutTemplate, ArrowLeft, Trash2, Pencil } from 'lucide-react'
+import { blastErrorMessage, fillBlastVariables, parseTestRecipient } from '../../lib/blastPreview'
 
 type Campaign = {
   id: string; name: string; subject: string; body_html: string; status: string
@@ -103,6 +104,13 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
   const [showAiPrompt, setShowAiPrompt] = useState(false)
   const [aiDraftPrompt, setAiDraftPrompt] = useState('')
   const [testing, setTesting] = useState<string | null>(null)
+  // Test send: which blast's test panel is open, where it goes, and the outcome.
+  const [testFor, setTestFor] = useState<string | null>(null)
+  const [testTo, setTestTo] = useState('')
+  const [defaultTestTo, setDefaultTestTo] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [saveError, setSaveError] = useState('')
+  const [draftError, setDraftError] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -205,12 +213,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
 
   function buildFinalHtml(bodyContent: string, forPreview = false): string {
     let formattedBody = bodyContent.replace(/\n/g, '<br>')
-    if (forPreview) {
-      formattedBody = formattedBody
-        .replace(/\{\{firstName\}\}/g, 'John')
-        .replace(/\{\{name\}\}/g, 'John Smith')
-        .replace(/\{\{email\}\}/g, 'john@example.com')
-    }
+    if (forPreview) formattedBody = fillBlastVariables(formattedBody)
 
     if (!selectedTemplate) {
       return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,system-ui,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1a1a1a;font-size:15px;line-height:1.6}a{color:#3b82f6}</style></head><body>${formattedBody}</body></html>`
@@ -232,6 +235,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
   async function saveCampaign() {
     if (!name.trim() || !subject.trim() || !body.trim()) return
     setCreating(true)
+    setSaveError('')
     const payload = {
       name, subject,
       bodyHtml: buildFinalHtml(body),
@@ -250,8 +254,11 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
             body: JSON.stringify(payload),
           })
       const data = await res.json()
-      if (data.ok) { setName(''); setSubject(''); setBody(''); setTagFilter(''); setShowCreate(false); setSelectedTemplate(null); setEditingId(null); loadCampaigns() }
-    } catch {}
+      if (res.ok && data?.ok) { setName(''); setSubject(''); setBody(''); setTagFilter(''); setShowCreate(false); setSelectedTemplate(null); setEditingId(null); loadCampaigns() }
+      else setSaveError(blastErrorMessage(data, editingId ? 'Could not save this blast. Try again.' : 'Could not create this blast. Try again.'))
+    } catch {
+      setSaveError(editingId ? 'Could not save this blast. Check your connection and try again.' : 'Could not create this blast. Check your connection and try again.')
+    }
     setCreating(false)
   }
 
@@ -272,6 +279,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
 
   async function draftWithAI() {
     setDrafting(true)
+    setDraftError('')
     try {
       const parts: string[] = []
       if (name.trim()) parts.push(`Blast name: ${name}`)
@@ -285,8 +293,43 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
       })
       const data = await res.json()
       if (data.ok) { setSubject(data.subject); setBody(data.body); setShowAiPrompt(false); setAiDraftPrompt('') }
-    } catch {}
+      else setDraftError(blastErrorMessage(data, 'Could not draft this email. Try again.'))
+    } catch { setDraftError('Could not draft this email. Check your connection and try again.') }
     setDrafting(false)
+  }
+
+  function openTest(id: string) {
+    setTestFor(id)
+    setTestResult(null)
+    if (defaultTestTo === null) {
+      fetch('/api/email/campaigns-test', { credentials: 'include' })
+        .then(r => r.json())
+        .then(d => {
+          const to = d?.ok && typeof d.defaultTo === 'string' ? d.defaultTo : ''
+          setDefaultTestTo(to)
+          setTestTo(prev => prev || to)
+        })
+        .catch(() => setDefaultTestTo(''))
+    } else {
+      setTestTo(prev => prev || defaultTestTo)
+    }
+  }
+
+  async function sendTest(id: string) {
+    const to = parseTestRecipient(testTo)
+    if (!to) { setTestResult({ ok: false, message: 'Enter one valid email address.' }); return }
+    setTesting(id)
+    setTestResult(null)
+    try {
+      const res = await fetch(`/api/email/campaigns-test?id=${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ to }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.ok) setTestResult({ ok: true, message: `Test sent to ${data.sentTo || to}.` })
+      else setTestResult({ ok: false, message: blastErrorMessage(data, 'Could not send the test.') })
+    } catch { setTestResult({ ok: false, message: 'Could not send the test. Check your connection and try again.' }) }
+    setTesting(null)
   }
 
   async function deleteTemplate(id: string) {
@@ -392,12 +435,12 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                                 </div>
                               </div>
                             </button>
-                            <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
-                              <IconButton type="button" variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setPreviewTemplate(t) }} aria-label="Preview">
+                            <div className="absolute top-1 right-1 flex gap-0.5 opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100 transition">
+                              <IconButton type="button" variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setPreviewTemplate(t) }} aria-label={`Preview ${t.name}`}>
                                 <Eye className="size-3" />
                               </IconButton>
                               {!t.is_default && (
-                                <IconButton type="button" variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); deleteTemplate(t.id) }} aria-label="Delete">
+                                <IconButton type="button" variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); deleteTemplate(t.id) }} aria-label={`Delete template ${t.name}`}>
                                   <Trash2 className="size-3 text-[#b91c1c] dark:text-[#f87171]" />
                                 </IconButton>
                               )}
@@ -413,9 +456,9 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
           {/* Step 2: Compose */}
           {step === 'compose' && (
             <>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setStep('template')} className="text-muted-foreground hover:text-foreground transition">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  <button type="button" onClick={() => setStep('template')} aria-label="Back to styles" className="inline-flex items-center justify-center size-10 sm:size-auto -ml-2 sm:ml-0 text-muted-foreground hover:text-foreground transition">
                     <ArrowLeft className="size-4" />
                   </button>
                   <h3 className="text-sm font-semibold">{editingId ? 'Edit Blast' : 'New Blast'}</h3>
@@ -447,6 +490,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                     </Button>
                     <Button type="button" variant="outline" size="sm" onClick={() => { setShowAiPrompt(false); setAiDraftPrompt('') }} className="h-7 text-xs">Cancel</Button>
                   </div>
+                  {draftError && <p role="alert" className="text-xs text-[#b91c1c] dark:text-[#f87171]">{draftError}</p>}
                 </div>
               )}
 
@@ -505,7 +549,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                   <p className="text-[10px] text-muted-foreground mt-1">Variables: {'{{firstName}}'}, {'{{name}}'}, {'{{email}}'}</p>
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2 border-t">
+              <div className="flex flex-wrap justify-end gap-2 pt-2 border-t">
                 <Button type="button" variant="outline" size="sm" onClick={() => setStep('template')}>
                   <ArrowLeft className="size-3 mr-1" /> Change Template
                 </Button>
@@ -522,7 +566,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
             <>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setStep('compose')} className="text-muted-foreground hover:text-foreground transition">
+                  <button type="button" onClick={() => setStep('compose')} aria-label="Back to editing" className="inline-flex items-center justify-center size-10 sm:size-auto -ml-2 sm:ml-0 text-muted-foreground hover:text-foreground transition">
                     <ArrowLeft className="size-4" />
                   </button>
                   <h3 className="text-sm font-semibold">Preview Blast</h3>
@@ -547,7 +591,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                 </div>
                 <div className="px-4 py-3 border-b">
                   <p className="text-xs text-muted-foreground mb-0.5">Subject</p>
-                  <p className="text-sm font-medium">{subject}</p>
+                  <p className="text-sm font-medium break-words">{fillBlastVariables(subject)}</p>
                 </div>
                 <div className="px-4 py-3">
                   <p className="text-xs text-muted-foreground mb-1">Email Body</p>
@@ -555,7 +599,9 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                     srcDoc={buildFinalHtml(body, true)}
                     className="w-full h-[300px] rounded border"
                     sandbox=""
+                    title="Blast preview"
                   />
+                  <p className="text-[11px] text-muted-foreground mt-1">Shown with sample details (John Smith, john@example.com) in place of your variables.</p>
                 </div>
               </div>
 
@@ -563,7 +609,10 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                 <p className="text-xs text-muted-foreground">Template: {selectedTemplate.name} ({STYLE_LABELS[selectedTemplate.category] || selectedTemplate.category})</p>
               )}
 
-              <div className="flex justify-end gap-2 pt-2 border-t">
+              {saveError && (
+                <p role="alert" className="text-sm text-[#b91c1c] dark:text-[#f87171]">{saveError}</p>
+              )}
+              <div className="flex flex-wrap justify-end gap-2 pt-2 border-t">
                 <Button type="button" variant="outline" size="sm" onClick={() => setStep('compose')}>
                   <ArrowLeft className="size-3 mr-1" /> Edit
                 </Button>
@@ -646,15 +695,16 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
             const audience = segFilter?.type === 'list' ? 'Mailing list' : segFilter?.type === 'tag' ? `Tag: ${segFilter.tag}` : 'All contacts'
             return (
               <div key={c.id}>
-                <div className="flex items-center gap-3 px-5 py-4 cursor-pointer hover:bg-muted/30 transition" onClick={() => setExpandedId(isExpanded ? null : c.id)}>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium truncate">{c.name}</p>
+                {/* Phone: name gets the full first line; stats and actions wrap below it. */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-5 py-4 cursor-pointer hover:bg-muted/30 transition" onClick={() => setExpandedId(isExpanded ? null : c.id)}>
+                  <div className="basis-full sm:basis-0 flex-1 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-sm font-medium break-words line-clamp-2 sm:line-clamp-1 min-w-0">{c.name || 'Untitled blast'}</p>
                       <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] shrink-0 ${statusColors[c.status] || 'bg-[rgba(16,16,18,.07)] text-[rgba(16,16,18,.62)] border-[rgba(16,16,18,.16)] dark:bg-[rgba(255,255,255,.10)] dark:text-[rgba(255,255,255,.6)] dark:border-[rgba(255,255,255,.14)]'}`}>{c.status}</span>
                     </div>
                   </div>
                   {c.status === 'sent' && stats && (
-                    <div className="flex gap-4 text-xs text-muted-foreground tabular-nums shrink-0">
+                    <div className="flex gap-3 sm:gap-4 text-xs text-muted-foreground tabular-nums shrink-0">
                       <span>{stats.sent || 0} sent</span>
                       <span>{stats.opened || 0} opened</span>
                       <span>{stats.clicked || 0} clicked</span>
@@ -662,33 +712,52 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                   )}
                   {c.status === 'draft' && (
                     <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                      <Button type="button" variant="outline" size="sm" onClick={() => openEdit(c)}>
+                      <Button type="button" variant="outline" size="sm" className="min-h-10 sm:min-h-0" onClick={() => openEdit(c)}>
                         <Pencil className="size-3 mr-1" /> Edit
                       </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={async () => {
-                        setTesting(c.id)
-                        try {
-                          const res = await fetch(`/api/email/campaigns-test?id=${c.id}`, { method: 'POST', credentials: 'include' })
-                          const data = await res.json()
-                          if (data.ok) alert(`Test email sent to ${data.sentTo}`)
-                          else alert(data.error || 'Failed to send test')
-                        } catch { alert('Failed to send test') }
-                        setTesting(null)
-                      }} disabled={testing === c.id}>
-                        {testing === c.id ? <Loader2 className="size-3 animate-spin mr-1" /> : <FlaskConical className="size-3 mr-1" />} Test
+                      <Button type="button" variant="outline" size="sm" className="min-h-10 sm:min-h-0"
+                        aria-expanded={testFor === c.id}
+                        onClick={() => (testFor === c.id ? setTestFor(null) : openTest(c.id))}>
+                        <FlaskConical className="size-3 mr-1" /> Test
                       </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={() => sendCampaign(c.id)} disabled={sending === c.id}>
+                      <Button type="button" variant="outline" size="sm" className="min-h-10 sm:min-h-0" onClick={() => sendCampaign(c.id)} disabled={sending === c.id}>
                         {sending === c.id ? <Loader2 className="size-3 animate-spin mr-1" /> : <Send className="size-3 mr-1" />} Send
                       </Button>
                     </div>
                   )}
                   <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                    <IconButton type="button" variant="ghost" size="sm" onClick={() => deleteCampaign(c.id)} aria-label="Delete">
+                    <IconButton type="button" variant="ghost" size="sm" className="max-sm:min-h-10 max-sm:min-w-10" onClick={() => deleteCampaign(c.id)} aria-label={`Delete blast ${c.name || ''}`.trim()}>
                       <Trash2 className="size-3.5 text-[#b91c1c] dark:text-[#f87171]" />
                     </IconButton>
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0">{new Date(c.created_at).toLocaleDateString()}</span>
+                  <span className="text-xs text-muted-foreground shrink-0 ml-auto sm:ml-0">{new Date(c.created_at).toLocaleDateString()}</span>
                 </div>
+                {testFor === c.id && (
+                  <div className="px-4 sm:px-5 pb-4 bg-muted/10" onClick={e => e.stopPropagation()}>
+                    <form
+                      className="rounded-md border bg-card p-3 space-y-2"
+                      onSubmit={e => { e.preventDefault(); void sendTest(c.id) }}
+                    >
+                      <label htmlFor={`test-to-${c.id}`} className="text-xs font-medium block">Send a test to</label>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <Input id={`test-to-${c.id}`} type="email" inputMode="email" autoComplete="email"
+                          value={testTo} onChange={e => { setTestTo(e.target.value); setTestResult(null) }}
+                          placeholder={defaultTestTo === null ? 'Loading your address...' : 'you@example.com'}
+                          className="h-10 sm:h-9 text-sm flex-1 min-w-0" />
+                        <div className="flex gap-2">
+                          <Button type="submit" size="sm" className="min-h-10 sm:min-h-0" disabled={testing === c.id || !testTo.trim()}>
+                            {testing === c.id ? <Loader2 className="size-3 animate-spin mr-1" /> : <Send className="size-3 mr-1" />} Send test
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" className="min-h-10 sm:min-h-0" onClick={() => setTestFor(null)}>Cancel</Button>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">One copy, with [TEST] in the subject. Variables use your own name.</p>
+                      {testResult && (
+                        <p role="status" className={`text-xs ${testResult.ok ? 'text-[#047857] dark:text-[#34d399]' : 'text-[#b91c1c] dark:text-[#f87171]'}`}>{testResult.message}</p>
+                      )}
+                    </form>
+                  </div>
+                )}
                 {isExpanded && (
                   <div className="px-5 pb-4 space-y-3 bg-muted/10">
                     <div className="grid grid-cols-2 gap-4 text-xs">
@@ -698,7 +767,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                       </div>
                       <div>
                         <p className="text-muted-foreground mb-0.5">Subject</p>
-                        <p className="font-medium">{c.subject}</p>
+                        <p className="font-medium break-words">{c.subject}</p>
                       </div>
                     </div>
                     {c.body_html && (
@@ -708,6 +777,7 @@ export default function CampaignsPage({ embedded }: { embedded?: boolean } = {})
                           srcDoc={c.body_html}
                           className="w-full h-[200px] rounded border bg-white"
                           sandbox=""
+                          title={`Body of ${c.name || 'blast'}`}
                         />
                       </div>
                     )}
