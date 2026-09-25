@@ -15,6 +15,12 @@ export function rescueNearMissesEnabled(limits: unknown): boolean {
   return Boolean(limits) && typeof limits === 'object' && (limits as Record<string, unknown>).rescueNearMisses === true
 }
 
+/** Rescue for one lead check: forced by the explicit 'rescue' op, else only
+ *  an explicit `rescueNearMisses: true` on the run's frozen limits. */
+export function rescueWanted(forced: unknown, limits: unknown): boolean {
+  return forced === true || rescueNearMissesEnabled(limits)
+}
+
 export type LeadCheckOutcome =
   | ({ status: 'checked' } & JudgeRunResult)
   | { status: 'skipped'; reason: 'disabled' | 'allowance' | 'ai_unconfigured' | 'error' }
@@ -25,6 +31,9 @@ export async function runLeadCheck(input: {
   play: JudgePlay
   noliUserId: string
   requestId?: string | null
+  /** Force the near-miss rescue for this call (the explicit 'rescue' op on a
+   *  finished run). Default: whatever the run's frozen limits say. */
+  rescueNearMisses?: boolean
 }): Promise<LeadCheckOutcome> {
   if ((process.env.GTM_LEAD_CHECK_ENABLED ?? '').trim() === 'false') return { status: 'skipped', reason: 'disabled' }
   try {
@@ -71,7 +80,7 @@ export async function runLeadCheck(input: {
       meter,
       // Opt-in per run: only a run created with limits.rescueNearMisses
       // (the Launch Pad's included first run) reads its near-miss listings.
-      rescueNearMisses: rescueNearMissesEnabled(input.run.limits),
+      rescueNearMisses: rescueWanted(input.rescueNearMisses, input.run.limits),
     })
     return { status: 'checked', ...result }
   } catch (error) {
