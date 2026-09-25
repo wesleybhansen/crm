@@ -5,4 +5,6 @@ export const metadata = {
   icon: 'Mail',
   requireAuth: true,
   requireFeatures: ['email.view'],
+  // Explicit trail so the header reads "Dashboard / Email", never just "Dashboard".
+  breadcrumb: [{ label: 'Email' }],
 }
