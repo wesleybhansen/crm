@@ -52,16 +52,24 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const enrollmentId = require('crypto').randomUUID()
     const now = new Date()
 
-    await knex('sequence_enrollments').insert({
-      id: enrollmentId,
-      sequence_id: params.id,
-      contact_id: contactId,
-      organization_id: auth.orgId,
-      tenant_id: auth.tenantId,
-      status: 'active',
-      current_step_order: 1,
-      enrolled_at: now,
-    })
+    try {
+      await knex('sequence_enrollments').insert({
+        id: enrollmentId,
+        sequence_id: params.id,
+        contact_id: contactId,
+        organization_id: auth.orgId,
+        tenant_id: auth.tenantId,
+        status: 'active',
+        current_step_order: 1,
+        enrolled_at: now,
+      })
+    } catch (err) {
+      // enrollments_seq_contact_idx: a concurrent request enrolled first.
+      if ((err as { code?: string })?.code === '23505') {
+        return NextResponse.json({ ok: false, error: 'Contact is already enrolled in this sequence' }, { status: 409 })
+      }
+      throw err
+    }
 
     const firstStep = await knex('sequence_steps')
       .where('sequence_id', params.id)

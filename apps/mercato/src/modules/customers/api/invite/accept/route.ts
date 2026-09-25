@@ -145,20 +145,40 @@ export async function POST(req: Request) {
       String(invite.tenant_id),
       String(invite.organization_id),
     )
-    await query(
-      `INSERT INTO users (id, tenant_id, organization_id, email, email_hash, name, password_hash, is_confirmed, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true, now())`,
-      [userId, invite.tenant_id, invite.organization_id, encrypted.email, encrypted.email_hash ?? computeEmailHash(inviteEmail), name.trim(), passwordHash]
+    // Claim the invite before creating the user: two accepts of one link used
+    // to race past the checks above and create two users (2026-09-25 review,
+    // LOW). The loser gets a clear answer; a failure below releases it.
+    const claimed = await queryOne(
+      `UPDATE team_invites SET status = 'accepted', accepted_at = now()
+        WHERE id = $1 AND status = 'pending' RETURNING id`,
+      [invite.id],
     )
+    if (!claimed) {
+      return NextResponse.json({ ok: false, error: 'This invite has already been used' }, { status: 409 })
+    }
+    const releaseInvite = () => query(
+      `UPDATE team_invites SET status = 'pending', accepted_at = NULL WHERE id = $1 AND status = 'accepted'`,
+      [invite.id],
+    ).catch(() => {})
+
+    try {
+      await query(
+        `INSERT INTO users (id, tenant_id, organization_id, email, email_hash, name, password_hash, is_confirmed, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true, now())`,
+        [userId, invite.tenant_id, invite.organization_id, encrypted.email, encrypted.email_hash ?? computeEmailHash(inviteEmail), name.trim(), passwordHash]
+      )
+    } catch (err) {
+      await releaseInvite()
+      // users_tenant_email_hash_uniq: the email already has an account here.
+      if ((err as { code?: string })?.code === '23505') {
+        return NextResponse.json({ ok: false, error: 'This email already has an account in this workspace. Sign in instead.' }, { status: 409 })
+      }
+      throw err
+    }
 
     await query(
       `INSERT INTO user_roles (id, user_id, role_id, created_at) VALUES ($1, $2, $3, now())`,
       [crypto.randomUUID(), userId, roleId]
-    )
-
-    await query(
-      `UPDATE team_invites SET status = 'accepted', accepted_at = now() WHERE id = $1`,
-      [invite.id]
     )
 
     const jwt = signJwt({

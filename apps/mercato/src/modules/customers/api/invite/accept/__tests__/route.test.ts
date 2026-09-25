@@ -24,6 +24,8 @@ type World = {
   roles: Record<string, { id: string; aclSuper: boolean | null }>
   /** Tenant the invite's organization lives in today (defaults to the invite's). */
   orgTenant?: string | null
+  /** A concurrent accept already claimed the invite. */
+  alreadyClaimed?: boolean
 }
 
 const mockQuery = jest.mocked(query)
@@ -31,6 +33,7 @@ const mockQueryOne = jest.mocked(queryOne)
 
 function install(world: World) {
   mockQueryOne.mockImplementation(async (sql: string, params?: unknown[]) => {
+    if (sql.includes('UPDATE team_invites')) return world.alreadyClaimed ? null : { id: world.invite?.id }
     if (sql.includes('FROM team_invites')) return world.invite
     if (sql.includes('FROM users')) return world.existingUser
     if (sql.includes('FROM organizations')) {
@@ -145,5 +148,12 @@ describe('POST /invite/accept (shared tenant)', () => {
     const res = await POST(request(body))
     expect(res.status).toBe(400)
     expect(allSql().some((s) => s.includes('INSERT INTO users') || s.includes('user_roles'))).toBe(false)
+  })
+
+  it('a second accept of the same invite (race) creates no user (LOW)', async () => {
+    install({ invite: invite('member'), existingUser: null, roles: { member: { id: 'role-member', aclSuper: false } }, alreadyClaimed: true })
+    const res = await POST(request(body))
+    expect(res.status).toBe(409)
+    expect(allSql().some((s) => s.includes('INSERT INTO users'))).toBe(false)
   })
 })
