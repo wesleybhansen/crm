@@ -469,7 +469,7 @@ export default function ListsTab() {
             <div className="bg-background rounded-xl border shadow-2xl w-full max-w-lg mx-4 flex flex-col" style={{ maxHeight: '80vh' }}>
               <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
                 <h3 className="text-sm font-semibold">Add Contacts to {selectedList.name}</h3>
-                <button type="button" onClick={() => setShowAddModal(false)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
+                <button type="button" onClick={() => setShowAddModal(false)} aria-label="Close" className="inline-flex items-center justify-center size-10 sm:size-auto text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
               </div>
               <div className="p-4 flex-1 min-h-0 overflow-y-auto">
                 <ContactPickerInline contacts={allContacts} loading={contactsLoading}
@@ -498,13 +498,14 @@ export default function ListsTab() {
         ) : (
           <div className="rounded-lg border divide-y">
             {members.map(m => (
-              <div key={m.contact_id} className="flex items-center justify-between px-4 py-2.5">
-                <div>
-                  <p className="text-sm font-medium">{m.display_name}</p>
-                  {m.primary_email && <p className="text-xs text-muted-foreground">{m.primary_email}</p>}
+              <div key={m.contact_id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium break-words">{m.display_name}</p>
+                  {m.primary_email && <p className="text-xs text-muted-foreground break-all">{m.primary_email}</p>}
                 </div>
                 <button type="button" onClick={() => removeMember(m.contact_id)}
-                  className="text-muted-foreground hover:text-[#b91c1c] dark:hover:text-[#f87171] transition"><X className="size-3.5" /></button>
+                  aria-label={`Remove ${m.display_name || m.primary_email || 'member'} from this list`}
+                  className="shrink-0 inline-flex items-center justify-center size-10 sm:size-auto text-muted-foreground hover:text-[#b91c1c] dark:hover:text-[#f87171] transition"><X className="size-3.5" /></button>
               </div>
             ))}
           </div>
@@ -524,7 +525,7 @@ export default function ListsTab() {
         <div className="rounded-lg border bg-card mb-4 overflow-hidden">
           <div className="flex items-center justify-between px-5 pt-4 pb-2">
             <h3 className="text-sm font-semibold">New Mailing List</h3>
-            <button type="button" onClick={() => setShowCreate(false)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
+            <button type="button" onClick={() => setShowCreate(false)} aria-label="Close" className="inline-flex items-center justify-center size-10 sm:size-auto text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
           </div>
           <div className="px-5 pb-4 space-y-4">
             {/* Name + Description */}
@@ -605,14 +606,17 @@ export default function ListsTab() {
       ) : (
         <div className="rounded-lg border divide-y">
           {lists.map(list => (
-            <button key={list.id} type="button" onClick={() => openList(list)}
-              className="w-full text-left px-5 py-4 hover:bg-muted/30 transition flex items-center gap-4">
+            // A row holds two buttons side by side (open, delete); a button
+            // inside a button is invalid HTML and breaks keyboard use.
+            <div key={list.id} className="flex items-center gap-2 pr-3 sm:pr-5 hover:bg-muted/30 transition">
+            <button type="button" onClick={() => openList(list)}
+              className="flex-1 min-w-0 text-left pl-4 sm:pl-5 py-4 flex items-center gap-3 sm:gap-4">
               <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
                 <Users className="size-5 text-accent" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium">{list.name}</p>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                  <p className="text-sm font-medium break-words min-w-0">{list.name}</p>
                   <span className={`inline-flex h-[21px] items-center px-2 rounded-full border font-mono text-[10px] font-semibold uppercase tracking-[.07em] ${sourceBadge[list.source_type] || chipNeutral}`}>
                     {sourceLabel[list.source_type] || list.source_type}
                   </span>
@@ -623,9 +627,11 @@ export default function ListsTab() {
                 <p className="text-sm font-semibold tabular-nums">{list.member_count}</p>
                 <p className="text-[11px] text-muted-foreground">member{list.member_count !== 1 ? 's' : ''}</p>
               </div>
-              <button type="button" onClick={e => { e.stopPropagation(); deleteList(list.id, list.name) }}
-                className="text-muted-foreground hover:text-[#b91c1c] dark:hover:text-[#f87171] transition shrink-0"><Trash2 className="size-3.5" /></button>
             </button>
+              <button type="button" onClick={() => deleteList(list.id, list.name)}
+                aria-label={`Delete list ${list.name}`}
+                className="inline-flex items-center justify-center size-10 sm:size-8 rounded-md text-muted-foreground hover:text-[#b91c1c] dark:hover:text-[#f87171] transition shrink-0"><Trash2 className="size-3.5" /></button>
+            </div>
           ))}
         </div>
       )}
