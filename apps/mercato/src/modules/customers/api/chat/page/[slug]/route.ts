@@ -675,7 +675,7 @@ function buildChatPageHtml({
           fetch('${origin}/api/chat/typing', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ conversationId: conversationId, isTyping: true, sender: 'visitor' }),
+            body: JSON.stringify({ conversationId: conversationId, visitorToken: visitorToken, widgetId: WIDGET_ID, isTyping: true, sender: 'visitor' }),
           }).catch(function() {});
         }
       });

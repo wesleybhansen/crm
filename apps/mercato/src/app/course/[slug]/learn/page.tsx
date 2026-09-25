@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { renderMarkdown } from './render-markdown'
 
 // ── Types ──
 type Lesson = {
@@ -24,25 +25,6 @@ function getVideoEmbed(url: string | null): string | null {
   const lm = url.match(/loom\.com\/share\/([a-zA-Z0-9]+)/)
   if (lm) return `https://www.loom.com/embed/${lm[1]}`
   return null
-}
-
-function renderMarkdown(md: string): string {
-  let safe = md
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '')
-    .replace(/javascript\s*:/gi, '')
-  return safe
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/\n/g, '<br>')
 }
 
 export default function StudentCoursePage() {

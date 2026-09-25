@@ -1,4 +1,9 @@
-export const metadata = { POST: { requireAuth: false } }
+// Per-IP limit (dispatcher) plus a per-address limit below: this route sends
+// email, so neither one caller nor many callers may flood one inbox
+// (security sweep 2026-09-25, low).
+export const metadata = {
+  POST: { requireAuth: false, rateLimit: { points: 5, duration: 300, blockDuration: 900, keyPrefix: 'courses-magic-link-ip' } },
+}
 
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -7,6 +12,23 @@ import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretC
 import { espOwnFromAddress } from '../../../../email/lib/routing-service'
 import crypto from 'crypto'
 import { magicLinkExpiresAt, magicLinkTtlLabel } from '@/modules/courses/lib/magic-tokens'
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+
+const PER_EMAIL_LIMIT = { points: 3, duration: 15 * 60, keyPrefix: 'courses-magic-link-email' }
+
+/** True when this address has asked for too many links recently. Fails open
+ *  if the limiter is unavailable (the per-IP limit still applies). */
+async function emailRateLimited(email: string): Promise<boolean> {
+  try {
+    const service = getCachedRateLimiterService()
+    if (!service) return false
+    const key = crypto.createHash('sha256').update(email).digest('hex')
+    const result = await service.consume(key, PER_EMAIL_LIMIT)
+    return !result.allowed
+  } catch {
+    return false
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -15,7 +37,10 @@ export async function POST(req: Request) {
     const body = await req.json()
     const { email, courseSlug } = body
 
-    if (!email?.trim()) return NextResponse.json({ ok: false, error: 'Email is required' }, { status: 400 })
+    if (typeof email !== 'string' || !email.trim()) return NextResponse.json({ ok: false, error: 'Email is required' }, { status: 400 })
+    if (email.length > 320) return NextResponse.json({ ok: false, error: 'Email is too long' }, { status: 400 })
+    // Same answer as success, so the limit reveals nothing about the address.
+    if (await emailRateLimited(email.trim().toLowerCase())) return NextResponse.json({ ok: true })
 
     // Find course by slug to get org
     let organizationId: string | null = null

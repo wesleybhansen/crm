@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 import { attendeeEmailHashes, encryptAttendeeRow, whereAttendeeEmail } from '@/modules/customers/lib/event-attendees'
+import { signEventCalendarToken } from '../../../../../lib/event-calendar-token'
 
 
 export const metadata = { path: '/crm-events/public/[slug]/register', POST: { requireAuth: false, rateLimit: { points: 10, duration: 60, blockDuration: 300, keyPrefix: 'events-public-register' } } }
@@ -126,7 +127,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
     // Build calendar link for the confirmation email
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || `${new URL(req.url).origin}`
-    const calendarUrl = `${baseUrl}/api/crm-events/${event.id}/calendar`
+    // The signed token lets this attendee's calendar file carry the join link.
+    const calendarToken = signEventCalendarToken(event.id)
+    const calendarUrl = `${baseUrl}/api/crm-events/${event.id}/calendar${calendarToken ? `?t=${encodeURIComponent(calendarToken)}` : ''}`
 
     // Send confirmation email
     const eventDate = new Date(event.start_time).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })

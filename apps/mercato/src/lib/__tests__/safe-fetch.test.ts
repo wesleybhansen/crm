@@ -16,6 +16,18 @@ describe('SSRF-safe fetch', () => {
     await expect(safeFetch(url)).rejects.toBeInstanceOf(SsrfError)
   })
 
+  it.each([
+    ['hex IPv4-mapped IPv6', '::ffff:7f00:1'],
+    ['NAT64', '64:ff9b::a9fe:a9fe'],
+    ['benchmarking range', '198.18.0.5'],
+  ])('rejects a host resolving to a %s address (%s)', async (_label, address) => {
+    jest.spyOn(dnsPromises, 'lookup').mockResolvedValue([{ address, family: address.includes(':') ? 6 : 4 }] as never)
+    await expect(assertPublicUrl('http://sneaky.invalid/')).rejects.toMatchObject({
+      name: 'SsrfError',
+      message: `host resolves to blocked address: ${address}`,
+    })
+  })
+
   it('rejects non-HTTP protocols before resolution', async () => {
     await expect(assertPublicUrl('file:///etc/passwd')).rejects.toMatchObject({
       name: 'SsrfError',

@@ -6,6 +6,12 @@ import { APP_VERSION } from '@open-mercato/shared/lib/version'
 
 export const dynamic = 'force-dynamic'
 
+// The full route list is an attacker's map of the API: sign-in required
+// (security sweep 2026-09-25, low). API keys and CRM users can still read it.
+export const metadata = {
+  GET: { requireAuth: true },
+}
+
 function resolveBaseUrl() {
   return (
     process.env.NEXT_PUBLIC_API_BASE_URL ||
