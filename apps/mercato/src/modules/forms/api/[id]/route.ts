@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { uniquePublicSlug } from '@/lib/public-slug'
+import { shouldRegenerateSlug, slugifyFormName } from '../../lib/slug'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -70,6 +72,12 @@ export async function PUT(req: Request, ctx: any) {
     const update: Record<string, unknown> = { updated_at: new Date() }
 
     if (body.name !== undefined) update.name = body.name
+    // Until the form is first published nobody holds its link, so a rename
+    // renames the slug too ("untitled-form-x1y2" -> "contact-us-a9b8").
+    // After that the slug never changes.
+    if (shouldRegenerateSlug(form, body.name)) {
+      update.slug = await uniquePublicSlug(knex, 'forms', slugifyFormName(String(body.name).trim()), { excludeId: id })
+    }
     if (body.description !== undefined) update.description = body.description
     if (body.fields !== undefined) update.fields = JSON.stringify(body.fields)
     if (body.theme !== undefined) update.theme = JSON.stringify(body.theme)

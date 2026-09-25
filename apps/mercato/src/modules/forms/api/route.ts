@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isPublicSlugTaken, uniquePublicSlug } from '@/lib/public-slug'
+import { shouldRegenerateSlug, slugifyFormName } from '../lib/slug'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -17,16 +18,7 @@ function getScope(ctx: any) {
   return { tenantId: auth.tenantId, orgId: auth.orgId, userId: auth.sub }
 }
 
-function randomSuffix() { return Math.random().toString(36).substring(2, 6) }
-
-function slugify(text: string): string {
-  const base = text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80)
-  return `${base}-${randomSuffix()}`
-}
+const slugify = slugifyFormName
 
 export async function GET(req: Request, ctx: any) {
   const scope = getScope(ctx)
@@ -146,6 +138,10 @@ export async function PUT(req: Request, ctx: any) {
     const update: Record<string, unknown> = { updated_at: new Date() }
     if (body.name !== undefined) update.name = body.name
     if (body.slug !== undefined) update.slug = slugify(body.slug)
+    else if (shouldRegenerateSlug(form, body.name)) {
+      // Same rule as PUT /api/forms/:id: a never-published form's slug follows its name.
+      update.slug = await uniquePublicSlug(knex, 'forms', slugify(String(body.name).trim()), { excludeId: body.id })
+    }
     if (body.description !== undefined) update.description = body.description
     if (body.fields !== undefined) update.fields = JSON.stringify(body.fields)
     if (body.theme !== undefined) update.theme = JSON.stringify(body.theme)
