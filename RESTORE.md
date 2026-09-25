@@ -46,9 +46,9 @@ git push origin main
 # 3. SSH in and rebuild
 ssh root@5.78.71.144
 cd /root/open-mercato
-git pull origin main
-docker compose -f docker-compose.prod.yml build app
-docker compose -f docker-compose.prod.yml up -d --no-deps app
+# Always deploy through the script: both compose files (Vault overlay),
+# no overlapping builds, GTM preflight, cached build, DEPLOY_DONE marker.
+ops/deploy/deploy-crm.sh --ref origin/main
 
 # 4. Verify
 curl -sI https://crm.thelaunchpadincubator.com/ | head -3
@@ -78,7 +78,7 @@ ssh root@5.78.71.144 'ls -lh /root/backups/db/broken-state-*'
 ### Step 2 — Stop the app so nothing writes to the DB during the restore
 
 ```bash
-ssh root@5.78.71.144 'docker compose -f /root/open-mercato/docker-compose.prod.yml stop app'
+ssh root@5.78.71.144 'docker compose -f /root/open-mercato/docker-compose.prod.yml -f /root/releases/noli-v1-vault-c2ccad6e/docker-compose.prod.yml stop app'
 ```
 
 ### Step 3 — Drop and recreate the database from the checkpoint
@@ -112,20 +112,17 @@ The database schema only matches the code at the tagged commit. Mismatched code 
 ssh root@5.78.71.144
 cd /root/open-mercato
 
-# Check out the checkpoint tag (detached HEAD is fine for a revert)
+# Check out the checkpoint tag (detached HEAD is fine for a revert) and
+# rebuild from it (both compose files, preflight, cached build)
 git fetch --tags origin
-git checkout checkpoint-pre-tier0-2026-04-09
-
-# Rebuild the app from the checkpoint code
-docker compose -f docker-compose.prod.yml build app
-docker compose -f docker-compose.prod.yml up -d --no-deps app
+ops/deploy/deploy-crm.sh --ref checkpoint-pre-tier0-2026-04-09
 ```
 
 ### Step 5 — Verify
 
 ```bash
 # Containers up?
-docker compose -f /root/open-mercato/docker-compose.prod.yml ps
+docker compose -f /root/open-mercato/docker-compose.prod.yml -f /root/releases/noli-v1-vault-c2ccad6e/docker-compose.prod.yml ps
 
 # App responding?
 curl -sI https://crm.thelaunchpadincubator.com/ | head -3
@@ -146,7 +143,7 @@ docker logs --tail 100 launchos-app 2>&1 | grep -iE 'error|⨯' | tail -20
 
 After the immediate fire is out, decide what to do:
 - **If main is bad:** revert the bad commits on main first, then `git checkout main && git pull` on the server.
-- **If main is fine and only the deploy was bad:** `git checkout main && git pull` on the server, rebuild, deploy.
+- **If main is fine and only the deploy was bad:** `git checkout main && git pull` on the server, then `ops/deploy/deploy-crm.sh`.
 
 Either way, do not leave the server on a detached HEAD long-term — the next `git pull` will fail loudly.
 

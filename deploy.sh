@@ -1,6 +1,10 @@
 #!/bin/bash
-# LaunchOS Deploy Script for Hetzner
+# LaunchOS first-install script for a NEW Hetzner box (builds, starts and
+# runs setup-tables.sql once).
 # Usage: ./deploy.sh
+#
+# NOT for deploying changes to crm.noliai.com: that is ops/deploy/deploy-crm.sh
+# (both compose files, no overlapping builds, GTM preflight, cached build).
 
 set -e
 
