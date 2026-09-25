@@ -1,4 +1,4 @@
-// ORM-SKIP: events/event_attendees tables do not exist on prod — feature unused
+// ORM-SKIP: events/event_attendees are raw-knex tables (no mercato entity), created by customers Migration20260925161500
 export const metadata = { path: '/crm-events/[id]/attendees', GET: { requireAuth: true }, PATCH: { requireAuth: true }, DELETE: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
@@ -22,7 +22,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       .limit(500)
 
     return NextResponse.json({ ok: true, data: attendees })
-  } catch {
+  } catch (error) {
+    console.error('[crm-events.attendees.list]', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
   }
 }
@@ -64,7 +65,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const updated = await knex('event_attendees').where('id', attendeeId).first()
     return NextResponse.json({ ok: true, data: updated })
-  } catch {
+  } catch (error) {
+    console.error('[crm-events.attendees.checkin]', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
   }
 }
@@ -85,7 +87,8 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     await knex('event_attendees').where('id', attendeeId).delete()
     await knex('events').where('id', eventId).decrement('attendee_count', attendee.ticket_quantity || 1)
     return NextResponse.json({ ok: true })
-  } catch {
+  } catch (error) {
+    console.error('[crm-events.attendees.delete]', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
   }
 }

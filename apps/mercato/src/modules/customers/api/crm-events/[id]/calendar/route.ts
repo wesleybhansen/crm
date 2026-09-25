@@ -1,4 +1,4 @@
-// ORM-SKIP: events/event_attendees tables do not exist on prod — feature unused
+// ORM-SKIP: events/event_attendees are raw-knex tables (no mercato entity), created by customers Migration20260925161500
 
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -47,7 +47,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         'Content-Disposition': `attachment; filename="${event.title.replace(/[^a-zA-Z0-9 ]/g, '').substring(0, 50).trim()}.ics"`,
       },
     })
-  } catch {
+  } catch (error) {
+    console.error('[crm-events.calendar]', error)
     return NextResponse.json({ error: 'Failed' }, { status: 500 })
   }
 }

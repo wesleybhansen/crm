@@ -1,4 +1,4 @@
-// ORM-SKIP: events/event_attendees tables do not exist on prod — feature unused
+// ORM-SKIP: events/event_attendees are raw-knex tables (no mercato entity), created by customers Migration20260925161500
 export const metadata = { path: '/crm-events', GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
@@ -20,13 +20,22 @@ export async function GET(req: Request) {
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
-    const events = await knex('events')
+    const upcoming = new URL(req.url).searchParams.get('upcoming') === 'true'
+    let query = knex('events')
       .where('organization_id', auth.orgId)
       .whereNull('deleted_at')
-      .orderBy('start_time', 'desc')
-      .limit(100)
+    if (upcoming) {
+      query = query
+        .where('start_time', '>=', new Date())
+        .whereNotIn('status', ['cancelled', 'archived'])
+        .orderBy('start_time', 'asc')
+    } else {
+      query = query.orderBy('start_time', 'desc')
+    }
+    const events = await query.limit(100)
     return NextResponse.json({ ok: true, data: events })
-  } catch {
+  } catch (error) {
+    console.error('[crm-events.list]', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
   }
 }
@@ -41,7 +50,10 @@ export async function POST(req: Request) {
     const { title, description, eventType, locationName, locationAddress, virtualLink,
       startTime, endTime, timezone, capacity, registrationDeadline, price, isFree, registrationFields,
       preapprovedEmails, landingCopy, landingStyle, termsText, reminderConfig,
-      isRecurring, recurrenceRule, addToCalendar } = body
+      isRecurring, recurrenceRule, addToCalendar, isPublished } = body
+    // The wizard's "Publish Event" posts isPublished: true; honour it instead
+    // of silently saving a draft.
+    const initialStatus = isPublished === true ? 'published' : 'draft'
 
     if (!title?.trim()) return NextResponse.json({ ok: false, error: 'Title required' }, { status: 400 })
     if (!startTime || !endTime) return NextResponse.json({ ok: false, error: 'Start and end time required' }, { status: 400 })
@@ -52,7 +64,7 @@ export async function POST(req: Request) {
     await knex('events').insert({
       id, tenant_id: auth.tenantId, organization_id: auth.orgId,
       title: title.trim(), description: description?.trim() || null, slug,
-      event_type: eventType || 'in-person', status: 'draft',
+      event_type: eventType || 'in-person', status: initialStatus,
       location_name: locationName || null, location_address: locationAddress || null,
       virtual_link: virtualLink || null,
       start_time: new Date(startTime), end_time: new Date(endTime),
@@ -89,7 +101,7 @@ export async function POST(req: Request) {
         await knex('events').insert({
           id: crypto.randomUUID(), tenant_id: auth.tenantId, organization_id: auth.orgId,
           title: title.trim(), description: description?.trim() || null, slug: slugify(title),
-          event_type: eventType || 'in-person', status: 'draft',
+          event_type: eventType || 'in-person', status: initialStatus,
           location_name: locationName || null, location_address: locationAddress || null,
           virtual_link: virtualLink || null,
           start_time: new Date(current), end_time: new Date(current.getTime() + duration),
@@ -100,7 +112,7 @@ export async function POST(req: Request) {
           landing_style: landingStyle || 'warm', terms_text: termsText || null,
           reminder_config: JSON.stringify(reminderConfig || []),
           created_at: new Date(), updated_at: new Date(),
-        }).catch(() => {})
+        }).catch((err: unknown) => console.error('[crm-events.create] recurring occurrence insert failed', err))
       }
     }
 
@@ -138,7 +150,9 @@ export async function POST(req: Request) {
               google_calendar_html_link: result.htmlLink || null,
             })
           }
-        } catch {}
+        } catch (syncErr) {
+          console.error('[crm-events.create] Google Calendar sync failed (non-fatal):', syncErr)
+        }
       } catch (calErr) {
         console.error('[crm-events] Calendar add failed:', calErr)
       }
@@ -147,7 +161,7 @@ export async function POST(req: Request) {
     const event = await knex('events').where('id', id).first()
     return NextResponse.json({ ok: true, data: event }, { status: 201 })
   } catch (error: any) {
-    console.error('[crm-events.create]', error?.message)
+    console.error('[crm-events.create]', error)
     return NextResponse.json({ ok: false, error: 'Failed to create event' }, { status: 500 })
   }
 }
@@ -225,7 +239,8 @@ export async function PUT(req: Request) {
 
     const event = await knex('events').where('id', id).first()
     return NextResponse.json({ ok: true, data: event })
-  } catch {
+  } catch (error) {
+    console.error('[crm-events.update]', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
   }
 }
@@ -241,7 +256,8 @@ export async function DELETE(req: Request) {
     if (!id) return NextResponse.json({ ok: false, error: 'id required' }, { status: 400 })
     await knex('events').where('id', id).where('organization_id', auth.orgId).update({ deleted_at: new Date() })
     return NextResponse.json({ ok: true })
-  } catch {
+  } catch (error) {
+    console.error('[crm-events.delete]', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
   }
 }
