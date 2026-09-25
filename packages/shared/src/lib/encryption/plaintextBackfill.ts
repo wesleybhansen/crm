@@ -27,7 +27,9 @@ import {
   keyIdForDek,
   keyIdFromEnvelope,
 } from './aes'
+import { hashForLookup } from './aes'
 import type { TenantDek } from './kms'
+import { LOOKUP_HASH_RULES } from './lookupHashRules'
 import type { EncryptedFieldRule } from './tenantDataEncryptionService'
 
 /** Same text as tenantDataEncryptionService.UNDECRYPTABLE_DISPLAY_TEXT (kept literal to avoid a runtime import cycle). */
@@ -109,6 +111,10 @@ export type FieldCounts = {
   empty: number
   placeholder: number
   tooLong: number
+  /** Contact lookup hash (email/phone) filled for a row that had none. */
+  hashFilled: number
+  /** Lookup hash left empty: another live contact in the org already holds it (legacy duplicate). */
+  hashDuplicate: number
 }
 
 const emptyCounts = (): FieldCounts => ({
@@ -120,6 +126,8 @@ const emptyCounts = (): FieldCounts => ({
   empty: 0,
   placeholder: 0,
   tooLong: 0,
+  hashFilled: 0,
+  hashDuplicate: 0,
 })
 
 export type BackfillReport = {
@@ -243,6 +251,8 @@ type PlannedWrite = {
   values: Map<string, { before: string; after: string }>
   /** hash column -> value (only when the map rule asks for one) */
   hashes: Map<string, unknown>
+  /** contact lookup hash column -> value, only written where the column is still null */
+  lookupHashes: Map<string, string>
 }
 
 function bump(map: Map<string, FieldCounts>, key: string, field: keyof FieldCounts): void {
@@ -319,14 +329,25 @@ export async function runPlaintextBackfill(
       continue
     }
 
-    const selectCols = ['id', 'tenant_id', 'organization_id', ...readable].map(ident).join(', ')
+    // Contact lookup hashes (primary_email_hash, primary_phone_hash). Every
+    // lookup matches on these once the value is ciphertext, so a legacy row
+    // encrypted without one would drop out of dedupe and bounce suppression.
+    const lookupRules = (LOOKUP_HASH_RULES[entityId] ?? []).filter(
+      (r) => readable.includes(r.sourceColumn) && columns.has(r.targetColumn),
+    )
+    const extraCols = lookupRules.map((r) => r.targetColumn)
+    // Unique lookup hashes handed out during this run (legacy duplicates in
+    // one org must not both claim the same hash).
+    const claimedHashes = new Set<string>()
+    if (lookupRules.some((r) => r.uniquePerOrg) && columns.has('deleted_at')) extraCols.push('deleted_at')
+    const selectCols = ['id', 'tenant_id', 'organization_id', ...readable, ...extraCols].map(ident).join(', ')
     const scopeSql: string[] = []
     const scopeParams: unknown[] = []
     if (options.tenantId) { scopeParams.push(options.tenantId); scopeSql.push(`tenant_id = $${scopeParams.length}`) }
     if (options.organizationId) { scopeParams.push(options.organizationId); scopeSql.push(`organization_id = $${scopeParams.length}`) }
 
     /** Plan the writes for one batch of rows. Pure except for the service calls. */
-    const planBatch = async (rows: BackfillRow[], countStats: boolean): Promise<PlannedWrite[]> => {
+    const planBatch = async (q: BackfillQuery, rows: BackfillRow[], countStats: boolean): Promise<PlannedWrite[]> => {
       const planned: PlannedWrite[] = []
       for (const row of rows) {
         const id = String(row.id)
@@ -367,7 +388,7 @@ export async function runPlaintextBackfill(
 
         const encrypted = await encryption.encryptEntityPayload(entityId, { ...plaintext }, tenantId, organizationId)
         const activeKeyId = keyIdForDek(dek.key)
-        const write: PlannedWrite = { id, tenantId, organizationId, values: new Map(), hashes: new Map() }
+        const write: PlannedWrite = { id, tenantId, organizationId, values: new Map(), hashes: new Map(), lookupHashes: new Map() }
         for (const [field, before] of Object.entries(plaintext)) {
           const after = encrypted[field]
           // The service must have produced a fresh envelope under the active
@@ -395,6 +416,26 @@ export async function runPlaintextBackfill(
           if (rule?.hashField && columns.has(rule.hashField) && encrypted[rule.hashField] !== undefined) {
             write.hashes.set(rule.hashField, encrypted[rule.hashField])
           }
+        }
+        for (const rule of lookupRules) {
+          const source = write.values.get(rule.sourceColumn)
+          if (!source || row[rule.targetColumn] != null) continue
+          const normalized = rule.normalize(source.before)
+          if (!normalized) continue
+          const hash = hashForLookup(normalized)
+          if (rule.uniquePerOrg && row.deleted_at == null) {
+            const claimKey = `${organizationId}|${rule.targetColumn}|${hash}`
+            const { rows: holders } = await q.query(
+              `select id from ${ident(table)} where organization_id = $1 and ${ident(rule.targetColumn)} = $2 and deleted_at is null and id <> $3 limit 1`,
+              [organizationId, hash, id],
+            )
+            if (holders.length || claimedHashes.has(claimKey)) {
+              if (countStats) bump(report.fields, statKey(rule.sourceColumn), 'hashDuplicate')
+              continue
+            }
+            claimedHashes.add(claimKey)
+          }
+          write.lookupHashes.set(rule.targetColumn, hash)
         }
         if (write.values.size) planned.push(write)
       }
@@ -424,10 +465,11 @@ export async function runPlaintextBackfill(
         const rows = await fetchBatch(db, afterId, false)
         if (!rows.length) break
         report.rowsScanned += rows.length
-        const planned = await planBatch(rows, true)
+        const planned = await planBatch(db, rows, true)
         for (const write of planned) {
           report.rowsChanged += 1
           for (const field of write.values.keys()) bump(report.fields, `${write.organizationId}|${table}|${field}`, 'encrypted')
+          countLookupHashes(report, table, write, lookupRules)
           if (options.collectRowIds) pushId(report, `${write.organizationId}|${table}`, write.id)
         }
         afterId = String(rows[rows.length - 1]!.id)
@@ -442,18 +484,20 @@ export async function runPlaintextBackfill(
         await tx.query(`set local lock_timeout = '${Math.floor(lockTimeoutMs)}ms'`)
         const rows = await fetchBatch(tx, afterId, true)
         if (!rows.length) return null
-        const planned = await planBatch(rows, true)
+        const planned = await planBatch(tx, rows, true)
         for (const write of planned) {
           const sets: string[] = []
           const params: unknown[] = []
           for (const [field, { after }] of write.values) { params.push(after); sets.push(`${ident(field)} = $${params.length}`) }
           for (const [hashCol, hash] of write.hashes) { params.push(hash); sets.push(`${ident(hashCol)} = $${params.length}`) }
+          for (const [hashCol, hash] of write.lookupHashes) { params.push(hash); sets.push(`${ident(hashCol)} = $${params.length}`) }
           params.push(write.id)
           const idParam = params.length
           // Compare-and-set on every column: the row is locked, but if its
           // value is no longer the plaintext we planned from, touch nothing.
           const guards: string[] = []
           for (const [field, { before }] of write.values) { params.push(before); guards.push(`${ident(field)} = $${params.length}`) }
+          for (const hashCol of write.lookupHashes.keys()) guards.push(`${ident(hashCol)} is null`)
           const result = await tx.query(
             `update ${ident(table)} set ${sets.join(', ')} where id = $${idParam} and ${guards.join(' and ')}`,
             params,
@@ -465,7 +509,7 @@ export async function runPlaintextBackfill(
         // Verify: read back what was written in this transaction and open it.
         if (planned.length) {
           const ids = planned.map((w) => w.id)
-          const cols = Array.from(new Set(planned.flatMap((w) => Array.from(w.values.keys()))))
+          const cols = Array.from(new Set(planned.flatMap((w) => [...w.values.keys(), ...w.lookupHashes.keys()])))
           const { rows: stored } = await tx.query(
             `select ${['id', ...cols].map(ident).join(', ')} from ${ident(table)} where id = any($1::uuid[])`,
             [ids],
@@ -482,6 +526,9 @@ export async function runPlaintextBackfill(
                 throw new BackfillVerificationError(`Read-back does not decrypt to the original for ${table}.${field} row ${write.id}.`)
               }
             }
+            for (const [hashCol, hash] of write.lookupHashes) {
+              if (row[hashCol] !== hash) throw new BackfillVerificationError(`Read-back lookup hash differs for ${table}.${hashCol} row ${write.id}.`)
+            }
           }
         }
         return { rows, planned }
@@ -492,6 +539,7 @@ export async function runPlaintextBackfill(
       for (const write of outcome.planned) {
         report.rowsChanged += 1
         for (const field of write.values.keys()) bump(report.fields, `${write.organizationId}|${table}|${field}`, 'encrypted')
+        countLookupHashes(report, table, write, lookupRules)
         if (options.collectRowIds) pushId(report, `${write.organizationId}|${table}`, write.id)
       }
       afterId = String(outcome.rows[outcome.rows.length - 1]!.id)
@@ -500,6 +548,17 @@ export async function runPlaintextBackfill(
     }
   }
   return report
+}
+
+function countLookupHashes(
+  report: BackfillReport,
+  table: string,
+  write: PlannedWrite,
+  rules: Array<{ sourceColumn: string; targetColumn: string }>,
+): void {
+  for (const rule of rules) {
+    if (write.lookupHashes.has(rule.targetColumn)) bump(report.fields, `${write.organizationId}|${table}|${rule.sourceColumn}`, 'hashFilled')
+  }
 }
 
 function pushId(report: BackfillReport, key: string, id: string): void {
@@ -542,12 +601,12 @@ export function formatBackfillReport(report: BackfillReport): string[] {
   const lines: string[] = []
   const tag = report.dryRun ? '[dry-run] ' : ''
   lines.push(`${tag}active key ids by tenant: ${Object.entries(report.activeKeyIds).map(([t, k]) => `${t}=${k}`).join(' ') || '(none resolved)'}`)
-  lines.push(`${tag}org | table | field | plaintext_found | ${report.dryRun ? 'would_encrypt' : 'encrypted'} | already_encrypted | wrong_key | unreadable_envelope | empty | placeholder | too_long`)
+  lines.push(`${tag}org | table | field | plaintext_found | ${report.dryRun ? 'would_encrypt' : 'encrypted'} | already_encrypted | wrong_key | unreadable_envelope | empty | placeholder | too_long | lookup_hash_filled | lookup_hash_duplicate`)
   const keys = Array.from(report.fields.keys()).sort()
   for (const key of keys) {
     const c = report.fields.get(key)!
     const [org, table, field] = key.split('|')
-    lines.push(`${tag}${org} | ${table} | ${field} | ${c.plaintext} | ${c.encrypted} | ${c.alreadyEncrypted} | ${c.wrongKey} | ${c.unreadable} | ${c.empty} | ${c.placeholder} | ${c.tooLong}`)
+    lines.push(`${tag}${org} | ${table} | ${field} | ${c.plaintext} | ${c.encrypted} | ${c.alreadyEncrypted} | ${c.wrongKey} | ${c.unreadable} | ${c.empty} | ${c.placeholder} | ${c.tooLong} | ${c.hashFilled} | ${c.hashDuplicate}`)
   }
   if (report.unmapped.size) {
     lines.push(`${tag}plaintext in scopes with NO active encryption map (the app does not encrypt these either; left untouched):`)

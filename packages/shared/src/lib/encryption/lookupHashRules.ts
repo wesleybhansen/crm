@@ -11,6 +11,8 @@ export type LookupHashRule = {
   sourceColumn: string
   targetColumn: string
   normalize: (v: string) => string
+  /** A partial unique index (org, target) where deleted_at is null exists for this hash. */
+  uniquePerOrg?: boolean
 }
 
 export const LOOKUP_HASH_RULES: Record<string, LookupHashRule[]> = {
@@ -21,6 +23,7 @@ export const LOOKUP_HASH_RULES: Record<string, LookupHashRule[]> = {
       sourceColumn: 'primary_email',
       targetColumn: 'primary_email_hash',
       normalize: (v) => v.toLowerCase().trim(),
+      uniquePerOrg: true,
     },
     {
       source: 'primaryPhone',

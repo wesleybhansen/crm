@@ -89,6 +89,67 @@ export async function decryptRowFields<T extends Record<string, any>>(
   return rows
 }
 
+/**
+ * decryptRowFields for rows whose encrypted columns were selected under an
+ * alias (`display_name as contact_name`, `d.title as deal_title`).
+ * `aliases` maps the key in the row to the mapped field name.
+ */
+export async function decryptAliasedRowFields<T extends Record<string, any>>(
+  em: unknown,
+  entityKey: string,
+  rows: T[],
+  aliases: Record<string, string>,
+  tenantId: string | null | undefined,
+  orgId: string | null | undefined,
+): Promise<T[]> {
+  if (!rows?.length) return rows
+  const entries = Object.entries(aliases)
+  const shadows = rows.map((row) => {
+    const shadow: Record<string, unknown> = {}
+    for (const [alias, field] of entries) if (row && alias in row) shadow[field] = row[alias]
+    return shadow
+  })
+  await decryptRowFields(em, entityKey, shadows, Array.from(new Set(entries.map(([, f]) => f))), tenantId, orgId)
+  rows.forEach((row, i) => {
+    if (!row) return
+    for (const [alias, field] of entries) {
+      if (alias in row) (row as Record<string, unknown>)[alias] = shadows[i]![field]
+    }
+  })
+  return rows
+}
+
+/**
+ * decryptRowFields for a result set that spans tenants/organizations (cron
+ * jobs, webhooks). Each row is decrypted in its own scope, read from
+ * `tenant_id` / `organization_id` (or the given column names).
+ */
+export async function decryptRowFieldsByRowScope<T extends Record<string, any>>(
+  em: unknown,
+  entityKey: string,
+  rows: T[],
+  fields: readonly string[],
+  opts: { tenantColumn?: string; orgColumn?: string; aliases?: Record<string, string> } = {},
+): Promise<T[]> {
+  if (!rows?.length) return rows
+  const tenantColumn = opts.tenantColumn ?? 'tenant_id'
+  const orgColumn = opts.orgColumn ?? 'organization_id'
+  const groups = new Map<string, T[]>()
+  for (const row of rows) {
+    if (!row) continue
+    const key = `${row[tenantColumn] ?? ''}|${row[orgColumn] ?? ''}`
+    const list = groups.get(key) ?? []
+    list.push(row)
+    groups.set(key, list)
+  }
+  for (const [key, list] of groups) {
+    const [tenantId, orgId] = key.split('|')
+    if (opts.aliases) await decryptAliasedRowFields(em, entityKey, list, opts.aliases, tenantId || null, orgId || null)
+    else await decryptRowFields(em, entityKey, list, fields, tenantId || null, orgId || null)
+  }
+  return rows
+}
+
 /** Contact fields encrypted at rest (`customers:customer_entity`). */
 export const CONTACT_ENTITY_KEY = 'customers:customer_entity'
 export const CONTACT_ENCRYPTED_FIELDS = ['display_name', 'primary_email', 'primary_phone'] as const
@@ -96,6 +157,18 @@ export const CONTACT_ENCRYPTED_FIELDS = ['display_name', 'primary_email', 'prima
 /** Activity fields encrypted at rest (`customers:customer_activity`). */
 export const ACTIVITY_ENTITY_KEY = 'customers:customer_activity'
 export const ACTIVITY_ENCRYPTED_FIELDS = ['subject', 'body'] as const
+
+/** Person profile fields encrypted at rest (`customers:customer_person_profile`). */
+export const PERSON_ENTITY_KEY = 'customers:customer_person_profile'
+export const PERSON_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'preferred_name', 'job_title', 'department', 'seniority', 'timezone', 'linked_in_url', 'twitter_url'] as const
+
+/** Company profile fields encrypted at rest (`customers:customer_company_profile`). */
+export const COMPANY_ENTITY_KEY = 'customers:customer_company_profile'
+export const COMPANY_ENCRYPTED_FIELDS = ['legal_name', 'brand_name', 'domain', 'website_url', 'industry'] as const
+
+/** Comment fields encrypted at rest (`customers:customer_comment`). */
+export const COMMENT_ENTITY_KEY = 'customers:customer_comment'
+export const COMMENT_ENCRYPTED_FIELDS = ['body'] as const
 
 /** Deal fields encrypted at rest (`customers:customer_deal`). */
 export const DEAL_ENTITY_KEY = 'customers:customer_deal'

@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import {
   decryptWithAesGcmStrict,
   encryptWithAesGcm,
+  hashForLookup,
   isEncryptedEnvelope,
   keyIdForDek,
 } from '../aes'
@@ -58,7 +59,14 @@ class FakeDb implements BackfillDb {
       const rows = this.maps.filter((m) => m.entity_id === params[0]).map((m) => ({ fields_json: m.fields_json }))
       return { rows: rows as any, rowCount: rows.length }
     }
-    let m = /^select (.+) from "(\w+)" where id = any\(\$1::uuid\[\]\)$/.exec(s)
+    let m = /^select id from "(\w+)" where organization_id = \$1 and "(\w+)" = \$2 and deleted_at is null and id <> \$3 limit 1$/.exec(s)
+    if (m) {
+      const rows = this.tables[m[1]!]!.rows.filter(
+        (r) => r.organization_id === params[0] && r[m![2]!] === params[1] && r.deleted_at == null && r.id !== params[2],
+      ).slice(0, 1).map((r) => ({ id: r.id }))
+      return { rows: rows as any, rowCount: rows.length }
+    }
+    m = /^select (.+) from "(\w+)" where id = any\(\$1::uuid\[\]\)$/.exec(s)
     if (m) {
       const cols = m[1]!.split(', ').map((c) => c.replace(/"/g, ''))
       const ids = params[0] as string[]
@@ -83,8 +91,14 @@ class FakeDb implements BackfillDb {
       const id = String(params[Number(m[3]) - 1])
       this.beforeUpdate?.(m[1]!, id)
       const row = this.tables[m[1]!]!.rows.find((r) => String(r.id) === id)
-      const guards = m[4]!.split(' and ').map((g) => /^"(\w+)" = \$(\d+)$/.exec(g)!)
-      if (!row || guards.some((g) => row[g[1]!] !== params[Number(g[2]) - 1])) return { rows: [], rowCount: 0 }
+      const guards = m[4]!.split(' and ')
+      const ok = row && guards.every((g) => {
+        const isNull = /^"(\w+)" is null$/.exec(g)
+        if (isNull) return row[isNull[1]!] == null
+        const eq = /^"(\w+)" = \$(\d+)$/.exec(g)!
+        return row[eq[1]!] === params[Number(eq[2]) - 1]
+      })
+      if (!ok) return { rows: [], rowCount: 0 }
       for (const set of m[2]!.split(', ')) {
         const a = /^"(\w+)" = \$(\d+)$/.exec(set)!
         row[a[1]!] = params[Number(a[2]) - 1]
@@ -149,6 +163,9 @@ function contactsTable(rows: BackfillRow[]): Table {
       primary_email: { type: 'text' },
       primary_phone: { type: 'text' },
       description: { type: 'text' },
+      primary_email_hash: { type: 'text' },
+      primary_phone_hash: { type: 'text' },
+      deleted_at: { type: 'timestamp with time zone' },
     },
     rows,
   }
@@ -378,6 +395,41 @@ describe('runPlaintextBackfill', () => {
     expect(report.rowsChanged).toBe(2)
     expect(db.tables.customer_entities!.rows[0]!.display_name).toBe('Ada Lovelace')
     await expect(runPlaintextBackfill(db, service, { dryRun: true, afterId: id(1) })).rejects.toThrow(/exactly one --table/)
+  })
+
+  it('fills missing contact lookup hashes so hash lookups keep finding legacy rows', async () => {
+    const existingHash = hashForLookup('keep@example.com')
+    const { db, service, org } = scenario({
+      rows: (t, o) => [
+        { id: id(1), tenant_id: t, organization_id: o, display_name: 'A', primary_email: 'Ada@Example.com ', primary_phone: '+1 (555) 010-0100', description: null },
+        { id: id(2), tenant_id: t, organization_id: o, display_name: 'B', primary_email: 'keep@example.com', primary_phone: null, description: null, primary_email_hash: existingHash },
+      ],
+    })
+    const report = await runPlaintextBackfill(db, service, { dryRun: false })
+    const rows = db.tables.customer_entities!.rows
+    expect(rows[0]!.primary_email_hash).toBe(hashForLookup('ada@example.com'))
+    expect(rows[0]!.primary_phone_hash).toBe(hashForLookup('15550100100'))
+    expect(rows[1]!.primary_email_hash).toBe(existingHash)
+    expect(report.fields.get(`${org}|customer_entities|primary_email`)).toMatchObject({ hashFilled: 1 })
+    expect(report.fields.get(`${org}|customer_entities|primary_phone`)).toMatchObject({ hashFilled: 1 })
+  })
+
+  it('never gives two live contacts in one org the same email hash (unique index)', async () => {
+    const { db, service, org } = scenario({
+      rows: (t, o) => [
+        { id: id(1), tenant_id: t, organization_id: o, display_name: 'A', primary_email: 'dup@example.com', primary_phone: null, description: null },
+        { id: id(2), tenant_id: t, organization_id: o, display_name: 'B', primary_email: 'DUP@example.com', primary_phone: null, description: null },
+        { id: id(3), tenant_id: t, organization_id: o, display_name: 'C', primary_email: 'dup@example.com', primary_phone: null, description: null, deleted_at: '2026-01-01' },
+      ],
+    })
+    const report = await runPlaintextBackfill(db, service, { dryRun: false, batchSize: 1 })
+    const rows = db.tables.customer_entities!.rows
+    const h = hashForLookup('dup@example.com')
+    expect(rows[0]!.primary_email_hash).toBe(h)
+    expect(rows[1]!.primary_email_hash ?? null).toBeNull()
+    expect(rows[2]!.primary_email_hash).toBe(h)
+    expect(isEncryptedEnvelope(rows[1]!.primary_email)).toBe(true)
+    expect(report.fields.get(`${org}|customer_entities|primary_email`)).toMatchObject({ hashFilled: 2, hashDuplicate: 1 })
   })
 
   it('refuses when the key service is not enabled', async () => {
