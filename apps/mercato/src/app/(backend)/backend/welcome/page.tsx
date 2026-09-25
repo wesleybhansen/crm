@@ -287,6 +287,18 @@ export default function WelcomePage() {
   const [twilioSaving, setTwilioSaving] = useState(false)
   const [twilioError, setTwilioError] = useState('')
 
+  // Product audit 2026-09-25 (D6): a Launch Pad member who has not finished
+  // the Ideation Lab gets one honest line here instead of this intake; the
+  // Lab briefs the CRM when it finishes. Anyone else, or any failure to
+  // decide, sees the wizard as before.
+  const [gate, setGate] = useState<'pending' | 'awaiting_lab' | 'wizard'>('pending')
+  useEffect(() => {
+    fetch('/api/onboarding/intake-gate', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => setGate(d?.ok && d.data?.gate === 'awaiting_lab' ? 'awaiting_lab' : 'wizard'))
+      .catch(() => setGate('wizard'))
+  }, [])
+
   async function scanWebsite() {
     if (!websiteUrl.trim()) return
     setScanning(true)
@@ -486,6 +498,20 @@ export default function WelcomePage() {
       else setTwilioError(data.error || 'Failed to connect. Check your credentials and try again.')
     } catch { setTwilioError('Connection failed. Check your internet connection.') }
     setTwilioSaving(false)
+  }
+
+  if (gate === 'pending') return null
+  if (gate === 'awaiting_lab') {
+    return (
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center p-6">
+        <div className="w-full max-w-xl text-center">
+          <p className="text-sm text-muted-foreground">Briefed automatically when you finish your Ideation Lab.</p>
+          <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => { window.location.href = '/backend' }}>
+            Go to your CRM <ArrowRight className="size-3.5 ml-1.5" />
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   return (

@@ -65,6 +65,7 @@ export default function SimpleDashboard() {
   const [loading, setLoading] = useState(true)
   const [greeting, setGreeting] = useState('')
   const [hasProfile, setHasProfile] = useState(true)
+  const [awaitingLab, setAwaitingLab] = useState(false)
   const [firstValue, setFirstValue] = useState<FirstValueDraft | null>(null)
   const [firstValueExpanded, setFirstValueExpanded] = useState(false)
   // Seeded accounts skip the wizard (onboarding audit, 2026-09-16): show a
@@ -82,11 +83,16 @@ export default function SimpleDashboard() {
   })
 
   useEffect(() => {
-    fetch('/api/customers/business-profile', { credentials: 'include' })
+    // Product audit 2026-09-25 (D6): the server decides whether to ask the
+    // "About Your Business" intake. A profile a sibling app seeded (the
+    // Launch Pad Lab or Noli onboarding) is already answered, and a Launch
+    // Pad member who has not finished the Lab gets one line, not the intake.
+    fetch('/api/onboarding/intake-gate', { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
-        if (d.ok && d.data === null) { window.location.href = '/backend/welcome'; return }
-        if (d.ok && d.data && d.data.onboarding_complete === false) { window.location.href = '/backend/welcome'; return }
+        const gate = d?.ok ? d.data?.gate : null
+        if (gate === 'intake') { window.location.href = '/backend/welcome'; return }
+        if (gate === 'awaiting_lab') setAwaitingLab(true)
         setHasProfile(true)
       })
       .catch(() => {})
@@ -194,6 +200,12 @@ export default function SimpleDashboard() {
         </div>
       </div>
 
+      {awaitingLab && (
+        <p className="mb-8 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          Briefed automatically when you finish your Ideation Lab.
+        </p>
+      )}
+
       {/* Seeded accounts skip the wizard entirely (onboarding audit,
           2026-09-16): a confirm-and-go summary replaces it, built from
           server state, dismissed server-side so it never comes back. */}
@@ -204,12 +216,14 @@ export default function SimpleDashboard() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold">We set this up from your Noli profile.</p>
               <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                {seededSummary.businessName && (
+                {seededSummary.businessName ? (
                   <p>
                     <span className="font-medium text-foreground">{seededSummary.businessName}</span>
                     {seededSummary.businessDescription ? ` · ${seededSummary.businessDescription}` : ''}
                   </p>
-                )}
+                ) : seededSummary.businessDescription ? (
+                  <p>{seededSummary.businessDescription}</p>
+                ) : null}
                 <p>
                   Chief of Staff: <span className="font-medium text-foreground">{seededSummary.cosName}</span>
                   {seededSummary.followUpTemplateName && (
