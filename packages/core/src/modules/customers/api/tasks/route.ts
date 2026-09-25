@@ -7,6 +7,7 @@ import { E } from '#generated/entities.ids.generated'
 import { taskCreateSchema, taskUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import { normalizeTaskPayload } from '../../lib/taskPayload'
 import { wrapCrudListForLegacyShape, withLegacyOk } from '../legacyShape'
 import {
   createCustomersCrudOpenApi,
@@ -84,7 +85,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const scoped = withScopedPayload(normalizeTaskPayload(raw), ctx, translate)
         return taskCreateSchema.parse(scoped)
       },
       response: ({ result }) => withLegacyOk({ id: result?.taskId ?? null }),
@@ -95,7 +96,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const scoped = withScopedPayload(normalizeTaskPayload(raw), ctx, translate)
         return taskUpdateSchema.parse(scoped)
       },
       response: () => withLegacyOk({}),
