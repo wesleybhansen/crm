@@ -1242,7 +1242,6 @@ describe('buildSourcePlan pricing and limits', () => {
 
 describe('national-scope Maps plays freeze their starting metros into the plan', () => {
   const maps = (() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const m = require('../adapters/dataforseo/maps') as typeof import('../adapters/dataforseo/maps')
     return {
       m,
