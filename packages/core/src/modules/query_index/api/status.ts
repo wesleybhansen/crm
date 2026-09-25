@@ -59,10 +59,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Organization access denied' }, { status: 403 })
   }
 
-  // Every Noli customer shares one tenant. Tenant-wide figures (full-text
-  // counts) and organisation-less log rows (whose payload and stack can hold
-  // any customer's record) are for super admins, whose scope is unrestricted.
+  // Super admins (unrestricted scope) see everything in the tenant. With one
+  // tenant per customer, the caller's own tenant's figures (full-text counts)
+  // and its organisation-less log rows are that customer's too. Log rows with
+  // no tenant at all can hold any customer's record: super admins only.
   const unrestrictedScope = scope.allowedIds === null
+  const ownTenant = typeof auth.tenantId === 'string' && auth.tenantId.length > 0 && tenantId === auth.tenantId
 
   const url = new URL(req.url)
   const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
@@ -114,7 +116,7 @@ export async function GET(req: Request) {
 
   // Fetch fulltext entity counts
   let fulltextEntityCounts: Record<string, number> | null = null
-  if (fulltextStrategy && unrestrictedScope) {
+  if (fulltextStrategy && (unrestrictedScope || ownTenant)) {
     try {
       fulltextEntityCounts = await fulltextStrategy.getEntityCounts(tenantId)
     } catch {
@@ -401,6 +403,11 @@ export async function GET(req: Request) {
         }
       } else {
         qb.whereIn('organization_id', organizationScopeIds ?? [])
+        if (ownTenant) {
+          qb.orWhere((inner: any) => {
+            inner.whereNull('organization_id').andWhere('tenant_id', tenantId)
+          })
+        }
       }
     })
     .orderBy('occurred_at', 'desc')
@@ -441,6 +448,11 @@ export async function GET(req: Request) {
         }
       } else {
         qb.whereIn('organization_id', organizationScopeIds ?? [])
+        if (ownTenant) {
+          qb.orWhere((inner: any) => {
+            inner.whereNull('organization_id').andWhere('tenant_id', tenantId)
+          })
+        }
       }
     })
     .orderBy('occurred_at', 'desc')

@@ -1,8 +1,9 @@
-/* Two customer organisations in ONE shared tenant (the Noli topology). A
- * customer admin must never pull another customer's organisation into their
- * own subtree (which would widen their access scope to it), neither as a
- * child on create/update nor as a new parent, and must not move or delete
- * top-level organisations. */
+/* Two organisations in one tenant. A customer admin must never pull an
+ * organisation it does not manage into its own subtree (which would widen
+ * its access scope to it), neither as a child on create/update nor as a new
+ * parent. Since each customer has its own tenant (CRM_TENANT_PER_CUSTOMER),
+ * top-level organisations inside the actor's own tenant are its own to
+ * create, move to and delete; another tenant is refused. */
 
 jest.mock('#generated/entities.ids.generated', () => ({
   E: { directory: { organization: 'directory:organization', tenant: 'directory:tenant' } },
@@ -221,10 +222,22 @@ describe('directory.organizations: cross-customer adoption (two orgs, one tenant
     await expectForbidden(handler('directory.organizations.update').execute({ id: ORG_B, name: 'Mine now' }, ctx))
   })
 
-  it('update: refuses moving a sub-organization to the top level (super admin only)', async () => {
+  it('update: moves an own sub-organization to the top level of its own tenant', async () => {
     const { store, ctx } = buildHarness(customerA)
-    await expectForbidden(handler('directory.organizations.update').execute({ id: ORG_A1, parentId: null }, ctx))
-    expect(store.get(ORG_A1)!.parentId).toBe(ORG_A)
+    await handler('directory.organizations.update').execute({ id: ORG_A1, parentId: null }, ctx)
+    expect(store.get(ORG_A1)!.parentId).toBeNull()
+  })
+
+  it('create: allows a top-level organization in the own tenant, refuses another tenant', async () => {
+    const { ctx } = buildHarness(customerA)
+    const created = (await handler('directory.organizations.create').execute({ name: 'Second brand' }, ctx)) as OrgRow
+    expect(created.parentId ?? null).toBeNull()
+    await expectForbidden(
+      handler('directory.organizations.create').execute(
+        { name: 'Elsewhere', tenantId: '33333333-0000-4000-8000-000000000000' },
+        ctx,
+      ),
+    )
   })
 
   it('update: a rename that omits parentId/childIds keeps the hierarchy', async () => {
@@ -236,13 +249,13 @@ describe('directory.organizations: cross-customer adoption (two orgs, one tenant
     expect(store.get(ORG_A1)!.parentId).toBe(ORG_A)
   })
 
-  it('delete: refuses deleting a top-level organization or another customer\'s organization', async () => {
+  it('delete: refuses another customer\'s organization, allows the own top-level one', async () => {
     const { store, ctx } = buildHarness(customerA)
     const del = handler('directory.organizations.delete')
-    await expectForbidden(del.execute({ body: { id: ORG_A }, query: {} } as never, ctx))
     await expectForbidden(del.execute({ body: { id: ORG_B1 }, query: {} } as never, ctx))
-    expect(store.get(ORG_A)!.deletedAt).toBeNull()
     expect(store.get(ORG_B1)!.deletedAt).toBeNull()
+    await del.execute({ body: { id: ORG_A }, query: {} } as never, ctx)
+    expect(store.get(ORG_A)!.deletedAt).not.toBeNull()
   })
 
   it('super admin may still restructure across organizations', async () => {
