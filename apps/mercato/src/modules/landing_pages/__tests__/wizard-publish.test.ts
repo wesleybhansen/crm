@@ -168,7 +168,8 @@ describe('POST /api/landing_pages/pages/{id}/publish (wizard page)', () => {
     expect(lpFormInsert![1]).toEqual(expect.arrayContaining([tenantId, orgId, pageId]))
 
     const formsInsert = mockQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO forms'))
-    expect(String(formsInsert![0])).toContain("'draft', false")
+    // A draft (status) that is active, so the Forms list can find it (M8).
+    expect(String(formsInsert![0])).toContain("'draft', true")
 
     const publishUpdate = mockQuery.mock.calls.find(([sql]) => String(sql).includes('SET published_html'))
     expect(publishUpdate).toBeDefined()
