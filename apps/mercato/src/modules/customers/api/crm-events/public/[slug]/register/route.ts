@@ -6,7 +6,7 @@ import { findOrMergeContact as findContactByEmail } from '@/modules/customers/li
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
-import { encryptAttendeeRow, whereAttendeeEmail } from '@/modules/customers/lib/event-attendees'
+import { attendeeEmailHashes, encryptAttendeeRow, whereAttendeeEmail } from '@/modules/customers/lib/event-attendees'
 
 
 export const metadata = { path: '/crm-events/public/[slug]/register', POST: { requireAuth: false, rateLimit: { points: 10, duration: 60, blockDuration: 300, keyPrefix: 'events-public-register' } } }
@@ -58,7 +58,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
 
     // Duplicate check
-    const existing = await (await whereAttendeeEmail(knex('event_attendees').where('event_id', event.id), email, String(event.tenant_id)))
+    const existing = await whereAttendeeEmail(knex('event_attendees').where('event_id', event.id), email, await attendeeEmailHashes(email, String(event.tenant_id)))
       .where('status', 'registered')
       .first()
     if (existing) return NextResponse.json({ ok: false, error: 'You are already registered', alreadyRegistered: true }, { status: 409 })

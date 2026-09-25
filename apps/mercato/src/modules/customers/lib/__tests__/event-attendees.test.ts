@@ -18,7 +18,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: () => em }),
 }))
 
-import { decryptAttendeesForSend, encryptAttendeeRow } from '../event-attendees'
+import { attendeeEmailHashes, decryptAttendeesForSend, encryptAttendeeRow, whereAttendeeEmail } from '../event-attendees'
 
 const saved = { ...process.env }
 beforeAll(() => {
@@ -39,5 +39,14 @@ describe('event attendee encryption', () => {
     expect(unreadable).toBe(1)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ attendee_name: 'Ada Lovelace', attendee_email: 'Ada@Example.com ' })
+  })
+
+  it('whereAttendeeEmail returns the builder synchronously (a knex builder is thenable)', async () => {
+    const hashes = await attendeeEmailHashes(' Ada@Example.com', 't1')
+    expect(hashes[0]).toBe((await contactLookupHasher('t1')).write('ada@example.com'))
+    const qb: any = { where: jest.fn(() => qb), whereRaw: jest.fn(() => qb), first: jest.fn() }
+    const out = whereAttendeeEmail(qb, 'ada@example.com', hashes)
+    expect(out).toBe(qb)
+    expect(typeof (out as any).then).toBe('undefined')
   })
 })

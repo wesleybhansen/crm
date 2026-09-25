@@ -216,7 +216,7 @@ export async function judgeRunOpportunities(input: {
       objectType: 'gtm_candidate_match',
       objectId: { $in: list.map((match) => match.id) },
     })
-    const decided = new Set(overrides.map((row) => row.objectId))
+    const decided = new Set<string>(overrides.map((row) => String(row.objectId ?? '')))
     // A candidate-level override (older review path) decides its matches too.
     const candidateOverrides = await em.find(GtmAuditEvent, {
       organizationId: run.organizationId,
@@ -225,7 +225,7 @@ export async function judgeRunOpportunities(input: {
       objectType: 'gtm_candidate',
       objectId: { $in: [...new Set(list.map((match) => match.candidateId))] },
     })
-    const decidedCandidates = new Set(candidateOverrides.map((row) => row.objectId))
+    const decidedCandidates = new Set<string>(candidateOverrides.map((row) => String(row.objectId ?? '')))
     for (const match of list) if (decidedCandidates.has(match.candidateId)) decided.add(match.id)
     return decided
   }

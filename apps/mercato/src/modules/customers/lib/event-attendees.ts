@@ -26,13 +26,24 @@ export async function encryptAttendeeRow<T extends Record<string, unknown>>(row:
   return encryptRowForRawWrite(EVENT_ATTENDEE_ENTITY, row, tenantId, organizationId)
 }
 
-/** Restrict an event_attendees query to one email. Scope the query to the event (and so the tenant). */
-export async function whereAttendeeEmail<T extends Knex.QueryBuilder>(qb: T, email: unknown, tenantId: string): Promise<T> {
+/** Every stored hash an attendee email may carry in this tenant (keyed, then legacy). */
+export async function attendeeEmailHashes(email: unknown, tenantId: string): Promise<string[]> {
+  const normalized = normalizeAttendeeEmail(email)
+  if (!normalized) return []
+  return (await contactLookupHasher(tenantId)).candidates(normalized)
+}
+
+/**
+ * Restrict an event_attendees query to one email. Synchronous on purpose: a
+ * knex builder is thenable, so returning it from an async function would run
+ * the query early. Scope the query to the event (and so the tenant).
+ */
+export function whereAttendeeEmail<T extends Knex.QueryBuilder>(qb: T, email: unknown, hashes: string[]): T {
   const normalized = normalizeAttendeeEmail(email)
   if (!normalized) return qb.whereRaw('false') as T
-  const hashes = (await contactLookupHasher(tenantId)).candidates(normalized)
   return qb.where(function (this: Knex.QueryBuilder) {
-    this.whereIn('attendee_email_hash', hashes).orWhere(function (this: Knex.QueryBuilder) {
+    if (hashes.length) this.whereIn('attendee_email_hash', hashes)
+    this.orWhere(function (this: Knex.QueryBuilder) {
       this.whereNull('attendee_email_hash').whereRaw('lower(attendee_email) = ?', [normalized])
     })
   }) as T

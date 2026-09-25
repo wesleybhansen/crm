@@ -422,10 +422,10 @@ export async function POST(req: Request) {
           const ticketQty = parseInt(meta.ticketQuantity) || 1
 
           // Registrations are encrypted and matched on the keyed email hash (M11).
-          const { encryptAttendeeRow, whereAttendeeEmail } = await import('../../../../customers/lib/event-attendees')
+          const { attendeeEmailHashes, encryptAttendeeRow, whereAttendeeEmail } = await import('../../../../customers/lib/event-attendees')
           const attTenantId = String(meta.tenantId || tenantId)
           const attOrgId = String(meta.orgId || orgId)
-          const existingAtt = await (await whereAttendeeEmail(knex('event_attendees').where('event_id', eventId), attendeeEmail, attTenantId)).where('status', 'registered').first()
+          const existingAtt = await whereAttendeeEmail(knex('event_attendees').where('event_id', eventId), attendeeEmail, await attendeeEmailHashes(attendeeEmail, attTenantId)).where('status', 'registered').first()
           if (!existingAtt) {
             const attendeeId = require('crypto').randomUUID()
             await knex('event_attendees').insert(await encryptAttendeeRow({

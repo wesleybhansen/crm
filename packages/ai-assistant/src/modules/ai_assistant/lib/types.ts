@@ -112,7 +112,7 @@ export interface ToolExecutionResult {
   success: boolean
   result?: unknown
   error?: string
-  errorCode?: 'NOT_FOUND' | 'UNAUTHORIZED' | 'VALIDATION_ERROR' | 'EXECUTION_ERROR'
+  errorCode?: 'NOT_FOUND' | 'UNAUTHORIZED' | 'VALIDATION_ERROR' | 'EXECUTION_ERROR' | 'MAINTENANCE'
 }
 
 // =============================================================================

@@ -20,7 +20,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 import { qrSvg } from '@/modules/customers/lib/kiosk-qr'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
-import { encryptAttendeeRow, whereAttendeeEmail } from '@/modules/customers/lib/event-attendees'
+import { attendeeEmailHashes, encryptAttendeeRow, whereAttendeeEmail } from '@/modules/customers/lib/event-attendees'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
@@ -236,7 +236,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const now = new Date()
 
     // Existing registration: mark checked in.
-    const existing = await (await whereAttendeeEmail(knex('event_attendees').where('event_id', event.id), email, String(event.tenant_id)))
+    const existing = await whereAttendeeEmail(knex('event_attendees').where('event_id', event.id), email, await attendeeEmailHashes(email, String(event.tenant_id)))
       .orderBy('registered_at', 'desc')
       .first()
 
