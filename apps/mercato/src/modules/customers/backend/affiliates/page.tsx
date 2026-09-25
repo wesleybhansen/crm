@@ -397,7 +397,8 @@ export default function AffiliatesPage() {
   ]
 
   return (
-    <div className="p-6">
+    // Phone: every action button gets at least a 40px tap target.
+    <div className="p-3 sm:p-6 min-w-0 max-sm:[&_button]:min-h-10">
       {/* Header */}
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-xl font-semibold">Affiliates</h1>
@@ -429,10 +430,11 @@ export default function AffiliatesPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 border-b mb-6">
+      {/* Scrolls sideways inside its own row on phones instead of widening the page. */}
+      <div className="flex items-center gap-1 border-b mb-6 overflow-x-auto">
         {tabs.map(t => (
           <button key={t.id} type="button" onClick={() => setTab(t.id)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 sm:px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
             {t.icon} {t.label}
             {t.badge ? <span className="ml-1 bg-[rgba(217,119,6,.10)] text-[#b45309] dark:text-[#fbbf24] border border-[rgba(217,119,6,.26)] dark:border-[rgba(245,158,11,.30)] text-[10px] font-bold px-1.5 py-0.5 rounded-full">{t.badge}</span> : null}
           </button>
@@ -442,7 +444,7 @@ export default function AffiliatesPage() {
       {/* ═══ CAMPAIGNS TAB ═══ */}
       {tab === 'campaigns' && (
         <div>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <p className="text-sm text-muted-foreground">Each campaign links products to a commission structure and optional customer discount.</p>
             <Button type="button" size="sm" onClick={() => setShowCreateCampaign(true)}>
               <Plus className="size-4 mr-1.5" /> New Campaign
