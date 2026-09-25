@@ -1,5 +1,6 @@
 'use client'
 
+import { pickerContacts, useServerContactSearch } from '@/lib/useServerContactSearch'
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -181,6 +182,17 @@ export default function PaymentsPage() {
   const [emailConfirmAddress, setEmailConfirmAddress] = useState('')
   const [emailContactName, setEmailContactName] = useState('')
   const [emailRecipientSearch, setEmailRecipientSearch] = useState('')
+  // Typed queries search the whole organization on the server (encrypted names
+  // match on the blind index); `contacts` only holds the first 100.
+  const contactPickerRemote = useServerContactSearch(contactSearch)
+  const contactPickerVisible = pickerContacts(contacts, contactSearch, contactPickerRemote.results) as Contact[]
+  const emailRecipientRemote = useServerContactSearch(emailRecipientSearch.includes('@') ? '' : emailRecipientSearch)
+  const emailRecipientVisible = (pickerContacts(contacts, emailRecipientSearch, emailRecipientRemote.results) as Contact[])
+    .filter((c) => Boolean(c.primary_email))
+  /** A contact picked from server results joins `contacts`, which the page looks selections up in. */
+  const rememberContact = (c: Contact) => {
+    setContacts((prev) => (prev.some((p) => p.id === c.id) ? prev : [...prev, c]))
+  }
   const [emailRecipientDropdownOpen, setEmailRecipientDropdownOpen] = useState(false)
   const [emailSubject, setEmailSubject] = useState('')
   const [emailBody, setEmailBody] = useState('')
@@ -869,19 +881,14 @@ export default function PaymentsPage() {
                   />
                   {contactDropdownOpen && (
                     <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                      {contacts
-                        .filter(c => {
-                          if (!contactSearch.trim()) return true
-                          const q = contactSearch.toLowerCase()
-                          return (c.display_name || '').toLowerCase().includes(q) ||
-                            (c.primary_email || '').toLowerCase().includes(q)
-                        })
+                      {contactPickerVisible
                         .map(c => (
                           <button
                             key={c.id}
                             type="button"
                             className="w-full text-left px-3 py-2 hover:bg-muted transition flex items-center gap-2"
                             onClick={() => {
+                              rememberContact(c)
                               setSelectedContactId(c.id)
                               setContactSearch('')
                               setContactDropdownOpen(false)
@@ -897,11 +904,7 @@ export default function PaymentsPage() {
                           </button>
                         ))
                       }
-                      {contacts.filter(c => {
-                        if (!contactSearch.trim()) return true
-                        const q = contactSearch.toLowerCase()
-                        return (c.display_name || '').toLowerCase().includes(q) || (c.primary_email || '').toLowerCase().includes(q)
-                      }).length === 0 && (
+                      {contactPickerVisible.length === 0 && (
                         <div className="px-3 py-3 text-center">
                           <p className="text-xs text-muted-foreground mb-2">No contacts found</p>
                           <Button type="button" variant="outline" size="sm" onClick={() => {
@@ -1390,14 +1393,7 @@ export default function PaymentsPage() {
                     />
                     {emailRecipientDropdownOpen && (
                       <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                        {contacts
-                          .filter(c => {
-                            if (!c.primary_email) return false
-                            if (!emailRecipientSearch.trim()) return true
-                            const q = emailRecipientSearch.toLowerCase()
-                            return (c.display_name || '').toLowerCase().includes(q) ||
-                              (c.primary_email || '').toLowerCase().includes(q)
-                          })
+                        {emailRecipientVisible
                           .map(c => (
                             <button
                               key={c.id}
@@ -1435,12 +1431,7 @@ export default function PaymentsPage() {
                             <span className="text-sm">Send to <strong>{emailRecipientSearch.trim()}</strong></span>
                           </button>
                         )}
-                        {!emailRecipientSearch.includes('@') && contacts.filter(c => {
-                          if (!c.primary_email) return false
-                          if (!emailRecipientSearch.trim()) return true
-                          const q = emailRecipientSearch.toLowerCase()
-                          return (c.display_name || '').toLowerCase().includes(q) || (c.primary_email || '').toLowerCase().includes(q)
-                        }).length === 0 && (
+                        {!emailRecipientSearch.includes('@') && emailRecipientVisible.length === 0 && (
                           <div className="px-3 py-3 text-center">
                             <p className="text-xs text-muted-foreground mb-2">No contacts found — type a full email address</p>
                             <Button type="button" variant="outline" size="sm" onClick={() => {

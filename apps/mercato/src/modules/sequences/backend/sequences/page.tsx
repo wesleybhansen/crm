@@ -1,5 +1,6 @@
 'use client'
 
+import { pickerContacts, useServerContactSearch } from '@/lib/useServerContactSearch'
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -182,6 +183,10 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
   const [enrollContactList, setEnrollContactList] = useState<Array<{ id: string; display_name: string; primary_email: string | null }>>([])
   const [enrollContactListLoading, setEnrollContactListLoading] = useState(false)
   const [enrollContactListLoaded, setEnrollContactListLoaded] = useState(false)
+  // A typed query searches the whole organization on the server (encrypted
+  // names match on the blind index); the preloaded list only covers the first 200.
+  const enrollRemote = useServerContactSearch(enrollSearch, { endpoint: 'email' })
+  const enrollVisibleContacts = pickerContacts(enrollContactList, enrollSearch, enrollRemote.results)
 
   // Recipes modal
   const [showRecipes, setShowRecipes] = useState(false)
@@ -948,15 +953,10 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
               <div className="max-h-56 overflow-y-auto rounded border mb-3">
                 {enrollContactListLoading ? (
                   <div className="p-3 text-center text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin inline mr-1" /> Loading contacts...</div>
-                ) : enrollContactList.length === 0 ? (
-                  <div className="p-3 text-center text-xs text-muted-foreground">No contacts found</div>
+                ) : enrollVisibleContacts.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-muted-foreground">{enrollRemote.loading ? 'Searching...' : 'No contacts found'}</div>
                 ) : (
-                  enrollContactList
-                    .filter(c => {
-                      if (!enrollSearch) return true
-                      const q = enrollSearch.toLowerCase()
-                      return (c.display_name || '').toLowerCase().includes(q) || (c.primary_email || '').toLowerCase().includes(q)
-                    })
+                  enrollVisibleContacts
                     .map(c => {
                       const isSelected = enrollSelectedIds.has(c.id)
                       return (

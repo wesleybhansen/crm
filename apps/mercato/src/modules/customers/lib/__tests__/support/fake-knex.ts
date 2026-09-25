@@ -10,6 +10,7 @@ type Pred = (row: Row) => boolean
 
 const RAW: Array<[RegExp, (m: RegExpExecArray, b: any[]) => Pred]> = [
   [/^false$/i, () => () => false],
+  [/^([\w.]+) != ''$/i, (m) => (r) => String(get(r, m[1]!) ?? '') !== ''],
   [/^lower\(([\w.]+)\) = \?$/i, (m, b) => (r) => String(get(r, m[1]!) ?? '').toLowerCase() === b[0]],
   [/^lower\(([\w.]+)\) = any\(\?\)$/i, (m, b) => (r) => (b[0] as string[]).includes(String(get(r, m[1]!) ?? '').toLowerCase())],
   [
@@ -27,6 +28,8 @@ class Builder {
   private preds: Array<{ or: boolean; p: Pred }> = []
   private cols: string[] | null = null
   private lim: number | null = null
+  private group: string | null = null
+  private minGroupSize = 0
 
   constructor(private readonly db: FakeKnexDb, private readonly table: string | null) {}
 
@@ -73,12 +76,24 @@ class Builder {
   }
   modify(fn: (qb: Builder) => void) { fn(this); return this }
   orderBy() { return this }
+  groupBy(col: string) { this.group = col; return this }
+  havingRaw(sql: string) {
+    const m = /^count\(\*\) > (\d+)$/i.exec(sql.trim())
+    if (!m) throw new Error(`fake-knex: unsupported havingRaw: ${sql}`)
+    this.minGroupSize = Number(m[1]) + 1
+    return this
+  }
   limit(n: number) { this.lim = n; return this }
   select(...cols: any[]) { this.cols = cols.flat(); return this }
 
   private rows(): Row[] {
     const all = (this.db.tables[this.table!] ??= [])
     let out = all.filter((r) => this.matches(r))
+    if (this.group) {
+      const counts = new Map<unknown, Row[]>()
+      for (const r of out) counts.set(get(r, this.group), [...(counts.get(get(r, this.group)) ?? []), r])
+      out = Array.from(counts.values()).filter((g) => g.length >= this.minGroupSize).map((g) => g[0]!)
+    }
     if (this.lim != null) out = out.slice(0, this.lim)
     return out
   }

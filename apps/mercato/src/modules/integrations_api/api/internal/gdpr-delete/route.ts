@@ -67,6 +67,14 @@ const ORG_TABLES = [
   'inbox_emails',
   'inbox_conversations',
   'email_messages',
+  // Search data derived from contacts: the blind index (keyed hashes), the
+  // query index documents and tokens, and the vector store. The purge used to
+  // leave all four behind, and before 2026-09-25 the last three could hold
+  // plaintext-equivalent copies of names, emails and deal titles.
+  'customer_search_tokens',
+  'search_tokens',
+  'entity_indexes',
+  'vector_search',
   // Contact-scoped PII + activity.
   'contact_timeline_events',
   'contact_engagement_scores',

@@ -26,13 +26,15 @@ import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encry
 import { createPresenterEnricher } from './lib/presenter-enricher'
 
 /**
- * Check if encrypted fields should be excluded from search indexing.
- * Controlled by SEARCH_EXCLUDE_ENCRYPTED_FIELDS environment variable.
- * Default: false (index all fields including decrypted data)
+ * Whether encrypted-by-design fields are kept out of the external fulltext
+ * index (Meilisearch). Default: excluded. Sending decrypted contact names and
+ * emails to a search service would be a plaintext copy of encrypted data.
+ * SEARCH_EXCLUDE_ENCRYPTED_FIELDS=false restores the old behaviour.
  */
 function shouldExcludeEncryptedFields(): boolean {
-  const raw = (process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS ?? '').toLowerCase()
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+  const raw = (process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS ?? '').trim().toLowerCase()
+  if (!raw) return true
+  return !(raw === '0' || raw === 'false' || raw === 'no' || raw === 'off')
 }
 
 /**
@@ -52,6 +54,7 @@ function createEncryptionMapResolver(
       return cached.entries
     }
 
+    const entries: EncryptionMapEntry[] = []
     try {
       const rows = await knex('encryption_maps')
         .select('fields_json')
@@ -61,19 +64,26 @@ function createEncryptionMapResolver(
         .first()
 
       const fieldsJson = rows?.fields_json
-      const entries: EncryptionMapEntry[] = Array.isArray(fieldsJson)
-        ? fieldsJson.map((f: { field: string; hashField?: string | null }) => ({
-            field: f.field,
-            hashField: f.hashField ?? null,
-          }))
-        : []
-
-      cache.set(entityId, { entries, expiresAt: Date.now() + CACHE_TTL_MS })
-      return entries
+      if (Array.isArray(fieldsJson)) {
+        for (const f of fieldsJson as Array<{ field: string; hashField?: string | null }>) {
+          entries.push({ field: f.field, hashField: f.hashField ?? null })
+        }
+      }
     } catch {
-      // Query failed, return empty array (don't exclude any fields)
-      return []
+      // Query failed: fall back to the default map below (never "exclude nothing").
     }
+    // The default map too (and a profile's parent contact fields), so a
+    // missing or partial encryption_maps row never lets a mapped field through.
+    try {
+      const { staticEncryptedIndexFields } = await import('@open-mercato/core/modules/query_index/lib/encrypted-fields')
+      for (const field of staticEncryptedIndexFields(entityId)) {
+        if (!entries.some((e) => e.field === field)) entries.push({ field, hashField: null })
+      }
+    } catch {
+      // core not resolvable in this bundle: the database map is all there is
+    }
+    cache.set(entityId, { entries, expiresAt: Date.now() + CACHE_TTL_MS })
+    return entries
   }
 }
 

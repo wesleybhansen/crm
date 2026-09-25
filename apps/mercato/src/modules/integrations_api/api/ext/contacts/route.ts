@@ -9,7 +9,7 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { whereContactEmail } from '@/modules/customers/lib/contact-lookup'
 import { decryptRowsForDisplay } from '@/modules/customers/lib/display-decrypt'
-import { CONTACT_SEARCH_CANDIDATE_LIMIT, contactMatchesSearch } from '@/modules/customers/lib/contact-search'
+import { BLIND_SEARCH_ID_CAP, blindSearchIds } from '@open-mercato/core/modules/customers/lib/blindSearch'
 
 export const metadata = {
   path: '/ext/contacts',
@@ -62,19 +62,32 @@ export async function GET(req: Request, ctx: any) {
 
     if (status) query = query.where('status', status)
 
-    // Name and email are encrypted at rest, so SQL ILIKE can never match an
-    // encrypted row. With a search term, load the org's recent contacts
-    // (bounded), decrypt, filter and paginate in memory.
+    // Name, email and phone are encrypted at rest: a search runs on the blind
+    // index (ranked by matched fields, org-scoped in SQL); the status filter
+    // and pagination apply to the matching ids, and only the returned page is
+    // read and decrypted.
     let count: number | string
     let contacts: any[]
     let searchTruncated = false
     if (search) {
-      const candidates = await query.clone().select('*').orderBy('created_at', 'desc').limit(CONTACT_SEARCH_CANDIDATE_LIMIT)
-      searchTruncated = candidates.length >= CONTACT_SEARCH_CANDIDATE_LIMIT
-      await decryptContactsForResponse(em, candidates, scope.tenantId, scope.orgId)
-      const matches = candidates.filter((c: any) => contactMatchesSearch(c, search))
-      count = matches.length
-      contacts = matches.slice((page - 1) * pageSize, page * pageSize)
+      const found = await blindSearchIds(em, {
+        tenantId: scope.tenantId,
+        organizationIds: [scope.orgId],
+        entityTypes: ['person', 'company'],
+        query: search,
+      })
+      searchTruncated = found.truncated
+      let ids = found.ids
+      if (status && ids.length) {
+        const keep = new Set((await query.clone().whereIn('id', ids).pluck('id')).map(String))
+        ids = ids.filter((id) => keep.has(id))
+      }
+      count = ids.length
+      const pageIds = ids.slice((page - 1) * pageSize, page * pageSize)
+      const rows = pageIds.length ? await query.clone().whereIn('id', pageIds).select('*') : []
+      const order = new Map(pageIds.map((id, i) => [id, i]))
+      contacts = rows.sort((a: any, b: any) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+      await decryptContactsForResponse(em, contacts, scope.tenantId, scope.orgId)
     } else {
       ;[{ count }] = await query.clone().count() as any
       contacts = await query.select('*').orderBy('created_at', 'desc').limit(pageSize).offset((page - 1) * pageSize)
@@ -85,7 +98,7 @@ export async function GET(req: Request, ctx: any) {
       ok: true,
       data: contacts,
       pagination: { page, pageSize, total: Number(count) },
-      ...(searchTruncated ? { searchScope: `most recent ${CONTACT_SEARCH_CANDIDATE_LIMIT} contacts` } : {}),
+      ...(searchTruncated ? { searchScope: `best ${BLIND_SEARCH_ID_CAP} matches` } : {}),
     })
   } catch (error) {
     console.error('[ext.contacts.list]', error)

@@ -10,6 +10,17 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 import { searchDebugWarn } from '../lib/debug'
 
+/** SEARCH_VECTOR_INDEX_ENCRYPTED=true embeds encrypted-by-design entities (never their display text). */
+export function vectorIndexEncryptedEntitiesEnabled(): boolean {
+  const raw = (process.env.SEARCH_VECTOR_INDEX_ENCRYPTED ?? '').trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+async function isEncryptedSearchEntity(entityId: string): Promise<boolean> {
+  const { hasEncryptedIndexFields } = await import('@open-mercato/core/modules/query_index/lib/encrypted-fields')
+  return hasEncryptedIndexFields(entityId)
+}
+
 /**
  * Embedding service interface - minimal subset needed by VectorSearchStrategy.
  */
@@ -106,6 +117,19 @@ export class VectorSearchStrategy implements SearchStrategy {
 
   async index(record: IndexableRecord): Promise<void> {
     await this.ensureReady()
+    if (await isEncryptedSearchEntity(record.entityId)) {
+      if (!vectorIndexEncryptedEntitiesEnabled()) {
+        // Encrypted-by-design records (contacts, companies, deals, activities,
+        // comments) are not embedded: that would send their plaintext to the
+        // embedding provider and store a derived copy. Drop any entry an
+        // earlier build wrote. Opt in with SEARCH_VECTOR_INDEX_ENCRYPTED=true.
+        await this.vectorDriver.delete(record.entityId as EntityId, record.recordId, record.tenantId)
+        return
+      }
+      // Opted in: the embedding only. No display text is stored; results get
+      // their presenter from the (encrypted) query index at read time.
+      record = { ...record, presenter: undefined, links: undefined }
+    }
     // Use text from buildSource if available, otherwise fall back to generic extraction
     const textContent = record.text
       ? (Array.isArray(record.text) ? record.text.join('\n') : record.text)

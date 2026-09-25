@@ -9,6 +9,7 @@ import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encry
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { NO_MATCH_ID, blindSearchIds } from '../../lib/blindSearch'
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -125,7 +126,19 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   if (search?.trim()) {
-    where.entity = { displayName: { $ilike: `%${search.trim()}%` } }
+    // Contact names are encrypted at rest: match on the blind index.
+    let ids: string[] = []
+    try {
+      ids = (await blindSearchIds(em, {
+        tenantId: auth.tenantId,
+        organizationIds: [auth.orgId],
+        entityTypes: ['person', 'company'],
+        query: search,
+      })).ids
+    } catch (err) {
+      console.error('[customers.todos.search] blind_search_failed', { code: (err as { code?: string })?.code ?? 'error' })
+    }
+    where.entity = { id: { $in: ids.length ? ids : [NO_MATCH_ID] } }
   }
 
   const [links, total] = await em.findAndCount(

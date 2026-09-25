@@ -3,7 +3,6 @@ import crypto from 'crypto'
 import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
 import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptRowsForDisplay, isUnreadableValue } from '../display-decrypt'
-import { contactMatchesSearch } from '../contact-search'
 import { reminderEntityLabel } from '../reminder-entity-label'
 
 const MAPS = [
@@ -52,17 +51,6 @@ describe('decryptRowsForDisplay', () => {
     expect(isUnreadableValue('aaaa:bbbb:cccc:v2:0011aabb')).toBe(true)
     expect(isUnreadableValue(UNDECRYPTABLE_DISPLAY_TEXT)).toBe(true)
     expect(isUnreadableValue('Ada: notes on v2')).toBe(false)
-  })
-})
-
-describe('contactMatchesSearch', () => {
-  const row = { display_name: 'Ada Lovelace', primary_email: 'ADA@example.com', primary_phone: '+1 (555) 010-0100' }
-  it('matches name and email case-insensitively and phone by digits', () => {
-    expect(contactMatchesSearch(row, 'love')).toBe(true)
-    expect(contactMatchesSearch(row, 'ada@EX')).toBe(true)
-    expect(contactMatchesSearch(row, '555-010', { phone: true })).toBe(true)
-    expect(contactMatchesSearch(row, '555-010')).toBe(false)
-    expect(contactMatchesSearch(row, 'grace')).toBe(false)
   })
 })
 

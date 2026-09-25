@@ -2,6 +2,9 @@ import type { Knex } from 'knex'
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+import { hasEncryptedIndexFields, staticEncryptedIndexFields } from './encrypted-fields'
+import { AGGREGATE_SEARCH_FIELD } from './document'
 
 export type SearchTokenRow = {
   entity_type: string
@@ -20,6 +23,11 @@ type BuildTokenOptions = {
   tenantId?: string | null
   doc?: Record<string, unknown> | null
   config?: SearchConfig
+  /**
+   * Fields never to tokenize (encrypted-by-design, see encrypted-fields.ts).
+   * The default encryption map for the entity type is always added.
+   */
+  excludeFields?: Iterable<string>
 }
 
 const DEFAULT_SCOPE = { organizationId: null, tenantId: null }
@@ -68,16 +76,24 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
   if (!config.enabled) return []
   if (!params.doc) return []
   const tokens: SearchTokenRow[] = []
-  const capturePairs = isSearchDebugEnabled() && params.entityType === 'customers:customer_deal'
-  const debugPairs: Array<{ field: string; token: string; hash: string }> = []
   const scope = {
     organizationId: params.organizationId ?? DEFAULT_SCOPE.organizationId,
     tenantId: params.tenantId ?? DEFAULT_SCOPE.tenantId,
   }
+  // Encrypted-by-design fields never become unkeyed hashes (reversible by
+  // dictionary). Contacts, companies and deals are searched through the keyed
+  // blind index instead (customer_search_tokens).
+  const excluded = staticEncryptedIndexFields(params.entityType)
+  for (const field of params.excludeFields ?? []) excluded.add(field)
+  const encryptedEntity = hasEncryptedIndexFields(params.entityType) || excluded.size > 0
 
   for (const [field, rawValue] of Object.entries(params.doc)) {
+    if (excluded.has(field)) continue
+    // The aggregate concatenates every string field, encrypted ones included.
+    if (encryptedEntity && field === AGGREGATE_SEARCH_FIELD) continue
     if (!shouldIndexField(field, rawValue, config)) continue
     const values = collectTextValues(rawValue)
+    if (values.some((v) => isEncryptedEnvelope(v))) continue
     const seen = new Set<string>()
     for (const text of values) {
       const { tokens: textTokens, hashes } = tokenizeText(text, config)
@@ -87,7 +103,6 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
         const dedupeKey = `${field}|${hash}`
         if (seen.has(dedupeKey)) continue
         seen.add(dedupeKey)
-        debug('token.generated', { entityType: params.entityType, recordId: params.recordId, field, token, hash })
         tokens.push({
           entity_type: params.entityType,
           entity_id: String(params.recordId),
@@ -97,20 +112,10 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
           token_hash: hash,
           token: config.storeRawTokens ? token : null,
         })
-        if (capturePairs) {
-          debugPairs.push({ field, token, hash })
-        }
       }
     }
   }
-  if (capturePairs) {
-    debug('deal.tokens', {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      title: params.doc?.title ?? null,
-      tokens: debugPairs,
-    })
-  }
+  // Counts only: token values and field contents are never logged.
   debug('doc.completed', { entityType: params.entityType, recordId: params.recordId, tokenCount: tokens.length })
 
   return tokens

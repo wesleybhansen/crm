@@ -11,6 +11,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import { blindSearchIds } from '@open-mercato/core/modules/customers/lib/blindSearch'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { z } from 'zod'
@@ -27,9 +28,20 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url)
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '500', 10), 1000)
+    const search = (url.searchParams.get('search') || '').trim()
 
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
+
+    // Names and emails are encrypted at rest: a search runs on the blind index
+    // across the whole organization (ranked), then only the matches are loaded.
+    let ids: string[] | null = null
+    if (search) {
+      ids = (await blindSearchIds(em, {
+        tenantId: auth.tenantId, organizationIds: [auth.orgId], entityTypes: ['person'], query: search, cap: limit,
+      })).ids
+      if (!ids.length) return NextResponse.json({ ok: true, data: [] })
+    }
 
     const contacts = await findWithDecryption(
       em,
@@ -40,10 +52,11 @@ export async function GET(req: Request) {
         kind: 'person',
         primaryEmail: { $ne: null },
         deletedAt: null,
+        ...(ids ? { id: { $in: ids } } : {}),
       },
       {
         fields: ['id', 'displayName', 'primaryEmail'],
-        orderBy: { displayName: 'asc' },
+        orderBy: { createdAt: 'desc' },
         limit,
       },
       { tenantId: auth.tenantId, organizationId: auth.orgId },
@@ -54,6 +67,13 @@ export async function GET(req: Request) {
       display_name: c.displayName,
       primary_email: c.primaryEmail,
     }))
+    // Order in memory: SQL ORDER BY display_name would sort ciphertext.
+    if (ids) {
+      const rank = new Map(ids.map((id, i) => [id, i]))
+      data.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0))
+    } else {
+      data.sort((a, b) => String(a.display_name ?? '').localeCompare(String(b.display_name ?? ''), undefined, { sensitivity: 'base' }))
+    }
 
     return NextResponse.json({ ok: true, data })
   } catch (error) {

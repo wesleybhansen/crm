@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { emailLookupHash, normalizeEmailForLookup } from '@/modules/customers/lib/contact-lookup'
 
 export async function GET() {
   const auth = await getAuthFromCookies()
@@ -19,45 +20,69 @@ export async function GET() {
     const em = container.resolve('em') as EntityManager
     const knex = em.getKnex()
 
-    // Duplicate detection cannot be done in SQL here. primary_email is
-    // encrypted at rest on the ORM write path and encryption uses a random IV,
-    // so the SAME address produces DIFFERENT ciphertext on every row — a
-    // GROUP BY on the stored value can never group a duplicate with itself,
-    // and no amount of decrypting afterwards fixes a grouping that already
-    // happened. Rows written outside the ORM are plaintext, so the table holds
-    // a mix and neither form can be trusted as a key.
-    //
-    // So: read, decrypt, then group on the decrypted address.
-    const MAX_SCAN = 2000
-    const rows = await knex('customer_entities')
+    // primary_email is encrypted with a random IV, so the stored value can
+    // never be grouped in SQL. primary_email_hash (sha256 of the normalized
+    // address) can, and a partial unique index on (organization_id,
+    // primary_email_hash) for live rows means two HASHED contacts never share
+    // an address: every duplicate involves a row without a hash (legacy rows,
+    // and the legacy duplicates the backfill deliberately left hash-less).
+    // So: decrypt only the hash-less rows, hash their addresses, and pull the
+    // hashed rows with those hashes. Complete for the whole organization,
+    // instead of decrypting its first 2,000 contacts.
+    const MAX_HASHLESS = 20000
+    const cols = ['id', 'display_name', 'primary_email', 'primary_email_hash', 'created_at', 'source', 'lifecycle_stage']
+    const hashless = await knex('customer_entities')
       .where('organization_id', auth.orgId)
+      .whereNull('deleted_at')
+      .whereNull('primary_email_hash')
       .whereNotNull('primary_email')
       .whereRaw("primary_email != ''")
-      .whereNull('deleted_at')
-      .select('id', 'display_name', 'primary_email', 'created_at', 'source', 'lifecycle_stage')
+      .select(cols)
       .orderBy('created_at', 'asc')
-      .limit(MAX_SCAN + 1)
+      .limit(MAX_HASHLESS + 1)
+    const truncated = hashless.length > MAX_HASHLESS
+    const legacy = truncated ? hashless.slice(0, MAX_HASHLESS) : hashless
+    await decryptRowFields(em, CONTACT_ENTITY_KEY, legacy, ['display_name', 'primary_email'], auth.tenantId, auth.orgId)
 
-    const truncated = rows.length > MAX_SCAN
-    const contacts = truncated ? rows.slice(0, MAX_SCAN) : rows
-    await decryptRowFields(
-      em, CONTACT_ENTITY_KEY, contacts, ['display_name', 'primary_email'], auth.tenantId, auth.orgId,
-    )
-
-    // Group on the decrypted address. Anything still unreadable is skipped
-    // rather than grouped together — every undecryptable row would otherwise
-    // collide into one bogus "duplicate" set.
-    const groups: Record<string, { email: string; contacts: any[] }> = {}
-    for (const contact of contacts) {
-      const email = String(contact.primary_email || '').trim().toLowerCase()
+    const keyed: Array<{ key: string; email: string; row: any }> = []
+    for (const row of legacy) {
+      // Anything still unreadable is skipped rather than grouped together.
+      const email = normalizeEmailForLookup(String(row.primary_email || ''))
       if (!email || !email.includes('@')) continue
-      if (!groups[email]) groups[email] = { email, contacts: [] }
-      groups[email].contacts.push({
-        id: contact.id,
-        displayName: contact.display_name,
-        createdAt: contact.created_at,
-        source: contact.source,
-        lifecycleStage: contact.lifecycle_stage,
+      keyed.push({ key: emailLookupHash(email)!, email, row })
+    }
+    // Belt and braces for a database without that unique index: hashed rows
+    // that share a hash are grouped in SQL (hashes only, no values).
+    const sharedHashes = (await knex('customer_entities')
+      .where('organization_id', auth.orgId)
+      .whereNull('deleted_at')
+      .whereNotNull('primary_email_hash')
+      .groupBy('primary_email_hash')
+      .havingRaw('count(*) > 1')
+      .select('primary_email_hash')).map((r: { primary_email_hash: string }) => String(r.primary_email_hash))
+    const hashes = Array.from(new Set([...keyed.map((k) => k.key), ...sharedHashes]))
+    const hashed = hashes.length
+      ? await knex('customer_entities')
+        .where('organization_id', auth.orgId)
+        .whereNull('deleted_at')
+        .whereIn('primary_email_hash', hashes)
+        .select(cols)
+      : []
+    await decryptRowFields(em, CONTACT_ENTITY_KEY, hashed, ['display_name', 'primary_email'], auth.tenantId, auth.orgId)
+    for (const row of hashed) {
+      keyed.push({ key: String(row.primary_email_hash), email: normalizeEmailForLookup(String(row.primary_email || '')), row })
+    }
+
+    const groups: Record<string, { email: string; contacts: any[] }> = {}
+    for (const { key, email, row } of keyed) {
+      if (!groups[key]) groups[key] = { email: email.includes('@') ? email : '', contacts: [] }
+      if (!groups[key].email && email.includes('@')) groups[key].email = email
+      groups[key].contacts.push({
+        id: row.id,
+        displayName: row.display_name,
+        createdAt: row.created_at,
+        source: row.source,
+        lifecycleStage: row.lifecycle_stage,
       })
     }
 
@@ -67,7 +92,7 @@ export async function GET() {
 
     const data = Object.values(groups).sort((a, b) => b.contacts.length - a.contacts.length)
     // Say so when the scan was capped: a short list must not read as "no duplicates".
-    return NextResponse.json({ ok: true, data, scanned: contacts.length, truncated })
+    return NextResponse.json({ ok: true, data, scanned: legacy.length + hashed.length, truncated })
   } catch (error) {
     console.error('[contacts.duplicates]', error)
     return NextResponse.json({ ok: false, error: 'Failed to scan for duplicates' }, { status: 500 })

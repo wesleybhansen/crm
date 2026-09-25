@@ -12,6 +12,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { extractFallbackPresenter } from './fallback-presenter'
+import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 
 /** Maximum number of record IDs per batch query to avoid hitting DB parameter limits */
 const BATCH_SIZE = 500
@@ -24,15 +25,12 @@ const logWarning = (message: string, context?: Record<string, unknown>) => {
 }
 
 /**
- * Check if a string looks like an encrypted value.
- * Encrypted format: iv:ciphertext:authTag:v1
+ * Check if a string is an encrypted value (v1, v1.<keyId> or v2 envelope).
+ * The old check knew only `...:v1`, so v2 ciphertext in a stored presenter
+ * was shown instead of being re-resolved.
  */
 function looksEncrypted(value: unknown): boolean {
-  if (typeof value !== 'string') return false
-  if (!value.includes(':')) return false
-  const parts = value.split(':')
-  // Encrypted strings end with :v1 and have at least 3 colon-separated parts
-  return parts.length >= 3 && parts[parts.length - 1] === 'v1'
+  return isEncryptedEnvelope(value)
 }
 
 /**

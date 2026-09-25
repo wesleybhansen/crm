@@ -10,6 +10,7 @@
 import type { Knex } from 'knex'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
+import { deleteSearchTokensForEntities, searchSqlFromKnex, searchTokensTableExists } from '@open-mercato/shared/lib/encryption/searchIndex'
 import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 type MergeResult = { merged: true; primaryId: string; secondaryId: string }
@@ -186,6 +187,19 @@ export async function mergeContacts(
     }, tenantId, orgId)
     await trx('customer_activities').insert(activity)
   })
+
+  // The merged-away contact stops being searchable. The soft-delete trigger on
+  // customer_entities already dropped its blind-index tokens inside the
+  // transaction; this repeats it after commit so a database without the
+  // trigger yet is covered too. Best-effort: never fails a committed merge.
+  try {
+    const db = searchSqlFromKnex(knex)
+    if (await searchTokensTableExists(db)) {
+      await deleteSearchTokensForEntities(db, [secondaryId], { entityTypes: ['person', 'company'] })
+    }
+  } catch (err) {
+    console.error('[contacts.merge] search_tokens_cleanup_failed', { code: (err as { code?: string })?.code ?? 'error' })
+  }
 
   return { merged: true, primaryId, secondaryId }
 }

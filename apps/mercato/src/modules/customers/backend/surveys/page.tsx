@@ -1,5 +1,6 @@
 'use client'
 
+import { pickerContacts, useServerContactSearch } from '@/lib/useServerContactSearch'
 import { useState, useEffect, useCallback } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -199,6 +200,12 @@ export default function SurveysPage() {
   const [allContacts, setAllContacts] = useState<Array<{ id: string; display_name: string; primary_email: string }>>([])
   const [contactsLoaded, setContactsLoaded] = useState(false)
   const [recipientSearch, setRecipientSearch] = useState('')
+  // A typed query searches the whole organization on the server (encrypted
+  // names match on the blind index); the preloaded list only covers 100 contacts.
+  const recipientRemote = useServerContactSearch(recipientSearch)
+  const recipientVisibleContacts = pickerContacts(allContacts, recipientSearch, recipientRemote.results)
+    .filter((c) => Boolean(c.primary_email))
+    .map((c) => ({ id: c.id, display_name: c.display_name || '', primary_email: c.primary_email || '' }))
   const [recipientDropdownOpen, setRecipientDropdownOpen] = useState(false)
 
   const loadSurveys = useCallback(() => {
@@ -836,12 +843,7 @@ export default function SurveysPage() {
                         />
                         {recipientDropdownOpen && (
                           <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-background border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                            {allContacts
-                              .filter(c => {
-                                if (!recipientSearch.trim()) return true
-                                const q = recipientSearch.toLowerCase()
-                                return c.display_name.toLowerCase().includes(q) || c.primary_email.toLowerCase().includes(q)
-                              })
+                            {recipientVisibleContacts
                               .slice(0, 10)
                               .map(c => (
                                 <button key={c.id} type="button"

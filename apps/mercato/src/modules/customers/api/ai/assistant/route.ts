@@ -2,6 +2,7 @@
 export const metadata = { path: '/ai/assistant', POST: { requireAuth: true } }
 
 import { NextResponse } from 'next/server'
+import { blindSearchIds } from '@open-mercato/core/modules/customers/lib/blindSearch'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -466,25 +467,25 @@ async function buildDataContext(knex: any, orgId: string, tenantId: string, em: 
 }
 
 // Search for specific contacts/deals when the user asks about someone by name.
-// With tenant encryption on, display_name/primary_email are stored as ciphertext,
-// so SQL ILIKE can't match plaintext queries. Pull the most recent 200 rows,
-// decrypt in memory, then filter.
+// Names, emails and deal titles are encrypted at rest, so the match runs on
+// the blind index (customer_search_tokens) across the whole organization;
+// only the matched rows are read and decrypted.
 async function searchCrmData(knex: any, orgId: string, tenantId: string, em: EntityManager, query: string): Promise<string> {
   if (!query || query.length < 2) return ''
   const sections: string[] = []
-  const needle = query.toLowerCase()
 
   try {
-    const rawPool = await knex('customer_entities')
-      .where('organization_id', orgId).whereNull('deleted_at')
-      .select('id', 'display_name', 'primary_email', 'primary_phone', 'kind', 'lifecycle_stage', 'source', 'created_at')
-      .orderBy('created_at', 'desc').limit(200)
-    const pool = await decryptContactRows(em, rawPool, tenantId, orgId)
-    const contacts = pool.filter((c: any) => {
-      const dn = (c.display_name || '').toLowerCase()
-      const pe = (c.primary_email || '').toLowerCase()
-      return dn.includes(needle) || pe.includes(needle)
-    }).slice(0, 10)
+    const { ids: contactIds } = await blindSearchIds(em, {
+      tenantId, organizationIds: [orgId], entityTypes: ['person', 'company'], query, cap: 10,
+    })
+    const rawPool = contactIds.length
+      ? await knex('customer_entities')
+        .where('organization_id', orgId).whereIn('id', contactIds).whereNull('deleted_at')
+        .select('id', 'display_name', 'primary_email', 'primary_phone', 'kind', 'lifecycle_stage', 'source', 'created_at')
+      : []
+    const order = new Map(contactIds.map((id: string, i: number) => [id, i]))
+    const contacts = (await decryptContactRows(em, rawPool, tenantId, orgId))
+      .sort((a: any, b: any) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
 
     if (contacts.length > 0) {
       sections.push(`SEARCH RESULTS for "${query}" — ${contacts.length} contact(s) found:`)
@@ -536,14 +537,16 @@ async function searchCrmData(knex: any, orgId: string, tenantId: string, em: Ent
   } catch {}
 
   try {
-    // Search deals by title — titles ARE encrypted, so fetch recent + filter
-    // in-memory (same pattern as contact search above).
-    const rawDealPool = await knex('customer_deals')
-      .where('organization_id', orgId).whereNull('deleted_at')
-      .select('id', 'title', 'description', 'status', 'value_amount', 'pipeline_stage', 'created_at')
-      .orderBy('created_at', 'desc').limit(200)
-    const dealPool = await decryptDealRows(em, rawDealPool, tenantId, orgId)
-    const deals = dealPool.filter((d: any) => (d.title || '').toLowerCase().includes(needle)).slice(0, 5)
+    // Deal titles are encrypted too: blind index, then decrypt the matches.
+    const { ids: dealIds } = await blindSearchIds(em, {
+      tenantId, organizationIds: [orgId], entityTypes: ['deal'], query, cap: 5,
+    })
+    const rawDealPool = dealIds.length
+      ? await knex('customer_deals')
+        .where('organization_id', orgId).whereIn('id', dealIds).whereNull('deleted_at')
+        .select('id', 'title', 'description', 'status', 'value_amount', 'pipeline_stage', 'created_at')
+      : []
+    const deals = await decryptDealRows(em, rawDealPool, tenantId, orgId)
     if (deals.length > 0 && !sections.some(s => s.includes('SEARCH RESULTS'))) {
       sections.push(`SEARCH RESULTS for "${query}":`)
     }

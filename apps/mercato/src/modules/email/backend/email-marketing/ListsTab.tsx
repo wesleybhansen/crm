@@ -1,5 +1,6 @@
 'use client'
 
+import { pickerContacts, useServerContactSearch } from '@/lib/useServerContactSearch'
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -25,13 +26,11 @@ function ContactPickerInline({ contacts, loading, search, onSearch, selected, on
   selected: Set<string>; onSelected: (s: Set<string>) => void
   excludeIds?: Set<string>
 }) {
-  const filtered = contacts
+  // A typed query searches the whole organization on the server (encrypted
+  // names match on the blind index), not just the contacts loaded here.
+  const remote = useServerContactSearch(search, { endpoint: 'email' })
+  const filtered = pickerContacts(contacts, search, remote.results)
     .filter(c => !excludeIds?.has(c.id))
-    .filter(c => {
-      if (!search.trim()) return true
-      const q = search.toLowerCase()
-      return (c.display_name || '').toLowerCase().includes(q) || (c.primary_email || '').toLowerCase().includes(q)
-    })
   const allSelected = filtered.length > 0 && filtered.every(c => selected.has(c.id))
 
   return (

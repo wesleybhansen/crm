@@ -12,7 +12,7 @@ import {
   extractAllCustomFieldEntries,
   splitCustomFieldPayload,
 } from '@open-mercato/shared/lib/crud/custom-fields'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { applyContactSearchFilters } from '../../lib/blindSearch'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import {
   createCustomersCrudOpenApi,
@@ -95,60 +95,10 @@ const crud = makeCrudRoute({
     buildFilters: async (query: any, ctx) => {
       const filters: Record<string, any> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
-      if (query.search) {
-        // Decrypt in-memory before filtering so encrypted display_name /
-        // primary_email rows match. Same approach as the people route.
-        try {
-          const em = ctx?.container.resolve('em') as any
-          const knex = em?.getKnex?.()
-          const auth = ctx?.auth
-          if (knex && auth?.orgId && auth?.tenantId) {
-            const needle = String(query.search).toLowerCase()
-            const rows = await knex('customer_entities')
-              .where('organization_id', auth.orgId)
-              .where('kind', 'company')
-              .whereNull('deleted_at')
-              .limit(2000)
-              .select('id', 'display_name', 'primary_email', 'primary_phone')
-            let decrypted: Array<{ id: string; display_name?: string; primary_email?: string; primary_phone?: string }> = rows
-            try {
-              const { TenantDataEncryptionService } = await import('@open-mercato/shared/lib/encryption/tenantDataEncryptionService')
-              const { isTenantDataEncryptionEnabled } = await import('@open-mercato/shared/lib/encryption/toggles')
-              const { createKmsService } = await import('@open-mercato/shared/lib/encryption/kms')
-              if (isTenantDataEncryptionEnabled()) {
-                const svc = new TenantDataEncryptionService(em, { kms: createKmsService() })
-                decrypted = await Promise.all(rows.map(async (r: any) => {
-                  try {
-                    const dec = await svc.decryptEntityPayload(
-                      'customers:customer_entity',
-                      { display_name: r.display_name, primary_email: r.primary_email, primary_phone: r.primary_phone },
-                      auth.tenantId,
-                      auth.orgId,
-                    )
-                    return { id: r.id, display_name: dec.display_name as string, primary_email: dec.primary_email as string, primary_phone: dec.primary_phone as string }
-                  } catch { return r }
-                }))
-              }
-            } catch { /* fall through — use raw rows */ }
-            const matched = decrypted.filter((r) => {
-              const n = (r.display_name || '').toLowerCase()
-              const e = (r.primary_email || '').toLowerCase()
-              const p = (r.primary_phone || '').toLowerCase()
-              return n.includes(needle) || e.includes(needle) || p.includes(needle)
-            })
-            const ids = matched.map((r) => r.id)
-            if (ids.length === 0) {
-              filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
-            } else {
-              filters.id = { $in: ids }
-            }
-          } else {
-            filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
-          }
-        } catch {
-          filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
-        }
-      }
+      // Name / email / phone are encrypted at rest: search, email,
+      // emailStartsWith and emailContains run on the blind index and narrow
+      // the query to the matching ids (see customers/lib/blindSearch.ts).
+      await applyContactSearchFilters(filters, query, ctx, 'company')
       if (query.status) {
         filters.status = { $eq: query.status }
       }
@@ -172,13 +122,6 @@ const crud = makeCrudRoute({
       const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
       const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''
       const emailContains = typeof query.emailContains === 'string' ? query.emailContains.trim().toLowerCase() : ''
-      if (email) {
-        filters.primary_email = { $eq: email }
-      } else if (emailStartsWith) {
-        filters.primary_email = { $ilike: `${escapeLikePattern(emailStartsWith)}%` }
-      } else if (emailContains) {
-        filters.primary_email = { $ilike: `%${escapeLikePattern(emailContains)}%` }
-      }
       const hasEmail = parseBooleanToken(query.hasEmail)
       if (!email && !emailStartsWith && !emailContains && hasEmail !== null) {
         filters.primary_email = { $exists: hasEmail }

@@ -1,4 +1,4 @@
-import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core'
+import type { EntityMetadata, EventArgs, EventSubscriber, FlushEventArgs } from '@mikro-orm/core'
 import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
 import { TenantDataEncryptionService } from './tenantDataEncryptionService'
@@ -7,6 +7,7 @@ import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
 import { hashForLookup } from './aes'
 import { LOOKUP_HASH_RULES } from './lookupHashRules'
+import { SearchIndexTracker } from './searchIndexSync'
 
 type Scoped = {
   tenantId?: string | null
@@ -44,7 +45,25 @@ const toSnakeCase = (value: string): string =>
   value.replace(/([A-Z])/g, '_$1').replace(/__/g, '_').toLowerCase()
 
 export class TenantEncryptionSubscriber implements EventSubscriber<any> {
-  constructor(private readonly service: TenantDataEncryptionService) {}
+  // Blind search index maintenance (customer_search_tokens): plaintext is
+  // snapshotted in the after-hooks below, once decrypt() has opened it, and
+  // written as keyed hashes in afterFlush. See searchIndexSync.ts.
+  private readonly searchIndex: SearchIndexTracker
+
+  constructor(private readonly service: TenantDataEncryptionService) {
+    this.searchIndex = new SearchIndexTracker(service)
+  }
+
+  private trackSearchIndex(args: EventArgs<any>, change: 'upsert' | 'delete') {
+    try {
+      const entity = args.entity as Record<string, unknown>
+      if (!entity || typeof entity !== 'object') return
+      const meta = this.resolveMeta(args.meta, entity, args.em)
+      this.searchIndex.track(args.em, this.resolveEntityId(meta), entity, change)
+    } catch {
+      // never block a write on search-index bookkeeping
+    }
+  }
 
   getSubscribedEntities() {
     return [] // listen to all entities
@@ -382,14 +401,29 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
 
   async afterCreate(args: EventArgs<any>) {
     await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
+    this.trackSearchIndex(args, 'upsert')
   }
 
   async afterUpdate(args: EventArgs<any>) {
     await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
+    this.trackSearchIndex(args, 'upsert')
   }
 
   async afterUpsert(args: EventArgs<any>) {
     await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
+    this.trackSearchIndex(args, 'upsert')
+  }
+
+  async afterDelete(args: EventArgs<any>) {
+    this.trackSearchIndex(args, 'delete')
+  }
+
+  async beforeFlush(args: FlushEventArgs) {
+    this.searchIndex.reset(args.uow as unknown as object)
+  }
+
+  async afterFlush(args: FlushEventArgs) {
+    await this.searchIndex.flush(args.em, args.uow as unknown as object)
   }
 
   async onLoad(args: EventArgs<any>) {
