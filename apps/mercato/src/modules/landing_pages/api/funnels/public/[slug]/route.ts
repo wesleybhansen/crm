@@ -6,6 +6,11 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import crypto from 'crypto'
 import { cookies } from 'next/headers'
 
+export const metadata = {
+  // Public visitor entry point for a published funnel (reached via /f/{slug}).
+  GET: { requireAuth: false },
+}
+
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
@@ -107,7 +112,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     // Build response based on step type
     let response: Response
 
-    if (currentStep.step_type === 'page' && currentStep.page_id) {
+    if ((currentStep.step_type === 'page' || currentStep.step_type === 'lead_capture') && currentStep.page_id) {
       const page = await knex('landing_pages').where('id', currentStep.page_id).where('status', 'published').first()
       if (page) {
         // Redirect to landing page with funnel context in query params

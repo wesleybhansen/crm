@@ -4,6 +4,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 
+export const metadata = {
+  // Called from a public funnel page by signed-out visitors.
+  POST: { requireAuth: false },
+}
+
 // POST: Accept or decline an upsell/downsell offer
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   try {

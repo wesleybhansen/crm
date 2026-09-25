@@ -4,6 +4,12 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 
+export const metadata = {
+  // Public funnel checkout, reached by signed-out visitors.
+  GET: { requireAuth: false },
+  POST: { requireAuth: false },
+}
+
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }

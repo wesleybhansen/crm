@@ -3,6 +3,11 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
+export const metadata = {
+  // Called from a public funnel page by signed-out visitors.
+  POST: { requireAuth: false },
+}
+
 // POST: Advance funnel to next step (called after form submission on a landing page)
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   try {
