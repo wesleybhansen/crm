@@ -19,8 +19,8 @@ export async function GET(req: Request) {
     const sequences = await knex('sequences')
       .select(
         'sequences.*',
-        knex.raw('(SELECT COUNT(*) FROM sequence_steps WHERE sequence_steps.sequence_id = sequences.id) as step_count'),
-        knex.raw("(SELECT COUNT(*) FROM sequence_enrollments WHERE sequence_enrollments.sequence_id = sequences.id AND sequence_enrollments.status = 'active') as enrollment_count"),
+        knex.raw('(SELECT COUNT(*) FROM sequence_steps WHERE sequence_steps.sequence_id = sequences.id)::int as step_count'),
+        knex.raw("(SELECT COUNT(*) FROM sequence_enrollments WHERE sequence_enrollments.sequence_id = sequences.id AND sequence_enrollments.status = 'active')::int as enrollment_count"),
       )
       .where('sequences.organization_id', auth.orgId)
       .whereNull('sequences.deleted_at')

@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { enrollmentBlockedReason } from '../../../lib/enrollment'
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromCookies()
@@ -26,8 +27,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       .first()
 
     if (!sequence) return NextResponse.json({ ok: false, error: 'Sequence not found' }, { status: 404 })
-    if (sequence.status !== 'active') {
-      return NextResponse.json({ ok: false, error: 'Sequence must be active to enroll contacts' }, { status: 400 })
+    const notActive = enrollmentBlockedReason(sequence.status)
+    if (notActive) {
+      return NextResponse.json({ ok: false, code: 'sequence_not_active', error: notActive }, { status: 400 })
     }
 
     const contact = await knex('customer_entities')
@@ -92,8 +94,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const enrollment = await knex('sequence_enrollments').where('id', enrollmentId).first()
     return NextResponse.json({ ok: true, data: enrollment }, { status: 201 })
-  } catch {
-    return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })
+  } catch (error) {
+    console.error('[sequences.enroll] POST error', error)
+    return NextResponse.json({ ok: false, error: 'Could not enroll this contact. Please try again.' }, { status: 500 })
   }
 }
 

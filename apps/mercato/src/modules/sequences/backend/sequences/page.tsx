@@ -11,6 +11,7 @@ import {
   Filter, MessageSquare, Users, ChevronDown, ChevronRight, Sparkles, UserPlus,
   BookOpen, Download, Tag, Zap, Target,
 } from 'lucide-react'
+import { enrollmentBlockedReason, noEmailBannerText, summarizeEnrollResults } from '../../lib/enrollment'
 
 type Recipe = {
   id: string; name: string; description: string; category: string
@@ -153,6 +154,35 @@ function CountBadge({ icon: Icon, value, color, title }: {
   )
 }
 
+type Notice = { tone: 'success' | 'error'; text: string }
+
+// Inline replacement for native alert(): the server's real reason, in the page.
+function InlineNotice({ notice, onDismiss }: { notice: Notice | null; onDismiss: () => void }) {
+  if (!notice) return null
+  const tone = notice.tone === 'error'
+    ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100'
+    : 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100'
+  return (
+    <div role={notice.tone === 'error' ? 'alert' : 'status'} className={`flex items-start gap-3 rounded-lg border p-3 mb-4 text-sm ${tone}`}>
+      <p className="flex-1 min-w-0 break-words">{notice.text}</p>
+      <IconButton type="button" variant="ghost" size="sm" onClick={onDismiss} aria-label="Dismiss message" className="shrink-0 -my-1">
+        <X className="size-3.5" />
+      </IconButton>
+    </div>
+  )
+}
+
+// Keep the open sequence in the URL (?sequence=<id>) so reload/back keeps it.
+function setSequenceParam(id: string | null) {
+  if (typeof window === 'undefined') return
+  try {
+    const url = new URL(window.location.href)
+    if (id) url.searchParams.set('sequence', id)
+    else url.searchParams.delete('sequence')
+    window.history.replaceState(window.history.state, '', url.toString())
+  } catch { /* ignore */ }
+}
+
 export default function SequencesPage({ embedded }: { embedded?: boolean } = {}) {
   const [sequences, setSequences] = useState<Sequence[]>([])
   const [loading, setLoading] = useState(true)
@@ -194,7 +224,20 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
   const [recipesLoading, setRecipesLoading] = useState(false)
   const [installingRecipeId, setInstallingRecipeId] = useState<string | null>(null)
 
-  useEffect(() => { loadSequences() }, [])
+  const [notice, setNotice] = useState<Notice | null>(null)
+
+  useEffect(() => {
+    loadSequences()
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get('sequence')
+      if (fromUrl) openDetail(fromUrl)
+    } catch { /* ignore */ }
+  }, [])
+
+  function backToList() {
+    setView('list'); setSelectedId(null); setSelectedSequence(null); setNotice(null)
+    setSequenceParam(null)
+  }
 
   function loadSequences() {
     fetch('/api/sequences', { credentials: 'include' })
@@ -235,9 +278,9 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
         setView('list')
         loadSequences()
       } else {
-        alert(data.error || `Failed to ${isEditing ? 'update' : 'create'} sequence`)
+        setNotice({ tone: 'error', text: data.error || `Could not ${isEditing ? 'update' : 'create'} the sequence.` })
       }
-    } catch { alert('Failed') }
+    } catch { setNotice({ tone: 'error', text: `Could not ${isEditing ? 'update' : 'create'} the sequence. Check your connection and try again.` }) }
     setSaving(false)
   }
 
@@ -250,6 +293,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
     setSelectedId(id)
     setSelectedSequence(null)
     setView('detail')
+    setSequenceParam(id)
     try {
       const [seqRes, enrollRes] = await Promise.all([
         fetch(`/api/sequences/${id}`, { credentials: 'include' }).then(r => r.json()),
@@ -261,49 +305,57 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
         // If the detail fetch fails, go back to list
         console.error('[sequences] Detail fetch failed:', seqRes)
         setView('list')
+        setSequenceParam(null)
       }
       if (enrollRes.ok) setEnrollments(enrollRes.data || [])
     } catch (err) {
       console.error('[sequences] Detail fetch error:', err)
       setView('list')
+      setSequenceParam(null)
     }
   }
 
   async function updateStatus(id: string, status: string) {
-    const res = await fetch(`/api/sequences/${id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ status }),
-    })
-    const data = await res.json()
-    if (data.ok) { loadSequences(); if (selectedId === id) openDetail(id) }
-    else alert(data.error || 'Failed')
+    try {
+      const res = await fetch(`/api/sequences/${id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ status }),
+      })
+      const data = await res.json().catch(() => null)
+      if (data?.ok) { setNotice(null); loadSequences(); if (selectedId === id) openDetail(id) }
+      // e.g. 422 email_not_connected: activating an email sequence with no email account
+      else setNotice({ tone: 'error', text: data?.error || 'Could not change the status of this sequence.' })
+    } catch {
+      setNotice({ tone: 'error', text: 'Could not change the status of this sequence. Check your connection and try again.' })
+    }
   }
 
   async function deleteSequence(id: string) {
     if (!confirm('Delete this sequence? Active enrollments will stop.')) return
     const res = await fetch(`/api/sequences/${id}`, { method: 'DELETE', credentials: 'include' })
-    const data = await res.json()
-    if (data.ok) { loadSequences(); if (selectedId === id) { setView('list'); setSelectedId(null) } }
+    const data = await res.json().catch(() => null)
+    if (data?.ok) { loadSequences(); if (selectedId === id) backToList() }
+    else setNotice({ tone: 'error', text: data?.error || 'Could not delete this sequence.' })
   }
 
   async function enrollContacts() {
     const ids = Array.from(enrollSelectedIds)
     if (ids.length === 0 || !selectedId) return
     setEnrolling(true)
-    let succeeded = 0
-    let failed = 0
+    const results: Array<{ ok: boolean; error?: string | null }> = []
     for (const contactId of ids) {
       try {
         const res = await fetch(`/api/sequences/${selectedId}/enroll`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ contactId }),
         })
-        const data = await res.json()
-        if (data.ok) succeeded++
-        else failed++
-      } catch { failed++ }
+        const data = await res.json().catch(() => null)
+        results.push({ ok: !!data?.ok, error: data?.error ?? null })
+      } catch {
+        results.push({ ok: false, error: 'Network error. Check your connection and try again.' })
+      }
     }
-    if (failed > 0) alert(`Enrolled ${succeeded} of ${ids.length} contacts. ${failed} failed (may already be enrolled).`)
+    setNotice(summarizeEnrollResults(results))
     setEnrollSelectedIds(new Set())
     setEnrollSearch('')
     setShowEnroll(false)
@@ -347,9 +399,13 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
         setSelectedId(seq.id)
         setView('create')
       } else {
-        alert(data.error || 'Failed to install recipe')
+        setShowRecipes(false)
+        setNotice({ tone: 'error', text: data.error || 'Could not install this recipe.' })
       }
-    } catch { alert('Failed to install recipe') }
+    } catch {
+      setShowRecipes(false)
+      setNotice({ tone: 'error', text: 'Could not install this recipe. Check your connection and try again.' })
+    }
     setInstallingRecipeId(null)
   }
 
@@ -416,7 +472,8 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
     const totalSequences = sequences.length
     const activeCount = sequences.filter(s => s.status === 'active').length
     const pausedCount = sequences.filter(s => s.status === 'paused').length
-    const totalEnrollments = sequences.reduce((sum, s) => sum + (s.enrollment_count || 0), 0)
+    // Counts may arrive as strings (Postgres COUNT is bigint): add numbers, never concatenate.
+    const totalEnrollments = sequences.reduce((sum, s) => sum + (Number(s.enrollment_count) || 0), 0)
     return (
       <div className={embedded ? '' : 'p-6 max-w-4xl mx-auto'}>
         {!embedded && (
@@ -438,6 +495,8 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
             </Button>
           </div>
         </div>
+
+        <InlineNotice notice={notice} onDismiss={() => setNotice(null)} />
 
         {!loading && sequences.length > 0 && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
@@ -471,10 +530,10 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                     <span className="text-xs text-muted-foreground">
                       {TRIGGER_TYPES.find(t => t.value === seq.trigger_type)?.label || seq.trigger_type}
                     </span>
-                    <CountBadge icon={GitBranch} value={seq.step_count} color="violet"
-                      title={`${seq.step_count} step${seq.step_count !== 1 ? 's' : ''}`} />
-                    <CountBadge icon={Users} value={seq.enrollment_count} color="blue"
-                      title={`${seq.enrollment_count} enrolled`} />
+                    <CountBadge icon={GitBranch} value={Number(seq.step_count) || 0} color="violet"
+                      title={`${Number(seq.step_count) || 0} step${Number(seq.step_count) === 1 ? '' : 's'}`} />
+                    <CountBadge icon={Users} value={Number(seq.enrollment_count) || 0} color="blue"
+                      title={`${Number(seq.enrollment_count) || 0} enrolled`} />
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
@@ -493,7 +552,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                       <Play className="size-3 mr-1" /> Resume
                     </Button>
                   )}
-                  <IconButton type="button" variant="ghost" size="sm" onClick={() => deleteSequence(seq.id)} aria-label="Delete">
+                  <IconButton type="button" variant="ghost" size="sm" onClick={() => deleteSequence(seq.id)} aria-label={`Delete sequence ${seq.name}`}>
                     <Trash2 className="size-3.5 text-muted-foreground" />
                   </IconButton>
                 </div>
@@ -508,7 +567,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
         {/* Recipes Modal */}
         {showRecipes && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowRecipes(false)}>
-            <div className="bg-card rounded-lg border shadow-lg w-[640px] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="bg-card rounded-lg border shadow-lg w-[calc(100vw-2rem)] max-w-[640px] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
                 <div>
                   <h2 className="text-sm font-semibold">Automation Recipes</h2>
@@ -578,11 +637,13 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
     return (
       <div className="p-6 max-w-3xl mx-auto">
         <div className="flex items-center gap-3 mb-6">
-          <Button type="button" variant="ghost" size="sm" onClick={() => setView('list')}>
+          <Button type="button" variant="ghost" size="sm" onClick={backToList} aria-label="Back to sequences">
             <ChevronRight className="size-3.5 rotate-180" />
           </Button>
           <h1 className="text-lg font-semibold">{selectedId ? 'Edit Sequence' : 'New Sequence'}</h1>
         </div>
+
+        <InlineNotice notice={notice} onDismiss={() => setNotice(null)} />
 
         <div className="space-y-6">
           {/* Basic Info */}
@@ -781,7 +842,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
 
           {/* Actions */}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setView('list')}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={backToList}>Cancel</Button>
             <Button type="button" onClick={createSequence} disabled={saving || !name.trim() || steps.length === 0}>
               {saving ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <GitBranch className="size-3.5 mr-1.5" />}
               {selectedId ? 'Save Changes' : 'Create Sequence'}
@@ -796,19 +857,21 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
   if (view === 'detail' && selectedSequence) {
     const seq = selectedSequence
     return (
-      <div className="p-6 max-w-4xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <Button type="button" variant="ghost" size="sm" onClick={() => { setView('list'); setSelectedId(null); setSelectedSequence(null) }}>
-            <ChevronRight className="size-3.5 rotate-180" />
-          </Button>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-semibold">{seq.name}</h1>
-              <Badge variant={statusVariant[seq.status] || 'secondary'}>{seq.status}</Badge>
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+        <div className="flex flex-wrap items-start gap-3 mb-6">
+          <div className="flex items-start gap-3 flex-1 min-w-0 basis-full sm:basis-0">
+            <Button type="button" variant="ghost" size="sm" onClick={backToList} aria-label="Back to sequences" className="shrink-0">
+              <ChevronRight className="size-3.5 rotate-180" />
+            </Button>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-lg font-semibold break-words min-w-0">{seq.name}</h1>
+                <Badge variant={statusVariant[seq.status] || 'secondary'}>{seq.status}</Badge>
+              </div>
+              {seq.description && <p className="text-xs text-muted-foreground mt-0.5 break-words">{seq.description}</p>}
             </div>
-            {seq.description && <p className="text-xs text-muted-foreground mt-0.5">{seq.description}</p>}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" onClick={async () => {
               // Auto-pause active sequences before editing
               if (seq.status === 'active') {
@@ -835,7 +898,14 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                 <Play className="size-3 mr-1" /> Activate
               </Button>
             )}
-            <Button type="button" variant="outline" size="sm" onClick={() => { setShowEnroll(true) }}>
+            <Button type="button" variant="outline" size="sm" onClick={() => {
+              // Only an active sequence takes enrollments; say why instead of
+              // letting every enroll call fail.
+              const blocked = enrollmentBlockedReason(seq.status)
+              if (blocked) { setNotice({ tone: 'error', text: blocked }); return }
+              setNotice(null)
+              setShowEnroll(true)
+            }}>
               <UserPlus className="size-3 mr-1" /> Enroll Contact
             </Button>
             {seq.status === 'active' && (
@@ -853,14 +923,16 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
           </div>
         </div>
 
+        <InlineNotice notice={notice} onDismiss={() => setNotice(null)} />
+
         {seq.email_sending_ready === false
           && (seq.steps || []).some((s: any) => (s.step_type || s.stepType) === 'email') && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 mb-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
             <p className="font-medium">No email account connected, so nothing in this sequence will be sent.</p>
             <p className="mt-1">
               Connect an email account in{' '}
-              <a href="/backend/settings-simple" className="underline">Settings</a>.
-              Enrollments wait at their email step and continue on their own once it is connected.
+              <a href="/backend/settings-simple" className="underline">Settings</a>.{' '}
+              {noEmailBannerText(seq.status)}
             </p>
           </div>
         )}
@@ -926,7 +998,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
         {/* Enroll Modal */}
         {showEnroll && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowEnroll(false)}>
-            <div className="bg-card rounded-lg border shadow-lg p-5 w-[420px]" onClick={e => e.stopPropagation()}>
+            <div className="bg-card rounded-lg border shadow-lg p-5 w-[calc(100vw-2rem)] max-w-[420px]" onClick={e => e.stopPropagation()}>
               <h3 className="text-sm font-semibold mb-1">Enroll Contacts</h3>
               <p className="text-xs text-muted-foreground mb-3">Select one or more contacts to enroll in this sequence.</p>
               <Input
@@ -948,7 +1020,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                 autoFocus
               />
               {enrollSelectedIds.size > 0 && (
-                <p className="text-xs text-[#1d4ed8] dark:text-[#60a5fa] font-medium mb-2">{enrollSelectedIds.size} contact{enrollSelectedIds.size > 1 ? 's' : ''} selected</p>
+                <p className="text-xs text-[#1d4ed8] dark:text-[#60a5fa] font-medium mb-2">{enrollSelectedIds.size} contact{enrollSelectedIds.size === 1 ? '' : 's'} selected</p>
               )}
               <div className="max-h-56 overflow-y-auto rounded border mb-3">
                 {enrollContactListLoading ? (
