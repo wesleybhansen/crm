@@ -69,8 +69,11 @@ async function syncWizardForms(opts: { page: any; config: Record<string, any>; p
         formSlug = `${ownFormSlug}-${crypto.randomBytes(3).toString('hex')}`
       }
       await query(
+        // is_active = true: every Forms endpoint lists and opens only active
+        // forms, so a copy created inactive was announced but unreachable
+        // (2026-09-25 review, M8). It stays a draft (status) until published.
         `INSERT INTO forms (id, tenant_id, organization_id, name, slug, fields, settings, status, is_active, created_at, updated_at, published_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', false, $8, $8, NULL)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', true, $8, $8, NULL)`,
         [formId, auth.tenantId, auth.orgId, formName, formSlug, JSON.stringify(formFields), JSON.stringify(formSettings), now]
       )
       config.linkedFormId = formId
