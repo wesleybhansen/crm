@@ -101,6 +101,10 @@ export async function POST(req: Request) {
         limits: body.limits,
         runHourLocal: body.run_hour_local,
       }, sourceAdapterList())
+      // Each refill run's "usually about" from real spend history; the
+      // estimated_credits above stays the per-run cap the policy enforces.
+      const { loadSpendHistory, typicalFields } = await import('../../../lib/research/typical-spend')
+      const typical = typicalFields(result.plan.adapterPlan, await loadSpendHistory(em as never))
       return NextResponse.json({
         ok: true,
         plan: {
@@ -109,6 +113,7 @@ export async function POST(req: Request) {
           adapter_plan: result.plan.adapterPlan,
           estimated_credits: result.plan.estimatedCredits,
           estimated_usd: usdFromCredits(result.plan.estimatedCredits),
+          ...typical,
           planned_raw_capacity: result.plan.plannedRawCapacity,
           limits: result.plan.limits,
           timezone: result.timezone,

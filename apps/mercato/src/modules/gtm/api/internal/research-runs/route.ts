@@ -19,6 +19,7 @@ import {
 } from '../../../lib/research/plan'
 import type { GtmResearchRun } from '../../../data/entities'
 import type { GtmCreditLedger } from '../../../lib/credits/ledger'
+import { usdFromCredits } from '../../../lib/credits/markup'
 
 /*
  * Internal GTM research runs (SPEC-066 sections 5, 11.2, 14 Tranche 3).
@@ -92,6 +93,18 @@ function consumerResearchHold() {
   )
 }
 
+/*
+ * The "usually about" figure frozen on the run when it was created (from real
+ * spend history, lib/research/typical-spend). estimated_credits stays the hard
+ * cap the customer approved; this is only what to expect.
+ */
+function storedTypical(plan: Record<string, unknown>): { typical_credits: number | null; typical_usd: number | null } {
+  const t = plan.typical as { credits?: unknown; usd?: unknown } | undefined
+  const credits = typeof t?.credits === 'number' && Number.isFinite(t.credits) ? t.credits : null
+  const usd = typeof t?.usd === 'number' && Number.isFinite(t.usd) ? t.usd : null
+  return { typical_credits: credits, typical_usd: usd }
+}
+
 function shapeRun(run: GtmResearchRun) {
   const plan = (run.providerPlan ?? {}) as Record<string, unknown>
   return {
@@ -101,6 +114,7 @@ function shapeRun(run: GtmResearchRun) {
     status: run.status,
     limits: run.limits ?? null,
     estimated_credits: run.estimatedCredits != null ? Number(run.estimatedCredits) : null,
+    ...storedTypical(plan),
     reconciled_credits: run.reconciledCredits != null ? Number(run.reconciledCredits) : null,
     started_at: run.startedAt ?? null,
     completed_at: run.completedAt ?? null,
@@ -225,6 +239,7 @@ export async function POST(req: Request) {
           play_id: run.playId,
           status: run.status,
           estimated_credits: run.estimatedCredits != null ? Number(run.estimatedCredits) : null,
+          ...storedTypical((run.providerPlan ?? {}) as Record<string, unknown>),
           reconciled_credits: run.reconciledCredits != null ? Number(run.reconciledCredits) : null,
           execution: shapeRun(run).execution,
           created_at: run.createdAt,
@@ -336,6 +351,16 @@ export async function POST(req: Request) {
         return consumerResearchHold()
       }
 
+      // What runs like this were actually charged (real spend history), shown
+      // beside the cap on every plan-bearing response. Never blocks: history
+      // failures fall back inside typicalFields.
+      const typical = body.op === 'preview'
+        ? null
+        : await (async () => {
+          const { loadSpendHistory, typicalFields } = await import('../../../lib/research/typical-spend')
+          return typicalFields(plan.adapterPlan, await loadSpendHistory(em as never))
+        })()
+
       if (body.op === 'preview') {
         /*
          * Dry lane: three real public rows from ONE lane of this exact priced
@@ -369,7 +394,17 @@ export async function POST(req: Request) {
             { status: 422 },
           )
         }
-        const quote = previewLib.quotePreviewLane(adapter, batch, plan.query)
+        const typicalLib = await import('../../../lib/research/typical-spend')
+        const previewHistory = await typicalLib.loadPreviewHistory(em as never)
+        const withTypical = <Q extends { adapterId: string; estimatedCredits: number }>(q: Q) => {
+          const typicalCredits = typicalLib.typicalPreviewCredits(q.adapterId, q.estimatedCredits, previewHistory)
+          return {
+            ...q,
+            typicalCredits,
+            typicalUsd: typicalCredits != null ? usdFromCredits(typicalCredits) : null,
+          }
+        }
+        const quote = withTypical(previewLib.quotePreviewLane(adapter, batch, plan.query))
 
         if (body.quoteOnly) {
           return NextResponse.json({
@@ -453,7 +488,7 @@ export async function POST(req: Request) {
             })
             tem.persist(audit)
           })
-          return NextResponse.json({ ok: true, preview, quota: claim.quota })
+          return NextResponse.json({ ok: true, preview: { ...preview, quote: withTypical(preview.quote) }, quota: claim.quota })
         } catch (error) {
           if (error instanceof previewLib.GtmPreviewError) {
             const status = error.code === 'insufficient_credits' ? 402 : 422
@@ -466,14 +501,12 @@ export async function POST(req: Request) {
       if (body.op === 'plan') {
         // Priced plan only; no run row is created. typical_credits is what runs
         // like this were actually charged (history), shown beside the cap.
-        const { loadSpendHistory, typicalCredits } = await import('../../../lib/research/typical-spend')
-        const typical = typicalCredits(plan.adapterPlan, await loadSpendHistory(em as never))
         return NextResponse.json({
           ok: true,
           plan: {
             adapterPlan: plan.adapterPlan,
             estimated_credits: plan.estimatedCredits,
-            typical_credits: typical,
+            ...typical,
             planned_raw_capacity: plan.plannedRawCapacity,
             unsupportedDimensions: plan.unsupportedDimensions,
             limits: plan.limits,
@@ -499,6 +532,7 @@ export async function POST(req: Request) {
             plan: {
               adapterPlan: plan.adapterPlan,
               estimated_credits: plan.estimatedCredits,
+              ...typical,
               planned_raw_capacity: plan.plannedRawCapacity,
               limits: plan.limits,
               qualificationProfile: plan.qualificationProfile,
@@ -552,6 +586,9 @@ export async function POST(req: Request) {
             sourceRouting: plan.sourceRouting,
             policy: plan.policy,
             query: plan.query,
+            typical: typical && typical.typical_credits != null
+              ? { credits: typical.typical_credits, usd: typical.typical_usd, basis: typical.typical_basis }
+              : null,
           },
           limits: plan.limits,
           estimatedCredits: String(plan.estimatedCredits),
@@ -582,6 +619,7 @@ export async function POST(req: Request) {
         plan: {
           adapterPlan: plan.adapterPlan,
           estimated_credits: plan.estimatedCredits,
+          ...typical,
           planned_raw_capacity: plan.plannedRawCapacity,
           unsupportedDimensions: plan.unsupportedDimensions,
           limits: plan.limits,

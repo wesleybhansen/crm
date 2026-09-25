@@ -69,6 +69,8 @@ export type ResearchRunSummary = {
   filtered_out: number
   size_unconfirmed: number
   projected_cost_cents: number | null
+  /** What runs like this were actually charged (history), frozen at create; null for older runs. */
+  typical_cost_cents: number | null
   spent_cents: number | null
   cost_per_accepted_cents: number | null
   qualification_rate: number | null
@@ -251,6 +253,10 @@ export async function summarizeResearchRun(
   const found = asNumber(funnel?.raw_candidates_found) ?? verdictRows.length
 
   const projectedCents = run.estimatedCredits != null ? centsFromCredits(Number(run.estimatedCredits)) : null
+  // "Usually about": the typical cost frozen on the run from real spend
+  // history (typical-spend.ts). projected_cost_cents stays the approved cap.
+  const typicalCredits = asNumber(asRecord(providerPlan.typical)?.credits)
+  const typicalCents = typicalCredits != null ? centsFromCredits(typicalCredits) : null
   const spentCents = settledSpendCents(run)
   const accepted = diagnostics.accepted
 
@@ -279,6 +285,7 @@ export async function summarizeResearchRun(
     filtered_out: diagnostics.rejected,
     size_unconfirmed: sizeUnconfirmed,
     projected_cost_cents: projectedCents,
+    typical_cost_cents: typicalCents,
     spent_cents: spentCents,
     cost_per_accepted_cents:
       spentCents != null && accepted > 0 ? Math.round(spentCents / accepted) : null,
