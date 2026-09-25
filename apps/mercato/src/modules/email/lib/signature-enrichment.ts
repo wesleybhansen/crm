@@ -1,4 +1,6 @@
 import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
+import { searchSqlFromPg, type SearchTokenScope } from '@open-mercato/shared/lib/encryption/searchIndex'
+import { syncSearchTokensForValues } from '@open-mercato/shared/lib/encryption/searchIndexSync'
 
 /* Signature enrichment: when a known contact emails in, parse their signature
  * block and fill in fields the CRM is missing (phone, job title, LinkedIn,
@@ -82,6 +84,9 @@ type QueryFn = (sql: string, params: unknown[]) => Promise<{ rows: Array<Record<
 /** Encrypts a raw-write row for an entity (tests inject a stub). */
 type EncryptRow = (entityId: string, row: Record<string, unknown>, tenantId: string, orgId: string) => Promise<Record<string, unknown>>
 
+/** Refreshes the blind search tokens of plaintext values a raw UPDATE just wrote (tests inject a stub). */
+type SyncSearch = (sourceEntityId: string, scope: SearchTokenScope, values: Record<string, unknown>) => Promise<void>
+
 /** Fill ONLY missing contact fields from a parsed signature. Returns which
  * fields were filled (for timeline logging). */
 export async function enrichContactFromSignature(
@@ -91,12 +96,14 @@ export async function enrichContactFromSignature(
   parsed: ParsedSignature,
   encryptRow: EncryptRow = (entityId, row, tenantId, organizationId) =>
     encryptRowForRawWrite(entityId, row, tenantId, organizationId),
+  syncSearch: SyncSearch = (sourceEntityId, scope, values) =>
+    syncSearchTokensForValues(searchSqlFromPg(query), sourceEntityId, scope, values),
 ): Promise<string[]> {
   if (!parsed.phone && !parsed.jobTitle && !parsed.linkedinUrl && !parsed.companyName) return []
   const filled: string[] = []
 
   const { rows: entityRows } = await query(
-    `SELECT ce.tenant_id, ce.primary_phone, cp.job_title, cp.linkedin_url
+    `SELECT ce.tenant_id, ce.kind, ce.primary_phone, cp.job_title, cp.linkedin_url
        FROM customer_entities ce
        LEFT JOIN customer_people cp ON cp.entity_id = ce.id
       WHERE ce.id = $1 AND ce.organization_id = $2 AND ce.deleted_at IS NULL`,
@@ -105,6 +112,12 @@ export async function enrichContactFromSignature(
   const current = entityRows[0]
   if (!current) return []
   const tenantId = String(current.tenant_id ?? '')
+  const searchScope: SearchTokenScope = {
+    tenantId,
+    organizationId: orgId,
+    entityType: current.kind === 'company' ? 'company' : 'person',
+    entityId: contactId,
+  }
 
   // primary_phone and job_title are encrypted-by-design columns and these are
   // raw UPDATEs, so the values are encrypted here (and the phone lookup hash
@@ -116,6 +129,7 @@ export async function enrichContactFromSignature(
       `UPDATE customer_entities SET primary_phone = $1, primary_phone_hash = $2, updated_at = now() WHERE id = $3 AND organization_id = $4`,
       [enc.primary_phone, enc.primary_phone_hash ?? null, contactId, orgId],
     )
+    await syncSearch('customers:customer_entity', searchScope, { primary_phone: parsed.phone.slice(0, 40) })
     filled.push('phone')
   }
   if (parsed.jobTitle && !current.job_title) {
@@ -124,6 +138,7 @@ export async function enrichContactFromSignature(
       `UPDATE customer_people SET job_title = $1, updated_at = now() WHERE entity_id = $2 AND organization_id = $3`,
       [enc.job_title, contactId, orgId],
     )
+    await syncSearch('customers:customer_person_profile', searchScope, { job_title: parsed.jobTitle.slice(0, 120) })
     filled.push('job title')
   }
   if (parsed.linkedinUrl && !current.linkedin_url) {

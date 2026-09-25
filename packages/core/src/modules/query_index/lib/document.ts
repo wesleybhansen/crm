@@ -1,3 +1,5 @@
+import { parseEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
+
 export type IndexDocumentScope = {
   organizationId?: string | null
   tenantId?: string | null
@@ -58,12 +60,23 @@ function collectAggregateSearchValues(field: string, value: unknown): string[] {
   return []
 }
 
-export function attachAggregateSearchField(doc: Record<string, unknown>): Record<string, unknown> {
+/**
+ * search_text: every string field of the document, for substring search.
+ * `excludeFields` (encrypted-by-design fields, see encrypted-fields.ts) and any
+ * value that is an encryption envelope are left out, so the aggregate can
+ * never become a plaintext copy of encrypted data.
+ */
+export function attachAggregateSearchField(
+  doc: Record<string, unknown>,
+  excludeFields?: Iterable<string>,
+): Record<string, unknown> {
   const parts: string[] = []
   const seen = new Set<string>()
+  const excluded = new Set(excludeFields ?? [])
 
   for (const [field, value] of Object.entries(doc)) {
-    const values = collectAggregateSearchValues(field, value)
+    if (excluded.has(field)) continue
+    const values = collectAggregateSearchValues(field, value).filter((v) => parseEnvelope(v) === null)
     for (const entry of values) {
       const key = entry.toLowerCase()
       if (seen.has(key)) continue
@@ -74,6 +87,8 @@ export function attachAggregateSearchField(doc: Record<string, unknown>): Record
 
   if (parts.length > 0) {
     doc[AGGREGATE_SEARCH_FIELD] = parts.join('\n')
+  } else if (excluded.size > 0) {
+    delete doc[AGGREGATE_SEARCH_FIELD]
   }
 
   return doc
@@ -83,6 +98,7 @@ export function buildIndexDocument(
   baseRow: Record<string, unknown>,
   customFieldValues: Iterable<IndexCustomFieldValue> = [],
   scope: IndexDocumentScope = {},
+  excludeFields?: Iterable<string>,
 ): Record<string, unknown> {
   const doc: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(baseRow)) {
@@ -123,5 +139,5 @@ export function buildIndexDocument(
     }
   }
 
-  return attachAggregateSearchField(doc)
+  return attachAggregateSearchField(doc, excludeFields)
 }

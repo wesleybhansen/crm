@@ -10,6 +10,7 @@
 
 import type { Knex } from 'knex'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { blindSearchIds } from '@open-mercato/core/modules/customers/lib/blindSearch'
 
 /**
  * Return the matched contact row (or null) so callers can use the
@@ -51,33 +52,29 @@ export async function findOrMergeContact(
     .first()
   if (hashed) return { existing: { id: hashed.id, primary_email: hashed.primary_email } }
 
-  // 2) Encrypted-email fallback: the ORM-write path stores primary_email as
-  // ciphertext, so LOWER(primary_email) will never match a plaintext needle.
-  // When encryption is on, scan candidates and decrypt their primary_email
-  // in-memory to find the match.
+  // 2) Encrypted rows without a lookup hash (written before the hash
+  // existed): the blind index finds the candidates (exact-address token), and
+  // decrypting just those confirms the match. This replaced a decrypt-scan of
+  // the org's first 2,000 contacts, which missed everything past that window.
   try {
     if (!em) return { existing: null }
-    const { isTenantDataEncryptionEnabled } = await import('@open-mercato/shared/lib/encryption/toggles')
-    if (!isTenantDataEncryptionEnabled()) return { existing: null }
+    const { ids } = await blindSearchIds(em, {
+      tenantId, organizationIds: [orgId], entityTypes: ['person', 'company'],
+      query: normalized, fields: ['primary_email'], cap: 25,
+    })
+    if (!ids.length) return { existing: null }
+    const candidates = await knex('customer_entities')
+      .where('organization_id', orgId)
+      .whereIn('id', ids)
+      .whereNull('deleted_at')
+      .select('id', 'primary_email')
     const { TenantDataEncryptionService } = await import('@open-mercato/shared/lib/encryption/tenantDataEncryptionService')
     const { createKmsService } = await import('@open-mercato/shared/lib/encryption/kms')
     const svc = new TenantDataEncryptionService(em, { kms: createKmsService() })
-
-    const candidates = await knex('customer_entities')
-      .where('organization_id', orgId)
-      .whereNull('deleted_at')
-      .whereNotNull('primary_email')
-      .limit(2000)
-      .select('id', 'primary_email')
     for (const row of candidates) {
       try {
-        const dec = await svc.decryptEntityPayload(
-          'customers:customer_entity',
-          { primary_email: row.primary_email },
-          tenantId,
-          orgId,
-        )
-        const decrypted = typeof dec.primary_email === 'string' ? dec.primary_email.toLowerCase() : ''
+        const dec = await svc.decryptEntityPayload('customers:customer_entity', { primary_email: row.primary_email }, tenantId, orgId)
+        const decrypted = typeof dec.primary_email === 'string' ? dec.primary_email.toLowerCase().trim() : ''
         if (decrypted && decrypted === normalized) {
           return { existing: { id: row.id, primary_email: row.primary_email } }
         }
@@ -127,20 +124,23 @@ export async function findContactByPhone(
     .first()
   if (hashed) return { existing: { id: hashed.id, display_name: hashed.display_name, primary_email: hashed.primary_email } }
 
+  // Hash-less encrypted rows: blind-index candidates (phone digits token),
+  // confirmed by decrypting only those rows.
   try {
     if (!em) return { existing: null }
-    const { isTenantDataEncryptionEnabled } = await import('@open-mercato/shared/lib/encryption/toggles')
-    if (!isTenantDataEncryptionEnabled()) return { existing: null }
+    const { ids } = await blindSearchIds(em, {
+      tenantId, organizationIds: [orgId], entityTypes: ['person', 'company'],
+      query: needle, fields: ['primary_phone'], cap: 25,
+    })
+    if (!ids.length) return { existing: null }
+    const candidates = await knex('customer_entities')
+      .where('organization_id', orgId)
+      .whereIn('id', ids)
+      .whereNull('deleted_at')
+      .select('id', 'primary_phone', 'display_name', 'primary_email')
     const { TenantDataEncryptionService } = await import('@open-mercato/shared/lib/encryption/tenantDataEncryptionService')
     const { createKmsService } = await import('@open-mercato/shared/lib/encryption/kms')
     const svc = new TenantDataEncryptionService(em, { kms: createKmsService() })
-
-    const candidates = await knex('customer_entities')
-      .where('organization_id', orgId)
-      .whereNull('deleted_at')
-      .whereNotNull('primary_phone')
-      .limit(2000)
-      .select('id', 'primary_phone', 'display_name', 'primary_email')
     for (const row of candidates) {
       try {
         const dec = await svc.decryptEntityPayload(

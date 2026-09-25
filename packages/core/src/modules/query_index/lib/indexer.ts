@@ -5,6 +5,7 @@ import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-merca
 import type { Knex } from 'knex'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField } from './document'
+import { resolveIndexExclusions } from './encrypted-fields'
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -92,7 +93,10 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   } catch {}
 
   try {
-    doc = attachAggregateSearchField(doc)
+    // Stored values here are envelopes (or legacy plaintext): the aggregate
+    // skips both the mapped fields and anything that is an envelope.
+    const exclusions = await resolveIndexExclusions(knex, params.entityType, params.tenantId ?? null, doc)
+    doc = attachAggregateSearchField(doc, exclusions)
     const encryption = resolveTenantEncryptionService(em as any)
     doc = await encryptIndexDocForStorage(
       params.entityType,
@@ -198,12 +202,15 @@ export async function upsertIndexRow(
       encryption,
       dekKeyCache,
     )
+    // Fields stored encrypted (`doc` is the at-rest form) never become tokens.
+    const excludeFields = await resolveIndexExclusions(knex, args.entityType, args.tenantId ?? null, doc)
     await replaceSearchTokensForRecord(knex, {
       entityType: args.entityType,
       recordId: args.recordId,
       organizationId: args.organizationId ?? null,
       tenantId: args.tenantId ?? null,
       doc: tokenDoc,
+      excludeFields,
     })
   } catch {}
   return { doc, existed, wasDeleted, created, revived }

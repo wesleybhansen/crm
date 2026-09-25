@@ -8,6 +8,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { SEARCH_SOURCES_BY_ENTITY_ID } from '@open-mercato/shared/lib/encryption/searchIndex'
+import { staticEncryptedIndexFields } from '../../../query_index/lib/encrypted-fields'
+import { NO_MATCH_ID, blindSearchIds } from '../../../customers/lib/blindSearch'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
@@ -48,7 +51,34 @@ export async function GET(req: Request) {
     if (!labelField) labelField = 'id'
   }
   const filters: any = {}
-  if (q) filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
+  if (q && staticEncryptedIndexFields(entityId).has(labelField)) {
+    // The label is encrypted at rest (contact name, deal title ...): LIKE would
+    // compare ciphertext. Match on the blind index; other encrypted labels
+    // cannot be searched and match nothing.
+    const source = SEARCH_SOURCES_BY_ENTITY_ID[entityId]
+    let ids: string[] = []
+    if (source) {
+      try {
+        const res = await blindSearchIds(em, {
+          tenantId: auth.tenantId,
+          organizationIds: [auth.orgId],
+          entityTypes: source.entityType ? [source.entityType] : ['person', 'company'],
+          fields: source.fields.some((f) => f.column === labelField) ? [labelField] : undefined,
+          query: q,
+        })
+        ids = res.ids
+        if (ids.length && source.keyColumn !== 'id') {
+          const knex = (em as any).getConnection().getKnex()
+          ids = (await knex(source.table).whereIn(source.keyColumn, ids).select('id')).map((r: { id: string }) => String(r.id))
+        }
+      } catch {
+        ids = []
+      }
+    }
+    filters.id = ids.length ? { $in: ids } : { $eq: NO_MATCH_ID }
+  } else if (q) {
+    filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
+  }
   const res = await qe.query(entityId, {
     tenantId: auth.tenantId ?? undefined,
     ...(auth.orgId ? { organizationId: auth.orgId } : {}),

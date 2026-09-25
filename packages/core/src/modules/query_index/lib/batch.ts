@@ -1,6 +1,7 @@
 import type { Knex } from 'knex'
 import { buildIndexDocument, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
+import { encryptedCustomFieldKeys, fieldsEncryptedInDoc, staticEncryptedIndexFields } from './encrypted-fields'
 
 export type AnyRow = Record<string, any> & { id: string | number }
 
@@ -103,10 +104,19 @@ export async function upsertIndexBatch(
     tenant_id: string | null
     doc: Record<string, unknown>
     tokenDoc: Record<string, unknown>
+    excludeFields: Set<string>
     index_version: number
   }> = []
 
   const debugEnabled = isSearchDebugEnabled()
+  const baseExclusions = staticEncryptedIndexFields(entityType)
+  const cfExclusionsByTenant = new Map<string, Set<string>>()
+  const cfExclusions = async (tenantId: string | null | undefined): Promise<Set<string>> => {
+    const key = tenantId ?? ''
+    let hit = cfExclusionsByTenant.get(key)
+    if (!hit) { hit = await encryptedCustomFieldKeys(knex, entityType, tenantId); cfExclusionsByTenant.set(key, hit) }
+    return hit
+  }
 
   for (const row of rows) {
     const recordId = normalizeId(row.id)
@@ -143,10 +153,11 @@ export async function upsertIndexBatch(
       if (!entityRow) return row
       return { ...entityRow, ...row }
     })()
+    const rowExclusions = new Set([...baseExclusions, ...(await cfExclusions(scopeTenant ?? null))])
     let doc = buildIndexDocument(mergedRow, values, {
       organizationId: scopeOrg ?? null,
       tenantId: scopeTenant ?? null,
-    })
+    }, rowExclusions)
     let tokenDoc: Record<string, unknown> = doc
     if (typeof options.encryptDoc === 'function') {
       try {
@@ -175,6 +186,7 @@ export async function upsertIndexBatch(
         // best-effort; ignore decrypt errors during indexing
       }
     }
+    for (const field of fieldsEncryptedInDoc(doc)) rowExclusions.add(field)
     basePayloads.push({
       entity_type: entityType,
       entity_id: recordId,
@@ -182,22 +194,17 @@ export async function upsertIndexBatch(
       tenant_id: scopeTenant ?? null,
       doc,
       tokenDoc,
+      excludeFields: rowExclusions,
       index_version: 1,
     })
     if (debugEnabled) {
-      const sample = {
-        display_name: (tokenDoc as any).display_name,
-        first_name: (tokenDoc as any).first_name,
-        last_name: (tokenDoc as any).last_name,
-        brand_name: (tokenDoc as any).brand_name,
-        legal_name: (tokenDoc as any).legal_name,
-      }
+      // Field names only: values of encrypted fields must never reach a log.
       console.info('[reindex:batch:doc]', {
         entityType,
         recordId,
         organizationId: scopeOrg ?? null,
         tenantId: scopeTenant ?? null,
-        sample,
+        fields: Object.keys(tokenDoc).length,
       })
     }
   }
@@ -220,6 +227,7 @@ export async function upsertIndexBatch(
     organizationId: payload.organization_id,
     tenantId: payload.tenant_id,
     doc: payload.tokenDoc,
+    excludeFields: payload.excludeFields,
   }))
 
   try {

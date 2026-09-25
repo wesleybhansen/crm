@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { decryptRowsForDisplay } from '@/modules/customers/lib/display-decrypt'
-import { CONTACT_SEARCH_CANDIDATE_LIMIT, contactMatchesSearch } from '@/modules/customers/lib/contact-search'
+import { blindSearchIds } from '@open-mercato/core/modules/customers/lib/blindSearch'
 
 // Lightweight contact search for the inbox compose flow
 export async function GET(req: Request) {
@@ -21,24 +21,30 @@ export async function GET(req: Request) {
 
     if (q.length < 2) return NextResponse.json({ ok: true, data: [] })
 
-    // Name, email and phone are encrypted at rest, so SQL ILIKE can never
-    // match them. Load the org's recent contacts (bounded), decrypt, filter
-    // and sort in memory, and return decrypted values.
-    const candidates = await knex('customer_entities')
-      .where('organization_id', auth.orgId)
-      .whereNull('deleted_at')
-      .select('id', 'display_name', 'primary_email', 'primary_phone')
-      .orderBy('created_at', 'desc')
-      .limit(CONTACT_SEARCH_CANDIDATE_LIMIT)
+    // Name, email and phone are encrypted at rest: match on the blind index
+    // (ranked, org-scoped in SQL), then read and decrypt only the matches.
+    const { hits } = await blindSearchIds(em, {
+      tenantId: auth.tenantId,
+      organizationIds: [auth.orgId],
+      entityTypes: ['person', 'company'],
+      query: q,
+      cap: 15,
+    })
+    const ids = hits.map((h) => h.entityId)
+    const rows = ids.length
+      ? await knex('customer_entities')
+        .where('organization_id', auth.orgId)
+        .whereIn('id', ids)
+        .whereNull('deleted_at')
+        .select('id', 'display_name', 'primary_email', 'primary_phone')
+      : []
     await decryptRowsForDisplay(
-      em, CONTACT_ENTITY_KEY, candidates,
+      em, CONTACT_ENTITY_KEY, rows,
       { display_name: 'display_name', primary_email: 'primary_email', primary_phone: 'primary_phone' },
       auth.tenantId, auth.orgId,
     )
-    const contacts = candidates
-      .filter((c: any) => contactMatchesSearch(c, q, { phone: true }))
-      .sort((a: any, b: any) => String(a.display_name ?? '').localeCompare(String(b.display_name ?? ''), undefined, { sensitivity: 'base' }))
-      .slice(0, 15)
+    const order = new Map(ids.map((id, i) => [id, i]))
+    const contacts = rows.sort((a: any, b: any) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
 
     return NextResponse.json({ ok: true, data: contacts })
   } catch (error) {

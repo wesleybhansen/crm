@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { blindSearchIds, crudSearchOrganizationIds, restrictFiltersToIds } from '../../lib/blindSearch'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '../../data/entities'
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
@@ -14,7 +15,6 @@ import {
   defaultOkResponseSchema,
 } from '../openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -122,10 +122,23 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       title: 'title',
       value: 'value_amount',
     },
-    buildFilters: async (query: any) => {
+    buildFilters: async (query: any, ctx: any) => {
       const filters: Record<string, any> = {}
-      if (query.search) {
-        filters.title = { $ilike: `%${escapeLikePattern(query.search)}%` }
+      if (typeof query.search === 'string' && query.search.trim()) {
+        // Deal titles are encrypted at rest: match on the blind index.
+        const em = ctx?.container?.resolve?.('em')
+        let ids: string[] = []
+        try {
+          ids = (await blindSearchIds(em, {
+            tenantId: ctx?.auth?.tenantId ?? null,
+            organizationIds: crudSearchOrganizationIds(ctx),
+            entityTypes: ['deal'],
+            query: query.search,
+          })).ids
+        } catch (err) {
+          console.error('[customers.deals.search] blind_search_failed', { code: (err as { code?: string })?.code ?? 'error' })
+        }
+        restrictFiltersToIds(filters, ids)
       }
       if (query.status) {
         filters.status = { $eq: query.status }
