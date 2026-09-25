@@ -1,6 +1,6 @@
 import { isPublicAddress, normalizeUsPhone, readSite, safeSiteUrl, sitePhones, subpageLinks, htmlToText, type SiteRead } from '../research/site-fetch'
 import { MIN_SIGNATURE_HITS, ownershipHints, templateOwnershipHints, textOwnershipHints } from '../research/ownership'
-import { decide, ensureOwnershipCriterion, memberExcludesGroups, parseCriteria, quoteOnPage, verifyProspect, type Criterion } from '../research/verify'
+import { decide, showsGroupOwnership, ensureOwnershipCriterion, memberExcludesGroups, parseCriteria, quoteOnPage, verifyProspect, type Criterion } from '../research/verify'
 import { unverifiedToCheck } from '../research/shortlist'
 
 /* The Launch Pad shortlist check (2026-09-25 final production run): four
@@ -187,5 +187,82 @@ describe('verification order', () => {
       { matchId: 'c', verified: false, rawScore: 90 },
     ]
     expect(unverifiedToCheck(rows)).toEqual(['c', 'a'])
+  })
+})
+
+describe('multiple locations alone never remove a prospect (approved rule, 2026-09-25)', () => {
+  const OWN: Criterion[] = [
+    { id: 'c1', text: 'Independently owned general dental practice, not part of a DSO, corporate dental group, or franchise', hard: true, ownership: true },
+    { id: 'c2', text: 'Provides general dental services', hard: true, ownership: false },
+  ]
+  // The live Denver dental run (session 96327835) removed these two on location lists alone.
+  const sixLocations = 'Dental Team of Cherry Creek. 6 Locations in Colorado Menu (303) 355-8670 Locations Book Now Our Locations Brighton Broomfield Cherry Creek Longmont Loveland Thornton South. Family and general dentistry for everyone.'
+  const midtown = 'Dental Health at Midtown. Dental Health Colorado Dentists in Denver, Boulder, Westminster and Longmont. General and family dentistry for all ages.'
+
+  test('"6 Locations in Colorado" is kept, unconfirmed, and cannot be a strong fit', () => {
+    const v = decide({
+      criteria: OWN, businessName: 'The Dental Team of Cherry Creek',
+      raw: {
+        checks: [{ id: 'c1', status: 'fail', quote: '6 Locations in Colorado Menu (303) 355-8670 Locations Book Now Our Locations' }, { id: 'c2', status: 'pass', quote: 'Family and general dentistry for everyone' }],
+        ownership: { status: 'group', org: 'The Dental Team', quote: '6 Locations in Colorado Menu (303) 355-8670 Locations Book Now Our Locations' },
+        audience: { status: 'match', quote: 'Family and general dentistry for everyone' },
+      },
+      site: site(sixLocations), hints: [], listingPhone: null, now: NOW,
+    })
+    expect(v.excluded).toBe(false)
+    expect(v.ownership.status).toBe('unknown')
+    expect(v.checks[0].status).toBe('unknown')
+    expect(v.grade).toBeLessThan(80)
+  })
+
+  test('a list of cities is not a parent either', () => {
+    const v = decide({
+      criteria: OWN, businessName: 'Dental Health at Midtown',
+      raw: { ownership: { status: 'group', org: 'Dental Health Colorado', quote: 'Dental Health Colorado Dentists in Denver, Boulder, Westminster and Longmont.' } },
+      site: site(midtown), hints: [], listingPhone: null, now: NOW,
+    })
+    expect(v.excluded).toBe(false)
+    expect(v.ownership.status).toBe('unknown')
+  })
+
+  test('several offices under one named owner are independent', () => {
+    const text = 'Dental & Implant Centers of Colorado. Dr. Dhawan Founder & Owner Dr. Dhawan, the Prosthodontist, specializes in placing & restoring dental implants. Locations: Cherry Creek, Aurora, Lakewood.'
+    const v = decide({
+      criteria: OWN, businessName: 'Dental & Implant Centers of Colorado',
+      raw: { owner_or_lead: { name: 'Dr. Dhawan', title: 'Founder & Owner', quote: 'Dr. Dhawan Founder & Owner Dr. Dhawan, the Prosthodontist' } },
+      site: site(text), hints: [], listingPhone: null, now: NOW,
+    })
+    expect(v.excluded).toBe(false)
+    expect(v.ownership.status).toBe('independent')
+    expect(v.checks[0].status).toBe('pass')
+  })
+
+  test('group, franchise, corporate or DSO ownership shown on the site still removes, in both directions', () => {
+    for (const quote of [
+      'As part of the Stanbrick Dental Group, University Dental Arts',
+      'Activate your Smile Generation MyChart account sent via email',
+      'This office is independently owned and operated by a franchisee of Great Clips',
+      'supported by a dental support organization',
+      'owned by Acme Health Partners',
+    ]) expect(showsGroupOwnership(quote, 'University Dental Arts')).toBe(true)
+    for (const quote of [
+      '6 Locations in Colorado',
+      'Dentists in Denver, Boulder, Westminster and Longmont',
+      'Our Locations Brighton Broomfield Cherry Creek',
+      'our group of doctors has served Denver since 1990',
+      'Welcome to City Park Dental Group',
+    ]) expect(showsGroupOwnership(quote, 'City Park Dental Group')).toBe(false)
+    const v = decide({
+      criteria: OWN, businessName: 'University Dental Arts',
+      raw: { ownership: { status: 'group', org: 'Stanbrick Dental Group', quote: 'As part of the Stanbrick Dental Group, University Dental Arts' } },
+      site: site('Schedule today As part of the Stanbrick Dental Group, University Dental Arts serves Denver.'), hints: [], listingPhone: null, now: NOW,
+    })
+    expect(v.excluded).toBe(true)
+    expect(v.exclusion_reason).toMatch(/Stanbrick/)
+  })
+
+  test('the Smile Generation portal line marks a Pacific Dental Services office deterministically', () => {
+    const hints = ownershipHints(site('Book online. Activate your Smile Generation MyChart account sent via email or text for easy eCheck-in.'), 'City Park Dental Group')
+    expect(hints.map((h) => h.org)).toContain('Pacific Dental Services (Smile Generation)')
   })
 })

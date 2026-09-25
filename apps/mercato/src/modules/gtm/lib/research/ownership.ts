@@ -43,6 +43,13 @@ export const TEMPLATE_SIGNATURES: Signature[] = [
   { org: 'Pacific Dental Services', pattern: /\bpacificdentalservices\.com/g },
 ]
 
+/** Network brands named in page text (a patient-portal or brand line), not
+ *  only in the page code: "Activate your Smile Generation MyChart account"
+ *  marks a Pacific Dental Services-supported office. */
+export const TEXT_SIGNATURES: Array<{ org: string; pattern: RegExp }> = [
+  { org: 'Pacific Dental Services (Smile Generation)', pattern: /\bSmile Generation\b/ },
+]
+
 const GROUP_WORD = '(?:Group|Partners|Associates|Alliance|Network|Family|Holdings|Health|Healthcare|Care Centers|Companies|Brands)'
 const ORG = `([A-Z][\\w&'.-]*(?:\\s+(?:of\\s+|the\\s+|&\\s+)?[A-Z][\\w&'.-]*){0,5})`
 
@@ -104,7 +111,14 @@ export function templateOwnershipHints(rawHtml: string): OwnershipHint[] {
 
 export function ownershipHints(site: { rawHtml: string; fullText?: string; pages: Array<{ text: string }> }, businessName: string): OwnershipHint[] {
   const text = site.fullText || site.pages.map((p) => p.text).join(' \n ')
-  return dedupe([...templateOwnershipHints(site.rawHtml), ...textOwnershipHints(text, businessName)])
+  const brands: OwnershipHint[] = []
+  for (const sig of TEXT_SIGNATURES) {
+    const m = sig.pattern.exec(text)
+    if (m && !businessName.toLowerCase().includes(sig.org.split(' ')[0].toLowerCase())) {
+      brands.push({ kind: 'text', org: sig.org, quote: text.slice(Math.max(0, m.index - 40), m.index + m[0].length + 40).trim() })
+    }
+  }
+  return dedupe([...templateOwnershipHints(site.rawHtml), ...brands, ...textOwnershipHints(text, businessName)])
 }
 
 function dedupe(rows: OwnershipHint[]): OwnershipHint[] {
