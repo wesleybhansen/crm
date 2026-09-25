@@ -461,6 +461,17 @@ export default function PipelinePage() {
                               <Flame className="size-3" />
                               <span>{contact.engagementScore} pts</span>
                             </div>
+                            {/* Touch screens cannot drag cards (QA 2026-09-25 #11). */}
+                            <select
+                              value={stage.name}
+                              aria-label={`Move ${contact.displayName} to stage`}
+                              disabled={movingId === contact.id}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => { e.stopPropagation(); if (e.target.value !== stage.name) moveJourneyContact(contact.id, e.target.value) }}
+                              className="h-7 max-w-[7.5rem] rounded border bg-background px-1 text-[10px] text-muted-foreground"
+                            >
+                              {journeyStages.map(s => <option key={s.name} value={s.name}>{s.name === stage.name ? `Move to...` : s.name}</option>)}
+                            </select>
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); window.location.href = '/backend/contacts' }}
@@ -528,6 +539,16 @@ export default function PipelinePage() {
                           ) : (
                             <span />
                           )}
+                          <select
+                            value={stage.name}
+                            aria-label={`Move ${deal.title} to stage`}
+                            disabled={movingId === deal.id}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => { e.stopPropagation(); if (e.target.value !== stage.name) moveDeal(deal.id, e.target.value) }}
+                            className="h-7 max-w-[7.5rem] rounded border bg-background px-1 text-[10px] text-muted-foreground"
+                          >
+                            {dealStages.map(s => <option key={s.name} value={s.name}>{s.name === stage.name ? `Move to...` : s.name}</option>)}
+                          </select>
                           <span className="text-[10px] text-muted-foreground">
                             {new Date(deal.updated_at).toLocaleDateString()}
                           </span>

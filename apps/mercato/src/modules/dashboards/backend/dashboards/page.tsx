@@ -501,7 +501,7 @@ function MeetingPrep() {
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">
-                    {b.upcomingEvent?.summary || 'Upcoming meeting'} with {b.contact.displayName}
+                    {b.upcomingEvent?.summary || 'Upcoming meeting'} · {b.contact.displayName}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">
                     {startLabel ? `${startLabel} · ` : ''}{b.contact.email}
