@@ -570,7 +570,13 @@ export function DealForm({
     const remainder: { value: string; label: string; color: string | null; icon: string | null }[] = []
     payload.entries.forEach((entry) => {
       const value = entry.value.toUpperCase()
-      const label = entry.label && entry.label.length ? `${value} – ${entry.label}` : value
+      // Seeded labels already start with the code ("USD – US Dollar"); don't repeat it.
+      const rawLabel = entry.label && entry.label.length ? entry.label : ''
+      const label = !rawLabel
+        ? value
+        : rawLabel.toUpperCase().startsWith(value)
+          ? rawLabel
+          : `${value} – ${rawLabel}`
       const option = { value, label, color: null, icon: null }
       if (priorityOrder.has(value)) prioritized.push(option)
       else remainder.push(option)
