@@ -222,6 +222,8 @@ type Schema = {
   pk: Map<string, string[]>
   fks: Fk[]
   colType: Map<string, string>
+  /** Generated / identity-always columns: never written by copyRow. */
+  generated: Set<string>
 }
 
 const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -242,14 +244,16 @@ function eqParam(schema: Schema, table: string, alias: string, column: string, p
 }
 
 export async function loadSchema(q: SplitQuery): Promise<Schema> {
-  const cols = await q.query<{ table_name: string; column_name: string; data_type: string }>(
-    `select c.table_name, c.column_name, c.data_type
+  const cols = await q.query<{ table_name: string; column_name: string; data_type: string; generated: boolean }>(
+    `select c.table_name, c.column_name, c.data_type,
+            (c.is_generated = 'ALWAYS' or c.identity_generation = 'ALWAYS') as generated
        from information_schema.columns c
        join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name
       where c.table_schema = current_schema() and t.table_type = 'BASE TABLE'
       order by c.table_name, c.ordinal_position`,
   )
   const columns: ColumnInfo[] = cols.rows.map((r) => ({ table: r.table_name, column: r.column_name, dataType: r.data_type }))
+  const generated = new Set(cols.rows.filter((r) => r.generated).map((r) => `${r.table_name}.${r.column_name}`))
   const pkRows = await q.query<{ table_name: string; column_name: string }>(
     `select tc.relname as table_name, a.attname as column_name
        from pg_index i
@@ -278,6 +282,7 @@ export async function loadSchema(q: SplitQuery): Promise<Schema> {
     pk,
     fks: fkRows.rows.map((r) => ({ table: r.table_name, column: r.column_name, refTable: r.ref_table, refColumn: r.ref_column })),
     colType,
+    generated,
   }
 }
 
@@ -409,6 +414,7 @@ async function copyRow(
   const select: string[] = []
   const names: string[] = []
   for (const col of info.columns) {
+    if (schema.generated.has(`${table}.${col.column}`)) continue
     if (overrides[col.column] === NEW_ID) {
       if (col.dataType !== 'uuid') continue // integer/identity key: let the default fill it
       names.push(qi(col.column))
@@ -582,13 +588,17 @@ async function moveOrganization(
   report.superadminRolesDemoted = plan.demotedSuperadmin.length
   const newRolesByName = new Map<string, string>()
   for (const name of plan.requiredNames) {
-    const ins = await q.query<{ id: string }>(
-      `insert into roles (id, name, tenant_id, created_at) values (gen_random_uuid(), $1, $2, now())
-       on conflict (tenant_id, name) do nothing returning id::text as id`,
-      [name, newTenantId],
-    )
-    if (ins.rows.length) report.rolesCreated.push(name)
-    const row = (await q.query<{ id: string }>(`select id::text as id from roles where tenant_id = $1 and name = $2`, [newTenantId, name])).rows[0]
+    // Select-then-insert: no reliance on a (tenant_id, name) unique constraint
+    // being present on every database. The new tenant is private to this
+    // transaction, so nothing else can insert concurrently.
+    let row = (await q.query<{ id: string }>(`select id::text as id from roles where tenant_id = $1 and name = $2 and deleted_at is null`, [newTenantId, name])).rows[0]
+    if (!row) {
+      row = (await q.query<{ id: string }>(
+        `insert into roles (id, name, tenant_id, created_at) values (gen_random_uuid(), $1, $2, now()) returning id::text as id`,
+        [name, newTenantId],
+      )).rows[0]
+      report.rolesCreated.push(name)
+    }
     newRolesByName.set(name, row.id)
   }
   const roleMap = buildRoleIdMap(plan, newRolesByName)
