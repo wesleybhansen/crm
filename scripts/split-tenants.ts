@@ -17,6 +17,11 @@
  *          --allow-unreadable (an envelope stamped with the old key id that does not open is left as is)
  *          --skip-queue-check (rehearsal copies without the production Redis only)
  *
+ *   node /app/scripts/split-tenants.cjs --keep-org <uuid> --reregister-schedules
+ *          re-registers EVERY enabled schedule's BullMQ repeatable from the database
+ *          (their data carries the tenant id). Use after a rollback restore, or to
+ *          repair schedules; nothing else runs.
+ *
  * Refuses (exit 2) unless: the key scheme is `derived` and the key opens a
  * sample of the old tenant's data; for --execute also MAINTENANCE=1 and the
  * four BullMQ queues drained. Never prints a stored value: counts, table
@@ -58,10 +63,11 @@ export type Args = {
   sweep: boolean
   allowUnreadable: boolean
   skipQueueCheck: boolean
+  reregisterSchedules: boolean
 }
 
 export function parseArgs(argv: string[]): Args {
-  const args: Args = { mode: 'dry-run', keepOrg: null, orgs: [], resume: true, sweep: false, allowUnreadable: false, skipQueueCheck: false }
+  const args: Args = { mode: 'dry-run', keepOrg: null, orgs: [], resume: true, sweep: false, allowUnreadable: false, skipQueueCheck: false, reregisterSchedules: false }
   const value = (i: number, flag: string): string => {
     const v = argv[i + 1]
     if (!v || v.startsWith('--')) throw new SplitRefusedError(`${flag} needs a value`)
@@ -81,9 +87,11 @@ export function parseArgs(argv: string[]): Args {
       case '--sweep': args.sweep = true; break
       case '--allow-unreadable': args.allowUnreadable = true; break
       case '--skip-queue-check': args.skipQueueCheck = true; break
+      case '--reregister-schedules': args.reregisterSchedules = true; break
       default: throw new SplitRefusedError(`Unknown option ${raw}`)
     }
   }
+  if (args.reregisterSchedules) return args
   if (!args.keepOrg) throw new SplitRefusedError('--keep-org <uuid> is required (the organization that keeps the current tenant)')
   for (const v of [args.keepOrg, ...args.orgs]) {
     if (!UUID_RE.test(v)) throw new SplitRefusedError('--keep-org / --org must be uuids')
@@ -303,6 +311,18 @@ async function main(): Promise<number> {
   }
   const log = (l: string) => console.log(l)
   const pool = new Pool({ connectionString, max: 2, application_name: 'split-tenants' })
+  if (args.reregisterSchedules) {
+    try {
+      const { rows } = await pool.query(`select id::text as id from scheduled_jobs where is_enabled and deleted_at is null order by created_at`)
+      await reregisterSchedules(pool, rows.map((r) => r.id as string), log)
+      return 0
+    } catch (err) {
+      console.error(`[schedules] stopped: ${safeError(err)}`)
+      return 1
+    } finally {
+      await pool.end().catch(() => {})
+    }
+  }
   try {
     const kms = createKmsService()
     const getDek = async (tenantId: string) => {
