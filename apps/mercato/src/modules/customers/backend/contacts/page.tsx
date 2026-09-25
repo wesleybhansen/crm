@@ -1,7 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { splitCsvLine } from '@/lib/csv'
+import { contactInitials } from '@/lib/contact-initials'
+import { formatDueDate, isDueDateOverdue } from '@/lib/due-date'
+import { createLatestRequestGuard } from '@/lib/latest-request'
 import { contactSourceLabel } from '@/modules/customers/lib/contactSourceLabel'
 import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -36,6 +39,10 @@ export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  // The list query uses a debounced copy of the search box, and only the
+  // newest request may write the list (QA 2026-09-25 #10).
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const contactsRequestGuard = useRef(createLatestRequestGuard())
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
@@ -138,7 +145,12 @@ export default function ContactsPage() {
         if (pipelineStages.length === 0) setPipelineStages(['New Lead', 'Contacted', 'Qualified', 'Proposal', 'Won', 'Lost'])
       }).catch(() => setPipelineStages(['New Lead', 'Contacted', 'Qualified', 'Proposal', 'Won', 'Lost']))
     }
-  }, [tab, search, filterTag, filterStage, filterEngagement])
+  }, [tab, debouncedSearch, filterTag, filterStage, filterEngagement])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => clearTimeout(timer)
+  }, [search])
 
   // Dashboard's confirm-and-go summary links "Import contacts" here with
   // ?import=1 so it opens straight into the same paste-a-CSV flow the
@@ -153,16 +165,18 @@ export default function ContactsPage() {
     setLoading(true)
     const endpoint = tab === 'people' ? '/api/customers/people' : '/api/customers/companies'
     const params = new URLSearchParams({ pageSize: '50' })
-    if (search) params.set('search', search)
+    if (debouncedSearch) params.set('search', debouncedSearch)
     if (filterTag) params.set('tagIds', filterTag)
     if (filterStage) params.set('lifecycleStage', filterStage)
     if (filterEngagement === 'hot') params.set('status', 'hot')
     if (filterEngagement === 'warm') params.set('status', 'warm')
     if (filterEngagement === 'cold') params.set('status', 'cold')
 
+    const isCurrent = contactsRequestGuard.current.next()
     fetch(`${endpoint}?${params}`, { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
+        if (!isCurrent()) return
         // CRUD factory returns { data: [...], pagination: {...} } or { items: [...] }
         let items: Contact[] = []
         if (Array.isArray(d.data)) items = d.data
@@ -172,7 +186,7 @@ export default function ContactsPage() {
         setContacts(items)
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch(() => { if (isCurrent()) setLoading(false) })
   }
 
   function selectContact(contact: Contact) {
@@ -379,7 +393,7 @@ export default function ContactsPage() {
         if (tab === 'tasks') {
           const refetchAll = await fetch('/api/customers/tasks', { credentials: 'include' })
           const refetchedAll = await refetchAll.json()
-          if (refetchedAll.ok) setAllTasks(refetchedAll.data || [])
+          if (refetchedAll.ok) setAllTasks((refetchedAll.data || []).filter((t: Task) => !t.is_done))
         }
       }
     } catch {}
@@ -388,10 +402,13 @@ export default function ContactsPage() {
 
   async function toggleTask(task: Task) {
     try {
-      await fetch('/api/customers/tasks', {
+      // camelCase: the API validates isDone and used to drop is_done
+      // silently, so a tick never saved (QA 2026-09-25 #7).
+      const res = await fetch('/api/customers/tasks', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ id: task.id, is_done: !task.is_done }),
+        body: JSON.stringify({ id: task.id, isDone: !task.is_done }),
       })
+      if (!res.ok) return
       const toggled = { ...task, is_done: !task.is_done }
       // Update contact-scoped tasks
       setTasks(prev => prev.map(t => t.id === task.id ? toggled : t))
@@ -424,6 +441,7 @@ export default function ContactsPage() {
       await fetch(`/api/customers/tasks?id=${taskId}`, { method: 'DELETE', credentials: 'include' })
       setTasks(prev => prev.filter(t => t.id !== taskId))
       setAllTasks(prev => prev.filter(t => t.id !== taskId))
+      setCompletedTasks(prev => prev.filter(t => t.id !== taskId))
     } catch {}
   }
 
@@ -529,7 +547,7 @@ export default function ContactsPage() {
     setAllTasksLoading(true)
     fetch('/api/customers/tasks', { credentials: 'include' })
       .then(r => r.json())
-      .then(d => { if (d.ok) setAllTasks(d.data || []); setAllTasksLoading(false) })
+      .then(d => { if (d.ok) setAllTasks((d.data || []).filter((t: Task) => !t.is_done)); setAllTasksLoading(false) })
       .catch(() => setAllTasksLoading(false))
     fetch('/api/customers/tasks?done=true', { credentials: 'include' })
       .then(r => r.json())
@@ -672,9 +690,11 @@ export default function ContactsPage() {
       <div className={`flex-1 flex flex-col overflow-hidden ${selectedId ? 'hidden md:flex border-r' : ''}`}>
         {/* Header */}
         <div className="px-3 sm:px-6 py-3 sm:py-4 border-b">
-          <div className="flex items-center justify-between mb-3">
+          {/* Phone: the title and the button row wrap instead of pushing
+              "Add Contact" off the right edge (QA 2026-09-25 #5). */}
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 mb-3">
             <h1 className="text-lg font-semibold">Contacts</h1>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 [&>button]:max-sm:h-10">
               <Button type="button" variant="outline" size="sm" onClick={() => window.location.href = '/api/contacts/export'}>
                 Export
               </Button>
@@ -730,7 +750,7 @@ export default function ContactsPage() {
               className="pl-9 h-9 text-sm"
             />
             {search && (
-              <button type="button" onClick={() => setSearch('')}
+              <button type="button" onClick={() => setSearch('')} aria-label="Clear search"
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                 <X className="size-3.5" />
               </button>
@@ -788,7 +808,7 @@ export default function ContactsPage() {
 
         {/* Tasks Tab */}
         {tab === 'tasks' && (
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-4 max-md:pb-24">
             <div className="flex gap-2 mb-4">
               <Input value={newTask} onChange={e => setNewTask(e.target.value)}
                 placeholder="Add a task..." className="flex-1 h-9 text-sm"
@@ -801,24 +821,26 @@ export default function ContactsPage() {
             {allTasksLoading ? (
               <div className="text-center py-8 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin mx-auto mb-2" /> Loading tasks...</div>
             ) : allTasks.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground py-8">No tasks yet. Add one above.</p>
+              <p className="text-center text-sm text-muted-foreground py-8">
+                {completedTasks.length > 0 ? 'No open tasks. Nice work.' : 'No tasks yet. Add one above.'}
+              </p>
             ) : (
               <div className="space-y-1">
                 {allTasks.map(task => (
                   <div key={task.id} className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border hover:bg-muted/30 transition group">
-                    <button type="button" onClick={() => toggleTask(task)} className="shrink-0">
+                    <button type="button" onClick={() => toggleTask(task)} className="shrink-0 -m-2 p-2" aria-label={task.is_done ? `Mark "${task.title}" as not done` : `Mark "${task.title}" as done`}>
                       {task.is_done ? <CheckCircle2 className="size-4 text-[#047857] dark:text-[#34d399]" /> : <Circle className="size-4 text-muted-foreground/40 group-hover:text-accent transition" />}
                     </button>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm ${task.is_done ? 'line-through text-muted-foreground' : ''}`}>{task.title}</p>
                       {task.due_date && (
-                        <p className={`text-[10px] ${new Date(task.due_date) < new Date() && !task.is_done ? 'text-[#b91c1c] dark:text-[#f87171] font-medium' : 'text-muted-foreground'}`}>
-                          {new Date(task.due_date) < new Date() && !task.is_done ? 'Overdue — ' : 'Due '}{new Date(task.due_date).toLocaleDateString()}
+                        <p className={`text-[10px] ${isDueDateOverdue(task.due_date) && !task.is_done ? 'text-[#b91c1c] dark:text-[#f87171] font-medium' : 'text-muted-foreground'}`}>
+                          {isDueDateOverdue(task.due_date) && !task.is_done ? 'Overdue: ' : 'Due '}{formatDueDate(task.due_date)}
                         </p>
                       )}
                     </div>
                     <button type="button" onClick={() => deleteTask(task.id)}
-                      className="p-1.5 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition shrink-0" title="Delete">
+                      className="p-1.5 text-muted-foreground hover:text-destructive md:opacity-0 md:group-hover:opacity-100 transition shrink-0" title="Delete" aria-label="Delete task">
                       <Trash2 className="size-3.5" />
                     </button>
                   </div>
@@ -839,12 +861,12 @@ export default function ContactsPage() {
                   <div className="space-y-1 mt-2">
                     {completedTasks.map(task => (
                       <div key={task.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-muted/30 transition group opacity-60">
-                        <button type="button" onClick={() => toggleTask(task)} className="shrink-0 mt-0.5">
+                        <button type="button" onClick={() => toggleTask(task)} className="shrink-0 mt-0.5 -m-2 p-2" aria-label={task.is_done ? `Mark "${task.title}" as not done` : `Mark "${task.title}" as done`}>
                           <CheckCircle2 className="size-4 text-[#047857] dark:text-[#34d399]" />
                         </button>
                         <p className="flex-1 text-sm line-through text-muted-foreground">{task.title}</p>
                         <button type="button" onClick={() => deleteTask(task.id)}
-                          className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition" title="Delete">
+                          className="p-1 text-muted-foreground hover:text-destructive md:opacity-0 md:group-hover:opacity-100 transition" title="Delete" aria-label="Delete task">
                           <Trash2 className="size-3" />
                         </button>
                       </div>
@@ -877,7 +899,7 @@ export default function ContactsPage() {
         )}
 
         {/* Contact List */}
-        {tab !== 'tasks' && <div className="flex-1 overflow-y-auto">
+        {tab !== 'tasks' && <div className="flex-1 overflow-y-auto max-md:pb-24">
           {loading ? (
             <div className="p-6 text-sm text-muted-foreground">Loading...</div>
           ) : contacts.length === 0 ? (
@@ -918,7 +940,7 @@ export default function ContactsPage() {
                   }`}
                   onClick={() => selectContact(contact)}>
                   <div className="w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center text-accent text-xs font-semibold shrink-0">
-                    {tab === 'companies' ? <Building2 className="size-4" /> : contact.display_name?.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase() || '?'}
+                    {tab === 'companies' ? <Building2 className="size-4" /> : contactInitials(contact.display_name)}
                   </div>
                   <div className="flex-1 min-w-0">
                     {editCompanyId === contact.id ? (
@@ -972,7 +994,7 @@ export default function ContactsPage() {
                         <ExternalLink className="size-3" />
                       </span>
                       <button type="button" onClick={() => deleteContact(contact.id, contact.display_name)}
-                        className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition" title="Delete">
+                        className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition" title="Delete" aria-label={`Delete ${contact.display_name || 'contact'}`}>
                         <Trash2 className="size-3" />
                       </button>
                     </div>
@@ -1051,7 +1073,7 @@ export default function ContactsPage() {
                                 className="w-full text-left px-3 py-2.5 hover:bg-muted/50 flex items-center gap-2.5 text-xs border-b last:border-0"
                                 onClick={() => { setCompanyLinkPeople(prev => [...prev, p.id]); setCompanyLinkSearch(''); setCompanyLinkDropdown(false) }}>
                                 <div className="size-7 rounded-full bg-accent/10 flex items-center justify-center text-[10px] font-bold text-accent shrink-0">
-                                  {p.display_name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
+                                  {contactInitials(p.display_name)}
                                 </div>
                                 <div className="min-w-0">
                                   <p className="font-medium truncate">{p.display_name}</p>
@@ -1084,9 +1106,9 @@ export default function ContactsPage() {
       {/* Import Modal */}
       {showImport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-background rounded-xl border shadow-2xl w-full max-w-lg mx-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="import-contacts-title" className="bg-background rounded-xl border shadow-2xl w-full max-w-lg mx-4">
             <div className="flex items-center justify-between px-5 py-3 border-b">
-              <h2 className="text-sm font-semibold">Import Contacts</h2>
+              <h2 id="import-contacts-title" className="text-sm font-semibold">Import Contacts</h2>
               <IconButton type="button" variant="ghost" size="sm" onClick={() => { setShowImport(false); setImportResult(null); setImportData('') }} aria-label="Close">
                 <X className="size-4" />
               </IconButton>
@@ -1159,7 +1181,8 @@ export default function ContactsPage() {
                     <div className="flex-1 border-t" />
                   </div>
                   <textarea value={importData} onChange={e => setImportData(e.target.value)}
-                    placeholder="Jane Doe, jane@example.com, +1-555-1234&#10;John Smith, john@company.com&#10;Sarah Chen, sarah@startup.io"
+                    placeholder={'Jane Doe, jane@example.com, +1-555-1234\nJohn Smith, john@company.com\nSarah Chen, sarah@startup.io'}
+                    aria-label="Paste contacts, one per line"
                     className="w-full rounded-md border bg-card px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28 font-mono" />
                   <div className="flex justify-between items-center">
                     <p className="text-xs text-muted-foreground">{importData.trim() ? importData.trim().split('\n').filter(l => l.trim()).length + ' contacts' : 'No data'}</p>
@@ -1348,7 +1371,7 @@ export default function ContactsPage() {
             {selectedContact.primary_phone && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1"><Phone className="size-3" /> {selectedContact.primary_phone}</p>}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="flex-1 overflow-y-auto px-5 py-4 max-md:pb-24">
             {/* People at this company */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-3">
@@ -1364,7 +1387,7 @@ export default function ContactsPage() {
                   {companyPeople.map(p => (
                     <div key={p.entityId} className="flex items-center gap-2.5 px-3 py-2 rounded-lg border group">
                       <div className="size-7 rounded-full bg-accent/10 flex items-center justify-center text-[10px] font-bold text-accent shrink-0">
-                        {(p.display_name || '?')[0].toUpperCase()}
+                        {contactInitials(p.display_name, 1)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{p.display_name}</p>
@@ -1395,7 +1418,7 @@ export default function ContactsPage() {
                           className="w-full text-left px-3 py-2.5 hover:bg-muted/50 flex items-center gap-2.5 text-xs border-b last:border-0"
                           onClick={() => { linkPersonToCompany(p.id, selectedContact!.id); setLinkPersonDropdown(false); setLinkPersonSearch('') }}>
                           <div className="size-7 rounded-full bg-accent/10 flex items-center justify-center text-[10px] font-bold text-accent shrink-0">
-                            {p.display_name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
+                            {contactInitials(p.display_name)}
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="font-medium truncate">{p.display_name}</p>
@@ -1484,7 +1507,7 @@ export default function ContactsPage() {
                       onClick={() => { const match = contacts.find(x => x.id === c.id); if (match) selectContact(match) }}
                       className="inline-flex items-center gap-1.5 text-xs bg-muted/50 hover:bg-muted rounded-full px-2 py-1 transition">
                       <div className="w-4 h-4 rounded-full bg-accent/10 flex items-center justify-center text-accent text-[8px] font-semibold">
-                        {c.display_name?.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase() || '?'}
+                        {contactInitials(c.display_name)}
                       </div>
                       {c.display_name}
                     </button>
@@ -1564,7 +1587,7 @@ export default function ContactsPage() {
           </div>
 
           {/* Quick Actions */}
-          <div className="px-5 py-3 border-b flex gap-2">
+          <div className="px-5 py-3 border-b flex flex-wrap gap-2 [&>button]:max-sm:h-10">
             <Button type="button" variant="outline" size="sm" onClick={() => setShowEmailModal(true)}
               disabled={!selectedContact?.primary_email}>
               <Mail className="size-3.5 mr-1.5" /> Email
@@ -1593,7 +1616,7 @@ export default function ContactsPage() {
           </div>
 
           {/* Panel Content */}
-          <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="flex-1 overflow-y-auto px-5 py-4 max-md:pb-24">
             {/* Timeline Tab */}
             {panelTab === 'timeline' && (
               <div className="space-y-1">
@@ -1674,7 +1697,7 @@ export default function ContactsPage() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium truncate max-w-[180px]">{personCompany.displayName}</span>
                         <button type="button" onClick={() => linkPersonToCompany(selectedContact!.id, null)}
-                          className="text-muted-foreground hover:text-destructive shrink-0" title="Remove company">
+                          className="text-muted-foreground hover:text-destructive shrink-0" title="Remove company" aria-label="Remove company">
                           <X className="size-3" />
                         </button>
                       </div>
@@ -1816,7 +1839,7 @@ export default function ContactsPage() {
                       <span key={tag.id} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
                         style={{ backgroundColor: tag.color + '20', color: tag.color }}>
                         {tag.name}
-                        <button type="button" onClick={() => removeTag(tag.id)} className="hover:opacity-70">
+                        <button type="button" onClick={() => removeTag(tag.id)} className="hover:opacity-70" aria-label={`Remove tag ${tag.name}`}>
                           <X className="size-3" />
                         </button>
                       </span>
@@ -1860,11 +1883,11 @@ export default function ContactsPage() {
                             <p className="text-xs font-medium truncate">{att.filename}</p>
                             <p className="text-[10px] text-muted-foreground">{formatFileSize(att.file_size)}</p>
                           </div>
-                          <a href={att.file_url} download className="text-muted-foreground hover:text-foreground shrink-0">
+                          <a href={att.file_url} download aria-label={`Download ${att.filename}`} className="text-muted-foreground hover:text-foreground shrink-0">
                             <Download className="size-3.5" />
                           </a>
-                          <button type="button" onClick={() => deleteAttachment(att.id)}
-                            className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button type="button" onClick={() => deleteAttachment(att.id)} aria-label={`Delete ${att.filename}`}
+                            className="text-muted-foreground hover:text-destructive shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                             <Trash2 className="size-3.5" />
                           </button>
                         </div>
@@ -1929,7 +1952,7 @@ export default function ContactsPage() {
                   <div className="space-y-1 pt-2">
                     {tasks.map(task => (
                       <div key={task.id} className="flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-muted/50 transition group">
-                        <button type="button" onClick={() => toggleTask(task)} className="shrink-0 mt-0.5">
+                        <button type="button" onClick={() => toggleTask(task)} className="shrink-0 mt-0.5 -m-2 p-2" aria-label={task.is_done ? `Mark "${task.title}" as not done` : `Mark "${task.title}" as done`}>
                           {task.is_done
                             ? <CheckCircle2 className="size-4 text-[#047857] dark:text-[#34d399]" />
                             : <Circle className="size-4 text-muted-foreground/40 group-hover:text-accent transition" />
@@ -1948,21 +1971,21 @@ export default function ContactsPage() {
                           <div className="flex-1 min-w-0">
                             <p className={`text-sm ${task.is_done ? 'line-through text-muted-foreground' : ''}`}>{task.title}</p>
                             {task.due_date && (
-                              <p className={`text-[10px] ${new Date(task.due_date) < new Date() && !task.is_done ? 'text-[#b91c1c] dark:text-[#f87171] font-medium' : 'text-muted-foreground'}`}>
-                                {new Date(task.due_date) < new Date() && !task.is_done ? 'Overdue — ' : 'Due '}
-                                {new Date(task.due_date).toLocaleDateString()}
+                              <p className={`text-[10px] ${isDueDateOverdue(task.due_date) && !task.is_done ? 'text-[#b91c1c] dark:text-[#f87171] font-medium' : 'text-muted-foreground'}`}>
+                                {isDueDateOverdue(task.due_date) && !task.is_done ? 'Overdue: ' : 'Due '}
+                                {formatDueDate(task.due_date)}
                               </p>
                             )}
                           </div>
                         )}
                         {editingTaskId !== task.id && (
-                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                          <div className="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 transition shrink-0">
                             <button type="button" onClick={() => { setEditingTaskId(task.id); setEditingTaskTitle(task.title) }}
-                              className="p-1 text-muted-foreground hover:text-foreground" title="Edit">
+                              className="p-1 text-muted-foreground hover:text-foreground" title="Edit" aria-label="Edit task">
                               <Pencil className="size-3" />
                             </button>
                             <button type="button" onClick={() => deleteTask(task.id)}
-                              className="p-1 text-muted-foreground hover:text-destructive" title="Delete">
+                              className="p-1 text-muted-foreground hover:text-destructive" title="Delete" aria-label="Delete task">
                               <Trash2 className="size-3" />
                             </button>
                           </div>
