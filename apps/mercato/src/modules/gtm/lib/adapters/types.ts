@@ -140,6 +140,9 @@ export type CandidateIdentity = {
   company?: string | null
   title?: string | null
   domain?: string | null
+  // A business listing's own public phone and website (Maps rows).
+  phone?: string | null
+  website?: string | null
   urls?: string[]
   location?: string | null
   // Frozen provider targeting provenance is distinct from the returned
