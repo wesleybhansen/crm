@@ -97,6 +97,11 @@ d('one tenant per customer (Postgres)', () => {
     await conn.execute(`create table feature_toggle_overrides (id uuid primary key default gen_random_uuid(), toggle_id uuid not null,
       tenant_id uuid not null, value jsonb not null, created_at timestamptz not null, updated_at timestamptz not null,
       unique (toggle_id, tenant_id))`)
+    // Production unique index (auth Migration20260509120000): the loser of a
+    // parallel first sign-in of one Clerk user must hit it and join the winner.
+    // Before 2026-09-25 this test passed only because the email was written
+    // in plaintext (the H2 bug) and collided on the entity's email index.
+    await conn.execute(`create unique index if not exists users_clerk_user_id_unique on users (clerk_user_id) where clerk_user_id is not null`)
     await conn.execute(`create table demo_defaults (tenant_id uuid not null, organization_id uuid not null, primary key (tenant_id, organization_id))`)
     registerModules(testModules)
   })
@@ -206,6 +211,11 @@ d('one tenant per customer (Postgres)', () => {
     expect(await n(`select count(*)::int as n from tenants t where not exists (select 1 from organizations o where o.tenant_id = t.id) and t.id <> ?`, [shared])).toBe(0)
     expect(await n(`select seed_version as n from tenants where id = ?`, [tenantId])).toBe(CURRENT_TENANT_SEED_VERSION)
     for (const auth of auths) expect(auth!.roles).toEqual(['admin'])
+    // H2 (2026-09-25): the maps are flushed in the provisioning transaction,
+    // so every new user's email must be stored encrypted, never in clear.
+    const emails = (await q(`select email from users where tenant_id = ?`, [tenantId])).map((r: any) => String(r.email))
+    expect(emails).toHaveLength(5)
+    for (const email of emails) expect(email).not.toMatch(/@example\.com$/)
     // Every teammate's role is the tenant's own admin role.
     expect(await n(
       `select count(*)::int as n from user_roles ur join roles r on r.id = ur.role_id join users u on u.id = ur.user_id
