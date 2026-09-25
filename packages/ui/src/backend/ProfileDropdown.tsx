@@ -315,7 +315,13 @@ export function ProfileDropdown({
         aria-haspopup="menu"
         data-testid="profile-dropdown-trigger"
         title={email || t('ui.userMenu.userFallback', 'User')}
-        aria-label={t('ui.userMenu.open', 'Open account menu')}
+        // The accessible name must keep the signed-in email: screen readers
+        // announce whose account this is, and TC-AUTH-004 finds it by email.
+        aria-label={
+          email
+            ? `${t('ui.userMenu.open', 'Open account menu')}: ${email}`
+            : t('ui.userMenu.open', 'Open account menu')
+        }
       >
         <User className="size-4" />
       </IconButton>

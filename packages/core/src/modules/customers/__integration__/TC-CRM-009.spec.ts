@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createCompanyFixture, createDealFixture, createPipelineFixture, createPipelineStageFixture, deleteEntityIfExists, deleteEntityByBody } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
@@ -43,7 +43,21 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
       await expect(pipelineStageSelect).toBeEnabled();
       await pipelineStageSelect.selectOption(winStageId!);
       await page.getByRole('button', { name: /Update deal/i }).click();
-      await expect(page.getByText(/Win/i).first()).toBeVisible();
+      // Assert the saved stage, not visible text: "Win" also appears as a
+      // hidden <option>, and the seeded deal statuses now read Won/Lost.
+      await expect
+        .poll(async () => {
+          const res = await apiRequest(
+            request,
+            'GET',
+            `/api/customers/deals?pipelineStageId=${encodeURIComponent(winStageId!)}&pageSize=100`,
+            { token: token! },
+          );
+          if (!res.ok()) return `status ${res.status()}`;
+          const body = (await res.json()) as { items?: Array<{ id?: string }> };
+          return (body.items ?? []).some((item) => item.id === dealId) ? 'moved' : 'not yet';
+        }, { timeout: 15_000 })
+        .toBe('moved');
 
       await page.goto('/backend/customers/deals/pipeline');
       const pipelineSelect = page.getByLabel('Pipeline');

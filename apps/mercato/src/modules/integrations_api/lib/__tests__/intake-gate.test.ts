@@ -35,6 +35,8 @@ const lpSub = { organization_id: 'org-1', status: 'active', metadata: { source: 
 describe('CRM intake gate', () => {
   it('keeps completed and seeded profiles on the dashboard', () => {
     expect(decideIntakeGate({ onboarding_complete: true }, null)).toBe('dashboard')
+    // A null flag is a pre-flag workspace: the old dashboard only asked on false.
+    expect(decideIntakeGate({ onboarding_complete: null }, null)).toBe('dashboard')
     expect(decideIntakeGate({ onboarding_complete: false, seeded_by: 'launchpad-lab', business_description: 'Bookkeeping for agents' }, null)).toBe('dashboard')
   })
 
