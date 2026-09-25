@@ -293,12 +293,23 @@ d('one tenant per customer (Postgres)', () => {
     }
   })
 
-  it('flag off keeps the legacy shared tenant (NOLI_TENANT_ID)', async () => {
+  it('flag off never provisions a new workspace into a shared tenant (NOLI_TENANT_ID is ignored)', async () => {
     delete process.env.CRM_TENANT_PER_CUSTOMER
     const shared = process.env.NOLI_TENANT_ID!
     const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
     noliOrgOf.set('clerk_legacy', 'noli-org-legacy')
     const auth = await resolveClerkUserToAuthContext('clerk_legacy')
-    expect(auth?.tenantId).toBe(shared)
+    expect(auth).toBeNull()
+    expect(await n(`select count(*)::int as n from users where clerk_user_id = 'clerk_legacy'`)).toBe(0)
+    expect(await n(`select count(*)::int as n from users where tenant_id = ?`, [shared])).toBe(0)
+  })
+
+  it('flag off still lets a teammate join an existing organization', async () => {
+    delete process.env.CRM_TENANT_PER_CUSTOMER
+    const { resolveClerkUserToAuthContext } = await import('@open-mercato/shared/lib/auth/clerk')
+    noliOrgOf.set('clerk_mate', 'noli-org-team')
+    const auth = await resolveClerkUserToAuthContext('clerk_mate')
+    expect(auth?.tenantId).toBeTruthy()
+    expect(auth?.tenantId).not.toBe(process.env.NOLI_TENANT_ID)
   })
 })

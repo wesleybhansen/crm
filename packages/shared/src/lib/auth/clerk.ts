@@ -70,7 +70,7 @@ export function resetSeededTenantCacheForTests(): void {
  *      CRM_TENANT_PER_CUSTOMER=1: a new Noli org gets its own tenant (and so
  *      its own data key), created in the same transaction, and the tenant is
  *      seeded after commit (ensureTenantSeeded; retried on later sign-ins
- *      until it succeeds). Off: every org joins the one shared tenant.
+ *      until it succeeds). Off: no new workspace is provisioned.
  *
  * Returns null on any failure (no noli-core user, not entitled, provisioning
  * error). Caller's responsibility is to translate null to 401.
@@ -298,8 +298,9 @@ async function ensureTenantSeededOnce(
  * CRM_TENANT_PER_CUSTOMER=1: a new org is created with its own tenant
  * (createCustomerTenant, same transaction) and there is no shared-tenant
  * fallback of any kind.
- * Off (legacy, deprecated): insert into the shared Noli tenant resolved from
- * NOLI_TENANT_ID, falling back to the first non-deleted tenant by created_at.
+ * Off: a teammate can still join an existing organization, but no new
+ * workspace is created; there is no shared-tenant fallback of any kind
+ * (NOLI_TENANT_ID is no longer read).
  *
  * Returns null on any error so the caller falls through to 401 rather
  * than partially-provisioning a user.
@@ -346,27 +347,14 @@ async function provisionMercatoUserForClerk(
       ? await import('@open-mercato/core/modules/auth/lib/provision-tenant')
       : { createCustomerTenant: null, ensureTenantRoles: null }
 
-    // Legacy shared tenant (flag off only). Deprecated: removed once every
-    // customer has its own tenant.
-    let tenant: InstanceType<typeof Tenant> | null = null
+    // The shared-tenant path (NOLI_TENANT_ID, else the oldest tenant) is gone
+    // (2026-09-25 review, LOW): with the flag unset by mistake it silently
+    // signed new customers up into the founder's tenant. With the flag off a
+    // teammate may still join an existing organization; a new workspace is
+    // refused (orgTenant stays null below and provisioning returns null).
+    const tenant: InstanceType<typeof Tenant> | null = null
     if (!perCustomer) {
-      const envTenantId = process.env.NOLI_TENANT_ID?.trim() || null
-      tenant = envTenantId
-        ? await em.findOne(Tenant, { id: envTenantId, deletedAt: null })
-        : null
-      if (!tenant) {
-        tenant = await em.findOne(
-          Tenant,
-          { deletedAt: null },
-          { orderBy: { createdAt: 'asc' } },
-        )
-      }
-      if (!tenant) {
-        console.error(
-          '[clerk-auth] No Noli tenant found — Migration20260509120000 may not have run',
-        )
-        return null
-      }
+      console.warn('[clerk-auth] CRM_TENANT_PER_CUSTOMER is off: new workspaces are not provisioned (no shared tenant)')
     }
 
     const displayName =
