@@ -37,7 +37,11 @@ RUN yarn build
 RUN mkdir -p /app/.runtime-tools \
  && yarn exec esbuild scripts/check-landing-page-image-assets.ts \
       --bundle --platform=node --format=cjs --target=node24 \
-      --outfile=/app/.runtime-tools/check-landing-page-image-assets.cjs
+      --outfile=/app/.runtime-tools/check-landing-page-image-assets.cjs \
+ && yarn exec esbuild scripts/reencrypt-plaintext-contacts.ts \
+      --bundle --platform=node --format=cjs --target=node24 \
+      --external:pg-native \
+      --outfile=/app/.runtime-tools/reencrypt-plaintext-contacts.cjs
 
 # Dev stage: install + build packages only, no production build; run dev server with watch
 FROM node:24-alpine AS dev
@@ -132,6 +136,9 @@ COPY --from=builder /app/apps/mercato/public ./apps/mercato/.mercato/next/standa
 # Copy runtime configuration files
 COPY --from=builder /app/newrelic.js ./
 COPY --from=builder /app/.runtime-tools/check-landing-page-image-assets.cjs /app/scripts/check-landing-page-image-assets.cjs
+# One-off, idempotent: encrypt contact rows still holding plaintext in
+# encrypted-by-design columns (dry run unless --execute). See the script header.
+COPY --from=builder /app/.runtime-tools/reencrypt-plaintext-contacts.cjs /app/scripts/reencrypt-plaintext-contacts.cjs
 
 # Copy Railway entrypoint script
 COPY docker/scripts/railway-entrypoint.sh /app/docker/scripts/railway-entrypoint.sh
