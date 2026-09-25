@@ -12,6 +12,7 @@ import {
   NOLI_FIRST_VALUE_TEMPLATE_NAME,
   type NoliOnboardingSeed,
 } from '../../../lib/onboarding-seed'
+import { seedCompletesIntake, seededByFor } from '../../../lib/intake-gate'
 
 /*
  * Internal connectivity endpoint (Noli U-1: one scan, five configured products).
@@ -216,10 +217,16 @@ export async function POST(req: Request) {
 
     const hasBusinessName = has(existing?.businessName) || has(input.businessName)
     const hasPipeline = has(existing?.pipelineStages) || has(input.pipelineStages)
+    const hasDescription = has(existing?.businessDescription) || has(input.businessDescription)
     const alreadyOnboarded = Boolean(existing?.onboardingComplete)
-    if (!alreadyOnboarded && hasBusinessName && hasPipeline) {
+    // Product audit 2026-09-25 (D6): the Launch Pad's Ideation Lab seeds a
+    // description and who it is for but no pipeline, which used to leave the
+    // member in the nine-step "About Your Business" intake it had just
+    // answered. A seeded description is enough; the default pipeline stays
+    // and the wizard is still reachable by URL.
+    if (!alreadyOnboarded && seedCompletesIntake({ hasBusinessName, hasPipeline, hasDescription })) {
       input.onboardingComplete = true
-      input.seededBy = 'noli-hub'
+      input.seededBy = seededByFor(body.source)
     }
 
     // U-52: the audit's drafted follow-up email becomes a real, reusable

@@ -70,9 +70,11 @@ describe('Noli onboarding seed contract', () => {
     // Founder decision 2026-09-16: a seeded account skips the CRM's 9-step
     // wizard once the hub has given it a business name and a pipeline, and
     // the hub's "ready" signal must not depend on the best-effort follow-up
-    // template alone.
+    // template alone. Product audit 2026-09-25: a seeded description (the
+    // Launch Pad Lab's brief) also completes it; see intake-gate.test.ts.
+    expect(source).toMatch(/seedCompletesIntake\(\{ hasBusinessName, hasPipeline, hasDescription \}\)/)
     expect(source).toMatch(/input\.onboardingComplete = true/)
-    expect(source).toMatch(/input\.seededBy = 'noli-hub'/)
+    expect(source).toMatch(/input\.seededBy = seededByFor\(body\.source\)/)
     expect(source).toMatch(/ensureGtmStarter/)
     expect(source).toMatch(/gtm\.workspace\.onboarding_seeded/)
     expect(source).toMatch(/status: crmReady \? 'ready' : 'context_seeded'/)
