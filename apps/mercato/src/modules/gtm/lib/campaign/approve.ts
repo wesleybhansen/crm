@@ -624,7 +624,9 @@ export async function approveCampaign(
       // (the acting-user rule of routing-service and draft-config). The
       // drafter choosing their mailbox is not consent from another teammate
       // to approve a send from it (2026-09-25 review, M1).
-      if (senderRow!.userId !== ctx.userId || (senderRow!.purpose ?? null) !== null) {
+      // Which kinds of mailbox may send is draft-config's rule (it fixes the
+      // sender into the fingerprint checked above); here only ownership.
+      if (senderRow!.userId !== ctx.userId) {
         throw new GtmCampaignError(
           'sender_changed',
           'Only the person whose email account sends this campaign can approve it. Ask them to approve, or choose your own connected account.',
