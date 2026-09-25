@@ -610,6 +610,11 @@ export default function CustomersDealsPage() {
     return params.toString()
   }, [filterValues, page, search, selectedCompanyIds, selectedPersonIds])
 
+  const hasActiveQuery = React.useMemo(
+    () => Array.from(new URLSearchParams(queryParams).keys()).some((key) => key !== 'page' && key !== 'pageSize'),
+    [queryParams],
+  )
+
   const currentParams = React.useMemo(
     () => Object.fromEntries(new URLSearchParams(queryParams)),
     [queryParams],
@@ -958,6 +963,9 @@ export default function CustomersDealsPage() {
             cacheStatus,
           }}
           isLoading={isLoading}
+          emptyState={hasActiveQuery
+            ? t('customers.deals.list.emptyFiltered', 'No deals match your search or filters.')
+            : t('customers.deals.list.empty', 'No deals yet. Create your first deal to start tracking it through your pipeline.')}
           refreshButton={{
             label: t('customers.deals.list.refresh'),
             onRefresh: handleRefresh,

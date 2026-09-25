@@ -114,7 +114,7 @@ export function createDictionarySelectLabels(
     case 'pipeline-stages':
       return {
         ...base,
-        placeholder: translate('customers.deals.form.pipeline.placeholder', 'Select a pipeline stage'),
+        placeholder: translate('customers.deals.form.pipelineStage.placeholder', 'Select a pipeline stage'),
         addLabel: translate('customers.deals.form.dictionary.addPipelineStage', 'Add pipeline stage'),
         addPrompt: translate('customers.deals.form.dictionary.promptPipelineStage', 'Name the pipeline stage'),
         dialogTitle: translate('customers.deals.form.dictionary.dialogTitlePipelineStage', 'Add pipeline stage'),

@@ -15,6 +15,13 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
+import {
+  optionalUuidField,
+  pickDefaultPipelineId,
+  pickFirstStageId,
+  type DealPipelineOption,
+  type DealPipelineStageOption,
+} from './dealFormPipeline'
 
 export type DealFormBaseValues = {
   title: string
@@ -90,8 +97,8 @@ const schema = z.object({
     .trim()
     .max(100, 'customers.people.detail.deals.pipelineTooLong')
     .optional(),
-  pipelineId: z.string().uuid().optional(),
-  pipelineStageId: z.string().uuid().optional(),
+  pipelineId: optionalUuidField('customers.people.detail.deals.pipelineInvalid'),
+  pipelineStageId: optionalUuidField('customers.people.detail.deals.pipelineStageInvalid'),
   valueAmount: z
     .preprocess((value) => {
       if (value === '' || value === null || value === undefined) return undefined
@@ -151,6 +158,95 @@ const schema = z.object({
   personIds: z.array(z.string().trim().min(1)).optional(),
   companyIds: z.array(z.string().trim().min(1)).optional(),
 }).passthrough()
+
+const SELECT_CLASS = 'w-full rounded border px-2 py-1.5 text-sm'
+
+type PipelineSelectProps = {
+  value: string
+  setValue: (next: string) => void
+  pipelines: DealPipelineOption[]
+  loaded: boolean
+  autoSelect: boolean
+  disabled: boolean
+  placeholder: string
+  emptyMessage: string
+  onPipelineChange: (pipelineId: string) => void
+}
+
+function PipelineSelect({
+  value,
+  setValue,
+  pipelines,
+  loaded,
+  autoSelect,
+  disabled,
+  placeholder,
+  emptyMessage,
+  onPipelineChange,
+}: PipelineSelectProps) {
+  // A new deal starts in the workspace's default pipeline.
+  React.useEffect(() => {
+    if (!autoSelect || !loaded || value) return
+    const defaultId = pickDefaultPipelineId(pipelines)
+    if (!defaultId) return
+    setValue(defaultId)
+    onPipelineChange(defaultId)
+  }, [autoSelect, loaded, value, pipelines, setValue, onPipelineChange])
+
+  if (loaded && !pipelines.length) {
+    return <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+  }
+  return (
+    <select
+      className={SELECT_CLASS}
+      value={value}
+      onChange={(event) => {
+        setValue(event.target.value)
+        onPipelineChange(event.target.value)
+      }}
+      disabled={disabled}
+    >
+      <option value="">{placeholder}</option>
+      {pipelines.map((pipeline) => (
+        <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>
+      ))}
+    </select>
+  )
+}
+
+type PipelineStageSelectProps = {
+  value: string
+  setValue: (next: string) => void
+  stages: DealPipelineStageOption[]
+  autoSelect: boolean
+  disabled: boolean
+  placeholder: string
+}
+
+function PipelineStageSelect({ value, setValue, stages, autoSelect, disabled, placeholder }: PipelineStageSelectProps) {
+  // Keep the stage inside the chosen pipeline: start at its first stage, and
+  // drop a stage that belongs to a pipeline the user switched away from.
+  React.useEffect(() => {
+    if (!stages.length) return
+    if (value && stages.some((stage) => stage.id === value)) return
+    if (value) setValue(autoSelect ? pickFirstStageId(stages) ?? '' : '')
+    else if (autoSelect) setValue(pickFirstStageId(stages) ?? '')
+  }, [autoSelect, stages, value, setValue])
+
+  return (
+    <select
+      className={SELECT_CLASS}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      disabled={disabled || !stages.length}
+    >
+      <option value="">{placeholder}</option>
+      {stages.map((stage) => (
+        <option key={stage.id} value={stage.id}>{stage.label}</option>
+      ))}
+    </select>
+  )
+}
 
 function toDateInputValue(value: string | null | undefined): string {
   if (!value) return ''
@@ -580,11 +676,13 @@ export function DealForm({
   const disabled = pending || isSubmitting
   const canDelete = mode === 'edit' && typeof onDelete === 'function'
 
-  type PipelineOption = { id: string; name: string; isDefault: boolean }
-  type PipelineStageOption = { id: string; label: string; order: number }
+  type PipelineOption = DealPipelineOption
+  type PipelineStageOption = DealPipelineStageOption
 
   const [pipelines, setPipelines] = React.useState<PipelineOption[]>([])
+  const [pipelinesLoaded, setPipelinesLoaded] = React.useState(false)
   const [pipelineStages, setPipelineStages] = React.useState<PipelineStageOption[]>([])
+  const hasPipelines = pipelines.length > 0
 
   const loadStagesForPipeline = React.useCallback(async (pipelineId: string) => {
     if (!pipelineId) {
@@ -613,10 +711,16 @@ export function DealForm({
         }
       } catch {
         // ignore
+      } finally {
+        if (!cancelled) setPipelinesLoaded(true)
       }
     })().catch(() => {})
     return () => { cancelled = true }
   }, [])
+
+  const handlePipelineChange = React.useCallback((pipelineId: string) => {
+    loadStagesForPipeline(pipelineId).catch(() => {})
+  }, [loadStagesForPipeline])
 
   React.useEffect(() => {
     const pid = initialValues?.pipelineId
@@ -652,21 +756,24 @@ export function DealForm({
       label: t('customers.people.detail.deals.fields.pipeline', 'Pipeline'),
       type: 'custom',
       layout: 'half',
+      // Required once the workspace has a pipeline; with none, the deal can
+      // still be saved and the field explains why the picker is missing.
+      required: hasPipelines,
       component: ({ value, setValue }) => (
-        <select
-          className="w-full rounded border px-2 py-1.5 text-sm"
+        <PipelineSelect
           value={typeof value === 'string' ? value : ''}
-          onChange={(e) => {
-            setValue(e.target.value)
-            loadStagesForPipeline(e.target.value).catch(() => {})
-          }}
+          setValue={setValue}
+          pipelines={pipelines}
+          loaded={pipelinesLoaded}
+          autoSelect={mode === 'create'}
           disabled={disabled}
-        >
-          <option value="">{t('customers.deals.form.pipeline.placeholder', 'Select pipeline…')}</option>
-          {pipelines.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+          placeholder={t('customers.deals.form.pipeline.placeholder', 'Select a pipeline')}
+          emptyMessage={t(
+            'customers.deals.form.pipeline.empty',
+            'This workspace has no deal pipeline yet. You can still save the deal, or add a pipeline in Settings under Pipelines.',
+          )}
+          onPipelineChange={handlePipelineChange}
+        />
       ),
     } as CrudField,
     {
@@ -674,18 +781,16 @@ export function DealForm({
       label: t('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage'),
       type: 'custom',
       layout: 'half',
+      required: hasPipelines,
       component: ({ value, setValue }) => (
-        <select
-          className="w-full rounded border px-2 py-1.5 text-sm"
+        <PipelineStageSelect
           value={typeof value === 'string' ? value : ''}
-          onChange={(e) => setValue(e.target.value)}
-          disabled={disabled || !pipelineStages.length}
-        >
-          <option value="">{t('customers.deals.form.pipelineStage.placeholder', 'Select stage…')}</option>
-          {pipelineStages.map((s) => (
-            <option key={s.id} value={s.id}>{s.label}</option>
-          ))}
-        </select>
+          setValue={setValue}
+          stages={pipelineStages}
+          autoSelect={mode === 'create'}
+          disabled={disabled}
+          placeholder={t('customers.deals.form.pipelineStage.placeholder', 'Select a pipeline stage')}
+        />
       ),
     } as CrudField,
     {
@@ -777,7 +882,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelinesLoaded, hasPipelines, pipelineStages, handlePipelineChange, mode, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
@@ -828,12 +933,13 @@ export function DealForm({
     return {
       id: typeof initialValues?.id === 'string' ? initialValues.id : undefined,
       title: initialValues?.title ?? '',
-      status: initialValues?.status ?? '',
+      // New deals start Open; the workspace's pipeline is picked by PipelineSelect.
+      status: initialValues?.status ?? (mode === 'create' ? 'open' : ''),
       pipelineStage: initialValues?.pipelineStage ?? '',
       pipelineId: initialValues?.pipelineId ?? (typeof (initialValues as Record<string, unknown>)?.pipeline_id === 'string' ? (initialValues as Record<string, unknown>).pipeline_id as string : ''),
       pipelineStageId: initialValues?.pipelineStageId ?? (typeof (initialValues as Record<string, unknown>)?.pipeline_stage_id === 'string' ? (initialValues as Record<string, unknown>).pipeline_stage_id as string : ''),
       valueAmount: normalizeNumber(initialValues?.valueAmount ?? null),
-      valueCurrency: normalizeCurrency(initialValues?.valueCurrency ?? null),
+      valueCurrency: normalizeCurrency(initialValues?.valueCurrency ?? (mode === 'create' ? 'USD' : null)),
       probability: normalizeNumber(initialValues?.probability ?? null),
       expectedCloseAt: toDateInputValue(initialValues?.expectedCloseAt ?? null),
       description: initialValues?.description ?? '',
@@ -845,7 +951,7 @@ export function DealForm({
           .map(([key, value]) => [key, value]),
       ),
     }
-  }, [initialValues])
+  }, [initialValues, mode])
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
