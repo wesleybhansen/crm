@@ -307,6 +307,117 @@ export function dataForSeoLocationCandidates(raw: string): string[] {
   return [...new Set(candidates.filter((value): value is string => typeof value === 'string' && value.length > 0))]
 }
 
+
+/*
+ * Starting metros for a Maps listing play whose geography is the whole country
+ * or a whole state (2026-09-25). Audience Plays now keep a nationwide member's
+ * geography as "United States" (noli-platform #354), and a Google Maps search
+ * over a whole country or state returns a thin, arbitrary slice, so such a
+ * play is searched in a bounded set of starting metros instead: the largest
+ * US metros for a national play, the largest cities of the state for a state
+ * play. The member-facing play text is untouched; the metros are frozen into
+ * the plan's provider query (`search_metros`) and recorded on every row
+ * (provider_location) and receipt. Each metro is one priced task, and the
+ * quote counts them all, so the existing credit budget bounds the spend.
+ * Population is the proxy for fit here: nothing else about the member's
+ * audience says which metro is better, and the largest markets hold the most
+ * of any business category.
+ */
+export const MAPS_NATIONAL_STARTING_METROS = [
+  'New York,New York,United States',
+  'Los Angeles,California,United States',
+  'Chicago,Illinois,United States',
+  'Houston,Texas,United States',
+]
+export const MAPS_MAX_STATE_METROS = 3
+const LARGEST_CITIES_BY_STATE: Record<string, string[]> = {
+  'Alabama': ['Birmingham', 'Huntsville', 'Montgomery'],
+  'Alaska': ['Anchorage', 'Fairbanks', 'Juneau'],
+  'Arizona': ['Phoenix', 'Tucson', 'Mesa'],
+  'Arkansas': ['Little Rock', 'Fayetteville', 'Fort Smith'],
+  'California': ['Los Angeles', 'San Diego', 'San Jose'],
+  'Colorado': ['Denver', 'Colorado Springs', 'Aurora'],
+  'Connecticut': ['Bridgeport', 'Stamford', 'New Haven'],
+  'Delaware': ['Wilmington', 'Dover', 'Newark'],
+  'Florida': ['Miami', 'Orlando', 'Tampa'],
+  'Georgia': ['Atlanta', 'Augusta', 'Savannah'],
+  'Hawaii': ['Honolulu', 'Hilo', 'Kailua'],
+  'Idaho': ['Boise', 'Meridian', 'Nampa'],
+  'Illinois': ['Chicago', 'Aurora', 'Naperville'],
+  'Indiana': ['Indianapolis', 'Fort Wayne', 'Evansville'],
+  'Iowa': ['Des Moines', 'Cedar Rapids', 'Davenport'],
+  'Kansas': ['Wichita', 'Overland Park', 'Kansas City'],
+  'Kentucky': ['Louisville', 'Lexington', 'Bowling Green'],
+  'Louisiana': ['New Orleans', 'Baton Rouge', 'Shreveport'],
+  'Maine': ['Portland', 'Lewiston', 'Bangor'],
+  'Maryland': ['Baltimore', 'Columbia', 'Germantown'],
+  'Massachusetts': ['Boston', 'Worcester', 'Springfield'],
+  'Michigan': ['Detroit', 'Grand Rapids', 'Warren'],
+  'Minnesota': ['Minneapolis', 'Saint Paul', 'Rochester'],
+  'Mississippi': ['Jackson', 'Gulfport', 'Southaven'],
+  'Missouri': ['Kansas City', 'Saint Louis', 'Springfield'],
+  'Montana': ['Billings', 'Missoula', 'Bozeman'],
+  'Nebraska': ['Omaha', 'Lincoln', 'Bellevue'],
+  'Nevada': ['Las Vegas', 'Henderson', 'Reno'],
+  'New Hampshire': ['Manchester', 'Nashua', 'Concord'],
+  'New Jersey': ['Newark', 'Jersey City', 'Paterson'],
+  'New Mexico': ['Albuquerque', 'Las Cruces', 'Santa Fe'],
+  'New York': ['New York', 'Buffalo', 'Rochester'],
+  'North Carolina': ['Charlotte', 'Raleigh', 'Greensboro'],
+  'North Dakota': ['Fargo', 'Bismarck', 'Grand Forks'],
+  'Ohio': ['Columbus', 'Cleveland', 'Cincinnati'],
+  'Oklahoma': ['Oklahoma City', 'Tulsa', 'Norman'],
+  'Oregon': ['Portland', 'Salem', 'Eugene'],
+  'Pennsylvania': ['Philadelphia', 'Pittsburgh', 'Allentown'],
+  'Rhode Island': ['Providence', 'Warwick', 'Cranston'],
+  'South Carolina': ['Charleston', 'Columbia', 'Greenville'],
+  'South Dakota': ['Sioux Falls', 'Rapid City', 'Aberdeen'],
+  'Tennessee': ['Nashville', 'Memphis', 'Knoxville'],
+  'Texas': ['Houston', 'Dallas', 'San Antonio', 'Austin'],
+  'Utah': ['Salt Lake City', 'West Valley City', 'Provo'],
+  'Vermont': ['Burlington', 'South Burlington', 'Rutland'],
+  'Virginia': ['Virginia Beach', 'Richmond', 'Arlington'],
+  'Washington': ['Seattle', 'Spokane', 'Tacoma'],
+  'West Virginia': ['Charleston', 'Huntington', 'Morgantown'],
+  'Wisconsin': ['Milwaukee', 'Madison', 'Green Bay'],
+  'Wyoming': ['Cheyenne', 'Casper', 'Laramie'],
+  'District of Columbia': ['Washington'],
+}
+
+/** The metros a national- or state-scope Maps play is searched in, or null
+ *  when the play already names a city, county or metro. Pure. */
+export function mapsStartingMetros(locations: string[]): string[] | null {
+  const first = (locations[0] ?? '').trim()
+  // No location at all is the legacy single "United States" task; only a
+  // play that SAYS national or state scope is expanded.
+  if (!first) return null
+  const canonical = canonicalDataForSeoUsLocation(first.replace(/^(?:nationwide|national|all of the|across the)\s+/i, '') || 'United States')
+  if (canonical === 'United States' || /^(nationwide|national|anywhere)\b/i.test(first)) {
+    return [...MAPS_NATIONAL_STARTING_METROS]
+  }
+  if (!canonical) return null
+  const parts = canonical.split(',')
+  // "<State>,United States" is state scope; anything longer names a place.
+  if (parts.length !== 2) return null
+  const cities = LARGEST_CITIES_BY_STATE[parts[0]]
+  if (!cities) return null
+  return cities.slice(0, parts[0] === 'Texas' ? 4 : MAPS_MAX_STATE_METROS).map((city) => `${city},${parts[0]},United States`)
+}
+
+/** The frozen metros for a plan: the plan's own record when it has one
+ *  (search_metros), else derived from its locations. */
+export function planSearchMetros(providerQuery: Record<string, unknown> | undefined): string[] | null {
+  const frozen = providerQuery?.search_metros
+  if (Array.isArray(frozen)) {
+    const list = frozen.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    return list.length ? list.slice(0, 6) : null
+  }
+  const locations = Array.isArray(providerQuery?.locations)
+    ? (providerQuery!.locations as unknown[]).filter((v): v is string => typeof v === 'string')
+    : []
+  return mapsStartingMetros(locations)
+}
+
 function keywordAndLocation(plan: { query: string; provider_query?: Record<string, unknown> }) {
   const query = plan.provider_query ?? {}
   const keywords = Array.isArray(query.company_keywords)
@@ -338,7 +449,11 @@ export function createDataForSeoMapsAdapter(deps: {
     descriptor,
     quote(plan) {
       const maxCandidates = Math.max(0, Math.min(Math.floor(plan.max_candidates), maxDepth(env)))
-      const providerUnits = Math.ceil(maxCandidates / 100)
+      const metros = planSearchMetros(plan.provider_query)
+      // One priced task per starting metro, each asking for its share.
+      const providerUnits = metros
+        ? metros.length * Math.ceil(Math.max(1, Math.ceil(maxCandidates / metros.length)) / 100)
+        : Math.ceil(maxCandidates / 100)
       return {
         max_candidates: maxCandidates,
         provider_units: providerUnits,
@@ -349,6 +464,44 @@ export function createDataForSeoMapsAdapter(deps: {
       }
     },
     async search(plan): Promise<AdapterResult<Candidate[]>> {
+      const metros = planSearchMetros(plan.provider_query)
+      if (!metros) return searchOne(plan)
+      const total = Math.max(0, Math.min(Math.floor(plan.max_candidates), maxDepth(env)))
+      const perMetro = Math.max(1, Math.ceil(total / metros.length))
+      const rows: Candidate[] = []
+      const seen = new Set<string>()
+      const searched: Array<{ location: string; status: string; count: number }> = []
+      let cost = 0
+      let lastReceipt: Record<string, unknown> = {}
+      for (const metro of metros) {
+        const out = await searchOne({ ...plan, max_candidates: perMetro, provider_query: { ...(plan.provider_query ?? {}), locations: [metro], search_metros: undefined } })
+        searched.push({ location: metro, status: out.status, count: out.data?.length ?? 0 })
+        lastReceipt = (out.receipt ?? {}) as Record<string, unknown>
+        if (out.status === 'ambiguous') {
+          // A task whose outcome is unknown parks the whole operation for
+          // reconciliation, exactly as a single-location search does.
+          return { ...out, receipt: { ...lastReceipt, searched_locations: searched } }
+        }
+        cost += out.cost_units ?? 0
+        for (const row of out.data ?? []) {
+          const key = String((row.identity as Record<string, unknown>).urls instanceof Array ? ((row.identity as Record<string, unknown>).urls as string[])[0] : (row.identity as Record<string, unknown>).name)
+          if (seen.has(key)) continue
+          seen.add(key)
+          rows.push(row)
+        }
+      }
+      const receipt = { ...lastReceipt, provider_status: rows.length ? 'completed' : 'no_result', items_count: rows.length, searched_locations: searched, expanded_from: 'national_or_state_scope' }
+      if (rows.length === 0) {
+        const anyError = searched.every((s) => s.status === 'error')
+        return anyError
+          ? { status: 'error', data: null, cost_units: cost, receipt, error: 'provider_application_error: every starting metro failed' }
+          : { status: 'no_result', data: null, cost_units: cost, receipt }
+      }
+      return { status: 'ok', data: rows.slice(0, total), cost_units: cost, receipt }
+    },
+  }
+
+  async function searchOne(plan: Parameters<SourceAdapter['search']>[0]): Promise<AdapterResult<Candidate[]>> {
       const maxCandidates = Math.max(0, Math.min(Math.floor(plan.max_candidates), maxDepth(env)))
       const blocks = Math.ceil(Math.max(1, maxCandidates) / 100)
       const baseReceipt = (status: string, task: Record<string, unknown> = {}, count = 0) => ({
@@ -574,6 +727,5 @@ export function createDataForSeoMapsAdapter(deps: {
             : 'provider_transport_unknown: DataForSEO outcome is unknown',
         }
       }
-    },
   }
 }
