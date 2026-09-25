@@ -8,6 +8,7 @@ import { activityCreateSchema, activityUpdateSchema } from '../../data/validator
 import { E } from '#generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '../utils'
+import { formatActivityText } from '../../lib/activityDisplay'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   createCustomersCrudOpenApi,
@@ -99,12 +100,11 @@ const crud = makeCrudRoute({
         readString(record['activity_type']) ??
         readString(record['activityType']) ??
         ''
-      const subject =
-        readString(record.subject) ??
-        (record.subject == null ? null : String(record.subject))
-      const body =
-        readString(record.body) ??
-        (record.body == null ? null : String(record.body))
+      // Decryption JSON-parses what it decrypts, so a body stored as JSON (a
+      // form submission's answers) arrives as an object. String() of that is
+      // "[object Object]"; format it as readable lines instead.
+      const subject = readString(record.subject) ?? formatActivityText(record.subject)
+      const body = readString(record.body) ?? formatActivityText(record.body)
       const authorUserId =
         readString(record['author_user_id']) ?? readString(record['authorUserId']) ?? null
       const appearanceIconRaw =

@@ -202,9 +202,10 @@ export async function GET(
     // 6. Form submissions (by contact_id — form_submissions table, app module)
     const submissions = await knex('form_submissions as fs')
       .leftJoin('landing_pages as lp', 'lp.id', 'fs.landing_page_id')
+      .leftJoin('forms as f', 'f.id', 'fs.form_id')
       .where('fs.contact_id', contactId)
       .where('fs.organization_id', auth.orgId)
-      .select('fs.id', 'fs.created_at', 'lp.title as page_title')
+      .select('fs.id', 'fs.created_at', 'lp.title as page_title', 'f.name as form_name')
       .orderBy('fs.created_at', 'desc')
       .limit(50)
       .catch(() => [])
@@ -212,7 +213,7 @@ export async function GET(
     for (const sub of submissions) {
       events.push({
         type: 'form_submission',
-        title: 'Form submitted',
+        title: sub.form_name ? `Submitted form "${sub.form_name}"` : 'Form submitted',
         description: sub.page_title ? `On "${sub.page_title}"` : undefined,
         icon: 'FileText',
         timestamp: sub.created_at,

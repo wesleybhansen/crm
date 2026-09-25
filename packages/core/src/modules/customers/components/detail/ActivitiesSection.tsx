@@ -16,6 +16,7 @@ import {
 } from '@open-mercato/ui/backend/detail'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { createDictionarySelectLabels } from './utils'
+import { humanizeActivityType } from '../../lib/activityDisplay'
 import { ensureCustomerDictionary, invalidateCustomerDictionary, useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { CustomFieldValuesList } from './CustomFieldValuesList'
 import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
@@ -176,7 +177,7 @@ export function ActivitiesSection({
   const resolveActivityPresentation = React.useCallback((activity: ActivitySummary) => {
     const entry = dictionaryMap[activity.activityType]
     return {
-      label: entry?.label ?? activity.activityType,
+      label: entry?.label ?? (humanizeActivityType(activity.activityType) || activity.activityType),
       icon: entry?.icon ?? activity.appearanceIcon ?? null,
       color: entry?.color ?? activity.appearanceColor ?? null,
     }
