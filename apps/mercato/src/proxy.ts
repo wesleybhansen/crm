@@ -34,6 +34,15 @@ const isPublicPage = createRouteMatcher([
   '/landing',
   '/terms',
   '/privacy',
+  // Public visitor surfaces with their own auth (or none):
+  //   /course/{slug} redirects to the public course page; /course/{slug}/learn
+  //   is the student area, gated by the student magic-link session, not Clerk.
+  '/course/(.*)',
+  //   /p/{slug} and /f/{slug} redirect to the public landing page and funnel APIs.
+  '/p/(.*)',
+  '/f/(.*)',
+  //   Message links sent by email; the token in the URL is the credential.
+  '/messages/view/(.*)',
 ])
 
 function lpAppHost(): string {

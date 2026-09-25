@@ -84,14 +84,25 @@ export default function StudentCoursePage() {
 
   useEffect(() => { if (slug) loadCourse() }, [slug, loadCourse])
 
+  useEffect(() => {
+    if (mode === 'course' && courseData?.course.title) document.title = courseData.course.title
+    else if (mode === 'login') document.title = 'Sign in to your course'
+  }, [mode, courseData])
+
   const handleLogin = async () => {
     if (!loginEmail.trim()) return
     setLoginSending(true)
-    await fetch('/api/courses/student/magic-link', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: loginEmail, courseSlug: slug }),
-    })
-    setLoginSent(true); setLoginSending(false)
+    try {
+      const res = await fetch('/api/courses/student/magic-link', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, courseSlug: slug }),
+      })
+      if (res.ok) setLoginSent(true)
+      else alert('We could not send your access link. Please try again in a moment.')
+    } catch {
+      alert('We could not send your access link. Check your connection and try again.')
+    }
+    setLoginSending(false)
   }
 
   const markComplete = async (lessonId: string) => {
